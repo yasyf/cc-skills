@@ -1,0 +1,575 @@
+{
+ "class": "supervisor-rotation-successor",
+ "defect": 559213,
+ "expect": {
+  "launched": [
+   "alerts-desk-4",
+   "port-desk-15",
+   "register-seed-7"
+  ],
+  "relaunched": [
+   "port-desk-14"
+  ],
+  "held": [],
+  "local": []
+ },
+ "fix": "yasyf/cc-skills#3702",
+ "input": {
+  "briefs": {
+   "alerts-desk-3": "ccx: role=watch place=local incident=none\n",
+   "port-desk-14": "ccx: role=build place=local why=mac-inputs\nStanding: forward-port each old-tree PR that merges to dev into the new tree, until cutover.\n",
+   "register-seed-6": "ccx: role=desk place=local incident=none\nStanding: row each new owner capture, verbatim and in time order, until rotation.\n"
+  },
+  "records": [
+   {
+    "at": "2026-11-06T21:20:00.000Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/alerts-desk-3/brief.md",
+      "model": "sonnet",
+      "effort": "low"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555100,
+    "text": "SPAWNED alerts-desk-3 /scratch/alerts-desk-3/brief.md",
+    "topic": "spawn:alerts-desk-3"
+   },
+   {
+    "at": "2026-11-06T21:20:05.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555101,
+    "text": "LAUNCHED R1 alerts-desk-3: dispatch ctx_10a2cbd04dda",
+    "to": [
+     "root"
+    ],
+    "topic": "R1"
+   },
+   {
+    "at": "2026-11-06T21:20:10.000Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/takeover-fix-1/brief.md",
+      "model": "opus",
+      "effort": "high"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555102,
+    "text": "SPAWNED takeover-fix-1 /scratch/takeover-fix-1/brief.md",
+    "topic": "spawn:takeover-fix-1"
+   },
+   {
+    "at": "2026-11-06T21:20:15.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555103,
+    "text": "LAUNCHED R2 takeover-fix-1: dispatch ctx_6b1f0e2a9c41",
+    "to": [
+     "root"
+    ],
+    "topic": "R2"
+   },
+   {
+    "at": "2026-11-06T21:20:20.000Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/port-desk-14/brief.md",
+      "model": "opus",
+      "effort": "high",
+      "role": "build"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555104,
+    "text": "SPAWNED port-desk-14 /scratch/port-desk-14/brief.md",
+    "topic": "spawn:port-desk-14"
+   },
+   {
+    "at": "2026-11-06T21:20:25.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555105,
+    "text": "LAUNCHED R6 port-desk-14: dispatch ctx_7a2e94b6c1d8",
+    "to": [
+     "root"
+    ],
+    "topic": "R6"
+   },
+   {
+    "at": "2026-11-06T21:21:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "state",
+    "lane": "port-desk-14",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555120,
+    "text": "ported 1 of 9 old-tree merges",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:22:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "ask",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555150,
+    "text": "ROTATE: takeover-fix-1 is at 300,000 tokens. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane takeover-fix-1 --kind handoff --ccn <doc id> --re <this record>`, then keep working.",
+    "to": [
+     "takeover-fix-1"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:23:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "takeover-fix-1",
+    "refs": {
+     "prs": [],
+     "ccn": "7c0ffee"
+    },
+    "seq": 555160,
+    "text": "takeover-fix-1 rotation handoff: cc-notes doc 7c0ffee.",
+    "to": [
+     "supervisor"
+    ],
+    "re": 555150
+   },
+   {
+    "at": "2026-11-06T21:24:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "done",
+    "lane": "takeover-fix-1",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555170,
+    "text": "fix merged and live",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:24:05.000Z",
+    "fields": {
+     "attrs": {
+      "lane": "takeover-fix-1",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555171,
+    "text": "registry request: done takeover-fix-1, its Orca worker finished",
+    "to": [
+     "supervisor",
+     "mq-health"
+    ],
+    "topic": "done:takeover-fix-1"
+   },
+   {
+    "at": "2026-11-06T21:24:06.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555172,
+    "text": "OUTCOME msg_51f0c2d7a9e3 takeover-fix-1: worker_done succeeded dispatch=ctx_6b1f0e2a9c41: fix merged",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_51f0c2d7a9e3"
+   },
+   {
+    "at": "2026-11-06T21:24:30.000Z",
+    "fields": {
+     "attrs": {
+      "lane": "port-desk-14",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555180,
+    "text": "registry request: done port-desk-14",
+    "to": [
+     "supervisor"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:24:40.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555181,
+    "text": "OUTCOME msg_c4f81e2b7a90 port-desk-14: worker_done succeeded dispatch=ctx_7a2e94b6c1d8: stood down",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_c4f81e2b7a90"
+   },
+   {
+    "at": "2026-11-06T21:25:38.161Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "alerts-desk-3",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555285,
+    "text": "325186678 Tunnel Forwarder Error Log Count: OK -> Alert 1:23 PM PT (21:23:58Z), still firing in 5-minute bursts after the Nov 5 fixes (#51688, #51766 merged; #51773 held, root #526164). No lane from this desk: dd-325186678 already has an incident and owner. Read this firing against that incident if its fix is meant to be live.",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:27:53.949Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "ask",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555362,
+    "text": "ROTATE: alerts-desk-3 is at 495,441 tokens. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane alerts-desk-3 --kind handoff --ccn <doc id> --re <this record>`, then keep working.",
+    "to": [
+     "alerts-desk"
+    ]
+   },
+   {
+    "at": "2026-11-06T21:28:46.2Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "alerts-desk-3",
+    "refs": {
+     "prs": [],
+     "ccn": "f439c9d"
+    },
+    "seq": 555401,
+    "text": "alerts-desk-3 rotation handoff: cc-notes doc f439c9d (loop command now lr wait, lane-launch checks, flapper rules, open items). Nothing open on this desk; 325186678 refire is root dd-325186678-refire.",
+    "to": [
+     "supervisor"
+    ],
+    "re": 555362
+   },
+   {
+    "at": "2026-11-06T21:29:43.935Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stopped",
+    "lane": "alerts-desk-3",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555440,
+    "text": "alerts-desk-3 session ended on rotation (supervisor #555362): handoff cc-notes doc f439c9d posted as #555401 for the successor desk to launch from; Orca worker_done sent. This session does not resume; the monitor watch continues under the successor, nothing of mine is open."
+   },
+   {
+    "at": "2026-11-06T21:29:45.764Z",
+    "fields": {
+     "attrs": {
+      "lane": "alerts-desk-3",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555442,
+    "text": "registry request: done alerts-desk-3, its Orca worker finished",
+    "to": [
+     "supervisor",
+     "mq-health"
+    ],
+    "topic": "done:alerts-desk-3"
+   },
+   {
+    "at": "2026-11-06T21:30:01.205Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555463,
+    "text": "OUTCOME msg_02920224a5b3 alerts-desk-3: worker_done succeeded dispatch=ctx_10a2cbd04dda: alerts-desk-3 rotated: handoff doc f439c9d",
+    "to": [
+     "meta-desk"
+    ],
+    "topic": "msg_02920224a5b3"
+   },
+   {
+    "at": "2026-11-06T21:30:10.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555470,
+    "text": "LAUNCHED R4 alerts-desk-4: dispatch ctx_3e8a51c0d7b2",
+    "to": [
+     "root"
+    ],
+    "topic": "R4"
+   },
+   {
+    "at": "2026-11-06T21:38:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 555500,
+    "text": "LAUNCHED R7 port-desk-15: dispatch ctx_e05b3a9f6d21",
+    "to": [
+     "root"
+    ],
+    "topic": "R7"
+   },
+   {
+    "at": "2026-11-06T22:31:00.000Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/register-seed-6/brief.md",
+      "model": "sonnet",
+      "effort": "high",
+      "role": "desk"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558100,
+    "text": "SPAWNED register-seed-6 /scratch/register-seed-6/brief.md",
+    "topic": "spawn:register-seed-6"
+   },
+   {
+    "at": "2026-11-06T22:31:05.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558101,
+    "text": "LAUNCHED R3 register-seed-6: dispatch ctx_5aa98ad2b7a4",
+    "to": [
+     "root"
+    ],
+    "topic": "R3"
+   },
+   {
+    "at": "2026-11-06T22:32:23.57Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "ask",
+    "lane": "supervisor",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558145,
+    "text": "ROTATE: register-seed-6 is at 245,920 tokens. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane register-seed-6 --kind handoff --ccn <doc id> --re <this record>`, then keep working.",
+    "to": [
+     "register-seed"
+    ]
+   },
+   {
+    "at": "2026-11-06T22:36:12.493Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "handoff",
+    "lane": "register-seed-6",
+    "refs": {
+     "prs": [],
+     "ccn": "bbc2c63"
+    },
+    "seq": 558319,
+    "text": "Rotation at 246k tokens. Every owner capture through 2:33 PM Nov 6 has a row; next batch n585.json. Handoff doc bbc2c63.",
+    "to": [
+     "supervisor"
+    ],
+    "re": 558145
+   },
+   {
+    "at": "2026-11-06T22:37:43.611Z",
+    "fields": {
+     "attrs": {
+      "lane": "register-seed-6",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558418,
+    "text": "registry request: done register-seed-6, its Orca worker finished",
+    "to": [
+     "supervisor",
+     "mq-health"
+    ],
+    "topic": "done:register-seed-6"
+   },
+   {
+    "at": "2026-11-06T22:37:45.854Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558419,
+    "text": "OUTCOME msg_0a2806cddf67 register-seed-6: worker_done succeeded dispatch=ctx_5aa98ad2b7a4: register-seed-6 rotation: handoff bbc2c63",
+    "to": [
+     "root"
+    ],
+    "topic": "msg_0a2806cddf67"
+   },
+   {
+    "at": "2026-11-06T22:38:10.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558430,
+    "text": "LAUNCHED R5 register-seed-7: dispatch ctx_9d4c7e15a0f3",
+    "to": [
+     "root"
+    ],
+    "topic": "R5"
+   },
+   {
+    "at": "2026-11-06T22:39:37.477Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "register-seed-6",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558499,
+    "text": "Delta to handoff bbc2c63: his 2:36 PM capture after the handoff is rowed as new scope row prompt/1106-143658; the successor's next batch is n586.json.",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-06T22:40:02.348Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stopped",
+    "lane": "register-seed-6",
+    "refs": {
+     "prs": []
+    },
+    "seq": 558512,
+    "text": "Rotated at 246k tokens: the supervisor stood this lane down (#558474) after worker_done. Every owner capture through 2:36 PM Nov 6 has a register row. The successor desk starts from handoff doc bbc2c63, with #558499 as its delta (next batch n586.json). No PR, ask or blocker of this lane is open."
+   }
+  ],
+  "tokens": {
+   "alerts-desk-3": 495441,
+   "register-seed-6": 245920,
+   "takeover-fix-1": 300000
+  },
+  "who": []
+ },
+ "recurs": {
+  "kinds": [
+   "decide",
+   "blocker",
+   "ask"
+  ],
+  "text": "no live lane since|nothing launched a successor|ended on rotation"
+ }
+}

@@ -581,7 +581,7 @@ whether one earlier send took effect.
 A standing desk, `role=desk` or `role=watch`, never reaches a terminal state: it
 loops until rotation, through setup and quiet cycles alike, and never ends a turn
 waiting. At rotation, on the supervisor's `ROTATE` record, it writes its handoff doc, posts
-`cci post --kind handoff --ccn <doc id> --re <its seq>`, then sends `worker_done --outcome succeeded`
+`cci post --kind handoff --ccn <doc id> --re <its seq>` and a `stopped` record, then sends `worker_done --outcome succeeded`
 with the doc id in the body; the supervisor launches its successor from that doc.
 
 Coordinator ids: <run id>; <cc-notes ruling and answer ids>.

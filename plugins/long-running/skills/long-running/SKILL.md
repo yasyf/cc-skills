@@ -326,14 +326,14 @@ every desk run on Sprites. A brief whose duty the drive keeps for good carries `
   brief says `place=local` and names why it needs the Mac. An `Agent` subagent ends with the window that
   spawned it, so neither window spawns a desk with `Agent`, and the communicator spawns only its per-message
   subagents and short read lanes, under an hour and with no `Standing:` line.
+- A standing duty never lapses: whatever ends its lane, the supervisor relaunches it within minutes, and only
+  deleting `Standing:` ends it ([watchers.md](reference/watchers.md)); a lane that finds a desk down relaunches it.
 - A lane never spawns with `Agent`; it writes the brief and posts
   `cci post --kind ask --to root --text 'spawn <name> brief=<path> model=<model>'`. The meta lane launches
   its own implementers with `lr launch lane <name> opus high <brief> --lane meta`.
 - A question that needs a search goes to `lr ask-lane '<question>'`, with `--mac` when it needs Slack or a
   session transcript, which no Sprite has; naming a PR in it never refuses it as a duplicate of a fix lane. A question that takes more than a few reads of transcripts,
   records or logs goes through `lr bulk read` (the `bulk-read` skill), so no window reads the corpus itself.
-- A lane reads its records before it merges (B2 in [bus-contracts.md](reference/bus-contracts.md)): its
-  merge is refused while one another lane addressed to it sits unread and unanswered.
 
 The coordinator's brief lists every desk it starts and what each does.
 

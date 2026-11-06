@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/incident"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
@@ -273,7 +274,7 @@ func (d *Desk) spriteRefusal(ctx context.Context, key, lane string, spec launchT
 	if err != nil {
 		return launchRoute{}, err
 	}
-	if briefDesk.MatchString(text) || over != "" {
+	if lanes.DeskBrief.MatchString(text) || over != "" {
 		return launchRoute{remote: fault == ""}, nil
 	}
 	return launchRoute{remote: fault == "", refusal: fault}, nil

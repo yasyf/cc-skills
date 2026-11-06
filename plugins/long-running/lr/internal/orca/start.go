@@ -18,6 +18,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -61,7 +62,6 @@ const (
 )
 
 var (
-	briefDesk        = regexp.MustCompile(`(?m)^ccx:(.* )?role=(desk|watch)(\s|$)`)
 	briefNoPR        = regexp.MustCompile(`(?m)^ccx:(.* )?pr=none(\s|$)`)
 	briefPaths       = regexp.MustCompile(`(?m)^ccx:(?:.* )?paths=(\S+)`)
 	markdownSection  = regexp.MustCompile(`(?m)^## `)
@@ -527,7 +527,7 @@ func (l *launch) resolveLaunch() error {
 	if err := l.composeCommand(); err != nil {
 		return err
 	}
-	if briefDesk.MatchString(text) {
+	if lanes.DeskBrief.MatchString(text) {
 		l.desk = standingDesk
 	}
 	if briefNoPR.MatchString(text) {

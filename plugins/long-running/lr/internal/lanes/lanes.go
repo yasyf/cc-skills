@@ -63,6 +63,7 @@ const (
 	CardWakeTopic     = "card-wake:"
 	CardAttr          = "card"
 	unheardDone       = "reported worker_done, but none of its records ever reached the bus"
+	rotationEnded     = "ended its session after its rotation handoff"
 	workerSucceeded   = "succeeded"
 	agentLive         = "live"
 	agentExited       = "exited"
@@ -520,11 +521,7 @@ func defaultOwner(s *store.Store) string {
 }
 
 func endedAlone(lane store.Lane) bool {
-	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane) && (dutyOf(lane) == "" || endedItsDuty(lane))
-}
-
-func endedItsDuty(lane store.Lane) bool {
-	return lane.RetiredBy == retiredStopped || lane.RetiredBy == "done"
+	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane) && dutyOf(lane) == ""
 }
 
 func handedOn(to string, from []string, prs []int) Post {

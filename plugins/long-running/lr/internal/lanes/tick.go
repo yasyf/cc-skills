@@ -351,6 +351,10 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 				askState(s, d, lane, verdict.Why, now)
 				return
 			}
+			if dutyOf(lane) != "" {
+				relaunch(s, d, lane, found, verdict.Why, "", taken, now, out)
+				return
+			}
 			hold(s, lane.Name, verdict.Why, now)
 			escalateTo(s, d, "lane:"+lane.Name, fmt.Sprintf("held, not relaunched or retired: it %s, and it runs on no Sprite whose probe answered; brief %s", verdict.Why, lane.Brief), residueTo(s, d, lane.Name), now)
 			out.Held = append(out.Held, lane.Name)
@@ -369,7 +373,7 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 	case Dead:
 		died(s, d, lane, peer, found, verdict, silent, taken, now, out)
 	case AskRotate:
-		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, then keep working.", lane.Name, verdict.Why, lane.Name)}))
+		do(d.Post(Post{Kind: "ask", To: []string{lane.Name}, Text: fmt.Sprintf("ROTATE: %s is at %s. Write anything not yet in the ledger or cc-notes to a cc-notes doc, post `cci post --lane %s --kind handoff --ccn <doc id> --re <this record>`, %s.", lane.Name, verdict.Why, lane.Name, afterHandoff(lane))}))
 		do(s.SetLaneAsked(lane.Name, now))
 		out.Asked = append(out.Asked, lane.Name)
 	}
@@ -541,6 +545,18 @@ func dutyOf(lane store.Lane) string {
 		return communicatorDuty
 	}
 	return or(lane.Standing, must(BriefOf(lane.Brief)).Standing)
+}
+
+func endsAtRotation(lane store.Lane) bool {
+	brief := must(BriefOf(lane.Brief))
+	return brief.Desk || brief.Standing != ""
+}
+
+func afterHandoff(lane store.Lane) string {
+	if endsAtRotation(lane) {
+		return "then post a `stopped` record and end your session; the supervisor launches your successor from that handoff"
+	}
+	return "then keep working"
 }
 
 func dutyEnd(lane store.Lane) string {
@@ -952,14 +968,14 @@ func successorBrief(old store.Lane, name, why, partial, work string, d Deps, tra
 	}
 	finished := fmt.Sprintf("If the handoff and %s's records show its deliverable is already complete, post `cci post --drive %s --lane %s --kind done --to root --text '<what it delivered>'` and stop.", old.Name, drive, name)
 	if duty := dutyOf(old); duty != "" {
-		finished = fmt.Sprintf("Your duty is standing (%s): loop on it until a `ROTATE` record, and never end your session with worker_done while your brief keeps its `Standing:` line.", duty)
+		finished = fmt.Sprintf("Your duty is standing (%s): loop on it, and end your session only as a `ROTATE` record asks, never with worker_done before one while your brief keeps its `Standing:` line.", duty)
 	}
 	place := "ccx: place=remote"
-	if macBrief.Match(body) {
+	switch {
+	case DeskOnMac(body):
+		place = string(macNeed.FindSubmatch(body)[0])
+	case macBrief.Match(body) && dutyOf(old) == "" && !endsAtRotation(old):
 		place = "ccx: place=local why=predecessor-worked-here"
-		if own := macNeed.FindSubmatch(body); own != nil && slices.Contains(MacNeeds, string(own[1])) {
-			place = string(own[0])
-		}
 	}
 	lines := []string{
 		"Replaces: " + old.Name,
@@ -975,7 +991,7 @@ func successorBrief(old store.Lane, name, why, partial, work string, d Deps, tra
 	lines = append(lines, before...)
 	lines = append(lines,
 		"",
-		fmt.Sprintf("When the deliverable is done, post `cci post --drive %s --lane %s --kind done --to root` before your final message; told to stand down after a task, post that `done` when the task is finished. On `ROTATE`, write your state to cc-notes and post `cci post --drive %s --lane %s --kind handoff --ccn <doc id> --re <the ROTATE record>`, then keep working.", drive, name, drive, name),
+		fmt.Sprintf("When the deliverable is done, post `cci post --drive %s --lane %s --kind done --to root` before your final message; told to stand down after a task, post that `done` when the task is finished. On `ROTATE`, write your state to cc-notes and post `cci post --drive %s --lane %s --kind handoff --ccn <doc id> --re <the ROTATE record>`, %s.", drive, name, drive, name, afterHandoff(old)),
 		"",
 		string(body),
 	)
@@ -1372,12 +1388,7 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 		if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {
 			continue
 		}
-		why := fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody"))
-		if endedItsDuty(head) {
-			escalate(s, d, "lane:"+name, fmt.Sprintf("standing lane %s (%s) has no live owner: it %s, by a done or stopped record or on an order, so the supervisor does not relaunch it. If the duty is still open, launch its successor from %s%s.", name, dutyOf(head), why, handLaunchedSuccessor(d, head, found, why, taken, now), dutyEnd(head)), now)
-			continue
-		}
-		relaunch(s, d, head, found, why, "", taken, now, out)
+		relaunch(s, d, head, found, fmt.Sprintf("was retired by %s with no successor", or(head.RetiredBy, "nobody")), "", taken, now, out)
 	}
 }
 

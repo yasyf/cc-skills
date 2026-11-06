@@ -103,6 +103,9 @@ func takesOver(s *store.Store, d Deps, name string, old store.Lane, at time.Time
 func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	name, verb, cited := r.Attr("lane"), r.Attr("verb"), r.Attr("last-read")
 	row, known := laneOf(s, name)
+	if verb == "done" && known && r.Lane == runner && row.State != store.LaneRetired && out.rotated(s, row, r, fresh, at) {
+		return
+	}
 	switch {
 	case verb == "park" && known:
 		do(s.SetLaneWaiting(name, r.Seq, time.Time{}, ""))
@@ -112,7 +115,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			return
 		}
 		resume(s, name, fmt.Sprintf("unpark:%d", r.Seq), "the coordinator lifted your park", r, at)
-	case verb == "done" && known && r.Lane == runner && dutyOf(row) != "":
+	case verb == "done" && known && r.Lane == runner && (dutyOf(row) != "" || endsAtRotation(row)):
 		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredWorkerDone, at)
 		}
@@ -211,9 +214,24 @@ func wantHeir(s *store.Store, heir store.Lane, by string, fresh bool, at time.Ti
 		must(s.WantLane(heir, at))
 		return
 	}
-	heir.Reason = fmt.Sprintf("was stood down for it by record %s", by)
+	heir.Reason = or(heir.Reason, fmt.Sprintf("was stood down for it by record %s", by))
 	do(s.Probe(owedLaunch+heir.Name, at))
 	must(s.WantLane(heir, at))
+}
+
+func (out *folded) rotated(s *store.Store, row store.Lane, r Record, fresh bool, at time.Time) bool {
+	if row.Flushed.IsZero() || maxOrder(s, r) != 0 || !endsAtRotation(row) {
+		return false
+	}
+	taken := map[string]bool{}
+	for _, name := range must(s.Names()) {
+		taken[name] = true
+	}
+	heir, cost := SuccessorName(row.Name, taken), successorCost(row)
+	retire(s, row.Name, heir, at)
+	wantHeir(s, store.Lane{Name: heir, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: row.Name, Reason: rotationEnded + " " + row.Handoff, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing, Step: row.Step}, r.Name(), fresh, at)
+	do(s.Own(heir, ours(s, out.deps, row.PRs)))
+	return true
 }
 
 func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs string, d Deps) folded {
@@ -475,7 +493,7 @@ func reviveFixed(s *store.Store, r Record, at time.Time) {
 
 func postedBeforeItsStandIn(r Record, row, standIn store.Lane, at time.Time) bool {
 	neverUp := slices.Contains([]store.LaneState{store.LaneLaunching, store.LaneHeld}, standIn.State) && standIn.Heard.IsZero()
-	return standIn.Predecessor == row.Name && neverUp && at.After(row.Since) && !endsItself(r)
+	return standIn.Predecessor == row.Name && neverUp && at.After(row.Since) && !endsItself(r) && !strings.HasPrefix(standIn.Reason, rotationEnded)
 }
 
 func endsItself(r Record) bool {
@@ -939,7 +957,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 					}
 					return
 				}
-				if out.owesNothing(s, ended.Name, fresh, at) {
+				if !out.rotated(s, ended, r, fresh, at) && out.owesNothing(s, ended.Name, fresh, at) {
 					out.retireHolding(s, ended.Name, retiredWorkerDone, at)
 				}
 				return
@@ -961,6 +979,11 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 			flushed = at
 		}
 		do(s.SetLaneHandoff(name, r.Refs.CCN, flushed))
+		endedItself := (row.RetiredBy == retiredWorkerDone || row.RetiredBy == retiredStopped) && row.StoppedOn == 0 && row.Last != "done"
+		if row.State == store.LaneRetired && endedItself {
+			row.Handoff, row.Flushed = r.Refs.CCN, flushed
+			out.rotated(s, row, r, fresh, at)
+		}
 		return
 	}
 	settles := known && !slices.Contains(fixedLanes, name) && row.State != store.LaneRetired
@@ -992,7 +1015,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	case kind == "done" && !known && !isRoot && name != mainLane && name != runner && !r.answersAnother():
 		out.handOn(s, name, must(s.HeldBy(name, out.deps.Ledger)), fresh)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
-		if out.owesNothing(s, name, fresh, at) {
+		if !out.rotated(s, row, r, fresh, at) && out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "stand-down", at)
 		}
 	case kind == "go" && name != Self && withdrawOrder.MatchString(text):

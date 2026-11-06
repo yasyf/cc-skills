@@ -21,6 +21,7 @@ const replayTick = 30 * time.Second
 
 var (
 	launchedLine = regexp.MustCompile(`^LAUNCHED \S+ ([\w.-]+): dispatch (ctx_\w+)`)
+	firstPlace   = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=(\w+)`)
 	endedLine    = regexp.MustCompile(`^OUTCOME \S+ [\w.-]+: worker_done \w+ dispatch=(ctx_\w+)`)
 )
 
@@ -37,9 +38,11 @@ type replayFixture struct {
 	Class  string           `json:"class"`
 	Expect map[string][]any `json:"expect"`
 	Input  struct {
-		Records []Record    `json:"records"`
-		Who     []replayRow `json:"who"`
-		Since   string      `json:"since"`
+		Records []Record          `json:"records"`
+		Who     []replayRow       `json:"who"`
+		Since   string            `json:"since"`
+		Briefs  map[string]string `json:"briefs"`
+		Tokens  map[string]int    `json:"tokens"`
 	} `json:"input"`
 }
 
@@ -52,7 +55,7 @@ func parseAt(t *testing.T, text string) time.Time {
 	return at.UTC()
 }
 
-func stubBriefs(t *testing.T, records []Record, dir string) []Record {
+func stubBriefs(t *testing.T, records []Record, headers map[string]string, dir string) []Record {
 	t.Helper()
 	out := make([]Record, 0, len(records))
 	for _, r := range records {
@@ -75,7 +78,7 @@ func stubBriefs(t *testing.T, records []Record, dir string) []Record {
 			if err := os.MkdirAll(filepath.Dir(stub), 0o750); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n", name, name)), 0o600); err != nil {
+			if err := os.WriteFile(stub, []byte(fmt.Sprintf("# %s\nRegister slice: lane=%s step=all\n%s", name, name, headers[name])), 0o600); err != nil {
 				t.Fatal(err)
 			}
 			if !spawn {
@@ -150,7 +153,7 @@ func whoAt(rows []replayRow, orca []dispatch, stoodDown map[string]time.Time, no
 func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	t.Helper()
 	dir := t.TempDir()
-	feed := stubBriefs(t, fixture.Input.Records, dir)
+	feed := stubBriefs(t, fixture.Input.Records, fixture.Input.Briefs, dir)
 	slices.SortFunc(feed, func(a, b Record) int { return int(a.Seq - b.Seq) })
 	stoodDown := map[string]time.Time{}
 	for _, r := range feed {
@@ -170,11 +173,12 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 	}
 	shown := 0
 	var posts []Post
-	woken, relaunched, held := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	woken, relaunched, held, launched, local := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
 	deps := Deps{
 		Drive: "replay", Checkout: dir, Briefs: filepath.Join(dir, "lanes"),
 		Desks:        func() (map[string]string, error) { return nil, nil },
 		RetireAfter:  config.RetireSilent,
+		RotateAt:     rotateAt,
 		OpenBranches: func(*store.Store) (map[string][]int, error) { return nil, nil },
 		Ours:         func(_ *store.Store, prs []int) ([]int, error) { return prs, nil },
 		OpenWork:     func() ([]Record, error) { return nil, nil },
@@ -198,11 +202,21 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 			return visible, nil
 		},
 		Who:        func([]string) ([]Row, error) { return whoAt(fixture.Input.Who, orca, stoodDown, now), nil },
-		Tokens:     func(Row) int { return 0 },
+		Tokens:     func(row Row) int { return fixture.Input.Tokens[row.Lane] },
 		Transcript: func(Row) string { return "" },
 		Post:       func(p Post) error { posts = append(posts, p); return nil },
-		Launch:     func(string, string, string, string, string) error { return nil },
-		Withdraw:   func(string) error { return nil },
+		Launch: func(name, _, _, brief, _ string) error {
+			launched[name] = true
+			text, err := os.ReadFile(brief)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if placed := firstPlace.FindSubmatch(text); placed != nil && string(placed[1]) == "local" {
+				local[name] = true
+			}
+			return nil
+		},
+		Withdraw: func(string) error { return nil },
 		Wake: func(name string, _ Row, _ map[string]any) (bool, error) {
 			woken[name] = true
 			return false, nil
@@ -234,7 +248,7 @@ func decided(t *testing.T, fixture replayFixture) map[string][]any {
 			now = end
 		}
 	}
-	result := map[string][]any{"relaunched": sorted(relaunched), "held": sorted(held), "woken": sorted(woken), "unread": {}, "untyped": {}}
+	result := map[string][]any{"relaunched": sorted(relaunched), "held": sorted(held), "woken": sorted(woken), "launched": sorted(launched), "local": sorted(local), "unread": {}, "untyped": {}}
 	for _, p := range posts {
 		if p.Kind != "defect" {
 			continue

@@ -269,7 +269,7 @@ func (w *workerLaunch) start(model string) (string, error) {
 		}
 		return "", refuse("terminal %s coordinates %s, not %s, so nothing launched; launch from the coordinator that already owns Run %s", handle, owner, w.run, w.run)
 	}
-	if w.route == routeSprite && briefDesk.Match(raw) {
+	if w.route == routeSprite && lanes.DeskBrief.Match(raw) {
 		if err := w.readDriveConfig(); err != nil {
 			return "", err
 		}
@@ -1098,7 +1098,7 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	desk := ""
-	if briefDesk.Match(raw) {
+	if lanes.DeskBrief.Match(raw) {
 		desk = standingDesk + seededStore
 	}
 	noPR := ""

@@ -2230,48 +2230,35 @@ func TestARevivedLaneIsLiveAgainAndTakesTheDutyOfTheStandingLaneItSucceeds(t *te
 	equal(t, []any{got.State, got.RetiredBy, got.Standing}, []any{store.LaneDesired, "", "refresh the owner's board every pass"})
 }
 
-func TestAStandingLaneStoppedWithNoSuccessorReachesRootOnceAfterTenMinutes(t *testing.T) {
+func TestAStandingLaneStoppedWithNoSuccessorRelaunchesOnceItIsNoLongerHeard(t *testing.T) {
 	s := memory(t)
-	f, path := standingLane(t, s)
+	f, _ := standingLane(t, s)
 	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
 	f.peers = nil
 
 	early := tick(t, s, f, t0.Add(mins(9)))
 	equal(t, early, Outcome{})
-	equal(t, len(f.ofKind("blocker")), 0)
-	tick(t, s, f, t0.Add(mins(11)))
+	tick(t, s, f, t0.Add(mins(16)))
 	tick(t, s, f, t0.Add(mins(40)))
 
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "standing lane board-refresher-6 (refresh the owner's board every pass) has no live owner")
-	contains(t, blockers[0].Text, "retired by stand-down")
-	contains(t, blockers[0].Text, path)
+	equal(t, []any{f.launches, len(f.ofKind("blocker")), row(t, s, refresher).RetiredBy}, []any{[]string{"board-refresher-7"}, 0, "board-refresher-7"})
 }
 
-func TestAStandingLaneWithNoSuccessorNamesASuccessorBriefThatLrLaunchAccepts(t *testing.T) {
+func TestAStandingDeskWhoseBriefNamesNoMacNeedRelaunchesRemote(t *testing.T) {
 	s := memory(t)
 	path := filepath.Join(t.TempDir(), refresher+".brief.md")
 	do(os.WriteFile(path, []byte("# "+refresher+"\nccx: role=desk place=local why=mac-inputs\nStanding: refresh the owner's board every pass\n"), 0o600))
 	f := newFake(t, []Record{spawned(1, refresher, path, t0.Add(-2*time.Hour), nil)}, []Row{who(refresher, true, t0.Add(-time.Hour))})
 	tick(t, s, f, t0.Add(-time.Hour))
 	f.posts = nil
-	f.feed = append(f.feed, rec(2, refresher, "stopped", t0, "retired"))
+	f.feed = append(f.feed, rec(2, refresher, "done", t0, "finished"), ask(3, "done", refresher, t0, nil, "", nil))
 	f.peers = nil
 
 	tick(t, s, f, t0.Add(mins(1)))
-	tick(t, s, f, t0.Add(mins(12)))
 	tick(t, s, f, t0.Add(mins(40)))
 
-	heir := filepath.Join(f.deps.Briefs, "board-refresher-7.brief.md")
-	blockers := f.ofKind("blocker")
-	equal(t, len(blockers), 1)
-	contains(t, blockers[0].Text, "launch its successor from "+heir+",")
-	text, err := os.ReadFile(heir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	contains(t, string(text), "Replaces: "+refresher+"\nccx: place=local why=predecessor-worked-here\n")
+	equal(t, []any{f.launches, len(f.ofKind("blocker"))}, []any{[]string{"board-refresher-7"}, 0})
+	contains(t, f.briefs["board-refresher-7"], "Replaces: "+refresher+"\nccx: place=remote\n")
 }
 
 func TestAStandingLanesDoneClosesAnItemAndNeverTheLane(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ var (
 	deliverable = regexp.MustCompile(`(?m)^(?:#+ *)?(?:\*\*)?Deliverables?\b[^\n:]*:?\**[ \t]*([^\n]*)(?:\n\s*([^\n]*))?`)
 
 	BriefAssignedOrders = regexp.MustCompile(`(?m)^` + AssignedOrdersLine + `(.*)$`)
+	DeskBrief           = regexp.MustCompile(`(?m)^ccx:(.* )?role=(desk|watch)(\s|$)`)
 
 	MacNeeds = []string{"sentry", "datadog", "signed-in", "cc-present", "mac-build", "mac-state", "devbox", "aws-machine-profile"}
 )
@@ -36,6 +38,7 @@ type Brief struct {
 	Deliverable string
 	Orders      []string
 	OwnerPicked bool
+	Desk        bool
 }
 
 type cachedBrief struct {
@@ -63,6 +66,7 @@ func parseBrief(text string) Brief {
 		said.Orders = owner.Orders(found[1])
 	}
 	said.OwnerPicked = BriefOwnerPick.MatchString(text)
+	said.Desk = DeskBrief.MatchString(text)
 	return said
 }
 
@@ -89,6 +93,11 @@ func BriefOf(path string) (Brief, error) {
 	said := parseBrief(string(text))
 	briefs[path] = cachedBrief{info.ModTime(), said}
 	return said, nil
+}
+
+func DeskOnMac(body []byte) bool {
+	own := macNeed.FindSubmatch(body)
+	return macBrief.Match(body) && own != nil && slices.Contains(MacNeeds, string(own[1]))
 }
 
 func briefExists(path string) bool {
