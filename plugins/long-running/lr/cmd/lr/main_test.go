@@ -121,7 +121,13 @@ func TestAGroupRefusesAVerbItDoesNotHave(t *testing.T) {
 	}
 }
 
-func TestAStoreVerbOnASpriteRunsOnTheMacsStoreDeskAndAnUnlistedVerbRunsHere(t *testing.T) {
+type deskRun struct {
+	argv []string
+	lane string
+}
+
+func spriteWithStoreDesk(t *testing.T, stdout, stderr string, exit int) *deskRun {
+	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(lanes.LaneEnv, "sentry-1-fix")
@@ -132,14 +138,13 @@ func TestAStoreVerbOnASpriteRunsOnTheMacsStoreDeskAndAnUnlistedVerbRunsHere(t *t
 	if err := os.WriteFile(filepath.Join(registry, "d.json"), []byte(`{"drive":"d","cci_drive":"d","state_dir":"`+t.TempDir()+`","sessions":["s"],"host":"`+drive.HostSprite+`"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	var ranArgv []string
-	var ranLane string
+	ran := &deskRun{}
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
 		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, lane string) (string, string, int, error) {
-			ranArgv, ranLane = argv, lane
-			return "#51766 waits on his tap\n", "a warning from the Mac\n", 1, nil
+			ran.argv, ran.lane = argv, lane
+			return stdout, stderr, exit, nil
 		})}.Follow(ctx)
 		close(stopped)
 	}()
@@ -147,6 +152,11 @@ func TestAStoreVerbOnASpriteRunsOnTheMacsStoreDeskAndAnUnlistedVerbRunsHere(t *t
 		cancel()
 		<-stopped
 	})
+	return ran
+}
+
+func TestAStoreVerbOnASpriteRunsOnTheMacsStoreDeskAndAnUnlistedVerbRunsHere(t *testing.T) {
+	ran := spriteWithStoreDesk(t, "#51766 waits on his tap\n", "a warning from the Mac\n", 1)
 	saved := verbs
 	t.Cleanup(func() { verbs = saved })
 	ranHere := false
@@ -170,12 +180,34 @@ func TestAStoreVerbOnASpriteRunsOnTheMacsStoreDeskAndAnUnlistedVerbRunsHere(t *t
 	if out.String() != "#51766 waits on his tap\n" || !strings.Contains(errs.String(), "a warning from the Mac") {
 		t.Fatalf("printed %q and %q, want the Mac's stdout and stderr", out.String(), errs.String())
 	}
-	if want := []string{"board", "waits", "--config", "/mac/lr.json", "--pr=51766", "--"}; !slices.Equal(ranArgv, want) || ranLane != "sentry-1-fix" {
-		t.Fatalf("the desk ran %q as %q, want %q as sentry-1-fix", ranArgv, ranLane, want)
+	if want := []string{"board", "waits", "--config", "/mac/lr.json", "--pr=51766", "--"}; !slices.Equal(ran.argv, want) || ran.lane != "sentry-1-fix" {
+		t.Fatalf("the desk ran %q as %q, want %q as sentry-1-fix", ran.argv, ran.lane, want)
 	}
-	ranArgv = nil
-	if _, err := run(t, "probe"); err != nil || !ranHere || ranArgv != nil {
-		t.Fatalf("an unlisted verb returned %v, ran here %t, and reached the desk with %q", err, ranHere, ranArgv)
+	ran.argv = nil
+	if _, err := run(t, "probe"); err != nil || !ranHere || ran.argv != nil {
+		t.Fatalf("an unlisted verb returned %v, ran here %t, and reached the desk with %q", err, ranHere, ran.argv)
+	}
+}
+
+func TestARulingsCheckOnASpriteWithNoRulingsPyRunsOnTheMacAndExitsAsItExited(t *testing.T) {
+	refusal := "RULINGS-UNCITED 5bc8992 rule/d7b507a\n"
+	ran := spriteWithStoreDesk(t, refusal, "", 1)
+
+	var out, errs bytes.Buffer
+	cmd := root(app.New(&errs))
+	cmd.SetOut(&out)
+	cmd.SetErr(&errs)
+	err := execute(cmd, []string{"rules", "check-pr", "--pr", "Forge-AI/monorepo#51949", "--head", "5bc8992ab8772a649f81125e82982b56a86dc18b"})
+
+	var exit *wait.ExitError
+	if !errors.As(err, &exit) || exit.Code != 1 {
+		t.Fatalf("got %v (stderr %q), want the Mac's exit 1", err, errs.String())
+	}
+	if out.String() != refusal {
+		t.Fatalf("printed %q, want the Mac's %q", out.String(), refusal)
+	}
+	if want := []string{"rules", "check-pr", "--config", "/mac/lr.json", "--head=5bc8992ab8772a649f81125e82982b56a86dc18b", "--pr=Forge-AI/monorepo#51949", "--"}; !slices.Equal(ran.argv, want) {
+		t.Fatalf("the desk ran %q, want %q", ran.argv, want)
 	}
 }
 
