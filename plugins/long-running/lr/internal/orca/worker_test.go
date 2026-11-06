@@ -1062,6 +1062,28 @@ func TestASponsorJoinsTheSpriteToTheDefaultMeshBeforeTheWorkerStartsAndNeverLogs
 	}
 }
 
+func TestAnAWSProfileSponsorReadsTheKeyFromSSMAndReachesNoSponsorSprite(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[sponsorEnv] = sponsorProfile + "machine-x"
+	f.sprite()
+	f.reply("aws ssm get-parameter", workerReply{out: "the ssm key"})
+	f.reply("sprite exec", workerReply{}, workerReply{})
+	f.launched()
+	read := []string{"aws", "ssm", "get-parameter", "--profile", "machine-x", "--region", serviceKeyRegion, "--name", serviceKeyName, "--with-decryption", "--query", "Parameter.Value", "--output", "text"}
+	if !slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Equal(call, read) }) {
+		t.Fatal(f.calls)
+	}
+	if slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Contains(call, sponsorKey) }) {
+		t.Fatal("a launch with an AWS profile sponsor read a Sprite's key file", f.calls)
+	}
+	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != "the ssm key" {
+		t.Fatal(f.stdins)
+	}
+	if strings.Contains(f.receiptText(joinReceipt), "the ssm key") {
+		t.Fatal("the log holds the key")
+	}
+}
+
 func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
