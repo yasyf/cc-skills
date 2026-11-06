@@ -68,6 +68,21 @@ var (
 	stopKept       = []string{"stop.err", "stop.json", spriteStop}
 	stopCall       = []string{"cc-remote", "orca", "stop", workerLane, "--provider", "sprites", "--profile", "agents"}
 	stopSaid       = "; cc-remote orca stop " + workerLane + " stopped that worker, so the lane can launch again"
+	verbHelps      = map[string]string{
+		"ccx vcs ship":     cobraHelp("ccx vcs ship [paths...]", "  -m, --message stringArray      commit message\n", "      --new-branch string[=\"-\"]   start a new branch\n"),
+		"ccx vcs worktree": cobraHelp("ccx vcs worktree add <name>", "      --include stringArray   also check out this directory\n", "      --jj string             how the copy attaches\n"),
+		"ccx code read":    cobraHelp("ccx code read <path>...", "      --budget int       token budget\n", "      --section string   range or heading\n"),
+		"ccx code grep":    cobraHelp("ccx code grep <text> [paths...]", "  -g, --glob stringArray   restrict to a glob\n"),
+		"cci post":         cobraHelp("cci post [TEXT]", "      --kind string   record kind\n", "      --to strings    addressed lanes\n"),
+		"cci show":         cobraHelp("cci show SEQ...", "      --body   print only the text\n"),
+		"cci grep":         cobraHelp("cci grep PATTERN", "  -F, --fixed-strings   match literally\n", "      --lane strings    only these lanes\n"),
+		"cci tail":         cobraHelp("cci tail", "      --since string   where to start\n"),
+	}
+	ccxLines     = []string{"- `ccx vcs ship [paths...]`: `-m/--message stringArray`, `--new-branch string`", "- `ccx vcs worktree add <name>`: `--include stringArray`, `--jj string`", "- `ccx code read <path>...`: `--budget int`, `--section string`", "- `ccx code grep <text> [paths...]`: `-g/--glob stringArray`"}
+	cciLines     = []string{"- `cci post [TEXT]`: `--kind string`, `--to strings`", "- `cci show SEQ...`: `--body`", "- `cci grep PATTERN`: `-F/--fixed-strings`, `--lane strings`", "- `cci tail`: `--since string`"}
+	cciBlock     = verbsBlock("cci", cciLines...)
+	cciHelpCalls = [][]string{{"cci", "post", "--help"}, {"cci", "show", "--help"}, {"cci", "grep", "--help"}, {"cci", "tail", "--help"}}
+	ccxHelpCalls = [][]string{{"ccx", "vcs", "ship", "--help"}, {"ccx", "vcs", "worktree", "add", "--help"}, {"ccx", "code", "read", "--help"}, {"ccx", "code", "grep", "--help"}}
 )
 
 func sorted(base []string, more ...string) []string {
@@ -262,6 +277,17 @@ func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
 	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
 	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{}, workerReply{})
+	for verb, help := range verbHelps {
+		f.reply(verb, workerReply{out: help})
+	}
+}
+
+func cobraHelp(usage string, flags ...string) string {
+	return "Does one thing.\n\nUsage:\n  " + usage + " [flags]\n\nFlags:\n  -h, --help   help for it\n" + strings.Join(flags, "") + "\nGlobal Flags:\n      --config string   the config\n"
+}
+
+func verbsBlock(tools string, lines ...string) string {
+	return "\n\n## " + tools + " flags\n\nThese verbs carry every flag they take, read from each tool's `--help` when lr built this brief. A flag missing from its line does not exist: run `<verb> --help` before trying another spelling.\n\n" + strings.Join(lines, "\n") + "\n"
 }
 
 func (f *workerFixture) local() {
@@ -1103,10 +1129,34 @@ func TestABoxWithoutAToolTheBriefRunsRefusesNamingItAndStartsNoWorker(t *testing
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "the --before-worker-file script failed, so no worker started: sh -c: exit 3: installed lr 9\nmissing: ccn lr\n"})
-	f.refusedWith(fmt.Sprintf("the Sprite has no ccn, lr, which the brief runs, so no worker started; %s/prepare.err keeps its output", f.attempt), versionCall, currentRunCall, f.prepareCall())
+	f.refusedWith(fmt.Sprintf("the Sprite has no ccn, lr, which the brief runs, so no worker started; %s/prepare.err keeps its output", f.attempt), slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCall()})...)
 	if !strings.Contains(f.receiptText("before-worker.sh"), "-- cci ccn lr\n") {
 		t.Fatal(f.receiptText("before-worker.sh"))
 	}
+}
+
+func TestASpriteBriefCarriesTheFlagsEachToolItRunsPrintsInItsHelp(t *testing.T) {
+	f := newWorkerFixture(t)
+	text := workerBrief + "Ship with `ccx vcs ship`, then `cci post --kind opened`.\n"
+	carried := text + verbsBlock("ccx and cci", slices.Concat(ccxLines, cciLines)...)
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": briefOf(carried)}))
+	f.launched()
+	if got := f.receiptText(briefFile); got != carried {
+		t.Fatalf("carried brief\n%s\nwant\n%s", got, carried)
+	}
+	if got := f.calls[2 : 2+len(ccxHelpCalls)+len(cciHelpCalls)]; !reflect.DeepEqual(got, slices.Concat(ccxHelpCalls, cciHelpCalls)) {
+		t.Fatal(got)
+	}
+}
+
+func TestASpriteLaunchRefusesWhenAToolItRunsPrintsNoUsage(t *testing.T) {
+	f := newWorkerFixture(t)
+	text := workerBrief + "Post with `cci post`.\n"
+	f.write(f.brief, text, 0o600)
+	f.sprite()
+	f.reply("cci show", workerReply{code: 1, err: "unknown command \"show\"\n"})
+	f.refusedWith("`cci show --help` exited 1 without a Usage line: unknown command \"show\"; nothing was prepared", slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls[:2])...)
 }
 
 func TestAPackWithoutALinuxLRPinRefusesBeforeAnyCall(t *testing.T) {
@@ -1748,13 +1798,13 @@ func TestAnExplicitConfigOfAnotherCheckoutLeavesTheVersionToCCRemote(t *testing.
 
 func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 	f := newWorkerFixture(t)
-	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}, "brief": briefOf(workerBrief + obsRoute(workerLane))})
+	task := overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": []string{"{}"}}, "brief": briefOf(workerBrief + obsRoute(workerLane) + cciBlock)})
 	f.spriteAllocated(allocationOf(task, object{"ref": "release/2026.10"}))
 	maps.Copy(f.env, map[string]string{"WORKER_SERVICE_TIER": "fast", "WORKER_INCIDENT": "1", "WORKER_REF": "release/2026.10", "WORKER_MCP_CONFIG": "{}"})
 	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "xhigh"); err != nil || failed != "" {
 		t.Fatal(failed, err)
 	}
-	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "xhigh", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
 	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexCompactScript()) {
 		t.Fatal(script)
 	}
@@ -1863,7 +1913,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
 	for model, want := range map[string]string{
-		"gpt-6.1-sol": workerBrief + "\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive 'brook' --lane 'lane-a' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive 'brook' --lane 'lane-a' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n",
+		"gpt-6.1-sol": workerBrief + "\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive 'brook' --lane 'lane-a' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive 'brook' --lane 'lane-a' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n" + verbsBlock("ccx and cci", slices.Concat(ccxLines, cciLines)...),
 		"opus":        workerBrief,
 	} {
 		t.Run(model, func(t *testing.T) {
@@ -2471,12 +2521,12 @@ func TestAnIncidentModelStartsOnASpriteAsAnIncidentLaneOnItsFastTier(t *testing.
 			if tt.tier != nil {
 				agent["serviceTier"] = "fast"
 			}
-			task := overlaid(prepared(), object{"agent": agent, "brief": briefOf(workerBrief + obsRoute(workerLane))})
+			task := overlaid(prepared(), object{"agent": agent, "brief": briefOf(workerBrief + obsRoute(workerLane) + cciBlock)})
 			f.spriteAllocated(allocationOf(task, nil))
 			if _, failed, err := f.launch(workerLane, tt.model, "xhigh"); err != nil || failed != "" {
 				t.Fatal(failed, err)
 			}
-			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCallFor(workerLane, tt.kind, tt.modelID, "xhigh", tt.tier...)}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
+			f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, tt.kind, tt.modelID, "xhigh", tt.tier...)}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
 			if got := strings.HasSuffix(f.receiptText(beforeWorker), claudeFastMode); got != tt.fastMode {
 				t.Fatalf("fast mode in the before-worker script = %v, want %v", got, tt.fastMode)
 			}
@@ -2518,7 +2568,7 @@ func TestAnIncidentBriefOnASpriteIsToldWhatItCannotReadAndWhoReadsItInstead(t *t
 		text := "# Lane A\n" + header + "\nFix what broke.\n"
 		carried := text
 		if want {
-			carried += obsRoute(workerLane)
+			carried += obsRoute(workerLane) + cciBlock
 		}
 		f.write(f.brief, text, 0o600)
 		f.spriteWith(overlaid(prepared(), object{"brief": briefOf(carried)}))
@@ -2533,7 +2583,7 @@ func TestASpriteEvidenceLaneIsToldToAskObsDeskAndAMacOneIsNot(t *testing.T) {
 	text := "# Lane A\nccx: role=evidence place=remote incident=none\nFrom Datadog only, name which namespace fired and since when.\n"
 	sprite := newWorkerFixture(t)
 	sprite.write(sprite.brief, text, 0o600)
-	sprite.spriteWith(overlaid(prepared(), object{"brief": briefOf(text + obsRoute(workerLane))}))
+	sprite.spriteWith(overlaid(prepared(), object{"brief": briefOf(text + obsRoute(workerLane) + cciBlock)}))
 	sprite.launched()
 	carried := sprite.receiptText(briefFile)
 	for _, want := range []string{"\n" + obsSection + "\n", "`cci post --lane 'lane-a' --kind ask --to obs-desk --text '<read>'`", "datadog logs [--from <age>] [--to <age>] <query>", "never use the Sentry or Datadog MCP tools, look here for a key or token"} {
