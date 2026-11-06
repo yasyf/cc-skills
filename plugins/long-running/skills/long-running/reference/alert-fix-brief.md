@@ -38,7 +38,9 @@ Standing orders, fixed in this template:
     them through `obs-desk`, the Mac desk that holds read keys: `cci post --drive {drive} --lane {lane} --kind ask --to obs-desk --text "<read>"`,
     where a read is `sentry issue <id, short id or URL>`, `sentry events <id>`, `sentry search [--period 14d] <query>`,
     `datadog monitor <id>`, `datadog logs [--from 6h] <query>`, `datadog spans [--from 6h] <query>`,
-    `datadog metric [--from 6h] <query>`, `sentry api <path>`, `datadog api <path>` (a GET), or
+    `datadog metric [--from 6h] <query>`, `sentry api <path>`, `datadog api <path>` (a GET of up to 16 KiB;
+    add `--pick entries.type=request.data,contexts.client,tags` for only those parts of the JSON,
+    or `--from <byte>` for the next window its answer names), or
     `slack thread <permalink>`, which prints the alert's Slack thread, or any other, as text.
     Its answer is a record to you within seconds; `cci show <seq>` prints its body. When the
     answer is an HTTP error, or none comes in five minutes, ask `{slug}-evidence` the same read.

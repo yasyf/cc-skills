@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -17,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -36,10 +38,11 @@ const (
 	listLimit     = 100
 	frameLimit    = 15
 	slackLimit    = 200
-	Reads         = "sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path>, datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path>"
+	Reads         = "sentry issue <id or short id>, sentry events <id>, sentry search [--period <14d>] <query>, sentry api <path> [--pick <dotted.path>,...] [--from <byte>], datadog monitor <id>, datadog logs [--from <age>] [--to <age>] <query>, datadog spans [--from <age>] [--to <age>] <query>, datadog metric [--from <age>] [--to <age>] <query>, datadog api <path> [--pick <dotted.path>,...] [--from <byte>]"
 	OncallReads   = "incidents, page status <id>, ledger <id>, journal read <id> --to <seq>, history --monitor <id> --since <RFC3339>, monitors --key <key>, impact --from <RFC3339> --to <RFC3339>, current, responder or connections list <id>"
 	usage         = "name one read: " + Reads + ", slack thread <permalink>, or oncall <read verb>"
 	oncallUsage   = "oncall reads with " + OncallReads + "; connect, say and every write go through your evidence lane"
+	apiUsage      = "reads one path under the API root with GET: api <path> [--pick <dotted.path>,...] [--from <byte>], where a step of a dotted path is a key, an array index, or field=value for the first array element whose field is that value"
 )
 
 var (
@@ -251,17 +254,120 @@ func (d *Desk) sentryRead(ctx context.Context, verb string, rest []string) (askd
 		query := url.Values{"query": {unquoted(rest)}, "statsPeriod": {period}, "limit": {"25"}, "sort": {"date"}}
 		return d.sentryIssues(ctx, org+"/issues/?"+query.Encode()), ""
 	case "api":
-		if len(rest) != 1 || strings.Contains(rest[0], "://") {
-			return askdesk.Reply{}, "sentry api reads one path under the API root with GET"
+		read, refusal := d.apiRead(ctx, d.Settings.Sentry.API, d.sentry, rest)
+		if refusal != "" {
+			return askdesk.Reply{}, "sentry api " + refusal
 		}
-		said, failure := d.get(ctx, d.Settings.Sentry.API+"/"+strings.TrimPrefix(rest[0], "/"), d.sentry)
-		if failure != nil {
-			return *failure, ""
-		}
-		cut := askdesk.FirstBytes(said, replyLimit)
-		return askdesk.Reply{Head: fmt.Sprintf("%d of %d bytes", len(cut), len(said)), Body: cut}, ""
+		return read, ""
 	}
 	return askdesk.Reply{}, fmt.Sprintf("sentry %s is no read; %s", verb, usage)
+}
+
+func (d *Desk) apiRead(ctx context.Context, base string, keys []key, rest []string) (askdesk.Reply, string) {
+	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") || strings.Contains(rest[0], "://") {
+		return askdesk.Reply{}, apiUsage
+	}
+	flags := flag.NewFlagSet("api", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	picks := flags.String("pick", "", "")
+	from := flags.Int("from", 0, "")
+	if err := flags.Parse(rest[1:]); err != nil || flags.NArg() != 0 || *from < 0 {
+		return askdesk.Reply{}, apiUsage
+	}
+	said, failure := d.get(ctx, base+"/"+strings.TrimPrefix(rest[0], "/"), keys)
+	if failure != nil {
+		return *failure, ""
+	}
+	text, note := said, ""
+	if paths := strings.FieldsFunc(*picks, func(r rune) bool { return r == ',' }); len(paths) > 0 {
+		if !json.Valid([]byte(said)) {
+			return askdesk.Reply{}, "--pick needs a JSON response and this one is not JSON, so read it without --pick"
+		}
+		text, note = picked(said, paths)
+	}
+	start := *from
+	if start > len(text) {
+		return askdesk.Reply{}, fmt.Sprintf("--from %d is past the end of %d bytes", start, len(text))
+	}
+	end := min(start+replyLimit, len(text))
+	for back := 0; back < utf8.UTFMax-1 && end < len(text) && !utf8.RuneStart(text[end]); back++ {
+		end--
+	}
+	head := fmt.Sprintf("%d of %d bytes", end-start, len(text))
+	if start > 0 {
+		head += fmt.Sprintf(" from byte %d", start)
+	}
+	if end < len(text) {
+		head += fmt.Sprintf("; more with --from %d", end)
+	}
+	return askdesk.Reply{Head: head + note, Body: text[start:end]}, ""
+}
+
+func picked(said string, paths []string) (string, string) {
+	var body strings.Builder
+	var absent []string
+	for _, path := range paths {
+		found, present := pick(json.RawMessage(said), path)
+		if !present {
+			absent = append(absent, path)
+			continue
+		}
+		fmt.Fprintf(&body, "%s: %s\n", path, found)
+	}
+	note := fmt.Sprintf("; picked %d of %d paths from a %d-byte response", len(paths)-len(absent), len(paths), len(said))
+	if len(absent) > 0 {
+		note += "; absent: " + strings.Join(absent, ", ")
+	}
+	return body.String(), note
+}
+
+func pick(at json.RawMessage, path string) (json.RawMessage, bool) {
+	for step := range strings.SplitSeq(path, ".") {
+		var object map[string]json.RawMessage
+		var list []json.RawMessage
+		found := false
+		switch {
+		case json.Unmarshal(at, &object) == nil:
+			at, found = object[step]
+		case json.Unmarshal(at, &list) == nil:
+			at, found = element(list, step)
+		}
+		if !found {
+			return nil, false
+		}
+	}
+	return at, true
+}
+
+func element(list []json.RawMessage, step string) (json.RawMessage, bool) {
+	if index, err := strconv.Atoi(step); err == nil {
+		if index < 0 || index >= len(list) {
+			return nil, false
+		}
+		return list[index], true
+	}
+	field, want, matched := strings.Cut(step, "=")
+	if !matched {
+		return nil, false
+	}
+	for _, one := range list {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(one, &object) != nil {
+			continue
+		}
+		if value, has := object[field]; has && scalar(value) == want {
+			return one, true
+		}
+	}
+	return nil, false
+}
+
+func scalar(raw json.RawMessage) string {
+	var text string
+	if raw[0] == '"' && json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	return string(raw)
 }
 
 func (d *Desk) issueID(ctx context.Context, org, named string) (string, *askdesk.Reply) {
@@ -480,15 +586,11 @@ func (d *Desk) datadogRead(ctx context.Context, verb string, rest []string, now 
 		}
 		return d.metric(ctx, query, from, to), ""
 	case "api":
-		if len(rest) != 1 || strings.Contains(rest[0], "://") {
-			return askdesk.Reply{}, "datadog api reads one path under the API root with GET"
+		read, refusal := d.apiRead(ctx, d.Settings.Datadog.API, d.datadog, rest)
+		if refusal != "" {
+			return askdesk.Reply{}, "datadog api " + refusal
 		}
-		said, failure := d.get(ctx, d.Settings.Datadog.API+"/"+strings.TrimPrefix(rest[0], "/"), d.datadog)
-		if failure != nil {
-			return *failure, ""
-		}
-		cut := askdesk.FirstBytes(said, replyLimit)
-		return askdesk.Reply{Head: fmt.Sprintf("%d of %d bytes", len(cut), len(said)), Body: cut}, ""
+		return read, ""
 	}
 	return askdesk.Reply{}, fmt.Sprintf("datadog %s is no read; %s", verb, usage)
 }

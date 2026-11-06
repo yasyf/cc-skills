@@ -3,16 +3,20 @@ package obs
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
@@ -276,6 +280,9 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutACall(t *testing.T) {
 		"datadog monitor abc",
 		"datadog logs",
 		"datadog api https://evil.example/x",
+		"sentry api /issues/7/ --jq .",
+		"sentry api --pick request",
+		"datadog api /api/v1/monitor/9 --from -5",
 		"oncall say inc-1 --kind finding --text hi",
 		"oncall connect inc-1 --state x",
 		"oncall downtime --monitor 1",
@@ -295,6 +302,90 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutACall(t *testing.T) {
 	}
 	if requests, _ := got.all(); len(requests) != 0 || len(runner.calls) != keyReads {
 		t.Fatalf("refusals reached %d HTTP calls and %d commands", len(requests), len(runner.calls)-keyReads)
+	}
+}
+
+func TestAPickReturnsWholeSubtreesOfABigEventAndNamesTheAbsentPaths(t *testing.T) {
+	request := `{"url":"https://api.example/graphql","method":"POST","data":{"query":"query QueuesPageQuery { count }","variables":{"team":"t1"}},"headers":[["User-Agent","iris/1.42.0"]]}`
+	app := `{"name":"iris","version":"1.42.0"}`
+	frames := make([]string, 400)
+	for n := range frames {
+		frames[n] = fmt.Sprintf(`{"filename":"lib/%03d.ts","function":"step%d","lineNo":%d,"context":[[1,%q]]}`, n, n, n, strings.Repeat("x", 60))
+	}
+	event := `{"eventID":"e1","contexts":{"client":` + app + `,"os":{"name":"macOS"}},"tags":[{"key":"environment","value":"production"},{"key":"release","value":"1.42.0"}],"request":` + request +
+		`,"entries":[{"type":"exception","data":{"values":[{"stacktrace":{"frames":[` + strings.Join(frames, ",") + `]}}]}},{"type":"request","data":` + request + `}]}`
+	if len(event) < 48<<10 {
+		t.Fatalf("the event is %d bytes, under the 49 KB the case needs", len(event))
+	}
+	server, _ := serve(t, map[string]string{"/sentry/projects/forge/api/events/e1/json/": event})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+
+	read := desk.read(context.Background(), "sentry api /projects/forge/api/events/e1/json/ --pick request,entries.type=request.data,contexts.client,tags.key=release.value,user.ip_address")
+
+	want := "request: " + request + "\nentries.type=request.data: " + request + "\ncontexts.client: " + app + "\ntags.key=release.value: \"1.42.0\"\n"
+	if read.Body != want || len(read.Body) > replyLimit {
+		t.Fatalf("body:\n%s\nwant:\n%s", read.Body, want)
+	}
+	if !strings.HasSuffix(read.Head, fmt.Sprintf("%d of %d bytes; picked 4 of 5 paths from a %d-byte response; absent: user.ip_address", len(want), len(want), len(event))) {
+		t.Fatalf("head %q does not name the absent path", read.Head)
+	}
+}
+
+func TestFromWalksALongBodyInWindowsThatJoinBackToTheOriginal(t *testing.T) {
+	long := `{"log":"` + strings.Repeat("日", 17000) + `"}`
+	malformed := strings.Repeat("\x80", 17000)
+	server, _ := serve(t, map[string]string{"/sentry/long/": long, "/sentry/malformed/": malformed})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+	more := regexp.MustCompile(`; more with --from (\d+)$`)
+
+	for name, c := range map[string]struct {
+		path, said string
+		from       int
+	}{
+		"runes from the start":       {"/long/", long, 0},
+		"a start inside a rune":      {"/long/", long, 9},
+		"bytes that are never UTF-8": {"/malformed/", malformed, 0},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var joined strings.Builder
+			from := strconv.Itoa(c.from)
+			for windows := 0; ; windows++ {
+				if windows == 10 {
+					t.Fatalf("no last window after %d reads", windows)
+				}
+				read := desk.read(context.Background(), "sentry api "+c.path+" --from "+from)
+				if len(read.Body) > replyLimit || (c.from == 0 && utf8.ValidString(c.said) && !utf8.ValidString(read.Body)) {
+					t.Fatalf("the window from byte %s is %d bytes, valid UTF-8 %v: %s", from, len(read.Body), utf8.ValidString(read.Body), read.Head)
+				}
+				joined.WriteString(read.Body)
+				next := more.FindStringSubmatch(read.Head)
+				if next == nil {
+					break
+				}
+				from = next[1]
+			}
+			if joined.String() != c.said[c.from:] {
+				t.Fatalf("the windows joined to %d bytes, not the %d bytes from byte %d", joined.Len(), len(c.said)-c.from, c.from)
+			}
+		})
+	}
+}
+
+func TestAFieldValueStepMatchesOnlyAFieldThatHoldsThatValue(t *testing.T) {
+	server, _ := serve(t, map[string]string{
+		"/sentry/items/": `{"items":[{},{"kind":null},{"kind":"a"},{"kind":7}],"names":["x","y"]}`,
+		"/sentry/text/":  "plain text, not JSON",
+	})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+
+	read := desk.read(context.Background(), "sentry api /items/ --pick items.kind=null,items.kind=a,items.kind=7,items.kind=,names.1,names.2,items.0.kind")
+
+	want := "items.kind=null: {\"kind\":null}\nitems.kind=a: {\"kind\":\"a\"}\nitems.kind=7: {\"kind\":7}\nnames.1: \"y\"\n"
+	if read.Body != want || !strings.HasSuffix(read.Head, "picked 4 of 7 paths from a 70-byte response; absent: items.kind=, names.2, items.0.kind") {
+		t.Fatalf("head %q body:\n%s\nwant:\n%s", read.Head, read.Body, want)
+	}
+	if text := desk.read(context.Background(), "sentry api /text/ --pick a"); text.Head != "obs read refused: sentry api --pick needs a JSON response and this one is not JSON, so read it without --pick" {
+		t.Fatalf("a pick over text answered %q", text.Head)
 	}
 }
 
