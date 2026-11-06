@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -135,12 +136,20 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 	waiting, stop := context.WithTimeout(ctx, wait)
 	defer stop()
 	var answer client.Record
+	later := map[string]client.Record{}
 	err = bus.Follow(waiting, client.Watch{Drive: drive, Reader: client.Stem(lane), After: posted.Seq}, func(r client.Record) error {
-		if r.Resolves != posted.Seq {
+		switch part, isPart := r.Fields.Attrs[partAttr]; {
+		case r.Resolves == posted.Seq:
+			answer = r
+		case r.Re == posted.Seq && string(r.Kind) == PartKind && isPart:
+			later[part] = r
+		default:
 			return nil
 		}
-		answer = r
-		return errAnswered
+		if answer.Seq != 0 && len(later)+1 >= partsOf(answer) {
+			return errAnswered
+		}
+		return nil
 	})
 	if err != nil && !errors.Is(err, errAnswered) {
 		return err
@@ -156,6 +165,17 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 	if failed, found := strings.CutPrefix(answer.Text, failedRead); found {
 		return fmt.Errorf("the Mac's %s: %s", StoreDesk, cmp.Or(body, failed))
 	}
+	for n := 2; n <= partsOf(answer); n++ {
+		part, arrived := later[strconv.Itoa(n)]
+		if !arrived {
+			return fmt.Errorf("the Mac's %s answered ask %s in %d parts and part %d has not reached this Sprite in %s", StoreDesk, posted.Name(), partsOf(answer), n, wait.Round(time.Second))
+		}
+		rest, err := os.ReadFile(part.Refs.Path)
+		if err != nil {
+			return err
+		}
+		body += string(rest)
+	}
 	if _, err := io.WriteString(out, body); err != nil {
 		return err
 	}
@@ -166,4 +186,9 @@ func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs
 		return &ExitError{Code: exit}
 	}
 	return nil
+}
+
+func partsOf(answer client.Record) int {
+	parts, _ := strconv.Atoi(answer.Fields.Attrs[partsAttr])
+	return max(parts, 1)
 }

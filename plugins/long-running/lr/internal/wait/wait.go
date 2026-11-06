@@ -585,7 +585,7 @@ func postedByOwnTools(line string) bool {
 		return false
 	}
 	poster, _, _ := strings.Cut(fields[2], ">")
-	return poster == wakeLane || poster == askdesk.StoreDesk && fields[1] == askdesk.AnswerKind
+	return poster == wakeLane || poster == askdesk.StoreDesk && (fields[1] == askdesk.AnswerKind || fields[1] == askdesk.PartKind)
 }
 
 func (w *waiter) flush() {
