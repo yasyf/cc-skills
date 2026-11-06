@@ -104,7 +104,7 @@ def test_a_job_copies_back_only_what_it_wrote_so_the_archive_stays_inside_what_t
     job_script = plugin_with_job(mac, RESTARTED_JOB + '(job / "landed.json").write_text("")\n(job / "answers.json").write_text("")\n')
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (directory / "landed.json").write_text('{"rows": 1}')
@@ -129,7 +129,7 @@ def test_a_job_keeps_its_own_job_pid_and_log_files_and_drops_the_empty_or_nul_fi
     job_script, grader = plugin_with_job(mac, RESTARTED_JOB), "finder"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", relay)
-    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     job = json.dumps({"drive": "d1", "checkout": str(checkout)})
     (directory / "job.json").write_text(job)
@@ -330,7 +330,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     job_script, grader = plugin_with_job(mac, "import os, shutil, signal, sys\nshutil.rmtree(os.path.realpath(sys.argv[1]))\nos.killpg(os.getpgrp(), signal.SIGKILL)\n"), "fidelity"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -353,7 +353,7 @@ def test_a_result_the_sprite_kept_empty_or_cut_leaves_an_error_result_so_the_run
     job_script, grader = plugin_with_job(mac, f"import pathlib, sys\n(pathlib.Path(sys.argv[1]) / 'record.md').write_text('graded')\n(pathlib.Path(sys.argv[1]) / 'result.json').write_text({kept!r})\n"), "fidelity"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)
@@ -400,7 +400,7 @@ def test_every_git_command_a_job_runs_authenticates_through_gh(tmp_path: Path) -
     job_script, grader = plugin_with_job(mac, HELPER_JOB), "finder"
     executable(mac / "bin" / "sprite", SPRITE)
     executable(mac / "bin" / "cci", "#!/bin/sh\n")
-    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\nexec /bin/sleep 0.05\n")
     directory.mkdir(parents=True)
     (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
     (config / "long-running" / "drives").mkdir(parents=True)

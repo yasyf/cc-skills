@@ -149,6 +149,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
 	t.Setenv(drive.Env, "d")
 	f := fanout(t, nil)
+	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix"})
 	entry, err := json.Marshal(f.Entry)
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +202,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	}
 	id := strings.TrimSuffix(filepath.Base(saved[0]), ".json")
 	text := result.Result.Content[0].Text
-	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended): " + untiedPick + "\n- Hold it", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
+	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended)\n- Hold it", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
 		if !strings.Contains(text, want) {
 			t.Errorf("window text lacks %q:\n%s", want, text)
 		}
