@@ -39,6 +39,7 @@ const (
 	heartbeatFact       = "lane-heartbeat"
 	milestoneFact       = "milestone-statuses"
 	registryRequestKind = "decide"
+	kindOwnerPick       = "owner"
 )
 
 const restReadTimeout = 30 * time.Second
@@ -441,6 +442,13 @@ func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Res
 	if newest != nil && slices.Contains(restingKinds, string(newest.Kind)) && newest.Status == recordOpen && !strings.HasPrefix(newest.ID, turnEndBlocker) {
 		return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s #%d", strings.ToUpper(string(newest.Kind)), newest.Seq)}}, nil
 	}
+	pick, err := d.openPick(ctx, lane)
+	if err != nil {
+		return livetasks.Rest{}, err
+	}
+	if pick != "" {
+		return livetasks.Rest{Tasks: []string{pick}}, nil
+	}
 	sprites, err := CCRemote{Runner: d.Runner, State: d.Config.CCRemote}.Sprites()
 	if err != nil {
 		return livetasks.Rest{}, err
@@ -465,6 +473,46 @@ func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Res
 	}
 	rest.Read = "on " + host + ": " + rest.Read
 	return rest, nil
+}
+
+func (d *Desk) openPick(ctx context.Context, lane string) (string, error) {
+	waits, err := d.laneRecords(ctx, lane, append(slices.Clone(restingKinds), registryRequestKind)...)
+	if err != nil {
+		return "", err
+	}
+	waits = slices.DeleteFunc(waits, func(wait client.Record) bool {
+		return wait.Status != recordOpen || strings.HasPrefix(wait.ID, turnEndBlocker)
+	})
+	if len(waits) == 0 {
+		return "", nil
+	}
+	carded, err := d.passTail(ctx, client.Query{Lanes: []string{lanes.OwnerRelay, coordinatorLane}, Since: waits[0].At})
+	if err != nil {
+		return "", err
+	}
+	picks, err := d.passTail(ctx, client.Query{Kinds: []string{kindOwnerPick}, Since: waits[0].At})
+	if err != nil {
+		return "", err
+	}
+	for _, wait := range slices.Backward(waits) {
+		var cards []string
+		if string(wait.Kind) == kindBlocked || slices.Contains(wait.To, lanes.OwnerRelay) || slices.Contains(wait.To, coordinatorLane) {
+			cards = lanes.Cards(wait.Text)
+		}
+		for _, card := range carded {
+			if card.Re == wait.Seq {
+				cards = append(cards, lanes.Cards(card.Text)...)
+			}
+		}
+		answered := slices.ContainsFunc(picks, func(pick client.Record) bool {
+			return !pick.At.Before(wait.At) && slices.ContainsFunc(cards, func(card string) bool { return lanes.AnswersCard(pick.Text, card) })
+		})
+		if len(cards) > 0 && !answered {
+			slices.Sort(cards)
+			return fmt.Sprintf("its open %s #%d on his pick on %s", strings.ToUpper(string(wait.Kind)), wait.Seq, strings.Join(slices.Compact(cards), ", ")), nil
+		}
+	}
+	return "", nil
 }
 
 func (d *Desk) stopOpen(ctx context.Context, terminal string) (bool, error) {

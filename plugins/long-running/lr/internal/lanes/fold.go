@@ -417,7 +417,8 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	}
 	if len(answers) > 0 {
 		for _, waiter := range must(s.Answered(answers, live...)) {
-			do(s.SetLaneWaiting(waiter, 0, at, ""))
+			picks, _ := laneOf(s, waiter)
+			do(s.SetLaneWaiting(waiter, 0, at, picks.Awaits))
 		}
 	}
 	if name == Root && kind == "state" {
@@ -478,19 +479,28 @@ func maxOrder(s *store.Store, r Record) int64 {
 
 func foldWait(s *store.Store, r Record, row store.Lane, repo string) {
 	var ask int64
-	awaits := ""
+	var gates []string
 	blocked := blockedOn(s, r, row, repo)
 	if slices.Contains(waits, r.Kind) && (cardOnOwner(r) || slices.Contains(r.To, Root) || dutyOf(row) == "" || len(blocked) > 0) {
-		gates := gatesOf(r)
+		ask, gates = r.Seq, gatesOf(r)
 		for _, n := range blocked {
-			if !slices.Contains(gates, store.PRGate(n)) {
-				gates = append(gates, store.PRGate(n))
-			}
+			gates = withGate(gates, store.PRGate(n))
 		}
-		ask, awaits = r.Seq, strings.Join(gates, " ")
 	}
-	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, awaits))
+	for _, unanswered := range card.FindAllString(row.Awaits, -1) {
+		if !slices.Contains(gates, unanswered) {
+			gates = withGate(gates, store.PickGate+unanswered)
+		}
+	}
+	do(s.SetLaneWaiting(r.Lane, ask, time.Time{}, strings.Join(gates, " ")))
 	do(s.SetLanePage(r.Lane, nil))
+}
+
+func withGate(gates []string, gate string) []string {
+	if slices.Contains(gates, gate) {
+		return gates
+	}
+	return append(gates, gate)
 }
 
 func blockedOn(s *store.Store, r Record, lane store.Lane, repo string) []int {
@@ -788,11 +798,17 @@ func restedOnItsOwnEnd(lane store.Lane) bool {
 	return !isStanding(lane) && (lane.RetiredBy == retiredSilent || (lane.RetiredBy == retiredStopped && lane.Last == "stopped"))
 }
 
+func Cards(text string) []string {
+	return card.FindAllString(text, -1)
+}
+
+func AnswersCard(pick, cardID string) bool {
+	marks := picked.FindAllString(pick, -1)
+	return slices.Contains(Cards(pick), cardID) || slices.Contains(marks, "("+cardID+")") || slices.Contains(marks, "("+strings.TrimPrefix(cardID, "card-")+")")
+}
+
 func foldOwnerPick(s *store.Store, r Record, fresh bool, at time.Time) {
-	marks, named := picked.FindAllString(r.Text, -1), card.FindAllString(r.Text, -1)
-	answers := func(found string) bool {
-		return slices.Contains(named, found) || slices.Contains(marks, "("+found+")") || slices.Contains(marks, "("+strings.TrimPrefix(found, "card-")+")")
-	}
+	answers := func(found string) bool { return AnswersCard(r.Text, found) }
 	for _, built := range must(s.BranchCards()) {
 		if answers(built.Card) {
 			do(s.AnswerBranchCard(built.Lane, built.Card, at))

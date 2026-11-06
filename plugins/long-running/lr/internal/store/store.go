@@ -118,7 +118,10 @@ type Lane struct {
 	Staged      time.Time
 }
 
-const prGate = "pr:"
+const (
+	prGate   = "pr:"
+	PickGate = "pick:"
+)
 
 func PRGate(number int) string {
 	return fmt.Sprintf("%s%d", prGate, number)
@@ -939,7 +942,7 @@ func (s *Store) Answered(answers []int64, states ...LaneState) ([]string, error)
 	for _, state := range states {
 		args = append(args, string(state))
 	}
-	return s.strings("SELECT name FROM lanes WHERE awaits IS NULL AND waiting IN ("+placeholders(len(answers))+") AND state IN ("+placeholders(len(states))+")", args...)
+	return s.strings("SELECT name FROM lanes WHERE (awaits IS NULL OR instr(replace(' ' || awaits, ' "+PickGate+"', ''), ' ') = 0) AND waiting IN ("+placeholders(len(answers))+") AND state IN ("+placeholders(len(states))+")", args...)
 }
 
 func (s *Store) OwnerOf(prs []int) (map[int]string, error) {

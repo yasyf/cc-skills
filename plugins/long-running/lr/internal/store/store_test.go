@@ -630,6 +630,17 @@ func TestOwnersFollowTheNewestLane(t *testing.T) {
 	}
 }
 
+func TestALaneWhoseOnlyGatesAreCarriedPicksIsAnsweredByAReply(t *testing.T) {
+	s := memory(t)
+	for name, awaits := range map[string]string{"carried": PickGate + "card-3", "gated": "pr:5 " + PickGate + "card-3"} {
+		must[bool](t)(s.WantLane(Lane{Name: name, Brief: "b", Model: "m", Effort: "e", Role: "r", State: LaneDesired}, t0))
+		ok(t, s.SetLaneWaiting(name, 200, time.Time{}, awaits))
+	}
+	if got := must[[]string](t)(s.Answered([]int64{200}, LaneDesired)); !slices.Equal(got, []string{"carried"}) {
+		t.Fatalf("answered %v", got)
+	}
+}
+
 func TestALaneWaitingOnAnAnswerIsFoundOnceAndStopsWaiting(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.WantLane(Lane{Name: "plain", Brief: "b", Model: "m", Effort: "e", Role: "r", State: LaneDesired}, t0))
