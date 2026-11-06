@@ -209,6 +209,10 @@ func (w *workerLaunch) start(model string) (string, error) {
 	if faults := order.costFaults(string(raw)); len(faults) > 0 {
 		return "", refuse("%s; nothing launched", strings.Join(faults, "; "))
 	}
+	if lacked := spriteLackedWarning(w.brief, string(raw)); w.route == routeSprite && lacked != "" {
+		fmt.Fprintf(w.Stderr, "warning: %s\n", lacked)
+		w.stages.say(w.ctx, lacked)
+	}
 	if bound := w.boundRun(); bound != w.run {
 		handle, owner := w.Env("ORCA_TERMINAL_HANDLE"), bound
 		if handle == "" {
@@ -453,6 +457,9 @@ func (w *workerLaunch) carryBrief() error {
 	for _, behind := range left {
 		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)
 		w.stages.say(w.ctx, "stays behind on the Mac: "+behind)
+	}
+	if drive := driveName(w.Env, w.run); w.kind == agentCodex && drive != "" {
+		rewritten += fmt.Sprintf("\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive '%[1]s' --lane '%[2]s' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive '%[1]s' --lane '%[2]s' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n", drive, w.lane)
 	}
 	w.brief = filepath.Join(w.attempt, briefFile)
 	return os.WriteFile(w.brief, []byte(rewritten), 0o600)

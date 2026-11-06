@@ -234,6 +234,21 @@ func incidentBrief(lane, text string) bool {
 	return incidentNamed.MatchString(lane) || named || strings.HasSuffix(lane, "-"+roleFix) && regexp.MustCompile(`(?m)^`+sliceLine+` lane=`+regexp.QuoteMeta(lane)+` step=`+stepIncident+`\b`).MatchString(text)
 }
 
+var macLedgerCommand = regexp.MustCompile("(?:^|[\\s`'\"(/])(drive\\.py'? record|ledger\\.py'? report)\\b")
+
+func spriteLackedWarning(brief, text string) string {
+	var lacked []string
+	for _, match := range macLedgerCommand.FindAllStringSubmatch(text, -1) {
+		if command := strings.ReplaceAll(match[1], "'", ""); !slices.Contains(lacked, command) {
+			lacked = append(lacked, command)
+		}
+	}
+	if len(lacked) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("brief %s runs %s, which reads the Mac's drive ledger and no Sprite has; on a Sprite the lane runs its `## PR record` cci records instead, so name those: `cci post --kind opened --pr <n>` after the ship that opens a PR, and `--kind ready --pr <n>` to hand it to the landing pass", brief, strings.Join(lacked, ", "))
+}
+
 func placedLocal(text string) bool {
 	placed := briefPlace.FindStringSubmatch(text)
 	return placed != nil && placed[1] == "local"
@@ -279,6 +294,9 @@ func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driv
 	warnings, err := carryWarnings(ctx, runner, home, repo, driveDir, o.Brief, text)
 	if err != nil {
 		return nil, nil, err
+	}
+	if lacked := spriteLackedWarning(o.Brief, text); lacked != "" {
+		warnings = append(warnings, lacked)
 	}
 	return faults, warnings, nil
 }

@@ -596,7 +596,7 @@ Escalate: with no mechanism 15 minutes after launch, the orca desk launches an
   mechanism within 10 minutes, an opened PR within 15, ready within 20. It
   reads your `mechanism:`, `ready:`, and `fix-live:` status messages and the cci records
   posted as <fix lane name>: `mechanism`, the PR's `opened` record, which
-  `ccx vcs ship` posts in a Claude session and `drive.py record --opened` in a
+  `ccx vcs ship` posts in a Claude session and the `## PR record` command in a
   Codex one, `ready`, `fix-live`, `not-ours`, and `stopped`. Past
   10 or 15 minutes it launches <fix lane name>-opus in parallel, and the first
   PR wins. You get one Opus fallback, from whichever of the two fires first.

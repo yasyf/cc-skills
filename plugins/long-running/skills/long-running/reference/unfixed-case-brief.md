@@ -95,7 +95,7 @@ Do:
        fallback on this brief, in parallel. Keep working; the first PR wins.
      - The PR, within 15 minutes, as its `opened` record. In a Claude session
        `ccx vcs ship` posts it for you; in a Codex session run the
-       `drive.py record --opened` line under `## PR record` right after the ship.
+       command under `## PR record` right after the ship.
      - `READY {lane}: <PR number, head, the case failing before and passing after>`,
        kind `ready`, within 20 minutes.
      - `FIX-LIVE {lane}: <what, where, the case passing on the released build, time>`,
