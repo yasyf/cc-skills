@@ -41,28 +41,29 @@ var (
 )
 
 type Deps struct {
-	Movers    []string
-	Clock     func() time.Time
-	Sleep     func(time.Duration)
-	Lanes     func(now time.Time, generation int64) (lanes.Outcome, error)
-	Checks    []lanes.Check
-	Stagger   time.Duration
-	Followers []func(context.Context)
-	Snapshot  func(ctx context.Context) ([]machine.Facts, error)
-	WriteRows func(ctx context.Context, snapshot []machine.Facts) error
-	Post      pass.Post
-	Wake      func(ctx context.Context, lane, text string) error
-	Queue     landing.Queue
-	Restacker landing.Restacker
-	Trunk     string
-	Admit     func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
-	Squash    func(ctx context.Context, snapshot []machine.Facts) error
-	DropStale func(ctx context.Context, snapshot []machine.Facts) error
-	Unstick   func(ctx context.Context, snapshot []machine.Facts) error
-	SweepGos  func(ctx context.Context, snapshot []machine.Facts) ([]int, error)
-	Pool      grading.Pool
-	Stale     func(ctx context.Context) (bool, error)
-	Log       *slog.Logger
+	Movers     []string
+	Clock      func() time.Time
+	Sleep      func(time.Duration)
+	Lanes      func(now time.Time, generation int64) (lanes.Outcome, error)
+	Checks     []lanes.Check
+	Stagger    time.Duration
+	Followers  []func(context.Context)
+	Snapshot   func(ctx context.Context) ([]machine.Facts, error)
+	LateGrades func(ctx context.Context, snapshot []machine.Facts) ([]machine.Facts, error)
+	WriteRows  func(ctx context.Context, snapshot []machine.Facts) error
+	Post       pass.Post
+	Wake       func(ctx context.Context, lane, text string) error
+	Queue      landing.Queue
+	Restacker  landing.Restacker
+	Trunk      string
+	Admit      func(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act
+	Squash     func(ctx context.Context, snapshot []machine.Facts) error
+	DropStale  func(ctx context.Context, snapshot []machine.Facts) error
+	Unstick    func(ctx context.Context, snapshot []machine.Facts) error
+	SweepGos   func(ctx context.Context, snapshot []machine.Facts) ([]int, error)
+	Pool       grading.Pool
+	Stale      func(ctx context.Context) (bool, error)
+	Log        *slog.Logger
 }
 
 type Report struct {
@@ -168,6 +169,11 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 			d.Log.Warn("an eviction went unread or untold", "err", err)
 		}
 		snapshot = read
+	}
+	if d.LateGrades != nil {
+		if snapshot, err = d.LateGrades(ctx, snapshot); err != nil {
+			return report, err
+		}
 	}
 	route, err := watch.Desks(s)
 	if err != nil {

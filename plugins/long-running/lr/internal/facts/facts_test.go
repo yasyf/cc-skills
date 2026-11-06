@@ -2058,6 +2058,37 @@ func TestAGradeTheFinderPostedAsAReviewLineCountsForTheFullHeadItAbbreviates(t *
 	}
 }
 
+func TestAGradePostedAfterTheReadFillsThatHeadsMissingGradeBeforeThePass(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", commits: []string{head}}, {number: 2, head: head2, login: "drive-bot"}}, status(1), status(2))
+	ctx := context.Background()
+	if _, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", Text: "finder: ok " + head + " no majors", PRs: []string{repo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+	read, err := h.source.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(ctx, client.Draft{Drive: "d", Lane: "fidelity-pipeline", Kind: "review", Text: "fidelity: ok " + head + " the outline gate honors his pick", PRs: []string{repo + "#1"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fresh, err := h.source.ReadLateGrades(ctx, read)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	by := make(map[int]machine.Facts, len(fresh))
+	for _, f := range fresh {
+		by[f.Number] = f
+	}
+	if by[1].Fidelity != machine.FidelityPass || !by[1].Cleared() {
+		t.Fatalf("#1 = %+v, want the fidelity ok posted after the read", by[1])
+	}
+	if by[2].Finder != "" || by[2].Fidelity != "" {
+		t.Fatalf("#2 = %+v, graded with no record naming it", by[2])
+	}
+}
+
 func TestAPRBelongsToTheLaneTheRegistryNamesEvenWhenAnotherLanePushedItLast(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	post(t, bus.SweepLane, bus.Head{PR: 1, Head: head, Lane: bus.SweepLane}, "supervisor")

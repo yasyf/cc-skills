@@ -264,14 +264,15 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 		Lanes: func(now time.Time, generation int64) (lanes.Outcome, error) {
 			return lanes.Tick(s, laneDeps, now, generation)
 		},
-		Checks:    checks,
-		Stagger:   checkStagger,
-		Snapshot:  passSource.Snapshot,
-		WriteRows: prfacts.New(a, env.Config, s).WriteRows,
-		Post:      post,
-		Wake:      orca.Poster{Bus: orca.CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: io.Discard, Drive: env.Config.Drive, Author: "supervisor"}.Relay,
-		Squash:    squashFixes,
-		Log:       a.Log,
+		Checks:     checks,
+		Stagger:    checkStagger,
+		Snapshot:   passSource.Snapshot,
+		LateGrades: passSource.ReadLateGrades,
+		WriteRows:  prfacts.New(a, env.Config, s).WriteRows,
+		Post:       post,
+		Wake:       orca.Poster{Bus: orca.CCI{}, Runner: a.Runner, Env: os.Getenv, Now: a.Now, Sleep: time.Sleep, Out: io.Discard, Drive: env.Config.Drive, Author: "supervisor"}.Relay,
+		Squash:     squashFixes,
+		Log:        a.Log,
 	}
 	if err := holdsStore(env.Config.Drive); err != nil {
 		a.Log.Warn("the store desk stays off", "drive", env.Config.Drive, "err", err)
