@@ -41,7 +41,9 @@ const (
 
 var cciVersion = regexp.MustCompile(`/v(\d+\.\d+\.\d+)/`)
 
-var hostTools = []string{"long-running@skills", "ccx", graderTool}
+const packTool = "long-running@skills"
+
+var hostTools = []string{packTool, "ccx", graderTool}
 
 type spritePins struct {
 	ccURL, ccSHA, lrURL, lrSHA, lrMember string

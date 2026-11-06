@@ -69,6 +69,9 @@ func (w *pinWorld) macRuns(plugins map[string]string) {
 	for id, version := range plugins {
 		entries[id] = []map[string]string{{"scope": "user", "version": version}, {"scope": "project", "version": "0.0.1"}}
 		w.macCached(id, version)
+		if id == packTool {
+			w.macInstalled(version)
+		}
 	}
 	raw, err := json.Marshal(map[string]any{"version": 2, "plugins": entries})
 	if err != nil {
@@ -89,6 +92,85 @@ func (w *pinWorld) macCached(plugin string, versions ...string) {
 		if err := os.MkdirAll(filepath.Join(w.claude, "plugins", "cache", marketplace, name, version), 0o700); err != nil {
 			w.t.Fatal(err)
 		}
+	}
+}
+
+func (w *pinWorld) macInstalled(version string) {
+	w.t.Helper()
+	w.macCached(packTool, version)
+	link := filepath.Join(w.claude, "long-running", "current")
+	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.RemoveAll(link); err != nil {
+		w.t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(w.claude, "plugins", "cache", "skills", "long-running", version), link); err != nil {
+		w.t.Fatal(err)
+	}
+}
+
+func writeBinrun(t *testing.T, root, version string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "lr.binrun"), []byte("#!/usr/bin/env binrun\n{\"version\":{\"static\":\""+version+"\"}}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheSpritePackPinFollowsThePackTheMacInstalledNeverItsNewerPlugin(t *testing.T) {
+	for label, pinned := range map[string]string{"behind": "0.7.1", "ahead": "0.7.4"} {
+		t.Run(label, func(t *testing.T) {
+			w := newPinWorld(t)
+			w.macRuns(map[string]string{packTool: "0.7.3"})
+			w.macInstalled("0.7.2")
+			w.publish("/pack--v0.7.2/pack_0.7.2.tar.gz", "pack two", "checksums.txt")
+			w.pinned(w.pack(pinned))
+
+			if err := w.move(); err != nil {
+				t.Fatal(err)
+			}
+
+			if tool := w.tools()[0]; tool.Version != "0.7.2" || tool.SHA256 != digestOf("pack two") {
+				t.Fatalf("%+v", tool)
+			}
+			if want := "lr sprites pin: long-running@skills follows the pack the Mac has installed, 0.7.2, not its plugin 0.7.3, so no Sprite asks the Mac's store desk for a verb it does not serve yet\nlr sprites pin: long-running@skills moved from " + pinned + " to 0.7.2\n"; w.out.String() != want {
+				t.Fatal(w.out.String())
+			}
+		})
+	}
+}
+
+func TestARollRefusesAPackOrAnLrNewerThanTheOnesTheMacInstalled(t *testing.T) {
+	for label, c := range map[string]struct {
+		pack, lr string
+		refused  []string
+	}{
+		"level":        {"0.7.2", "0.1075.1", nil},
+		"a newer pack": {"0.7.3", "0.1075.1", []string{"pin 0.7.3", "installed, 0.7.2"}},
+		"a newer lr":   {"0.7.2", "0.1077.1", []string{"lr 0.1077.1", "lr 0.1075.1"}},
+	} {
+		t.Run(label, func(t *testing.T) {
+			w := newPinWorld(t)
+			w.macInstalled("0.7.2")
+			writeBinrun(t, filepath.Join(w.claude, "long-running", "current"), "0.1075.1")
+			roller := t.TempDir()
+			writeBinrun(t, roller, c.lr)
+			w.pinned(w.pack(c.pack))
+
+			err := aheadOfMac(w.claude, w.runner, roller)
+
+			if (err == nil) != (c.refused == nil) {
+				t.Fatalf("got %v, want refused %t", err, c.refused != nil)
+			}
+			for _, want := range c.refused {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("%v does not name %q", err, want)
+				}
+			}
+		})
 	}
 }
 
