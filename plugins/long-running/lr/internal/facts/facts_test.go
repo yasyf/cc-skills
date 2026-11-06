@@ -307,7 +307,7 @@ func (h harness) heldAndQueued(t *testing.T, named ...int) map[int]machine.Facts
 	return by
 }
 
-func (h harness) statusNumbers(t *testing.T) []string {
+func (h harness) queueNumbers(t *testing.T) []string {
 	t.Helper()
 	for _, call := range h.runner.Calls() {
 		if len(call.Argv) >= len(trunkStatus) && slices.Equal(call.Argv[:len(trunkStatus)], trunkStatus) {
@@ -315,6 +315,17 @@ func (h harness) statusNumbers(t *testing.T) []string {
 		}
 	}
 	t.Fatal("no queue read")
+	return nil
+}
+
+func (h harness) statusNumbers(t *testing.T) []string {
+	t.Helper()
+	for _, call := range h.runner.Calls() {
+		if slices.Equal(call.Argv[:5], []string{"ccx", "vcs", "pr", "status", "--repo"}) {
+			return call.Argv[slices.Index(call.Argv, "--json")+1:]
+		}
+	}
+	t.Fatal("no status read")
 	return nil
 }
 
@@ -334,7 +345,7 @@ func TestOnlyAPROpenedOnTheRecordIsRead(t *testing.T) {
 
 	h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "45757"}) {
 		t.Fatalf("status read = %v, want the rows only and never a PR no record opened", got)
 	}
 	for _, call := range h.runner.Calls() {
@@ -358,7 +369,7 @@ func TestAnEndedPRCostsNoStatusReadAndLeavesTheRowsWithItsState(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "5"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "5"}) {
 		t.Fatalf("status read = %v, want the open PR and the one holding an item", got)
 	}
 	if _, drawn := by[2]; drawn {
@@ -1165,7 +1176,7 @@ func TestTheMemberReadReadsPastOnePage(t *testing.T) {
 
 	h.snapshot(t)
 
-	if got := h.statusNumbers(t); len(got) != 700 || got[699] != strconv.Itoa(700) {
+	if got := h.queueNumbers(t); len(got) != 700 || got[699] != strconv.Itoa(700) {
 		t.Fatalf("status read names %d PRs", len(got))
 	}
 }
@@ -2317,7 +2328,7 @@ func TestAPRThatLeftTheOpenListWithAnOpenItemGetsItsTerminalRow(t *testing.T) {
 
 	by := h.snapshot(t)
 
-	if got := h.statusNumbers(t); !slices.Equal(got, []string{"1", "44"}) {
+	if got := h.queueNumbers(t); !slices.Equal(got, []string{"1", "44"}) {
 		t.Fatalf("status read = %v", got)
 	}
 	if machine.Classify(by[44]).State != machine.StateLanded {
