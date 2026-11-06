@@ -51,7 +51,7 @@ var (
 	rawStep       = regexp.MustCompile(`^(?:\d|[A-Z]\d)`)
 	askWrong      = map[asks.State]string{asks.Lost: "no PR and no record carry it", asks.Stale: "no progress past its due time", asks.LandedNotLive: "landed but not live for users"}
 	prWrong       = map[string]string{"red": "its head is red", "refused": "the landing gate refused its head", "held": "a hold stops it"}
-	prWorkKinds   = []string{"head", "opened", "claim"}
+	prWorkKinds   = []string{"head", "opened", "ready"}
 	stepWorkKinds = []string{"head", "opened", "report", "done", "handoff"}
 )
 
@@ -305,6 +305,7 @@ type view struct {
 	lanes     []Lane
 	byLane    map[string]Lane
 	answerers map[string]Lane
+	holders   map[int][]string
 	latest    map[string]Record
 	waits     map[string]Record
 	records   []Record
@@ -315,10 +316,13 @@ type view struct {
 }
 
 func newView(lanes []Lane, records, waits []Record, now time.Time) view {
-	v := view{lanes: lanes, byLane: map[string]Lane{}, answerers: map[string]Lane{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
+	v := view{lanes: lanes, byLane: map[string]Lane{}, answerers: map[string]Lane{}, holders: map[int][]string{}, latest: map[string]Record{}, waits: map[string]Record{}, records: bySeq(records), rulings: strings.NewReplacer(), now: now}
 	v.history = v.records
 	for _, lane := range lanes {
 		v.byLane[lane.Name] = lane
+		for _, number := range lane.PRs {
+			v.holders[number] = append(v.holders[number], lane.Name)
+		}
 		if stem := client.Stem(lane.Name); stem != lane.Name && heardLive(lane, now) && lane.Heard.After(v.answerers[stem].Heard) {
 			v.answerers[stem] = lane
 		}
@@ -350,21 +354,14 @@ func (v view) liveHead(name string) bool {
 	return found && v.live(v.headOf(lane).Name)
 }
 
-func (v view) newestNaming(kinds []string, pattern *regexp.Regexp, pr string) string {
+func (v view) ownerOfPR(number int) string {
+	pr := strconv.Itoa(number)
 	for _, record := range slices.Backward(v.records) {
-		if !slices.Contains(kinds, record.Kind) || slices.Contains(coordinators, record.Lane) {
-			continue
-		}
-		if pattern.MatchString(record.Text) || (pr != "" && slices.ContainsFunc(record.PRs, func(named string) bool { return named == pr || strings.HasSuffix(named, "#"+pr) })) {
+		if slices.Contains(prWorkKinds, record.Kind) && !slices.Contains(coordinators, record.Lane) && slices.ContainsFunc(record.PRs, func(named string) bool { return named == pr || strings.HasSuffix(named, "#"+pr) }) {
 			return record.Lane
 		}
 	}
 	return ""
-}
-
-func (v view) ownerOfPR(number int) string {
-	pr := strconv.Itoa(number)
-	return v.newestNaming(prWorkKinds, regexp.MustCompile(`#`+pr+`\b`), pr)
 }
 
 func (v view) lastOnStep(number string) (Record, bool) {
@@ -568,7 +565,7 @@ func (v view) askRow(ask asks.Graded) Row {
 }
 
 func (v view) prLanes(row store.ReviewRow) []string {
-	return slices.DeleteFunc([]string{v.ownerOfPR(row.Number), row.Lane}, func(lane string) bool { return lane == "" })
+	return slices.DeleteFunc(slices.Concat([]string{v.ownerOfPR(row.Number)}, v.holders[row.Number], []string{row.Lane}), func(lane string) bool { return lane == "" })
 }
 
 func (v view) prRow(row store.ReviewRow, held map[string]int64) Row {

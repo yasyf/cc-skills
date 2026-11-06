@@ -27,6 +27,11 @@ func record(seq int64, lane, kind, text string, minutes int) Record {
 	return Record{Seq: seq, Drive: testDrive, Lane: lane, Kind: kind, Text: text, At: ago(minutes), To: []string{"root"}}
 }
 
+func forPR(posted Record, number int) Record {
+	posted.PRs = []string{fmt.Sprintf("o/r#%d", number)}
+	return posted
+}
+
 func heard(name, state string, minutes int) Lane {
 	return Lane{Name: name, State: state, Heard: ago(minutes), Brief: "/b/" + name + ".md"}
 }
@@ -175,8 +180,8 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 	v := viewOf(
 		[]Lane{heard("stale-1", "desired", 300), heard("ship-2", "desired", 5), heard("older-3", "desired", 5), heard("progress-desk-2", "unregistered", 1), heard("finder-desk", "unregistered", 1)},
 		[]Record{
-			record(1, "older-3", "head", "#48401 at abc", 30),
-			record(2, "ship-2", "head", "#48401 rebased", 10),
+			forPR(record(1, "older-3", "head", "#48401 at abc", 30), 48401),
+			forPR(record(2, "ship-2", "head", "#48401 rebased", 10), 48401),
 			record(3, "root", "decide", "#48401 goes", 1),
 			record(4, "ship-2", "note", "other work on #484010", 1),
 			record(5, "progress-desk-2", "evidence", "#48401 is red", 1),
@@ -193,7 +198,7 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 	}
 }
 
-func TestAPRClaimedFromAnotherNodeUnderALaneAliasIsOwnedByThatAliasesLiveLane(t *testing.T) {
+func TestAPRInASpriteAliasRowsListIsOwnedByThatAliasesLiveLane(t *testing.T) {
 	alias := Lane{Name: "spa-edge-role", State: "unregistered", PRs: []int{50150, 50212}}
 	sprite := heard("spa-edge-role-1", "desired", 2)
 	older := heard("spa-edge-role-0", "desired", 30)
@@ -207,10 +212,33 @@ func TestAPRClaimedFromAnotherNodeUnderALaneAliasIsOwnedByThatAliasesLiveLane(t 
 	)
 	row := v.prRow(store.ReviewRow{Number: 50212, State: "open", Title: "the edge role"}, nil)
 	if row.Who != "spa-edge-role" {
-		t.Fatalf("who = %q, want the lane whose claim from the Sprite names the PR", row.Who)
+		t.Fatalf("who = %q, want the alias whose registry row lists the PR", row.Who)
 	}
 	if row.Wrong != noneRecorded || !strings.Contains(row.Unblock, "next record due by "+pacific(sprite.Heard.Add(store.StaleAfter))) {
 		t.Fatalf("wrong = %q, unblock = %q; want the alias answered by its newest live lane", row.Wrong, row.Unblock)
+	}
+}
+
+func TestALaneThatMentionsAnotherLanesPRNeverOwnsIt(t *testing.T) {
+	opener := heard("sand-version-protocol-2", "desired", 10)
+	mentioner := heard("dd-331634912-fix", "desired", 1)
+	mentioner.PRs = []int{51586}
+	records := []Record{
+		forPR(record(1, "sand-version-protocol-2", "opened", "opened #51584", 60), 51584),
+		forPR(record(2, "dd-331634912-fix", "head", "HEAD #51586 d43f890: this prerequisite still waits for #51584", 5), 51586),
+		forPR(record(3, "dd-331634912-fix", "ask", "Please send me the landed record for #51584 when it merges", 3), 51584),
+		record(4, "dd-331634912-fix", "claim", "#51586 inherits #51584's failure", 2),
+	}
+	row := store.ReviewRow{Number: 51584, State: "open", Title: "the wire golden"}
+	if who := viewOf([]Lane{opener, mentioner}, records, nil).prRow(row, nil).Who; who != "sand-version-protocol-2" {
+		t.Fatalf("who = %q, want the lane that opened it, not the one whose head, ask and claim mention it", who)
+	}
+	if who := viewOf([]Lane{opener, mentioner}, records, nil).prRow(store.ReviewRow{Number: 51586, State: "open"}, nil).Who; who != "dd-331634912-fix" {
+		t.Fatalf("who = %q, want the lane whose head and registry row are for it", who)
+	}
+	opener.State = retired
+	if who := viewOf([]Lane{opener, mentioner}, records, nil).prRow(row, nil).Who; who != nobody {
+		t.Fatalf("who = %q, want nobody once its opener retired: a mention never stands in for the owner", who)
 	}
 }
 
