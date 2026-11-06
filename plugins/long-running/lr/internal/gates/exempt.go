@@ -114,7 +114,7 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 		rules = nil
 	}
 	cards := r.Cards
-	if TestOnlyGraded(c, r) {
+	if TaplessClassAt(c, r) {
 		cards = slices.DeleteFunc(slices.Clone(cards), func(card Card) bool { return strings.HasPrefix(card.ID, TapCardPrefix(c.PR)) })
 	}
 	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
@@ -205,10 +205,18 @@ func ExemptGraded(c Claim, r Read) bool {
 	return len(refusals) == 0
 }
 
-func TestOnlyGraded(c Claim, r Read) bool {
+func TaplessClassAt(c Claim, r Read) bool {
+	word := ""
+	if port, claimed := PortAt(c, r.Records); claimed && len(PortRefusals(claimFacts(port, r))) == 0 {
+		word = OldTreePortClass
+	}
 	_, finderRefusal := finderCite(c, r)
-	_, _, refusals := fidelityCite(c, r, testOnlyPhrases(r.Exempt), "")
+	_, _, refusals := fidelityCite(c, r, taplessPhrases(r.Exempt), word)
 	return finderRefusal == "" && len(refusals) == 0
+}
+
+func taplessPhrases(exempt []string) []string {
+	return slices.DeleteFunc(slices.Clone(exempt), func(phrase string) bool { return !PathDecided(phrase) && !isPortClass(ClassOf(phrase)) })
 }
 
 func testOnlyPhrases(exempt []string) []string {
