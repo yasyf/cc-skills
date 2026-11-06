@@ -1597,7 +1597,7 @@ func (l *launch) awaitBypass() error {
 }
 
 func (l *launch) postSpawned() {
-	if l.drive == "" {
+	if l.drive == "" || l.Env(stageKeyEnv) != "" {
 		return
 	}
 	warn := func() {
