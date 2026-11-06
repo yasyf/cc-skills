@@ -243,7 +243,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if err != nil {
 		return FinderOutcome{}, err
 	}
-	rowsPath, keys := "", []string(nil)
+	rowsPath, rowsText, keys := "", "", []string(nil)
 	if last == "" {
 		rowsPath = filepath.Join(s.dir, rowsFile)
 		if slicing == nil {
@@ -256,7 +256,7 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 		if err := os.WriteFile(rowsPath, []byte(rows), 0o600); err != nil {
 			return FinderOutcome{}, err
 		}
-		keys = rowKeys(rows)
+		rowsText, keys = rows, rowKeys(rows)
 	}
 	planned, err := planOnThisBox(plan)
 	if err != nil {
@@ -298,8 +298,14 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 	if len(owed) > 0 {
 		text += "; " + followUpsLine(owed)
 	}
+	var named []string
+	for _, f := range open {
+		if found := rowNamed.FindStringSubmatch(f.Defect); found != nil {
+			named = append(named, found[1])
+		}
+	}
 	body := filepath.Join(s.dir, bodyFile)
-	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(body, []byte(text+"\n\n"+strings.TrimSpace(reply)+"\n"+citedRows(rowsText, named)), 0o600); err != nil {
 		return FinderOutcome{}, err
 	}
 	posted, err := s.post(text, body)

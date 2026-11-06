@@ -55,6 +55,8 @@ var (
 	cite        = regexp.MustCompile(`([\w./@+-]+):(\d+)(?:-(\d+))?`)
 	bodyComment = regexp.MustCompile(`(?im)^(?:#{1,6}\s*|\*\*)?(?:Rulings|Regression tests|Caller trace|Body addendum)\b`)
 	rowKey      = regexp.MustCompile(`(?m)^### (\S+) \|`)
+	rowHeading  = regexp.MustCompile(`(?m)^##+ `)
+	rowNamed    = regexp.MustCompile(`\brow (\S+) missing:`)
 	replyFile   = regexp.MustCompile(`(?m)^REPLY_FILE: (\S+)$`)
 	rateLimit   = regexp.MustCompile(`Rate limit reached .*?Please try again in ((?:\d+(?:\.\d+)?(?:ms|s|m|h))+)\b`)
 )
@@ -569,6 +571,29 @@ func rowKeys(rows string) []string {
 		keys = append(keys, found[1])
 	}
 	return keys
+}
+
+func citedRows(rows string, keys []string) string {
+	var cited strings.Builder
+	var seen []string
+	for _, at := range rowKey.FindAllStringSubmatchIndex(rows, -1) {
+		key := rows[at[2]:at[3]]
+		if !slices.Contains(keys, key) || slices.Contains(seen, key) {
+			continue
+		}
+		seen = append(seen, key)
+		block := rows[at[0]:]
+		if first := strings.IndexByte(block, '\n'); first >= 0 {
+			if next := rowHeading.FindStringIndex(block[first+1:]); next != nil {
+				block = block[:first+1+next[0]]
+			}
+		}
+		cited.WriteString("\n\n" + strings.TrimSpace(block))
+	}
+	if cited.Len() == 0 {
+		return ""
+	}
+	return "\n\nThe rows this grade cites, whole, as its rows file gave them:" + cited.String() + "\n"
 }
 
 func squeezed(text string) string {

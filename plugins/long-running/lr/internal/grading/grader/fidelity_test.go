@@ -616,6 +616,20 @@ func TestAMissingVerdictPostsOneOwnerGroundedLineNamingEveryBrokenRow(t *testing
 	})
 }
 
+func TestAMissingRowsTextRidesInTheGradeRecordSoNoLaneNeedsTheRowsFile(t *testing.T) {
+	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
+	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{"verdict": "missing", "missing": []any{
+		missingOf("rule/949e6be", "follow.go:41 polls the signal, 'not polled'"),
+		missingOf("plan:212", "plan names no retry counter"),
+	}}))
+	mustFidelity(t, directory, shell)
+	record := readText(t, directory, "record.md")
+	holdsAll(t, record, "### rule/949e6be | scope | in-force | said 1 | 2026-10-22\n> the owner's words")
+	if strings.Contains(record, "### prompt/1026-105052") {
+		t.Errorf("the record carries a row no missing entry names:\n%s", record)
+	}
+}
+
 func TestAHeadThatBreaksOneOfHisAnswersGradesMissingNamingTheRulingItDepartsFrom(t *testing.T) {
 	directory := fidelityDir(t, map[string]any{"grades": []any{}, "baseline": ""})
 	shell, _ := newFidelityFake(t, samePatch, fidelityReplyOf(map[string]any{
