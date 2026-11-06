@@ -27,10 +27,12 @@ const (
 )
 
 var StoreVerbs = []string{
+	"asks",
 	"board cards drawn",
 	"board cards missing",
 	"board cards ruled",
 	"board ports",
+	"board reds",
 	"board rows",
 	"board waits",
 	"choices",
@@ -44,8 +46,10 @@ var StoreVerbs = []string{
 	"incident status",
 	"landing gate",
 	"landing go",
+	"landing order",
 	"lanes",
 	"owner audit",
+	"request",
 	"route",
 	"rules settle",
 	"sprites",
