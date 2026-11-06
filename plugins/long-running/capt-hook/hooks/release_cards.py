@@ -29,8 +29,11 @@ LANE_ENV = DRIVE_ENV | {"CLAUDE_LONG_RUNNING_LANE": "release-6"}
 SANDSQL_CARD = {"kind": "pick", "block": "card-sandsql-release-without", "subject": "sandsql-choice", "title": "Release SandSQL with the next cut, or leave it out until the replica fix lands?"}
 OTHER_CARD = {"kind": "pick", "block": "card-r1-scenarios", "subject": "r1-choice", "title": "Run release 1's scenarios tonight?"}
 TITLED_CARD = {"kind": "pick", "block": "card-index-order", "subject": "order-choice", "title": "Ship SandSQL to plat before the index release?"}
+SAND_NEXT_CARD = {"kind": "pick", "block": "card-sand-next-after-3531", "subject": "sand-next-after-3531-choice", "title": "Four Mac changes are on dev and not on Macs"}
 BOARD = f"{LR} board waits --drive release-v3 --json"
 PLAN_12451 = "tools/ci release plan --targets db,restate,code-sandbox --json"
+DECLARED = ["git", "show", "HEAD:release/targets.generated.json"]
+DECLARED_STACKS = json.dumps({"components": [{"name": name} for name in ("schema-add", "restate", "code-sandbox", "sand", "sand-next", "sandsql")], "targets": [{"name": name} for name in ("db", "restate", "sand", "sand-next")]})
 
 
 def pulls(names: tuple[str, ...]) -> list[dict]:
@@ -44,7 +47,7 @@ def planned(*additions: str, picked: tuple[str, ...] = ("db", "restate", "code-s
 
 def release(command: str, plan: str | tuple[int, str] | None = None, cards: tuple[dict, ...] = (SANDSQL_CARD,), stored: tuple[dict, ...] = (), env: dict[str, str] = LANE_ENV, **commands: str | tuple[int, str]) -> Input:
     board = json.dumps([card | {"line": f"pick {card['block']}"} for card in cards])
-    return Input(command=command, env=env, commands=incident_sources(*stored) | {BOARD: board} | ({PLAN_12451: plan} if plan is not None else {}) | commands)
+    return Input(command=command, env=env, commands=incident_sources(*stored) | {BOARD: board, " ".join(DECLARED): DECLARED_STACKS} | ({PLAN_12451: plan} if plan is not None else {}) | commands)
 
 
 class Unread(Exception):
@@ -73,6 +76,11 @@ def shipped(call: Call, cwd: str) -> set[str]:
     return {name for picked in plan.get("picked") or () for name in (picked["component"], *(picked.get("parts") or ()))} | {pull["component"] for pull in plan.get("additions") or ()}
 
 
+def declared(cwd: str) -> set[str]:
+    targets = json.loads(read(DECLARED, PLAN_SECONDS, cwd))
+    return {entry["name"] for entry in (*targets["components"], *targets["targets"])}
+
+
 def unread(evt: BaseHookEvent, what: str, why: object) -> HookResult:
     return evt.context(UNREAD.format(what=what, why=str(why)[:WHY_CHARS]))
 
@@ -81,13 +89,19 @@ def words(text: str) -> tuple[str, ...]:
     return tuple(WORD.findall(text.lower()))
 
 
-def names(text: str, stack: str) -> bool:
-    said, wanted = words(text), words(stack)
-    return any(said[start : start + len(wanted)] == wanted for start in range(len(said) - len(wanted) + 1))
+def spans(said: tuple[str, ...], name: str) -> list[range]:
+    wanted = words(name)
+    return [range(start, start + len(wanted)) for start in range(len(said) - len(wanted) + 1) if said[start : start + len(wanted)] == wanted]
 
 
-def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
-    return [(stack, card) for card in cards for stack in sorted(stacks) if names(card["block"], stack) or names(card.get("title") or "", stack)]
+def names(text: str, stack: str, stacks: set[str]) -> bool:
+    said = words(text)
+    wider = [span for other in stacks for span in spans(said, other)]
+    return any(not any(len(outer) > len(span) and outer.start <= span.start and span.stop <= outer.stop for outer in wider) for span in spans(said, stack))
+
+
+def gating(shipping: set[str], stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
+    return [(stack, card) for card in cards for stack in sorted(shipping) if names(card["block"], stack, stacks) or names(card.get("title") or "", stack, stacks)]
 
 
 @on(
@@ -116,6 +130,10 @@ def gating(stacks: set[str], cards: list[dict]) -> list[tuple[str, dict]]:
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), **{BOARD: (1, "cc-present down")}): Warn(pattern=r"could not read the owner's board[\s\S]*cc-present down"),
         release("tools/ci release start --targets db,restate,code-sandbox", planned("sandsql"), **{" ".join(INCIDENT_DIGEST): (1, "cci: daemon unavailable")}): Warn(pattern=r"could not read whether an incident is open"),
         release("tools/ci release status"): Allow(),
+        release("tools/ci release start --targets sand", cards=(SAND_NEXT_CARD,), **{"tools/ci release plan --targets sand --json": planned(picked=("sand",))}): Allow(),
+        release("tools/ci release start --targets sand-next", cards=(SAND_NEXT_CARD,), **{"tools/ci release plan --targets sand-next --json": planned(picked=("sand-next",))}): Block(
+            pattern=r"gates: sand-next under card `card-sand-next-after-3531`\. Start it again with `--without sand-next`"
+        ),
     },
 )
 def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResult | None:
@@ -135,7 +153,9 @@ def release_leaves_out_what_his_open_cards_gate(evt: BaseHookEvent) -> HookResul
         return unread(evt, "the owner's board", failed)
     for call in calls:
         try:
-            found = gating(shipped(call, run_dir(evt, call)), cards)
+            cwd = run_dir(evt, call)
+            shipping = shipped(call, cwd)
+            found = gating(shipping, shipping | declared(cwd), cards)
         except (Unread, UnknownDirectory, ValueError, KeyError) as failed:
             return unread(evt, "the release plan", failed)
         if found:
