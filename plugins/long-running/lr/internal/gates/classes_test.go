@@ -51,6 +51,8 @@ func TestAClassThePathsAloneDecideIsNamedOnlyWhenEveryChangedFileFitsIt(t *testi
 		{"a skill script that decides no gate", []string{".agents/skills/iris-desktop-cdp-preview/scripts/iris-stack.sh"}, TestOnlyGrade},
 		{"#49370 remote-builder routes", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/root.go", "go/remote-builder/cli/rb/routes.go", "tools/remote-builder/shims/remote-builder"}, "class ci-tooling"},
 		{"tests and CI only", []string{"go/sand/internal/vm/run_test.go", "infra/ci/src/pipelines/ci-go.ts"}, TestOnlyGrade},
+		{"#51295 api jest test", []string{"api/src/modules/llm/apiContextToLLMContext.jest.ts"}, TestOnlyGrade},
+		{"a jest test beside product code", []string{"api/src/modules/llm/apiContextToLLMContext.jest.ts", "api/src/modules/llm/apiContextToLLMContext.ts"}, ""},
 		{"#49353 sand install pins", []string{"go/sand/internal/sandsql/local/pin_test.go", "go/sand/internal/sandsql/local/pin_unix.go", "go/sand/next/internal/sandsql/local/pin_test.go", "go/sand/next/internal/sandsql/local/pin_unix.go"}, ""},
 		{"#49351 iris chat load", []string{"dashboard/src/iris/lib/events.test.ts", "dashboard/src/iris/lib/events.ts"}, ""},
 		{"#49341 sandsql presigned uploads", []string{"go/sand/next/internal/sandsql/data/blob.go", "go/sand/next/internal/sandsql/data/put_test.go"}, ""},
