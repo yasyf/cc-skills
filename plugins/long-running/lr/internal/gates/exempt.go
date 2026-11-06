@@ -201,8 +201,9 @@ func flakeRefusals(r Read, graded bool) []string {
 func gradedTestOnly(c Claim, r Read) bool {
 	testOnly := testOnlyPhrases(r.Exempt)
 	lanes, standing := fidelityStanding(c, r.Records)
+	_, overridden := countedOverride(c, r, fidelityKind, func(client.Record, string) bool { return true })
 	return slices.ContainsFunc(lanes, func(lane string) bool {
-		return standing[lane].ok && gradedPhrase(standing[lane].record, testOnly) != ""
+		return (standing[lane].ok || overridden) && gradedPhrase(standing[lane].record, testOnly) != ""
 	})
 }
 

@@ -183,7 +183,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	spec.Head = view.HeadRefOid
 	head := spec.Head
 	if len(spec.Findings) > 0 {
-		return s.postOnly(findingsLine(head, spec.Findings))
+		return s.postOnly(findingsLine(head, spec.Findings), "")
 	}
 	var heads []candidate
 	if spec.Since == "" {
@@ -207,23 +207,23 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	if len(own) == 0 {
 		return FidelityOutcome{Skipped: fmt.Sprintf("%s at %s carries no commit %s lacks", pull, short(head, 12), view.BaseRefName)}, nil
 	}
+	paths, err := s.git("diff", "--name-only", "--no-renames", own[0]+"^", head)
+	if err != nil {
+		return FidelityOutcome{}, err
+	}
+	s.class = gates.PathClass(strings.Fields(paths), spec.ExemptGrades)
 	if said := unnamedDeletion(view.Title, view.Body); said != "" {
 		stat, err := s.git("diff", "--find-renames", "--numstat", "--summary", own[0]+"^", head)
 		if err != nil {
 			return FidelityOutcome{}, err
 		}
 		if removesCode(stat) {
-			return s.postOnly(fmt.Sprintf("%s %s %s %s", fidelityMissing, head, deletionKey, said))
+			return s.postOnly(fmt.Sprintf("%s %s %s %s", fidelityMissing, head, deletionKey, said), classOf(s.class))
 		}
 	}
 	if s.touches, err = s.serviceTouches(own[0] + "^"); err != nil {
 		return FidelityOutcome{}, err
 	}
-	paths, err := s.git("diff", "--name-only", "--no-renames", own[0]+"^", head)
-	if err != nil {
-		return FidelityOutcome{}, err
-	}
-	s.class = gates.PathClass(strings.Fields(paths), spec.ExemptGrades)
 	if len(heads) > 0 {
 		match, err := s.carry(own, heads)
 		if err != nil {
@@ -315,12 +315,12 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 	return FidelityOutcome{Verdict: reply.Verdict, Posted: posted, Regrade: judged}, nil
 }
 
-func (s *fidelityPassState) postOnly(line string) (FidelityOutcome, error) {
+func (s *fidelityPassState) postOnly(line, class string) (FidelityOutcome, error) {
 	body := filepath.Join(s.dir, bodyFile)
 	if err := os.WriteFile(body, []byte(line+"\n"), 0o600); err != nil {
 		return FidelityOutcome{}, err
 	}
-	posted, err := s.post([]gradeLine{{text: line}}, body)
+	posted, err := s.post([]gradeLine{{text: line, class: class}}, body)
 	if err != nil {
 		return FidelityOutcome{}, err
 	}
@@ -552,14 +552,17 @@ func (s *fidelityPassState) chain(grade Record) []int64 {
 	return seqs
 }
 
-func (s *fidelityPassState) carriedClass(grade Record) string {
+func (s *fidelityPassState) carriedClass(head string) string {
 	if s.class != "" {
 		return s.class
 	}
-	if slices.ContainsFunc(s.chain(grade), func(seq int64) bool { return slices.Contains(s.job.Corrected, seq) }) {
-		return ""
+	for _, grade := range s.standing(head) {
+		if grade.Lane != FidelityLane || slices.ContainsFunc(s.chain(grade), func(seq int64) bool { return slices.Contains(s.job.Corrected, seq) }) {
+			continue
+		}
+		return gates.GradedPhrase(grade.Lane, grade.Text, grade.Attrs, s.job.ExemptGrades)
 	}
-	return gates.GradedPhrase(grade.Lane, grade.Text, grade.Attrs, s.job.ExemptGrades)
+	return ""
 }
 
 func okLine(head, phrase, said string) gradeLine {
@@ -585,7 +588,7 @@ func (s *fidelityPassState) carried(match *carryMatch, how, proof string) (Fidel
 			break
 		}
 	}
-	lines := []gradeLine{okLine(spec.Head, s.carriedClass(match.grade), fmt.Sprintf("carried from %s (cci #%d), %s%s.", short(match.head, 7), match.grade.Seq, how, settled))}
+	lines := []gradeLine{okLine(spec.Head, s.carriedClass(match.head), fmt.Sprintf("carried from %s (cci #%d), %s%s.", short(match.head, 7), match.grade.Seq, how, settled))}
 	if line, touched := s.touchedOldApp(); touched {
 		lines = append(lines, gradeLine{text: line})
 	} else if earlier := newestOldApp(spec.OldApps, match.head); earlier != nil {

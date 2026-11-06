@@ -482,6 +482,24 @@ func TestOnlyALanesNewestGradeVouchesForAFlakeFixHelper(t *testing.T) {
 	refusedWith(t, text, refusals, "flake fix: "+helper+" is not test or fixture code")
 }
 
+func TestAnOverriddenPipelineGradeThatNamesTestOnlyVouchesForAFlakeFixHelper(t *testing.T) {
+	const helper = "go/sand/next/internal/callcount/callcount.go"
+	patch := "+uncounted"
+	finder := decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: ok `+portHead+`","refs":{"prs":[49999]}}`)
+	claim := headRecord(t, portHead, `,"flake-fix":"TestChatStream"`)
+	override := client.Record{Seq: 4, Lane: "root", Kind: "decide", Text: "fidelity-override #49999 at abc1234: 2"}
+	read := func(records ...client.Record) (string, []string) {
+		text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: []string{helper}, Patches: map[string]*string{helper: &patch}})
+		return text, refusals
+	}
+
+	if text, refusals := read(finder, pipelineGrade(t, 2, "missing", "test-only"), claim, override); len(refusals) > 0 || !strings.Contains(text, "[exempt: flake-fix]") {
+		t.Fatalf("got go %q and refusals %q, want a flake-fix go", text, refusals)
+	}
+	text, refusals := read(finder, pipelineGrade(t, 2, "missing", NoClass), claim, override)
+	refusedWith(t, text, refusals, "flake fix: "+helper+" is not test or fixture code")
+}
+
 func TestAFlakeRecordDoesNotExcuseAMissingFidelityGrade(t *testing.T) {
 	records := []client.Record{graded(t, "class test-only")[0], headRecord(t, portHead, `,"flake-fix":"TestChatStream"`)}
 	text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records, Exempt: driveClasses})

@@ -1,6 +1,7 @@
 package grader
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -336,19 +337,22 @@ func TestACarryTakesItsClassFromThePipelinesOwnGradeUnlessRootCorrectedItAndNeve
 	pipeline := gradeOf(170003, FidelityLane, "fidelity: ok "+shaOld+" "+testOnly+": carried from "+shaMoved[:7]+" (cci #170000), patch-identical by git patch-id over its own commits.")
 	desk := gradeOf(170004, "fidelity-desk-4", "fidelity: ok "+shaMoved+" tap row: it ends a moved share's watch, an on-purpose old-app fix.")
 	deskSaid := gradeOf(170004, "fidelity-desk-4", "fidelity: ok "+shaMoved+" "+testOnly+": every commit is a test.")
+	deskLater := gradeOf(170005, "fidelity-desk-4", "fidelity: ok "+shaOld+" reads right.")
 	cases := []struct {
 		name      string
 		grades    []any
 		corrected []int
 		said      string
+		from      int
 	}{
-		{"its own field", []any{first, classed(gates.ClassOf(testOnly))}, nil, testOnly},
-		{"its own field naming none over a desk's typed class", []any{first, classed(gates.NoClass), deskSaid}, nil, ""},
-		{"its own phrase from before the field", []any{first, pipeline}, nil, testOnly},
-		{"a desk's tap row changes nothing", []any{first, pipeline, desk}, nil, testOnly},
-		{"root-corrected", []any{first, pipeline}, []int{170003}, ""},
-		{"root-corrected-upchain", []any{first, pipeline}, []int{170000}, ""},
-		{"root-over-desk", []any{first, pipeline, deskSaid}, []int{170003}, ""},
+		{"its own field", []any{first, classed(gates.ClassOf(testOnly))}, nil, testOnly, 0},
+		{"its own field under a newer desk ok at the same head", []any{first, classed(gates.ClassOf(testOnly)), deskLater}, nil, testOnly, 170005},
+		{"its own field naming none over a desk's typed class", []any{first, classed(gates.NoClass), deskSaid}, nil, "", 0},
+		{"its own phrase from before the field", []any{first, pipeline}, nil, testOnly, 0},
+		{"a desk's tap row changes nothing", []any{first, pipeline, desk}, nil, testOnly, 0},
+		{"root-corrected", []any{first, pipeline}, []int{170003}, "", 0},
+		{"root-corrected-upchain", []any{first, pipeline}, []int{170000}, "", 0},
+		{"root-over-desk", []any{first, pipeline, deskSaid}, []int{170003}, "", 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -359,7 +363,7 @@ func TestACarryTakesItsClassFromThePipelinesOwnGradeUnlessRootCorrectedItAndNeve
 			if c.said != "" {
 				said, class = c.said+": ", gates.ClassOf(c.said)
 			}
-			equal(t, shell.texts()[0], "fidelity: ok "+shaHead+" "+said+"carried from "+shaOld[:7]+" (cci #170003), patch-identical by git patch-id over its own commits.")
+			equal(t, shell.texts()[0], fmt.Sprintf("fidelity: ok %s %scarried from %s (cci #%d), patch-identical by git patch-id over its own commits.", shaHead, said, shaOld[:7], cmp.Or(c.from, 170003)))
 			equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+class)
 		})
 	}
