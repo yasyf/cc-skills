@@ -226,6 +226,7 @@ func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs st
 		if at.After(newest) {
 			newest = at
 		}
+		reviveFixed(s, r, at)
 		if spawn, ok := spawnedBy(r); ok {
 			foldSpawn(s, r, spawn, adoptable, fresh, at, briefs, &out)
 			continue
@@ -423,6 +424,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		answers = append(slices.Clone(resolved), r.Re)
 	}
 	if len(answers) > 0 {
+		out.unassigned = slices.DeleteFunc(out.unassigned, func(one unassigned) bool { return slices.Contains(answers, one.record.Seq) })
 		for _, waiter := range must(s.Answered(answers, live...)) {
 			picks, _ := laneOf(s, waiter)
 			do(s.SetLaneWaiting(waiter, 0, at, picks.Awaits))
@@ -458,6 +460,17 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 
 func postedAfterItsOwnEnd(r Record, row store.Lane, at time.Time) bool {
 	return row.State == store.LaneRetired && slices.Contains(unprovenEnds, row.RetiredBy) && at.After(row.Since) && !endsItself(r)
+}
+
+func reviveFixed(s *store.Store, r Record, at time.Time) {
+	row, known := laneOf(s, r.Lane)
+	if !known || !slices.Contains(fixedLanes, row.Name) || row.State != store.LaneRetired || !at.After(row.Since) {
+		return
+	}
+	if _, succeeded := laneOf(s, row.RetiredBy); succeeded {
+		return
+	}
+	do(s.ReviveLane(row.Name, at))
 }
 
 func postedBeforeItsStandIn(r Record, row, standIn store.Lane, at time.Time) bool {
@@ -808,7 +821,7 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 			continue
 		}
 		if !answer && !restedOnItsOwnEnd(lane) {
-			if assigns && (lane.Last != "done" || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
+			if assigns && !slices.Contains(fixedLanes, lane.Name) && (lane.Last != "done" || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
 				unreached = append(unreached, unassigned{r, lane})
 			}
 			continue
@@ -950,7 +963,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		do(s.SetLaneHandoff(name, r.Refs.CCN, flushed))
 		return
 	}
-	settles := known && !isRoot && row.State != store.LaneRetired
+	settles := known && !slices.Contains(fixedLanes, name) && row.State != store.LaneRetired
 	if kind == "handoff" && settles && !r.answersAnother() {
 		if out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "stand-down", at)

@@ -3,6 +3,7 @@ package lanes
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -52,6 +53,49 @@ func TestALaneTheSupervisorRetiredForSilenceIsLiveOnItsNextRecord(t *testing.T) 
 	tick(t, s, f, t0.Add(mins(71)))
 
 	equal(t, row(t, s, lane2).State, store.LaneDesired)
+}
+
+func TestAFixedLaneStaysLiveThroughItsOwnDoneAndItsNextPostRevivesARetiredRow(t *testing.T) {
+	for _, name := range []string{Root, OwnerRelay} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := newFake(t, []Record{spawned(1, name, writeBrief(t), t0.Add(-2*time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(name, true, t0.Add(-time.Hour))})
+			tick(t, s, f, t0.Add(-time.Hour))
+			f.feed = append(f.feed, rec(2, name, "done", t0, "DONE: the full rollout finished at 9:25 PM.", "meta-desk"))
+			f.peers = []Row{who(name, true, t0)}
+			tick(t, s, f, t0.Add(mins(1)))
+			equal(t, row(t, s, name).State, store.LaneDesired)
+
+			if err := s.SetLaneState(name, store.LaneRetired, t0.Add(mins(2)), "done", ""); err != nil {
+				t.Fatal(err)
+			}
+			f.feed = append(f.feed, rec(3, name, "report", t0.Add(mins(3)), "the record it escalated was already resolved", "meta-desk"))
+			f.peers = []Row{who(name, true, t0.Add(mins(3)))}
+			tick(t, s, f, t0.Add(mins(4)))
+
+			lane := row(t, s, name)
+			equal(t, []any{lane.State, lane.RetiredBy}, []any{store.LaneDesired, ""})
+		})
+	}
+}
+
+func TestAFixedLaneRetiredForALiveSuccessorStaysRetiredWhenItPostsAgain(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, []Record{spawned(1, OwnerRelay, writeBrief(t), t0.Add(-2*time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who(OwnerRelay, true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	const heir = OwnerRelay + "-2"
+	if _, err := s.WantLane(store.Lane{Name: heir, State: store.LaneDesired, Predecessor: OwnerRelay}, t0); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetLaneState(OwnerRelay, store.LaneRetired, t0, heir, ""); err != nil {
+		t.Fatal(err)
+	}
+	f.feed = append(f.feed, rec(2, OwnerRelay, "report", t0.Add(mins(1)), "one more relay", "meta-desk"))
+	f.peers = []Row{who(OwnerRelay, true, t0.Add(mins(1))), who(heir, true, t0.Add(mins(1)))}
+	tick(t, s, f, t0.Add(mins(2)))
+
+	lane := row(t, s, OwnerRelay)
+	equal(t, []any{lane.State, lane.RetiredBy}, []any{store.LaneRetired, heir})
 }
 
 func TestACoordinatorStandDownStandsAgainstALaneThatKeepsPosting(t *testing.T) {
