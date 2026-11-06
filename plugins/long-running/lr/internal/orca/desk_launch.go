@@ -705,14 +705,18 @@ func baseDrift(attempt string) (key, differs string, err error) {
 func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
 	reason := clipRunes(collapsed(out[strings.LastIndex(out, "\n")+1:]), 300)
 	raw, _ := os.ReadFile(filepath.Join(attempt, spriteDown))
-	if key, down, _ := strings.Cut(string(raw), "\n"); key == action.ActionID && d.Config.Launches != launchesSprite && !isFile(d.refusedLog(container, action.ActionID)) {
+	canFallBack := d.Config.Launches != launchesSprite && !isFile(d.refusedLog(container, action.ActionID))
+	if key, down, _ := strings.Cut(string(raw), "\n"); key == action.ActionID && canFallBack {
 		down = clipRunes(collapsed(down), 300)
 		if stopped, _ := os.ReadFile(filepath.Join(attempt, spriteStop)); len(stopped) > 0 && strings.TrimSpace(string(stopped)) != "0" {
 			down += "; its prepared Sprite did not stop and may still be held, receipts in " + attempt
 		}
-		return d.macFallback(ctx, container, lane, action, spec, down)
+		return d.macFallback(ctx, container, lane, action, spec, "its Sprite launch failed on the platform: "+down)
 	}
 	if neverStarted(attempt, exited) {
+		if canFallBack && incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+			return d.macFallback(ctx, container, lane, action, spec, "its Sprite never started a worker, receipts in "+attempt+": "+reason)
+		}
 		return d.refuseLaunch(ctx, container, lane, action, "a Sprite that never started a worker: "+reason, "its receipts are in "+attempt+"; post the go again under a new key")
 	}
 	if _, err := d.attempt(container, func(tx *incident.Tx) error {
@@ -725,16 +729,16 @@ func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, acti
 	return d.escalateTo(ctx, container+"/"+action.ActionID+":sprite", "SPRITE-UNVERIFIABLE", lane, fmt.Sprintf("%s does not launch locally: its Sprite launch is unverified and a remote worker may be running%s; receipts in %s, nothing retried or cleaned up: %s", action.ActionID, started, attempt, reason), verdictTo(spec.By))
 }
 
-func (d *Desk) macFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, down string) error {
+func (d *Desk) macFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, why string) error {
 	if !incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
 		if full := d.overLoadOrFull(ctx); full != "" {
-			return d.escalateTo(ctx, container+"/"+action.ActionID+":mac-wait", "LAUNCH-WAITING", lane, fmt.Sprintf("%s waits to start on this Mac: its Sprite launch failed on the platform (%s), and %s; it starts here once that clears", action.ActionID, down, full), verdictTo(spec.By))
+			return d.escalateTo(ctx, container+"/"+action.ActionID+":mac-wait", "LAUNCH-WAITING", lane, fmt.Sprintf("%s waits to start on this Mac: %s, and %s; it starts here once that clears", action.ActionID, why, full), verdictTo(spec.By))
 		}
 	}
 	if err := os.MkdirAll(filepath.Dir(d.loadPath(action.ActionID)), 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(d.loadPath(action.ActionID), []byte("its Sprite launch failed on the platform: "+down), 0o600); err != nil {
+	if err := os.WriteFile(d.loadPath(action.ActionID), []byte(why), 0o600); err != nil {
 		return err
 	}
 	return d.launchLocal(container, lane, action, spec)

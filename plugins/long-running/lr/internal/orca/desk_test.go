@@ -2554,7 +2554,7 @@ func TestASpriteLaunchTheRelayJoinRefusedWaitsForRoomOnABusyMacAndSaysSo(t *test
 	if len(w.spawns) != 1 {
 		t.Fatal(w.spawns)
 	}
-	wantContains(t, w.wantEscalation("LAUNCH-WAITING"), "its Sprite launch failed on the platform ("+relayDown+"), and Mac load 41 over 32")
+	wantContains(t, w.wantEscalation("LAUNCH-WAITING"), "its Sprite launch failed on the platform: "+relayDown+", and Mac load 41 over 32")
 	w.load = "12.00"
 	w.step(w.desk.reap)
 	if len(w.spawns) != 2 || w.spawns[1].argv[2] != "start" {
@@ -5232,6 +5232,60 @@ func TestASpriteThatFailsAfterAnAlertLaunchFailedOnTheMacLaunchesNoThirdLane(t *
 		t.Fatal(action)
 	}
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
+}
+
+func TestAnAlertLaunchWhoseSpriteNeverStartedAWorkerRelaunchesOnceOnTheMac(t *testing.T) {
+	for _, tt := range []struct {
+		name, mac, verdict string
+		status             incident.ActionStatus
+	}{
+		{"the Mac launch starts", "", "LAUNCHED ", incident.ActionVerified},
+		{"the Mac launch fails too", testLane + worktreeStalled, "LAUNCH-FAILED ", incident.ActionFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			launcher := spriteConfig(w)
+			t.Setenv("HOME", t.TempDir())
+			brief := w.brief(testLane, testBrief+"ccx: role=fix incident=sentry-1\n")
+			w.lines()
+			line := w.add(object{"lane": lanes.Self, "text": "orca-desk: launch " + testLane + " NOW " + agentIncident + " xhigh role=fix brief=" + brief, "to": []string{deskLane}})
+			key := "R" + strings.TrimPrefix(line.Name(), "#")
+			refusal := "cc-remote orca prepare exited 1; /b/brief.worker keeps its output, and nothing was attached or retried"
+			w.launchOut[testLane] = "preparing a Sprite\n" + refusal + "\n"
+			w.lines()
+			w.step(w.desk.deliver)
+			if len(w.spawns) != 1 || w.spawns[0].argv[0] != launcher {
+				t.Fatal(w.spawns)
+			}
+			w.write(filepath.Join(spriteAttempt(brief), spritePrepare), "1\n")
+			w.launchOut[testLane] = or(tt.mac, w.launched(testLane, testDispatch, testTerminal))
+			w.step(w.desk.reap)
+			if len(w.spawns) != 2 || w.spawns[1].argv[2] != "start" || w.spawns[1].argv[6] != brief || slices.Contains(w.spawns[1].env, fallbackEnv+"=1") {
+				t.Fatal(w.spawns)
+			}
+			w.step(w.desk.reap)
+			w.step(w.desk.reap)
+			w.step(w.desk.flush)
+			if len(w.spawns) != 2 {
+				t.Fatal(w.spawns)
+			}
+			if action := w.action(testLane, key); action.Status != tt.status {
+				t.Fatal(action)
+			}
+			var to [][]string
+			for _, post := range w.posts {
+				if strings.HasPrefix(post.Text, "LAUNCH") {
+					to = append(to, post.To)
+				}
+			}
+			if verdict := w.postOpening(tt.verdict); len(to) != 1 || !slices.Equal(verdict.To, []string{coordinatorLane}) {
+				t.Fatalf("verdicts went to %v, want one %s to %s", to, tt.verdict, coordinatorLane)
+			}
+			if tt.status == incident.ActionVerified {
+				wantContains(t, w.wantEscalation("LAUNCHED "+key), "on this Mac: its Sprite never started a worker, receipts in "+spriteAttempt(brief)+": "+refusal)
+			}
+		})
+	}
 }
 
 func TestAMacLaunchOfAnOrdinaryLaneThatFailsStaysFailed(t *testing.T) {

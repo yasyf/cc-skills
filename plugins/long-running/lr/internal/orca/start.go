@@ -106,7 +106,8 @@ type Starter struct {
 
 type launch struct {
 	*Starter
-	ctx context.Context
+	ctx   context.Context
+	began time.Time
 
 	lane, model, effort, brief, name, agent, modelID, parent string
 	boot, worktreeWait, prepareWait, sparseFiles, stall      int
@@ -437,8 +438,8 @@ func (l *launch) stateHome() string {
 }
 
 func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (string, error) {
-	stages := stagesOf(s.Env, s.Bus, lane, s.Stderr)
-	first := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
+	stages, began := stagesOf(s.Env, s.Bus, lane, s.Stderr), s.Now()
+	first := &launch{Starter: s, ctx: ctx, began: began, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
 	line, err := first.start()
 	if first.stalled == "" || first.startTries > 0 || first.kept != "" || s.Env(fallbackEnv) == "1" {
 		return line, err
@@ -447,7 +448,7 @@ func (s *Starter) Run(ctx context.Context, lane, model, effort, brief string) (s
 	if first.agent != agentIncident {
 		s.Sleep(stallRetry)
 	}
-	retry := &launch{Starter: s, ctx: ctx, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
+	retry := &launch{Starter: s, ctx: ctx, began: began, lane: lane, model: model, effort: effort, brief: brief, stages: stages}
 	line, err = retry.start()
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -1481,7 +1482,7 @@ func (l *launch) awaitBypass() error {
 		return nil
 	}
 	for attempt := 1; ; attempt++ {
-		if strings.Contains(l.screenText(), bypassOn) {
+		if l.finished() || strings.Contains(l.screenText(), bypassOn) {
 			return nil
 		}
 		if attempt >= bypassReads {
@@ -1491,6 +1492,15 @@ func (l *launch) awaitBypass() error {
 			return err
 		}
 	}
+}
+
+func (l *launch) finished() bool {
+	entry := namedDrive(l.Env, l.drive)
+	if entry == nil {
+		return false
+	}
+	records, err := l.Bus.Tail(l.ctx, client.Query{Drive: entry.Bus(), Since: l.began, Lanes: []string{l.lane}, Kinds: []string{"answer", kindDone}})
+	return err == nil && len(records) > 0
 }
 
 func (l *launch) postSpawned() {

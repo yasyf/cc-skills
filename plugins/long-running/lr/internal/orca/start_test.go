@@ -120,6 +120,7 @@ type harness struct {
 	ccxRefuses bool
 	ccxQueues  bool
 	posted     []client.Draft
+	records    []client.Record
 	stderr     bytes.Buffer
 }
 
@@ -396,8 +397,12 @@ func (h *harness) Post(_ context.Context, d client.Draft) (client.Record, error)
 	return client.Record{}, nil
 }
 
-func (h *harness) Tail(context.Context, client.Query) ([]client.Record, error) {
-	return nil, nil
+func (h *harness) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.DeleteFunc(slices.Clone(h.records), func(r client.Record) bool {
+		return r.Drive != q.Drive || !slices.Contains(q.Lanes, r.Lane) || !slices.Contains(q.Kinds, string(r.Kind)) || r.At.Before(q.Since)
+	}), nil
 }
 
 func flag(argv []string, name string) string {
@@ -1564,6 +1569,34 @@ func TestLaunchFailsWhenTheTerminalIsNotInBypassMode(t *testing.T) {
 	line, code := h.launch()
 	if code != 1 || !strings.Contains(line, "shift-tab") || len(h.orcaCalls("terminal read")) != bypassReads {
 		t.Fatal(line)
+	}
+}
+
+func TestTheBypassCheckNeverFailsALaneThatAlreadyAnsweredOrFinished(t *testing.T) {
+	later := time.Now().Add(time.Hour)
+	tests := []struct {
+		name    string
+		records []client.Record
+		code    int
+	}{
+		{"answered since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "answer", At: later}}, 0},
+		{"done since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "done", At: later}}, 0},
+		{"answered before its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "answer", At: time.Unix(0, 0)}}, 1},
+		{"another lane answered", []client.Record{{Drive: "brook", Lane: "lane-b", Kind: "answer", At: later}}, 1},
+		{"only a state record since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "state", At: later}}, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.healthy(healthyOptions{agent: agentClaude, screen: "⏸ plan mode on (shift+tab to cycle)"})
+			bindDrive(h, object{"drive": "900424b6", "sessions": []string{}, "orca_run": "run_1", "cci_drive": "brook"}, "900424b6")
+			h.env[driveEnv] = "900424b6"
+			h.records = tt.records
+			line, code := h.launch()
+			if code != tt.code || tt.code == 1 && !strings.Contains(line, "shift-tab") {
+				t.Fatalf("launch = %d %s, want %d", code, line, tt.code)
+			}
+		})
 	}
 }
 
