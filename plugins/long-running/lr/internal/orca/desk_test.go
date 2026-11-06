@@ -967,6 +967,34 @@ func TestALaunchOnAnotherLanesBriefIsRefused(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "is lane other's")
 }
 
+func TestALaunchWhoseBriefLivesOnlyOnItsSpriteStartsFromTheCopyItsGoCarries(t *testing.T) {
+	w := newDeskWorld(t)
+	text := testBrief + "ccx: place=local why=mac-build\n"
+	carried := filepath.Join(w.home, "cci", "blobs", "5f3a.txt")
+	w.write(carried, text)
+	w.lines()
+	w.add(object{"lane": "dd-1-fix", "text": launchText(testLane, "/home/sprite/.cc-remote/orca/tasks/t1/hook-fix-brief.md"), "to": []string{deskLane}, "refs": object{"path": carried}})
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.lines()
+	w.step(w.desk.deliver)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns, w.escalations())
+	}
+	brief := w.spawns[0].argv[len(w.spawns[0].argv)-1]
+	raw, err := os.ReadFile(brief)
+	if err != nil || filepath.Dir(brief) != w.desk.briefsDir() || !strings.HasPrefix(string(raw), text) {
+		t.Fatalf("launched %s holding %q: %v", brief, raw, err)
+	}
+}
+
+func TestALaunchWhoseBriefTheMacCannotReadAndThatCarriesNoCopyIsRefusedNamingLrLaunch(t *testing.T) {
+	w := newDeskWorld(t)
+	w.lines()
+	w.line(launchText(testLane, "/home/sprite/.cc-remote/orca/tasks/t1/hook-fix-brief.md"))
+	w.lines()
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED "), "is not a file on this Mac, and the go carries no copy of it; post the launch with `lr launch`, which carries the brief's body from any host")
+}
+
 func TestALaunchIsRefusedWhileTheRunnerIsUnbound(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief+"ccx: place=local why=mac-build\n")

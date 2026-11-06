@@ -258,8 +258,8 @@ func LaunchAttempt(lane string, at time.Time) string {
 	return fmt.Sprintf("launch:%s:%d", lane, at.UnixNano())
 }
 
-func (d DeskLaunch) post(ctx context.Context, drive, topic, directive, attempt string) (client.Record, error) {
-	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive, ID: attempt})
+func (d DeskLaunch) post(ctx context.Context, drive, topic, brief, directive, attempt string) (client.Record, error) {
+	stored, err := d.Bus.Post(ctx, client.Draft{Drive: drive, Lane: d.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + directive, ID: attempt, Path: brief})
 	if err != nil {
 		return client.Record{}, err
 	}
@@ -383,7 +383,7 @@ func (d DeskLaunch) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		stored, err := d.post(ctx, drive, topic, launchDirective(lane, brief), LaunchAttempt(lane.lane, d.Now()))
+		stored, err := d.post(ctx, drive, topic, brief, launchDirective(lane, brief), LaunchAttempt(lane.lane, d.Now()))
 		if err != nil {
 			return err
 		}

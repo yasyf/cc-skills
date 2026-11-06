@@ -2,11 +2,13 @@ package orca
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -384,7 +386,9 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 		return d.refuseLine(record)
 	}
 	key := lineKey(parsed, record)
+	carried := record.Refs.Path
 	if parsed.Verb == verbRelay {
+		carried = ""
 		text, err := d.wholeText(at, key, "inbox", record)
 		if err != nil || text == "" {
 			return err
@@ -404,7 +408,7 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	}
 	switch parsed.Verb {
 	case verbLaunch:
-		return d.launchLine(ctx, at, key, parsed.Rest, record.Lane, record.At)
+		return d.launchLine(ctx, at, key, parsed.Rest, carried, record.Lane, record.At)
 	case verbRelay:
 		return d.relayLine(ctx, at, key, parsed.Rest, record.Lane)
 	case "alert":
@@ -673,7 +677,7 @@ func (d *Desk) spriteLaunch(ctx context.Context, parsed *directive, key string) 
 	return remote, err
 }
 
-func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string, posted time.Time) error {
+func (d *Desk) launchLine(ctx context.Context, at, key, rest, carried, by string, posted time.Time) error {
 	log := "escalation:launch:" + at
 	spec := launchSpec.FindStringSubmatch(rest)
 	if spec == nil {
@@ -682,6 +686,16 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string, posted 
 	order := Order{Lane: spec[1], Now: spec[2] != "", Model: spec[3], Effort: spec[4], Role: spec[5], Brief: resolved(spec[6])}
 	failed := func(why string) error {
 		return d.recordTo(ctx, log, fmt.Sprintf("LAUNCH-FAILED %s %s: %s; nothing was launched", key, order.Lane, why), verdictTo(by))
+	}
+	if _, err := os.Stat(order.Brief); err != nil {
+		if carried == "" {
+			return failed(fmt.Sprintf("brief %s is not a file on this Mac, and the go carries no copy of it; post the launch with `lr launch`, which carries the brief's body from any host", order.Brief))
+		}
+		brief, err := d.carriedBrief(order.Lane, carried)
+		if err != nil {
+			return failed(fmt.Sprintf("brief %s is not a file on this Mac, and the copy the go carries did not read: %v", order.Brief, err))
+		}
+		order.Brief = brief
 	}
 	if wrong := order.wrongLaneFault(); wrong != "" {
 		return failed(wrong)
@@ -736,6 +750,19 @@ func (d *Desk) launchLine(ctx context.Context, at, key, rest, by string, posted 
 	}
 	_, _, err = d.acceptLaunch(key, order.Lane, launchTarget{Model: order.Model, Effort: order.Effort, Brief: order.Brief, Role: order.Role, By: by, Posted: store.Stamp(posted)})
 	return err
+}
+
+func (d *Desk) carriedBrief(lane, carried string) (string, error) {
+	raw, err := os.ReadFile(carried)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	brief := filepath.Join(d.briefsDir(), fmt.Sprintf("%s-%x.md", lane, sum[:4]))
+	if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
+		return "", err
+	}
+	return brief, os.WriteFile(brief, raw, 0o600)
 }
 
 func (d *Desk) acceptLaunch(key, lane string, spec launchTarget) (incident.Action, bool, error) {

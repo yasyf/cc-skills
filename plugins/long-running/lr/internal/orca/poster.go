@@ -105,8 +105,8 @@ func (p Poster) requireRunner(ctx context.Context, bus, fallback string) error {
 	return fmt.Errorf("refused: %s, so nothing reads %s lines; %s", fault, deskLane, fallback)
 }
 
-func (p Poster) post(ctx context.Context, bus, topic, text, attempt string) (client.Record, error) {
-	stored, err := p.Bus.Post(ctx, client.Draft{Drive: bus, Lane: p.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + text, ID: attempt})
+func (p Poster) post(ctx context.Context, bus, topic, text, attempt, brief string) (client.Record, error) {
+	stored, err := p.Bus.Post(ctx, client.Draft{Drive: bus, Lane: p.Author, Kind: kindGo, To: []string{deskLane}, Topic: topic, Text: deskLane + ": " + text, ID: attempt, Path: brief})
 	if err != nil {
 		return client.Record{}, err
 	}
@@ -122,7 +122,7 @@ func (p Poster) Line(ctx context.Context, topic, text string) error {
 	if err := p.requireRunner(ctx, entry.Bus(), nothingPosted); err != nil {
 		return err
 	}
-	_, err = p.post(ctx, entry.Bus(), topic, text, "")
+	_, err = p.post(ctx, entry.Bus(), topic, text, "", "")
 	return err
 }
 
@@ -209,7 +209,7 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}
-	stored, err := p.post(ctx, bus, order.Lane, order.Line(), or(order.ID, incident.LaunchAttempt(order.Lane, p.Now())))
+	stored, err := p.post(ctx, bus, order.Lane, order.Line(), or(order.ID, incident.LaunchAttempt(order.Lane, p.Now())), order.Brief)
 	if err != nil {
 		return "", err
 	}

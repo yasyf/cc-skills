@@ -441,6 +441,18 @@ func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
 	}
 }
 
+func TestALaunchCarriesItsBriefsBodyOnItsGoRecord(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, filepath.Join("hook-fix-a", briefFile), briefLines+"Fix the hook.\n")
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "hook-fix-a", Model: "opus", Effort: "high", Brief: brief}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.bus.posts) == 0 || f.bus.posts[0].Path != brief || !strings.HasSuffix(f.bus.posts[0].Text, "brief="+brief) {
+		t.Fatalf("%+v", f.bus.posts)
+	}
+}
+
 func TestALaneThatMayLeaveTheMacIsWarnedOfARunOfTheMacsLedger(t *testing.T) {
 	f := newPosterFixture(t)
 	brief := f.brief(t, filepath.Join("pr-lane", briefFile), briefLines+"Right after the ship run `drive.py record --opened --pr <n>`.\n")
