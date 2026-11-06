@@ -432,16 +432,22 @@ func TestASweepRefusingAHeadGradedExemptTellsItsLaneSoHisCardIsDrawn(t *testing.
 	}
 }
 
-func TestATestOnlyHeadLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t *testing.T) {
+func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t *testing.T) {
 	const head = "51717bb0b7e80d25838b30153600acad437970fe"
+	const testFile = "[\"go/x/x_test.go\",\"@@ +1 @@\\n+\\tif got != want {\"]\n"
+	portClaim := client.Draft{Drive: "d", Lane: "port-1", Kind: "head", Text: "HEAD #1", PRs: []string{"o/r#1"}, Attrs: map[string]string{"head:1": head, gates.PortOfAttr: "40810", gates.PortInteractsAttr: gates.PortCleanWord}}
 	for name, c := range map[string]struct {
 		grade   string
+		files   string
+		claims  []client.Draft
 		tap     string
 		refused string
 	}{
-		"test-only with its card shown and open":   {grade: "class test-only: adds the regression test"},
-		"test-only that he held on its card":       {grade: "class test-only: adds the regression test", tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
-		"another exempt class with its card shown": {grade: "class owner-pick: his pick", refused: "owner card card-tap-1-51717bb is open"},
+		"test-only with its card shown and open":      {grade: "class test-only: adds the regression test", files: testFile},
+		"ci-tooling with its card shown and open":     {grade: "class ci-tooling: bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
+		"a claimed pure port with its card shown":     {grade: gates.PortGrade + ": compared by file", files: "[\"go/sand/next/a.go\",\"@@ +1 @@\\n+\\treturn nil\"]\n", claims: []client.Draft{portClaim}},
+		"test-only that he held on its card":          {grade: "class test-only: adds the regression test", files: testFile, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
+		"owner-pick, which keeps the shown-card rule": {grade: "class owner-pick: his pick", files: testFile, refused: "owner card card-tap-1-51717bb is open"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("CCI_HOME", t.TempDir())
@@ -452,11 +458,16 @@ func TestATestOnlyHeadLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 			}
 			defer func() { _ = s.Close() }()
 			for _, draft := range []client.Draft{
-				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["pure port, no interaction","class test-only","class ci-tooling","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
 				{Drive: "d", Lane: "fidelity-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "fidelity: ok " + head + " " + c.grade},
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
 			} {
 				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, claim := range c.claims {
+				if _, err := client.Post(ctx, claim); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -473,7 +484,8 @@ func TestATestOnlyHeadLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 				}
 			}
 			runner := &shelltest.Fake{}
-			runner.Reply("[\"go/x/x_test.go\",\"@@ +1 @@\\n+\\tif got != want {\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			runner.Reply(c.files, "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/1/files")
+			runner.Reply(`[{"number":40810,"state":"MERGED"}]`, "ccx", "vcs", "pr", "status")
 			a := app.New(io.Discard)
 			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
 			ready := readyFacts(1, head)

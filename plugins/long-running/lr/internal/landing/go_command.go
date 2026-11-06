@@ -189,7 +189,7 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 }
 
 func (g goGate) tapWait(claim gates.Claim, read gates.Read) (string, error) {
-	if gates.TestOnlyGraded(claim, read) {
+	if gates.TaplessClassAt(claim, read) {
 		return gates.TapAnsweredAt(g.s, claim.Repo, claim.PR, claim.Head)
 	}
 	return gates.TapCardShownAt(g.s, claim.Repo, claim.PR, claim.Head)
