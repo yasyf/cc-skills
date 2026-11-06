@@ -141,6 +141,95 @@ func TestAnAskIsAnsweredToItsLaneAndClosedWithNoKeyInTheRecordOrBody(t *testing.
 	}
 }
 
+func TestABatchedAskAnswersEachReadUnderItsOwnHeadingInOneRecord(t *testing.T) {
+	server, got := serve(t, map[string]string{
+		"/api/v2/spans/events/search": `{"data":[{"attributes":{"service":"cloudrunner","resource_name":"run","start_timestamp":"2026-11-05T19:59:00Z","end_timestamp":"2026-11-05T19:59:01Z","trace_id":"t1","span_id":"s1"}}]}`,
+	})
+	runner := &fakeRunner{}
+	desk := newDesk(t, runner, server.URL)
+	opened, err := client.Post(context.Background(), client.Draft{
+		Drive: driveName, Lane: lane, Kind: askdesk.AskKind, To: []string{Lane}, Force: true,
+		Text: "oncall incidents --json; datadog spans --from 6h service:cloudrunner @error.message:*dangerous_raw_sql*",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := desk.loop().Pass(context.Background(), client.Query{Drive: driveName, Since: time.Now().Add(-askdesk.CatchUp), Kinds: []string{askdesk.AskKind}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if call := runner.calls[len(runner.calls)-1]; !slices.Equal(call.Argv, []string{"tools/ci", "oncall", "incidents", "--json"}) {
+		t.Fatalf("ran %v", call.Argv)
+	}
+	if _, bodies := got.all(); len(bodies) != 1 || !strings.Contains(bodies[0], `"query":"service:cloudrunner @error.message:*dangerous_raw_sql*"`) {
+		t.Fatalf("searched %v", bodies)
+	}
+	found, err := client.Tail(context.Background(), client.Query{Drive: driveName, Kinds: []string{askdesk.AnswerKind}, Lanes: []string{Lane}})
+	if err != nil || len(found) != 1 || found[0].Resolves != opened.Seq {
+		t.Fatalf("answers = %v, %v", found, err)
+	}
+	if !strings.HasPrefix(found[0].Text, "2 reads: oncall incidents --json: 20 of 20 bytes; datadog spans --from 6h ") {
+		t.Fatalf("answer = %q", found[0].Text)
+	}
+	body, err := os.ReadFile(found[0].Refs.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## read 1 of 2: oncall incidents --json\noncall incidents --json: 20 of 20 bytes\nincident inc-1 open\n",
+		"## read 2 of 2: datadog spans --from 6h service:cloudrunner @error.message:*dangerous_raw_sql*\n",
+		"2026-11-05T19:59:00Z cloudrunner run took=1s trace=t1 span=s1\n",
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("body misses %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestASemicolonInsideQuotesOrALinkStaysInItsRead(t *testing.T) {
+	server, got := serve(t, map[string]string{"/api/v2/logs/events/search": `{"data":[]}`})
+	runner := &fakeRunner{}
+	desk := newDesk(t, runner, server.URL)
+	link := "https://poetic-technology.slack.com/archives/C0B75AL4XEW/p1793903489566279?thread_ts=1793903489.566279&amp;cid=C0B75AL4XEW"
+
+	read := desk.read(context.Background(), "datadog logs \"service:api; status:error\"\nslack thread "+link+"; oncall incidents")
+
+	if !strings.HasPrefix(read.Head, "3 reads: ") {
+		t.Fatalf("head = %q", read.Head)
+	}
+	if _, bodies := got.all(); len(bodies) != 1 || !strings.Contains(bodies[0], `"query":"service:api; status:error"`) {
+		t.Fatalf("searched %v", bodies)
+	}
+	ran := runner.calls[len(runner.calls)-2:]
+	if !slices.Equal(ran[0].Argv, []string{"cc-slack", "thread", "--url", link, "--limit", "200"}) || !slices.Equal(ran[1].Argv, []string{"tools/ci", "oncall", "incidents"}) {
+		t.Fatalf("ran %v then %v", ran[0].Argv, ran[1].Argv)
+	}
+}
+
+func TestABadReadBesideAGoodOneStillAnswersTheGoodOne(t *testing.T) {
+	server, got := serve(t, map[string]string{
+		"/api/v1/monitor/42": `{"name":"api 5xx","overall_state":"Alert","state":{"groups":{"service:api":{"status":"Alert","last_triggered_ts":1793908800}}}}`,
+	})
+	desk := newDesk(t, &fakeRunner{}, server.URL)
+
+	read := desk.read(context.Background(), "datadog mute 42; datadog monitor 42")
+
+	if requests, _ := got.all(); len(requests) != 1 {
+		t.Fatalf("requests = %d, want the monitor read alone", len(requests))
+	}
+	for _, want := range []string{
+		"## read 1 of 2: datadog mute 42\nobs read refused: datadog mute is no read; ",
+		"\ndatadog mute is no read; " + usage + "\n",
+		"## read 2 of 2: datadog monitor 42\ndatadog monitor 42: Alert, 1 groups not OK\n",
+		"group service:api Alert since 2026-11-05T20:00:00Z",
+	} {
+		if !strings.Contains(read.Body, want) {
+			t.Fatalf("body misses %q:\n%s", want, read.Body)
+		}
+	}
+}
+
 func TestEachKeyReachesOnlyItsOwnServiceHeaders(t *testing.T) {
 	server, got := serve(t, map[string]string{
 		"/sentry/organizations/4505/issues/7/":               `{"id":"7","shortId":"API-7","status":"unresolved","count":"3"}`,

@@ -44,6 +44,7 @@ const (
 
 var (
 	request    = regexp.MustCompile(`\b(sentry|datadog|slack|oncall)\s+(\S+)(.*)`)
+	unsplit    = regexp.MustCompile(`"[^"\n]*"|'[^'\n]*'|https?://\S*[^\s;]`)
 	permalink  = regexp.MustCompile(`^https://[a-z0-9-]+\.slack\.com/archives/[A-Z0-9]+/p\d{16}(\?\S*)?$`)
 	issueURL   = regexp.MustCompile(`/issues/(\d+)`)
 	numericID  = regexp.MustCompile(`^\d+$`)
@@ -157,6 +158,38 @@ func (d *Desk) loop() askdesk.Desk {
 }
 
 func (d *Desk) read(ctx context.Context, text string) askdesk.Reply {
+	asked := reads(text)
+	if len(asked) < 2 {
+		return d.readOne(ctx, strings.Join(asked, ""))
+	}
+	heads := make([]string, len(asked))
+	var body strings.Builder
+	for n, one := range asked {
+		read := d.readOne(ctx, one)
+		heads[n] = read.Head
+		fmt.Fprintf(&body, "## read %d of %d: %s\n%s\n%s\n\n", n+1, len(asked), one, read.Head, strings.TrimRight(read.Body, "\n"))
+	}
+	return askdesk.Reply{Head: clip(fmt.Sprintf("%d reads: %s", len(asked), strings.Join(heads, "; "))), Body: body.String()}
+}
+
+func reads(text string) []string {
+	var asked []string
+	start, kept := 0, unsplit.FindAllStringIndex(text, -1)
+	for at, c := range text {
+		for len(kept) > 0 && kept[0][1] <= at {
+			kept = kept[1:]
+		}
+		if (c != ';' && c != '\n') || (len(kept) > 0 && kept[0][0] <= at) {
+			continue
+		}
+		asked = append(asked, strings.TrimSpace(text[start:at]))
+		start = at + 1
+	}
+	asked = append(asked, strings.TrimSpace(text[start:]))
+	return slices.DeleteFunc(asked, func(one string) bool { return one == "" })
+}
+
+func (d *Desk) readOne(ctx context.Context, text string) askdesk.Reply {
 	match := request.FindStringSubmatch(text)
 	if match == nil {
 		return refused(usage)
