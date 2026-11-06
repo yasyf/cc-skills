@@ -79,7 +79,8 @@ def test_the_check_reads_lr_and_the_pack_text() -> None:
     read = {(path.relative_to(PACK).as_posix(), words) for path, words in named()}
 
     assert ("lr/internal/wait/wait.go", ("tail", "--drive", "--cursor", "--seed", "--to", "--mail")) in read
-    assert ("lr/internal/orca/worker.go", ("relay", "join", "--instance", "--drive", "--url", "--ttl", "--owner")) in read
+    assert ("lr/internal/orca/worker.go", ("relay", "join", "--delegation", "--url", "--owner")) in read
+    assert ("lr/internal/orca/worker.go", ("relay", "delegate", "--pub", "--drive", "--ttl")) in read
 
 
 def test_every_cci_verb_and_flag_the_pack_names_is_in_the_cci_it_requires() -> None:

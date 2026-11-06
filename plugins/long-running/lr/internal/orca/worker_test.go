@@ -63,7 +63,7 @@ var (
 	allocationKept = []string{"allocation.json", "before-worker.sh", "brief.md", "prepare.err", "prepare.status", "request.json"}
 	prepareKept    = sorted(allocationKept, "prepared.json")
 	startKept      = []string{"worker-start.err", "worker-start.json", "worker-start.status"}
-	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt, setupReceipt})...)
+	spriteKept     = sorted(prepareKept, slices.Concat(startKept, []string{"install.log", notesReceipt, joinReceipt, setupReceipt, delegationFile})...)
 	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
 	localKept      = sorted(startKept, "request.json")
 	stopKept       = []string{"stop.err", "stop.json", spriteStop}
@@ -275,10 +275,11 @@ func (f *workerFixture) spriteAllocated(response any) {
 	f.reply("cc-remote orca prepare", workerReply{out: response, err: "prepared on sprites\n"})
 	f.reply("orca orchestration worker-start", workerReply{out: startedReceipt})
 	f.reply("cc-remote orca stop", workerReply{out: object{"lane": workerLane, "workspace": workerWorkspace}})
-	f.reply("cci relay status", workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}})
-	f.reply("cci node", workerReply{out: object{"id": "n1", "public_key": ownerKey}})
+	f.reply("cci relay status", macRelayReply)
+	f.reply("cci node", macNodeReply)
 	f.reply("cci relay delegate", workerReply{out: delegationSaid})
-	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{}, workerReply{}, workerReply{})
+	f.reply("sprite node", spriteNodeReply)
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{})
 	for verb, help := range verbHelps {
 		f.reply(verb, workerReply{out: help})
 	}
@@ -320,6 +321,9 @@ func (f *workerFixture) Run(ctx context.Context, c shell.Command) (shell.Result,
 		}
 	}
 	key := strings.Join(words, " ")
+	if name == "sprite" && c.Argv[len(c.Argv)-1] == spriteNode {
+		key = "sprite node"
+	}
 	if name == "cc-remote" {
 		f.configs = append(f.configs, c.Env...)
 	}
@@ -461,7 +465,11 @@ func delegateCall(pub string, drives string) []string {
 	return []string{"cci", "relay", "delegate", "--pub", pub, "--drive", drives, "--ttl", delegationLife}
 }
 
-var spriteNodeReply = workerReply{out: object{"id": "i1", "public_key": instanceKey}}
+var (
+	spriteNodeReply = workerReply{out: object{"id": "i1", "public_key": instanceKey}}
+	macNodeReply    = workerReply{out: object{"id": "n1", "public_key": ownerKey}}
+	macRelayReply   = workerReply{out: []object{{"mesh": "other", "url": "https://elsewhere.test/", "routes": []string{"x"}}, {"mesh": "default", "url": relayURL, "routes": []string{"drive-a", "drive-b"}}}}
+)
 
 func holdCall(workspace string) []string {
 	return []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", holdWorker}
@@ -1058,7 +1066,7 @@ func TestAReadLaneTheMacsLoadSentToASpriteIsToldItsStoreStartsAtLaunch(t *testin
 func TestTheMacSignsTheSpriteItsOwnDelegationAndNoOtherSpriteIsReached(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{})
+	f.reply("sprite exec", workerReply{}, workerReply{})
 	f.launched()
 	f.wantCalls(f.heldSpriteCalls()...)
 	if f.stdins[strings.Join(joinCall(workerWorkspace), " ")] != delegationSaid {
@@ -1077,7 +1085,7 @@ func TestTheMacSignsTheSpriteItsOwnDelegationAndNoOtherSpriteIsReached(t *testin
 func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{}, workerReply{}, workerReply{code: 1, err: "services are down"})
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{}, workerReply{code: 1, err: "services are down"})
 	if line := f.launched(); !strings.Contains(line, `"state":"ready"`) {
 		t.Fatal(line)
 	}
@@ -1093,7 +1101,7 @@ func TestAHoldThatFailsToStartLeavesTheWorkerRunningAndSaysSo(t *testing.T) {
 func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{out: "joined mesh default\n"})
 	f.launched()
 	spec := f.startCalls(prepared())
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall()}, spec[:len(spec)-2], [][]string{joinCall(workerWorkspace)}, spec[len(spec)-2:], [][]string{holdCall(workerWorkspace)})...)
@@ -1108,7 +1116,7 @@ func TestARelayFailureThenASuccessJoinsAndStartsTheWorker(t *testing.T) {
 func TestRepeatedRelayFailuresRefuseTheLaunchNamingTheReasonAndStartNoWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.sprite()
-	f.reply("sprite exec", workerReply{}, spriteNodeReply, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
+	f.reply("sprite exec", workerReply{}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure}, workerReply{code: 1, err: relayFailure})
 	_, failed, err := f.launch(workerLane, "opus", "high")
 	if err != nil {
 		t.Fatal(err)

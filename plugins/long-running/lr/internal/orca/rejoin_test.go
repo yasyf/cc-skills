@@ -77,7 +77,7 @@ func TestAPassJoinsTheStrandedLaneAndRunsNothingOnAnyOther(t *testing.T) {
 	r.delegated("lane-joined", 20*time.Hour)
 	r.lane("lane-local", routeLocal, store.LaneDesired, relayFailure)
 	r.lane("lane-retired", routeSprite, store.LaneRetired, relayFailure)
-	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, workerReply{out: "joined mesh default\n"})
+	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, workerReply{out: "joined mesh default\n"})
 	if err := r.pass(); err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestARefusedJoinEndsThePassNamingTheReasonAndLeavesTheNextLane(t *testing.T
 	r.lane("lane-a", routeSprite, store.LaneDesired, relayFailure)
 	r.lane("lane-b", routeSprite, store.LaneDesired, relayFailure)
 	failing := workerReply{code: 1, err: relayFailure}
-	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, failing, failing, failing, failing)
+	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, failing, failing, failing, failing)
 	err := r.pass()
 	if err == nil || !strings.Contains(err.Error(), "the relay failed; retry") || !strings.Contains(err.Error(), "lane-a") {
 		t.Fatal(err)
@@ -114,6 +114,7 @@ func TestARefusedJoinEndsThePassNamingTheReasonAndLeavesTheNextLane(t *testing.T
 func TestASpriteAlreadyOnTheMeshGetsAReceiptAndNoJoin(t *testing.T) {
 	r := newRejoinFixture(t)
 	receipt := r.lane("lane-a", routeSprite, store.LaneDesired, relayFailure)
+	r.delegated("lane-a", 20*time.Hour)
 	r.reply("sprite exec", workerReply{out: "default https://relay.example.test/ node 1 service\n"})
 	if err := r.pass(); err != nil {
 		t.Fatal(err)
@@ -194,7 +195,7 @@ func TestAPassRenewsOnlyTheDelegationsDueWithOneMacCallEachAndReachesNoSprite(t 
 func TestAJoinedLaneOnTheSharedKeyMovesToItsOwnDelegation(t *testing.T) {
 	r := newRejoinFixture(t)
 	r.lane("lane-legacy", routeSprite, store.LaneDesired, "joined mesh default\n")
-	r.reply("sprite exec", spriteNodeReply, workerReply{out: "joined mesh default\n"})
+	r.reply("sprite exec", workerReply{out: "joined mesh default\n"})
 	if err := r.pass(); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +210,10 @@ func TestAFailedMoveOffTheSharedKeyLeavesTheLaneJoinedAndThePassGoesOn(t *testin
 	receipt := r.lane("lane-a-legacy", routeSprite, store.LaneDesired, "joined mesh default\n")
 	r.lane("lane-b-stranded", routeSprite, store.LaneDesired, relayFailure)
 	r.reply("cci relay delegate", workerReply{code: 1, err: "cci: relay: 404 not_found\n"}, workerReply{out: delegationSaid})
-	r.reply("sprite exec", spriteNodeReply, workerReply{code: 1, out: noMeshSaid}, spriteNodeReply, workerReply{out: "joined mesh default\n"})
+	r.reply("cci relay status", macRelayReply, macRelayReply)
+	r.reply("cci node", macNodeReply, macNodeReply)
+	r.reply("sprite node", spriteNodeReply, spriteNodeReply)
+	r.reply("sprite exec", workerReply{code: 1, out: noMeshSaid}, workerReply{out: "joined mesh default\n"})
 	if err := r.pass(); err != nil {
 		t.Fatal(err)
 	}
