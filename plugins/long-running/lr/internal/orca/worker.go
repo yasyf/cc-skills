@@ -49,6 +49,9 @@ const (
 	beforeWorker      = "before-worker.sh"
 	notesPrefix       = "refs/cc-notes/"
 	notesReceipt      = "notes.log"
+	notesBundle       = "notes.bundle"
+	repoSetup         = "tools/cc-remote/before-worker.sh"
+	setupReceipt      = "repo-setup.log"
 	driveReceipt      = "drive-entry.log"
 	configReceipt     = "drive-config.log"
 	workerAwake       = "worker-awake"
@@ -56,7 +59,9 @@ const (
 	holdTimeout       = time.Minute
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
-	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && exec ccn sync --prefix "$2"`
+	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; exec ccn sync --prefix "$2"; }`
+	seedNotes         = `git -C "$1" for-each-ref --format='%(refname)' ` + notesPrefix + ` | git -C "$1" bundle create "$3" --stdin && sprite exec -s "$2" --no-stdin --file "$3:/tmp/` + notesBundle + `" -- sh -c 'git -C "$1" fetch --quiet /tmp/` + notesBundle + ` "` + notesPrefix + `*:` + notesPrefix + `*"; fetched=$?; rm -f /tmp/` + notesBundle + `; exit $fetched' sh "$4"; seeded=$?; rm -f "$3"; exit $seeded`
+	runRepoSetup      = `cd "$1" && if [ -x ` + repoSetup + ` ]; then exec ./` + repoSetup + `; fi`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
 	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
@@ -735,12 +740,27 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 	if code != 0 {
 		return w.receipt(notesReceipt, said)
 	}
+	seeded, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sh", "-c", seedNotes, "sh", w.checkout, workspace, filepath.Join(w.attempt, notesBundle), w.worktree}})
+	said = seeded.Stdout + seeded.Stderr
+	if err != nil {
+		said += err.Error() + "\n"
+	}
 	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchNotesScript, "sh", w.worktree, notesPrefix}, Stdin: token})
-	said = fetched.Stdout + fetched.Stderr
+	said += fetched.Stdout + fetched.Stderr
 	if err != nil {
 		said += err.Error() + "\n"
 	}
 	return w.receipt(notesReceipt, said)
+}
+
+func (w *workerLaunch) setUpRepo(workspace string) error {
+	ran, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--no-stdin", "--", "sh", "-c", runRepoSetup, "sh", w.worktree}})
+	said := ran.Stdout + ran.Stderr
+	if err != nil {
+		said += err.Error() + "\n"
+		fmt.Fprintf(w.Stderr, "warning: %s failed on Sprite %s, so lane %s starts without what it installs; %s keeps the output\n", repoSetup, workspace, w.lane, filepath.Join(w.attempt, setupReceipt))
+	}
+	return w.receipt(setupReceipt, said)
 }
 
 func (w *workerLaunch) driveEntry() *drive.Entry {
@@ -779,8 +799,14 @@ func (w *workerLaunch) carryDrive(workspace string) error {
 		said += err.Error() + "\n"
 		fmt.Fprintf(w.Stderr, "warning: Sprite %s holds no entry for drive %s, so lane %s runs without the drive's hooks; %s keeps the output\n", workspace, entry.Drive, w.lane, filepath.Join(w.attempt, driveReceipt))
 	}
-	if err := w.receipt(driveReceipt, said); err != nil || w.driveConfig == nil {
+	if err := w.receipt(driveReceipt, said); err != nil {
 		return err
+	}
+	if w.driveConfig == nil {
+		raw, err := os.ReadFile(entry.Config())
+		if err != nil || json.Unmarshal(raw, &w.driveConfig) != nil || w.driveConfig == nil {
+			return nil
+		}
 	}
 	return w.carryDriveConfig(workspace, entry.Drive)
 }
@@ -800,7 +826,7 @@ func (w *workerLaunch) carryDriveConfig(workspace, name string) error {
 		return receipt
 	}
 	if err != nil {
-		return refuse("Sprite %s holds no lr.json for drive %s, which the desk's lr board, lr approved and lr lanes read; %s keeps the output, %s", workspace, name, filepath.Join(w.attempt, configReceipt), idleWarning)
+		return refuse("Sprite %s holds no lr.json for drive %s, which lr and the pack's hooks read there; %s keeps the output, %s", workspace, name, filepath.Join(w.attempt, configReceipt), idleWarning)
 	}
 	return nil
 }
@@ -933,6 +959,10 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	environment, _ := textOf(task["environment"])
 	worktreeID, _ := textOf(task["worktreeId"])
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s", w.lane, path, w.sha, w.bytes, spritePreamble, spriteBuildkite, desk, noPR, read)
+	w.stages.say(w.ctx, "running "+repoSetup+" on "+workspace)
+	if err := w.setUpRepo(workspace); err != nil {
+		return "", err
+	}
 	w.stages.say(w.ctx, "starting the worker on "+workspace)
 	w.unattached = false
 	taskID, dispatch, err := w.startWorker(spec, "--on", environment, "--worktree", "id:"+worktreeID, "--terminal", w.terminal)
