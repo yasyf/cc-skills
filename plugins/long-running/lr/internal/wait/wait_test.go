@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -559,6 +560,92 @@ func TestADaemonRestartPastTheGraceReconnectsInsteadOfEndingTheWait(t *testing.T
 
 	if r.code != 0 || r.out.String() != "#6 9:01 PM NOTE root -> landing-desk go\n" {
 		t.Fatalf("got %d %q %s", r.code, r.out.String(), r.errs.String())
+	}
+}
+
+func TestADaemonDownPastTheOldGraceKeepsTheWaitAndSaysWhenItIsBack(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := ln.Addr().String()
+	first := &httptest.Server{Listener: ln, Config: &http.Server{Handler: s, ReadHeaderTimeout: time.Second}}
+	first.Start()
+	var skew atomic.Int64
+	now := func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }
+	runner := &tailRunner{}
+	r := start(t, Options{Seconds: 20, Sources: []string{"cci:dar:landing-desk"}, Runner: runner, Stream: first.URL, Now: now})
+	time.Sleep(armed)
+
+	_ = first.Listener.Close()
+	first.CloseClientConnections()
+	first.Close()
+	time.Sleep(armed)
+	skew.Store(int64(4 * time.Minute))
+	time.Sleep(2 * time.Second)
+	if ln, err = net.Listen("tcp", addr); err != nil {
+		t.Fatal(err)
+	}
+	second := &httptest.Server{Listener: ln, Config: &http.Server{Handler: s, ReadHeaderTimeout: time.Second}}
+	second.Start()
+	t.Cleanup(second.Close)
+	for deadline := time.Now().Add(15 * time.Second); s.served() < 2; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the stream never came back: %q", r.errs.String())
+		}
+	}
+	runner.deliver("#6 9:01 PM NOTE root -> landing-desk go\n")
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || r.out.String() != "#6 9:01 PM NOTE root -> landing-desk go\n" {
+		t.Fatalf("got %d %q %s, want a daemon down for 4 minutes to keep the wait", r.code, r.out.String(), r.errs.String())
+	}
+	if back := strings.Count(r.errs.String(), "the cci daemon stream for landing-desk is back after 24"); back != 1 {
+		t.Fatalf("stderr %q, want one line saying the stream is back", r.errs.String())
+	}
+}
+
+type pathRunner struct {
+	mu     sync.Mutex
+	found  bool
+	record string
+}
+
+func (r *pathRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.found {
+		return shell.Result{Code: shell.CodeMissingBinary}, fmt.Errorf("%s not found", c.Argv[0])
+	}
+	return shell.Result{Stdout: r.record}, nil
+}
+
+func (r *pathRunner) restore(record string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.found, r.record = true, record
+}
+
+func TestCciMissingPastTheOldGraceKeepsTheWaitUntilItIsBack(t *testing.T) {
+	server := httptest.NewServer(&stream{emit: make(chan struct{})})
+	t.Cleanup(server.Close)
+	var skew atomic.Int64
+	now := func() time.Time { return time.Now().Add(time.Duration(skew.Load())) }
+	runner := &pathRunner{}
+	r := start(t, Options{Seconds: 10, Sources: []string{"cci:dar:desk"}, Runner: runner, Stream: server.URL, Now: now})
+	time.Sleep(armed)
+
+	skew.Store(int64(4 * time.Minute))
+	runner.restore("#7 9:02 PM NOTE root -> desk go\n")
+	r.wait(t)
+
+	if r.code != 0 || r.out.String() != "#7 9:02 PM NOTE root -> desk go\n" {
+		t.Fatalf("got %d %q %s, want cci missing for 4 minutes to keep the wait and its retry to read the record", r.code, r.out.String(), r.errs.String())
+	}
+	if !strings.Contains(r.errs.String(), "lr wait: cci is back on PATH after 24") {
+		t.Fatalf("stderr %q, want one line saying cci is back", r.errs.String())
 	}
 }
 

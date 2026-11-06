@@ -47,8 +47,9 @@ const (
 	seenKeys      = 1000
 	childGrace    = 5 * time.Second
 	treePoll      = 100 * time.Millisecond
-	cciGrace      = 30 * time.Second
+	cciGrace      = 5 * time.Minute
 	reconnect     = time.Second
+	reconnectCap  = 10 * time.Second
 	lockStale     = 10 * time.Second
 	lockPoll      = 10 * time.Millisecond
 	readTimeout   = 60 * time.Second
@@ -115,6 +116,7 @@ type waiter struct {
 	sources      []source
 	cciMissingAt time.Time
 	wake         chan struct{}
+	back         chan string
 	printed      map[string]bool
 	repeat       bool
 	held         []string
@@ -131,7 +133,7 @@ type child struct {
 // Run blocks until a source wakes it, its guarded command exits, or the
 // deadline passes, printing what woke it, and returns the exit code.
 func Run(ctx context.Context, o Options) int {
-	w := &waiter{Options: o, wake: make(chan struct{}, 1), printed: map[string]bool{}}
+	w := &waiter{Options: o, wake: make(chan struct{}, 1), back: make(chan string, 1), printed: map[string]bool{}}
 	if w.Now == nil {
 		w.Now = time.Now
 	}
@@ -172,7 +174,10 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 	deadline := time.NewTimer(time.Duration(w.Seconds) * time.Second)
 	defer deadline.Stop()
 	due := func(source) bool { return true }
+	var retry <-chan time.Time
+	retryAfter := reconnect
 	for {
+		w.sayBack()
 		changed, err := w.check(ctx, due)
 		if err != nil {
 			guarded.end()
@@ -183,15 +188,21 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 			return 0, nil
 		}
 		var missing <-chan time.Time
-		if !w.cciMissingAt.IsZero() {
+		if w.cciMissingAt.IsZero() {
+			retry, retryAfter = nil, reconnect
+		} else {
 			missing = time.After(cciGrace - w.Now().Sub(w.cciMissingAt))
+			if retry == nil {
+				retry = time.After(retryAfter)
+				retryAfter = min(2*retryAfter, reconnectCap)
+			}
 		}
 		select {
 		case <-w.wake:
-			due = func(s source) bool {
-				_, followed := s.(cciSource)
-				return followed
-			}
+			due = followed
+		case <-retry:
+			retry = nil
+			due = followed
 		case event := <-watcher.Events:
 			names := drain(watcher.Events, event.Name)
 			due = func(s source) bool { return slices.ContainsFunc(names, s.heard) }
@@ -223,6 +234,22 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 			return CodeUsage, ctx.Err()
 		}
 	}
+}
+
+func (w *waiter) sayBack() {
+	for {
+		select {
+		case line := <-w.back:
+			fmt.Fprintln(w.Stderr, "lr wait:", line)
+		default:
+			return
+		}
+	}
+}
+
+func followed(s source) bool {
+	_, ok := s.(cciSource)
+	return ok
 }
 
 func drain(events chan fsnotify.Event, first string) []string {
@@ -520,7 +547,10 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 		}
 		return false, err
 	}
-	w.cciMissingAt = time.Time{}
+	if !w.cciMissingAt.IsZero() {
+		fmt.Fprintf(w.Stderr, "lr wait: cci is back on PATH after %.0f s\n", w.Now().Sub(w.cciMissingAt).Seconds())
+		w.cciMissingAt = time.Time{}
+	}
 	woke := false
 	minute := ""
 	for _, line := range strings.Split(strings.TrimRight(result.Stdout, "\n"), "\n") {
@@ -579,15 +609,29 @@ func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 	address := w.Stream + "?" + query.Encode()
 	lost := w.Now()
 	reconnecting := false
+	after := reconnect
 	for {
-		connected, err := w.readStream(ctx, address, reconnecting)
+		connected, err := w.readStream(ctx, address, func() {
+			if !reconnecting {
+				return
+			}
+			select {
+			case w.back <- fmt.Sprintf("the cci daemon stream for %s is back after %.0f s", s.to, w.Now().Sub(lost).Seconds()):
+			case <-ctx.Done():
+			}
+			select {
+			case w.wake <- struct{}{}:
+			default:
+			}
+		})
 		if ctx.Err() != nil {
 			return
 		}
 		if connected {
 			lost = w.Now()
-			reconnecting = true
+			after = reconnect
 		}
+		reconnecting = true
 		if w.Now().Sub(lost) >= cciGrace {
 			errs <- fmt.Errorf("the cci daemon at %s gave no stream for %.0f s: %w", w.Stream, cciGrace.Seconds(), err)
 			return
@@ -595,12 +639,13 @@ func (w *waiter) stream(ctx context.Context, s cciSource, errs chan<- error) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(reconnect):
+		case <-time.After(after):
 		}
+		after = min(2*after, reconnectCap)
 	}
 }
 
-func (w *waiter) readStream(ctx context.Context, address string, reconnecting bool) (bool, error) {
+func (w *waiter) readStream(ctx context.Context, address string, up func()) (bool, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, address, nil)
 	if err != nil {
 		return false, err
@@ -614,12 +659,7 @@ func (w *waiter) readStream(ctx context.Context, address string, reconnecting bo
 		body, _ := io.ReadAll(io.LimitReader(response.Body, 1024))
 		return false, fmt.Errorf("stream answered %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
-	if reconnecting {
-		select {
-		case w.wake <- struct{}{}:
-		default:
-		}
-	}
+	up()
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for scanner.Scan() {

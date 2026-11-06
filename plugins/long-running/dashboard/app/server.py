@@ -1,5 +1,6 @@
 import argparse
 import datetime as dt
+import http.client
 import json
 import os
 import re
@@ -19,6 +20,8 @@ from review_assistant import ReviewAssistant
 
 HERE = Path(__file__).resolve().parent
 CCI = "http://127.0.0.1:7377/v1"
+CCI_GRACE = 300
+CCI_RETRY_CAP = 10
 TIMELINE_KINDS = ["state", "head", "review", "owner", "go", "landed", "release", "incident", "mechanism", "fix-live", "opened", "report", "hold", "lift", "blocker", "defect", "correction", "decide", "ask", "answer"]
 TIMELINE_WINDOW = dt.timedelta(hours=24)
 LEDGER_KINDS = {"landed", "go", "opened", "head", "hold", "lift"}
@@ -56,8 +59,23 @@ def run(argv, cwd=None):
 
 def cci(path, **query):
     url = f"{CCI}/{path}?" + "&".join(f"{k}={v}" for k, values in query.items() for v in (values if isinstance(values, list) else [values]))
-    with urllib.request.urlopen(url, timeout=30) as response:
-        return json.load(response)
+    down, delay = None, 1
+    while True:
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                answer = json.load(response)
+        except urllib.error.HTTPError:
+            raise
+        except (OSError, http.client.HTTPException):
+            down = down or time.monotonic()
+            if time.monotonic() - down >= CCI_GRACE:
+                raise
+            time.sleep(delay)
+            delay = min(2 * delay, CCI_RETRY_CAP)
+            continue
+        if down:
+            print(f"the cci daemon is back after {time.monotonic() - down:.0f} s", flush=True)
+        return answer
 
 
 def plan_prs(text):
@@ -231,10 +249,15 @@ class Drive:
             after = page[-1]["seq"]
 
     def follow_records(self, after):
+        down, delay = None, 1
         while True:
             try:
                 url = f"{CCI}/stream?drive={self.config['drive']}&since={after}&" + "&".join(f"kind={k}" for k in TIMELINE_KINDS)
                 with urllib.request.urlopen(url, timeout=None) as stream:
+                    if down:
+                        print(f"the cci record stream is back after {time.monotonic() - down:.0f} s", flush=True)
+                        self.errors.pop("records", None)
+                        down, delay = None, 1
                     for line in stream:
                         if line.startswith(b"data: "):
                             record = json.loads(line[6:])
@@ -242,9 +265,12 @@ class Drive:
                             with self.lock:
                                 self.records.append(record)
                             self.touch(slow=record["kind"] in LEDGER_KINDS)
-            except OSError as error:
-                self.errors["records"] = f"{type(error).__name__}: {error}"
-                time.sleep(5)
+            except (OSError, http.client.HTTPException) as error:
+                down = down or time.monotonic()
+                if time.monotonic() - down >= CCI_GRACE:
+                    self.errors["records"] = f"{type(error).__name__}: {error}"
+                time.sleep(delay)
+                delay = min(2 * delay, CCI_RETRY_CAP)
 
     def follow_board(self):
         while True:

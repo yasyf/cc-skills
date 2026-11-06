@@ -4,6 +4,7 @@ import queue
 import socket
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -511,3 +512,89 @@ def test_the_review_assistant_reads_its_row_and_runs_on_without_one(tmp_path):
     model.write_text(json.dumps({"board": {"rows": [{"number": 7, "head": "abc"}, {"number": 8, "head": "def"}]}}))
     assert ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, model.as_uri()).board_row(7) == [{"number": 7, "head": "abc"}]
     assert ReviewAssistant({"repo": "a/b", "drive": "d"}, tmp_path, (tmp_path / "gone.json").as_uri()).board_row(7) == []
+
+
+def free_port():
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+    probe.close()
+    return port
+
+
+class CciStub(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        if not self.path.startswith("/v1/stream"):
+            body = json.dumps(self.server.records).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Transfer-Encoding", "chunked")
+        self.end_headers()
+        for record in self.server.records:
+            event = f"data: {json.dumps(record)}\n\n".encode()
+            self.wfile.write(b"%x\r\n%s\r\n" % (len(event), event))
+        self.wfile.flush()
+        self.server.streams.put(self.connection)
+        self.server.cut.wait()
+
+
+def cci_stub(port, records):
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), CciStub)
+    httpd.records, httpd.streams, httpd.cut = records, queue.Queue(), threading.Event()
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return httpd
+
+
+def stop_stub(httpd):
+    httpd.cut.set()
+    httpd.shutdown()
+    httpd.server_close()
+
+
+def test_a_refresh_waits_out_a_daemon_restart_and_says_when_it_is_back(monkeypatch, capsys):
+    port = free_port()
+    monkeypatch.setattr(server, "CCI", f"http://127.0.0.1:{port}/v1")
+    started = []
+    real_sleep = time.sleep
+
+    def sleep(seconds):
+        if not started:
+            started.append(cci_stub(port, [{"lane": "desk"}]))
+        real_sleep(seconds)
+
+    monkeypatch.setattr(server.time, "sleep", sleep)
+    try:
+        assert server.cci("lanes", drive="d") == [{"lane": "desk"}]
+    finally:
+        for httpd in started:
+            stop_stub(httpd)
+    assert capsys.readouterr().out.count("the cci daemon is back after") == 1
+
+
+def test_the_record_stream_follows_the_daemon_back_after_a_restart_cuts_it(monkeypatch, capsys):
+    port = free_port()
+    monkeypatch.setattr(server, "CCI", f"http://127.0.0.1:{port}/v1")
+    drive = Drive({"drive": "d"}, None)
+    first = cci_stub(port, [{"seq": 1, "kind": "note"}])
+    threading.Thread(target=drive.follow_records, args=(0,), daemon=True).start()
+    first.streams.get(timeout=10).shutdown(socket.SHUT_RDWR)
+    stop_stub(first)
+    second = cci_stub(port, [{"seq": 2, "kind": "note"}])
+    second.streams.get(timeout=10)
+    deadline = time.monotonic() + 10
+    while [record["seq"] for record in list(drive.records)] != [1, 2]:
+        assert time.monotonic() < deadline, list(drive.records)
+        time.sleep(0.05)
+    assert "the cci record stream is back after" in capsys.readouterr().out
+    assert "records" not in drive.errors

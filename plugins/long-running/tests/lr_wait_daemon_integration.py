@@ -69,6 +69,23 @@ def test_a_daemon_restart_past_the_stream_grace_never_ends_the_wait(bus):
     assert "go after the restart" in out, out
 
 
+def test_a_daemon_down_past_the_old_grace_keeps_the_wait_and_says_when_it_is_back(bus):
+    waiter = bus.wait(180, "landing-desk")
+    try:
+        time.sleep(2)
+        bus.stop()
+        time.sleep(40)
+        assert waiter.poll() is None, waiter.communicate()
+        bus.serve()
+        bus.post("landing-desk", "go after the outage")
+        out, err = waiter.communicate(timeout=60)
+    finally:
+        waiter.kill()
+    assert waiter.returncode == 0, err
+    assert "go after the outage" in out, out
+    assert err.count("the cci daemon stream for landing-desk is back after") == 1, err
+
+
 def test_a_first_wait_starts_where_the_lane_has_read_and_a_second_repeats_nothing(bus):
     bus.post("landing-desk", "already read")
     read = subprocess.run(["cci", "tail", "--drive", "ci", "--cursor", "landing-desk", "--to", "landing-desk"], env=bus.env, capture_output=True, text=True, check=True)
