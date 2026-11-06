@@ -419,7 +419,7 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 - You are a separate session. Register your prefix and report verdicts yourself;
   in a Claude session `ccx vcs ship` records each PR you open in the ledger and posts its
   `opened` record on cci with the PR body, so never post `opened` yourself, and pass
-  `--pr-body-file` on the ship that opens a PR, since one with no body is refused; a Codex session runs the
+  `--pr-body-file` on the ship that opens a PR, since one with no body is refused (an `--amend` ship needs none); a Codex session runs the
   command under `## PR record` right after each ship instead.
   Never SendMessage a subagent.
 - On spawn: `ledger.py register --ledger <id> --lane <lane> --repo <owner/name> --branch-prefix
