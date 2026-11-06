@@ -85,7 +85,7 @@ func (f *Follower) follow(ctx context.Context) error {
 func (f *Follower) Open(ctx context.Context) error {
 	session := talkboard.Session(f.Entry)
 	started, err := f.Runner.Run(ctx, shell.Command{
-		Argv:    []string{"cc-present", "start", "--session", session, "--title", "Talk: " + f.Entry.Drive},
+		Argv:    []string{"cc-present", "start", "--session", session, "--title", talkboard.Title(f.Entry)},
 		Dir:     f.Entry.Checkout,
 		Timeout: callTimeout,
 	})
@@ -134,15 +134,7 @@ func writeLinks(entry drive.Entry, started string) error {
 		Tailnet string `json:"tailnet,omitempty"`
 		Thread  string `json:"thread"`
 	}{Thread: Section}
-	for line := range strings.Lines(started) {
-		key, value, _ := strings.Cut(strings.TrimSpace(line), ": ")
-		switch {
-		case key == "url":
-			links.URL = value
-		case key == "tailnet" && links.Tailnet == "":
-			links.Tailnet = value
-		}
-	}
+	links.URL, links.Tailnet = talkboard.URLs(started)
 	if links.URL == "" {
 		return fmt.Errorf("cc-present start named no url: %s", strings.TrimSpace(started))
 	}

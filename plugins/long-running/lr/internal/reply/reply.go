@@ -88,6 +88,8 @@ var (
 	asksTap    = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
 	describes  = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
+	repoName   = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+	notBranch  = regexp.MustCompile(`^$|^[-/.]|[/.]$|^@$|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|/\.|\.lock(?:/|$)`)
 )
 
 type Link struct {
@@ -829,7 +831,33 @@ func (r Reply) mendedPicks(warned []string) (Reply, []string) {
 		warned = append(warned, "build names what the recommended pick is built on, and nothing is recommended, so it was left off")
 		r.Build = nil
 	}
+	if r.Build != nil {
+		built, warning := r.Build.mended()
+		if warning != "" {
+			warned = append(warned, warning)
+		}
+		r.Build = &built
+	}
 	return r, warned
+}
+
+func (b Build) mended() (Build, string) {
+	var why string
+	switch {
+	case b.None != "":
+		none := Build{None: strings.Join(strings.Fields(b.None), " ")}
+		if b.Repo != "" || b.Branch != "" {
+			return none, "build names a branch and the reason nothing builds, so the card shows the reason alone"
+		}
+		return none, ""
+	case !repoName.MatchString(b.Repo):
+		why = fmt.Sprintf("repo %q is not OWNER/NAME, so no branch is linked", b.Repo)
+	case notBranch.MatchString(b.Branch):
+		why = fmt.Sprintf("branch %q is not a branch name, so no branch is linked", strings.Join(strings.Fields(b.Branch), " "))
+	default:
+		return b, ""
+	}
+	return Build{None: why}, "build " + why + "; the card says so under the recommended pick"
 }
 
 func kept[T any](items []T, limit int, name string, warned *[]string, valid func(T) bool) []T {
@@ -1137,6 +1165,9 @@ func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	block, err := json.Marshal(card)
 	if err != nil {
 		return []Outcome{{Surface: "talk", Error: err.Error()}}
+	}
+	if err := talkboard.Fit(ctx, f.Runner, f.Entry, id, block); err != nil {
+		return []Outcome{failed("talk", err)}
 	}
 	if _, err := f.Runner.Run(ctx, shell.Command{
 		Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current"},
