@@ -400,7 +400,7 @@ One ask can carry several reads, each on its own line or after a `;`. A `;` insi
 | `datadog logs [--from <age>] [--to <age>] <query>` | Up to 100 logs, newest first, over the last hour by default; an age is `90m`, `6h`, `2d` or an RFC3339 time |
 | `datadog spans [--from <age>] [--to <age>] <query>` | Up to 100 APM spans, newest first, with service, resource, duration, trace and error |
 | `datadog metric [--from <age>] [--to <age>] <query>` | Each series of a metrics query with its points |
-| `sentry api <path>`, `datadog api <path>` | The first 16 KiB of one GET under that API |
+| `sentry api <path> [--pick <dotted.path>,...] [--from <byte>]`, `datadog api <path> [--pick ...] [--from <byte>]` | Up to 16 KiB of one GET under that API, its line saying how many bytes of the whole it holds and the `--from <byte>` that reads the next window. `--pick request,contexts.client,tags` answers only those parts of the JSON, each on a line after its path, and the line names any path that is absent. A step of a path is a key, an array index, or `field=value` for the first array element whose field has that value, so `--pick entries.type=request.data` reads the request of an issue's `events/latest/`. With `--pick`, `--from` walks the picked text |
 | `slack thread <permalink>` | Every message of the thread, oldest first, as its time, author and text, up to 16 KiB, read with the Mac's `cc-slack thread`; the desk writes nothing to Slack |
 | `oncall <read verb>` | `tools/ci oncall` with `incidents`, `page status`, `ledger`, `journal read`, `history`, `monitors`, `impact`, `current`, `responder` or `connections list` |
 
