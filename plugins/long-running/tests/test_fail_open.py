@@ -53,6 +53,7 @@ KEPT_REFUSALS = KEPT | {
     "communicator_chat.A do-nothing Bash call ends no turn, and t": "the call has already shown in the owner's window when a warning lands",
     "communicator_chat.design_orders_carve_out_nothing": "the owner ordered the refusal: a lane opens the carved-out PR within minutes of the record, ahead of the design he asked for (cci 403107)",
     "design_picks.ships_wait_for_his_design_pick": "the owner ordered the refusal: nothing in a subsystem under his open design ships before his pick except the incident fix and headroom, and a warning lands after the PR is open (cci 403107, 402293)",
+    "desk_done.desks_never_post_done": "a done record retires the desk as soon as the lane supervisor reads it, so a warning lands after the drive has lost the desk (cci 513678)",
     "desk_ownership.The coordinator owns the relay and every d": "trust: a runner or desk started from the communicator",
     "no_credential_on_a_shell.no_credential_on_a_shell": "the owner ordered the refusal: a credential in a transcript cannot be taken back",
     "no_credential_on_a_shell.no_whole_object_kubectl_reads": "the owner ordered the refusal: a pod env value printed by a whole-object read cannot be taken back",
