@@ -32,6 +32,9 @@ const (
 	routeLocal        = "local"
 	carriedBox        = "/home/sprite/drive/carried"
 	sponsorKey        = "/home/sprite/.cc-inbox/relay/default/service.pem"
+	sponsorProfile    = "aws-profile:"
+	serviceKeyName    = "/ci/desk-host/cci-service-key"
+	serviceKeyRegion  = "us-west-2"
 	workerStartMS     = "600000"
 	localAgentReads   = 120
 	localIdleMS       = "120000"
@@ -337,7 +340,7 @@ func (w *workerLaunch) checkSprite() error {
 		return refuse("WORKER_EXPECT_BASE is a full 40- or 64-character lowercase commit; nothing was prepared")
 	}
 	if w.Env(sponsorEnv) == "" {
-		return refuse("set %s to the Sprite holding the drive's enrolled cci service key, because a worker with no relay posts nothing anyone reads; nothing was prepared", sponsorEnv)
+		return refuse("set %s to the Sprite holding the drive's enrolled cci service key, or to %s<this Mac's AWS profile> to read it from SSM, because a worker with no relay posts nothing anyone reads; nothing was prepared", sponsorEnv, sponsorProfile)
 	}
 	checkout, err := filepath.EvalSymlinks(w.Env("WORKER_CHECKOUT"))
 	if w.Env("WORKER_CHECKOUT") == "" || err != nil {
@@ -997,7 +1000,11 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if code != 0 || json.Unmarshal([]byte(node), &owner) != nil || owner.PublicKey == "" {
 		return log.String(), errors.New("cci node names no public key")
 	}
-	key, errs, code := w.capture("sprite", "exec", "-s", sponsor, "--no-stdin", "--", "cat", sponsorKey)
+	read := []string{"sprite", "exec", "-s", sponsor, "--no-stdin", "--", "cat", sponsorKey}
+	if profile, ok := strings.CutPrefix(sponsor, sponsorProfile); ok {
+		read = []string{"aws", "ssm", "get-parameter", "--profile", profile, "--region", serviceKeyRegion, "--name", serviceKeyName, "--with-decryption", "--query", "Parameter.Value", "--output", "text"}
+	}
+	key, errs, code := w.capture(read...)
 	log.WriteString(errs)
 	if code != 0 {
 		return log.String(), errors.New("the sponsor's service key did not read")
