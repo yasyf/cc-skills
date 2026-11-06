@@ -16,11 +16,14 @@ import (
 )
 
 const (
-	AskKind    = "ask"
-	AnswerKind = "answer"
-	CatchUp    = time.Hour
-	openStatus = "open"
-	pollEvery  = 2 * time.Second
+	AskKind      = "ask"
+	AnswerKind   = "answer"
+	StandingAttr = "standing"
+	CatchUp      = time.Hour
+	claimKind    = "state"
+	claimEvery   = 5 * time.Minute
+	openStatus   = "open"
+	pollEvery    = 2 * time.Second
 
 	refollowAfter = 10 * time.Second
 )
@@ -32,13 +35,38 @@ type Reply struct {
 type Desk struct {
 	Lane   string
 	Drive  string
+	Duty   string
 	Bodies string
 	Now    func() time.Time
 	Log    io.Writer
 	Read   func(context.Context, string) Reply
 }
 
+func (d Desk) holdDuty(ctx context.Context) (release func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	released := make(chan struct{})
+	claim := client.Draft{Drive: d.Drive, Lane: d.Lane, Kind: claimKind, Text: d.Lane + " serves: " + d.Duty, Attrs: map[string]string{StandingAttr: d.Duty}}
+	go func() {
+		defer close(released)
+		for {
+			if _, err := client.Post(ctx, claim); err != nil && ctx.Err() == nil {
+				_, _ = fmt.Fprintf(d.Log, "%s did not claim its standing duty this beat: %v\n", d.Lane, err)
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(claimEvery):
+			}
+		}
+	}()
+	return func() {
+		cancel()
+		<-released
+	}
+}
+
 func (d Desk) Serve(ctx context.Context) error {
+	defer d.holdDuty(ctx)()
 	query := client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}}
 	for {
 		next, err := d.Pass(ctx, query)
@@ -55,6 +83,7 @@ func (d Desk) Serve(ctx context.Context) error {
 }
 
 func (d Desk) Follow(ctx context.Context) {
+	defer d.holdDuty(ctx)()
 	for ctx.Err() == nil {
 		err := d.follow(ctx)
 		if ctx.Err() != nil {

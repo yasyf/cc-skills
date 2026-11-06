@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -369,6 +370,10 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 			}
 			row, known = laneOf(s, name)
 		}
+	}
+	if duty := r.Attr(askdesk.StandingAttr); known && duty != "" {
+		do(s.ClaimLane(name, roleDesk, duty))
+		row, known = laneOf(s, name)
 	}
 	if known && isLive(row.State) {
 		foldWait(s, r, row)
