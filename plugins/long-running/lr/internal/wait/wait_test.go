@@ -481,6 +481,68 @@ func TestAWaitOnANumberedLaneWakesOnMailToItsStem(t *testing.T) {
 	}
 }
 
+type hookShownRunner struct{ order string }
+
+func (r hookShownRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	if slices.Contains(c.Argv, "--mail") {
+		return shell.Result{}, nil
+	}
+	return shell.Result{Stdout: r.order}, nil
+}
+
+func TestAStemOrderTheHookShowedDoesNotWakeTheStemWait(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := hookShownRunner{order: "#7 9:00 PM REVIEW fidelity-desk-29 -> tp-desc-vector-b fidelity: ok\n"}
+	r := start(t, Options{Seconds: 1, Sources: []string{"cci:dar:tp-desc-vector-b-1"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || !strings.HasPrefix(r.out.String(), "QUIET ") {
+		t.Fatalf("got %d %q, want QUIET: the hook already showed the stem's order through the lane mail cursor", r.code, r.out.String())
+	}
+}
+
+type seededStemRunner struct {
+	stem    string
+	cursors map[string]int64
+	orders  []int64
+}
+
+func (r seededStemRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
+	arg := func(flag string) string { return c.Argv[slices.Index(c.Argv, flag)+1] }
+	if arg("--to") != r.stem {
+		return shell.Result{}, nil
+	}
+	floor := max(r.cursors[arg("--cursor")], r.cursors[arg("--seed")])
+	var out strings.Builder
+	for _, seq := range r.orders {
+		if seq > floor {
+			fmt.Fprintf(&out, "#%d 9:00 PM NOTE root -> %s seeded order\n", seq, r.stem)
+		}
+	}
+	return shell.Result{Stdout: out.String()}, nil
+}
+
+func TestAStemWaitOnASeededStoreStartsWhereTheLanesCursorStands(t *testing.T) {
+	s := &stream{emit: make(chan struct{}, 1)}
+	server := httptest.NewServer(s)
+	t.Cleanup(server.Close)
+	runner := seededStemRunner{stem: "pr-unblock", cursors: map[string]int64{"pr-unblock-9-stem-wake": 23741, "pr-unblock-9": 345008}, orders: []int64{23742, 300000, 345008}}
+	r := start(t, Options{Seconds: 1, Sources: []string{"cci:dar:pr-unblock-9"}, Runner: runner, Stream: server.URL, Now: ninePM})
+	time.Sleep(armed)
+
+	s.emit <- struct{}{}
+	r.wait(t)
+
+	if r.code != 0 || !strings.HasPrefix(r.out.String(), "QUIET ") {
+		t.Fatalf("got %d %q, want QUIET: the stem wait starts where pr-unblock-9's cursor stands, past the seeded orders", r.code, r.out.String())
+	}
+}
+
 func TestARecordAfterARepeatPrintsUnderItsOwnMinute(t *testing.T) {
 	s := &stream{emit: make(chan struct{}, 1)}
 	server := httptest.NewServer(s)

@@ -536,7 +536,7 @@ func (s cciSource) check(ctx context.Context, w *waiter) (bool, error) {
 	argv := []string{"cci", "tail", "--drive", s.drive, "--cursor", s.lane + "-wake", "--seed", s.lane, "--to", s.lane, "--mail"}
 	if s.to != s.lane {
 		cursor := s.lane + "-stem-wake"
-		argv = []string{"cci", "tail", "--drive", s.drive, "--cursor", cursor, "--seed", cursor, "--to", s.to}
+		argv = []string{"cci", "tail", "--drive", s.drive, "--cursor", cursor, "--seed", s.lane, "--to", s.to, "--mail"}
 	}
 	result, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout})
 	if err != nil {
