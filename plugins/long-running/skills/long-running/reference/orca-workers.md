@@ -155,7 +155,7 @@ codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service
 
 **Record PRs and read worker output.** Orca workers are separate sessions that register prefixes and report verdicts through `ledger.py` themselves and never `SendMessage` a subagent.
 - In a Claude worker, `ccx vcs ship` records each opened PR in the ledger and as an `opened` record on cci by using its hook, so the worker posts no `opened` line by hand.
-- A Codex worker runs without a PR hook or a bound cci lane, so it runs the `drive.py record --opened` command from its brief's `## PR record` section after each ship that opens a PR.
+- A Codex worker runs without a PR hook or a bound cci lane, so it runs the command in its brief's `## PR record` section after each ship that opens a PR: `drive.py record --opened` on the Mac, and on a Sprite, which has no drive ledger, `cci post --kind opened --pr <n>`, with `--kind head --head <n>=<sha>` after each later push and `--pr <n>` on every `ready` record. A Sprite launch warns of a brief that runs `drive.py record` or `ledger.py report`.
 - Read a worker's output by dispatch:
 
 ```sh

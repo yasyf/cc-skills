@@ -1832,6 +1832,53 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall, f.prepareCall("--env", "CLAUDE_LONG_RUNNING_DRIVE=brook", "--env", "CLAUDE_LONG_RUNNING_LANDING_REPO=Forge-AI/monorepo")}, started[:2], [][]string{driveCall("brook")}, started[2:], [][]string{holdCall(workerWorkspace)})...)
 }
 
+func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
+	for model, want := range map[string]string{
+		"gpt-6.1-sol": workerBrief + "\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive 'brook' --lane 'lane-a' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive 'brook' --lane 'lane-a' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n",
+		"opus":        workerBrief,
+	} {
+		t.Run(model, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), `{"drive":"brook","orca_run":"`+workerRun+`","state_dir":"/Users/o/.claude/scratch/brook"}`, 0o600)
+			f.sprite()
+			if _, _, err := f.launch(workerLane, model, "high"); err != nil {
+				t.Fatal(err)
+			}
+			if got := f.receiptText(briefFile); got != want {
+				t.Fatalf("carried brief\n%q\nwant\n%q", got, want)
+			}
+			if lacked := spriteLackedWarning(f.brief, want); lacked != "" {
+				t.Fatal(lacked)
+			}
+		})
+	}
+}
+
+func TestASpriteLaunchWarnsOfABriefThatRunsTheMacsLedgerAndStillLaunches(t *testing.T) {
+	f := newWorkerFixture(t)
+	text := workerBrief + "After the ship run `'/Users/o/plugin/bin/drive.py' record --opened --pr <n>`, then `ledger.py report --pr <n>`.\n"
+	f.write(f.brief, text, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
+	if _, failed, err := f.launch(workerLane, "opus", "high"); err != nil || failed != "" {
+		t.Fatal(failed, err)
+	}
+	if want := "warning: brief " + f.brief + " runs drive.py record, ledger.py report, which reads the Mac's drive ledger and no Sprite has;"; !strings.Contains(f.stderr.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, f.stderr.String())
+	}
+}
+
+func TestEveryShippedIncidentTemplateLaunchesOnASprite(t *testing.T) {
+	for _, name := range []string{"alert-fix-brief.md", "alert-evidence-brief.md", "alert-comms-brief.md", "unfixed-case-brief.md"} {
+		text, err := os.ReadFile(filepath.Join("..", "..", "..", "skills", "long-running", "reference", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if lacked := spriteLackedWarning(name, string(text)); lacked != "" {
+			t.Error(lacked)
+		}
+	}
+}
+
 func TestASpriteWorkerWritesItsDriveEntryOnTheBoxWithItsOwnPathsAndNoMacOnes(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.write(filepath.Join(f.home, ".claude", "long-running", "drives", "brook.json"), rendered(object{

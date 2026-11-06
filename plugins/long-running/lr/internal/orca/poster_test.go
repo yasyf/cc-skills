@@ -441,6 +441,18 @@ func TestEveryFaultOfALaunchIsNamedAtOnceBeforeAnyCall(t *testing.T) {
 	}
 }
 
+func TestALaneThatMayLeaveTheMacIsWarnedOfARunOfTheMacsLedger(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, filepath.Join("pr-lane", briefFile), briefLines+"Right after the ship run `drive.py record --opened --pr <n>`.\n")
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+	if _, err := f.poster.Launch(context.Background(), Order{Lane: "pr-lane", Model: "sol", Effort: "high", Brief: brief}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if want := "WARN brief " + brief + " runs drive.py record, which reads the Mac's drive ledger and no Sprite has"; !strings.Contains(f.out.String(), want) {
+		t.Fatalf("output lacks %q:\n%s", want, f.out)
+	}
+}
+
 func TestAShippedIncidentTemplateLaunchedUnrenderedIsRefusedNamingEachFieldBeforeAnyCall(t *testing.T) {
 	f := newPosterFixture(t)
 	template, err := os.ReadFile(filepath.Join("..", "..", "..", "skills", "long-running", "reference", "alert-fix-brief.md"))
