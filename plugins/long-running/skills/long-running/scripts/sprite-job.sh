@@ -53,7 +53,7 @@ loose refs a Sprite restart leaves empty or filled with NULs, which every fetch
 reads as the zero object. Once `lr grade` has moved its .git to the local disk, it fetches every remote unless a fetch
 that began after this job asked for one already did; before that it fetches nothing, since a stale clone's catch-up
 on the network disk holds the lock `lr grade` needs for the move, for an hour on dar-fleet-4. The job runs there. <dir> is then copied
-back, job.json, pid and job.log left as this machine wrote them and result.json last,
+back, job.json, pid, job.log, cards.md, landed.json and answers.json left as this machine wrote them (the job only reads them, and landed.json alone is 350 KB, more than a dropped Sprite CLI stream resumes) and result.json last,
 adopted through long_running/desk_result.py only when it parses, so the runner
 settles the pass from this process and its files as it does a local one. Every
 exit of this script leaves exactly one whole result.json: a job that ends with none, as
@@ -298,7 +298,7 @@ while [ -z "$status" ]; do
 done
 rm -f "$delta"
 archive=$(mktemp)
-if sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" || exit 2; find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json ! -path ./cards.md | tar -cz --no-recursion -T -; [ $? -le 1 ]' sh "$dir" >"$archive" &&
+if sprite exec -s "$sprite" --no-stdin -- sh -c 'cd "$1" || exit 2; find . -mindepth 1 ! -path ./job.json ! -path ./pid ! -path ./job.log ! -path ./result.json ! -path ./cards.md ! -path ./landed.json ! -path ./answers.json | tar -cz --no-recursion -T -; [ $? -le 1 ]' sh "$dir" >"$archive" &&
   tar -tzf "$archive" >/dev/null && tar -xz -m -f "$archive" -C "$dir"; then
   rm -f "$archive"
 else

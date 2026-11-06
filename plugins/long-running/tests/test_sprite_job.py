@@ -97,6 +97,30 @@ def test_a_grader_returns_its_spool_and_body_without_a_local_cci_replica(tmp_pat
         assert not (directory / "record.md").exists()
 
 
+def test_a_job_copies_back_only_what_it_wrote_so_the_archive_stays_inside_what_the_sprite_cli_resumes(tmp_path: Path) -> None:
+    """The 350 KB landed.json the runner wrote for a job rode back in every archive; past about 80 KB a dropped stream cannot resume, so completed passes were marked lost (cannot resume output at byte 0: 40 lost finder passes on Nov 5)."""
+    mac, sprite = tmp_path / "mac", tmp_path / "sprite"
+    checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45682-c051a2816b25", mac / "config"
+    job_script = plugin_with_job(mac, RESTARTED_JOB + '(job / "landed.json").write_text("")\n(job / "answers.json").write_text("")\n')
+    executable(mac / "bin" / "sprite", SPRITE)
+    executable(mac / "bin" / "cci", "#!/bin/sh\n")
+    executable(mac / "bin" / "sleep", "#!/bin/sh\n")
+    directory.mkdir(parents=True)
+    (directory / "job.json").write_text(json.dumps({"drive": "d1", "checkout": str(checkout)}))
+    (directory / "landed.json").write_text('{"rows": 1}')
+    (directory / "answers.json").write_text('{"answers": 1}')
+    (config / "long-running" / "drives").mkdir(parents=True)
+    (config / "long-running" / "drives" / "d1.json").write_text(json.dumps({"state_dir": str(mac / "state")}))
+    subprocess.run(["git", "init", "-q", f"{sprite}{checkout}"], check=True)
+
+    env = {**os.environ, "PATH": f"{mac / 'bin'}:{os.environ['PATH']}", "MAC_ROOT": str(mac), "SPRITE_ROOT": str(sprite), "CLAUDE_CONFIG_DIR": str(config)}
+    subprocess.run(["sh", str(job_script), "vet4", "finder", str(directory)], env=env, check=True, capture_output=True, timeout=60)
+
+    assert (directory / "landed.json").read_text() == '{"rows": 1}'
+    assert (directory / "answers.json").read_text() == '{"answers": 1}'
+    assert json.loads((directory / "result.json").read_text()) == {"verdict": "ok"}
+
+
 @pytest.mark.parametrize("relay", ["#!/bin/sh\n", "#!/bin/sh\necho 'cci: database is locked (5) (SQLITE_BUSY)' >&2\nexit 1\n"], ids=["relay-pushes", "relay-locked"])
 def test_a_job_keeps_its_own_job_pid_and_log_files_and_drops_the_empty_or_nul_filled_refs_a_sprite_restart_left(tmp_path: Path, relay: str) -> None:
     """Coordinator #220372, #220831: a Sprite restart emptied its copies of a job's files and three loose refs, the copy back emptied job.json and pid here, and every fetch on the Sprite read the zero object. Coordinator #222905: a relay push that failed on SQLITE_BUSY exited before result.json came back, so the runner never settled the pass."""
