@@ -20,6 +20,7 @@ const (
 	StoreDuty  = "answers Sprite lanes' reads of the drive's store over cci"
 	answerWait = 3 * time.Minute
 	failedRead = "store read failed: "
+	cardPaths  = "; a card is no store read: ask the owner with `lr ask-owner` from any host, and a landing tap card comes from the ready-cards pass once you post `cci post --kind ready --pr <n>` on a green head"
 )
 
 var errAnswered = errors.New("answered")
@@ -56,6 +57,9 @@ func StoreReads(reads map[string]Serve) func(context.Context, string) Reply {
 			return Reply{Head: fmt.Sprintf("%s: %d lines", strings.Join(fields, " "), strings.Count(out.String(), "\n")), Body: out.String()}
 		}
 		why := "the store desk serves only lr " + strings.Join(slices.Sorted(maps.Keys(reads)), ", lr ")
+		if strings.Contains(strings.ToLower(text), "card") {
+			why += cardPaths
+		}
 		return Reply{Head: failedRead + why, Body: why}
 	}
 }
