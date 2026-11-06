@@ -16,6 +16,7 @@ from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry, run_script, script
 from .lane_landing import outside_drive_repo
+from .pr_body_frozen import SHIP as SHIP_ARGS
 from .session_tree import drive_lane, teammate_lane
 from .tests.ledger_fixtures import FIXTURES
 
@@ -112,7 +113,10 @@ SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card fro
 SHIP_CLIPPED = "This ship's output was cut before its PR line, so the PR has no board row and no head record. Rerun `ccx vcs ship --no-commit --pr-body-file <body>` with no pipe."
 DETACHED_LOG = Path.home() / ".cache" / "ccn-ledger" / "detached-drive.log"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
-NOT_OPEN = {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
+ON_BRANCH = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n"}
+NOT_OPEN = ON_BRANCH | {"gh pr view": (1, 'no pull requests found for branch "lane/fix"')}
+OPEN_PR = ON_BRANCH | {"gh pr view": "OPEN\n"}
+INFERRED_TRUNK = ON_BRANCH | {"gh pr view --json": (1, 'no pull requests found for branch "dev"'), "gh pr view lane/fix": "OPEN\n", "gh pr view dev": (1, 'no pull requests found for branch "dev"')}
 
 
 def run_drive(argv: list[str], *, detach_on_timeout: bool = False) -> tuple[subprocess.CompletedProcess[str] | None, str]:
@@ -290,10 +294,11 @@ def opens_a_pr(call: Call) -> bool:
     if call.cwd is None:
         return False
     try:
-        tool(["gh", "pr", "view", "--json", "number"], call.cwd)
+        branch = next(iter(SHIP_ARGS.bind(call).values.get("branch", ())), None) or tool(["git", "rev-parse", "--abbrev-ref", "HEAD"], call.cwd).strip()
+        state = tool(["gh", "pr", "view", str(branch), "--json", "state", "--jq", ".state"], call.cwd).strip()
     except Unposted as failure:
         return NO_PR in str(failure)
-    return False
+    return state != "OPEN"
 
 
 @on(
@@ -309,8 +314,11 @@ def opens_a_pr(call: Call) -> bool:
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-pr", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --no-push", env=LANE_ENV, commands=NOT_OPEN): Allow(),
         Input(command="ccx vcs ship --help", env=LANE_ENV, commands=NOT_OPEN): Allow(),
-        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands={"gh pr view": '{"number":9}'}): Allow(),
-        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands={"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands=OPEN_PR): Allow(),
+        Input(command="ccx vcs ship -m 'x: 🐛 z'", env=LANE_ENV, cwd="/", commands=ON_BRANCH | {"gh pr view": (1, "HTTP 502: Bad Gateway")}): Allow(),
+        Input(command="ccx vcs ship --no-commit --tip-only", env=LANE_ENV, cwd="/", commands=INFERRED_TRUNK): Allow(),
+        Input(command="ccx vcs ship --branch lane/fix --tip-only --no-commit", env=LANE_ENV, cwd="/", commands=INFERRED_TRUNK | {"git rev-parse --abbrev-ref HEAD": "dev\n"}): Allow(),
+        Input(command="ccx vcs ship --no-commit --tip-only", env=LANE_ENV, cwd="/", commands=ON_BRANCH | {"gh pr view": "MERGED\n"}): Block(pattern=r"^This ship opens a PR"),
     },
 )
 def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:

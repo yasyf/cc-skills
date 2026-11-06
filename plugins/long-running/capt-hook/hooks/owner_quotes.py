@@ -74,6 +74,7 @@ def names_private(repo: str) -> bool:
         Input(command=HEREDOC, env=DRIVE, commands=PUBLIC): Warn(),
         Input(command=f"ccx vcs ship -m 'x: y' --pr-body-file {QUOTE}", env=DRIVE, commands=PUBLIC): Warn(),
         Input(command=f"ccx vcs ship --pr-body-file lane/fix={QUOTE}", env=DRIVE, commands=PUBLIC): Warn(),
+        Input(command=f"ccx vcs ship --draft --pr-title-file t --pr-body-file {QUOTE}", env=DRIVE, commands=PUBLIC): Warn(),
         Input(command=f"gh pr create --body-file {QUOTE}", env=DRIVE_CONFIG, state=ACTIVE, commands=PUBLIC): Warn(),
         Input(command=f"gh pr create --body-file {BODIES / 'log-line.md'}", env=DRIVE): Allow(),
         Input(command=f"gh pr comment 12 --body-file {BODIES / 'paraphrase.md'}", env=DRIVE): Allow(),
