@@ -4,13 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
+
+const macUnread = 3
 
 var (
 	appVersion = "dev"
@@ -37,7 +44,52 @@ func root(a *app.App) *cobra.Command {
 	for _, verb := range verbs {
 		cmd.AddCommand(verb(a))
 	}
+	runOnMac(cmd)
 	return cmd
+}
+
+func runOnMac(cmd *cobra.Command) {
+	for _, sub := range cmd.Commands() {
+		runOnMac(sub)
+	}
+	verb := strings.TrimPrefix(cmd.CommandPath(), cmd.Root().Name()+" ")
+	local := cmd.RunE
+	if local == nil || !slices.Contains(askdesk.StoreVerbs, verb) {
+		return
+	}
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		entry, onSprite := drive.SpriteEntry()
+		if !onSprite {
+			return local(c, args)
+		}
+		err := askdesk.RunOnMac(c.Context(), askdesk.LiveCCI{}, entry.Bus(), askdesk.Asked{Verb: verb, Args: forwarded(c, args), Lane: os.Getenv(lanes.LaneEnv)}, c.OutOrStdout(), c.ErrOrStderr())
+		var exit *askdesk.ExitError
+		if errors.As(err, &exit) {
+			return &wait.ExitError{Code: exit.Code}
+		}
+		if err != nil {
+			fmt.Fprintln(c.ErrOrStderr(), "lr:", err)
+			return &wait.ExitError{Code: macUnread}
+		}
+		return nil
+	}
+}
+
+func forwarded(c *cobra.Command, args []string) []string {
+	var words []string
+	c.Flags().Visit(func(f *pflag.Flag) {
+		if f.Name == "config" {
+			return
+		}
+		if values, ok := f.Value.(pflag.SliceValue); ok {
+			for _, value := range values.GetSlice() {
+				words = append(words, "--"+f.Name+"="+value)
+			}
+			return
+		}
+		words = append(words, "--"+f.Name+"="+f.Value.String())
+	})
+	return append(append(words, "--"), args...)
 }
 
 func execute(cmd *cobra.Command, args []string) error {

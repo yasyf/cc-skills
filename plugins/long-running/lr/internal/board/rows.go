@@ -1,13 +1,10 @@
 package board
 
 import (
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -16,18 +13,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
-)
-
-const (
-	rowsRead  = "board rows"
-	portsRead = "board ports"
 )
 
 type rowsQuery struct {
@@ -38,19 +28,6 @@ func (q *rowsQuery) flags(fs *pflag.FlagSet) {
 	fs.BoolVar(&q.json, "json", false, "print the rows as one JSON array")
 	fs.BoolVar(&q.all, "all", false, "include landed, closed and superseded rows; an old-tree row whose port is owed is listed without it")
 	fs.BoolVar(&q.outside, "outside", false, "list the old-tree PRs no drive lane opened in place of the drive's rows, each with its port; without --all, only those whose port is owed")
-}
-
-func (q rowsQuery) ask() string {
-	read := []string{rowsRead}
-	for _, flag := range []struct {
-		name string
-		on   bool
-	}{{"--json", q.json}, {"--all", q.all}, {"--outside", q.outside}} {
-		if flag.on {
-			read = append(read, flag.name)
-		}
-	}
-	return strings.Join(read, " ")
 }
 
 func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
@@ -64,34 +41,11 @@ func rowsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if entry.OnSprite() {
-				return askdesk.AskMac(c.Context(), askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), q.ask(), c.OutOrStdout())
-			}
 			return printRows(entry, q, c.OutOrStdout(), c.ErrOrStderr())
 		},
 	}
 	q.flags(cmd.Flags())
 	return cmd
-}
-
-func RowsRead(driveName string) askdesk.Serve {
-	return func(_ context.Context, args []string, out, errs io.Writer) error {
-		var q rowsQuery
-		parsed := pflag.NewFlagSet(rowsRead, pflag.ContinueOnError)
-		parsed.SetOutput(io.Discard)
-		q.flags(parsed)
-		if err := parsed.Parse(args); err != nil {
-			return err
-		}
-		if parsed.NArg() != 0 {
-			return errors.New(rowsRead + " takes no arguments")
-		}
-		entry, err := drive.Named(driveName)
-		if err != nil {
-			return err
-		}
-		return printRows(entry, q, out, errs)
-	}
 }
 
 func printRows(entry drive.Entry, q rowsQuery, out, errs io.Writer) error {
@@ -150,60 +104,28 @@ func printOutside(out io.Writer, s *store.Store, repo string, asJSON, all bool) 
 func portsCommand(opened func() (drive.Entry, string, error)) *cobra.Command {
 	return &cobra.Command{
 		Use:   "ports PR...",
-		Short: "Print one JSON object from each named drive PR that is a forward port to the old-tree PR it copies, as its head records say; on a Sprite the Mac's store-desk reads it",
+		Short: "Print one JSON object from each named drive PR that is a forward port to the old-tree PR it copies, as its head records say",
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			numbers, err := prNumbers(args)
-			if err != nil {
-				return err
+			numbers := make([]int, len(args))
+			for at, arg := range args {
+				number, err := strconv.Atoi(arg)
+				if err != nil {
+					return err
+				}
+				numbers[at] = number
 			}
 			entry, _, err := opened()
 			if err != nil {
 				return err
 			}
-			if entry.OnSprite() {
-				return askdesk.AskMac(c.Context(), askdesk.LiveCCI{}, entry.Bus(), os.Getenv(lanes.LaneEnv), strings.Join(append([]string{portsRead}, args...), " "), c.OutOrStdout())
+			_, ports, err := Ports(entry, numbers)
+			if err != nil {
+				return err
 			}
-			return printPorts(entry, numbers, c.OutOrStdout())
+			return json.NewEncoder(c.OutOrStdout()).Encode(ports)
 		},
 	}
-}
-
-func PortsRead(driveName string) askdesk.Serve {
-	return func(_ context.Context, args []string, out, _ io.Writer) error {
-		numbers, err := prNumbers(args)
-		if err != nil {
-			return err
-		}
-		entry, err := drive.Named(driveName)
-		if err != nil {
-			return err
-		}
-		return printPorts(entry, numbers, out)
-	}
-}
-
-func prNumbers(args []string) ([]int, error) {
-	if len(args) == 0 {
-		return nil, errors.New(portsRead + " takes one or more PRs")
-	}
-	numbers := make([]int, len(args))
-	for at, arg := range args {
-		number, err := strconv.Atoi(arg)
-		if err != nil {
-			return nil, err
-		}
-		numbers[at] = number
-	}
-	return numbers, nil
-}
-
-func printPorts(entry drive.Entry, numbers []int, out io.Writer) error {
-	_, ports, err := Ports(entry, numbers)
-	if err != nil {
-		return err
-	}
-	return json.NewEncoder(out).Encode(ports)
 }
 
 func backfillCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.Command {

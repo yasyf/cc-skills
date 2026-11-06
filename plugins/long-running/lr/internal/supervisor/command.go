@@ -46,9 +46,10 @@ import (
 )
 
 const (
-	runnerFile  = "runner.json"
-	configFile  = "lr.json"
-	profileFile = "supervisor-pprof.sock"
+	runnerFile    = "runner.json"
+	configFile    = "lr.json"
+	storeRunLimit = 150 * time.Second
+	profileFile   = "supervisor-pprof.sock"
 )
 
 func Command(a *app.App) *cobra.Command {
@@ -279,7 +280,14 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, binar
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
 			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Duty: askdesk.StoreDuty, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
-			Read: askdesk.StoreReads(map[string]askdesk.Serve{"grade queue": grading.QueueRead(a, env.Config.Drive), "board rows": board.RowsRead(env.Config.Drive), "landing gate": landing.GateRead(a, env.Config.Drive), "landing go": landing.GoRead(a, env.Config.Drive), "board ports": board.PortsRead(env.Config.Drive), "facts whose": prfacts.WhoseRead(a, env.Config.Drive)}),
+			Read: askdesk.StoreRuns(filepath.Join(env.State, configFile), func(ctx context.Context, argv []string, lane string) (string, string, int, error) {
+				ran, err := a.Runner.Run(ctx, shell.Command{Argv: append([]string{binary}, argv...), Env: []string{drive.Env + "=" + env.Config.Drive, "LR_DRIVE=" + env.Config.Drive, lanes.LaneEnv + "=" + lane}, Timeout: storeRunLimit})
+				var exit *shell.ExitError
+				if errors.As(err, &exit) {
+					return ran.Stdout, ran.Stderr, exit.Code, nil
+				}
+				return ran.Stdout, ran.Stderr, 0, err
+			}),
 		}.Follow)
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
