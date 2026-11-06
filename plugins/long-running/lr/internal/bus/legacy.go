@@ -47,6 +47,7 @@ var (
 	quotedSpan     = regexp.MustCompile("`[^`\\n]*`|\"[^\"\\n]*\"|“[^”]*”")
 	overrideNamed  = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-override\b[^.;\n]*`)
 	overrideForm   = regexp.MustCompile(`(?i)^(finder|fidelity)-override\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{7,40})\b(?:\s*(?::|\s(?:finder|fidelity)\s)\s*#?(\d+(?:@[0-9a-f]+)?)\b)?`)
+	citedRecord    = regexp.MustCompile(`(?i)(?:^|[\s(,]|cci\s+#)(\d+(?:@[0-9a-f]+)?)(?:$|[\s,)])`)
 	voidNamed      = regexp.MustCompile(`(?i)\b(?:finder|fidelity)-void\b[^.;\n]*`)
 	voidForm       = regexp.MustCompile(`(?i)^(finder|fidelity)-void\s+#?(\d+)\s+(?:at\s+)?([0-9a-f]{40})\b\s*:\s*#?\d+\b`)
 	clauseStart    = regexp.MustCompile(`(?m)(?:^|[.!?]\s+)(?:\d{1,2}:\d{2} [AP]M\s+)?(?:(?:root|main):\s+)?$`)
@@ -332,17 +333,30 @@ func Appeal(record client.Record) bool {
 	return string(record.Kind) == "decide" && client.Stem(record.Lane) == AppealsLane && len(Overrides(record)) > 0
 }
 
-func UnreadOverrides(record client.Record) []string {
+type UnreadOverride struct {
+	Text string
+	Fix  string
+}
+
+func UnreadOverrides(record client.Record) []UnreadOverride {
 	text := quotedSpan.ReplaceAllString(quotedBlock.ReplaceAllString(FullText(record), ""), "")
-	var unread []string
+	var unread []UnreadOverride
 	for _, span := range overrideNamed.FindAllStringIndex(text, -1) {
 		if !clauseStart.MatchString(text[:span[0]]) {
 			continue
 		}
-		form := overrideForm.FindStringSubmatch(text[span[0]:span[1]])
-		if form == nil || (strings.EqualFold(form[1], "finder") && form[4] == "") {
-			unread = append(unread, strings.TrimSpace(text[span[0]:span[1]]))
+		clause := text[span[0]:span[1]]
+		form := overrideForm.FindStringSubmatch(clause)
+		if form != nil && (!strings.EqualFold(form[1], "finder") || form[4] != "") {
+			continue
 		}
+		override := UnreadOverride{Text: strings.TrimSpace(clause)}
+		if form != nil {
+			if cite := citedRecord.FindStringSubmatch(clause[len(form[0]):]); cite != nil {
+				override.Fix = fmt.Sprintf("%s-override #%s at %s: %s", strings.ToLower(form[1]), form[2], strings.ToLower(form[3]), cite[1])
+			}
+		}
+		unread = append(unread, override)
 	}
 	return unread
 }
