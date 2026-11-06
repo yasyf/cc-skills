@@ -83,7 +83,7 @@ func TestARootReplyToAStopAlarmReachesTheLaneUnlessAddressedOnlyElsewhere(t *tes
 				t.Fatalf("relayed %v, want %v; escalations %q", relayed, c.relayed, w.escalations())
 			}
 			if !c.relayed {
-				w.wantEscalation(fmt.Sprintf("KEPT cci#%d lane-a: root's reply to its stop alarm #%d is addressed to %s", reply.Seq, alarm.Seq, c.to[0]))
+				w.wantEscalation(fmt.Sprintf("KEPT cci #%d lane-a: root's reply to its stop alarm #%d is addressed to %s", reply.Seq, alarm.Seq, c.to[0]))
 			}
 		})
 	}

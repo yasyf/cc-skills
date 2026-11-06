@@ -137,12 +137,12 @@ func (n *NscDeadlines) recorded(ctx context.Context, now time.Time) error {
 		}
 		deadline, err := time.Parse(time.RFC3339, record.Fields.Attrs["deadline"])
 		if err != nil {
-			return fmt.Errorf("record #%d: %w", record.Seq, err)
+			return fmt.Errorf("record %s: %w", record.Name(), err)
 		}
 		n.due[box] = deadline
 		if lasts, given := record.Fields.Attrs["duration"]; given {
 			if n.lasts[box], err = time.ParseDuration(lasts); err != nil {
-				return fmt.Errorf("record #%d: %w", record.Seq, err)
+				return fmt.Errorf("record %s: %w", record.Name(), err)
 			}
 		}
 	}

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/yasyf/cc-inbox/client"
 )
 
 const (
@@ -47,6 +49,7 @@ var (
 
 type busRecord struct {
 	Seq   int64
+	Num   string
 	Drive string
 	Lane  string
 	Kind  string
@@ -55,6 +58,10 @@ type busRecord struct {
 	Topic string
 	Re    int64
 	CCN   string
+}
+
+func (r busRecord) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
 }
 
 type standingRule struct {
@@ -85,7 +92,7 @@ func readStanding(records []busRecord, drive string) standingRules {
 		if _, gone := found.superseded[id]; gone {
 			continue
 		}
-		source := "cci " + id
+		source := "cci " + record.Name()
 		if record.CCN != "" {
 			source = "ccn " + record.CCN
 		}

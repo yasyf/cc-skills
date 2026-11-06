@@ -991,7 +991,7 @@ func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string
 		if until := hold.Attr("until"); until != "" {
 			end, err := time.Parse(time.RFC3339, until)
 			if err != nil {
-				return nil, fmt.Errorf("hold #%d until: %w", hold.Seq, err)
+				return nil, fmt.Errorf("hold %s until: %w", hold.Name(), err)
 			}
 			if !now.Before(end) {
 				continue

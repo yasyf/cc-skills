@@ -86,7 +86,7 @@ func TestAPickCarriesTheSlackMessageItsButtonsAreOnAndEachButtonsLabel(t *testin
 func TestAWaitIsDatedByTheFirstOfTheUnbrokenRunOfSnapshotsThatShowIt(t *testing.T) {
 	at := func(hour int) time.Time { return time.Date(2026, 11, 3, hour, 0, 0, 0, time.UTC) }
 	kept, gone := `{"cards":[["card-a",[]]]}`, `{"cards":[["card-b",[]]]}`
-	shown, err := firstShown([]Snapshot{{1, at(1), kept}, {2, at(2), gone}, {3, at(3), kept}, {4, at(4), kept}})
+	shown, err := firstShown([]Snapshot{{Seq: 1, At: at(1), Board: kept}, {Seq: 2, At: at(2), Board: gone}, {Seq: 3, At: at(3), Board: kept}, {Seq: 4, At: at(4), Board: kept}})
 	if err != nil {
 		t.Fatal(err)
 	}

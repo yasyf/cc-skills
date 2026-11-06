@@ -502,7 +502,7 @@ func deliveredLines(tasks []sessionTask, records []busRecord, since time.Time) [
 	lines := make([]string, 0, len(order))
 	for _, lane := range order {
 		task, record := owned[lane], newest[lane]
-		lines = append(lines, fmt.Sprintf("#%s %s: %s | %s #%d %s: %s", task.ID, lane, deliveryClip(task.Subject), record.Kind, record.Seq, pacificClock(record.At), deliveryClip(record.Text)))
+		lines = append(lines, fmt.Sprintf("#%s %s: %s | %s %s %s: %s", task.ID, lane, deliveryClip(task.Subject), record.Kind, record.Name(), pacificClock(record.At), deliveryClip(record.Text)))
 	}
 	return lines
 }

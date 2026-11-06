@@ -194,25 +194,25 @@ func (d *Desk) readLines(ctx context.Context) error {
 	return nil
 }
 
-func withdrawalsIn(records []client.Record) map[int64]int64 {
-	withdrawn := map[int64]int64{}
+func withdrawalsIn(records []client.Record) map[int64]string {
+	withdrawn := map[int64]string{}
 	for _, record := range records {
 		if record.Lane != coordinatorLane || string(record.Kind) != verbWithdraw {
 			continue
 		}
 		for _, seq := range resolvedSeqs(record) {
-			withdrawn[seq] = record.Seq
+			withdrawn[seq] = record.Name()
 		}
 		if record.Re != 0 {
-			withdrawn[record.Re] = record.Seq
+			withdrawn[record.Re] = record.Name()
 		}
 	}
 	return withdrawn
 }
 
 func (d *Desk) lineEnded(ctx context.Context, lane string, line client.Record) (string, error) {
-	if by := d.withdrawals[line.Seq]; by != 0 {
-		return fmt.Sprintf("root withdrew it on cci #%d", by), nil
+	if by := d.withdrawals[line.Seq]; by != "" {
+		return fmt.Sprintf("root withdrew it on cci %s", by), nil
 	}
 	if ruled := d.ruledAfter(lane, line.Seq); ruled != "" {
 		return ruled, nil
@@ -238,7 +238,7 @@ func (d *Desk) endedSince(ctx context.Context, lane string, posted time.Time) (s
 	}
 	for _, record := range posts {
 		if record.At.After(posted) && standsDown(record, names) {
-			return fmt.Sprintf("it was stood down on cci #%d", record.Seq), nil
+			return fmt.Sprintf("it was stood down on cci %s", record.Name()), nil
 		}
 	}
 	return "", nil
@@ -318,7 +318,7 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 		if !slices.Contains(closed.To, deskLane) || parsed == nil || parsed.Verb != verbLaunch {
 			return false, nil
 		}
-		return true, d.withdraw(ctx, at, at, lineKey(parsed, *closed))
+		return true, d.withdraw(ctx, at, "cci "+record.Name(), lineKey(parsed, *closed))
 	}
 	if closed.Lane == deskRunner {
 		if decide := decideLine.FindStringSubmatch(closed.Text); decide != nil {
@@ -327,12 +327,12 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 				return true, err
 			}
 			if ended != "" {
-				return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED %s %s: %s, so root's answer to #%d is not relayed to it", at, decide[2], ended, closed.Seq))
+				return true, d.record("escalation:ended:"+at, fmt.Sprintf("ENDED cci %s %s: %s, so root's answer to %s is not relayed to it", record.Name(), decide[2], ended, closed.Name()))
 			}
 			if strings.HasPrefix(closed.Text[len(decide[0]):], workerStopped) && len(record.To) > 0 && !lanes.Addresses(record.To, decide[2]) {
-				return true, d.record("escalation:kept:"+at, fmt.Sprintf("KEPT %s %s: root's reply to its stop alarm #%d is addressed to %s, not to the lane, so it is not relayed", at, decide[2], closed.Seq, strings.Join(record.To, ", ")))
+				return true, d.record("escalation:kept:"+at, fmt.Sprintf("KEPT cci %s %s: root's reply to its stop alarm %s is addressed to %s, not to the lane, so it is not relayed", record.Name(), decide[2], closed.Name(), strings.Join(record.To, ", ")))
 			}
-			if parked, err := d.parkedReply(ctx, at, decide[2], closed.Seq); err != nil || parked {
+			if parked, err := d.parkedReply(ctx, at, decide[2], record, *closed); err != nil || parked {
 				return true, err
 			}
 			text, err := d.wholeText(at, at, decide[2], record)
@@ -364,7 +364,7 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 	if err != nil || len(questions) == 0 {
 		return false, err
 	}
-	if parked, err := d.parkedReply(ctx, at, closed.Lane, closed.Seq); err != nil || parked {
+	if parked, err := d.parkedReply(ctx, at, closed.Lane, record, *closed); err != nil || parked {
 		return true, err
 	}
 	text, err := d.wholeText(at, at, closed.Lane, record)
@@ -375,12 +375,12 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 	if err != nil {
 		return false, err
 	}
-	relayed := fmt.Sprintf("The root answered on cci #%d (re #%d), which supersedes this question: %s", record.Seq, closed.Seq, text)
+	relayed := fmt.Sprintf("The root answered on cci %s (re %s), which supersedes this question: %s", record.Name(), closed.Name(), text)
 	return true, d.relayToLane(ctx, at, at, closed.Lane, relayTarget{Text: relayed, Record: recordLabel(record)}, &question)
 }
 
 func recordLabel(record client.Record) string {
-	return fmt.Sprintf("#%d %s from %s", record.Seq, record.Kind, record.Lane)
+	return fmt.Sprintf("%s %s from %s", record.Name(), record.Kind, record.Lane)
 }
 
 func clippedByCCI(kept, written string) bool {
@@ -480,7 +480,7 @@ func (d *Desk) refuseLine(record client.Record) error {
 	if len([]rune(line)) > 80 {
 		line = string([]rune(line)[:80]) + "…"
 	}
-	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci#%d inbox: it opens `%s`, and a record addressed to %s is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Seq, line, deskLane))
+	return d.record(fmt.Sprintf("escalation:cci:%d", record.Seq), fmt.Sprintf("DIRECTIVE-FAILED cci %s inbox: it opens `%s`, and a record addressed to %s is one `orca-desk: <relay|launch|alert|incident|hold|unhold|withdraw> …` line, with or without --re, or a root reply this desk acts on: a withdraw of a launch line or an answer to an open question; nothing was done", record.Name(), line, deskLane))
 }
 
 func (d *Desk) relayLine(ctx context.Context, at, key, rest, sender string) error {

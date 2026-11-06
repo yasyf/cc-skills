@@ -115,7 +115,7 @@ func (d Desk) follow(ctx context.Context) error {
 			return nil
 		}
 		if err := d.answer(ctx, ask); err != nil {
-			_, _ = fmt.Fprintf(d.Log, "%s: ask #%d from %s stays open: %v\n", d.Lane, ask.Seq, ask.Lane, err)
+			_, _ = fmt.Fprintf(d.Log, "%s: ask %s from %s stays open: %v\n", d.Lane, ask.Name(), ask.Lane, err)
 		}
 		return nil
 	})
@@ -132,7 +132,7 @@ func (d Desk) Pass(ctx context.Context, query client.Query) (client.Query, error
 			continue
 		}
 		if err := d.answer(ctx, ask); err != nil {
-			_, _ = fmt.Fprintf(d.Log, "%s: ask #%d from %s stays open: %v\n", d.Lane, ask.Seq, ask.Lane, err)
+			_, _ = fmt.Fprintf(d.Log, "%s: ask %s from %s stays open: %v\n", d.Lane, ask.Name(), ask.Lane, err)
 		}
 	}
 	return query, nil
@@ -159,7 +159,7 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 				return err
 			}
 			if _, err := client.Post(ctx, client.Draft{
-				Drive: d.Drive, Lane: d.Lane, Kind: PartKind, Text: fmt.Sprintf("part %d of %d of the answer to ask #%d", n+2, len(parts), ask.Seq),
+				Drive: d.Drive, Lane: d.Lane, Kind: PartKind, Text: fmt.Sprintf("part %d of %d of the answer to ask %s", n+2, len(parts), ask.Name()),
 				To: []string{ask.Lane}, Re: ask.Seq, Path: path, Attrs: map[string]string{partAttr: strconv.Itoa(n + 2)}, Force: true,
 			}); err != nil {
 				return err

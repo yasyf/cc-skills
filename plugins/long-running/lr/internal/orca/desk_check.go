@@ -324,7 +324,7 @@ func (d *Desk) relayQuestion(ctx context.Context, message orcaMessage, lane stri
 	}
 	if message.Type == typeEscalation {
 		parked, err := d.parkedOn(ctx, lane)
-		if err != nil || parked != 0 {
+		if err != nil || parked.Seq != 0 {
 			return err
 		}
 	}
@@ -431,7 +431,7 @@ func (d *Desk) laneFinished(ctx context.Context, lane string) (string, error) {
 	if err != nil || newest == nil || string(newest.Kind) != kindDone {
 		return "", err
 	}
-	return fmt.Sprintf("it posted DONE #%d", newest.Seq), nil
+	return fmt.Sprintf("it posted DONE %s", newest.Name()), nil
 }
 
 func (d *Desk) newestRecord(ctx context.Context, lane string) (*client.Record, error) {
@@ -452,7 +452,7 @@ func (d *Desk) restOf(ctx context.Context, lane, terminal string) (livetasks.Res
 		return livetasks.Rest{}, err
 	}
 	if newest != nil && slices.Contains(restingKinds, string(newest.Kind)) && newest.Status == recordOpen && !strings.HasPrefix(newest.ID, turnEndBlocker) {
-		return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s #%d", strings.ToUpper(string(newest.Kind)), newest.Seq)}}, nil
+		return livetasks.Rest{Tasks: []string{fmt.Sprintf("its open %s %s", strings.ToUpper(string(newest.Kind)), newest.Name())}}, nil
 	}
 	pick, err := d.openPick(ctx, lane)
 	if err != nil {
@@ -521,7 +521,7 @@ func (d *Desk) openPick(ctx context.Context, lane string) (string, error) {
 		})
 		if len(cards) > 0 && !answered {
 			slices.Sort(cards)
-			return fmt.Sprintf("its open %s #%d on his pick on %s", strings.ToUpper(string(wait.Kind)), wait.Seq, strings.Join(slices.Compact(cards), ", ")), nil
+			return fmt.Sprintf("its open %s %s on his pick on %s", strings.ToUpper(string(wait.Kind)), wait.Name(), strings.Join(slices.Compact(cards), ", ")), nil
 		}
 	}
 	return "", nil
@@ -544,31 +544,31 @@ func (d *Desk) stopOpen(ctx context.Context, terminal string) (bool, error) {
 	return stop != nil && stop.Status == recordOpen, err
 }
 
-func (d *Desk) parkedOn(ctx context.Context, lane string) (int64, error) {
+func (d *Desk) parkedOn(ctx context.Context, lane string) (client.Record, error) {
 	row, _, err := d.Registry.Lane(lane)
 	if err != nil {
-		return 0, err
+		return client.Record{}, err
 	}
 	records, err := d.Bus.Tail(ctx, client.Query{Drive: d.Config.Drive, Lanes: []string{lane}, Since: row.Answered})
 	if err != nil {
-		return 0, d.noteTailFailure(&tailFailure{cause: err})
+		return client.Record{}, d.noteTailFailure(&tailFailure{cause: err})
 	}
 	if len(records) == 0 {
-		return 0, nil
+		return client.Record{}, nil
 	}
 	newest := records[len(records)-1]
 	if string(newest.Kind) != kindBlocked && string(newest.Kind) != kindAsk || !newest.At.After(row.Answered) {
-		return 0, nil
+		return client.Record{}, nil
 	}
-	return newest.Seq, nil
+	return newest, nil
 }
 
-func (d *Desk) parkedReply(ctx context.Context, at, lane string, closed int64) (bool, error) {
+func (d *Desk) parkedReply(ctx context.Context, at, lane string, record, closed client.Record) (bool, error) {
 	parked, err := d.parkedOn(ctx, lane)
-	if err != nil || closed >= parked {
+	if err != nil || closed.Seq >= parked.Seq {
 		return false, err
 	}
-	return true, d.record("escalation:parked:"+at, fmt.Sprintf("PARKED %s %s: parked on #%d, so the reply to #%d relays nothing; the lane wakes when what #%d names happens", at, lane, parked, closed, parked))
+	return true, d.record("escalation:parked:"+at, fmt.Sprintf("PARKED cci %s %s: parked on %s, so the reply to %s relays nothing; the lane wakes when what %s names happens", record.Name(), lane, parked.Name(), closed.Name(), parked.Name()))
 }
 
 func (d *Desk) relayToDesk(ctx context.Context, message orcaMessage, lane, kind string) error {

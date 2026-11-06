@@ -136,7 +136,7 @@ func picksText(batch []client.Record) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "BOARD PICKS %d\n", len(batch))
 	for _, record := range batch {
-		fmt.Fprintf(&out, "#%d %s %s\n", record.Seq, pacific(record.At), strings.Join(strings.Fields(record.Text), " "))
+		fmt.Fprintf(&out, "%s %s %s\n", record.Name(), pacific(record.At), strings.Join(strings.Fields(record.Text), " "))
 	}
 	return out.String()
 }

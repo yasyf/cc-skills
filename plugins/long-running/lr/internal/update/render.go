@@ -657,7 +657,7 @@ func waitCounts(waits []Record) []string {
 }
 
 func recordLine(record Record) string {
-	return fmt.Sprintf("- %s #%d %s %s: %s", record.Kind, record.Seq, record.Lane, pacific(record.At), clip(record.Text))
+	return fmt.Sprintf("- %s %s %s %s: %s", record.Kind, record.Name(), record.Lane, pacific(record.At), clip(record.Text))
 }
 
 func Missing(text string, needs []Need) []string {

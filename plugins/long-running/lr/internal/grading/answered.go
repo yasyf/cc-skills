@@ -196,6 +196,6 @@ func (p *JobPool) tellReopened(ctx context.Context, pick ownerPickWait, answer c
 	if pick.facts.Number%2 == 0 {
 		desk = evenDesk
 	}
-	text := fmt.Sprintf("ANSWER-REGRADES #%s %s: his answer %s (cc-notes) to card %s re-opens the owner-pick grade #%d, which waited on that card. Pass %s re-grades this head with his answer; read the head when it hands it to you.", pr, short(pick.facts.Head), answer.ID[:min(len(answer.ID), 7)], answer.card, pick.grade.Seq, pass)
+	text := fmt.Sprintf("ANSWER-REGRADES #%s %s: his answer %s (cc-notes) to card %s re-opens the owner-pick grade %s, which waited on that card. Pass %s re-grades this head with his answer; read the head when it hands it to you.", pr, short(pick.facts.Head), answer.ID[:min(len(answer.ID), 7)], answer.card, pick.grade.Name(), pass)
 	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindReport, Text: text, To: []string{desk}, Topic: "answer-regrades:" + pr, ID: id, PRs: []string{pick.facts.Repo + "#" + pr}})
 }

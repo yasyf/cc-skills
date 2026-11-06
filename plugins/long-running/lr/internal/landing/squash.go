@@ -295,7 +295,7 @@ func (q *Squash) land(ctx context.Context, f machine.Facts, open *client.Record)
 		if open == nil {
 			return nil
 		}
-		q.tell(ctx, f, "report", "incident-hold:"+number+":"+f.Head, fmt.Sprintf("INCIDENT-HOLD-WARNED #%d: a hold names the approved, green incident fix at %s, and open incident #%d names it, so the hold warns and it merges (owner, Nov 1)", f.Number, shortHead(f.Head), open.Seq))
+		q.tell(ctx, f, "report", "incident-hold:"+number+":"+f.Head, fmt.Sprintf("INCIDENT-HOLD-WARNED #%d: a hold names the approved, green incident fix at %s, and open incident %s names it, so the hold warns and it merges (owner, Nov 1)", f.Number, shortHead(f.Head), open.Name()))
 	}
 	moved, err := q.rebase(ctx, f, rebased)
 	if err != nil {

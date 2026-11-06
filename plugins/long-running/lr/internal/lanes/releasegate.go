@@ -44,6 +44,7 @@ type ReleaseGates struct {
 
 type orderedCut struct {
 	seq  int64
+	name string
 	lane string
 	at   time.Time
 }
@@ -98,7 +99,7 @@ func (g *ReleaseGates) tendCut(ctx context.Context, answer string, now time.Time
 	if waited < gateGrace {
 		return nil
 	}
-	text := fmt.Sprintf("CUT-SILENT %s: no release record carries owner order %s %d minutes after it; an owner-ordered release with no build is a blocker, never a wait. Start it now: `%s start --manual <component> --order %s`, or resolve #%d if the order no longer stands.", cut.lane, answer, int(waited.Minutes()), strings.Join(g.ReleaseCLI, " "), answer, cut.seq)
+	text := fmt.Sprintf("CUT-SILENT %s: no release record carries owner order %s %d minutes after it; an owner-ordered release with no build is a blocker, never a wait. Start it now: `%s start --manual <component> --order %s`, or resolve %s if the order no longer stands.", cut.lane, answer, int(waited.Minutes()), strings.Join(g.ReleaseCLI, " "), answer, cut.name)
 	if err := g.raise(ctx, "cut-silent:"+answer, text); err != nil {
 		return err
 	}
@@ -140,7 +141,7 @@ func (g *ReleaseGates) readOrders(ctx context.Context, now time.Time) error {
 		at := orderedAt(attrs["ordered_at"], row.At.UTC())
 		if release == "" {
 			if row.Lane == Root && attrs["lane"] != "" {
-				g.cuts[answer] = orderedCut{row.Seq, attrs["lane"], at}
+				g.cuts[answer] = orderedCut{row.Seq, row.Name(), attrs["lane"], at}
 			}
 			continue
 		}

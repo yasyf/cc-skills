@@ -123,7 +123,7 @@ func (v view) parked(lanes []string) []string {
 			parked = append(parked, fmt.Sprintf("%s, quiet since %s, holding #%d", name, pacificText(lane.Heard), lane.PRs[0]))
 		}
 		if last := v.latest[name]; lane.State == retired && lane.RetiredBy == retiredByItsStop && last.Kind == kindStopped {
-			parked = append(parked, fmt.Sprintf("%s, stopped by #%d with its worker unfinished", name, last.Seq))
+			parked = append(parked, fmt.Sprintf("%s, stopped by %s with its worker unfinished", name, last.Name()))
 		}
 	}
 	return parked
@@ -136,21 +136,21 @@ func (i Incident) unowned() bool {
 func (i Incident) state() string {
 	closed := "closed"
 	if i.Closed.Seq != 0 {
-		closed = fmt.Sprintf("closed by #%d", i.Closed.Seq)
+		closed = fmt.Sprintf("closed by %s", i.Closed.Name())
 	}
 	switch {
 	case i.Open && i.FixLive.Seq != 0:
-		return fmt.Sprintf("open, fix live by #%d", i.FixLive.Seq)
+		return fmt.Sprintf("open, fix live by %s", i.FixLive.Name())
 	case i.Open && i.NotOurs.Seq != 0:
-		return fmt.Sprintf("open, shown not ours by #%d", i.NotOurs.Seq)
+		return fmt.Sprintf("open, shown not ours by %s", i.NotOurs.Name())
 	case i.Open && i.Mechanism.Seq != 0:
-		return fmt.Sprintf("open since %s, cause found in #%d, no fix live yet", pacific(i.Fired.At), i.Mechanism.Seq)
+		return fmt.Sprintf("open since %s, cause found in %s, no fix live yet", pacific(i.Fired.At), i.Mechanism.Name())
 	case i.Open:
 		return fmt.Sprintf("open since %s, cause not found yet", pacific(i.Fired.At))
 	case i.FixLive.Seq != 0:
-		return fmt.Sprintf("fixed: fix live by #%d, %s", i.FixLive.Seq, closed)
+		return fmt.Sprintf("fixed: fix live by %s, %s", i.FixLive.Name(), closed)
 	case i.NotOurs.Seq != 0:
-		return fmt.Sprintf("closed as not ours by #%d, %s", i.NotOurs.Seq, closed)
+		return fmt.Sprintf("closed as not ours by %s, %s", i.NotOurs.Name(), closed)
 	}
 	if reason := firstSentence(i.Closed.Text); reason != "" {
 		return fmt.Sprintf("%s with no fix-live record: %s", closed, reason)
@@ -164,9 +164,9 @@ func (i Incident) closes() string {
 	case !i.Open:
 		return "nothing; it is closed"
 	case i.FixLive.Seq != 0:
-		return fmt.Sprintf("%s citing #%d", closing, i.FixLive.Seq)
+		return fmt.Sprintf("%s citing %s", closing, i.FixLive.Name())
 	case i.NotOurs.Seq != 0:
-		return fmt.Sprintf("%s citing #%d", closing, i.NotOurs.Seq)
+		return fmt.Sprintf("%s citing %s", closing, i.NotOurs.Name())
 	case i.work.who == nobody:
 		return fmt.Sprintf("the coordinator starts %s-fix; its FIX-LIVE or NOT-OURS record, then %s", i.Name, closing)
 	}
@@ -177,7 +177,7 @@ func cited(label string, record Record) string {
 	if record.Seq == 0 {
 		return fmt.Sprintf("%s: none recorded", label)
 	}
-	return fmt.Sprintf("%s: #%d %s %s: %s", label, record.Seq, pacific(record.At), record.Lane, clip(record.Text))
+	return fmt.Sprintf("%s: %s %s %s: %s", label, record.Name(), pacific(record.At), record.Lane, clip(record.Text))
 }
 
 func (i Incident) lines() []string {

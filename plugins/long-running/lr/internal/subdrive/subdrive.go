@@ -268,7 +268,7 @@ func openItems(ctx context.Context, env lanes.Env, s *store.Store) (items []item
 		return nil, nil, err
 	}
 	for _, record := range records {
-		items = append(items, item{label: fmt.Sprintf("#%d %s from %s", record.Seq, record.Kind, record.Lane), detail: record.Text})
+		items = append(items, item{label: fmt.Sprintf("%s %s from %s", record.Name(), record.Kind, record.Lane), detail: record.Text})
 	}
 	out, err := env.Ledger(ctx, "list", "--drive", env.Config.Drive, "--open", "--json")
 	if err != nil {

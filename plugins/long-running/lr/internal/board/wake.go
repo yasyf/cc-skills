@@ -220,7 +220,7 @@ func (w Waker) Late(ctx context.Context) error {
 		attrs, topic := wake.Fields.Attrs, lateTopic+strconv.FormatInt(wake.Seq, 10)
 		if _, err := w.Post(ctx, client.Draft{
 			Drive: w.Cards.Bus, Lane: w.Lane, Kind: lateKind, ID: topic, Topic: topic, To: []string{metaDesk, communicator}, Re: wake.Seq, Force: true,
-			Text: fmt.Sprintf("%s has not acknowledged the owner's answer on %s ten minutes after wake #%d. Nothing is blocked.", attrs[laneField], attrs["card"], wake.Seq),
+			Text: fmt.Sprintf("%s has not acknowledged the owner's answer on %s ten minutes after wake %s. Nothing is blocked.", attrs[laneField], attrs["card"], wake.Name()),
 		}); err != nil {
 			return err
 		}

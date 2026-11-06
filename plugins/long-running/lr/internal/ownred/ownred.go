@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -159,8 +160,12 @@ type record struct {
 	AlsoResolves []int64  `json:"also_resolves"`
 }
 
+func (r record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
+}
+
 func (r record) line(kind string) string {
-	return fmt.Sprintf("%s #%d %s %s: %s", kind, r.Seq, r.Lane, r.Kind, strings.ReplaceAll(r.Text, "\n", " "))
+	return fmt.Sprintf("%s %s %s %s: %s", kind, r.Name(), r.Lane, r.Kind, strings.ReplaceAll(r.Text, "\n", " "))
 }
 
 type red struct {

@@ -674,7 +674,7 @@ func unreadBy(s *store.Store, r Record, name, cited string, retry Request) (unre
 	if read == "" || r.Lane == name {
 		return unread{}, false
 	}
-	return unread{name: name, why: fmt.Sprintf("the coordinator's %s #%d would stand %s%s%s", r.Kind, r.Seq, name, unreadMark, read), asker: r.Lane, retry: retry, newest: newest}, true
+	return unread{name: name, why: fmt.Sprintf("the coordinator's %s %s would stand %s%s%s", r.Kind, r.Name(), name, unreadMark, read), asker: r.Lane, retry: retry, newest: newest}, true
 }
 
 func strippedBy(s *store.Store, owner string, numbers []int) []string {

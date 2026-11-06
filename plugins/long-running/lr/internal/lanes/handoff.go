@@ -239,14 +239,14 @@ func (e Env) handoffBody(ctx context.Context, registry handoffRegistry, records,
 		out.WriteString("None open.\n")
 	}
 	for _, r := range addressed {
-		fmt.Fprintf(&out, "- #%d %s from %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), registry.Aliases.In(r.Lane), registry.Aliases.In(truncated(r.Text, handoffChars)))
+		fmt.Fprintf(&out, "- %s %s from %s: %s\n", r.Name(), strings.ToUpper(string(r.Kind)), registry.Aliases.In(r.Lane), registry.Aliases.In(truncated(r.Text, handoffChars)))
 	}
 	out.WriteString("\n## Its last records, oldest first\n\n")
 	if len(records) == 0 {
 		out.WriteString("None in the last 12 hours.\n")
 	}
 	for _, r := range records {
-		fmt.Fprintf(&out, "- #%d %s %s: %s\n", r.Seq, strings.ToUpper(string(r.Kind)), pacific(r.At), registry.Aliases.In(truncated(r.Text, handoffChars)))
+		fmt.Fprintf(&out, "- %s %s %s: %s\n", r.Name(), strings.ToUpper(string(r.Kind)), pacific(r.At), registry.Aliases.In(truncated(r.Text, handoffChars)))
 	}
 	if transcript != "" {
 		out.WriteString(liveTasksSection(transcript, e.Now()))

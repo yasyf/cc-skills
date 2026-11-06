@@ -69,7 +69,7 @@ func (c *ClassUnowned) raise(ctx context.Context, record client.Record, keys []s
 	if err != nil || !first {
 		return err
 	}
-	text := fmt.Sprintf("CLASS-UNOWNED %s %s: #%d, %d min with no fix-lane GO naming %s | coordinator: GO a fix lane for this class", keys[0], record.Lane, record.Seq, int(now.Sub(record.At).Minutes()), strings.Join(keys, ", "))
+	text := fmt.Sprintf("CLASS-UNOWNED %s %s: %s, %d min with no fix-lane GO naming %s | coordinator: GO a fix lane for this class", keys[0], record.Lane, record.Name(), int(now.Sub(record.At).Minutes()), strings.Join(keys, ", "))
 	if _, err := c.Env.Bus.Post(ctx, client.Draft{Drive: c.Env.Config.Drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: "class-unowned:" + keys[0], Text: text}); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}

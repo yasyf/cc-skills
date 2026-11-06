@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/yasyf/cc-inbox/client"
 )
 
 const (
@@ -61,11 +63,16 @@ var (
 
 type Record struct {
 	Seq   int64             `json:"seq"`
+	Num   string            `json:"num,omitempty"`
 	Lane  string            `json:"lane"`
 	Head  string            `json:"head"`
 	Text  string            `json:"text"`
 	Path  string            `json:"path"`
 	Attrs map[string]string `json:"attrs,omitempty"`
+}
+
+func (r Record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
 }
 
 type FinderJob struct {
@@ -385,7 +392,7 @@ func (s *finderPassState) replayed(view pullRequest, last string, gone []string)
 	}
 	text := s.carried(view, earlier, gone)
 	body := filepath.Join(s.dir, bodyFile)
-	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n#%d: %s\n", text, said, earlier.Seq, earlier.Text), 0o600); err != nil {
+	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\n%s.\n\n%s: %s\n", text, said, earlier.Name(), earlier.Text), 0o600); err != nil {
 		return FinderOutcome{}, err
 	}
 	posted, err := s.post(text, body)
@@ -419,7 +426,7 @@ func (s *finderPassState) judgedCarry(last, pairs string, answer regradeAnswer) 
 	earlier := s.job.Prior
 	text := fmt.Sprintf("finder: %s %s carried from #%d at %s, judged unchanged in meaning by %s over its range-diff: %s", finderPass, s.job.Head, earlier.Seq, short(last, 7), regradeModel, answer.reason())
 	body := filepath.Join(s.dir, bodyFile)
-	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\nA %s read of `git range-diff %s` answered %s.\n\n#%d: %s\n", text, regradeModel, pairs, answer, earlier.Seq, earlier.Text), 0o600); err != nil {
+	if err := os.WriteFile(body, fmt.Appendf(nil, "%s\n\nA %s read of `git range-diff %s` answered %s.\n\n%s: %s\n", text, regradeModel, pairs, answer, earlier.Name(), earlier.Text), 0o600); err != nil {
 		return FinderOutcome{}, err
 	}
 	posted, err := s.post(text, body)
@@ -563,7 +570,7 @@ func (s *finderPassState) recordText(own []string, last string, findings []findi
 func listed(records []Record) string {
 	var text strings.Builder
 	for _, r := range records {
-		fmt.Fprintf(&text, "- cci #%d from %s: %s", r.Seq, r.Lane, r.Text)
+		fmt.Fprintf(&text, "- cci %s from %s: %s", r.Name(), r.Lane, r.Text)
 		if r.Path != "" {
 			fmt.Fprintf(&text, " (whole record: %s)", r.Path)
 		}

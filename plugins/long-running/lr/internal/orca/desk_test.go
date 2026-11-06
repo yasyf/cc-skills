@@ -652,7 +652,7 @@ func TestARecordToTheDeskThatIsNoLineIsAnswered(t *testing.T) {
 	w.lines()
 	w.line("please launch something")
 	w.lines()
-	wantContains(t, w.wantEscalation("DIRECTIVE-FAILED cci#1 inbox"), "it opens `please launch something`")
+	wantContains(t, w.wantEscalation("DIRECTIVE-FAILED cci #1 inbox"), "it opens `please launch something`")
 }
 
 func TestARecordNotToTheDeskDoesNothing(t *testing.T) {
@@ -1671,7 +1671,7 @@ func TestAReplyToADecideBeforeTheLaneParkedRelaysNothing(t *testing.T) {
 	w.lines()
 	reply := w.add(object{"kind": "answer", "text": "left", "resolves": decide.Seq})
 	w.lines()
-	w.wantEscalation(fmt.Sprintf("PARKED cci#%d lane-a: parked on #%d", reply.Seq, parked.Seq))
+	w.wantEscalation(fmt.Sprintf("PARKED cci #%d lane-a: parked on #%d", reply.Seq, parked.Seq))
 	if exists, err := w.desk.store.Exists(laneBook(testLane)); err != nil {
 		t.Fatal(err)
 	} else if exists {
@@ -3010,7 +3010,7 @@ func TestAClosedStopDecideOfAnEndedLaneIsNotRelayedAndItsNextStopRaisesNone(t *t
 			reason := fmt.Sprintf(tt.reason, ending.Seq)
 			closing := w.add(object{"kind": "answer", "text": "closed: lane-a is done; relay nothing to it", "resolves": decide.Seq})
 			w.lines()
-			w.wantEscalation(fmt.Sprintf("ENDED cci#%d lane-a: %s, so root's answer to #%d is not relayed to it", closing.Seq, reason, decide.Seq))
+			w.wantEscalation(fmt.Sprintf("ENDED cci #%d lane-a: %s, so root's answer to #%d is not relayed to it", closing.Seq, reason, decide.Seq))
 			if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", closing.Seq)); err == nil {
 				t.Fatal("root's answer relayed to an ended lane")
 			}

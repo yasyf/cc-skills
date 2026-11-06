@@ -124,10 +124,10 @@ func leadRows(in Inputs) []Row {
 		rows[i] = Row{
 			Name:     fmt.Sprintf("Asked %s times: %s", record.Attrs[askedAttr], cmp.Or(record.Topic, opening(record.Text))),
 			Delivers: clip(record.Text),
-			State:    cmp.Or(deliveryLine(recordPRs(record), in.Book, in.Released), fmt.Sprintf("no release read for it; see #%d", record.Seq)),
+			State:    cmp.Or(deliveryLine(recordPRs(record), in.Book, in.Released), fmt.Sprintf("no release read for it; see %s", record.Name())),
 			Who:      record.Lane,
 			Blocks:   nothingBlocks,
-			Unblock:  fmt.Sprintf("a record with --re %d --attr release=<n> --attr live=<time>", record.Seq),
+			Unblock:  fmt.Sprintf("a record with --re %s --attr release=<n> --attr live=<time>", strings.TrimPrefix(record.Name(), "#")),
 			Wrong:    noneRecorded,
 		}
 	}

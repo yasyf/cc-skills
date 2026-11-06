@@ -157,6 +157,7 @@ func decodeAs[B Body](raw json.RawMessage) (Body, error) {
 
 type Record struct {
 	Seq    int64
+	Num    string
 	At     time.Time
 	Lane   string
 	Origin string
@@ -166,6 +167,10 @@ type Record struct {
 
 func (r Record) Kind() string {
 	return r.Body.Kind()
+}
+
+func (r Record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
 }
 
 func Check(kind string, raw json.RawMessage, to []string) error {
@@ -328,7 +333,7 @@ func Parse(raw client.Record) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	return Record{raw.Seq, raw.At.UTC(), raw.Lane, raw.Origin, raw.To, body}, nil
+	return Record{raw.Seq, raw.Num, raw.At.UTC(), raw.Lane, raw.Origin, raw.To, body}, nil
 }
 
 func (b Bus) Read(ctx context.Context, since int64, kinds ...string) (records []Record, rejected []client.Record, err error) {

@@ -1168,7 +1168,7 @@ func (w *TrunkWatch) reportGreen(ctx context.Context, built time.Time) error {
 		w.calm = true
 		return nil
 	}
-	text := fmt.Sprintf("DEV-GREEN %s's %s passes again; it was red from #%d.", w.Trunk, w.Config.Check, red.Seq)
+	text := fmt.Sprintf("DEV-GREEN %s's %s passes again; it was red from %s.", w.Trunk, w.Config.Check, red.Name())
 	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "report", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-green:" + w.Now().UTC().Format("200601021504"), Text: text})
 	if err == nil {
 		w.calm = true

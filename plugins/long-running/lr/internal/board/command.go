@@ -47,7 +47,7 @@ func Snapshots(ctx context.Context, bus string, since time.Time) ([]Snapshot, er
 	var snapshots []Snapshot
 	for _, record := range found {
 		if record.Lane == boardWatch && record.Topic == boardTopic && record.Fields.Attrs["board"] != "" {
-			snapshots = append(snapshots, Snapshot{record.Seq, record.At, record.Fields.Attrs["board"]})
+			snapshots = append(snapshots, Snapshot{record.Seq, record.Num, record.At, record.Fields.Attrs["board"]})
 		}
 	}
 	return snapshots, nil

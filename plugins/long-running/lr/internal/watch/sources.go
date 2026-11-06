@@ -95,7 +95,7 @@ func OpenAsks(asks, records []client.Record, now time.Time) []Wait {
 		}
 		waits = append(waits, Wait{
 			Kind: askKind, Repo: AskNamespace, Number: int(ask.Seq), Mover: machine.MoverRoot, Since: ask.At, Within: askWithin, To: root,
-			Cause: fmt.Sprintf("ask overdue: #%d from %s is open and unanswered: %s", ask.Seq, ask.Lane, clip(ask.Text)),
+			Cause: fmt.Sprintf("ask overdue: %s from %s is open and unanswered: %s", ask.Name(), ask.Lane, clip(ask.Text)),
 		})
 	}
 	return waits
@@ -167,7 +167,7 @@ func LandedWaits(records []client.Record) []Wait {
 		}
 		waits = append(waits, Wait{
 			Kind: gateKind, Repo: GateNamespace, Number: number, Head: k.lane, Mover: machine.MoverLane, Since: since, Within: waitWithin, To: k.lane,
-			Cause: fmt.Sprintf("gate overdue: %s said at #%d that work waits on #%s, and #%s landed at #%d; open that work and post OPENED or HEAD, or post why it still waits", k.lane, said.Seq, k.pr, k.pr, gate.Seq),
+			Cause: fmt.Sprintf("gate overdue: %s said at %s that work waits on #%s, and #%s landed at %s; open that work and post OPENED or HEAD, or post why it still waits", k.lane, said.Name(), k.pr, k.pr, gate.Name()),
 		})
 	}
 	return waits

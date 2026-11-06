@@ -77,6 +77,7 @@ type Lane struct {
 
 type Record struct {
 	Seq      int64
+	Num      string
 	Drive    string
 	Lane     string
 	Kind     string
@@ -90,6 +91,10 @@ type Record struct {
 	Attrs    map[string]string
 	Re       int64
 	Resolves []int64
+}
+
+func (r Record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
 }
 
 func stepIsDone(step *plans.Step) bool {
@@ -387,7 +392,7 @@ func (v view) workOf(lanes []string) work {
 	var blocks, unblock, wrong []string
 	for _, lane := range on {
 		if wait, found := v.waits[lane]; found {
-			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s #%d since %s: %s", lane, wait.Kind, wait.Seq, pacific(wait.At), clip(wait.Text)))
+			blocks = append(blocks, fmt.Sprintf("%s waits on the coordinator's answer to %s %s since %s: %s", lane, wait.Kind, wait.Name(), pacific(wait.At), clip(wait.Text)))
 		}
 		if last, found := v.latest[lane]; found {
 			answering, _ := v.answering(lane)

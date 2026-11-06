@@ -43,6 +43,7 @@ func mustZone(name string) *time.Location {
 
 type record struct {
 	Seq   int64
+	Num   string
 	Lane  string
 	Kind  string
 	At    time.Time
@@ -50,10 +51,19 @@ type record struct {
 	Topic string
 	To    []string
 	Re    int64
+	ReNum string
 	PRs   []int
 	Refs  struct {
 		Path string
 	}
+}
+
+func (r record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
+}
+
+func (r record) ReName() string {
+	return client.Record{Re: r.Re, ReNum: r.ReNum}.ReName()
 }
 
 func Command(a *app.App) *cobra.Command {
@@ -152,7 +162,7 @@ func follow(ctx context.Context, driveName string, since int64) (<-chan record, 
 	go func() {
 		defer close(records)
 		err := client.Follow(ctx, client.Watch{Drive: driveName, Reader: lanes.Root, After: since, Kinds: []string{"incident"}}, func(r client.Record) error {
-			next := record{Seq: r.Seq, Lane: r.Lane, Kind: string(r.Kind), At: r.At, Text: r.Text, Topic: r.Topic, To: r.To, Re: r.Re}
+			next := record{Seq: r.Seq, Num: r.Num, Lane: r.Lane, Kind: string(r.Kind), At: r.At, Text: r.Text, Topic: r.Topic, To: r.To, Re: r.Re, ReNum: r.ReNum}
 			for _, pr := range r.Refs.PRs {
 				next.PRs = append(next.PRs, pr.Number)
 			}
@@ -251,9 +261,9 @@ func (l line) render() string {
 
 func (l line) head() string {
 	var out strings.Builder
-	fmt.Fprintf(&out, "#%d %s %s %s", l.Seq, l.At.In(pacific).Format("3:04 PM"), strings.ToUpper(l.Kind), l.Lane)
+	fmt.Fprintf(&out, "%s %s %s %s", l.Name(), l.At.In(pacific).Format("3:04 PM"), strings.ToUpper(l.Kind), l.Lane)
 	if l.Re != 0 {
-		fmt.Fprintf(&out, " re #%d", l.Re)
+		fmt.Fprintf(&out, " re %s", l.ReName())
 	}
 	if others := l.alsoTo(); len(others) > 0 {
 		fmt.Fprintf(&out, " -> %s", strings.Join(others, ","))

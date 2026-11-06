@@ -72,6 +72,10 @@ type Record struct {
 	Fields       Fields    `json:"fields"`
 }
 
+func (r Record) Name() string {
+	return client.Record{Seq: r.Seq, Num: r.Num}.Name()
+}
+
 func (r Record) PRs() []int {
 	numbers := make([]int, 0, len(r.Refs.PRs))
 	for _, ref := range r.Refs.PRs {

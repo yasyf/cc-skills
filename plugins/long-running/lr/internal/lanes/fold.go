@@ -23,6 +23,7 @@ type stoodDown struct {
 	successor string
 	prs       []int
 	seq       int64
+	by        string
 }
 
 type unread struct {
@@ -57,7 +58,7 @@ type folded struct {
 	ended      []stoodDown
 	kept       []stoodDown
 	handed     []handed
-	untyped    []int64
+	untyped    []Record
 	unheard    []string
 	refused    []refusal
 	unassigned []unassigned
@@ -175,19 +176,19 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if row.State != store.LaneRetired || successor != "" || slices.Contains(unprovenEnds, row.RetiredBy) {
 			retire(s, name, or(successor, Root), at)
 			if !fresh {
-				out.ended = append(out.ended, stoodDown{name, successor, row.PRs, r.Seq})
+				out.ended = append(out.ended, stoodDown{name, successor, row.PRs, r.Seq, r.Name()})
 			}
 		}
 		if successor != "" {
 			cost := successorCost(row)
 			heir := store.Lane{Name: successor, Brief: row.Brief, Model: cost.Model, Effort: cost.Effort, Role: row.Role, State: store.LaneLaunching, Handoff: row.Handoff, Predecessor: name, Placement: row.Placement, Launcher: row.Launcher, Standing: row.Standing, Step: row.Step}
-			wantHeir(s, heir, r.Seq, fresh, at)
+			wantHeir(s, heir, r.Name(), fresh, at)
 			do(s.Own(successor, ours(s, out.deps, row.PRs)))
 		} else {
 			out.handOn(s, name, row.PRs, fresh)
 		}
 		if !fresh {
-			out.stood = append(out.stood, stoodDown{name, successor, row.PRs, r.Seq})
+			out.stood = append(out.stood, stoodDown{name, successor, row.PRs, r.Seq, r.Name()})
 		}
 	}
 }
@@ -205,12 +206,12 @@ func heirOf(s *store.Store, named string, standingDown ...string) string {
 	return heir
 }
 
-func wantHeir(s *store.Store, heir store.Lane, seq int64, fresh bool, at time.Time) {
+func wantHeir(s *store.Store, heir store.Lane, by string, fresh bool, at time.Time) {
 	if _, known := laneOf(s, heir.Name); known || fresh {
 		must(s.WantLane(heir, at))
 		return
 	}
-	heir.Reason = fmt.Sprintf("was stood down for it by record #%d", seq)
+	heir.Reason = fmt.Sprintf("was stood down for it by record %s", by)
 	do(s.Probe(owedLaunch+heir.Name, at))
 	must(s.WantLane(heir, at))
 }
@@ -244,7 +245,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 		if old, found := laneOf(s, spawn.SuccessorOf); found && old.Name != name {
 			role = or(role, takesOver(s, out.deps, name, old, at))
 			if !fresh {
-				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
+				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq, r.Name()})
 			}
 		}
 	}
@@ -252,7 +253,7 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 		if succeeds(name, other) {
 			old, _ := laneOf(s, other)
 			if !fresh && isLive(old.State) {
-				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq})
+				out.stood = append(out.stood, stoodDown{old.Name, name, old.PRs, r.Seq, r.Name()})
 			}
 			role = or(role, takesOver(s, out.deps, name, old, at))
 		}
@@ -384,7 +385,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 			retire(s, standIn.Name, name, at)
 			do(s.Own(name, row.PRs))
 			if !fresh {
-				out.stood = append(out.stood, stoodDown{standIn.Name, name, standIn.PRs, r.Seq})
+				out.stood = append(out.stood, stoodDown{standIn.Name, name, standIn.PRs, r.Seq, r.Name()})
 			}
 			row, known = laneOf(s, name)
 		}
@@ -648,7 +649,7 @@ func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
 
 func resume(s *store.Store, name, topic, why string, r Record, at time.Time) {
 	do(s.SetLaneWaiting(name, 0, at, ""))
-	do(s.SetLanePage(name, map[string]any{"topic": topic, "why": why + ", as record #" + strconv.FormatInt(r.Seq, 10) + " says: " + r.Text, "text": r.Text}))
+	do(s.SetLanePage(name, map[string]any{"topic": topic, "why": why + ", as record " + r.Name() + " says: " + r.Text, "text": r.Text}))
 }
 
 func addressees(s *store.Store, r Record) map[string]bool {
@@ -697,7 +698,7 @@ func foldPage(s *store.Store, r Record, name string, addressed map[string]bool) 
 		if r.Kind == "blocker" {
 			what = "blocker"
 		}
-		page := map[string]any{"topic": topic, "why": fmt.Sprintf("%s #%d on your PR %s arrived after your last record: %s", what, r.Seq, numberList(prs), r.Text), "text": r.Text, "prs": prs, "seqs": []int64{}}
+		page := map[string]any{"topic": topic, "why": fmt.Sprintf("%s %s on your PR %s arrived after your last record: %s", what, r.Name(), numberList(prs), r.Text), "text": r.Text, "prs": prs, "seqs": []int64{}}
 		var seqs []int64
 		if pageText(paged.Page, "topic") == topic {
 			page = maps.Clone(paged.Page)
@@ -728,7 +729,7 @@ func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Tim
 			lane, found = lastOfFamily(s, target)
 		}
 		if found && lane.Name != r.Lane && lane.Name != Root && (isLive(lane.State) || r.Kind == "owner") {
-			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, Num: r.Name(), At: at, Author: r.Lane, Kind: r.Kind}))
 		}
 	}
 }
@@ -794,7 +795,7 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 		}
 		reached[lane.Name] = true
 		if assigns && isLive(lane.State) && lane.Name != target && !addressed[lane.Name] {
-			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, At: at, Author: r.Lane, Kind: r.Kind}))
+			do(s.AddUnread(store.Unread{Lane: lane.Name, Seq: r.Seq, Num: r.Name(), At: at, Author: r.Lane, Kind: r.Kind}))
 			continue
 		}
 		if lane.State != store.LaneRetired {
@@ -808,11 +809,11 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 		}
 		answered := strings.TrimPrefix(r.Topic, CardWakeTopic)
 		if taker, took := newest(s, must(s.CardTaker(answered))); answer && took && isLive(taker.State) && taker.Name != lane.Name {
-			do(s.SetLanePage(taker.Name, map[string]any{"topic": r.Topic, "why": fmt.Sprintf("the owner answered %s, which root gave you after %s drew it: %s", answered, lane.Name, truncated(r.Text, 240)), "text": fmt.Sprintf("#%d from %s: %s", r.Seq, r.Lane, r.Text), "seqs": []int64{r.Seq}}))
+			do(s.SetLanePage(taker.Name, map[string]any{"topic": r.Topic, "why": fmt.Sprintf("the owner answered %s, which root gave you after %s drew it: %s", answered, lane.Name, truncated(r.Text, 240)), "text": fmt.Sprintf("%s from %s: %s", r.Name(), r.Lane, r.Text), "seqs": []int64{r.Seq}}))
 			continue
 		}
-		said := fmt.Sprintf("#%d from %s: %s", r.Seq, r.Lane, r.Text)
-		page := map[string]any{"topic": retiredMailTopic, "why": fmt.Sprintf("got %s's %s #%d after it retired: %s", r.Lane, r.Kind, r.Seq, truncated(r.Text, 240)), "text": said}
+		said := fmt.Sprintf("%s from %s: %s", r.Name(), r.Lane, r.Text)
+		page := map[string]any{"topic": retiredMailTopic, "why": fmt.Sprintf("got %s's %s %s after it retired: %s", r.Lane, r.Kind, r.Name(), truncated(r.Text, 240)), "text": said}
 		var seqs []int64
 		if pageText(lane.Page, "topic") == retiredMailTopic {
 			page = maps.Clone(lane.Page)
@@ -868,7 +869,7 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	isRoot := name == Root
 	request := isRequest(r)
 	if (isRoot || name == mainLane) && kind == kindRequest && r.Addressed()[Self] && !request && r.Attr("verb") != "" && !fresh {
-		out.untyped = append(out.untyped, r.Seq)
+		out.untyped = append(out.untyped, r)
 	}
 	if request {
 		grant(s, r, fresh, at, out)
@@ -1093,7 +1094,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		ends := gone.State != store.LaneRetired || slices.Contains(unprovenEnds, gone.RetiredBy)
 		if successor == "" && ends && isStanding(gone) {
 			if !fresh {
-				out.kept = append(out.kept, stoodDown{old, "", gone.PRs, r.Seq})
+				out.kept = append(out.kept, stoodDown{old, "", gone.PRs, r.Seq, r.Name()})
 			}
 			continue
 		}
@@ -1106,12 +1107,12 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		if ends {
 			retire(s, old, or(successor, Root), at)
 			if !fresh {
-				out.ended = append(out.ended, stoodDown{old, successor, gone.PRs, r.Seq})
+				out.ended = append(out.ended, stoodDown{old, successor, gone.PRs, r.Seq, r.Name()})
 			}
 		}
 		if successor != "" && gone.State != store.LaneRetired {
 			cost := successorCost(gone)
-			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: ours(s, out.deps, gone.PRs), Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing, Step: gone.Step}, r.Seq, fresh, at)
+			wantHeir(s, store.Lane{Name: successor, Brief: gone.Brief, Model: cost.Model, Effort: cost.Effort, Role: gone.Role, State: store.LaneLaunching, Handoff: gone.Handoff, PRs: ours(s, out.deps, gone.PRs), Predecessor: old, Launcher: gone.Launcher, Standing: gone.Standing, Step: gone.Step}, r.Name(), fresh, at)
 			continue
 		}
 		if successor == "" {

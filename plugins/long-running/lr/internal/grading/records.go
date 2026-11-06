@@ -206,7 +206,7 @@ func since(graded []review, found []client.Record, head, repo string) (string, *
 	if prior == nil {
 		return "", nil
 	}
-	earlier := &grader.Record{Seq: prior.Seq, Lane: prior.Lane, Head: prior.head, Text: prior.Text}
+	earlier := &grader.Record{Seq: prior.Seq, Num: prior.Num, Lane: prior.Lane, Head: prior.head, Text: prior.Text}
 	if wholeSHA.MatchString(prior.head) {
 		return prior.head, earlier
 	}
