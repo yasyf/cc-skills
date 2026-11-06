@@ -2,6 +2,7 @@ package landing_test
 
 import (
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
@@ -20,6 +21,7 @@ const evictionDrive = "d"
 
 var (
 	batchFailure = landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION", Check: "buildkite/test", URL: "https://b/1", MatesFailed: []int{8}}
+	infraFailure = landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_REQUIRED_STATUS_FAILED", Check: "buildkite/test", URL: "https://b/1", Job: "go-test", Infra: "no space left on device"}
 	ownFailure   = landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_REQUIRED_STATUS_FAILED", Check: "buildkite/test", URL: "https://b/1", Job: "sand-next-tests", Test: "TestRead"}
 )
 
@@ -74,12 +76,12 @@ func TestAnEvictedHeadPostsOneRecordAndMovesItsRowOnce(t *testing.T) {
 	}
 }
 
-func TestABatchFailureReentersOnceAndASecondEvictionStaysOut(t *testing.T) {
+func TestAnInfrastructureFailureReentersOnceAndASecondEvictionStaysOut(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
-	s, q := storeWith(t, "lane-7"), &queue{failure: batchFailure}
+	s, q := storeWith(t, "lane-7"), &queue{failure: infraFailure}
 
 	read := settle(t, s, q, facts(45711, fellOut))
-	if read[0].EvictionOwn || !strings.Contains(told(t)[0].Text, "#8") {
+	if read[0].EvictionOwn || !strings.Contains(told(t)[0].Text, "no space left on device") {
 		t.Fatalf("facts = %+v, record = %q", read[0], told(t)[0].Text)
 	}
 	act(t, s, q, &restacker{}, t0, read...)
@@ -119,16 +121,36 @@ func TestItsOwnRedCheckGoesToItsLaneAndNeverReenters(t *testing.T) {
 	}
 }
 
-func TestARenderStepThatFailedBeforeAnyTestJobRanReentersAtItsHeadAndAFailedTestStaysOut(t *testing.T) {
+func TestOnlyABuildWhoseFailedJobsRanNoFailingTestReentersAndSaysWhy(t *testing.T) {
+	const reentry = "for eviction #%d, which counted as infrastructure since no failed job ran a failing test, it failed on infrastructure; the queue said exit 0"
 	for name, c := range map[string]struct {
 		build, log, kind, next string
-		reentered              []int
+		reenters               bool
 	}{
 		"build 118033, the render step failed alone": {
-			build:     `{"state":"failed","jobs":[{"id":"job-1","type":"script","name":":pipeline: Render and upload the pipeline","step_key":"bootstrap","state":"failed"}]}`,
-			kind:      "report",
-			next:      "job bootstrap: no test job ran, since the build held no other step. Not its own change: it failed on infrastructure. It re-enters the queue once at this head",
-			reentered: []int{45711},
+			build:    `{"state":"failed","jobs":[{"id":"job-1","type":"script","name":":pipeline: Render and upload the pipeline","step_key":"bootstrap","state":"failed"}]}`,
+			kind:     "report",
+			next:     "job bootstrap: no test job ran, since the build held no other step. Not its own change: no failed job ran a failing test, it failed on infrastructure. It re-enters the queue once at this head",
+			reenters: true,
+		},
+		"a test job's checkout failed before its commands ran": {
+			build:    `{"state":"failed","jobs":[{"id":"job-0","type":"script","step_key":"bootstrap","state":"passed"},` + failedJob + `]}`,
+			log:      `{"content":"~~~ Preparing working directory\nBUG: builtin/pack-objects.c:4453: should_include_obj should only be called on existing objects\nfatal: index-pack failed\n"}`,
+			kind:     "report",
+			next:     "job go-test: it failed in checkout or a hook, before its commands ran. Not its own change",
+			reenters: true,
+		},
+		"build 118164, a node test failed beside a page's 403": {
+			build: `{"state":"failed","jobs":[{"id":"job-0","type":"script","step_key":"bootstrap","state":"passed"},{"id":"job-1","type":"script","step_key":"product-dashboard-serve-next","state":"failed"}]}`,
+			log:   `{"content":"~~~ Preparing working directory\n~~~ Running commands\npage| error Failed to load resource: the server responded with a status of 403 (Forbidden)\n\u2716 failing tests:\n\u2716 a plain chat's published plan shows in its Outline tab (70896.900971ms)\n"}`,
+			kind:  "blocker",
+			next:  "job product-dashboard-serve-next: FAIL a plain chat's published plan shows in its Outline tab. It stays out of the queue until a new head; read the check, then push a fix.",
+		},
+		"a page's 403 in a test job whose failing test no parser names": {
+			build: `{"state":"failed","jobs":[{"id":"job-0","type":"script","step_key":"bootstrap","state":"passed"},{"id":"job-1","type":"script","step_key":"product-dashboard-serve-next","state":"failed"}]}`,
+			log:   `{"content":"~~~ Preparing working directory\n~~~ Running commands\npage| error Failed to load resource: the server responded with a status of 403 (Forbidden)\n"}`,
+			kind:  "blocker",
+			next:  "job product-dashboard-serve-next, no failing test named in its log. It stays out of the queue until a new head",
 		},
 		"a test job failed after the render step passed": {
 			build: `{"state":"failed","jobs":[{"id":"job-0","type":"script","step_key":"bootstrap","state":"passed"},` + failedJob + `]}`,
@@ -146,29 +168,41 @@ func TestARenderStepThatFailedBeforeAnyTestJobRanReentersAtItsHeadAndAFailedTest
 			watch := landing.TrunkWatch{Runner: fake, Checkout: "/co", Config: landing.TrunkConfig{CIBuild: "tools/ci bk api /pipelines/{pipeline}/builds/{number}", TokenCommand: []string{tokenTool}}}
 			job, test, infra := watch.FailedJob(context.Background(), redBuild)
 			s := storeWith(t, "lane-7")
-			q := &queue{failure: landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION", Check: "buildkite/test", URL: redBuild, Job: job, Test: test, Infra: infra}}
+			q := &queue{failure: landing.Failure{State: "failed", At: "t1", Reason: "TEST_RUN_REQUIRED_STATUS_FAILED", Check: "buildkite/test", URL: redBuild, Job: job, Test: test, Infra: infra}}
 
-			act(t, s, q, &restacker{}, t0, settle(t, s, q, facts(45711, fellOut))...)
+			done := act(t, s, q, &restacker{}, t0, settle(t, s, q, facts(45711, fellOut))...)
+			if err := landing.Settle(context.Background(), s, evictionDrive, done.Said); err != nil {
+				t.Fatal(err)
+			}
 
 			records := told(t)
-			if len(records) != 1 || string(records[0].Kind) != c.kind || !strings.Contains(records[0].Text, c.next) {
-				t.Fatalf("records = %+v, want one %s saying %q", records, c.kind, c.next)
+			if len(records) == 0 || string(records[0].Kind) != c.kind || !strings.Contains(records[0].Text, c.next) {
+				t.Fatalf("records = %+v, want a %s saying %q", records, c.kind, c.next)
 			}
-			if !slices.Equal(q.reentered, c.reentered) {
-				t.Fatalf("reentered = %v, want %v", q.reentered, c.reentered)
+			if !c.reenters {
+				if len(q.reentered) != 0 || len(records) != 1 {
+					t.Fatalf("reentered = %v, records = %+v, want no re-entry and only the eviction", q.reentered, records)
+				}
+				return
+			}
+			if !slices.Equal(q.reentered, []int{45711}) || len(records) != 2 {
+				t.Fatalf("reentered = %v, records = %+v, want one re-entry and its record", q.reentered, records)
+			}
+			if said := records[1]; said.Re != records[0].Seq || !strings.HasPrefix(said.Text, "REENTERED #45711 at ") || !strings.Contains(said.Text, fmt.Sprintf(reentry, records[0].Seq)) {
+				t.Fatalf("re-entry record = %+v, want it to answer eviction #%d and say why", said, records[0].Seq)
 			}
 		})
 	}
 }
 
-func TestEvidenceDecidesWhetherAFailureIsItsOwn(t *testing.T) {
+func TestOnlyAFailureWithNoFailedTestIsNotItsOwn(t *testing.T) {
 	for name, c := range map[string]struct {
 		failure landing.Failure
 		own     bool
 	}{
 		"a lone run's red check":       {ownFailure, true},
 		"optimized away, no evidence":  {landing.Failure{State: "failed", At: "t", Reason: "TEST_RUN_FAILED_BY_OPTIMIZATION"}, true},
-		"a mate fell in the same run":  {batchFailure, false},
+		"a mate fell in the same run":  {batchFailure, true},
 		"trunk's own step failed":      {landing.Failure{State: "failed", At: "t", Reason: "GITHUB_API_MERGE_PR_FAILED"}, false},
 		"the log reads infrastructure": {landing.Failure{State: "failed", At: "t", Job: "j", Infra: "no space left on device"}, false},
 		"canceled, not failed":         {landing.Failure{State: "cancelled", At: "t", Reason: "USER_REQUESTED"}, false},
@@ -184,15 +218,29 @@ func TestEvidenceDecidesWhetherAFailureIsItsOwn(t *testing.T) {
 	}
 }
 
-func TestAFailureAnOpenFlakeNamesIsNotItsOwn(t *testing.T) {
-	t.Setenv("CCI_HOME", t.TempDir())
-	if _, err := client.Post(context.Background(), client.Draft{Drive: evictionDrive, Lane: "supervisor", Kind: "defect", To: []string{"flakes"}, Topic: "dev-red", ID: "flake:one", Force: true, Attrs: map[string]string{"flake": "TestRead"}, Text: "flake TestRead"}); err != nil {
-		t.Fatal(err)
-	}
-	s, q := storeWith(t, "lane-7"), &queue{failure: ownFailure}
+func TestARedTestAMateOrAnOpenFlakeSharesStaysWithItsLaneAndSaysSo(t *testing.T) {
+	for name, c := range map[string]struct {
+		failure landing.Failure
+		says    string
+	}{
+		"a mate fell in the same run":  {batchFailure, "The same test run also failed #8, yet a failed test never re-enters at its head."},
+		"an open flake names its test": {ownFailure, "Open flake "},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			if _, err := client.Post(context.Background(), client.Draft{Drive: evictionDrive, Lane: "supervisor", Kind: "defect", To: []string{"flakes"}, Topic: "dev-red", ID: "flake:one", Force: true, Attrs: map[string]string{"flake": "TestRead"}, Text: "flake TestRead"}); err != nil {
+				t.Fatal(err)
+			}
+			s, q := storeWith(t, "lane-7"), &queue{failure: c.failure}
 
-	if got := settle(t, s, q, facts(45711, fellOut))[0].EvictionOwn; got {
-		t.Fatal("a failure an open flake names read as its own")
+			read := settle(t, s, q, facts(45711, fellOut))
+			act(t, s, q, &restacker{}, t0, read...)
+
+			evicted := slices.DeleteFunc(told(t), func(r client.Record) bool { return !strings.Contains(r.Text, "EVICTED #45711") })
+			if !read[0].EvictionOwn || len(q.reentered) != 0 || len(evicted) != 1 || string(evicted[0].Kind) != "blocker" || !strings.Contains(evicted[0].Text, c.says) {
+				t.Fatalf("facts = %+v, reentered = %v, records = %+v, want a blocker saying %q", read[0], q.reentered, evicted, c.says)
+			}
+		})
 	}
 }
 
@@ -316,7 +364,7 @@ func TestARowNoLongerEvictedForgetsItsEviction(t *testing.T) {
 
 func TestAHeldRowTheQueueEvictedIsNotReenteredWhenItsSnapshotShowsNoHold(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
-	s, q := storeWith(t, "lane-7"), &queue{failure: batchFailure}
+	s, q := storeWith(t, "lane-7"), &queue{failure: infraFailure}
 	guard := landing.HoldGuard{Queue: q, Held: func(context.Context) (map[int]bool, error) { return map[int]bool{45711: true}, nil }}
 	read := settle(t, s, q, facts(45711, fellOut))
 

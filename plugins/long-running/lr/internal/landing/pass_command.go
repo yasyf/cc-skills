@@ -2,6 +2,7 @@ package landing
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -122,8 +123,12 @@ func runPass(ctx context.Context, a *app.App, stdout io.Writer) error {
 	}
 	done, err := Act(ctx, s, HoldGuard{Queue: trunk, Held: facts.New(a, cfg, s).HeldPRs}, remote, gates.Admit(ctx, Clear(out.Acts, snapshot, cfg.Trunk), snapshot), now)
 	fmt.Fprintf(stdout, "%s landing enqueued=%d resubmitted=%d dequeued=%d restacked=%d conflicts=%d\n", store.Stamp(now), len(done.Enqueued), len(done.Resubmitted), len(done.Dequeued), len(done.Restacked), len(done.Conflicts))
+	settled := Settle(ctx, s, cfg.Drive, done.Said)
 	if err != nil {
-		return fmt.Errorf("movers stopped mid-pass: %w", err)
+		return errors.Join(fmt.Errorf("movers stopped mid-pass: %w", err), settled)
+	}
+	if settled != nil {
+		return fmt.Errorf("a queue answer went unposted: %w", settled)
 	}
 	return nil
 }

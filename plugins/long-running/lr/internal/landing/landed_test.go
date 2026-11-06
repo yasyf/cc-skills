@@ -197,8 +197,8 @@ func TestAQueueAnswerForAStoppedLaneReachesRootAndARefusalSaysUnowned(t *testing
 	f := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
 
 	if err := landing.Settle(ctx, s, "d", []landing.Said{
-		{f, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false},
-		{f, "QUEUED", "REFUSED", "exit 0: #48476 QUEUED 9b837a86bb native stack covers #48476", false},
+		{f, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false, 0},
+		{f, "QUEUED", "REFUSED", "exit 0: #48476 QUEUED 9b837a86bb native stack covers #48476", false, 0},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -239,10 +239,10 @@ func TestEachHeadCarriesOneRecordOfWhatTheQueueSaid(t *testing.T) {
 	refused := machine.Facts{Repo: monorepo, Number: 48476, Head: "9b837a86bbcc", Lane: "ssql-4"}
 	unowned := machine.Facts{Repo: monorepo, Number: 48165, Head: "dde89028ddee"}
 	answers := []landing.Said{
-		{queued, "QUEUED", "REFUSED", "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897", false},
-		{refused, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false},
-		{unowned, "QUEUED", "REFUSED", "timed out after 300s", false},
-		{refused, "DEQUEUED", "DEQUEUE-REFUSED", "an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb", false},
+		{queued, "QUEUED", "REFUSED", "exit 0: #48897 QUEUED 1c40b68010 native stack covers #48897", false, 0},
+		{refused, "QUEUED", "REFUSED", "exit 1: enqueued nothing: no approved green bottom prefix", false, 0},
+		{unowned, "QUEUED", "REFUSED", "timed out after 300s", false, 0},
+		{refused, "DEQUEUED", "DEQUEUE-REFUSED", "an open hold names it; the queue said exit 0: #48476 DEQUEUED 9b837a86bb", false, 0},
 	}
 
 	for range 2 {

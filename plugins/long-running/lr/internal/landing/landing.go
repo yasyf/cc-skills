@@ -55,6 +55,7 @@ type Said struct {
 	Refused  string
 	Text     string
 	Alarm    bool
+	Re       int64
 }
 
 type Done struct {
@@ -179,15 +180,23 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 }
 
 func reenter(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, now time.Time, done *Done) error {
+	facts, err := s.Facts(f.Repo, f.Number, f.Head)
+	if err != nil {
+		return err
+	}
+	eviction, err := strconv.ParseInt(cmp.Or(facts[evictionRecordFact], "0"), 10, 64)
+	if err != nil {
+		return fmt.Errorf("#%d %s: %w", f.Number, evictionRecordFact, err)
+	}
 	said, err := queue.Reenter(ctx, f.Number)
 	if err != nil {
 		return err
 	}
-	if err := recordSaid(s, f, said, now, done); err != nil {
-		return err
-	}
-	facts, err := s.Facts(f.Repo, f.Number, f.Head)
-	if err != nil {
+	done.Said = append(done.Said, Said{
+		Facts: f, Accepted: "REENTERED", Refused: "REENTER-REFUSED", Re: eviction,
+		Text: fmt.Sprintf("re-entered at this head with --flake for eviction #%d, which counted as infrastructure since %s; the queue said %s", eviction, facts[evictionWhyFact], said),
+	})
+	if _, err := s.PutFact(f.Repo, f.Number, f.Head, pass.EnqueuedFact, said, now); err != nil {
 		return err
 	}
 	free, err := strconv.Atoi(cmp.Or(facts[FreeRetriesFact], "0"))
