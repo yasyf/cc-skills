@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strconv"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -23,6 +25,7 @@ const (
 	decidedKind  = "decided"
 	movedTopic   = "cards-moved"
 	inForce      = "in-force"
+	hisWordsCut  = 240
 )
 
 var prCited = regexp.MustCompile(`(?:#|/pull/)(\d+)\b`)
@@ -46,12 +49,17 @@ func (m Moved) Line() string {
 	switch m.How {
 	case "redrew":
 		return fmt.Sprintf("redrew %s on the new premise: %s", m.Card.Card, m.Why)
+	case "superseded":
+		return fmt.Sprintf("took %s off his merge list; its approval post now reads %q", m.Card.Card, m.Why)
 	}
 	return fmt.Sprintf("kept %s and flagged it to %s: %s", m.Card.Card, laneOr(m.Card.Lane), m.Why)
 }
 
 func (m Moved) laneReport(cause string) string {
-	if m.How == "held" {
+	switch m.How {
+	case "superseded":
+		return fmt.Sprintf("%s superseded the shape of your PR %s: its tap is off his merge list, and its approval post now reads %q. Rebuild it on the ruling; a new head draws a new card.", cause, m.Card.Card, m.Why)
+	case "held":
 		return fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s changes it, and %s.", m.Card.Card, cause, m.Why)
 	}
 	return fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s may change it, and the judge could not settle how (%s).", m.Card.Card, cause, m.Why)
@@ -253,6 +261,18 @@ func (c Cards) Depend(ctx context.Context, card, lane string, explicit []string)
 	if err != nil {
 		return nil, err
 	}
+	terms, err := inForceTerms(rows)
+	if err != nil {
+		return nil, err
+	}
+	deps, err := cardDeps(shown, terms, explicit)
+	if err != nil {
+		return nil, err
+	}
+	return deps, c.Store.PutCardDeps(store.CardRef{Session: c.Session, Card: card, Lane: lane}, deps)
+}
+
+func inForceTerms(rows []ledger.Row) ([]string, error) {
 	var terms []string
 	for _, row := range rows {
 		if row.Fields["status"] != inForce {
@@ -264,11 +284,7 @@ func (c Cards) Depend(ctx context.Context, card, lane string, explicit []string)
 		}
 		terms = append(terms, named...)
 	}
-	deps, err := cardDeps(shown, terms, explicit)
-	if err != nil {
-		return nil, err
-	}
-	return deps, c.Store.PutCardDeps(store.CardRef{Session: c.Session, Card: card, Lane: lane}, deps)
+	return terms, nil
 }
 
 type Recheck struct {
@@ -282,7 +298,7 @@ func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
 	if err != nil {
 		return nil, err
 	}
-	var deps, evidence []string
+	var deps, evidence, said []string
 	for _, key := range keys {
 		i := slices.IndexFunc(rows, func(row ledger.Row) bool { return row.Key == key })
 		if i < 0 {
@@ -299,12 +315,26 @@ func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
 		}
 		deps = append(deps, named...)
 		evidence = append(evidence, fmt.Sprintf("His ruling, just recorded (%s), in his words: %s", fields["kind"], landed))
+		said = append(said, landed)
 	}
 	refs, err := r.Cards.Store.CardsDependingOn(deps)
 	if err != nil {
 		return nil, err
 	}
-	return r.move(ctx, refs, map[string]boardRead{}, strings.Join(evidence, "\n\n"), "his ruling "+strings.Join(keys, ", "))
+	cause := "his ruling " + strings.Join(keys, ", ")
+	moved, err := r.move(ctx, refs, map[string]boardRead{}, strings.Join(evidence, "\n\n"), cause)
+	if err != nil {
+		return nil, err
+	}
+	open, err := r.openTaps()
+	if err != nil {
+		return nil, err
+	}
+	taps, err := r.supersede(ctx, open, func() ([]ledger.Row, error) { return rows, nil }, deps, strings.Join(said, " "), strings.Join(evidence, "\n\n"), cause)
+	if err != nil {
+		return nil, err
+	}
+	return r.tell(ctx, append(moved, taps...), cause)
 }
 
 func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
@@ -318,7 +348,11 @@ func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
 		return nil, err
 	}
 	refs = slices.DeleteFunc(refs, func(ref store.CardRef) bool { return ref.Session == picked.Session && ref.Card == card })
-	if len(refs) == 0 {
+	open, err := r.openTaps()
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 && len(open) == 0 {
 		return nil, nil
 	}
 	board, err := r.Cards.wholeBoard(ctx)
@@ -333,7 +367,16 @@ func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
 	if err != nil {
 		return nil, err
 	}
-	return r.move(ctx, refs, map[string]boardRead{r.Cards.Session: board}, fmt.Sprintf("His pick, just made on another card of his board, answering %q: %s", asked, said), "his pick on "+card)
+	evidence, cause := fmt.Sprintf("His pick, just made on another card of his board, answering %q: %s", asked, said), "his pick on "+card
+	moved, err := r.move(ctx, refs, map[string]boardRead{r.Cards.Session: board}, evidence, cause)
+	if err != nil {
+		return nil, err
+	}
+	taps, err := r.supersede(ctx, open, func() ([]ledger.Row, error) { return r.Cards.register(ctx) }, deps, said, evidence, cause)
+	if err != nil {
+		return nil, err
+	}
+	return r.tell(ctx, append(moved, taps...), cause)
 }
 
 func questionOn(card json.RawMessage) (string, error) {
@@ -387,6 +430,74 @@ func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[stri
 		}
 		moved = append(moved, *done)
 	}
+	return moved, nil
+}
+
+func (r Recheck) openTaps() ([]store.ReviewRow, error) {
+	rows, err := r.Cards.Store.ReviewRows(r.Cards.Repo)
+	return slices.DeleteFunc(rows, func(row store.ReviewRow) bool { return row.State != prrow.StateOpen || !OffersApproval(row) }), err
+}
+
+func (r Recheck) supersede(ctx context.Context, open []store.ReviewRow, register func() ([]ledger.Row, error), deps []string, said, evidence, cause string) ([]Moved, error) {
+	if len(open) == 0 {
+		return nil, nil
+	}
+	rows, err := register()
+	if err != nil {
+		return nil, err
+	}
+	terms, err := inForceTerms(rows)
+	if err != nil {
+		return nil, err
+	}
+	var resting []store.ReviewRow
+	var shown []json.RawMessage
+	for _, row := range open {
+		card, err := TapCard(r.Cards.Repo, row)
+		if err != nil {
+			return nil, err
+		}
+		rests, err := cardDeps(card, terms, nil)
+		if err != nil {
+			return nil, err
+		}
+		if slices.ContainsFunc(rests, func(dep string) bool { return slices.Contains(deps, dep) }) {
+			resting, shown = append(resting, row), append(shown, card)
+		}
+	}
+	judged := make([]*Judgment, len(resting))
+	failed := make([]error, len(resting))
+	var wg sync.WaitGroup
+	for i := range resting {
+		wg.Go(func() { judged[i], failed[i] = r.Judge(ctx, premiseKind, evidence, string(shown[i])) })
+	}
+	wg.Wait()
+	if err := errors.Join(failed...); err != nil {
+		return nil, err
+	}
+	var moved []Moved
+	for i, row := range resting {
+		one := Moved{store.CardRef{Session: r.Cards.Session, Card: fmt.Sprintf("%s#%d", row.Repo, row.Number), Lane: row.Lane}, "flagged", sentenceOf(judged[i])}
+		switch verdictOf(judged[i]) {
+		case "no":
+			continue
+		case "yes":
+			one.How, one.Why = "superseded", supersededLead+clipWords(said, hisWordsCut)
+			if _, err := r.Cards.withdrawTaps(ctx, r.Lane, []store.ReviewRow{row}, nil, one.Why, io.Discard); err != nil {
+				return nil, err
+			}
+		}
+		if row.Lane != "" {
+			if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, one.Card.Card, one.laneReport(cause)); err != nil {
+				return nil, err
+			}
+		}
+		moved = append(moved, one)
+	}
+	return moved, nil
+}
+
+func (r Recheck) tell(ctx context.Context, moved []Moved, cause string) ([]Moved, error) {
 	if len(moved) == 0 {
 		return nil, nil
 	}

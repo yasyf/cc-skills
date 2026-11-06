@@ -75,6 +75,8 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 		f.removed = append(f.removed, c.Argv[2])
 		delete(f.board, c.Argv[2])
 		return shell.Result{}, nil
+	case strings.HasPrefix(argv, "cc-slack redraw-pr-cards --pr "):
+		return shell.Result{Stdout: `{"redrawing":1}`}, nil
 	case strings.Contains(argv, "update-block -"):
 		if f.refuseRedraw != "" {
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: f.refuseRedraw}
@@ -258,6 +260,63 @@ func TestAPostgresRulingRedrawsTheLookupsCardOnItsNewPremiseKeepingItsQuestion(t
 	}
 	if report := f.posts[len(f.posts)-1]; !strings.Contains(report.text, "redrew card-48879 on the new premise") {
 		t.Fatalf("report = %+v", report)
+	}
+}
+
+func lookupsPR(t *testing.T, f *depFixture) store.ReviewRow {
+	t.Helper()
+	f.Cards.Repo = repo
+	row := readyRow(func(r *store.ReviewRow) { r.Title = "lookups read the S3 index" })
+	if err := f.Cards.Store.PutReviewRows([]store.ReviewRow{row}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Cards.Store.PutFact(repo, number, head, FactCardDrawn, "drawn", cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	return row
+}
+
+func TestARulingThatSupersedesAPRsShapeTakesItsTapOffAndItsPostReadsSuperseded(t *testing.T) {
+	f := newDeps(t)
+	row := lookupsPR(t, f)
+	f.postgresRuling(t)
+	f.says(tapCardID(row), premiseKind, "yes", "Lookups now read Postgres, so this S3 change no longer stands.")
+	moved, err := f.Ruling(context.Background(), []string{postgresRule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || moved[0].How != "superseded" || moved[0].Card.Card != fmt.Sprintf("%s#%d", repo, number) {
+		t.Fatalf("moved = %+v, want the PR's tap superseded", moved)
+	}
+	if !slices.ContainsFunc(f.shell.calls, func(call string) bool { return strings.HasSuffix(call, fmt.Sprintf("/pull/%d", number)) }) {
+		t.Fatalf("calls = %v, want its approval post redrawn in this pass", f.shell.calls)
+	}
+	rows, err := f.Cards.Store.ReviewRows(repo)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("rows = %+v, %v", rows, err)
+	}
+	card := Card(repo, rows[0])
+	if !strings.HasPrefix(card.Title, "Superseded: #45583 at ") || card.Options != nil || card.PRs[0].Blocks != "Superseded: move lookups to postgres." {
+		t.Fatalf("card = %+v, want it to read superseded in his words with no buttons", card)
+	}
+	if !slices.ContainsFunc(f.posts, func(p posted) bool {
+		return slices.Equal(p.to, []string{row.Lane}) && strings.Contains(p.text, "Rebuild it on the ruling")
+	}) {
+		t.Fatalf("posts = %+v, want the PR's lane told", f.posts)
+	}
+}
+
+func TestARulingThatLeavesAPRsShapeKeepsItsTap(t *testing.T) {
+	f := newDeps(t)
+	row := lookupsPR(t, f)
+	f.postgresRuling(t)
+	f.says(tapCardID(row), premiseKind, "no", "the PR does not rest on where lookups read")
+	moved, err := f.Ruling(context.Background(), []string{postgresRule})
+	if err != nil || len(moved) != 0 {
+		t.Fatalf("moved = %+v, %v", moved, err)
+	}
+	if rows, err := f.Cards.Store.ReviewRows(repo); err != nil || rows[0].State != "open" {
+		t.Fatalf("rows = %+v, %v, want the tap kept", rows, err)
 	}
 }
 

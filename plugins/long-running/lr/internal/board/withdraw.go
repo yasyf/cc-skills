@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"regexp"
 	"slices"
@@ -46,6 +47,10 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 	if named[2] != "" {
 		cards = append(cards, target)
 	}
+	return c.withdrawTaps(ctx, lane, prs, cards, why, out)
+}
+
+func (c Cards) withdrawTaps(ctx context.Context, lane string, prs []store.ReviewRow, cards []string, why string, out io.Writer) (bool, error) {
 	pulled := false
 	for _, pr := range prs {
 		cards = append(cards, MergeWaits(pr.Number, pr.Head), tapCardID(pr))
@@ -66,7 +71,53 @@ func (c Cards) Pull(ctx context.Context, lane, target, why string, out io.Writer
 		fmt.Fprintf(out, "WITHDRAWN %s#%d at %s: off the owner's merge list\n", pr.Repo, pr.Number, short(pr.Head))
 		pulled = true
 	}
+	if err := c.redrawWithdrawn(ctx, prs, out); err != nil {
+		return false, err
+	}
 	return pulled, c.Retire(ctx, lane, why, slices.Compact(cards), out)
+}
+
+func (c Cards) redrawWithdrawn(ctx context.Context, prs []store.ReviewRow, out io.Writer) error {
+	repos := map[string]bool{}
+	for _, pr := range prs {
+		repos[pr.Repo] = true
+		drawn, err := c.Store.LatestFacts(pr.Repo, FactCardDrawn)
+		if err != nil {
+			return err
+		}
+		if drawn[pr.Number] == "" {
+			continue
+		}
+		redrawing, err := c.redrawPost(ctx, pr.Repo, pr.Number)
+		if err != nil {
+			return err
+		}
+		if redrawing > 0 {
+			fmt.Fprintf(out, "REDRAWN %s#%d: its Slack post reads withdrawn, with no buttons\n", pr.Repo, pr.Number)
+		}
+	}
+	for _, repo := range slices.Sorted(maps.Keys(repos)) {
+		r := ReadyCards{Cards: c, Repo: repo}
+		lists, err := r.tapLists()
+		if err != nil {
+			return err
+		}
+		if len(lists) == 0 {
+			continue
+		}
+		rows, err := c.Store.ReviewRows(repo)
+		if err != nil {
+			return err
+		}
+		facts, err := c.Store.FactsAtRowHeads(repo, rows)
+		if err != nil {
+			return err
+		}
+		if err := r.refreshLists(ctx, rows, facts, lists); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func WithdrawCommand(a *app.App) *cobra.Command {

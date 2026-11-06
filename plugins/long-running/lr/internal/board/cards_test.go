@@ -37,6 +37,7 @@ type cardShell struct {
 	removed   []string
 	reasons   []string
 	asked     []string
+	redrawn   []string
 }
 
 func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -77,6 +78,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 	case strings.HasPrefix(argv, "cc-present ask - "):
 		f.asked = append(f.asked, c.Stdin)
 		return shell.Result{}, nil
+	case strings.HasPrefix(argv, "cc-slack redraw-pr-cards --pr "):
+		f.redrawn = append(f.redrawn, c.Argv[3])
+		return shell.Result{Stdout: `{"redrawing":1}`}, nil
 	case strings.Contains(argv, "remove-block"):
 		f.removed = append(f.removed, c.Argv[2])
 		if i := slices.Index(c.Argv, "--reason"); i > 0 {
