@@ -2248,7 +2248,7 @@ func TestABriefNamingTheDrivesCheckoutLaunchesWithNoWarningAndTheSpecPointsAtThe
 	runner := filepath.Join(f.home, ".claude", "worktrees", "monorepo", "brook-runner")
 	f.write(filepath.Join(state, "lr.json"), `{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"`+runner+`","author":"drive-bot","label":"brook","movers":["lanes"]}`, 0o600)
 	f.env[workerDriveDir] = state
-	text := "Post with `cci post --lane " + workerLane + "`, run from " + runner + ".\n"
+	text := "Post your records from " + runner + ".\n"
 	f.write(f.brief, text, 0o600)
 	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(text), "bytes": len(text)}}))
 	f.launched()
