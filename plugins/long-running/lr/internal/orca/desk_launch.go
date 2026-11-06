@@ -31,6 +31,7 @@ const (
 	spritePrepare = "prepare.status"
 	spriteStop    = "stop.status"
 	spriteMade    = "allocation.json"
+	spriteDown    = "sprite-down"
 	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
 	placeOrca     = "orca"
 	placeSprite   = "sprite"
@@ -118,6 +119,10 @@ func (d *Desk) spriteLog(container, key string) string {
 	return strings.TrimSuffix(d.launchLog(container, key), ".out") + ".sprite.out"
 }
 
+func (d *Desk) refusedLog(container, key string) string {
+	return strings.TrimSuffix(d.launchLog(container, key), ".out") + ".refused.out"
+}
+
 func (d *Desk) launch(ctx context.Context, container, lane string, action incident.Action) error {
 	spec, err := launchOf(action)
 	if err != nil {
@@ -181,7 +186,7 @@ func sortedStrings(values map[string]string) []string {
 func (d *Desk) launchLocal(container, lane string, action incident.Action, spec launchTarget) error {
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
 	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
-	if failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+	if failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) && !isFile(d.spriteLog(container, action.ActionID)) {
 		env = append(env, fallbackEnv+"=1")
 	}
 	process, err := d.Spawn([]string{d.tool("lr"), "launch", "start", lane, spec.Model, spec.Effort, spec.Brief}, d.launchLog(container, action.ActionID), env)
@@ -699,6 +704,14 @@ func baseDrift(attempt string) (key, differs string, err error) {
 
 func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
 	reason := clipRunes(collapsed(out), 300)
+	raw, _ := os.ReadFile(filepath.Join(attempt, spriteDown))
+	if key, down, _ := strings.Cut(string(raw), "\n"); key == action.ActionID && d.Config.Launches != launchesSprite && !isFile(d.refusedLog(container, action.ActionID)) {
+		down = clipRunes(collapsed(down), 300)
+		if stopped, _ := os.ReadFile(filepath.Join(attempt, spriteStop)); len(stopped) > 0 && strings.TrimSpace(string(stopped)) != "0" {
+			down += "; its prepared Sprite did not stop and may still be held, receipts in " + attempt
+		}
+		return d.macFallback(ctx, container, lane, action, spec, down)
+	}
 	if neverStarted(attempt, exited) {
 		return d.refuseLaunch(ctx, container, lane, action, "a Sprite that never started a worker: "+reason, "its receipts are in "+attempt+"; post the go again under a new key")
 	}
@@ -710,6 +723,21 @@ func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, acti
 	}
 	started := spriteStartedAs(filepath.Join(attempt, spriteReceipt))
 	return d.escalateTo(ctx, container+"/"+action.ActionID+":sprite", "SPRITE-UNVERIFIABLE", lane, fmt.Sprintf("%s does not launch locally: its Sprite launch is unverified and a remote worker may be running%s; receipts in %s, nothing retried or cleaned up: %s", action.ActionID, started, attempt, reason), verdictTo(spec.By))
+}
+
+func (d *Desk) macFallback(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, down string) error {
+	if !incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+		if full := d.overLoadOrFull(ctx); full != "" {
+			return d.escalateTo(ctx, container+"/"+action.ActionID+":mac-wait", "LAUNCH-WAITING", lane, fmt.Sprintf("%s waits to start on this Mac: its Sprite launch failed on the platform (%s), and %s; it starts here once that clears", action.ActionID, down, full), verdictTo(spec.By))
+		}
+	}
+	if err := os.MkdirAll(filepath.Dir(d.loadPath(action.ActionID)), 0o750); err != nil {
+		return err
+	}
+	if err := os.WriteFile(d.loadPath(action.ActionID), []byte("its Sprite launch failed on the platform: "+down), 0o600); err != nil {
+		return err
+	}
+	return d.launchLocal(container, lane, action, spec)
 }
 
 func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action incident.Action, placement, box string) error {
@@ -727,12 +755,13 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	receipt := d.receipt(lane)
 	var proofLine, dispatch, terminal string
 	failure := failureLine(out, lane)
+	triedSprite := isFile(d.spriteLog(container, key))
 	switch {
 	case found != nil && found[1] == lane:
 		proofLine, dispatch, terminal = found[0], found[3], found[4]
-	case capRefusal.MatchString(failure) && capFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
+	case capRefusal.MatchString(failure) && !triedSprite && capFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
 		return d.spriteFallback(ctx, container, lane, action, spec, failure, "Orca refused it a terminal on this Mac, which runs as many as Orca allows")
-	case failure != "" && failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
+	case failure != "" && !triedSprite && failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
 		return d.spriteFallback(ctx, container, lane, action, spec, failure, "its launch on this Mac failed ("+clipRunes(collapsed(failure), 200)+"), so it relaunched once on a Sprite")
 	case failure != "":
 		return d.failedLaunch(ctx, container, lane, key, failure, verdictTo(spec.By))
@@ -827,8 +856,7 @@ func (d *Desk) spriteFallback(ctx context.Context, container, lane string, actio
 	if fault != "" {
 		return d.failedLaunch(ctx, container, lane, action.ActionID, failure+"; no Sprite took it instead: "+fault, verdictTo(spec.By))
 	}
-	log := d.launchLog(container, action.ActionID)
-	if err := os.Rename(log, strings.TrimSuffix(log, ".out")+".refused.out"); err != nil {
+	if err := os.Rename(d.launchLog(container, action.ActionID), d.refusedLog(container, action.ActionID)); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(filepath.Dir(d.loadPath(action.ActionID)), 0o750); err != nil {

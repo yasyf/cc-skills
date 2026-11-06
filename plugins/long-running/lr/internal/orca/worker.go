@@ -78,20 +78,21 @@ const (
 )
 
 var (
-	joinWaits        = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
-	spriteLane       = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
-	fullCommit       = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
-	orcaIdent        = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
-	briefTool        = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
-	geminiRoute      = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
-	toolsMissingLine = regexp.MustCompile(`(?m)^missing:(.*)$`)
-	spriteLimitLine  = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
-	modelAliases     = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
-	obsNamed         = regexp.MustCompile(`(?i)\b(?:sentry|datadog|oncall)\b`)
-	obsRouted        = regexp.MustCompile(`--to[ =]+` + regexp.QuoteMeta(obs.Lane) + `\b`)
-	obsRoles         = []string{"evidence", "diagnosis"}
-	helpFlag         = regexp.MustCompile(`^\s+(?:(-\w), )?(--[\w-]+)(?: (\w+))?`)
-	spriteVerbs      = []struct {
+	joinWaits          = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
+	spriteLane         = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
+	fullCommit         = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
+	orcaIdent          = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
+	briefTool          = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
+	geminiRoute        = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
+	toolsMissingLine   = regexp.MustCompile(`(?m)^missing:(.*)$`)
+	spriteLimitLine    = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
+	spritePlatformLine = regexp.MustCompile(`[^\n]*(?:Storage not ready|failed to start sprite command|HTTP (?:status )?5\d\d)[^\n]*`)
+	modelAliases       = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
+	obsNamed           = regexp.MustCompile(`(?i)\b(?:sentry|datadog|oncall)\b`)
+	obsRouted          = regexp.MustCompile(`--to[ =]+` + regexp.QuoteMeta(obs.Lane) + `\b`)
+	obsRoles           = []string{"evidence", "diagnosis"}
+	helpFlag           = regexp.MustCompile(`^\s+(?:(-\w), )?(--[\w-]+)(?: (\w+))?`)
+	spriteVerbs        = []struct {
 		name  string
 		verbs [][]string
 	}{
@@ -177,6 +178,22 @@ func (s *WorkerStarter) Run(ctx context.Context, lane, model, effort, brief stri
 
 func refuse(format string, args ...any) error {
 	return &Failed{fmt.Sprintf(format, args...)}
+}
+
+func (w *workerLaunch) down(format string, args ...any) error {
+	failed := refuse(format, args...)
+	if err := w.receipt(spriteDown, w.Env(stageKeyEnv)+"\n"+failed.Error()+"\n"); err != nil {
+		return err
+	}
+	return failed
+}
+
+func (w *workerLaunch) execRefusal(said, format string, args ...any) error {
+	fault := spritePlatformLine.FindString(said)
+	if fault == "" {
+		return refuse(format, args...)
+	}
+	return w.down(format+"; the Sprite platform said %s", append(args, strings.TrimSpace(fault))...)
 }
 
 func attemptOf(brief string) string {
@@ -792,13 +809,13 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		return nil, refuse("the Sprite has no %s, which the brief runs, so no worker started; %s keeps its output", strings.Join(strings.Fields(missing[1]), ", "), filepath.Join(w.attempt, "prepare.err"))
 	}
 	if limit := spriteLimitLine.FindString(result.Stderr); code != 0 && limit != "" {
-		return nil, refuse("the org is at its Sprite limit, so no Sprite started: %s; %s keeps its output", strings.TrimSpace(limit), filepath.Join(w.attempt, "prepare.err"))
+		return nil, w.down("the org is at its Sprite limit, so no Sprite started: %s; %s keeps its output", strings.TrimSpace(limit), filepath.Join(w.attempt, "prepare.err"))
 	}
 	if fault := installFault(result.Stderr); code != 0 && fault != "" {
-		return nil, refuse("the Sprite's %s, so no worker started; %s keeps its output", fault, filepath.Join(w.attempt, "prepare.err"))
+		return nil, w.execRefusal(result.Stderr, "the Sprite's %s, so no worker started; %s keeps its output", fault, filepath.Join(w.attempt, "prepare.err"))
 	}
 	if code != 0 {
-		return nil, refuse("cc-remote orca prepare exited %d; %s keeps its output, and nothing was attached or retried", code, w.attempt)
+		return nil, w.execRefusal(result.Stderr, "cc-remote orca prepare exited %d; %s keeps its output, and nothing was attached or retried", code, w.attempt)
 	}
 	fault, base := w.allocationFault(result.Stdout)
 	if fault != "" {
@@ -829,7 +846,6 @@ func (w *workerLaunch) copyCarried(workspace string) error {
 		return nil
 	}
 	log := filepath.Join(w.attempt, "carried.log")
-	failure := refuse("copying the files the brief names to Sprite %s failed; %s keeps its output, %s", workspace, log, idleWarning)
 	packed, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"tar", "-C", carried, "-czf", "-", "."}, Env: []string{"COPYFILE_DISABLE=1"}})
 	said := packed.Stderr
 	if err == nil {
@@ -841,7 +857,7 @@ func (w *workerLaunch) copyCarried(workspace string) error {
 		return written
 	}
 	if err != nil {
-		return failure
+		return w.execRefusal(said, "copying the files the brief names to Sprite %s failed; %s keeps its output, %s", workspace, log, idleWarning)
 	}
 	return nil
 }
@@ -936,7 +952,7 @@ func (w *workerLaunch) carryDriveConfig(workspace, name string) error {
 		return receipt
 	}
 	if err != nil {
-		return refuse("Sprite %s holds no lr.json for drive %s, which lr and the pack's hooks read there; %s keeps the output, %s", workspace, name, filepath.Join(w.attempt, configReceipt), idleWarning)
+		return w.execRefusal(written.Stdout+written.Stderr, "Sprite %s holds no lr.json for drive %s, which lr and the pack's hooks read there; %s keeps the output, %s", workspace, name, filepath.Join(w.attempt, configReceipt), idleWarning)
 	}
 	return nil
 }
@@ -1065,7 +1081,7 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 		return "", err
 	}
 	if joinErr != nil {
-		return "", refuse("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker never got its task", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
+		return "", w.down("Sprite %s did not join the cci relay with %s's service key: %v; nothing started, because a worker with no relay posts nothing anyone reads; %s keeps the output, and the prepared worker never got its task", workspace, sponsor, joinErr, filepath.Join(w.attempt, joinReceipt))
 	}
 	w.terminal, _ = textOf(task["terminal"])
 	desk := ""

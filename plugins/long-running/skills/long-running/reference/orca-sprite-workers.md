@@ -86,6 +86,7 @@ Each refusal names its cause, and nothing is prepared unless noted.
 | A standing desk with no drive entry on this Mac, or whose drive's `lr.json` does not read as a JSON object | Refuses before preparing anything, naming the missing entry or file |
 | A standing desk whose `lr.json` fails to land on its Sprite | Refuses before `worker-start`; output in `drive-config.log` |
 | A relay join that fails after its retries | Refuses, naming the relay's reason; no worker started |
+| A platform cause: a failed relay join (the sponsor's key not reading included), the org's Sprite limit, or a prepare, copy or `lr.json` write whose output says `Storage not ready`, `failed to start sprite command` or an HTTP 5xx status | Refuses as above, quoting the platform's line, and writes the launch key and the refusal to `sprite-down` in the attempt directory, from which the desk starts that launch on the Mac |
 | Any failure after `prepare` and before `worker-start` | Runs `cc-remote orca stop <lane>`, so the prepared worker frees its Sprite and the lane can launch again; `stop.status` in the attempt directory records it, and the desk reads a launch whose stop exited 0 as one that never started a worker |
 | mise cannot run the pinned `cc-remote` | Refuses before allocation, printing mise's own message |
 | Selected CLI's `version` differs from `bootstrapHelper.version` | Refuses before allocation, naming both |

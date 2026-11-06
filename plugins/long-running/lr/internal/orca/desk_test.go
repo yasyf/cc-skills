@@ -2360,6 +2360,121 @@ func TestASpriteThatNeverStartedAWorkerIsRefusedAndOneThatMayRunIsUnverifiable(t
 	}
 }
 
+const relayDown = "Sprite pool-1 did not join the cci relay with sponsor-1's service key: the sponsor's service key did not read; nothing started, because a worker with no relay posts nothing anyone reads"
+
+func (w *deskWorld) spriteRefused(refusal string, down bool) string {
+	w.t.Helper()
+	w.t.Setenv("HOME", w.t.TempDir())
+	brief := w.brief(testLane, testBrief)
+	w.lines()
+	key := "R" + strings.TrimPrefix(w.line(launchText(testLane, brief)).Name(), "#")
+	w.launchOut[testLane] = "preparing a Sprite\n" + refusal + "\n"
+	w.lines()
+	w.step(w.desk.deliver)
+	if down {
+		attempt := spriteAttempt(brief)
+		w.write(filepath.Join(attempt, spritePrepare), "0\n")
+		w.write(filepath.Join(attempt, spriteStop), "0\n")
+		w.write(filepath.Join(attempt, spriteDown), key+"\n"+refusal+"\n")
+	}
+	return key
+}
+
+func TestASpriteLaunchTheRelayJoinRefusedStartsOnTheMacAndItsLaunchedLineSaysWhy(t *testing.T) {
+	for _, tt := range []struct {
+		name, stop, want string
+	}{
+		{"its prepared Sprite stopped", "0\n", relayDown},
+		{"its prepared Sprite's stop failed", "1\n", relayDown + "; its prepared Sprite did not stop and may still be held"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			launcher := spriteConfig(w)
+			key := w.spriteRefused(relayDown, true)
+			w.write(filepath.Join(spriteAttempt(w.spawns[0].argv[4]), spriteStop), tt.stop)
+			w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+			w.step(w.desk.reap)
+			if len(w.spawns) != 2 || w.spawns[0].argv[0] != launcher || w.spawns[1].argv[2] != "start" || w.spawns[1].argv[6] != w.spawns[0].argv[4] {
+				t.Fatal(w.spawns)
+			}
+			w.step(w.desk.reap)
+			if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+				t.Fatal(action)
+			}
+			wantContains(t, w.wantEscalation("LAUNCHED "+key), "on this Mac: its Sprite launch failed on the platform: "+tt.want)
+		})
+	}
+}
+
+func TestASpriteLaunchRefusedForItsBriefOrOverAnEarlierLaunchsCauseNeverStartsOnTheMac(t *testing.T) {
+	for _, tt := range []struct {
+		name, refusal string
+		earlier       bool
+	}{
+		{"a brief refusal", "brief /b/brief.md has no `Scale:` line; nothing launched", false},
+		{"a preflight refusal beside an earlier launch's platform cause", "cc-remote version printed 0.27.21, and the payload pins bootstrap helper 0.27.26; nothing was prepared", true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			spriteConfig(w)
+			key := w.spriteRefused(tt.refusal, tt.earlier)
+			if tt.earlier {
+				w.write(filepath.Join(spriteAttempt(w.spawns[0].argv[4]), spriteDown), "R999999\n"+relayDown+"\n")
+			}
+			w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+			w.step(w.desk.reap)
+			w.step(w.desk.reap)
+			if len(w.spawns) != 1 {
+				t.Fatal(w.spawns)
+			}
+			if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+				t.Fatal(action)
+			}
+			wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
+		})
+	}
+}
+
+func TestASpriteLaunchTheRelayJoinRefusedWaitsForRoomOnABusyMacAndSaysSo(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	w.load = "41.20"
+	key := w.spriteRefused(relayDown, true)
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-WAITING"), "its Sprite launch failed on the platform ("+relayDown+"), and Mac load 41 over 32")
+	w.load = "12.00"
+	w.step(w.desk.reap)
+	if len(w.spawns) != 2 || w.spawns[1].argv[2] != "start" {
+		t.Fatal(w.spawns)
+	}
+	w.step(w.desk.reap)
+	if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+}
+
+func TestAMacLaunchThatFollowsAFailedSpriteNeverReturnsToASprite(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.spriteRefused(relayDown, true)
+	w.launchOut[testLane] = testLane + capRefused
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 2 {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "as many terminals as Orca allows")
+}
+
 func TestARunnerWithNoSpriteRouteRefusesALaunchThatMustLeaveTheMac(t *testing.T) {
 	w := newDeskWorld(t)
 	brief := w.brief(testLane, testBrief)
@@ -4792,6 +4907,7 @@ func TestASpriteThatFailsAfterTheCapRefusalFailsPlainlyAndLaunchesNoThirdLane(t 
 	spriteConfig(w)
 	key := w.refusedAtTheCap(agentIncident, macIncident)
 	w.step(w.desk.reap)
+	w.write(filepath.Join(spriteAttempt(w.spawns[0].argv[6]), spriteDown), key+"\n"+relayDown+"\n")
 	w.step(w.desk.reap)
 	w.step(w.desk.reap)
 	if len(w.spawns) != 2 {
