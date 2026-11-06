@@ -42,7 +42,7 @@ func TestLandingAndTheLanesSupervisorReadTheSameBranchsDiffWhileTheOtherHoldsIts
 	lanes := config.Config{Movers: []string{config.MoverLanes}}
 
 	for _, writers := range []struct{ reader, holder config.Config }{{landing, lanes}, {lanes, landing}} {
-		var held []string
+		held := make([]string, 0, 2)
 		for _, branch := range []string{"feature", "dev"} {
 			lock := filepath.Join(shared, ".git", writers.holder.Refs()+"diff", branch+".lock")
 			if err := os.MkdirAll(filepath.Dir(lock), 0o750); err != nil {
