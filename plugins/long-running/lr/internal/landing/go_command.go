@@ -192,6 +192,9 @@ func (g goGate) readHead(ctx context.Context, number int, head string, before in
 	}
 	if before != 0 {
 		records = slices.DeleteFunc(records, func(record client.Record) bool { return record.Seq >= before })
+		for i := range records {
+			records[i].Status = ""
+		}
 	}
 	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, g.cfg.Drive, seqs) })
 	if err != nil {

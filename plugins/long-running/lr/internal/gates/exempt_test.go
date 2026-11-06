@@ -115,6 +115,16 @@ func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
 	}
 }
 
+func TestAHoldCciReadsClosedIsNotOpenThoughItsLiftNamesNoPR(t *testing.T) {
+	claim := Claim{Repo: monorepo, PR: 51563}
+	for status, want := range map[string]int{"closed": 0, "open": 1} {
+		hold := holdRecord(t, `{"seq":521104,"lane":"owner-relay","kind":"hold","text":"Hold the update dialog change at 08906a2 and withdraw my 520879","re":520879,"refs":{"prs":["Forge-AI/monorepo#51563"]},"status":"`+status+`","num":"#521104"}`)
+		if open := openHolds(claim, []client.Record{hold}, nil); len(open) != want {
+			t.Fatalf("status %s: open holds %q, want %d", status, open, want)
+		}
+	}
+}
+
 func TestAHoldWrittenAsProseInARootRecordStopsNoGo(t *testing.T) {
 	text, refusals := gate(recordsBefore(t, "48707", 355281), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
 	if len(refusals) > 0 || !strings.HasPrefix(text, "go #48707 at 8fcfba3 on green [exempt: owner-pick]") {
