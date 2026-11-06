@@ -198,11 +198,11 @@ func TestAPermalinkNamesItsThreadsRoot(t *testing.T) {
 }
 
 func TestOnlyAPickReplyAsksAQuestion(t *testing.T) {
-	plain := ReplyThread(inThread, "r1", "m7", "Fixed", nil)
-	if want := (store.SlackThread{TS: "1793800000.000100", Reply: "r1", Lane: "owner-relay", Row: "m7"}); !reflect.DeepEqual(plain, want) {
+	plain := ReplyThread(inThread, "r1", "m7", "Fixed", nil, []int{48159})
+	if want := (store.SlackThread{TS: "1793800000.000100", Reply: "r1", Lane: "owner-relay", Row: "m7", PRs: []int{48159}}); !reflect.DeepEqual(plain, want) {
 		t.Fatalf("plain = %+v", plain)
 	}
-	picked := ReplyThread(permalink, "r2", "", "Which?", []string{"A", "B"})
+	picked := ReplyThread(permalink, "r2", "", "Which?", []string{"A", "B"}, nil)
 	if want := (store.SlackThread{TS: rootTS, Reply: "r2", Card: "card-r2", Lane: "owner-relay", Question: "Which?", Options: []string{"A", "B"}}); !reflect.DeepEqual(picked, want) {
 		t.Fatalf("picked = %+v", picked)
 	}
@@ -260,12 +260,12 @@ func TestTheFirstStartFillsCardsWithLanesAndRepliesAndALaterStartOnlyCards(t *te
 			t.Fatal(err)
 		}
 	}
-	write("older", "2026-11-04T10:00:00Z", `"reply":{"id":"older","order":"m1"},"surfaces":[{"surface":"slack","ref":"`+inThread+`"}]`)
-	write("newer", "2026-11-04T11:00:00Z", `"reply":{"id":"newer","order":"m2"},"surfaces":[{"surface":"slack thread","ref":"`+inThread+`"},{"surface":"record","ref":"#9"}]`)
+	write("older", "2026-11-04T10:00:00Z", `"reply":{"id":"older","order":"m1","prs":["https://github.com/yasyf/cc-skills/pull/3676","https://github.com/Forge-AI/monorepo/pull/48159"]},"surfaces":[{"surface":"slack","ref":"`+inThread+`"}]`)
+	write("newer", "2026-11-04T11:00:00Z", `"reply":{"id":"newer","order":"m2","prs":["https://github.com/Forge-AI/monorepo/pull/51995"]},"surfaces":[{"surface":"slack thread","ref":"`+inThread+`"},{"surface":"record","ref":"#9"}]`)
 	fake := &shelltest.Fake{}
 	fake.Reply(`warning first {"doc":{"blocks":[{"id":"card-a","type":"card","title":"Which?","slack":{"url":"`+permalink+`"},"children":[{"type":"choice","options":[{"label":"Yes"}]}]},{"id":"card-b","type":"card","title":"Unposted"}]}}`, "cc-present", "outcomes")
 	fake.Reply("  last written at rev 9166 by lane board-refresher-7\n", "cc-present", "block", "show", "card-a")
-	threads := CardThreads{Runner: fake, Entry: drive.Entry{StateDir: state, Sessions: []string{"board"}}}
+	threads := CardThreads{Runner: fake, Entry: drive.Entry{StateDir: state, Sessions: []string{"board"}, Repo: "Forge-AI/monorepo"}}
 
 	for range 2 {
 		if err := threads.fill(context.Background(), s); err != nil {
@@ -284,8 +284,8 @@ func TestTheFirstStartFillsCardsWithLanesAndRepliesAndALaterStartOnlyCards(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reply.Reply != "newer" || reply.Row != "m2" {
-		t.Fatalf("thread row = %+v, want the newest reply", reply)
+	if reply.Reply != "newer" || reply.Row != "m2" || !slices.Equal(reply.PRs, []int{48159}) {
+		t.Fatalf("thread row = %+v, want the newest reply and the drive repo's PR of the first", reply)
 	}
 	var shown, read int
 	for _, call := range fake.Calls() {

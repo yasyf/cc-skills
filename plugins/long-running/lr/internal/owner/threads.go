@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ const (
 	cardUpserted   = "block.upserted"
 	cardType       = "card"
 	choiceType     = "choice"
-	threadsFilled  = "slack-threads-backfill"
+	threadsFilled  = "slack-threads-prs-backfill"
 	rewatchThreads = 30 * time.Second
 	linkReadLimit  = "200"
 )
@@ -36,6 +37,7 @@ const (
 var (
 	permalinkTS  = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\D|$)`)
 	permalinkIn  = regexp.MustCompile(`[?&]thread_ts=(\d+\.\d+)`)
+	pullURL      = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
 	onlySlackURL = regexp.MustCompile(`^<?(https://[\w-]+\.slack\.com/archives/[^\s|>]+)(?:\|[^>]*)?>?$`)
 	writtenBy    = regexp.MustCompile(`(?m)last written at rev \d+ by lane (\S+)`)
 )
@@ -157,7 +159,7 @@ func (c *CardThreads) fill(ctx context.Context, s *store.Store) error {
 	if filled != 0 {
 		return nil
 	}
-	if err := fillReplies(s, filepath.Join(c.Entry.StateDir, repliesDir)); err != nil {
+	if err := fillReplies(s, filepath.Join(c.Entry.StateDir, repliesDir), c.Entry.Repo); err != nil {
 		return err
 	}
 	return s.Advance(threadsFilled, 1)
@@ -213,7 +215,7 @@ func (c *CardThreads) cardLane(ctx context.Context, card string) (string, error)
 	return found[1], nil
 }
 
-func fillReplies(s *store.Store, replies string) error {
+func fillReplies(s *store.Store, replies, repo string) error {
 	paths, err := filepath.Glob(filepath.Join(replies, "*.json"))
 	if err != nil {
 		return err
@@ -224,6 +226,7 @@ func fillReplies(s *store.Store, replies string) error {
 			Title string   `json:"title"`
 			Order string   `json:"order"`
 			Picks []string `json:"picks"`
+			PRs   []string `json:"prs"`
 		} `json:"reply"`
 		At       time.Time `json:"at"`
 		Surfaces []struct {
@@ -249,7 +252,7 @@ func fillReplies(s *store.Store, replies string) error {
 			if !strings.HasPrefix(posted.Surface, "slack") || ThreadRoot(posted.Ref) == "" {
 				continue
 			}
-			if err := s.PutSlackThread(ReplyThread(posted.Ref, one.Reply.ID, one.Reply.Order, one.Reply.Title, one.Reply.Picks)); err != nil {
+			if err := s.PutSlackThread(ReplyThread(posted.Ref, one.Reply.ID, one.Reply.Order, one.Reply.Title, one.Reply.Picks, PullsIn(repo, one.Reply.PRs))); err != nil {
 				return err
 			}
 		}
@@ -257,12 +260,28 @@ func fillReplies(s *store.Store, replies string) error {
 	return nil
 }
 
-func ReplyThread(permalink, reply, order, title string, picks []string) store.SlackThread {
-	thread := store.SlackThread{TS: ThreadRoot(permalink), Reply: reply, Lane: replyLane, Row: order}
+func ReplyThread(permalink, reply, order, title string, picks []string, prs []int) store.SlackThread {
+	thread := store.SlackThread{TS: ThreadRoot(permalink), Reply: reply, Lane: replyLane, Row: order, PRs: prs}
 	if len(picks) > 0 {
 		thread.Card, thread.Question, thread.Options = cardPrefix+reply, title, picks
 	}
 	return thread
+}
+
+func PullsIn(repo string, urls []string) []int {
+	var prs []int
+	for _, url := range urls {
+		found := pullURL.FindStringSubmatch(url)
+		if found == nil || found[1] != repo {
+			continue
+		}
+		pr, err := strconv.Atoi(found[2])
+		if err != nil {
+			panic(err)
+		}
+		prs = append(prs, pr)
+	}
+	return prs
 }
 
 type threadsAt func(ts string) (store.SlackThread, bool, error)

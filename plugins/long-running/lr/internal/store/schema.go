@@ -143,4 +143,5 @@ var addedColumns = []struct{ table, column, kind string }{
 	{"review_rows", "moved_at", "TEXT NOT NULL DEFAULT ''"},
 	{"review_rows", "merges_at", "TEXT NOT NULL DEFAULT ''"},
 	{"review_rows", "words_at", "TEXT NOT NULL DEFAULT ''"},
+	{"slack_threads", "prs", "TEXT NOT NULL DEFAULT ''"},
 }

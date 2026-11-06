@@ -217,7 +217,7 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 		if !strings.HasPrefix(o.Surface, "slack") || owner.ThreadRoot(o.Ref) == "" {
 			continue
 		}
-		if err := s.PutSlackThread(owner.ReplyThread(o.Ref, r.ID, r.Order, r.Title, r.Picks)); err != nil {
+		if err := s.PutSlackThread(owner.ReplyThread(o.Ref, r.ID, r.Order, r.Title, r.Picks, owner.PullsIn(f.Entry.Repo, r.PRs))); err != nil {
 			missed = append(missed, Outcome{Surface: threadIndex, Error: err.Error()})
 		}
 		if r.Alert == "" {
