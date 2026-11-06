@@ -61,6 +61,7 @@ var (
 	launchKey      = regexp.MustCompile(`^(?:R\d+(?:@\w+)?|unfixed:[\w-]+:\d+|inbox@\S+|incident-clock:ctx_[\w-]+)$`)
 	decideLine     = regexp.MustCompile(`^DECIDE ((?:msg|relay)_\S+) ([\w.-]+): `)
 	monitorID      = regexp.MustCompile(`(?:monitors/|\bmonitor |\bDatadog )(\d{4,})`)
+	questionKinds  = []string{kindAsk, "decide", kindBlocked}
 )
 
 type directive struct {
@@ -344,6 +345,12 @@ func (d *Desk) rootReply(ctx context.Context, record client.Record, closed *clie
 			}
 			return true, d.relayToLane(ctx, at, at, decide[2], relayTarget{Text: text, Record: recordLabel(record)}, &question)
 		}
+	}
+	if !slices.Contains(questionKinds, string(closed.Kind)) {
+		return false, nil
+	}
+	if len(record.To) > 0 && !toDesk(record) && !lanes.Addresses(record.To, closed.Lane) {
+		return false, nil
 	}
 	asked, err := d.askedBy(ctx, d.receipt(closed.Lane), d.terminal(closed.Lane))
 	if err != nil || len(asked) == 0 {

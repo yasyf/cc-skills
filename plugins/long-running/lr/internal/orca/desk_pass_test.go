@@ -72,7 +72,7 @@ func TestARootAnswerToAQuestionAskedMidPassReachesTheLane(t *testing.T) {
 	w.live(testLane, testDispatch, testTerminal)
 	w.lines()
 	w.desk.startPass()
-	early := w.add(object{"lane": testLane, "kind": "note", "text": "on it"})
+	early := w.add(object{"lane": testLane, "kind": "ask", "text": "which first"})
 	w.add(object{"kind": "answer", "text": "ok", "re": early.Seq})
 	w.lines()
 	if asks := w.orcaCalls("orchestration check"); len(asks) != 1 {

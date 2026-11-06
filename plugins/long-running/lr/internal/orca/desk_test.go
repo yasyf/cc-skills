@@ -1569,6 +1569,52 @@ func TestARootReplyToALanesRecordAnswersItsOpenQuestion(t *testing.T) {
 	wantContains(t, held.Text, fmt.Sprintf("The root answered on cci #%d (re #%d)", reply.Seq, asked.Seq))
 }
 
+func TestARootRecordCitingALanesRecordReachesTheLaneOnlyWhenAddressedToItOrTheDesk(t *testing.T) {
+	for name, c := range map[string]struct {
+		to      []string
+		relayed bool
+	}{
+		"to owner-relay": {[]string{lanes.OwnerRelay}, false},
+		"to the lane":    {[]string{testLane}, true},
+		"to the desk":    {[]string{deskLane}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			w.live(testLane, testDispatch, testTerminal)
+			w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
+			appeal := w.add(object{"lane": testLane, "kind": "decide", "to": []string{coordinatorLane}, "text": "#52006 needs a ruling the desk cannot give"})
+			w.lines()
+			report := w.add(object{"kind": "report", "to": c.to, "text": "#52006 needs his ruling: card him with the lane's options", "re": appeal.Seq})
+			w.lines()
+			w.step(w.desk.deliver)
+			w.now = w.now.Add(11 * time.Minute)
+			w.step(w.desk.deadlines)
+
+			_, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", report.Seq))
+			if relayed := err == nil; relayed != c.relayed {
+				t.Fatalf("relayed %v, want %v; escalations %q", relayed, c.relayed, w.escalations())
+			}
+			if !c.relayed {
+				w.noEscalation("DEADLINE ")
+			}
+		})
+	}
+}
+
+func TestARootReplyToALanesDefectLeavesItsOpenQuestionOpen(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.runInbox = []orcaMessage{question("msg_q", testTerminal)}
+	defect := w.add(object{"lane": testLane, "kind": "defect", "to": []string{coordinatorLane}, "text": "for meta: ccx read --section found no numeric heading"})
+	w.add(object{"lane": testLane, "kind": kindAsk, "to": []string{coordinatorLane}, "text": "bounded team-run scope, or the full design first?"})
+	w.lines()
+	report := w.add(object{"kind": "report", "to": []string{testLane}, "text": "the hand path was ccx code read --full", "re": defect.Seq})
+	w.lines()
+	if _, err := w.desk.store.Action(laneBook(testLane), fmt.Sprintf("cci#%d", report.Seq)); err == nil {
+		t.Fatalf("root's reply to the defect settled msg_q; escalations %q", w.escalations())
+	}
+}
+
 func TestARootResolveOfTheRunnersDecideAnswersThatQuestion(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
