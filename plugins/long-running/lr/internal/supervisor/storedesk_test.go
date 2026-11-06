@@ -42,12 +42,14 @@ func TestOnlyTheHostHoldingTheDrivesStoreRunsItsStoreDesk(t *testing.T) {
 	const name = "durable-agents-rebuild"
 	for label, c := range map[string]struct {
 		entry  *drive.Entry
+		movers []string
 		serves bool
 	}{
-		"no entry":                 {nil, false},
-		"an entry with no session": {&drive.Entry{Drive: name}, false},
-		"a Sprite's entry":         {&drive.Entry{Drive: name, Sessions: []string{"root"}, Host: drive.HostSprite}, false},
-		"the Mac's entry":          {&drive.Entry{Drive: name, Sessions: []string{"root"}}, true},
+		"no entry":                             {nil, []string{"lanes", "grading"}, false},
+		"an entry with no session":             {&drive.Entry{Drive: name}, []string{"lanes", "grading"}, false},
+		"a Sprite's entry":                     {&drive.Entry{Drive: name, Sessions: []string{"root"}, Host: drive.HostSprite}, []string{"lanes", "grading"}, false},
+		"the Mac's entry":                      {&drive.Entry{Drive: name, Sessions: []string{"root"}}, []string{"lanes", "grading"}, true},
+		"a landing-only supervisor on the Mac": {&drive.Entry{Drive: name, Sessions: []string{"root"}}, []string{"landing"}, false},
 	} {
 		t.Run(label, func(t *testing.T) {
 			config := t.TempDir()
@@ -65,7 +67,7 @@ func TestOnlyTheHostHoldingTheDrivesStoreRunsItsStoreDesk(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := holdsStore(name); (err == nil) != c.serves {
+			if err := holdsStore(name, c.movers); (err == nil) != c.serves {
 				t.Fatalf("holdsStore returned %v, want serving %t", err, c.serves)
 			}
 		})

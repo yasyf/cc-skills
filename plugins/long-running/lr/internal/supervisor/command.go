@@ -290,7 +290,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVer
 		Squash:     squashFixes,
 		Log:        a.Log,
 	}
-	if err := holdsStore(env.Config.Drive); err != nil {
+	if err := holdsStore(env.Config.Drive, env.Config.Movers); err != nil {
 		a.Log.Warn("the store desk stays off", "drive", env.Config.Drive, "err", err)
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
@@ -514,7 +514,10 @@ func sayDropped(ctx context.Context, name, repo string, tap board.DroppedTap) er
 	return err
 }
 
-func holdsStore(name string) error {
+func holdsStore(name string, movers []string) error {
+	if !slices.Contains(movers, moverLanes) {
+		return fmt.Errorf("movers %v leave out %s, so this supervisor's store is not the drive's", movers, moverLanes)
+	}
 	entry, err := drive.Named(name)
 	if err != nil {
 		return err
