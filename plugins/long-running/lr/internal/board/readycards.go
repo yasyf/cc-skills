@@ -109,7 +109,7 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	}
 	due := []store.ReviewRow{}
 	for _, row := range rows {
-		if waitsOnHim(row) && row.State == prrow.StateOpen && facts[row.Number][FactTapCard] == "" && !followed[row.Number] {
+		if waitsOnHim(row) && row.State == prrow.StateOpen && prrow.WordsWait(row) == "" && facts[row.Number][FactTapCard] == "" && !followed[row.Number] {
 			due = append(due, row)
 		}
 	}

@@ -358,7 +358,7 @@ func (s Source) splitEnded(numbers []int, members memberRead, itemed map[int]boo
 		ended = append(ended, machine.Facts{
 			Repo: s.Repo, Number: number, Title: pr.Title, Head: pr.HeadRefOid, Branch: pr.HeadRefName, Base: pr.BaseRefName,
 			Closed: true, Merged: pr.State == "MERGED" || pr.labelled(trunkMerged), OldTree: pr.oldTree(), NextTree: pr.nextTree(),
-			CI: machine.CIPending, Mergeable: machine.MergeableUnknown, Queue: machine.QueueNone,
+			CI: machine.CIPending, Mergeable: machine.MergeableUnknown, Queue: machine.QueueNone, ReadAt: members.at,
 		})
 	}
 	return open, ended
@@ -749,6 +749,7 @@ type memberRead struct {
 	prs     map[int]pullRequest
 	authors map[int]string
 	missing map[int]bool
+	at      time.Time
 }
 
 type label struct {
@@ -961,6 +962,7 @@ type graphError struct {
 }
 
 func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, error) {
+	at := s.Now()
 	repository, err := s.readAliased(ctx, numbers, memberBatch, memberFields)
 	if err != nil {
 		return memberRead{}, err
@@ -984,7 +986,7 @@ func (s Source) readMembers(ctx context.Context, numbers []int) (memberRead, err
 		authors[pr.Number] = pr.Author.Login
 		byNumber[pr.Number] = pr
 	}
-	return memberRead{byNumber, authors, missing}, nil
+	return memberRead{byNumber, authors, missing, at}, nil
 }
 
 func (s Source) ReadMergeable(ctx context.Context, numbers []int) (map[int]string, error) {
@@ -1257,6 +1259,7 @@ func (s Source) assemble(ctx context.Context, rows []statusRow, open memberRead,
 			return nil, err
 		}
 		f.Lane = cmp.Or(f.Lane, rowLanes[row.Number])
+		f.ReadAt = open.at
 		f.PersonQueued = f.Queue == machine.QueueQueued && !enqueued[f.Number]
 		held[row.Number].onto(&f)
 		posted, err := s.holdReadersFirst(ctx, f, stored)

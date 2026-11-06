@@ -2,6 +2,7 @@ package reply
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1028,6 +1029,7 @@ func ledgerRow(t *testing.T, f Fanout, row store.ReviewRow) {
 	}
 	defer func() { _ = s.Close() }()
 	row.Repo, row.Number, row.Head = "yasyf/cc-skills", 2196, "e718a7434fa01ee9835f992a9a647a825350732c"
+	row.ReadHead = cmp.Or(row.ReadHead, row.Head)
 	if err := s.PutReviewRows([]store.ReviewRow{row}); err != nil {
 		t.Fatal(err)
 	}

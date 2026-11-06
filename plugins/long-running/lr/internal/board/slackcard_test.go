@@ -57,7 +57,8 @@ func TestOnlyALedgerRowReadyAndUntappedWaitsOnHim(t *testing.T) {
 		"exempt, CI running": {readyRow(func(r *store.ReviewRow) {
 			r.ReadyForTap, r.State, r.CI = false, prrow.StateExempt, prrow.CIPending
 		}), false, false},
-		"no plan line": {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.PlanRow = false, "" }), false, true},
+		"no plan line":             {readyRow(func(r *store.ReviewRow) { r.ReadyForTap, r.PlanRow = false, "" }), false, true},
+		"words unread at its head": {readyRow(func(r *store.ReviewRow) { r.ReadHead = "" }), true, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			found, err := waitingRows(withLedger(t, c.row), repo, []int{number})

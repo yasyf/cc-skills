@@ -88,6 +88,30 @@ func TestARowTurningReadyDrawsOneCardAndASecondPassDrawsNothing(t *testing.T) {
 	}
 }
 
+func TestATapCardWaitsForItsHeadsTitleAndBodyAndAnUnchangedHeadDraws(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	pushed := tapRow(50288)
+	pushed.Head = nextHead
+	putRows(t, f, pushed, tapRow(50289))
+	readyPass(t, f)
+	f.run(t)
+	if _, drawn := f.shell.drawn["card-tap-50288-1234567"]; drawn {
+		t.Fatal("a card drew at a head whose title and body the row has not read")
+	}
+	if _, drawn := f.shell.drawn["card-tap-50289-fa8217f"]; !drawn {
+		t.Fatal("a row read at its own head drew no card")
+	}
+
+	pushed.ReadHead = nextHead
+	putRows(t, f, pushed)
+	readyPass(t, f)
+	f.run(t)
+	if _, drawn := f.shell.drawn["card-tap-50288-1234567"]; !drawn {
+		t.Fatal("no card drew once the row read its head's title and body")
+	}
+}
+
 func TestNoTapCardAsksForAPRThatMergedOrThatHeTappedBeforeTheStoreFoldedIt(t *testing.T) {
 	post := func(t *testing.T, kind, text string, prs ...string) {
 		t.Helper()
@@ -431,7 +455,7 @@ func TestAListIsEditedAsRowsLeaveAndARowOnANewHeadDrawsItsOwnCard(t *testing.T) 
 	tapped := rows[0]
 	tapped.Tapped = true
 	moved := rows[1]
-	moved.Head = nextHead
+	moved.Head, moved.ReadHead = nextHead, nextHead
 	putRows(t, f, tapped, moved)
 	readyPass(t, f)
 	f.run(t)
@@ -597,7 +621,7 @@ func TestANewHeadTakesTheOldCardDownAndDrawsItsOwn(t *testing.T) {
 	putRows(t, f, row)
 	readyPass(t, f)
 	f.run(t)
-	row.Head = nextHead
+	row.Head, row.ReadHead = nextHead, nextHead
 	putRows(t, f, row)
 	readyPass(t, f)
 	f.run(t)

@@ -254,7 +254,7 @@ func postHead(t *testing.T, number int, head string) {
 }
 
 func cleanRead(number int, head string) machine.Facts {
-	return machine.Facts{Number: number, Head: head, Title: "the title", Branch: fmt.Sprintf("branch-%d", number), Base: "dev", CI: machine.CISuccess, Approved: true, Approvers: []string{"a", "b"}, Mergeable: machine.MergeableClean, Queue: machine.QueueNone}
+	return machine.Facts{Number: number, Head: head, Title: "the title", Branch: fmt.Sprintf("branch-%d", number), Base: "dev", CI: machine.CISuccess, Approved: true, Approvers: []string{"a", "b"}, Mergeable: machine.MergeableClean, Queue: machine.QueueNone, ReadAt: time.Now()}
 }
 
 func folded(t *testing.T, f Fold, number int) store.ReviewRow {
@@ -513,12 +513,12 @@ func TestARowFromTheRecordsCarriesEveryFieldAndComesReady(t *testing.T) {
 		Hold: None, SupersededBy: None, WaitsOn: onlyHim, ReadyForTap: true, State: StateOpen, TapRefused: None, TappedAt: NotYet, TappedBy: NotYet, LandedAt: NotYet, Port: None,
 	}
 	got := row
-	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt, got.MovedAt = "", "", "", 0, "", ""
+	got.HeadAt, got.ReadHead, got.Description, got.LastRecord, got.WrittenAt, got.MovedAt, got.WordsAt = "", "", "", 0, "", "", ""
 	if got != want {
 		t.Fatalf("row =\n%+v\nwant\n%+v", got, want)
 	}
-	if row.Description == "" || row.WrittenAt == "" || row.MovedAt != row.WrittenAt || row.LastRecord == 0 || row.ReadHead != headA {
-		t.Fatalf("row = %+v, want description, written_at, moved_at at written_at, last_record and read_head", row)
+	if row.Description == "" || row.WrittenAt == "" || row.MovedAt != row.WrittenAt || row.LastRecord == 0 || row.ReadHead != headA || row.WordsAt == "" {
+		t.Fatalf("row = %+v, want description, written_at, moved_at at written_at, last_record, read_head and words_at", row)
 	}
 }
 
@@ -1930,6 +1930,25 @@ func TestAnEditedDescriptionRefreshesTheRowAndAPushWithoutOneKeepsIt(t *testing.
 	}
 }
 
+func TestAnEditOlderThanTheRowsWordsLeavesThemAndANewerOneWaitsForARead(t *testing.T) {
+	read := time.Now()
+	row := readyRow()
+	row.ReadHead, row.WordsAt = headA, read.UTC().Format(time.RFC3339Nano)
+	body, err := BodyRecord("## Summary\n\nthe words before the read\n\n## Risk profile\n\nnone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	older := gitHubPull(t, 1, "edited", headA, read.Add(-time.Minute))
+	older.Body = body
+	if got := followed(t, row, older)[1]; got.ForUsers != "a user sees it" || WordsWait(got) != "" {
+		t.Fatalf("for users %q, %q after an edit older than the read; want the read's words kept", got.ForUsers, WordsWait(got))
+	}
+	newer := gitHubPull(t, 1, "edited", headA, read.Add(time.Minute))
+	if got := followed(t, row, newer)[1]; WordsWait(got) == "" {
+		t.Fatal("an edit newer than the read left the row's words read")
+	}
+}
+
 func TestAPushOlderThanTheRowsHeadLeavesTheHead(t *testing.T) {
 	headAt := time.Now()
 	row := readyRow()
@@ -2037,5 +2056,118 @@ func TestACheckOnAnotherHeadOrRepoLeavesTheRow(t *testing.T) {
 		if ci := checkedCI(t, record); ci != "" {
 			t.Fatalf("ci = %q from %+v, want the row untouched", ci, record.Fields)
 		}
+	}
+}
+
+func postWordsHead(t *testing.T, head string, attrs map[string]string, body string) {
+	t.Helper()
+	draft := client.Draft{
+		Drive: "d", Lane: "lane-7", Kind: "head", Text: "HEAD #1 " + head, PRs: []string{testRepo + "#1"},
+		Attrs: map[string]string{"repo": testRepo, "head": head},
+	}
+	maps.Copy(draft.Attrs, attrs)
+	if body != "" {
+		encoded, err := BodyRecord(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		draft.Body = encoded
+	}
+	if _, err := client.Post(context.Background(), draft); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func postRead(t *testing.T, f Fold, pr machine.Facts) store.ReviewRow {
+	t.Helper()
+	if err := f.PostReads(context.Background(), []machine.Facts{pr}); err != nil {
+		t.Fatal(err)
+	}
+	return folded(t, f, 1)
+}
+
+func TestAHeadThatChangesThePRsWordsWaitsForAGitHubReadTakenAfterItAndThenShowsIt(t *testing.T) {
+	rebuilt := strings.Replace(fullBody, "A user sees it.", "A user sees the rebuild.", 1)
+	for name, head := range map[string]struct {
+		attrs    map[string]string
+		body     string
+		forUsers string
+	}{
+		"delta=scope":             {map[string]string{"delta": gates.DeltaScope}, "", "A user sees it."},
+		"a body the head carries": {nil, rebuilt, "A user sees the rebuild."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, _ := foldFor(t)
+			postOpened(t, 1, headA, "dev", "")
+			folded(t, f, 1)
+			first := cleanRead(1, headA)
+			first.Body, first.ReadAt = fullBody, time.Now().Add(-time.Minute)
+			if row := postRead(t, f, first); WordsWait(row) != "" {
+				t.Fatalf("after the first read: %q, want the row's words read at its head", WordsWait(row))
+			}
+
+			postWordsHead(t, headB, head.attrs, head.body)
+			row := folded(t, f, 1)
+			if row.Head != headB || WordsWait(row) != "waits on a read of its GitHub title and body at bbbbbbb" {
+				t.Fatalf("after the head: head %s, %q; want %s waiting on a read there", row.Head, WordsWait(row), headB)
+			}
+
+			stale := cleanRead(1, headB)
+			stale.Body, stale.ReadAt = fullBody, time.Now().Add(-30*time.Second)
+			row = postRead(t, f, stale)
+			if WordsWait(row) == "" || row.ForUsers != head.forUsers || row.Title != "the title" {
+				t.Fatalf("after a read taken before the head: %q, for users %q, title %q; want still waiting with %q kept", WordsWait(row), row.ForUsers, row.Title, head.forUsers)
+			}
+
+			fresh := cleanRead(1, headB)
+			fresh.Title, fresh.Body, fresh.ReadAt = "the rebuilt title", rebuilt, time.Now().Add(time.Second)
+			row = postRead(t, f, fresh)
+			if WordsWait(row) != "" || row.Title != "the rebuilt title" || row.ForUsers != "A user sees the rebuild." {
+				t.Fatalf("after a read taken after the head: %q, title %q, for users %q; want GitHub's rebuilt words", WordsWait(row), row.Title, row.ForUsers)
+			}
+		})
+	}
+}
+
+func TestADeltaScopeAtTheReadHeadPostsOneMoreReadWithItsBodyAndATitleEditPostsOne(t *testing.T) {
+	f, _ := foldFor(t)
+	postOpened(t, 1, headA, "dev", "")
+	folded(t, f, 1)
+	read := cleanRead(1, headA)
+	read.Body, read.ReadAt = fullBody, time.Now().Add(-time.Minute)
+	postRead(t, f, read)
+	counts := func() (reads, bodies int) {
+		t.Helper()
+		found, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{readKind}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, record := range found {
+			if len(record.Body) > 0 {
+				bodies++
+			}
+		}
+		return len(found), bodies
+	}
+
+	postWordsHead(t, headA, map[string]string{"delta": gates.DeltaScope}, "")
+	if row := folded(t, f, 1); WordsWait(row) == "" {
+		t.Fatalf("a delta=scope head at the read head left the row's words read")
+	}
+	again := read
+	again.ReadAt = time.Now().Add(time.Second)
+	row := postRead(t, f, again)
+	postRead(t, f, again)
+	if reads, bodies := counts(); reads != 2 || bodies != 2 || WordsWait(row) != "" {
+		t.Fatalf("reads %d, bodies %d, %q; want one more read carrying the body, and the row's words read", reads, bodies, WordsWait(row))
+	}
+
+	renamed := again
+	renamed.Title = "a new title"
+	if row := postRead(t, f, renamed); row.Title != "a new title" {
+		t.Fatalf("title %q after GitHub renamed it, want the new title", row.Title)
+	}
+	if reads, _ := counts(); reads != 3 {
+		t.Fatalf("reads %d after a title edit, want 3", reads)
 	}
 }

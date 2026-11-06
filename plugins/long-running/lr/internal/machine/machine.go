@@ -194,6 +194,7 @@ type Facts struct {
 	Condition        string
 	UnsafeWait       string
 	Body             string
+	ReadAt           time.Time
 	OldTree          string
 	NextTree         string
 	Port             bool

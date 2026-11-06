@@ -1,6 +1,7 @@
 package prrow
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"regexp"
@@ -352,6 +353,13 @@ func planRow(line string, fidelity machine.Fidelity, overridden string) string {
 
 func Exempted(row store.ReviewRow, facts map[string]string) bool {
 	return gates.TaplessClass(facts["exempt"]) && row.AwaitsTap == ""
+}
+
+func WordsWait(row store.ReviewRow) string {
+	if sameHead(row.ReadHead, row.Head) {
+		return ""
+	}
+	return "waits on a read of its GitHub title and body at " + cmp.Or(shortHead(row.Head), "a head no record names yet")
 }
 
 // LandsOnHisWord reports a row that lands on a standing word of his with no tap.
