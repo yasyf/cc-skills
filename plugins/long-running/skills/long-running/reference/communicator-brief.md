@@ -149,6 +149,7 @@ The tool's description owns the checklist a caller reads before sending. A misse
 | Missed | What the hook or tool does |
 |---|---|
 | A reply asking him to tap, approve or answer, with no picks and no open PR he can approve | Refused with `NOTHING TO TAP`, and nothing posts; add the picks or name the open PR, or say what it waits on without asking him. `tap_asks_carry_the_button` refuses the same ask on a cc-slack post to his DM that has no `--tap-pr` and is not a waiting card |
+| A PR in `prs` that is merged or closed, another person's, outside the drive's PR ledger, or unread from GitHub | Refused with `NO APPROVE` naming each PR and why, and nothing posts. Name such a PR in `md` as a plain link; a drive PR with no row gets its row from its lane's `opened` record first. Another person's PR stays off his list (his Nov 3 ruling), so it is never put to him for a tap |
 | A `message` that cc-slack `check-post` flags or could not check, one no pick sends, or one addressed to a name instead of a Slack id | Refused with `DRAFT FAILS CHECK-POST` and each finding, or `DRAFT UNCHECKED`, and nothing posts. Write it to the cc-slack post rules, with the person as a `<@U…>` mention, short paragraphs, settings as a list and identifiers in backticks, and send again. The card shows the text exactly as it goes out |
 | Any other line with card, your yes, no, pick or word, and no card | Warns and posts; edit it with its `id` |
 | A release word with no Platy card | Warns and posts; a lane's name or `the release lane` is no release word |

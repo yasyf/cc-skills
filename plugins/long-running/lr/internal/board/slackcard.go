@@ -190,10 +190,14 @@ func PlanWords(row store.ReviewRow) string {
 	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
 }
 
+func DriveConfig(entry drive.Entry) (config.Config, error) {
+	return config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+}
+
 // Rows reads the numbered PRs' rows from the drive's PR ledger, under the repo
 // its config names.
 func Rows(entry drive.Entry, numbers []int) (string, []store.ReviewRow, error) {
-	cfg, err := config.Load(filepath.Join(entry.StateDir, configFile), io.Discard)
+	cfg, err := DriveConfig(entry)
 	if err != nil {
 		return "", nil, err
 	}
