@@ -2191,10 +2191,9 @@ func TestAnApprovingPickTheCardCannotTieToOnePRAtOneHeadWarnsOnTheCardAndInTheRe
 	}
 }
 
-func TestAReplyNamingAnOpenBugCarriesItsFixPRsTapCard(t *testing.T) {
+func TestAReplyNamingAnOpenBugNeverAttachesItsFixPRAndSaysToListIt(t *testing.T) {
 	fix := store.ReviewRow{Title: "Run a subagent's tools once", ForUsers: "Opening a running subagent's tab no longer runs its tools twice.", Description: "Fixes item 7.", ReadyForTap: true, State: prrow.StateOpen}
-	fake := scripted()
-	f := fanout(t, fake)
+	f := fanout(t, scripted())
 	ledgerRow(t, f, fix)
 	var evidence []string
 	f.Judge = func(_ context.Context, kind, said, _ string) (*board.Judgment, error) {
@@ -2202,20 +2201,17 @@ func TestAReplyNamingAnOpenBugCarriesItsFixPRsTapCard(t *testing.T) {
 		return &board.Judgment{Verdict: "yes"}, nil
 	}
 	r, warning := f.withBugFixes(context.Background(), Reply{ID: "r1", Title: "FDE invites", MD: "Anubhav is inviting FDEs while the double-run bug is open.", Status: "info"})
-	if warning != "" || !slices.Equal(r.PRs, []string{landPR}) {
-		t.Fatalf("prs %q, warning %q, want the fix PR listed with no warning", r.PRs, warning)
+	if len(r.PRs) != 0 || warning != unlistedFix+landPR {
+		t.Fatalf("prs %q, warning %q, want no PR attached and a warning naming the fix to list", r.PRs, warning)
 	}
 	if len(evidence) != 1 || !strings.HasPrefix(evidence[0], namesBugKind+": ") || !strings.Contains(evidence[0], fix.ForUsers) {
 		t.Fatalf("judge asked %q, want one %s question carrying what the fix changes", evidence, namesBugKind)
 	}
-	f.Send(context.Background(), r)
-	dm := calls(fake, "cc-slack")
-	if len(dm) != 1 || flag(t, dm[0].Argv, "--tap-pr") != landPR {
-		t.Fatalf("cc-slack calls %+v, want one card carrying the fix PR's tap card", dm)
-	}
 }
 
-func TestABugsFixPRIsDrawnOrWarnedOnAsTheToolCanResolveIt(t *testing.T) {
+const unlistedFix = "this names a bug whose fix PRs are not on the card, and a PR joins a card only when you list it in prs with words that say what it does: "
+
+func TestABugsFixPRIsWarnedOnAndNeverDrawn(t *testing.T) {
 	ready := store.ReviewRow{Title: "Run a subagent's tools once", ForUsers: "Tools run once.", Description: "Fixes item 7.", ReadyForTap: true, State: prrow.StateOpen}
 	waiting := ready
 	waiting.ReadyForTap, waiting.WaitsOn = false, "CI is running at this head"
@@ -2239,13 +2235,13 @@ func TestABugsFixPRIsDrawnOrWarnedOnAsTheToolCanResolveIt(t *testing.T) {
 		warning string
 		judged  bool
 	}{
-		"named by its item, with no judge": {ready, byItem, "", nil, []string{landPR}, "", false},
-		"named in words":                   {ready, about, "yes", nil, []string{landPR}, "", true},
+		"named by its item, with no judge": {ready, byItem, "", nil, nil, unlistedFix + landPR, false},
+		"named in words":                   {ready, about, "yes", nil, nil, unlistedFix + landPR, true},
 		"not named":                        {ready, about, "no", nil, nil, "", true},
 		"maybe named":                      {ready, about, "unsure", nil, nil, "this may name a bug these PRs fix; if it does, edit the reply with them in prs: " + landPR, true},
 		"judge down":                       {ready, about, "", errors.New("timed out"), nil, "the judge did not read, so a bug this names in words may lack its fix PR's tap card: timed out", true},
-		"in CI, with no picks":             {waiting, about, "yes", nil, []string{landPR}, "", true},
-		"not ready, on a pick card":        {waiting, asking, "yes", nil, []string{landPR}, "", true},
+		"in CI, with no picks":             {waiting, about, "yes", nil, nil, unlistedFix + landPR, true},
+		"not ready, on a pick card":        {waiting, asking, "yes", nil, nil, unlistedFix + landPR, true},
 		"beside an approving pick":         {ready, approving, "yes", nil, nil, "this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: " + landPR, true},
 		"already listed":                   {ready, listed, "", nil, []string{landPR}, "", false},
 		"already tapped":                   {tapped, about, "", nil, nil, "", false},
