@@ -435,7 +435,7 @@ func (f *workerFixture) prepareCall(extra ...string) []string {
 }
 
 func (f *workerFixture) prepareCallFor(lane, kind, model, effort string, extra ...string) []string {
-	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh"), "--env", "CLAUDE_LONG_RUNNING_LANE=" + lane}, compactEnvFor(kind), extra)
+	return slices.Concat([]string{"cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", filepath.Join(f.attempt, "brief.md"), "--before-worker-file", filepath.Join(f.attempt, "before-worker.sh"), "--env", "CLAUDE_LONG_RUNNING_LANE=" + lane, "--env", "CARGO_BUILD_BUILD_DIR=/var/tmp/cargo-build/{workspace-path-hash}"}, compactEnvFor(kind), extra)
 }
 
 func compactEnvFor(kind string) []string {
