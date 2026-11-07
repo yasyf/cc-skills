@@ -11,6 +11,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, HookResult, Input, 
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, CompactionState, drive_entry, script
+from .session_tree import post_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
 BOUND = [CompactionState(active=True, coordinator=True)]
@@ -101,7 +102,7 @@ def stands_down_another(evt: BaseHookEvent) -> str | None:
         posted = {arg.split("=", 1)[0]: arg.split("=", 1)[1] for arg in args if arg.startswith("--") and "=" in arg}
         if (flags.get("--kind") or posted.get("--kind")) != "stand-down":
             continue
-        poster = flags.get("--lane") or posted.get("--lane") or ROOT
+        poster = flags.get("--lane") or posted.get("--lane") or post_lane(evt) or ROOT
         named = [value for flag, value in itertools.pairwise(args) if flag == "--to"] + [value for flag, value in posted.items() if flag == "--to"]
         if others := [lane for target in named for lane in target.split(",") if lane.split("@", 1)[0] != poster]:
             return others[0]
@@ -115,6 +116,9 @@ def stands_down_another(evt: BaseHookEvent) -> str | None:
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind stand-down --to conflicts-2 --successor conflicts-3 --text 'done'"}, state=BOUND): Block(pattern=r"^Only the lane supervisor stands a lane down"),
         Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to root --text 'standing down'"}, state=BOUND): Block(pattern=r"`root`"),
         Input(tool="Bash", tool_input={"command": "cci post --lane conflicts-2 --kind stand-down --to conflicts-2 --text 'standing down'"}, state=BOUND): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --kind stand-down --to conflicts-2 --text 'standing down'"}, env={"CLAUDE_LONG_RUNNING_LANE": "conflicts-2"}): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --kind stand-down --to live-tasks-parse --text 'standing down'"}, env={"CLAUDE_LONG_RUNNING_LANE": "meta-desk-3"}, agent_id="a1b2c3", transcript=[T.user("ccx: lane=live-tasks-parse")]): Allow(),
+        Input(tool="Bash", tool_input={"command": "cci post --kind stand-down --to meta-desk-3 --text 'standing down'"}, env={"CLAUDE_LONG_RUNNING_LANE": "meta-desk-3"}, agent_id="a1b2c3", transcript=[T.user("ccx: lane=live-tasks-parse")]): Block(pattern=r"`meta-desk-3`"),
         Input(tool="Bash", tool_input={"command": "cci post --lane root --kind decide --to supervisor --attr verb=stand-down --attr lane=conflicts-2 --text 'x'"}, state=BOUND): Allow(),
     },
 )
