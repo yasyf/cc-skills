@@ -20,7 +20,10 @@ MENTIONS_STAND_DOWN = re.compile(r"\bstand[\s-]?down\b", re.IGNORECASE)
 MAIN = "main"
 ROOT = "root"
 ROUTE = f"{sys.executable} {script('drive_supervisor.py')} route"
+REVIVE = f"{sys.executable} {script('drive_supervisor.py')} request revive"
 ROUTE_TIMEOUT_SECONDS = 10
+RETIRED = "retired"
+DESK_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "meta-desk-3"}
 
 
 class DriveActive:
@@ -33,7 +36,7 @@ class MessagesItsOwnTeammate:
         return evt.ctx.t.tool_calls.named("Agent").where_input(name=evt.input.raw.get("to")).any()
 
 
-def route(lane: str, to: str, state: str = "retired", standing: str = "", meta: bool = False) -> dict:
+def route(lane: str, to: str, state: str = RETIRED, standing: str = "", meta: bool = False) -> dict:
     return {ROUTE: json.dumps({"lane": lane, "route": to, "state": state, "standing": standing, "meta": meta})}
 
 
@@ -90,6 +93,28 @@ def redirect_retired_lanes(evt: BaseHookEvent) -> HookResult | None:
     stop = f" `TaskStop` `{to}` if it still runs." if evt.agent_id is None else ""
     went = f"its successor `{target}`, which owns its work" if target != MAIN else f"`{MAIN}` instead of resuming it on its stale brief"
     return evt.rewrite(raw | {"to": target}, note=f"`{to}` is stood down in the lane supervisor's registry, so this message went to {went}.{stop}")
+
+
+@on(
+    Event.PostToolUse,
+    only_if=[Bound(), Tool("SendMessage")],
+    tests={
+        Input(tool="SendMessage", tool_input={"to": "port-card-words", "message": "Open the third PR."}, env=DESK_ENV, commands=route("port-card-words", ROOT) | {REVIVE: "551234\n"}): Warn(pattern=r"^`port-card-words` had ended, so this message revived it"),
+        Input(tool="SendMessage", tool_input={"to": "port-card-words", "message": "Open the third PR."}, env=DESK_ENV, commands=route("port-card-words", ROOT) | {REVIVE: (1, "")}): Warn(pattern=r"Run `lr request revive port-card-words --by meta-desk-3`"),
+        Input(tool="SendMessage", tool_input={"to": "port-card-words", "message": "Open the third PR."}, env=DESK_ENV, commands=route("port-card-words", "port-card-words", "desired")): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "port-card-words", "message": "STAND-DOWN: done here"}, env=DESK_ENV, commands=route("port-card-words", ROOT)): Allow(),
+        Input(tool="SendMessage", tool_input={"to": "researcher", "message": "Open the third PR."}, env=DESK_ENV, commands=route("researcher", "researcher", "unregistered")): Allow(),
+    },
+)
+def follow_ups_revive_ended_lanes(evt: BaseHookEvent) -> HookResult | None:
+    raw = evt.input.raw
+    if mentions_stand_down(raw.get("message")) or not (found := routed(evt, raw["to"])) or (found["state"], found["route"]) != (RETIRED, ROOT):
+        return None
+    lane, by = found["lane"], post_lane(evt) or ROOT
+    argv = [sys.executable, str(script("drive_supervisor.py")), "request", "revive", lane, "--by", by, "--config", str(Path(drive_entry(evt)["state_dir"]) / "lr.json")]
+    if subprocess.run(argv, capture_output=True, text=True, timeout=ROUTE_TIMEOUT_SECONDS, env=dict(reqenv.env_map())).returncode:
+        return evt.context(f"`{lane}` had ended in the lane supervisor's registry, and this message resumed it without reviving its row. Run `lr request revive {lane} --by {by}` so the supervisor leaves it running.")
+    return evt.context(f"`{lane}` had ended, so this message revived it in the lane supervisor's registry; it retires again on its next `done`.")
 
 
 def stands_down_another(evt: BaseHookEvent) -> str | None:
