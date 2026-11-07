@@ -68,12 +68,21 @@ func spriteSyncFailure(sprite string, err error) error {
 	case errors.As(err, &exit) && exit.Code == exitNotesDeferred:
 		return fmt.Errorf("ccn sync on Sprite %s: %w", sprite, ErrNotesDeferred)
 	case errors.As(err, &exit):
-		first, _, _ := strings.Cut(strings.TrimSpace(exit.Stderr), "\n")
-		return &spriteSyncError{reason: fmt.Sprintf("ccn sync on Sprite %s exited %d: %s", sprite, exit.Code, first), cause: err}
+		return &spriteSyncError{reason: fmt.Sprintf("ccn sync on Sprite %s exited %d: %s", sprite, exit.Code, failureLine(exit.Stderr)), cause: err}
 	case errors.Is(err, context.DeadlineExceeded):
 		return &spriteSyncError{reason: fmt.Sprintf("ccn sync on Sprite %s ran past %s", sprite, notesSyncTimeout), cause: err}
 	}
 	return fmt.Errorf("ccn sync on Sprite %s: %w", sprite, err)
+}
+
+func failureLine(stderr string) string {
+	lines := strings.Split(strings.TrimSpace(stderr), "\n")
+	for _, line := range lines {
+		if !strings.HasPrefix(line, "ccn sync: ") {
+			return line
+		}
+	}
+	return lines[0]
 }
 
 func publishSpriteNotes(ctx context.Context, runner shell.Runner, sprite, checkout, token string) error {
