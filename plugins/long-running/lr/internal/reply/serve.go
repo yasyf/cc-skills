@@ -1,9 +1,12 @@
 package reply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -93,8 +96,10 @@ func Tool(a *app.App) channel.Tool {
 		InputSchema: schema,
 		Handler: func(ctx context.Context, args json.RawMessage, _ func(string)) (string, bool) {
 			var r Reply
-			if err := json.Unmarshal(args, &r); err != nil {
-				return "reply: " + err.Error(), true
+			decoder := json.NewDecoder(bytes.NewReader(args))
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&r); err != nil {
+				return "reply: " + err.Error() + "; its fields are " + strings.Join(slices.Sorted(maps.Keys(schema["properties"].(map[string]any))), ", "), true
 			}
 			r, warned := r.mended()
 			entry, err := drive.Session()
