@@ -3,6 +3,7 @@ package wait
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -71,13 +72,17 @@ func ArmedFor(terminal string) ([]Armed, error) {
 	}
 	var live []Armed
 	for _, entry := range entries {
-		body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+		if filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		record := filepath.Join(dir, entry.Name())
+		body, err := os.ReadFile(record)
 		if err != nil {
 			return nil, err
 		}
 		var armed Armed
 		if err := json.Unmarshal(body, &armed); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("armed wait record %s: %w", record, err)
 		}
 		if err := syscall.Kill(armed.PID, 0); err != nil && !errors.Is(err, syscall.EPERM) {
 			if err := disarm(armed.PID); err != nil {
