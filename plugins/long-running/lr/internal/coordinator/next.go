@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -100,7 +99,7 @@ The drive defaults to this session's and the cursor to <state dir>/root/next.cur
 				a.ConfigPath = cmp.Or(a.ConfigPath, entry.Config())
 			}
 			kept := filepath.Dir(cursor)
-			since, err := readCursor(cursor)
+			since, err := readCursor(cmd.Context(), driveName, cursor)
 			if err != nil {
 				return err
 			}
@@ -118,7 +117,7 @@ The drive defaults to this session's and the cursor to <state dir>/root/next.cur
 		},
 	}
 	cmd.Flags().StringVar(&driveName, "drive", "", "the drive whose reader coordinator this session is; default this session's drive")
-	cmd.Flags().StringVar(&cursor, "cursor", "", "file holding the last seq printed, created on the first batch; default <state dir>/root/next.cursor")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "file holding the name and time of the last record printed, created on the first batch; default <state dir>/root/next.cursor")
 	cmd.Flags().DurationVar(&every, "every", defaultEvery, "how long one batch stays open")
 	cmd.Flags().IntSliceVar(&shape.watch, "watch", nil, "pull requests whose queue state and LANDED and OVERRIDE-WARNING records close the batch")
 	cmd.Flags().StringSliceVar(&shape.full, "full", nil, "record kinds whose bodies print whole, up to 32000 bytes")
@@ -138,7 +137,7 @@ func watched(ctx context.Context, a *app.App, numbers []int, batch []record) ([]
 	return a.CCXFrom(cfg.Checkout).PRStatus(ctx, cfg.Repo, numbers)
 }
 
-func readCursor(path string) (int64, error) {
+func readCursor(ctx context.Context, driveName, path string) (int64, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return 0, nil
@@ -146,14 +145,29 @@ func readCursor(path string) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	name, stamp, _ := strings.Cut(strings.TrimSpace(string(raw)), " ")
+	printedAt, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return 0, fmt.Errorf("cursor %s holds %q, not the name and time of the record it last printed; delete it to start at the newest record", path, strings.TrimSpace(string(raw)))
+	}
+	since, err := client.Tail(ctx, client.Query{Drive: driveName, Since: printedAt})
+	if err != nil {
+		return 0, err
+	}
+	for _, r := range since {
+		if r.Name() == name {
+			return r.Seq, nil
+		}
+	}
+	return 0, fmt.Errorf("this node's store has not taken %s yet, the record cursor %s last printed; it is still seeding or syncing, so run lr coordinator next again once cci relay status shows it caught up", name, path)
 }
 
 func saveCursor(path string, batch []record) error {
 	if len(batch) == 0 {
 		return nil
 	}
-	return os.WriteFile(path, []byte(strconv.FormatInt(batch[len(batch)-1].Seq, 10)+"\n"), 0o600)
+	last := batch[len(batch)-1]
+	return os.WriteFile(path, []byte(last.Name()+" "+last.At.Format(time.RFC3339Nano)+"\n"), 0o600)
 }
 
 func follow(ctx context.Context, driveName string, since int64) (<-chan record, <-chan error) {

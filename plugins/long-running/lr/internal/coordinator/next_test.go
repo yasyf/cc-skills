@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -161,7 +160,7 @@ func cursorAfterNow(t *testing.T) string {
 	t.Setenv("CCI_HOME", t.TempDir())
 	seen := post(t, client.Draft{Lane: "lane-a", Kind: "note", Text: "before the coordinator's cursor"})
 	cursor := filepath.Join(t.TempDir(), "next.cursor")
-	if err := os.WriteFile(cursor, []byte(strconv.FormatInt(seen.Seq, 10)+"\n"), 0o600); err != nil {
+	if err := saveCursor(cursor, []record{{Seq: seen.Seq, Num: seen.Num, At: seen.At}}); err != nil {
 		t.Fatal(err)
 	}
 	return cursor
@@ -197,13 +196,44 @@ func TestNextPrintsOneBatchAndResumesAfterIt(t *testing.T) {
 		t.Fatalf("batch %q misses a record", out)
 	}
 	saved, err := os.ReadFile(cursor)
-	if err != nil || strings.TrimSpace(string(saved)) != strconv.FormatInt(ask.Seq, 10) {
-		t.Fatalf("cursor %q, %v, want %d", saved, err, ask.Seq)
+	if want := ask.Name() + " " + ask.At.Truncate(time.Millisecond).Format(time.RFC3339Nano); err != nil || strings.TrimSpace(string(saved)) != want {
+		t.Fatalf("cursor %q, %v, want %q", saved, err, want)
 	}
 
 	blocker := toRoot(t, client.Draft{Lane: "lane-a", Kind: "blocker", Text: "red"})
 	if out := runNext(t, cursor); printed(out, ask) || !printed(out, blocker) {
 		t.Fatalf("second batch %q, want only #%d", out, blocker.Seq)
+	}
+}
+
+func TestACursorNamingARecordThisStoreHasNotTakenRefusesInsteadOfWaiting(t *testing.T) {
+	cursor := cursorAfterNow(t)
+	toRoot(t, client.Draft{Lane: "lane-a", Kind: "ask", Text: "which base?"})
+	if err := os.WriteFile(cursor, []byte("#575540 "+time.Now().Add(-time.Minute).Format(time.RFC3339Nano)+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := nextCommand(app.New(io.Discard))
+	cmd.SetOut(io.Discard)
+	cmd.SetArgs([]string{"--drive", testDrive, "--cursor", cursor, "--every", forever.String()})
+	done := make(chan error, 1)
+	go func() { done <- cmd.ExecuteContext(context.Background()) }()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "has not taken #575540 yet") {
+			t.Fatalf("next = %v, want a refusal naming the record the store lacks", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("next waited on a cursor this store cannot reach instead of refusing")
+	}
+}
+
+func TestACursorHoldingABareSeqRefuses(t *testing.T) {
+	cursor := cursorAfterNow(t)
+	if err := os.WriteFile(cursor, []byte("575540\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readCursor(context.Background(), testDrive, cursor); err == nil || !strings.Contains(err.Error(), "delete it") {
+		t.Fatalf("readCursor = %v, want a refusal naming the fix", err)
 	}
 }
 
