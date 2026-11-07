@@ -32,6 +32,8 @@ func TestOnlyTheOwnersOwnWordNamingThePROrdersIt(t *testing.T) {
 		{"a relayed thread answer", "owner", "owner-relay", "Owner in thread: merge #7", true},
 		{"a later relay", "owner", "owner-relay-2", "Owner in thread: merge #7", true},
 		{"a board tap", "owner", "board-watch", "Owner on board: Land #7 now", true},
+		{"a card approve", "owner", "pr-cards", "Owner on a card: #7 approved at 12ebd2eae784", true},
+		{"a card approve of another PR", "owner", "pr-cards", "Owner on a card: #70 approved at 12ebd2eae784", false},
 		{"a lane's own word", "owner", "root", "Enqueue #7 now", false},
 		{"his word on another PR", "owner", "owner-relay", "Owner in thread: merge #70", false},
 		{"a relay report naming the PR", "report", "owner-relay", "Applied his tap on #7", false},
