@@ -270,3 +270,23 @@ func TestAnEditOfARootReplyToHisMessageMovesItIntoHisThreadAndLeavesOneCopy(t *t
 		t.Fatalf("stored reply thread = %q, want %s so a later edit edits the thread copy", saved.Thread, his)
 	}
 }
+
+func TestAnEditWhoseRowIsHisAnswerInTheRootReplysOwnThreadEditsAtTheRoot(t *testing.T) {
+	const rootTS = "1793635190.051179"
+	f, fake := fanout(t, nil), scripted()
+	ledgerHolds(t, f.Entry, "| m9 | Nov 7 9:30 PM | looks good, ship it |  | open |")
+	wordsFile := filepath.Join(filepath.Dir(owner.Ledger(f.Entry.StateDir)), "word-rows.jsonl")
+	if err := os.WriteFile(wordsFile, []byte(`{"ts":"1793635300.000001","thread":"`+rootTS+`","rows":["m9"]}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.Runner = fake
+	f.Send(context.Background(), Reply{ID: "r2", Title: "The answer", MD: "The body.", Status: info, Order: "m9"})
+
+	if text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"id": "r2", "order": "m9", "status": info}); failed {
+		t.Fatalf("edit refused: %s", text)
+	}
+	posted := calls(fake, "cc-slack")
+	if len(posted) != 2 || slices.Contains(posted[1].Argv, "--thread") || slack(t, posted[1]).Replaces != permalink {
+		t.Fatalf("cc-slack calls = %+v, want the root reply edited in place and no copy in its own thread", posted)
+	}
+}
