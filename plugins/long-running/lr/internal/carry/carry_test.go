@@ -197,6 +197,30 @@ func TestAnotherLanesFifoOrDanglingLinkInTheDrivesScratchNeverStopsTheStagedLane
 	}
 }
 
+func TestWhatTheLaneItselfNeedsIsLackedWhileOtherFaultsOnlyWarn(t *testing.T) {
+	c, fake := carrier(t)
+	c.Lane = "progress-desk-6"
+	c.Vars = map[string]string{DriveDir: filepath.Join(c.Home, ".claude/scratch/durable-agents-rebuild")}
+	big := filepath.Join(c.Vars[DriveDir], "progress-desk/board.sqlite")
+	put(t, big, "x")
+	if err := os.Truncate(big, maxBytes+1); err != nil {
+		t.Fatal(err)
+	}
+	fake.Fail(3, "not-found", "ccn", "-R", c.Repo, "doc", "show", "6aeb9b9")
+	missing := filepath.Join(c.Home, ".claude/scratch/elsewhere.md")
+	config := filepath.Join(c.Home, ".claude.json")
+	put(t, config, "{}\n")
+
+	_, left, lacked := c.Stage(context.Background(), "State "+filepath.Dir(big)+", doc `ccn doc show 6aeb9b9`, notes "+missing+", never "+config+".\n")
+
+	if len(lacked) != 2 || !strings.HasPrefix(lacked[0], filepath.Dir(big)+" holds 65 MiB") || !strings.Contains(lacked[1], "ccn doc show 6aeb9b9") {
+		t.Fatalf("lacked %q", lacked)
+	}
+	if len(left) != 2 || !strings.HasPrefix(left[0], missing+" does not exist") || !strings.HasPrefix(left[1], config+" lies outside") {
+		t.Fatalf("left %q", left)
+	}
+}
+
 func TestAPathOutsideTheCarriedDirectoriesStaysBehindNamedEvenThroughALink(t *testing.T) {
 	c, _ := carrier(t)
 	config := filepath.Join(c.Home, ".claude.json")

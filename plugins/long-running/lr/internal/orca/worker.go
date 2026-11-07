@@ -507,7 +507,14 @@ func (w *workerLaunch) carryBrief() error {
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
 	}
-	rewritten, left := carrier.Carry(w.ctx, string(raw))
+	rewritten, left, lacked := carrier.Stage(w.ctx, string(raw))
+	if len(lacked) > 0 {
+		failed := refuse("%s cannot start on a Sprite without what its brief names and no Sprite can get: %s; nothing launched here or on the Mac", w.lane, strings.Join(lacked, "; "))
+		if err := w.receipt(spriteUnstaged, failed.Error()+"\n"); err != nil {
+			return err
+		}
+		return failed
+	}
 	rewritten = geminiRoute.ReplaceAllString(rewritten, "${1}Hand long-form copy, such as docs, retros, plans and Slack or Linear copy, to owner-relay as a cci ask with the facts and what to write: `cci post --kind ask --to owner-relay`. A Sprite has no Gemini.")
 	for _, behind := range left {
 		fmt.Fprintf(w.Stderr, "warning: brief %s names what stays behind: %s\n", w.brief, behind)

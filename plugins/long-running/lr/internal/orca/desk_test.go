@@ -2540,6 +2540,26 @@ func TestASpriteLaunchRefusedForItsBriefNeverStartsOnTheMac(t *testing.T) {
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
 }
 
+func TestAnIncidentLaneWhoseStagingLeftItsStateBehindStartsNowhere(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	lacked := "progress-desk-6 cannot start on a Sprite without what its brief names and no Sprite can get: /d/progress-desk holds 589 MiB, over the 64 MiB a launch carries; nothing launched here or on the Mac"
+	key := w.spriteRefused(lacked, false)
+	brief := w.spawns[0].argv[4]
+	w.brief(testLane, "ccx: role=fix incident=sentry-1\n"+testBrief)
+	w.write(filepath.Join(spriteAttempt(brief), spriteUnstaged), lacked+"\n")
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "/d/progress-desk holds 589 MiB")
+}
+
 func TestASpriteThatNeverStartedAWorkerNamesItsRefusalOverTheWarningsLoggedBeforeIt(t *testing.T) {
 	w := newDeskWorld(t)
 	spriteConfig(w)

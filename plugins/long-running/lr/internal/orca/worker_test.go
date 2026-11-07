@@ -2943,3 +2943,28 @@ func TestASpriteEvidenceLaneIsToldToAskObsDeskAndAMacOneIsNot(t *testing.T) {
 		t.Fatalf("spec %q, brief %q, stderr %q", spec, brief, mac.stderr.String())
 	}
 }
+
+func TestASpriteLaunchWhoseStagingLeavesTheLanesOwnScratchBehindPreparesNoSprite(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	big := filepath.Join(f.home, ".claude/scratch/the-drive", workerLane, "board.sqlite")
+	f.write(big, "x", 0o600)
+	if err := os.Truncate(big, 64<<20+1); err != nil {
+		t.Fatal(err)
+	}
+	f.write(f.brief, workerBrief+"\nState lives in "+filepath.Dir(big)+" now.\n", 0o600)
+
+	_, failed, err := f.launch(workerLane, "opus", "high")
+
+	if err != nil || !strings.Contains(failed, filepath.Dir(big)+" holds 65 MiB") {
+		t.Fatalf("failed %q, err %v", failed, err)
+	}
+	if !strings.Contains(f.receiptText(spriteUnstaged), filepath.Dir(big)) {
+		t.Fatal(f.receiptText(spriteUnstaged))
+	}
+	if slices.ContainsFunc(f.calls, func(call []string) bool {
+		return slices.Contains(call, "prepare") || slices.Contains(call, "worker-start")
+	}) {
+		t.Fatal(f.calls)
+	}
+}
