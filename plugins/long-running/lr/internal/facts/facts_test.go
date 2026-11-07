@@ -1624,6 +1624,30 @@ func TestAPortWhoseDiffWillNotReadStillCarriesItsBodyToItsRow(t *testing.T) {
 	}
 }
 
+func TestAPortWhoseHeadRecordOmitsItsSourceTakesItFromItsBodyOnTheSupervisorsPass(t *testing.T) {
+	for name, opening := range map[string]string{
+		"#52199's port of line":       "port of #52125",
+		"#52183's port words opening": "Port, old tree to new: dev #52125 (port of #52125)",
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", diff: ownDiff, body: opening + "\n\n## Summary\n\nA table load's trace splits its timings."}}, status(1))
+			snapshot, err := h.source.Snapshot(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := h.source.WriteRows(context.Background(), snapshot); err != nil {
+				t.Fatal(err)
+			}
+
+			row, known, err := h.store.ReviewRow(repo, 1)
+			if err != nil || !known || row.Port != prrow.PortOf+"52125" {
+				t.Fatalf("row = %+v, %v, %v, want the port its body's first line names, so its cards open with it", row, known, err)
+			}
+		})
+	}
+}
+
 func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
@@ -1748,16 +1772,18 @@ func (r replayedStack) Run(ctx context.Context, c shell.Command) (shell.Result, 
 	return r.Runner.Run(ctx, c)
 }
 
-func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *testing.T) {
+func TestAStackReplayBelowItCarriesHisTapUnlessItChangedFundamentallyAndAGoOnlyWhenItsOwnPatchIsTheSame(t *testing.T) {
 	for name, tc := range map[string]struct {
-		given   string
-		own     string
-		carries bool
+		given       string
+		own         string
+		fundamental bool
+		carries     bool
 	}{
-		"a patch-identical replay carries his tap": {given: "tap", own: ownDiff, carries: true},
-		"a patch-identical replay carries the go":  {given: "exempt", own: ownDiff, carries: true},
-		"a changed patch carries no tap":           {given: "tap", own: ownDiff + "+\tlog(rows)\n"},
-		"a changed patch carries no go":            {given: "exempt", own: ownDiff + "+\tlog(rows)\n"},
+		"a patch-identical replay carries his tap":     {given: "tap", own: ownDiff, carries: true},
+		"a patch-identical replay carries the go":      {given: "exempt", own: ownDiff, carries: true},
+		"a changed patch carries his tap":              {given: "tap", own: ownDiff + "+\tlog(rows)\n", carries: true},
+		"a fundamentally changed patch carries no tap": {given: "tap", own: ownDiff + "+\tlog(rows)\n", fundamental: true},
+		"a changed patch carries no go":                {given: "exempt", own: ownDiff + "+\tlog(rows)\n"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -1766,6 +1792,9 @@ func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *t
 			putFact(t, s, 2, head2, "enqueued", "exit 0: #2 QUEUED", tappedAt)
 			on(t, s, recordedPR{number: 2, head: head2, login: "drive-bot", base: "lower", queued: true, diff: ownDiff}).snapshot(t)
 			putFact(t, s, 2, head, "lane", "go-lane", tappedAt.Add(time.Hour))
+			if tc.fundamental {
+				putFact(t, s, 2, head, gates.DeltaFact, gates.DeltaFundamental, tappedAt.Add(time.Hour))
+			}
 			h := on(t, s, recordedPR{number: 2, head: head, login: "drive-bot", base: "lower", queued: true})
 			h.source.Runner = replayedStack{h.runner, tc.own}
 
@@ -1781,11 +1810,13 @@ func TestAStackReplayBelowItCarriesHisTapAndAGoOnlyWhenItsOwnPatchIsTheSame(t *t
 	}
 }
 
-func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLanding(t *testing.T) {
+func TestRetroRow47AFundamentalChangePushedOnto45744AfterHisTapGoesBackToHimInsteadOfLanding(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 45744, tapped45744[:12], "tap", "tapped", time.Date(2026, 10, 31, 1, 50, 0, 0, time.UTC))
 	on(t, s, recordedPR{number: 45744, head: tapped45744, login: "drive-bot", diff: ownDiff}).snapshot(t)
-	putFact(t, s, 45744, landed45744, "lane", "sandsql-journal-next-2", time.Date(2026, 10, 31, 2, 41, 45, 0, time.UTC))
+	pushed := time.Date(2026, 10, 31, 2, 41, 45, 0, time.UTC)
+	putFact(t, s, 45744, landed45744, "lane", "sandsql-journal-next-2", pushed)
+	putFact(t, s, 45744, landed45744, gates.DeltaFact, gates.DeltaFundamental, pushed)
 	h := on(t, s, recordedPR{number: 45744, head: landed45744, login: "drive-bot", diff: ownDiff + "+\tdropRacyTick()\n"})
 	review(t, "finder-desk", "finder: ok "+landed45744+" no majors", 45744)
 	review(t, "fidelity-pipeline", "fidelity: ok "+landed45744+" stays in scope", 45744)
@@ -1805,7 +1836,7 @@ func TestRetroRow47ContentPushedOnto45744AfterHisTapGoesBackToHimInsteadOfLandin
 	}
 }
 
-func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSameDiffLands(t *testing.T) {
+func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionLandOnHisTapBesideTheSameDiff(t *testing.T) {
 	s := memory(t)
 	prs := []int{1, 2, 3, 4}
 	tapped := func(number int) string { return strings.Repeat(strconv.Itoa(number), 40) }
@@ -1833,8 +1864,8 @@ func TestRetroRow98ThreeNewHeadsWithNoVerdictAtTheirVersionWaitOnHimWhileTheSame
 	rows := onAll(t, s, after).snapshot(t)
 
 	for _, number := range prs[:3] {
-		if verdict := machine.Classify(rows[number]); rows[number].Admitted() || verdict.Action != machine.ActionTap {
-			t.Fatalf("#%d: tap %q, verdict %+v, want it waiting on his tap", number, rows[number].Tap, verdict)
+		if verdict := machine.Classify(rows[number]); rows[number].CarriedBy != gates.ByTap || verdict.Action != machine.ActionEnqueue {
+			t.Fatalf("#%d carried by %q, verdict %+v, want it landing on his tap", number, rows[number].CarriedBy, verdict)
 		}
 	}
 	if verdict := machine.Classify(rows[4]); rows[4].CarriedBy != gates.BySameDiff || verdict.Action != machine.ActionEnqueue {
@@ -2199,7 +2230,7 @@ func TestALiftedReadersFirstHoldStaysLiftedAtTheWritersNextHead(t *testing.T) {
 	}
 }
 
-func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapAwaitingProof(t *testing.T) {
+func TestGradesBelongToAHeadSoANewPushStartsUngradedWhileHisTapStillCounts(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	at := time.Date(2026, 10, 30, 21, 0, 0, 0, time.UTC)
 	for kind, value := range map[string]string{"finder": "clear", "tap": "tapped"} {
@@ -2210,7 +2241,7 @@ func TestGradesBelongToAHeadSoANewPushStartsUngradedWithItsTapAwaitingProof(t *t
 
 	row := h.snapshot(t)[1]
 
-	if row.Finder != "" || row.Graded() || row.Admitted() || row.TapFrom != head2 {
+	if row.Finder != "" || row.Graded() || row.CarriedBy != gates.ByTap || row.TapFrom != head2 {
 		t.Fatalf("row = %+v", row)
 	}
 }
@@ -2872,20 +2903,25 @@ func TestARowTheLandingHostNeverReadStillOwesAGradeOnAHostThatDoesNotRead(t *tes
 	}
 }
 
-func TestTheMinuteHisPostReachedHimCarriesToARestackAndRestartsOnARealChange(t *testing.T) {
+func TestTheMinuteHisPostReachedHimCarriesToANewHeadAndRestartsOnAFundamentalChange(t *testing.T) {
 	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
 	changed := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
 	for name, tc := range map[string]struct {
-		diff  string
-		shown string
+		diff        string
+		fundamental bool
+		shown       string
 	}{
-		"a restack whose own diff is the same": {restacked, store.Stamp(tappedAt)},
-		"a change to its own diff":             {changed, ""},
+		"a restack whose own diff is the same": {restacked, false, store.Stamp(tappedAt)},
+		"a change to its own diff":             {changed, false, store.Stamp(tappedAt)},
+		"a fundamental change":                 {changed, true, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
 			putFact(t, s, 1, head2, gates.ShownFact, store.Stamp(tappedAt), tappedAt)
 			on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
+			if tc.fundamental {
+				putFact(t, s, 1, head, gates.DeltaFact, gates.DeltaFundamental, tappedAt)
+			}
 
 			on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: tc.diff}).snapshot(t)
 

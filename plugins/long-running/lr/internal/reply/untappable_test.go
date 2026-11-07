@@ -80,7 +80,7 @@ func TestAPRWhoseHeadOutranItsReadDrawsHisApproveAfterOneGitHubReadAtOneAndTenPR
 		}
 		_ = s.Close()
 		prs, numbers := make([]string, 0, n), make([]int, 0, n)
-		members, open := map[string]any{}, []map[string]any{}
+		members, open := map[string]any{}, make([]map[string]any, 0, len(heads))
 		for number, head := range heads {
 			prs, numbers = append(prs, fmt.Sprintf("https://github.com/yasyf/cc-skills/pull/%d", number)), append(numbers, number)
 			members[fmt.Sprintf("r%d", number)] = map[string]any{"number": number, "state": "OPEN", "title": fmt.Sprintf("Relay fix %d", number), "headRefOid": head, "baseRefName": "main", "author": map[string]any{"login": "a"}}

@@ -152,7 +152,7 @@ func TestALauncherNamedCommunicatorWindowIsRefusedWithoutAskingCci(t *testing.T)
 
 func TestTheCoordinatorRelaunchesEveryDownStandingDeskTheRegistryHolds(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root)
-	var rows []string
+	rows := make([]string, 0, len(everyDesk))
 	for _, name := range everyDesk {
 		rows = append(rows, name+"-3")
 	}
@@ -334,7 +334,7 @@ func TestADeskBriefOnTheMacWithNoMacNeedLaunchesRemoteAndAMissingBriefFaultsOnly
 
 func TestOneFailedLaunchIsNamedAndTheOthersStillRun(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root)
-	var rows []string
+	rows := make([]string, 0, len(everyDesk))
 	for _, name := range everyDesk {
 		rows = append(rows, name+"-3")
 	}
