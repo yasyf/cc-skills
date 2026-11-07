@@ -2195,3 +2195,25 @@ func TestAFundamentalDeltaAtTheReadHeadPostsOneMoreReadWithItsBodyAndATitleEditP
 		t.Fatalf("reads %d after a title edit, want 3", reads)
 	}
 }
+
+func TestARowsPortStateReadsItsHeadRecordThenItsBodysPortLine(t *testing.T) {
+	for name, tc := range map[string]struct {
+		facts map[string]string
+		body  string
+		want  string
+	}{
+		"its head record names the source":        {map[string]string{gates.PortOfAttr: "52125"}, "", PortOf + "52125"},
+		"#52199's body line and no head record":   {map[string]string{}, "port of #52125\n\n## Summary\n\nA table load's trace splits its timings.", PortOf + "52125"},
+		"#52183's port words opening":             {map[string]string{}, "Port, old tree to new: dev #52125 (port of #52125)\n\n## Summary", PortOf + "52125"},
+		"the head record wins over the body":      {map[string]string{gates.PortOfAttr: "52007"}, "port of #52125", PortOf + "52007"},
+		"a follow-up to a port is no port":        {map[string]string{}, "follow-up to port of #52125", None},
+		"no port anywhere":                        {map[string]string{}, "## Summary\n\nChats load.", None},
+		"an old-tree PR keeps its own port state": {map[string]string{FactOldTree: "go/sand"}, "port of #52125", fmt.Sprintf("%s: it changes go/sand in the old tree, and no port PR's head record or no-port decide names it", PortOwed)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := portState(tc.facts, store.ReviewRow{}, tc.body); got != tc.want {
+				t.Fatalf("portState = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

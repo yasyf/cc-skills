@@ -232,10 +232,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		}
 		ports := portsOf(rows, atHeads)
 		for number, row := range rows {
-			row.Port = portState(atHeads[number], ports[number])
-			if source, said := cardtext.PortSource(row.Description); row.Port == None && said {
-				row.Port = PortOf + strconv.Itoa(source)
-			}
+			row.Port = portState(atHeads[number], ports[number], row.Description)
 			row.MovedAt = movedAt(before[number], row, written)
 			rows[number] = row
 		}
@@ -247,7 +244,7 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 				}
 				continue
 			}
-			pr.Port = portState(map[string]string{FactOldTree: pr.OldTree, NoPortAttr: pr.NoPort}, ports[number])
+			pr.Port = portState(map[string]string{FactOldTree: pr.OldTree, NoPortAttr: pr.NoPort}, ports[number], "")
 			outside[number] = pr
 		}
 		if err := t.PutOutsidePRs(outside); err != nil {
@@ -304,10 +301,13 @@ func movedAt(before, after store.ReviewRow, now time.Time) string {
 	return store.Stamp(now)
 }
 
-func portState(facts map[string]string, port store.ReviewRow) string {
+func portState(facts map[string]string, port store.ReviewRow, body string) string {
+	source, said := cardtext.PortSource(body)
 	switch {
 	case facts[FactOldTree] == "" && facts[gates.PortOfAttr] != "":
 		return PortOf + facts[gates.PortOfAttr]
+	case facts[FactOldTree] == "" && said:
+		return PortOf + strconv.Itoa(source)
 	case facts[FactOldTree] == "":
 		return None
 	case port.Number != 0:
