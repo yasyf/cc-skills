@@ -8,7 +8,7 @@ import (
 )
 
 func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
-	owed := "Not written yet: watch-lane, the lane that made this PR, has been asked to say in its description what a user will see change."
+	owed := "Not written yet: the lane that made this PR has been asked to say in its description what a user will see change."
 	for name, test := range map[string]struct{ summary, want, flaw string }{
 		"a plain sentence": {"Smoke jobs behind a failed step show as not reached.", "Smoke jobs behind a failed step show as not reached.", ""},
 		"plan lines left to the plan": {
@@ -48,5 +48,24 @@ func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
 				t.Fatalf("ChangeFlaw = %q, want one naming %q", flaw, test.flaw)
 			}
 		})
+	}
+}
+
+func TestRiskWordsAreTheAvailabilityLineInOnePlainSentence(t *testing.T) {
+	profile := "- **Threat model:** no new surface. The change is inside `read_attached` in sandsql-server.\n- **Availability:** a wrong answer here is a stale or failed read of a forked chat. A parked base read by file has the guards #51308's dormant read has.\n- **Data:** reads only."
+	if got := RiskWords(store.ReviewRow{Risk: profile}); got != "A wrong answer here is a stale or failed read of a forked chat." {
+		t.Fatalf("risk = %q, want what could go wrong for a user in one sentence", got)
+	}
+	for name, risk := range map[string]string{
+		"no availability line": "Low: one retry loop.",
+		"a code term":          "- **Availability:** `read_attached` may fail.",
+		"a hash":               "- **Availability:** reads at b51dd19 may be stale.",
+	} {
+		if got := RiskWords(store.ReviewRow{Risk: risk}); got != riskOwed {
+			t.Errorf("%s: risk = %q, want it owed", name, got)
+		}
+	}
+	if got := RiskWords(store.ReviewRow{}); got != "" {
+		t.Fatalf("no risk profile drew %q, want nothing", got)
 	}
 }

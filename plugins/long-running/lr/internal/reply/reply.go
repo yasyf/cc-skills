@@ -937,6 +937,15 @@ func (r Reply) unreadAsk() error {
 	return cmp.Or(cardtext.UnshownDoc(shown), cardtext.UncitedCredential(shown))
 }
 
+func (r Reply) plain() error {
+	options := make([]string, 0, len(r.Picks))
+	for _, pick := range r.Picks {
+		label, does, _ := strings.Cut(pick, pickSplit)
+		options = append(options, strings.TrimSpace(label)+": "+strings.TrimSpace(does))
+	}
+	return cardtext.PlainCard(r.Title, r.MD, options)
+}
+
 func (r Reply) strayMarkup() error {
 	if tag := strayTag.FindString(r.Title + "\n" + r.MD); tag != "" {
 		return fmt.Errorf("STRAY MARKUP: %q is a tag fragment, and Slack would show it to him raw, so nothing went out; read the title and md once for stray markup and resend without it", strings.TrimSpace(tag))
@@ -994,7 +1003,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string, error)
 		if row.ForUsers == "" && row.Risk == "" && board.PlanWords(row) == "" {
 			blank = append(blank, pr)
 		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
+		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), prrow.RiskWords(row), prrow.BlocksWords(row)}}
 		var missing []string
 		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {board.PlanWords(row), "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {

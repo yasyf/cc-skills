@@ -83,6 +83,7 @@ func Tool(a *app.App) channel.Tool {
 			"A tap comes back to this session. " +
 			"A surface that fails is named in the result while the others still go; never resend for it unless its line says nothing went out, and then send it again with its id.\n" +
 			"Before sending:\n" +
+			"- Plain words, or it refuses: with picks, a title that is one question in one sentence; options of two sentences at most; a body that asks no second question, never opens by repeating the title, says no paragraph twice and puts counts in a table; no record id, plan step, lane name, hash, corpus row such as C211, build or job name, test function name or code term, so a test is named by what it checks.\n" +
 			"- Saying something waits on his yes, no, pick or tap? Pass it in picks or prs; with neither, any such word warns.\n" +
 			"- A release word? Say what users get and link its Platy #releases permalink, or it warns. A lane's name is no release word.\n" +
 			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
@@ -100,6 +101,9 @@ func Tool(a *app.App) channel.Tool {
 			decoder.DisallowUnknownFields()
 			if err := decoder.Decode(&r); err != nil {
 				return "reply: " + err.Error() + "; its fields are " + strings.Join(slices.Sorted(maps.Keys(schema["properties"].(map[string]any))), ", "), true
+			}
+			if err := r.plain(); err != nil {
+				return "reply: " + err.Error(), true
 			}
 			r, warned := r.mended()
 			entry, err := drive.Session()

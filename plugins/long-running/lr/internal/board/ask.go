@@ -414,6 +414,9 @@ func askedCard(stdin io.Reader, ask Ask, file, repo string, existing func([]Slac
 	if lacksBackground(block) {
 		return nil, errors.New("refused: this card carries no background, and he decides from the card alone; pass --background with what happened, what it costs and what each way forward rests on, in plain words")
 	}
+	if err := cardtext.PlainBlock(block); err != nil {
+		return nil, err
+	}
 	return block, nil
 }
 
