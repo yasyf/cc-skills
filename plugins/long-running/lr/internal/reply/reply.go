@@ -348,6 +348,33 @@ func (f Fanout) nothingToTap(r Reply) error {
 	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no open PR he can approve, so he would get a message with nothing to tap and nothing went out; add the picks, name the open PR, or say what it waits on without asking him")
 }
 
+func (f Fanout) approvesTapped(r Reply) error {
+	if len(r.PRs) == 0 || !slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
+		return nil
+	}
+	numbers := make([]int, len(r.PRs))
+	for n, pr := range r.PRs {
+		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
+	}
+	repo, rows, err := board.Rows(f.Entry, numbers)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var tapped []string
+	for _, row := range rows {
+		if row.Tapped && slices.Contains(numbers, row.Number) {
+			tapped = append(tapped, fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number))
+		}
+	}
+	if len(tapped) == 0 {
+		return nil
+	}
+	return fmt.Errorf("ALREADY TAPPED: he tapped %s, and his tap counts once for a PR, so nothing went out; no card asks him to Approve it again unless a push its head record marks --attr delta=fundamental changes it, and the runner draws that card itself", strings.Join(tapped, ", "))
+}
+
 func (f Fanout) tapWarning(r Reply) string {
 	said, numbers := r.namedPRs()
 	if len(numbers) == 0 {

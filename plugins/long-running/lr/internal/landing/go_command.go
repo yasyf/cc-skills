@@ -1,6 +1,7 @@
 package landing
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -195,6 +196,15 @@ func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
 }
 
 func (g goGate) tapWait(claim gates.Claim, read gates.Read) (string, error) {
+	waits, err := g.cardWait(claim, read)
+	if err != nil || waits == "" {
+		return waits, err
+	}
+	standing, err := gates.StandingTapAt(g.s, claim.Repo, claim.PR, claim.Head)
+	return cmp.Or(standing, waits), err
+}
+
+func (g goGate) cardWait(claim gates.Claim, read gates.Read) (string, error) {
 	if gates.TaplessClassAt(claim, read) {
 		return gates.TapAnsweredAt(g.s, claim.Repo, claim.PR, claim.Head)
 	}

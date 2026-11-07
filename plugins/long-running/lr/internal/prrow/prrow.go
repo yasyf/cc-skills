@@ -49,6 +49,7 @@ const (
 	RedAtHead      = "CI is red at this head"
 	NoHeadYet      = "no record names its head yet"
 	ClosedUnlanded = "Nothing: it was closed without landing."
+	IsDraft        = "it is a draft"
 
 	heldLead       = "held, "
 	verdictLead    = "a grade needs a verdict"
@@ -217,7 +218,7 @@ func unmet(row store.ReviewRow, checks bool) string {
 	case row.SupersededBy != None:
 		return "Nothing: superseded, " + row.SupersededBy
 	case row.State == StateDraft:
-		return "it is a draft"
+		return IsDraft
 	case checks && row.Hold != None:
 		return heldLead + row.Hold
 	case checks && row.State == StateQueued:

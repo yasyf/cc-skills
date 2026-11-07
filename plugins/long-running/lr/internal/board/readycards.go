@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
@@ -178,9 +179,13 @@ func (r ReadyCards) stillAsked(ctx context.Context, rows []store.ReviewRow, fact
 	if err != nil {
 		return nil, err
 	}
+	picked, err := r.Cards.Store.TrunkFacts(r.Repo, lrfacts.BuiltPick)
+	if err != nil {
+		return nil, err
+	}
 	asked := rows[:0]
 	for _, row := range rows {
-		if !open[row.Number] || tapped[row.Number] {
+		if !open[row.Number] || tapped[row.Number] || picked[row.Branch] != "" {
 			continue
 		}
 		carried, err := r.carriesHisTap(row, facts[row.Number])

@@ -2418,3 +2418,24 @@ func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestAnApproveCardOnAPRHeAlreadyTappedIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		row     store.ReviewRow
+		reply   Reply
+		refused bool
+	}{
+		"#52229's tap carried to a new head": {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{Title: "Tap: #2196", MD: "It passed.", Picks: []string{"Approve", "Hold"}, PRs: []string{landPR}}, true},
+		"an untapped PR waiting on his tap":  {store.ReviewRow{ReadyForTap: true}, Reply{Title: "Tap: #2196", MD: "It passed.", Picks: []string{"Approve", "Hold"}, PRs: []string{landPR}}, false},
+		"a question on a tapped PR, no land": {store.ReviewRow{Tapped: true}, Reply{Title: "Which follow-up?", MD: "Two ways on.", Picks: []string{"Split it", "Keep it"}, PRs: []string{landPR}}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			err := f.approvesTapped(tc.reply)
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "ALREADY TAPPED") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}

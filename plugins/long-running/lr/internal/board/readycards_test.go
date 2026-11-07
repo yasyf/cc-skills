@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
@@ -125,6 +126,11 @@ func TestNoTapCardAsksForAPRThatMergedOrThatHeTappedBeforeTheStoreFoldedIt(t *te
 	}{
 		"merged on GitHub":         {func(_ *testing.T, f *linkFixture) { f.Cards.CCX = &prStatus{states: map[int]string{51516: "MERGED"}} }, 0},
 		"his tap not yet answered": {func(t *testing.T, _ *linkFixture) { post(t, ownerKind, `Owner: "Approve" #51516`) }, 0},
+		"his pick of the approach its branch builds, not yet ordered": {func(t *testing.T, f *linkFixture) {
+			if _, err := f.Cards.Store.PutFact(readyRepo, 0, "lane-51516", lrfacts.BuiltPick, "4242", f.Cards.Now()); err != nil {
+				t.Fatal(err)
+			}
+		}, 0},
 		"his tap refused": {func(t *testing.T, _ *linkFixture) {
 			post(t, ownerKind, `Owner: "Approve" #51516`)
 			post(t, bus.TapRefusedKind, "tap on #51516 refused: held", readyRepo+"#51516")
@@ -134,7 +140,9 @@ func TestNoTapCardAsksForAPRThatMergedOrThatHeTappedBeforeTheStoreFoldedIt(t *te
 			liveDrive(t)
 			f := newLink(t)
 			c.given(t, f)
-			putRows(t, f, tapRow(51516))
+			row := tapRow(51516)
+			row.Branch = "lane-51516"
+			putRows(t, f, row)
 			readyPass(t, f)
 			f.run(t)
 			if calls := askCalls(f); len(calls) != c.asks {
