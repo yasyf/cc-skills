@@ -81,7 +81,13 @@ func (c Cards) present(ctx context.Context, args ...string) (string, error) {
 }
 
 func (c Cards) knownLedger() (string, error) {
-	path := filepath.Join(c.StateDir, cardStateFile)
+	return CardsLedger(c.StateDir)
+}
+
+// CardsLedger is the id of the drive's board cards ledger, empty before the
+// drive draws its first card.
+func CardsLedger(stateDir string) (string, error) {
+	path := filepath.Join(stateDir, cardStateFile)
 	var state struct {
 		Ledger string `json:"ledger"`
 	}
@@ -95,6 +101,12 @@ func (c Cards) knownLedger() (string, error) {
 		return "", err
 	}
 	return state.Ledger, nil
+}
+
+// CardAsk is the seq of the lane's ask a card was drawn for, empty when it
+// carried none, read from the board cards ledger's rows.
+func CardAsk(rows map[string]map[string]string, card string) string {
+	return rows[cardPrefix+card][askField]
 }
 
 func (c Cards) ledgerID(ctx context.Context) (string, error) {

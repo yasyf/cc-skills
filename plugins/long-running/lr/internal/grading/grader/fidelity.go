@@ -101,6 +101,21 @@ type FidelityJob struct {
 	ServiceTouches []ServiceTouch    `json:"service_touches,omitempty"`
 	Findings       []FindingRow      `json:"findings,omitempty"`
 	OwedDeletions  []string          `json:"owed_deletions,omitempty"`
+	Taps           []Tap             `json:"taps,omitempty"`
+}
+
+type Tap struct {
+	Card  string `json:"card"`
+	Label string `json:"label"`
+	Text  string `json:"text"`
+}
+
+func (j *FidelityJob) tapsText() string {
+	var text strings.Builder
+	for _, tap := range j.Taps {
+		fmt.Fprintf(&text, "- %s, where he picked “%s”:\n%s\n", tap.Card, tap.Label, tap.Text)
+	}
+	return text.String()
 }
 
 type missingEntry struct {
@@ -218,7 +233,7 @@ func (s *fidelityPassState) grade() (FidelityOutcome, error) {
 		return FidelityOutcome{}, err
 	}
 	s.class = gates.PathClass(strings.Fields(paths), spec.ExemptGrades)
-	if said := unnamedDeletion(view.Title, view.Body); said != "" {
+	if said := unnamedDeletion(view.Title, view.Body, spec.Taps); said != "" {
 		stat, err := s.git("diff", "--find-renames", "--numstat", "--summary", own[0]+"^", head)
 		if err != nil {
 			return FidelityOutcome{}, err
@@ -333,7 +348,7 @@ func (s *fidelityPassState) postOnly(line, class string) (FidelityOutcome, error
 	return FidelityOutcome{Verdict: "missing", Posted: posted}, nil
 }
 
-func unnamedDeletion(title, body string) string {
+func unnamedDeletion(title, body string, taps []Tap) string {
 	deleted := deletes.FindStringSubmatch(title)
 	if deleted == nil {
 		return ""
@@ -354,16 +369,21 @@ func unnamedDeletion(title, body string) string {
 	if len(nouns) == 0 || len(quoted) == 0 {
 		return ""
 	}
-	cited := make([]string, 0, len(quoted))
+	said := make([]string, 0, len(quoted)+len(taps))
+	cited := make([]string, 0, len(quoted)+len(taps))
 	for _, found := range quoted {
-		words := found[1]
+		runes := []rune(squeezed(found[1]))
+		said, cited = append(said, found[1]), append(cited, "“"+string(runes[:min(len(runes), 160)])+"”")
+	}
+	for _, tap := range taps {
+		said, cited = append(said, tap.Text), append(cited, "the whole option he tapped on "+tap.Card)
+	}
+	for _, words := range said {
 		for _, noun := range nouns {
 			if strings.Contains(strings.ToLower(words), noun) {
 				return ""
 			}
 		}
-		runes := []rune(squeezed(words))
-		cited = append(cited, "“"+string(runes[:min(len(runes), 160)])+"”")
 	}
 	return fmt.Sprintf("deletes %s, and the owner words it cites never name %s: %s. A drive PR deletes only what a plan step, the owner's words or a drive-touched fix names.", thing, strings.Join(nouns, ", "), strings.Join(cited, "; "))
 }
@@ -700,6 +720,7 @@ func (s *fidelityPassState) prompt(view pullRequest, frame promptFrame) (string,
 		"since":        cmp.Or(spec.Since, "none"),
 		"items":        orNone(spec.itemsText()),
 		"owed":         orNone(strings.Join(spec.OwedDeletions, "\n")),
+		"taps":         orNone(spec.tapsText()),
 	}), nil
 }
 

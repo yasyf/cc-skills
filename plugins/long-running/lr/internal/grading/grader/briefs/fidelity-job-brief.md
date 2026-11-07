@@ -32,6 +32,12 @@ Read his words for what he meant, given what they answered, never word for word:
 - A tap picks one option and rules out the others on its card, so a head that builds an
   option he passed over breaks the row. The card's wording is ours: where an option says
   less than his own words, his words rule.
+- A tap approves everything the option he tapped says, never its label alone. For each card
+  this PR names that he answered, that option's whole text follows: his pick, the card's
+  question and its own words, the option's description, and the option of the lane's ask the
+  card carried. A removal or change that text names is grounded; the options he passed over
+  ground nothing.
+{taps}
 - His later words, on that row or any other, rule over his earlier ones, and the reason
   behind a later correction covers what it did not name.
 - A head breaks a row when it reads him narrower than he said, such as a partition, an

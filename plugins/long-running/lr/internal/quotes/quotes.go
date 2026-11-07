@@ -302,7 +302,7 @@ type topicLedger struct {
 	UpdatedAt string `json:"updated_at"`
 }
 
-func (p PR) text() string {
+func (p PR) Text() string {
 	said := []string{p.Body}
 	for _, comment := range p.Comments {
 		if comment.Author == p.Author {
@@ -324,7 +324,7 @@ func citedIDs(text string) []string {
 }
 
 func (r *Reader) ForPR(ctx context.Context, program string, pr PR, alsoCited string) ([]Answer, error) {
-	text := pr.text()
+	text := pr.Text()
 	found, err := r.Answers(ctx, citedIDs(text+"\n"+alsoCited), strings.TrimSuffix(prScope.FindString(pr.Title), ":"))
 	if err != nil {
 		return nil, err

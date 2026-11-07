@@ -851,6 +851,53 @@ func TestAFidelityJobCarriesAnAnswerOnlyACoordinatorRulingCites(t *testing.T) {
 	}
 }
 
+func TestAFidelityJobCarriesTheWholeOptionHeTappedOnACardItsPRNames(t *testing.T) {
+	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
+	fixture := func(name string) string {
+		data, err := os.ReadFile(filepath.Join("grader", "testdata", "52076", name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	state := t.TempDir()
+	registry := filepath.Join(f.pool.Config, "long-running", "drives")
+	if err := os.MkdirAll(registry, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(registry, "d.json"), fmt.Appendf(nil, `{"cci_drive":%q,"state_dir":%q,"sessions":[]}`, testDrive, state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(state, "board_cards.json"), []byte(`{"ledger":"cards"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ask, err := client.Post(context.Background(), client.Draft{Drive: testDrive, Lane: "pod-epoch-reuse-2", Kind: "ask", To: []string{rootLane}, Text: fixture("ask.txt"), PRs: []string{pull}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.PutLedgerRows("cards", map[string]map[string]string{"card/card-rmw5jo8es": {"ask": strconv.FormatInt(ask.Seq, 10)}}, f.now); err != nil {
+		t.Fatal(err)
+	}
+	view, err := json.Marshal(map[string]string{"title": "sandsql: 🔥 restarted pods upload a chat only after its take; delete the found guard", "body": fixture("body-f73f3720.md"), "headRefName": "lane-7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.shell.view = string(view)
+	f.shell.labelled = map[string]string{"board-card:card-rmw5jo8es": fixture("answers.json")}
+	f.shell.card = fixture("card.json")
+
+	f.started(t, GraderFidelity)
+
+	var want grader.Tap
+	if err := json.Unmarshal([]byte(fixture("tap.json")), &want); err != nil {
+		t.Fatal(err)
+	}
+	want.Text = strings.Replace(want.Text, "cci #7970@3dd5e016", "cci "+ask.Name(), 1)
+	if got := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir)).Taps; !reflect.DeepEqual(got, []grader.Tap{want}) {
+		t.Errorf("taps = %+v\nwant %+v", got, want)
+	}
+}
+
 func TestARegradeOfAClosedPRGoesOnlyToWhoAskedAndAnOpenHeadThatMovedIsRefused(t *testing.T) {
 	f := newPool(t, map[string]any{"landing": map[string]any{"checkout": "/srv/main"}, "fidelity": map[string]any{}})
 
