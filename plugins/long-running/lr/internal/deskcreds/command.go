@@ -59,8 +59,7 @@ func pushCommand(a *app.App, port *int) *cobra.Command {
 				return errors.New("name runner.json with --config")
 			}
 			e := Env{Runner: a.Runner, Out: cmd.OutOrStdout(), Err: cmd.ErrOrStderr(), Now: a.Now}
-			_, err := e.Push(cmd.Context(), a.ConfigPath, *port)
-			return err
+			return e.Push(cmd.Context(), a.ConfigPath, *port)
 		},
 	}
 	cmd.Flags().IntVar(port, "port", DefaultPort, "the host's local port")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,14 +21,27 @@ func (e Env) Keep(ctx context.Context, config string, port int) error {
 		return err
 	}
 	var pushing sync.Mutex
-	push := func() (string, error) {
-		pushing.Lock()
-		defer pushing.Unlock()
-		return e.Push(ctx, config, port)
+	asked := map[string]bool{}
+	pushTo := func(host Host, sprite string) error {
+		host.Sprite = sprite
+		gone, err := e.push(ctx, host, port)
+		if gone {
+			delete(asked, sprite)
+		}
+		return err
 	}
 	go func() {
 		for {
-			_, _ = push()
+			pushing.Lock()
+			if current, err := readRunner(config); err == nil {
+				_ = pushTo(current.Host, current.Host.Sprite)
+				for _, sprite := range sortedKeys(asked) {
+					if sprite != current.Host.Sprite {
+						_ = pushTo(current.Host, sprite)
+					}
+				}
+			}
+			pushing.Unlock()
 			select {
 			case <-ctx.Done():
 				return
@@ -36,10 +50,18 @@ func (e Env) Keep(ctx context.Context, config string, port int) error {
 		}
 	}()
 	return client.Follow(ctx, client.Watch{Drive: runner.Drive, Reader: PushLane}, func(ask client.Record) error {
-		if ask.Kind != askKind || !slices.Contains(ask.To, PushLane) {
+		rest, named := strings.CutPrefix(ask.ID, startPrefix)
+		sprite, _, _ := strings.Cut(rest, "/")
+		if ask.Kind != askKind || !named || sprite == "" || !slices.Contains(ask.To, PushLane) {
 			return nil
 		}
-		sprite, err := push()
+		pushing.Lock()
+		asked[sprite] = true
+		current, err := readRunner(config)
+		if err == nil {
+			err = pushTo(current.Host, sprite)
+		}
+		pushing.Unlock()
 		if err != nil {
 			_, err := client.Post(ctx, client.Draft{
 				Drive: runner.Drive, Lane: PushLane, Kind: "blocker", To: []string{"root"}, Re: ask.Seq, Force: true,

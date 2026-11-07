@@ -32,6 +32,7 @@ const (
 	serveLane     = "desk-creds"
 	askKind       = "ask"
 	EscalateAfter = 2 * time.Minute
+	startPrefix   = "desk-creds-start/"
 )
 
 var (
@@ -149,22 +150,22 @@ func Serve(ctx context.Context, runner shell.Runner, port int, drive string, log
 	if err != nil {
 		return err
 	}
+	host, err := os.Hostname()
+	if err != nil {
+		return err
+	}
 	go func() {
-		if err := AskForPush(ctx, drive, time.Now()); err != nil {
+		if err := AskForPush(ctx, drive, host, time.Now()); err != nil {
 			_, _ = fmt.Fprintf(log, "desk-creds: the ask for a push did not post: %v\n", err)
 		}
 	}()
 	return (&http.Server{Handler: Handler(time.Now, log), ReadHeaderTimeout: headerTimeout}).Serve(listener)
 }
 
-func AskForPush(ctx context.Context, drive string, started time.Time) error {
-	host, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-	_, err = client.Post(ctx, client.Draft{
+func AskForPush(ctx context.Context, drive, host string, started time.Time) error {
+	_, err := client.Post(ctx, client.Draft{
 		Drive: drive, Lane: serveLane, Kind: askKind, To: []string{PushLane}, Force: true,
-		ID:   fmt.Sprintf("desk-creds-start/%s/%d", host, started.UnixNano()),
+		ID:   fmt.Sprintf("%s%s/%d", startPrefix, host, started.UnixNano()),
 		Text: fmt.Sprintf("desk-creds on %s started holding nothing: push its credentials", host),
 	})
 	return err
