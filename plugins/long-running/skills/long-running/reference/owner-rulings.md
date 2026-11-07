@@ -4,6 +4,7 @@ This file holds the mechanics for settled questions (`R19`), owner-ruling gates 
 
 ## Contents
 
+- [His words steer a live item (R17)](#his-words-steer-a-live-item-r17)
 - [Filter questions against authorities (R19)](#filter-questions-against-authorities-r19)
 - [Price check, gate and grader options](#price-check-gate-and-grader-options)
 - [Run the `settled_questions` hook](#run-the-settled_questions-hook)
@@ -15,6 +16,13 @@ This file holds the mechanics for settled questions (`R19`), owner-ruling gates 
 - [Run `judge.py` and `judge-eval.py`](#run-judgepy-and-judge-evalpy)
 - [Ship-time and turn-time judges](#ship-time-and-turn-time-judges)
 - [Enforce system shape tests (`SHAPE-UNTESTED`)](#enforce-system-shape-tests-shape-untested)
+
+## His words steer a live item (R17)
+
+A question, a narrowing, a "too aggressive" or a pick on one part keeps the item running at its full
+scope until his own words say stop, drop or not needed. A lane or the communicator that reads an end
+out of anything else asks him first and keeps working meanwhile. A deep dive, report or plan he
+ordered ends only in the fixes it found, each linked, or in his word dropping one.
 
 ## Filter questions against authorities (R19)
 
