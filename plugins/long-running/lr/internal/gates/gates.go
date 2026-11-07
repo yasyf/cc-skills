@@ -194,7 +194,7 @@ func Missing(f machine.Facts) []string {
 	if !f.Graded() {
 		out = append(out, "not graded")
 	} else if !f.Cleared() {
-		out = append(out, "a grade needs a verdict")
+		out = append(out, "a grade needs a verdict: "+strings.Join(uncleared(f), ", "))
 	}
 	if !f.Approved {
 		out = append(out, "no approving review")
@@ -214,6 +214,17 @@ func Missing(f machine.Facts) []string {
 	}
 	if !f.RowClear() && !slices.ContainsFunc(out, func(gate string) bool { return gate != NoTap }) {
 		out = append(out, "its row waits on: "+f.RowWait)
+	}
+	return out
+}
+
+func uncleared(f machine.Facts) []string {
+	var out []string
+	if !f.FinderCleared() {
+		out = append(out, fmt.Sprintf("finder %s and no counted finder-override at %s", f.Finder, short(f.Head)))
+	}
+	if !f.FidelityCleared() {
+		out = append(out, fmt.Sprintf("fidelity %s and no counted fidelity-override at %s", f.Fidelity, short(f.Head)))
 	}
 	return out
 }
