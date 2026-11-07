@@ -349,7 +349,7 @@ def test_a_job_that_dies_with_its_sprite_leaves_an_error_result_so_the_runner_fa
     done = subprocess.run(["sh", str(job_script), "dar-fleet-4", grader, str(directory)], env=env, capture_output=True, timeout=60)
 
     assert done.returncode == 1
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-4 ended with status 1 and no result once its process was gone without writing an exit status, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 
 
@@ -373,7 +373,7 @@ def test_a_result_the_sprite_kept_empty_or_cut_leaves_an_error_result_so_the_run
 
     assert done.returncode == 0
     assert (directory / "record.md").read_text() == "graded"
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-10 ended with status 0 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-10 ended with status 0 and no result after starting the job, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
     assert not (directory / ".result.json").exists()
 
 HELPER_JOB = """import json, pathlib, subprocess, sys
@@ -399,7 +399,7 @@ def test_a_job_whose_sprite_refuses_the_copy_leaves_an_error_result(tmp_path: Pa
     done = subprocess.run(["sh", str(job_script), "dar-fleet-8", grader, str(directory)], env=env, capture_output=True, timeout=60)
 
     assert done.returncode == 1
-    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
+    assert json.loads((directory / "result.json").read_text()) == {"error": "the job on Sprite dar-fleet-8 ended with status 1 and no result after reading the plan, as when the Sprite restarts mid-pass or cannot be reached", "no_result": True}
 
 
 def test_a_job_on_a_sprite_with_nothing_at_the_mac_home_ships_a_real_directory_there_and_grades(tmp_path: Path) -> None:

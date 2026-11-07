@@ -89,14 +89,16 @@ sprite=$1 job=$2 dir=$3
 here=$(cd "$(dirname "$0")" && pwd)
 results=$here/long_running/desk_result.py
 no_result() {
-  python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result, as when the Sprite restarts mid-pass or cannot be reached"
+  python3 "$results" lost "$dir" "the job on Sprite $sprite ended with status $1 and no result $stage, as when the Sprite restarts mid-pass or cannot be reached"
 }
+stage="before its first step"
 trap 'no_result $?' EXIT
 mark=$(date +%s)
 took() {
   now=$(date +%s)
   echo "sprite-job: $1 took $((now - mark)) s" >&2
   mark=$now
+  stage="after $1"
 }
 fed() {
   upload=$1/lr-stdin-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
@@ -305,7 +307,7 @@ while [ -z "$status" ]; do
   offset=$((offset + $(wc -c <"$delta")))
   said=$(printf "%s\n" "$said" | tail -n 1)
   case $said in
-    gone) status=1 ;;
+    gone) status=1 stage="once its process was gone without writing an exit status" ;;
     running) sleep 20 ;;
     '' | *[!0-9]*) if [ "$misses" -ge 15 ]; then status=255; else sleep 20; fi ;;
     *) status=$said ;;
