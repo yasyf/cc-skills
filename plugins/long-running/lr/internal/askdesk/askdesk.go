@@ -39,6 +39,7 @@ type Reply struct {
 	Head, Body, URL string
 	Exit            int
 	Stderr          string
+	Refused         bool
 }
 
 type Desk struct {
@@ -169,6 +170,9 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
 		Re: ask.Seq, Resolves: ask.Seq, URL: read.URL, Force: true, Attrs: map[string]string{},
+	}
+	if read.Refused {
+		answer.Kind, answer.Resolves = PartKind, 0
 	}
 	if read.Exit != 0 || read.Stderr != "" {
 		answer.Attrs[exitAttr], answer.Attrs[stderrAttr] = strconv.Itoa(read.Exit), read.Stderr
