@@ -121,7 +121,7 @@ type headRead struct {
 	lapses  time.Time
 }
 
-func (g goGate) readHead(ctx context.Context, number int, head string, before int64) (headRead, error) {
+func (g goGate) readHead(ctx context.Context, number int, head, body string, before int64) (headRead, error) {
 	records, err := bus.PRRecords(ctx, g.cfg.Drive, g.cfg.Repo, number)
 	if err != nil {
 		return headRead{}, err
@@ -137,8 +137,8 @@ func (g goGate) readHead(ctx context.Context, number int, head string, before in
 		return headRead{}, fmt.Errorf("read what its holds resolve: %w", err)
 	}
 	r := headRead{claim: gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}, records: records}
-	r.read = gates.Read{Lifts: lifts, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards}
-	r.port, r.claimed = gates.PortAt(r.claim, records)
+	r.read = gates.Read{Lifts: lifts, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards, Body: body}
+	r.port, r.claimed = gates.PortAt(r.claim, r.read)
 	if r.claimed {
 		r.read.PortSourceMerged, err = g.portLanded(ctx, r.claim, r.port.Source)
 		if err != nil {
@@ -161,11 +161,10 @@ func (g goGate) readDiff(ctx context.Context, number int, read *gates.Read) erro
 }
 
 func (g goGate) answer(ctx context.Context, f machine.Facts) ([]string, error) {
-	r, err := g.readHead(ctx, f.Number, f.Head, 0)
+	r, err := g.readHead(ctx, f.Number, f.Head, f.Body, 0)
 	if err != nil {
 		return nil, err
 	}
-	r.read.Body = f.Body
 	if err := g.readDiff(ctx, f.Number, &r.read); err != nil {
 		return nil, err
 	}
@@ -215,7 +214,13 @@ func countsAt(record client.Record, c gates.Claim, goLanes []string) bool {
 
 func (g goGate) one(ctx context.Context, number int, head string, flags goFlags) (refused bool, lapses time.Time, err error) {
 	a, cfg, s, inputs, stdout := g.a, g.cfg, g.s, g.inputs, g.stdout
-	r, err := g.readHead(ctx, number, head, flags.before)
+	body := flags.body
+	if !flags.sweep {
+		if body, err = a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body"); err != nil {
+			fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait or port line it names counts: %v\n", number, err)
+		}
+	}
+	r, err := g.readHead(ctx, number, head, body, flags.before)
 	if err != nil {
 		return false, r.lapses, err
 	}
@@ -223,7 +228,6 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	lapses = r.lapses
 	standing := claimed && !port.Interacts || gates.FlakeAt(claim, records) || gates.ExemptGraded(claim, read)
 	if flags.sweep {
-		read.Body = flags.body
 		if _, _, refusals := gates.ExemptGo(claim, read); len(refusals) > 0 {
 			fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
 			if err := sayGoRefused(ctx, cfg, claim, flags.owner, standing, records, refusals); err != nil {
@@ -236,14 +240,8 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		return false, lapses, err
 	}
 	if claimed && flags.before == 0 {
-		if err := notePortRead(s, claim, read, a.Now()); err != nil {
+		if err := notePortRead(s, claim, port, read, a.Now()); err != nil {
 			return false, lapses, err
-		}
-	}
-	if !flags.sweep {
-		read.Body, err = a.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(number), "--repo", cfg.Repo, "--json", "body", "--jq", ".body")
-		if err != nil {
-			fmt.Fprintf(stdout, "WARNING #%d: could not read its body, so no wait it names refuses it: %v\n", number, err)
 		}
 	}
 	text, class, refusals := gates.ExemptGo(claim, read)
@@ -379,9 +377,9 @@ func sourceLanded(ctx context.Context, a *app.App, cfg config.Config, source int
 	return slices.ContainsFunc(strings.Split(log.Stdout, "\n"), func(subject string) bool { return strings.HasSuffix(subject, named) }), nil
 }
 
-func notePortRead(s *store.Store, claim gates.Claim, read gates.Read, at time.Time) error {
+func notePortRead(s *store.Store, claim gates.Claim, port gates.PortClaim, read gates.Read, at time.Time) error {
 	return s.Update(func(t *store.Tx) error {
-		for kind, value := range gates.PortEvidence(read.PortSourceMerged, read.Files) {
+		for kind, value := range gates.ClaimFacts(port, read) {
 			if err := t.PutFact(claim.Repo, claim.PR, claim.Head, kind, value, at); err != nil {
 				return err
 			}

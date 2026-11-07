@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 )
 
 const (
@@ -55,7 +56,6 @@ var (
 	lists        = regexp.MustCompile(`\b(rows met|rows checked|n/a|pending|tests):`)
 	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b|\binvariant\b.*\b(?:single|one|sole) owner\b|\b(?:single|one|sole) owner of\b`)
 	landedCommit = regexp.MustCompile(`^@([0-9a-f]{40})$`)
-	opensAsPort  = regexp.MustCompile(`(?i)^\s*port of #\d+\b`)
 	finderSays   = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
 	finderMajor  = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
 	finderClean  = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
@@ -440,7 +440,7 @@ func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []stri
 	if root := s.closedBy(earlier, s.job.Settled); grade != finderPass && root != 0 {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, settled by coordinator #%d", finderPass, short(head, 7), earlier.Seq, root)
 	}
-	if grade == finderFail && s.onlySecondFix(earlier) && opensAsPort.MatchString(view.Body) {
+	if grade == finderFail && s.onlySecondFix(earlier) && opensAsPort(view.Body) {
 		_, fixes, _ := strings.Cut(s.originOf(earlier).Text, secondFix)
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, stands as a follow-up owed after this port: %s%s", finderPass, short(head, 7), earlier.Seq, classFixOwed, fixes)
 	}
@@ -562,7 +562,7 @@ func triage(findings []finding, diff touched) ([]finding, []finding) {
 }
 
 func followUpsOwed(body string, findings []finding) ([]finding, []finding) {
-	if !opensAsPort.MatchString(body) {
+	if !opensAsPort(body) {
 		return nil, findings
 	}
 	var owed, graded []finding
@@ -820,7 +820,7 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 		named = append(named, fmt.Sprintf("#%s (%s) fixed %s", fix.number, fix.title, strings.Join(files, ", ")))
 	}
 	defect := secondFix
-	if opensAsPort.MatchString(view.Body) {
+	if opensAsPort(view.Body) {
 		defect = followUpWord + " " + classFixOwed
 	}
 	return &finding{Severity: finderFail, Cite: fmt.Sprintf("%s:%d", first.path, first.spans[0].start), Defect: defect + ". " + strings.Join(named, "; ")}, nil
@@ -994,4 +994,9 @@ func RootSession(config, drive string) (string, error) {
 		return "", err
 	}
 	return entry.Sessions[len(entry.Sessions)-1], nil
+}
+
+func opensAsPort(body string) bool {
+	_, port := cardtext.PortSource(body)
+	return port
 }
