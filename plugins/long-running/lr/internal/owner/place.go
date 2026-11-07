@@ -31,13 +31,6 @@ func sameRow(listed, row string) bool {
 	return listed == row || strings.HasPrefix(listed, row+".")
 }
 
-func (w wordRows) place() string {
-	if w.Thread == w.TS && w.Thread != "" {
-		return AtRoot
-	}
-	return w.Thread
-}
-
 func PlaceOf(stateDir, row string) (string, error) {
 	written, err := allWordRows(Ledger(stateDir))
 	if err != nil {
@@ -45,7 +38,7 @@ func PlaceOf(stateDir, row string) (string, error) {
 	}
 	for _, word := range slices.Backward(written) {
 		if word.names(row) {
-			return word.place(), nil
+			return word.Thread, nil
 		}
 	}
 	ledger, err := os.ReadFile(Ledger(stateDir))

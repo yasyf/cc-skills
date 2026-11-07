@@ -68,6 +68,7 @@ const (
 
 	namesBugKind    = "names-bug"
 	cardCopySurface = "card copy"
+	movedRoot       = "slack root"
 	resendOnce      = "; nothing went out on this surface, so once the tool is back send this reply again with its id, which posts it once"
 )
 
@@ -1301,7 +1302,17 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: "the earlier reply did not read, so nothing was posted or edited: " + err.Error()}}
 	}
-	if own := was.ownMessage(r); own.Ref != "" {
+	own := was.ownMessage(r)
+	if own.Ref != "" && r.Thread != "" && was.Reply.Thread == "" && r.Order != "" {
+		place, err := owner.PlaceOf(f.Entry.StateDir, r.Order)
+		if err != nil {
+			return []Outcome{{Surface: "slack", Error: "the order's place did not read, so nothing was posted or edited: " + err.Error()}}
+		}
+		if place == r.Thread {
+			return f.movedToThread(ctx, r, own)
+		}
+	}
+	if own.Ref != "" {
 		return []Outcome{f.edit(ctx, r, own, r.withPickLink(r.MD, drawn))}
 	}
 	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
@@ -1318,6 +1329,16 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
 	return f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
+}
+
+func (f Fanout) movedToThread(ctx context.Context, r Reply, root Outcome) []Outcome {
+	moved := f.inThread(ctx, r)
+	if moved[0].Error != "" {
+		return moved
+	}
+	gone := f.edit(ctx, Reply{ID: r.ID, Title: r.Title, Status: done}, root, "Moved to [your thread]("+moved[0].Ref+").")
+	gone.Surface = movedRoot
+	return append(moved, gone)
 }
 
 func (d delivery) ownMessage(r Reply) Outcome {

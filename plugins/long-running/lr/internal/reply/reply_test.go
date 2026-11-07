@@ -1616,7 +1616,7 @@ func TestAnEditThatNamesNoThreadStillEditsTheThreadedMessage(t *testing.T) {
 	}
 }
 
-func TestARootReplyAnsweredInAThreadLaterEditsAtTheRoot(t *testing.T) {
+func TestARootCardMeantForTheRootKeepsEditingThereWhenAnsweredInAThread(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	f.Send(context.Background(), Reply{ID: "r2", Title: "t", MD: "first", Status: info})
