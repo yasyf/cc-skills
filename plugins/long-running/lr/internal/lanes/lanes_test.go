@@ -3296,3 +3296,14 @@ func TestAQueueCitesItsOldestRecordBySeq(t *testing.T) {
 	got := queueDepth([]Record{rec(11, Root, "ask", t0, "and this", "tooling-1"), rec(10, Root, "defect", t0.Add(-22*time.Hour), "fix the gate", "tooling-1")})
 	equal(t, got, "tooling-1 1 defect, 1 ask (oldest #10)")
 }
+
+func TestAnInstallDeskRelaunchesOnTheMacWhateverItsBriefSays(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, []Record{spawned(1, "install-desk-2", writeBrief(t), t0.Add(-time.Hour), map[string]string{"model": "opus", "effort": "medium"})}, []Row{who("install-desk-2", true, t0.Add(-mins(1)))})
+	tick(t, s, f, t0.Add(-mins(1)))
+	f.peers = []Row{who("install-desk-2", false, t0.Add(-mins(30)))}
+
+	tick(t, s, f, t0)
+
+	equal(t, strings.Split(f.briefs["install-desk-3"], "\n")[1], "ccx: place=local why=mac-build")
+}

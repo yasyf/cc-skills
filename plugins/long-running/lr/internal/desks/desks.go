@@ -125,7 +125,10 @@ func (d drive) owed(s registry, out io.Writer) (owed []owing, faults error, err 
 			continue
 		}
 		next.text = lanes.WithDuty(text, desk.Duty)
-		if placedLocal.Match(next.text) && !lanes.DeskOnMac(next.text) {
+		switch need := lanes.MacDeskNeed(next.lane); {
+		case need != "" && !lanes.DeskOnMac(next.text):
+			next.text = append([]byte("ccx: place=local why="+need+"\n"), next.text...)
+		case need == "" && placedLocal.Match(next.text) && !lanes.DeskOnMac(next.text):
 			next.text = append([]byte("ccx: place=remote\n"), next.text...)
 		}
 		owed = append(owed, next)
