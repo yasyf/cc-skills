@@ -59,6 +59,7 @@ type Gates struct {
 	Drive    string
 	Repo     string
 	Trunk    string
+	Check    string
 	Checkout string
 	Rulings  string
 	Session  func(ctx context.Context) (string, error)
@@ -80,6 +81,7 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 	var landing struct {
 		Build        BuildFailures `json:"build_failures"`
 		TokenCommand []string      `json:"ci_token_command"`
+		TrunkCheck   string        `json:"trunk_check"`
 	}
 	if err := json.Unmarshal(runner.Sections["landing"], &landing); err != nil {
 		return nil, fmt.Errorf("%s: landing: %w", runnerPath, err)
@@ -89,7 +91,7 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 		return nil, err
 	}
 	return &Gates{
-		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Trunk: cfg.Trunk, Checkout: cfg.Checkout,
+		Runner: a.Runner, CCX: a.CCX, Store: s, Drive: cfg.Drive, Repo: cfg.Repo, Trunk: cfg.Trunk, Check: landing.TrunkCheck, Checkout: cfg.Checkout,
 		Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"),
 		Session: func(ctx context.Context) (string, error) {
 			inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())
@@ -134,11 +136,28 @@ func (g *Gates) openReds(ctx context.Context, acts []pass.Act) []redIncident {
 	}) {
 		return nil
 	}
+	history, err := trunkHistory(ctx, g.CCX, g.Repo, g.Trunk)
+	if err != nil {
+		g.Log.Warn("dev's newest test build did not read, so open dev-red incidents hold no head this pass", "err", err)
+		return nil
+	}
+	if !newestTestRed(history, g.Check) {
+		return nil
+	}
 	reds, err := openReds(ctx, g.Drive, g.Repo)
 	if err != nil {
 		g.Log.Warn("the open dev-red incidents did not read, so they hold no head this pass", "err", err)
 	}
 	return reds
+}
+
+func newestTestRed(history []trunkCommit, check string) bool {
+	for _, commit := range history {
+		if status, found := commit.check(check); found {
+			return status.State != stateSuccess
+		}
+	}
+	return false
 }
 
 func (g *Gates) heldRed(ctx context.Context, f machine.Facts, reds []redIncident) bool {

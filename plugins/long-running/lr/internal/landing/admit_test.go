@@ -71,6 +71,11 @@ type gateFixture struct {
 
 func newGates(t *testing.T) *gateFixture {
 	t.Helper()
+	return newGatesOnDev(t, "FAILURE")
+}
+
+func newGatesOnDev(t *testing.T, devTest string) *gateFixture {
+	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	s, err := store.Memory()
 	if err != nil {
@@ -81,10 +86,11 @@ func newGates(t *testing.T) *gateFixture {
 		t.Fatal(err)
 	}
 	fake := &shelltest.Fake{}
+	fake.Reply(devTestBuild(devTest), "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "graphql")
 	tool := &rulingsTool{Fake: fake, refusals: map[string]string{}}
 	f := &gateFixture{fake: fake, tool: tool, now: t0}
 	f.gates = &landing.Gates{
-		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Trunk: "dev", Checkout: "/co", Rulings: gateTool,
+		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Trunk: "dev", Check: "buildkite/test", Checkout: "/co", Rulings: gateTool,
 		Session: func(context.Context) (string, error) { return "board-1", nil },
 		Now:     func() time.Time { return f.now },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -493,6 +499,10 @@ func openRed(t *testing.T, slug string) client.Record {
 	return opener
 }
 
+func devTestBuild(state string) string {
+	return `{"data":{"repository":{"object":{"history":{"nodes":[{"oid":"40f5676e","status":{"contexts":[{"context":"buildkite/test","state":"PENDING"}]}},{"oid":"0838da5","status":{"contexts":[{"context":"buildkite/test","state":"` + state + `","targetUrl":"https://buildkite.com/forge/test/builds/119479"}]}}]}}}}}`
+}
+
 func devRedHolds(t *testing.T) []client.Record {
 	t.Helper()
 	return slices.DeleteFunc(gateRecords(t, "report"), func(r client.Record) bool { return !strings.HasPrefix(r.Text, "DEV-RED-HOLD") })
@@ -539,5 +549,16 @@ func TestADevRedHoldsEachOfManyQueuedPRsWithOneRecordAcrossPasses(t *testing.T) 
 	}
 	if len(holds) != len(acts) || len(topics) != len(acts) {
 		t.Fatalf("%d holds on %d topics for %d PRs over 3 passes, want one each", len(holds), len(topics), len(acts))
+	}
+}
+
+func TestAnOpenDevRedHoldsNothingOnceDevsNewestTestBuildIsGreen(t *testing.T) {
+	f := newGatesOnDev(t, "SUCCESS")
+	openRed(t, "dev-red-6cc5146acc")
+	acts := []pass.Act{enqueueAct(52236, "unrelated", "dev")}
+
+	f.admit(t, acts, 52236)
+	if holds := devRedHolds(t); len(holds) != 0 {
+		t.Fatalf("holds = %+v, want none while dev's newest test build is green", holds)
 	}
 }

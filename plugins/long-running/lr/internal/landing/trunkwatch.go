@@ -187,11 +187,15 @@ func (w *TrunkWatch) Pass(ctx context.Context) error {
 }
 
 func (w *TrunkWatch) history(ctx context.Context) ([]trunkCommit, error) {
-	owner, name, found := strings.Cut(w.Repo, "/")
+	return trunkHistory(ctx, w.CCX, w.Repo, w.Trunk)
+}
+
+func trunkHistory(ctx context.Context, gh ccx.Client, repo, trunk string) ([]trunkCommit, error) {
+	owner, name, found := strings.Cut(repo, "/")
 	if !found {
-		return nil, fmt.Errorf("repo %q is not owner/name", w.Repo)
+		return nil, fmt.Errorf("repo %q is not owner/name", repo)
 	}
-	out, err := w.CCX.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "-f", "owner="+owner, "-f", "name="+name, "-f", "tip="+w.Trunk, "-f", "query="+trunkQuery)
+	out, err := gh.GH(ctx, ccx.MaxAgeFresh, "api", "graphql", "-f", "owner="+owner, "-f", "name="+name, "-f", "tip="+trunk, "-f", "query="+trunkQuery)
 	if err != nil {
 		return nil, err
 	}
