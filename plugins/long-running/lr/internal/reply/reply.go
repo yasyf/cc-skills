@@ -534,17 +534,15 @@ func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
 			}
 		}
 	}
-	var untying, over []string
+	var untying, unlisted []string
 	for _, row := range drawn {
 		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
 		switch {
 		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
 		case approves:
 			untying = append(untying, url)
-		case len(r.PRs) >= maxPRs:
-			over = append(over, url)
 		default:
-			r.PRs = append(r.PRs, url)
+			unlisted = append(unlisted, url)
 		}
 	}
 	var warned []string
@@ -553,7 +551,7 @@ func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
 		found []string
 	}{
 		{"this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: ", untying},
-		{fmt.Sprintf("this names a bug whose fix PR did not fit, since a reply carries at most %d PRs: ", maxPRs), over},
+		{"this names a bug whose fix PRs are not on the card, and a PR joins a card only when you list it in prs with words that say what it does: ", unlisted},
 		{"this may name a bug these PRs fix; if it does, edit the reply with them in prs: ", unsure},
 		{"the judge did not read, so a bug this names in words may lack its fix PR's tap card: ", unjudged},
 	} {
