@@ -318,6 +318,17 @@ func TestALeadingProseOrLabelDoesNotHideTheRead(t *testing.T) {
 	}
 }
 
+func TestProseAfterAFixedLengthReadIsANoteNotItsArguments(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: `{"number":12,"state":"failed","jobs":[]}`}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk jobs test 12 — name each failed job's failing tests and first error line")
+
+	if read.refused || !strings.HasSuffix(strings.Join(runner.calls[0].Argv, " "), "/pipelines/test/builds/12") {
+		t.Fatalf("reply = %+v, ran %v", read, runner.calls)
+	}
+}
+
 func TestABuildReadNamesItsStateAndEveryJobNotPassed(t *testing.T) {
 	one := 1
 	raw, err := json.Marshal(build{
