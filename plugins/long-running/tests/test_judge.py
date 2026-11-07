@@ -325,3 +325,33 @@ def test_a_card_the_board_cannot_show_leaves_the_tap_without_one(tmp_path, monke
     [item] = judge.said({"at": "Oct 29", "words": "1", "proof": f"proof:board:{'a' * 16}"}, tmp_path)
 
     assert item["answered"] is None
+
+
+def test_a_sprite_drives_captures_are_read_from_the_mac_through_lr_owner_prompts(tmp_path, monkeypatch):
+    state = tmp_path / "state"
+    state.mkdir()
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "rebuild.json").write_text(json.dumps({"drive": "rebuild", "cci_drive": "rebuild-cci", "host": "sprite", "state_dir": str(state), "sessions": []}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    asked = []
+
+    def lr(argv, **kwargs):
+        asked.append(argv[1:])
+        return json.dumps({"digest": "a" * 16, "at": "2026-11-07T11:20:03Z", "session": "s", "source": "slack", "text": "fix this"}) + "\n"
+
+    monkeypatch.setattr(judge, "command", lr)
+
+    assert list(judge.captures(state)) == ["a" * 16]
+    assert list(judge.captures(state)) == ["a" * 16]
+    assert asked == [["owner", "prompts", "--drive", "rebuild-cci"]]
+
+
+def test_a_mac_drive_with_no_captures_file_has_none_and_asks_nothing(tmp_path, monkeypatch):
+    drives = tmp_path / "config" / "long-running" / "drives"
+    drives.mkdir(parents=True)
+    (drives / "rebuild.json").write_text(json.dumps({"drive": "rebuild", "state_dir": str(tmp_path), "sessions": []}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(judge, "command", lambda argv, **kwargs: pytest.fail(f"asked {argv}"))
+
+    assert judge.captures(tmp_path) == {}
