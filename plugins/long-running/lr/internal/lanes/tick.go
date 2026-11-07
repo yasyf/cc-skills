@@ -1459,17 +1459,28 @@ func orphanOrders(s *store.Store, d Deps, now time.Time) {
 		return
 	}
 	do(err)
+	var ids, lines []string
 	for _, order := range owner.Only(orders, owner.Open) {
 		cursor := orphanedCursor + order.ID
 		since := must(s.Cursor(cursor))
+		if order.Lane == "" || must(s.Cursor(cursor+":said")) != 0 {
+			continue
+		}
 		if since == 0 {
 			do(s.Advance(cursor, now.Unix()))
 			continue
 		}
-		if now.Sub(time.Unix(since, 0)) >= orphanAfter {
-			escalateTo(s, d, "order:"+order.ID, fmt.Sprintf("his order has had no live lane for %d minutes or more: %s. Relaunch it with `lr launch lane --order owner:%s`.", int(orphanAfter.Minutes()), truncated(order.Text, 200), order.ID), OwnerRelay, now)
+		if now.Sub(time.Unix(since, 0)) < orphanAfter {
+			continue
 		}
+		do(s.Advance(cursor+":said", 1))
+		ids = append(ids, order.ID)
+		lines = append(lines, fmt.Sprintf("%s, last held by %s: %s; relaunch with `lr launch lane --order owner:%s`", order.ID, order.Lane, truncated(order.Text, 120), order.ID))
 	}
+	if len(ids) == 0 {
+		return
+	}
+	escalateTo(s, d, "orders:"+strings.Join(ids, ","), fmt.Sprintf("%d of his open orders lost their lane %d minutes or more ago, with no delivered or parked mark: %s.", len(ids), int(orphanAfter.Minutes()), strings.Join(lines, "; ")), OwnerRelay, now)
 }
 
 func hourly(s *store.Store, d Deps, now time.Time) {
