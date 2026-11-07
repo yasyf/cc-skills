@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 
+import argparse
 import fcntl
 import hashlib
 import io
@@ -3637,3 +3638,20 @@ def test_match_resolves_relative_source_and_drive_cache_before_child_cwd(home, m
     assert rulings.main(["match", "--drive", "d1", "--repo", "repo"], PathShell(), stdin=io.StringIO("brief"), stdout=output) == 0
     assert output.getvalue() == ""
     assert registered == [("repo", "brook")]
+
+
+def test_a_sprite_register_classifies_the_captures_it_reads_from_the_mac_through_lr_owner_prompts(tmp_path: Path) -> None:
+    class Mac:
+        def __init__(self) -> None:
+            self.asked: list[list[str]] = []
+
+        def run(self, argv: list[str], stdin: str | None = None, cwd: Path | None = None) -> str:
+            self.asked.append(argv)
+            return "".join(json.dumps({"digest": digest, "at": "2026-11-06T22:40:00Z", "session": "s", "source": "prompt", "text": text}) + "\n" for digest, text in (("a" * 16, "keep the nightly report"), ("b" * 16, "ship it")))
+
+    mac = Mac()
+    loaded = rulings.Register(mac, REPO, "brook", tmp_path, REGISTER_LEDGER, {}, drive="brook", host="sprite")
+
+    assert [capture["text"] for capture in rulings.classifiable(loaded, argparse.Namespace(answer=None)).values()] == ["keep the nightly report", "ship it"]
+    assert [capture["text"] for capture in rulings.classifiable(loaded, argparse.Namespace(answer=None)).values()] == ["keep the nightly report", "ship it"]
+    assert mac.asked == [["lr", "owner", "prompts", "--drive", "brook"]]
