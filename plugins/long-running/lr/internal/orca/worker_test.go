@@ -1423,20 +1423,41 @@ func TestAnInstallWaitsForTheOneAlreadyRunningOnItsBox(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	realFlock, err := exec.LookPath("flock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stubs := t.TempDir()
+	reached := filepath.Join(stubs, "reached")
+	if err := syscall.Mkfifo(reached, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stubs, "flock"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" > \""+reached+"\"\nexec '"+realFlock+"' \"$@\"\n"), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+
 	install := exec.Command("sh", "-c", installTools, "sh", cciURL, cciSHA, lrURL, lrSHA, "lr", "--")
-	install.Env = append(os.Environ(), "HOME="+home)
+	install.Env = append(os.Environ(), "HOME="+home, "PATH="+stubs+":"+os.Getenv("PATH"))
 	if err := install.Start(); err != nil {
 		t.Fatal(err)
 	}
 	finished := make(chan error, 1)
 	go func() { finished <- install.Wait() }()
+	locking := make(chan string, 1)
+	go func() {
+		said, _ := os.ReadFile(reached)
+		locking <- string(said)
+	}()
 
 	select {
 	case err := <-finished:
-		t.Fatal("an install ran beside the one holding the box", err)
-	case <-time.After(2 * time.Second):
+		t.Fatal("an install finished without taking the box's lock", err)
+	case said := <-locking:
+		if said != "9\n" {
+			t.Fatalf("the install took the box's lock as flock %q, not a blocking exclusive lock on it", said)
+		}
 	}
-	if present(filepath.Join(bin, "lr")) {
+	if present(filepath.Join(bin, "lr")) || present(filepath.Join(home, ".claude", "plugins", "installed_plugins.json")) {
 		t.Fatal("the waiting install wrote before its turn")
 	}
 	if err := holder.Close(); err != nil {

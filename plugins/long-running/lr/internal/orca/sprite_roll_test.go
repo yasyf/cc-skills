@@ -860,32 +860,41 @@ func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
 }
 
 const fakeServiceSupervisor = `recipe=$1
-while :; do
+start() {
   text=$(cat "$recipe")
-  sh -c "$text" &
+  sh -c "$text" > /dev/null 2>&1 < /dev/null &
   child=$!
-  while [ "$(cat "$recipe")" = "$text" ]; do sleep 0.05; done
-  kill "$child"
-  wait "$child" 2> /dev/null
+  read -r _ < "$HOME/up"
+}
+start
+printf 'started\n' > "$HOME/started"
+while read -r _ < "$HOME/kick"; do
+  if [ "$(cat "$recipe")" != "$text" ]; then
+    kill "$child"
+    wait "$child" 2> /dev/null
+    start
+  fi
+  printf 'done\n' > "$HOME/done"
 done
 `
 
+const kickSupervisor = "#!/bin/sh\nprintf 'kick\\n' > \"$HOME/kick\"\nread -r _ < \"$HOME/done\"\n"
+
 func fakeSupervisedBinary(version string) string {
-	return "#!/bin/sh\nif [ \"$1\" = --version ]; then echo " + version + "; exit 0; fi\nwhile :; do sleep 0.05; done\n"
+	return "#!/bin/sh\nif [ \"$1\" = --version ]; then echo " + version + "; exit 0; fi\nprintf 'up\\n' > \"$HOME/up\"\nread -r _ <> \"$HOME/hold\"\n"
 }
 
 func supervisedRunning(path string) bool {
 	return exec.Command("pgrep", "-f", path+" supervise").Run() == nil
 }
 
-func waitFor(t *testing.T, what string, done func() bool) {
+func fifos(t *testing.T, dir string, names ...string) {
 	t.Helper()
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
-		if done() {
-			return
+	for _, name := range names {
+		if err := syscall.Mkfifo(filepath.Join(dir, name), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	t.Fatal("never saw " + what)
 }
 
 type supervisedInstall struct {
@@ -962,7 +971,9 @@ func TestAnInstallOfCodexAskLeavesItsSuperviseServiceOnThatVersion(t *testing.T)
 		t.Fatal(err)
 	}
 	home, recipe := s.home("codex-ask", image)
+	fifos(t, home, "up", "hold", "started", "kick", "done")
 	supervisor := exec.Command("sh", "-c", fakeServiceSupervisor, "sh", recipe)
+	supervisor.Env = append(os.Environ(), "HOME="+home)
 	supervisor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := supervisor.Start(); err != nil {
 		t.Fatal(err)
@@ -971,9 +982,18 @@ func TestAnInstallOfCodexAskLeavesItsSuperviseServiceOnThatVersion(t *testing.T)
 		_ = syscall.Kill(-supervisor.Process.Pid, syscall.SIGKILL)
 		_ = supervisor.Wait()
 	})
-	waitFor(t, "the image's supervise running", func() bool { return supervisedRunning(image) })
+	if _, err := os.ReadFile(filepath.Join(home, "started")); err != nil {
+		t.Fatal(err)
+	}
+	if !supervisedRunning(image) {
+		t.Fatal("the supervisor started without the image's supervise")
+	}
 
-	path := os.Getenv("PATH")
+	stubs := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stubs, "sleep"), []byte(kickSupervisor), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		t.Fatal(err)
+	}
+	path := stubs + ":" + os.Getenv("PATH")
 	tools := filepath.Join(home, ".local", "share", "cc-remote", "tools")
 	out, err := s.run(home, path, s.tool("codex-ask", "1.14.32")...)
 	if err != nil {
@@ -983,7 +1003,9 @@ func TestAnInstallOfCodexAskLeavesItsSuperviseServiceOnThatVersion(t *testing.T)
 	if !strings.Contains(out, "installed codex-ask-supervise 1.14.32\n") || !supervisedRunning(first) {
 		t.Fatalf("the service did not move to what the install laid down:\n%s", out)
 	}
-	waitFor(t, "the image's supervise stop", func() bool { return !supervisedRunning(image) })
+	if supervisedRunning(image) {
+		t.Fatal("the image's supervise kept running beside the installed one")
+	}
 
 	out, err = s.run(home, path, s.tool("codex-ask", "1.14.33")...)
 	if err != nil {
@@ -993,7 +1015,9 @@ func TestAnInstallOfCodexAskLeavesItsSuperviseServiceOnThatVersion(t *testing.T)
 	if !strings.Contains(out, "installed codex-ask-supervise 1.14.33\n") || !supervisedRunning(second) {
 		t.Fatalf("the next version did not move the service:\n%s", out)
 	}
-	waitFor(t, "the last version's supervise stop", func() bool { return !supervisedRunning(first) })
+	if supervisedRunning(first) {
+		t.Fatal("the last version's supervise kept running beside the next one")
+	}
 	if present(filepath.Dir(first)) {
 		t.Fatal("the last version's copy stayed after the service left it")
 	}
@@ -1048,22 +1072,31 @@ serve)
   mkdir -p "$HOME/.daemonkit/bin"
   cp "$0" "$HOME/.daemonkit/bin/com.yasyf.cc-inbox"
   touch "$HOME/served"
+  mkfifo "$HOME/.daemonkit/up" "$HOME/.daemonkit/hold"
   sh "$HOME/.daemonkit/bin/com.yasyf.cc-inbox" daemon run > /dev/null 2>&1 < /dev/null &
-  until pgrep -f "$HOME/.daemonkit/bin/com.yasyf.cc-inbox daemon run" > /dev/null; do sleep 0.01; done
+  read -r _ < "$HOME/.daemonkit/up"
   ;;
-daemon) while :; do sleep 0.05; done ;;
+daemon)
+  printf 'up\n' > "$HOME/.daemonkit/up"
+  read -r _ <> "$HOME/.daemonkit/hold"
+  ;;
 *) echo cci 0.49.71 ;;
 esac
 `
 
 func superviseCCI(t *testing.T, home string) {
 	t.Helper()
-	supervisor := exec.Command("sh", "-c", "while :; do sleep 0.05; done", filepath.Join(home, ".local", "bin", "cci")+" supervise")
+	supervisor := exec.Command("sh", "-c", "read -r _", filepath.Join(home, ".local", "bin", "cci")+" supervise")
 	supervisor.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	held, err := supervisor.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := supervisor.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_ = held.Close()
 		_ = syscall.Kill(-supervisor.Process.Pid, syscall.SIGKILL)
 		_ = supervisor.Wait()
 		_ = exec.Command("pkill", "-f", filepath.Join(home, ".daemonkit")).Run()

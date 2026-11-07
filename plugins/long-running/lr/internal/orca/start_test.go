@@ -119,6 +119,8 @@ type harness struct {
 	elapsed    *time.Duration
 	ccxRefuses bool
 	ccxQueues  bool
+	stall      string
+	ceilings   []time.Duration
 	posted     []client.Draft
 	records    []client.Record
 	stderr     bytes.Buffer
@@ -292,6 +294,12 @@ func (h *harness) Run(ctx context.Context, c shell.Command) (shell.Result, error
 		return h.orcaTool(c)
 	case "ccx":
 		return h.ccxTool(ctx, c)
+	}
+	if h.stall != "" && slices.Equal(c.Argv, []string{"sh", "-c", h.stall}) {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		h.ceilings = append(h.ceilings, c.Timeout)
+		return shell.Result{Code: shell.CodeTimedOut}, fmt.Errorf("%s: %w", strings.Join(c.Argv, " "), context.DeadlineExceeded)
 	}
 	return shell.Exec{}.Run(ctx, c)
 }
@@ -1222,12 +1230,12 @@ func TestAFailedPrepareCommandAddsToTheBriefCopyACodexLaneAlreadyReads(t *testin
 func TestAPrepareCommandPastItsCeilingIsStoppedAndTheLaunchGoesOn(t *testing.T) {
 	h := newHarness(t)
 	h.healthyClaude()
-	h.env["ORCA_LAUNCH_PREPARE"] = "exec /bin/sleep 60"
+	h.env["ORCA_LAUNCH_PREPARE"] = "make generate"
 	h.env["ORCA_LAUNCH_PREPARE_SECONDS"] = "1"
-	started := time.Now()
+	h.stall = h.env["ORCA_LAUNCH_PREPARE"]
 	h.launched()
-	if time.Since(started) > 30*time.Second {
-		t.Fatal("the ceiling did not stop the command")
+	if !slices.Equal(h.ceilings, []time.Duration{time.Second}) {
+		t.Fatalf("the prepare command ran under ceilings %v, not its 1 s", h.ceilings)
 	}
 	if !strings.Contains(h.readReceipt("lane-a.brief.md"), "## Worktree preparation") {
 		t.Fatal("the worker was not told")
