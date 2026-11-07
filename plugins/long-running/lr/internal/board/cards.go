@@ -570,15 +570,53 @@ func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) er
 	if err != nil {
 		return err
 	}
+	relayed, err := c.relayedAnswers(ctx)
+	if err != nil {
+		fmt.Fprintf(out, "WARNING no card closes on owner-relay's record of his thread answer this pass, since its records did not read: %v\n", err)
+	}
 	for _, card := range shown {
-		if !slices.ContainsFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) && (tapped[card] || inThread(row)) }) {
+		why, flags, err := c.answered(ctx, card, rows, tapped[card], relayed[card])
+		if err != nil {
+			fmt.Fprintf(out, "WARNING %s stays up: its Slack post or thread did not read, and the next pass reads it again: %v\n", card, err)
 			continue
 		}
-		if err := c.sweepOff(ctx, lane, card, known[card], answeredReason, answeredReason, out); err != nil {
+		if why == "" {
+			continue
+		}
+		if err := c.sweepOff(ctx, lane, card, known[card], why, why, out, flags...); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func (c Cards) answered(ctx context.Context, card string, rows []ownerAnswer, tapped bool, relayed time.Time) (string, []string, error) {
+	i := slices.IndexFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) && (tapped || inThread(row)) })
+	switch {
+	case i >= 0 && inThread(rows[i]):
+		ts := threadTS(rows[i])
+		why, flags, err := c.answeredInThread(ctx, card, func(said string, _ time.Time) bool { return said == ts })
+		return cmp.Or(why, answeredReason), flags, err
+	case i >= 0:
+		return answeredReason, nil, nil
+	case tapped || relayed.IsZero():
+		return "", nil, nil
+	}
+	return c.answeredInThread(ctx, card, func(_ string, said time.Time) bool { return !said.After(relayed) })
+}
+
+func (c Cards) relayedAnswers(ctx context.Context) (map[string]time.Time, error) {
+	records, err := c.Tail(ctx, client.Query{Drive: c.Bus, Kinds: []string{ownerKind}, Lanes: []string{communicator}, Since: c.Now().Add(-relayWindow)})
+	if err != nil {
+		return nil, err
+	}
+	relayed := map[string]time.Time{}
+	for _, record := range records {
+		if card := record.Fields.Attrs[lanes.CardAttr]; card != "" && record.Fields.Attrs[rowAttr] == "" {
+			relayed[card] = record.At
+		}
+	}
+	return relayed, nil
 }
 
 func (c Cards) Sweep(ctx context.Context, lane string, out io.Writer) error {
@@ -698,7 +736,7 @@ func (c Cards) Revive(ctx context.Context, lane string, out io.Writer) error {
 	return nil
 }
 
-func (c Cards) sweepOff(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer) error {
+func (c Cards) sweepOff(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer, removeFlags ...string) error {
 	shown, err := c.present(ctx, "outcomes", "--block", card)
 	if err != nil {
 		return err
@@ -718,7 +756,7 @@ func (c Cards) sweepOff(ctx context.Context, lane, card string, prior map[string
 			return nil
 		}
 	}
-	err = c.close(ctx, lane, card, prior, outcome, why, out)
+	_, err = c.close(ctx, lane, card, prior, outcome, why, out, removeFlags...)
 	if err != nil && strings.Contains(err.Error(), boardHoldRefusal) {
 		fmt.Fprintf(out, "HELD %s: the board holds a card he touched, and a later sweep takes it\n", card)
 		return nil
@@ -748,7 +786,7 @@ func (c Cards) retire(ctx context.Context, lane, reason string, named []string, 
 			fmt.Fprintf(out, "UNCHANGED %s: not on the owner's board\n", card)
 			continue
 		}
-		if err := c.close(ctx, lane, card, known[card], reason, reason, out, removeFlags...); err != nil {
+		if _, err := c.close(ctx, lane, card, known[card], reason, reason, out, removeFlags...); err != nil {
 			return err
 		}
 		if err := c.freeTapRow(card); err != nil {
@@ -758,35 +796,35 @@ func (c Cards) retire(ctx context.Context, lane, reason string, named []string, 
 	return nil
 }
 
-func (c Cards) close(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer, removeFlags ...string) error {
+func (c Cards) close(ctx context.Context, lane, card string, prior map[string]string, outcome, why string, out io.Writer, removeFlags ...string) (bool, error) {
 	owed, err := c.unrowed(ctx, card)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(owed) > 0 {
 		fmt.Fprintf(out, "PROBLEM %s: the owner's answer on %s has no ccn answer row; run board_watch.py backfill --session %s --program %s before it leaves the board\n", card, strings.Join(owed, ", "), c.Session, c.Bus)
-		return nil
+		return false, nil
 	}
 	fields := map[string]string{"withdrawn": stamp(c.Now()), "outcome": outcome}
 	if prior[reviveField] != "" {
 		board, err := c.wholeBoard(ctx)
 		if err != nil {
-			return err
+			return false, err
 		}
 		fields[blockField] = string(board.blocks[card])
 	}
 	if _, err := c.present(ctx, append([]string{"remove-block", card, "--reason", why, "--lane", lane, "--take-over"}, removeFlags...)...); err != nil {
-		return err
+		return false, err
 	}
 	if err := c.Withdraw(ctx, lane, card, fmt.Sprintf("Withdrew %s from the owner's board: %s.", card, why)); err != nil {
-		return err
+		return false, err
 	}
 	for name, value := range prior {
 		fields[name] = value
 	}
 	if err := c.record(ctx, card, fields); err != nil {
-		return err
+		return false, err
 	}
 	fmt.Fprintf(out, "WITHDRAWN %s: %s\n", card, outcome)
-	return nil
+	return true, nil
 }
