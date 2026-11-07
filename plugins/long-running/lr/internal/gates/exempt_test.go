@@ -333,7 +333,7 @@ func TestAPortLandsWithNoTapOnlyWhenItsHeadRecordProvesItCleanAndEveryOtherGateH
 		"a head record at an older head proves nothing here":              {"class old-tree-port", portBase, clean, next, true, "port: no head record"},
 		"an unclean port graded as another class stays on the tap rule":   {"class owner-pick", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
 		"a PR with no port claim stays on the tap rule":                   {"class owner-pick", portHead, "", next, true, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
-		"a port marked interacting needs his tap":                         {"class old-tree-port", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "port-interacts=no, so it goes to the owner on one card"},
+		"a port marked interacting needs his tap":                         {"class old-tree-port", portHead, `,"port-of":"49000","port-interacts":"yes"`, next, true, "port-interacts=no, and no fidelity grade of pure port, no interaction stands in"},
 		"a port silent on interaction counts as interacting":              {"class old-tree-port", portHead, `,"port-of":"49000"`, next, true, "port-interacts=no"},
 		"a source that never merged is no port":                           {"class old-tree-port", portHead, clean, next, false, "its source #49000 is not a merged pull request"},
 		"a file outside the next tree is no pure port":                    {"class old-tree-port", portHead, clean, append([]string{"infra/rows/x.ts"}, next...), true, "infra/rows/x.ts is outside go/sand/next/"},
@@ -352,6 +352,40 @@ func TestAPortLandsWithNoTapOnlyWhenItsHeadRecordProvesItCleanAndEveryOtherGateH
 			}
 			if len(refusals) > 0 || !strings.Contains(text, "[exempt: ") {
 				t.Fatalf("got go %q and refusals %q, want a go", text, refusals)
+			}
+		})
+	}
+}
+
+func TestAPortItsBodyOrASilentHeadRecordNamesLandsWithNoTapOnlyWhenFidelityGradesItPure(t *testing.T) {
+	const opening = "Port, old tree to new: dev #49000 (port of #49000)\n\n## Context"
+	next := []string{"go/sand/next/internal/platformapi/oauth.go"}
+	for name, c := range map[string]struct {
+		grade string
+		attrs string
+		body  string
+		want  string
+	}{
+		"#52183: its body names the source and fidelity grades it pure":    {PortGrade, "", opening, ""},
+		"the older port of line counts as its body's port words":           {PortGrade, "", "port of #49000\n\nthe rest", ""},
+		"a head record silent on interaction, graded pure":                 {PortGrade, `,"port-of":"49000"`, "", ""},
+		"its body names the source and fidelity grades it some other port": {"class old-tree-port", "", opening, "no fidelity grade of pure port, no interaction stands in"},
+		"a lane that says it interacts outranks a pure grade":              {PortGrade, `,"port-of":"49000","port-interacts":"yes"`, opening, "port-interacts=no"},
+		"port words past the opening name no source":                       {PortGrade, "", "sand-next: a fix (port of #49000)", "port: no head record at abc1234 carries port-of=<old-tree PR> and its body does not open"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			records := graded(t, c.grade)
+			if c.attrs != "" {
+				records = append(records, headRecord(t, portHead, c.attrs))
+			}
+			read := Read{Records: records, Exempt: Grades(nil, driveClasses, ""), TapRules: driveTaps, Files: next, PortSourceMerged: true, Body: c.body}
+			text, class, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, read)
+			if c.want != "" {
+				refusedWith(t, text, refusals, c.want)
+				return
+			}
+			if len(refusals) > 0 || class != OldTreePortClass {
+				t.Fatalf("got go %q of class %q and refusals %q, want an old-tree-port go past the tap rule", text, class, refusals)
 			}
 		})
 	}
@@ -423,7 +457,7 @@ func TestAPortGoNamesAClassTheBusReadsAsExempt(t *testing.T) {
 
 func TestANewerHeadRecordSayingItInteractsOutranksAnOlderCleanOne(t *testing.T) {
 	records := append(graded(t, "class old-tree-port"), headRecord(t, portHead, `,"port-of":"49000","port-interacts":"no"`), headRecord(t, portHead, `,"port-of":"49000","port-interacts":"yes"`))
-	claim, claimed := PortAt(Claim{Repo: monorepo, PR: portPR, Head: portHead}, records)
+	claim, claimed := PortAt(Claim{Repo: monorepo, PR: portPR, Head: portHead}, Read{Records: records})
 	if !claimed || !claim.Interacts || claim.Source != 49000 {
 		t.Fatalf("got %+v, claimed %v; want the newest record's interacting claim on #49000", claim, claimed)
 	}

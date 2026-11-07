@@ -70,7 +70,7 @@ func TestTheSweepGatesOnlyAGreenApprovedHeadWithNoGoHoldOrTap(t *testing.T) {
 	}
 }
 
-func sweepReads(t *testing.T, heads int) (unchanged, oneChanged int) {
+func sweepReads(t *testing.T, heads int, claimedInBody bool) (unchanged, oneChanged int) {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
@@ -89,8 +89,13 @@ func sweepReads(t *testing.T, heads int) (unchanged, oneChanged int) {
 	snapshot := make([]machine.Facts, heads)
 	for i := range snapshot {
 		number, head := i+1, fmt.Sprintf("%040x", i+1)
-		post(client.Draft{Drive: "d", Lane: "lane-1", Kind: "head", Text: fmt.Sprintf("HEAD #%d", number), PRs: []string{fmt.Sprintf("o/r#%d", number)}, Attrs: map[string]string{fmt.Sprintf("head:%d", number): head, gates.PortOfAttr: "40810"}})
-		snapshot[i] = machine.Facts{Repo: "o/r", Number: number, Head: head, Base: "dev", Lane: "lane-1", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass}
+		attrs, body := map[string]string{fmt.Sprintf("head:%d", number): head, gates.PortOfAttr: "40810"}, ""
+		if claimedInBody {
+			delete(attrs, gates.PortOfAttr)
+			body = "Port, old tree to new: dev #40810 (port of #40810)"
+		}
+		post(client.Draft{Drive: "d", Lane: "lane-1", Kind: "head", Text: fmt.Sprintf("HEAD #%d", number), PRs: []string{fmt.Sprintf("o/r#%d", number)}, Attrs: attrs})
+		snapshot[i] = machine.Facts{Repo: "o/r", Number: number, Head: head, Base: "dev", Lane: "lane-1", CI: machine.CISuccess, Approved: true, Finder: machine.FinderClear, Fidelity: machine.FidelityPass, Body: body}
 	}
 	runner := &shelltest.Fake{}
 	runner.Reply(`[{"number":40810,"state":"MERGED"}]`, "ccx", "vcs", "pr", "status")
@@ -112,14 +117,18 @@ func sweepReads(t *testing.T, heads int) (unchanged, oneChanged int) {
 }
 
 func TestTheSweepReadsAsMuchForManyReadyHeadsAsForOneAndOnlyForWhatChanged(t *testing.T) {
-	oneUnchanged, oneChanged := sweepReads(t, 1)
-	manyUnchanged, manyChanged := sweepReads(t, scaletest.N())
+	for name, claimedInBody := range map[string]bool{"claimed on its head record": false, "claimed by its body's port line": true} {
+		t.Run(name, func(t *testing.T) {
+			oneUnchanged, oneChanged := sweepReads(t, 1, claimedInBody)
+			manyUnchanged, manyChanged := sweepReads(t, scaletest.N(), claimedInBody)
 
-	if oneUnchanged != 0 || manyUnchanged != oneUnchanged {
-		t.Fatalf("a sweep with nothing changed made %d reads at N=1 and %d at N=%d, want none at either", oneUnchanged, manyUnchanged, scaletest.N())
-	}
-	if oneChanged != 1 || manyChanged != oneChanged {
-		t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=%d, want that PR's one read at both", oneChanged, manyChanged, scaletest.N())
+			if oneUnchanged != 0 || manyUnchanged != oneUnchanged {
+				t.Fatalf("a sweep with nothing changed made %d reads at N=1 and %d at N=%d, want none at either", oneUnchanged, manyUnchanged, scaletest.N())
+			}
+			if oneChanged != 1 || manyChanged != oneChanged {
+				t.Fatalf("a sweep after one PR's record made %d reads at N=1 and %d at N=%d, want that PR's one read at both", oneChanged, manyChanged, scaletest.N())
+			}
+		})
 	}
 }
 
@@ -521,6 +530,75 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 			}
 			if len(posted) != 0 || len(refusals) != 1 || !strings.Contains(refusals[0].Text, c.refused) {
 				t.Fatalf("posted %v, refusals %+v; want no go and one refusal saying %q", posted, refusals, c.refused)
+			}
+		})
+	}
+}
+
+func TestAPortWhoseBodyNamesItsSourceLandsOnTheSweepsGoPastItsCardWhenFidelityGradesItPure(t *testing.T) {
+	const head = "345c6838d6e53f330efe065b56535bdb5df7eeac"
+	const body = "Port, old tree to new: dev #52007 (port of #52007)\n\n## Context"
+	for name, c := range map[string]struct {
+		class string
+		grade string
+		lands bool
+	}{
+		"#52183, which fidelity graded a pure port": {gates.ClassOf(gates.PortGrade), "pure port, no interaction: Faithfully ports #52007's Go changes: OAuth providers are team-filtered, and guidance drops Google examples.", true},
+		"a port fidelity graded only as his pick":   {"owner-pick", "his pick", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			ctx := context.Background()
+			s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			for _, draft := range []client.Draft{
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["pure port, no interaction","class owner-pick"],"cards":[{"id":"card-tap-52183-345c683","title":"Tap: #52183, sand-next: Google is a connected app only in a team the google-connected-app-enabled flag names"}]}`}},
+				pipelineOK("o/r#52183", head, c.class, c.grade),
+				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#52183"}, Text: "finder: ok " + head + " luna finder over whole 345c683^..345c683: no majors"},
+				{Drive: "d", Lane: "old-tree-port-desk-15", Kind: "head", Text: "HEAD #52183 345c683", PRs: []string{"o/r#52183"}, Attrs: map[string]string{"head:52183": head}},
+			} {
+				if _, err := client.Post(ctx, draft); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 52183, Head: head, ReadyForTap: true}}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := s.PutFact("o/r", 52183, head, gates.ShownFact, "1", time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			runner := &shelltest.Fake{}
+			runner.Reply("[\"go/sand/next/internal/platformapi/oauth.go\",\"@@ +1 @@\\n+\\treturn providers\"]\n", "ccx", "vcs", "gh", "--max-age", "0s", "--", "api", "--paginate", "repos/o/r/pulls/52183/files")
+			runner.Reply(`[{"number":52007,"state":"MERGED"}]`, "ccx", "vcs", "pr", "status")
+			a := app.New(io.Discard)
+			a.Runner, a.CCX = runner, ccx.CLI{Runner: runner}
+			ready := readyFacts(52183, head)
+			ready.Lane, ready.Body = "old-tree-port-desk-15", body
+			var out bytes.Buffer
+
+			posted, err := SweepGos(ctx, a, config.Config{Drive: "d", Repo: "o/r", Checkout: "/checkout", Trunk: "dev"}, s, []machine.Facts{ready}, time.Now().UTC(), &out)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if !c.lands {
+				if len(posted) != 0 || !strings.Contains(out.String(), "REFUSED #52183 at 345c683: fidelity: no ok grade at 345c683 names an exempt class") {
+					t.Fatalf("posted %v, printed %q; want no go and the refusal naming its class", posted, out.String())
+				}
+				return
+			}
+			if !slices.Equal(posted, []int{52183}) {
+				t.Fatalf("posted %v, printed %q; want the sweep's go past his shown and open card", posted, out.String())
+			}
+			stored, err := s.Facts("o/r", 52183, head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if class, refused := gates.LandsOnWord(stored); class != gates.OldTreePortClass || refused != "" {
+				t.Fatalf("its row reads class %q, refused %q from %v; want it to land on his standing word, so no card asks him", class, refused, stored)
 			}
 		})
 	}

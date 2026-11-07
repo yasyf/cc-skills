@@ -11,6 +11,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
 
@@ -35,6 +36,7 @@ const (
 	PortOfAttr        = bus.PortOfAttr
 	PortInteractsAttr = bus.PortInteractsAttr
 	PortCleanWord     = "no"
+	portMixedWord     = "yes"
 	PortSourceFact    = "port-source"
 	PortOutsideFact   = "port-outside"
 	portSourceMerged  = "merged"
@@ -91,9 +93,9 @@ type PortClaim struct {
 
 func ExemptGo(c Claim, r Read) (string, string, []string) {
 	finder, finderRefusal := finderCite(c, r)
-	port, claimed := PortAt(c, r.Records)
+	port, claimed := PortAt(c, r)
 	flaked := FlakeAt(c, r.Records)
-	portFacts := claimFacts(port, r)
+	portFacts := ClaimFacts(port, r)
 	word := ""
 	switch {
 	case flaked:
@@ -112,7 +114,7 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	case class == FlakeFixClass:
 		classRefused = flakeRefusals(r, gradedTestOnly(c, r))
 	case isPortClass(class) && !claimed:
-		classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr)}
+		classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR> and its body does not open %s#<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr, cardtext.PortOpener)}
 	case isPortClass(class) || claimed && !port.Interacts:
 		classRefused = PortRefusals(portFacts)
 	}
@@ -130,8 +132,8 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	return fmt.Sprintf("go #%d at %s on green [exempt: %s]: %s, %s", c.PR, short(c.Head), class, fidelity, finder), class, nil
 }
 
-func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
-	for _, record := range slices.Backward(records) {
+func PortAt(c Claim, r Read) (PortClaim, bool) {
+	for _, record := range slices.Backward(r.Records) {
 		if !claimRecord(record) || !namesHead(record, c) {
 			continue
 		}
@@ -139,9 +141,21 @@ func PortAt(c Claim, records []client.Record) (PortClaim, bool) {
 		if err != nil {
 			continue
 		}
-		return PortClaim{source, record.Fields.Attrs[PortInteractsAttr] != PortCleanWord, record}, true
+		return PortClaim{source, portInteracts(record.Fields.Attrs[PortInteractsAttr], c, r), record}, true
+	}
+	if source, opens := cardtext.PortSource(r.Body); opens {
+		return PortClaim{Source: source, Interacts: portInteracts("", c, r)}, true
 	}
 	return PortClaim{}, false
+}
+
+func portInteracts(said string, c Claim, r Read) bool {
+	if said != "" {
+		return said != PortCleanWord
+	}
+	pure := slices.DeleteFunc(slices.Clone(r.Exempt), func(phrase string) bool { return ClassOf(phrase) != ClassOf(PortGrade) })
+	lanes, standing := fidelityStanding(c, r.Records)
+	return !slices.Contains(lanes, PipelineLane) || !standing[PipelineLane].ok || gradedPhrase(standing[PipelineLane].record, pure) == ""
 }
 
 func FlakeAt(c Claim, records []client.Record) bool {
@@ -214,7 +228,7 @@ func ExemptGraded(c Claim, r Read) bool {
 
 func TaplessClassAt(c Claim, r Read) bool {
 	word := ""
-	if port, claimed := PortAt(c, r.Records); claimed && len(PortRefusals(claimFacts(port, r))) == 0 {
+	if port, claimed := PortAt(c, r); claimed && len(PortRefusals(ClaimFacts(port, r))) == 0 {
 		word = OldTreePortClass
 	}
 	if FlakeAt(c, r.Records) {
@@ -283,7 +297,7 @@ func LandsOnWord(facts map[string]string) (class, refused string) {
 func PortRefusals(facts map[string]string) []string {
 	var out []string
 	if facts[PortInteractsAttr] != PortCleanWord {
-		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord))
+		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, and no fidelity grade of %s stands in for a record silent on it, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord, PortGrade))
 	}
 	if source := facts[PortSourceFact]; source != "" && source != portSourceMerged {
 		out = append(out, fmt.Sprintf("port: its source #%s is not a merged pull request, and no commit on trunk names it", facts[PortOfAttr]))
@@ -300,7 +314,7 @@ var refusalWords = []struct {
 }{
 	{regexp.MustCompile(`^port: its source #(\d+) is not a merged pull request.*`), "its source #$1 has not merged yet, and your approval lands this port anyway"},
 	{regexp.MustCompile(`^port: (.+) is outside \S+, so it is no pure port.*`), "it changes $1 outside the old tree, so it is no pure port and lands on your approval"},
-	{regexp.MustCompile(`^port: its head record does not read .*`), "its lane did not say it touches nothing past its old-tree change, so it lands on your approval"},
+	{regexp.MustCompile(`^port: its head record does not read .*`), "neither its lane nor fidelity said it touches nothing past its old-tree change, so it lands on your approval"},
 }
 
 // RefusalWords says a standing-word refusal as he reads it beside his
@@ -349,11 +363,11 @@ func OldTreeFile(files []string) string {
 	return ""
 }
 
-func claimFacts(port PortClaim, r Read) map[string]string {
+func ClaimFacts(port PortClaim, r Read) map[string]string {
 	facts := PortEvidence(r.PortSourceMerged, r.Files)
-	facts[PortOfAttr] = strconv.Itoa(port.Source)
-	if !port.Interacts {
-		facts[PortInteractsAttr] = PortCleanWord
+	facts[PortOfAttr], facts[PortInteractsAttr] = strconv.Itoa(port.Source), PortCleanWord
+	if port.Interacts {
+		facts[PortInteractsAttr] = portMixedWord
 	}
 	return facts
 }

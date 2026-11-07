@@ -54,7 +54,8 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 		"#50285, a clean port the first grader calls test-only":      {[]string{testOnly, purePort}, clean, true, []string{testFile}, prrow.PortLands, ""},
 		"#50292, a clean port whose only fidelity is an override":    {[]string{"fidelity: missing " + surfaceHead + " a doc line", "fidelity-override #4242 at abc1234: 3. Port of #48435."}, clean, true, []string{iris}, prrow.PortLands, ""},
 		"a port its record says interacts lands on his tap":          {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435", gates.PortInteractsAttr: "yes"}, true, []string{iris}, "", "port-interacts=no"},
-		"a port silent on interaction lands on his tap":              {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, "", "port-interacts=no"},
+		"a port silent on interaction that fidelity grades pure":     {[]string{purePort}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, prrow.PortLands, ""},
+		"a port silent on interaction graded only a twin":            {[]string{twin}, map[string]string{gates.PortOfAttr: "48435"}, true, []string{iris}, "", "tap rule rule/82317b0"},
 		"a port whose source never merged lands on his tap":          {[]string{purePort}, clean, false, []string{iris}, "", "its source #48435 is not a merged pull request"},
 		"a port with a file outside the next tree lands on his tap":  {[]string{purePort}, clean, true, []string{"infra/rows/x.ts", iris}, "", "infra/rows/x.ts is outside go/sand/next/"},
 		"no claim at all stays on the tap rule":                      {[]string{twin}, nil, true, []string{iris}, "", "tap rule rule/82317b0"},
@@ -86,10 +87,11 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 				patches[file] = &patch
 			}
 			claim := gates.Claim{Repo: repo, PR: surfacePR, Head: surfaceHead}
-			text, _, refusals := gates.ExemptGo(claim, gates.Read{
+			read := gates.Read{
 				Records: records, Exempt: gates.Grades(nil, []string{"class twin", "class old-tree-port"}, ""),
 				TapRules: map[string][]string{"rule/82317b0": {"go/sand/next/*"}}, Files: c.files, Patches: patches, PortSourceMerged: c.sourceMerged,
-			})
+			}
+			text, _, refusals := gates.ExemptGo(claim, read)
 			said := strings.Join(refusals, "; ")
 			if c.goRefuses == "" && (said != "" || !strings.Contains(text, "[exempt: ")) {
 				t.Fatalf("the go said %q and refused %q, want a go", text, said)
@@ -98,9 +100,9 @@ func TestTheRowTheGoTheGateAndTheTapPathReadOneHeadTheSameWay(t *testing.T) {
 				t.Fatalf("the go refused %q, want it to name %q", said, c.goRefuses)
 			}
 
-			port, claimed := gates.PortAt(claim, records)
+			port, claimed := gates.PortAt(claim, read)
 			if claimed {
-				for kind, value := range gates.PortEvidence(c.sourceMerged, c.files) {
+				for kind, value := range gates.ClaimFacts(port, read) {
 					stored[kind] = value
 				}
 			}
