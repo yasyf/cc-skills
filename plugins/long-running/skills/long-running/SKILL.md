@@ -218,8 +218,7 @@ reaches the coordinator first gets `lr incident run <slug> --fix-brief <file>` b
 else, with no real-or-not verdict and no mute treated as resolution. Fixes land forward; a rollback
 runs only on the owner's own word, and only his explicit order mutes an alert. Each incident has one actor; the full rule is in [active-alert-brief.md](reference/active-alert-brief.md).
 
-**R17.** An owner routing instruction applies to the next spawn and to every live lane on that
-problem, the turn it arrives.
+**R17.** An owner routing instruction applies to the next spawn and to every live lane on that problem, the turn it arrives. His words on a live item steer it and never end it: only his own stop, drop or not needed ends one, and a deep dive, report or plan he ordered ends in the fixes it found ([owner-rulings.md](reference/owner-rulings.md#his-words-steer-a-live-item-r17)).
 
 **R18.** A ruling reaches a lane the way it reads: Orca lanes by `lr relay`, a desk by a record
 addressed to it, an Agent lane by a record it reads at its next tool call. A stand-down is
@@ -255,12 +254,6 @@ turn; incident lanes read its last day before naming a mechanism. No lane calls 
 happen by names the lane that meets it and the steps, and the pack refuses one without them.
 
 **R26.** An owner pick is acted on in the pass that reads his tap. A later send, merge, run, install or restart under it first gets a fresh record from the lane that owns the ask saying its purpose is still unmet, the thing still undone and the text or change still right, and the verb that acts refuses without one. An unfinished or overdue pick is a question to that lane, never an order to act; a tapped PR meets this through its lane's ready record at the head that lands. The pass, the owner and the record are in [watchers.md](reference/watchers.md#owner-picks-after-their-pass).
-
-**R27.** His words on a live item steer it and never end it. A question, a narrowing, a "too
-aggressive" or a pick on one part keeps the item running at its full scope until his own words say
-stop, drop or not needed; a lane or the communicator that reads an end out of anything else asks him
-first and keeps working meanwhile. A deep dive, report or plan he ordered ends only in the fixes it
-found, each linked, or in his word dropping one.
 
 ## Phase 0: the standing sessions
 
