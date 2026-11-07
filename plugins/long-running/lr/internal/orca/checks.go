@@ -49,6 +49,7 @@ var (
 	fableModel    = regexp.MustCompile(`(?i)(^|[-_.])fable([-_.0-9]|$)`)
 	successorLane = regexp.MustCompile(`^.+-(\d+)$`)
 	quotedOwner   = regexp.MustCompile(`(?m)^[ \t>*-]*Owner\b.*$`)
+	forbiddenCode = regexp.MustCompile("(?i)\\b(?:never|not|no|don't)(?:[ \t]+(?:run|use))?[ \t]+`[^`\n]+`")
 	briefCode     = regexp.MustCompile("`[^`\n]+`|(?ms:^[ \t]*```.*?^[ \t]*```)")
 	boxOrder      = regexp.MustCompile(`\bci (?:devbox|mac-box)[ \t]+[a-z][\w-]*|\bdevbox create\b`)
 	cloneToken    = regexp.MustCompile(`\bdevbox (claim|git-token)\b|\b(heartbeat)\b.*--git-token\b`)
@@ -287,7 +288,7 @@ func cloneTokenFault(brief, text string) string {
 }
 
 func briefOwnLines(text string) string {
-	return quotedOwner.ReplaceAllString(carry.QuotedRows.ReplaceAllString(text, ""), "")
+	return forbiddenCode.ReplaceAllString(quotedOwner.ReplaceAllString(carry.QuotedRows.ReplaceAllString(text, ""), ""), "")
 }
 
 func claudeWithoutSentry(lane, model, text string) string {

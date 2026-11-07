@@ -65,6 +65,8 @@ func TestABriefThatClaimsADevboxWithTheOwnersGitHubTokenIsRefused(t *testing.T) 
 		"a refresh with the app token":             {"`tools/ci devbox git-token box-1 --git-token-env GIT_TOKEN`\n", "", ""},
 		"a heartbeat with no token":                {"`tools/ci devbox heartbeat box-1`\n", "", ""},
 		"a claim only the slice quotes":            {"Reproduce item 84 on the box.\n", "", ""},
+		"a claim the brief forbids":                {"Claim one devbox (never `ci devbox claim --gh`).\n", "", ""},
+		"a forbidden flag beside an ordered claim": {"Never use `--gh`; claim with `tools/ci devbox claim --gh`.\n", "devbox claim", gh},
 	} {
 		t.Run(name, func(t *testing.T) {
 			var want []string
