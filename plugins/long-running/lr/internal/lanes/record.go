@@ -3,6 +3,7 @@ package lanes
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -155,6 +156,27 @@ func spawnedBy(r Record) (Spawn, bool) {
 		Model: or(r.Attr("model"), "opus"), Effort: or(r.Attr("effort"), "high"), Role: r.Attr("role"),
 		Placement: r.Attr("placement"), SuccessorOf: r.Attr("successor-of"),
 	}, true
+}
+
+func registeredBy(r Record, state string) (Spawn, bool) {
+	if r.Kind != "state" || !strings.HasSuffix(r.Text, firstCommand) || slices.Contains([]string{mainLane, Self, runner}, r.Lane) || strings.HasSuffix(r.Lane, "-handoff") {
+		return Spawn{}, false
+	}
+	for _, session := range standingSessions {
+		if session.lane == r.Lane {
+			return Spawn{}, false
+		}
+	}
+	brief := filepath.Join(state, r.Lane, "brief.md")
+	said := must(BriefOf(brief))
+	if !briefExists(brief) || slices.Contains(helperRoles, said.Role) && said.Standing == "" {
+		return Spawn{}, false
+	}
+	placement := ""
+	if r.Origin != "" {
+		placement = placedOnSprite
+	}
+	return Spawn{Name: r.Lane, Brief: brief, Model: "opus", Effort: "high", Role: said.Role, Placement: placement}, true
 }
 
 func isRequest(r Record) bool {

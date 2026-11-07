@@ -231,9 +231,20 @@ func fold(s *store.Store, records []Record, adoptable map[string]bool, briefs st
 			foldSpawn(s, r, spawn, adoptable, fresh, at, briefs, &out)
 			continue
 		}
+		if spawn, ok := registeredBy(r, d.State); ok {
+			foldRegistration(s, spawn, adoptable, fresh, at, &out)
+		}
 		foldRecord(s, r, late, fresh, at, &out)
 	}
 	return out
+}
+
+func foldRegistration(s *store.Store, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, out *folded) {
+	if _, known := laneOf(s, spawn.Name); known || fresh && !adoptable[spawn.Name] {
+		return
+	}
+	must(s.WantLane(store.Lane{Name: spawn.Name, Brief: spawn.Brief, Model: spawn.Model, Effort: spawn.Effort, Role: or(spawn.Role, "lane"), State: store.LaneDesired, Placement: spawn.Placement, Standing: inheritedDuty(s, spawn.Name, spawn.Brief, "")}, at))
+	out.adopted = append(out.adopted, spawn.Name)
 }
 
 func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool, fresh bool, at time.Time, briefs string, out *folded) {
@@ -271,6 +282,11 @@ func foldSpawn(s *store.Store, r Record, spawn Spawn, adoptable map[string]bool,
 			out.adopted = append(out.adopted, name)
 		} else {
 			do(s.SetLaneLaunch(name, spawn.Model, spawn.Effort, spawn.Placement))
+			if registered, _ := laneOf(s, name); registered.Launcher == "" && registered.Predecessor == "" {
+				do(s.SetLaneLauncher(name, r.Lane))
+				do(s.SetLaneRole(name, or(role, registered.Role)))
+				do(s.SetLaneStanding(name, or(duty, registered.Standing)))
+			}
 		}
 	}
 }

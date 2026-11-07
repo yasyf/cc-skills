@@ -857,6 +857,64 @@ func TestALaneSpawnedAfterAdoptionIsWatchedFromItsLaunch(t *testing.T) {
 	equal(t, row(t, s, "fidelity-desk-14").State, store.LaneDesired)
 }
 
+func TestALaneThatRegistersWithNoRowIsAdoptedFromItsBriefUnlessItIsAHelper(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.deps.State = t.TempDir()
+	briefs := map[string]string{"turn-error-91-fix-1": "ccx: role=fix place=remote\n", "turn-error-91-evidence-1": "ccx: role=evidence place=local why=datadog\n", "port-audit-1": "# port audit\n"}
+	for lane, text := range briefs {
+		path := filepath.Join(f.deps.State, lane, "brief.md")
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	onSprite := rec(2, "turn-error-91-fix-1", "state", t0, "turn-error-91-fix-1"+firstCommand)
+	onSprite.Origin = "79af6f75210100fe"
+	f.feed = append(f.feed, onSprite, rec(3, "turn-error-91-evidence-1", "state", t0, "turn-error-91-evidence-1"+firstCommand), rec(4, "port-audit-1", "state", t0, "port-audit-1"+firstCommand), rec(5, lane2, "state", t0, lane2+firstCommand), rec(6, "no-brief-1", "state", t0, "no-brief-1"+firstCommand))
+	f.peers = append(f.peers, who("turn-error-91-fix-1", true, t0), who("turn-error-91-evidence-1", true, t0), who("port-audit-1", true, t0), who("no-brief-1", true, t0))
+
+	out := tick(t, s, f, t0)
+
+	equal(t, out.Adopted, []string{"turn-error-91-fix-1", "port-audit-1"})
+	fix, audit := row(t, s, "turn-error-91-fix-1"), row(t, s, "port-audit-1")
+	equal(t, []any{fix.State, fix.Brief, fix.Model, fix.Effort, fix.Role, fix.Placement}, []any{store.LaneDesired, filepath.Join(f.deps.State, "turn-error-91-fix-1", "brief.md"), "opus", "high", "fix", placedOnSprite})
+	equal(t, []any{audit.State, audit.Role, audit.Placement}, []any{store.LaneDesired, "lane", ""})
+	equal(t, row(t, s, lane2).Effort, "xhigh")
+	for _, name := range []string{"turn-error-91-evidence-1", "no-brief-1"} {
+		if _, found, _ := s.Lane(name); found {
+			t.Fatalf("%s was adopted", name)
+		}
+	}
+	equal(t, len(f.launches)+len(f.posts), 0)
+}
+
+func TestASpawnedRecordAfterARegistrationSetsTheLauncherRoleAndCostOfTheAdoptedRow(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "")
+	f.deps.State = t.TempDir()
+	brief := filepath.Join(f.deps.State, "board-audit-1", "brief.md")
+	if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(brief, []byte("# board audit\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.feed = append(f.feed, rec(2, "board-audit-1", "state", t0, "board-audit-1"+firstCommand))
+	f.peers = append(f.peers, who("board-audit-1", true, t0))
+	tick(t, s, f, t0)
+	spawn := spawned(3, "board-audit-1", brief, t0.Add(mins(7)), map[string]string{"model": "sol", "effort": "high", "role": "read", "placement": "orca"})
+	spawn.Lane = "meta-desk-3"
+	f.feed = append(f.feed, spawn)
+
+	tick(t, s, f, t0.Add(mins(8)))
+
+	audit := row(t, s, "board-audit-1")
+	equal(t, []any{audit.State, audit.Launcher, audit.Role, audit.Model, audit.Placement}, []any{store.LaneDesired, "meta-desk-3", "read", "sol", "orca"})
+}
+
 func TestASuccessorThatNeverComesUpEscalatesOnce(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46001)
