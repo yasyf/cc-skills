@@ -106,7 +106,7 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil)}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil)}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)
