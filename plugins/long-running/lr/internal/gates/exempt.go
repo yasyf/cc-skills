@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	kindHold     = "hold"
 	closedStatus = "closed"
 	finderKind   = "finder"
 	fidelityKind = "fidelity"
@@ -558,7 +557,7 @@ func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string 
 	}
 	var out []string
 	for _, record := range records {
-		if string(record.Kind) == kindHold && !closed[record.Seq] && record.Status != closedStatus && !lifts[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
+		if bus.HoldGates(record) && !closed[record.Seq] && record.Status != closedStatus && !lifts[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
 			out = append(out, fmt.Sprintf("hold %s by %s is open", record.Name(), record.Lane))
 		}
 	}

@@ -248,7 +248,7 @@ func TestCollectSplitsOneDayOfRecordsIntoEachSectionAndReadsHoldsOfAnyAge(t *tes
 	yesterday := record(5, "api-fix", "incident", "old", 23*60)
 	closing := record(6, "root", "decide", "INCIDENT api CLOSED", 5)
 	release := record(7, "rel-1", "release", "started", 5)
-	hold := record(8, "root", "hold", "hold #48401 until the fix", 72*60)
+	hold := record(8, "owner", "hold", "hold #48401 until the fix", 72*60)
 	hold.Status, hold.PRs = "open", []string{"48401"}
 	in, err := Collect(context.Background(), src([]Lane{heard("ship-2", "desired", 5)}, []Record{ask, answered, toPeer, incident, yesterday, closing, release, hold}, nil, nil), testDrive, now)
 	if err != nil {
@@ -279,12 +279,13 @@ func seqs(records []Record) []int64 {
 	return out
 }
 
-func TestAHoldHoldsEveryPRItWasPostedWithAndNoneItsTextCites(t *testing.T) {
-	cites := Record{Seq: 1, Kind: "hold", Status: "open", Text: "HOLD #7 because of #8", PRs: []string{"9"}}
-	refs := Record{Seq: 2, Kind: "hold", Status: "open", Text: "stop these", PRs: []string{"org/x#10", "11"}}
-	closed := Record{Seq: 3, Kind: "hold", Status: "resolved", Text: "hold #12", PRs: []string{"12"}}
+func TestOnlyHisHoldOrOneNamingAFailureHoldsEveryPRItWasPostedWithAndNoneItsTextCites(t *testing.T) {
+	cites := Record{Seq: 1, Lane: "owner", Kind: "hold", Status: "open", Text: "HOLD #7 because of #8", PRs: []string{"9"}}
+	refs := Record{Seq: 2, Lane: "supervisor", Kind: "hold", Status: "open", Text: "stop these", PRs: []string{"org/x#10", "11"}, Attrs: map[string]string{"breaks": "the cutover deletes what they read"}}
+	closed := Record{Seq: 3, Lane: "owner", Kind: "hold", Status: "resolved", Text: "hold #12", PRs: []string{"12"}}
+	lanes := Record{Seq: 450329, Lane: "run-search-shape", Kind: "hold", Status: "open", Text: "until #49305 lands", PRs: []string{"50011"}}
 	want := map[string]int64{"9": 1, "10": 2, "11": 2}
-	if got := heldPRs([]Record{cites, refs, closed}); !reflect.DeepEqual(got, want) {
+	if got := heldPRs([]Record{cites, refs, closed, lanes}); !reflect.DeepEqual(got, want) {
 		t.Fatalf("held = %v", got)
 	}
 }

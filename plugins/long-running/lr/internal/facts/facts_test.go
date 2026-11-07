@@ -827,39 +827,75 @@ func TestTheBatchedReadTakesMergeabilityAndTheQueueFromGitHub(t *testing.T) {
 	}
 }
 
-func TestACutoverHoldComesThroughWithItsReason(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 49428, head: head, login: "drive-bot"}, {number: 49307, head: head2, login: "drive-bot"}}, status(49428), status(49307))
-	for lane, text := range map[string]string{
-		"cutover-deletion-sweep-4": "Hold #49428: deletes the run takeover; held until plan 12.0 reads true",
-		"root":                     "hold #49307 until the old-route warn lines have stopped",
-	} {
-		number := "49428"
-		if lane == "root" {
-			number = "49307"
-		}
-		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{number}}); err != nil {
+func TestAHoldHeDidNotPlaceGatesNothingAndShowsOnNoRow(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 50011, head: head, login: "drive-bot"}, {number: 50314, head: head2, login: "drive-bot"}, {number: 49428, head: head3, login: "drive-bot"}},
+		status(50011), status(50314, func(r *statusRow) { r.Head = head2 }), status(49428, func(r *statusRow) { r.Head = head3 }))
+	hold(t, "run-search-shape", "until #49305 lands", repo+"#50011")
+	hold(t, "root", "hold #50314: copy pass first", repo+"#50314")
+	hold(t, "cutover-deletion-sweep-4", "Hold #49428: deletes the run takeover; held until plan 12.0 reads true", repo+"#49428")
+
+	by := h.snapshot(t)
+
+	for _, number := range []int{50011, 50314, 49428} {
+		row, _, err := h.store.ReviewRow(repo, number)
+		if err != nil {
 			t.Fatal(err)
 		}
+		if by[number].Hold != "" || row.Hold != prrow.None {
+			t.Fatalf("#%d: hold %q, row hold %q; want a hold he did not place to gate nothing and show nowhere", number, by[number].Hold, row.Hold)
+		}
 	}
-
-	h.snapshot(t)
-
-	cutover, _, err := h.store.ReviewRow(repo, 49428)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(cutover.Hold, "cutover:deletes the run takeover; held until plan 12.0 reads true (record #") || cutover.ReadyForTap || !strings.Contains(cutover.WaitsOn, "cutover:") {
-		t.Fatalf("cutover row = %+v", cutover)
-	}
-	root, _, err := h.store.ReviewRow(repo, 49307)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(root.Hold, "root:until the old-route warn lines have stopped (record #") {
-		t.Fatalf("root hold = %q", root.Hold)
+	if decides := breaksDecides(t); len(decides) != 0 {
+		t.Fatalf("decides = %+v, want none for holds that name no failure", decides)
 	}
 }
 
+func TestAHoldNamingAFailureAsksHimOnceAndHisLandItEndsItAtOnce(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	held := breaksHold(t, "root", "hold #1 until the api cut is live", repo+"#1")
+
+	h.snapshot(t)
+	before := h.snapshot(t)[1]
+
+	decides := breaksDecides(t)
+	if before.Hold != machine.MoverRoot || len(decides) != 1 || decides[0].Re != held.Seq || !strings.Contains(decides[0].Text, "landing it now breaks production: "+breaksWords) {
+		t.Fatalf("hold %q, decides %+v; want it held and one decide to owner-relay naming the failure", before.Hold, decides)
+	}
+	row, _, err := h.store.ReviewRow(repo, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(row.Hold, breaksWords) {
+		t.Fatalf("row hold = %q, want the failure he reads", row.Hold)
+	}
+	if _, err := (bus.Bus{Drive: "d", Lane: facts.OrderLane}).PostOrder(context.Background(), bus.Tap{PR: 1, Head: head, By: bus.OwnerBy, Value: string(machine.TapTapped)}, client.Record{ID: "land-it"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if after := h.snapshot(t)[1]; after.Hold != "" {
+		t.Fatalf("hold = %q after his land-it, want it gone", after.Hold)
+	}
+}
+
+const breaksWords = "the api cut ships it before its reader"
+
+func breaksHold(t *testing.T, lane, text, pr string) client.Record {
+	t.Helper()
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}, Attrs: map[string]string{bus.BreaksAttr: breaksWords}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return record
+}
+
+func breaksDecides(t *testing.T) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"decide"}, Lanes: []string{bus.SweepLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.DeleteFunc(records, func(record client.Record) bool { return !slices.Contains(record.To, "owner-relay") })
+}
 func TestBackfillPostsOneOpenedRecordPerOpenPRItFindsThroughOwnersAndRows(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 1, head: head, login: "drive-bot", branch: "one", body: "## Summary\n\nA user sees it.\n", unopened: true},
@@ -1966,33 +2002,6 @@ func TestOnlyAnExemptGoTheGatePostedInAClassHisRulingsLandUntappedMarksItsPRExem
 	}
 }
 
-func TestALaterRootGoLiftsARootHoldAtAnyHeadSoARestackDoesNotRestallThePR(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 48401, head: head, login: "drive-bot"}, {number: 2, head: head, login: "drive-bot"}}, status(48401), status(2))
-	hold(t, "root", "hold #48401 until the audit", repo+"#48401")
-	goRecord(t, "root", "go #48401 at e718a74")
-	hold(t, "root", "hold #2 for now", repo+"#2")
-	goRecord(t, "root", "go #2 at aa11bb2")
-
-	by := h.snapshot(t)
-
-	if by[48401].Hold != "" || by[2].Hold != "" {
-		t.Fatalf("holds = %q, %q after a later go", by[48401].Hold, by[2].Hold)
-	}
-}
-
-func TestAGoLanesExemptGoLeavesARootHoldStanding(t *testing.T) {
-	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-	h.source.GoLanes = []string{"landing-desk"}
-	hold(t, "root", "hold #1 for now", repo+"#1")
-	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: test-only]")
-
-	row := h.snapshot(t)[1]
-
-	if row.Hold != machine.MoverRoot || !row.Exempt {
-		t.Fatalf("hold = %q, exempt = %v; want the coordinator's hold and the exempt class", row.Hold, row.Exempt)
-	}
-}
-
 func TestAWithdrawnExemptGoStopsCountingAndALaterGoCountsAgain(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.GoLanes = []string{"landing-desk"}
@@ -2028,43 +2037,6 @@ func TestAWithdrawalFromALaneWithNoSayLeavesTheExemptGo(t *testing.T) {
 	}
 }
 
-func TestAHoldStandsAgainstEveryGoThatIsNotALaterLiveRootGo(t *testing.T) {
-	for name, setup := range map[string]func(t *testing.T){
-		"a go before the hold": func(t *testing.T) {
-			goRecord(t, "root", "go #1 at e718a74")
-			hold(t, "root", "hold #1 after all", repo+"#1")
-		},
-		"a go by a lane": func(t *testing.T) {
-			hold(t, "root", "hold #1 for now", repo+"#1")
-			goRecord(t, "lane-7", "go #1 at e718a74")
-		},
-		"the landing runner's go on a tap": func(t *testing.T) {
-			hold(t, "root", "hold #1 for now", repo+"#1")
-			goRecord(t, "desk-runner", "go #1 at e718a74")
-		},
-		"a go naming another PR": func(t *testing.T) {
-			hold(t, "root", "hold #1 for now", repo+"#1")
-			goRecord(t, "root", "go #2 at e718a74")
-		},
-		"a withdrawn go": func(t *testing.T) {
-			hold(t, "root", "hold #1 for now", repo+"#1")
-			g := goRecord(t, "root", "go #1 at e718a74")
-			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "withdraw", Text: "not yet", Re: g.Seq}); err != nil {
-				t.Fatal(err)
-			}
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
-			setup(t)
-
-			if row := h.snapshot(t)[1]; row.Hold != machine.MoverRoot {
-				t.Fatalf("hold = %q, want the coordinator", row.Hold)
-			}
-		})
-	}
-}
-
 func TestARootGoNeverLiftsTheOwnersHoldAndTheRowNamesTheOwnersRecord(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	owner := hold(t, "owner", "hold #1 for me", repo+"#1")
@@ -2078,7 +2050,7 @@ func TestARootGoNeverLiftsTheOwnersHoldAndTheRowNamesTheOwnersRecord(t *testing.
 
 func TestAHoldThatLiftsAnEarlierHoldHoldsNothingAndOneThatAnswersAnAskStillHolds(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}}, status(1), status(2))
-	first := hold(t, "root", "hold #1 for now", repo+"#1")
+	first := breaksHold(t, "root", "hold #1 for now", repo+"#1")
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "lift: the rework is done", PRs: []string{repo + "#1"}, Resolves: first.Seq}); err != nil {
 		t.Fatal(err)
 	}
@@ -2086,7 +2058,7 @@ func TestAHoldThatLiftsAnEarlierHoldHoldsNothingAndOneThatAnswersAnAskStillHolds
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "yes, it waits", PRs: []string{repo + "#2"}, Resolves: ask.Seq}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "yes, it waits", PRs: []string{repo + "#2"}, Resolves: ask.Seq, Attrs: map[string]string{bus.BreaksAttr: breaksWords}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2100,7 +2072,7 @@ func TestAHoldThatLiftsAnEarlierHoldHoldsNothingAndOneThatAnswersAnAskStillHolds
 func TestAHoldHoldsEveryPRItWasPostedWithWhateverItsTextLeadsWith(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}, {number: 2, head: head2, login: "drive-bot"}},
 		status(1), status(2, func(r *statusRow) { r.Head = head2 }))
-	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #1 because #2 landed badly", PRs: []string{repo + "#1", repo + "#2"}}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #1 because #2 landed badly", PRs: []string{repo + "#1", repo + "#2"}, Attrs: map[string]string{bus.BreaksAttr: breaksWords}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2118,13 +2090,13 @@ func TestAHoldNamesWhoLiftsItAndALiftedOneHoldsNothing(t *testing.T) {
 		{number: 46038, head: head3, login: "drive-bot"},
 		{number: 50000, head: fmt.Sprintf("%040x", 5), login: "drive-bot"},
 	}, status(45821), status(30388, func(r *statusRow) { r.Head = head2 }), status(46038, func(r *statusRow) { r.Head = head3 }), status(50000))
-	hold(t, "root", "hold #45821 until the audit", repo+"#45821")
+	breaksHold(t, "root", "hold #45821 until the audit", repo+"#45821")
 	hold(t, "owner", "hold #30388 for me", "30388")
-	lifted := hold(t, "root", "hold #46038 for now", repo+"#46038")
+	lifted := breaksHold(t, "root", "hold #46038 for now", repo+"#46038")
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "lift", Text: "lift #46038", Re: lifted.Seq, PRs: []string{repo + "#46038"}}); err != nil {
 		t.Fatal(err)
 	}
-	hold(t, "root", "hold #50000 in the other repository", "other/repo#50000")
+	breaksHold(t, "root", "hold #50000 in the other repository", "other/repo#50000")
 
 	by := h.snapshot(t)
 
@@ -2168,12 +2140,15 @@ func TestAWriterNamingItsReaderIsHeldForTheCoordinatorAndNeverQueuedThoughTapped
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.ReadyForTap || !strings.Contains(row.Hold, "readers-first: #51542 not live on every client") {
+	if row.ReadyForTap || !strings.Contains(row.Hold, "#51547 writes a format that a client still on a build without #51542 cannot read") {
 		t.Fatalf("row = %+v, want it held on #51542 and drawing no card", row)
 	}
 	h.snapshot(t)
 	if holds := readersFirstHolds(t); len(holds) != 1 || holds[0].ID != "readers-first/51547/51542" {
 		t.Fatalf("holds = %+v, want the one keyed hold however many passes read the body", holds)
+	}
+	if decides := breaksDecides(t); len(decides) != 1 || !strings.Contains(decides[0].Text, "#51547 writes a format") {
+		t.Fatalf("decides = %+v, want one decide for the writer and reader pair however many passes read it", decides)
 	}
 }
 
@@ -2649,7 +2624,7 @@ func TestANewHoldReadsOnlyTheHeldAndQueuedPRsHoweverManyRowsExist(t *testing.T) 
 		if err := h.store.PutReviewRows(seeded); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #7 stop it", PRs: []string{"7"}}); err != nil {
+		if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #7 stop it", PRs: []string{"7"}, Attrs: map[string]string{bus.BreaksAttr: breaksWords}}); err != nil {
 			t.Fatal(err)
 		}
 
@@ -2772,7 +2747,7 @@ func TestAnExemptHeadLandsAndReadsNotTappedAndAHeadHeTappedReadsTapped(t *testin
 	}
 }
 
-func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
+func TestAHoldNamingAFailureOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.Reads = false
 	h.source.GoLanes = []string{"landing-desk"}
@@ -2782,7 +2757,7 @@ func TestAHoldOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 	for kind, value := range map[string]string{"read-ci": prrow.CIGreen, "read-approvers": "a", "read-mergeable": string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)} {
 		putFact(t, h.store, 1, head, kind, value, tappedAt)
 	}
-	hold(t, "root", "hold #1 for now", repo+"#1")
+	breaksHold(t, "root", "hold #1 for now", repo+"#1")
 	gatedGo(t, "landing-desk-3", "go #1 at "+head+" on green [exempt: test-only]")
 
 	row := h.snapshot(t)[1]

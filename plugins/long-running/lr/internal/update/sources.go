@@ -89,7 +89,7 @@ func waitingOnRoot(records []Record) []Record {
 func heldPRs(records []Record) map[string]int64 {
 	held := map[string]int64{}
 	for _, record := range records {
-		if record.Kind != kindHold || record.Status != statusOpen {
+		if record.Kind != kindHold || record.Status != statusOpen || record.Lane != bus.OwnerBy && record.Attrs[bus.BreaksAttr] == "" {
 			continue
 		}
 		for _, pr := range record.PRs {

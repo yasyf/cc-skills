@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -24,7 +25,7 @@ func holdWatch(s *store.Store, q *queue, read func(context.Context, []int) ([]ma
 
 func hold(t *testing.T, numbers ...string) client.Record {
 	t.Helper()
-	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "stop this landing", PRs: numbers})
+	record, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "stop this landing", PRs: numbers, Attrs: map[string]string{bus.BreaksAttr: "the cutover deletes what it reads"}})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -679,8 +679,8 @@ func TestAPickOfABranchBuiltBeforeItsPROpensOrdersThatPROnceItOpensAndOnlyOnce(t
 
 func TestHisTapOnAHeldRowIsOrderedAtItsHeadAndTheHoldStillKeepsItFromTheQueue(t *testing.T) {
 	h := unreadHarness(t)
-	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Hold = "root:the cutover" })
-	hold(t, "root", "hold #4242 the cutover", strconv.Itoa(surfacePR))
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Hold = "owner:the owner rejected this head on the board" })
+	hold(t, "owner", "hold #4242 at abc1234: the owner rejected this head on the board", strconv.Itoa(surfacePR))
 	ownerRecord(t, landOnCard, pickAttrs)
 
 	writeOrders(t, h)
@@ -993,7 +993,7 @@ func TestHisTapLeavesAnOrdinaryHoldOpenAndAHoldOnSeveralPRsIsOrdinary(t *testing
 	}
 }
 
-func TestAnUntilTapHoldKeepsItsRowForHisTapAndStopsAnOlderTapLanding(t *testing.T) {
+func TestALanesUntilTapHoldGatesNothingAndShowsOnNoRow(t *testing.T) {
 	h := surfaceHarness(t)
 	if _, err := h.store.PutFact(repo, surfacePR, surfaceHead, "tap", string(machine.TapTapped), time.Now()); err != nil {
 		t.Fatal(err)
@@ -1002,22 +1002,21 @@ func TestAnUntilTapHoldKeepsItsRowForHisTapAndStopsAnOlderTapLanding(t *testing.
 
 	f := h.snapshot(t)[surfacePR]
 
-	if !f.HoldAwaitsTap || f.Hold == "" {
-		t.Fatalf("facts = %+v, want an until=tap hold", f)
+	if f.HoldAwaitsTap || f.Hold != "" {
+		t.Fatalf("facts = %+v, want a lane's until=tap hold to gate nothing", f)
 	}
 	row, _, err := h.store.ReviewRow(repo, surfacePR)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if row.Hold != prrow.None || row.Tapped || !strings.HasPrefix(row.AwaitsTap, "his approval was at an older head (record #") {
-		t.Fatalf("row = %+v", row)
+	if row.Hold != prrow.None || row.AwaitsTap != "" {
+		t.Fatalf("row = %+v, want no hold he reads", row)
 	}
 }
-
-func TestAnUntilTapHoldBesideAnOrdinaryHoldReadsAsHeld(t *testing.T) {
+func TestAnUntilTapHoldBesideOneNamingAFailureReadsAsHeld(t *testing.T) {
 	h := surfaceHarness(t)
 	holdUntilTap(t, "hold #4242 his approval was at an older head")
-	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #4242 the cutover has not run", PRs: []string{strconv.Itoa(surfacePR)}}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "hold", Text: "hold #4242 the cutover has not run", PRs: []string{strconv.Itoa(surfacePR)}, Attrs: map[string]string{bus.BreaksAttr: "the cutover has not run"}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1051,23 +1050,15 @@ func TestAHeadlessTapRetriedAfterItsOrderStillEndsTheHold(t *testing.T) {
 	}
 }
 
-func TestALaterRootGoLeavesAnUntilTapHoldStanding(t *testing.T) {
-	h := surfaceHarness(t)
-	holdUntilTap(t, "hold #4242 his approval was at an older head")
-	goRecord(t, "root", "go #4242 at abc1234")
-
-	if f := h.snapshot(t)[surfacePR]; !f.HoldAwaitsTap || f.Hold == "" {
-		t.Fatalf("facts = %+v, want the hold standing", f)
-	}
-}
-
-func TestAnUntilTapHoldThatArrivesAfterTheSnapshotStillStopsItsPass(t *testing.T) {
+func TestHisUntilTapHoldThatArrivesAfterTheSnapshotStillStopsItsPass(t *testing.T) {
 	h := surfaceHarness(t)
 	snapshot := []machine.Facts{h.snapshot(t)[surfacePR]}
 	if snapshot[0].Hold != "" {
 		t.Fatalf("facts = %+v, want no hold yet", snapshot[0])
 	}
-	holdUntilTap(t, "hold #4242 his approval was at an older head")
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: bus.OwnerBy, Kind: "hold", Text: "hold #4242 until I approve it", PRs: []string{strconv.Itoa(surfacePR)}, Attrs: map[string]string{"until": "tap"}}); err != nil {
+		t.Fatal(err)
+	}
 
 	if err := h.source.WriteRows(context.Background(), snapshot); err != nil {
 		t.Fatal(err)

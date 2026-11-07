@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
@@ -129,7 +130,7 @@ func (r Redesign) hold(ctx context.Context, slug, subsystem, designLane string, 
 			fmt.Fprintf(r.Out, "UNCHANGED %s: held by %s\n", pr, record.Name())
 		default:
 			number := pullRequest.FindStringSubmatch(pr)[1]
-			record, err = client.Post(ctx, client.Draft{Drive: r.Drive, Lane: r.Lane, Kind: "hold", ID: id, PRs: []string{pr}, Text: fmt.Sprintf("hold #%s: the owner sent %s back for a redesign from scratch and %s designs it; it stays until a lift or the coordinator's go names it", number, subsystem, designLane)})
+			record, err = client.Post(ctx, client.Draft{Drive: r.Drive, Lane: bus.OwnerBy, Kind: "hold", ID: id, PRs: []string{pr}, Text: fmt.Sprintf("hold #%s: the owner sent %s back for a redesign from scratch and %s designs it; it stays until a lift names it", number, subsystem, designLane)})
 			if err != nil {
 				return nil, err
 			}
@@ -186,7 +187,7 @@ The owner said %[2]s is wrong at its root. The page on what he corrected: %[3]s
 lr explain redesign withdrew these cards from his board:
 %[4]s
 
-It holds these PRs, and none lands until a lift or the coordinator's go names it. Nothing in this lane closes a PR or deletes a branch:
+It holds these PRs, and none lands until a lift names it. Nothing in this lane closes a PR or deletes a branch:
 %[5]s
 
 1. Design %[2]s from scratch. Read the held PRs as evidence, never as the starting point.

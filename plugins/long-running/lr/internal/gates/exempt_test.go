@@ -74,7 +74,6 @@ func TestTonightsWrongExemptGosAreRefusedFromTheRecordsTheirPostersRead(t *testi
 		"#48375 after ask 355738, whose text reads as an override": {"48375", 48375, "71bd0ab1c2dc27453798cbc7fb75db730f59bf84", 355739, nil, "finder: no finder-desk grade at 71bd0ab"},
 		"#48879 go 357125, over his open card":                     {"48879", 48879, "c541801b719e3c072b38b1d4ede5afb7af23d3f6", 357125, []Card{countCard}, "owner card card-48879-lookup-count-dedupe is open"},
 		"#48879 go 357125, over a missing fidelity grade":          {"48879", 48879, "c541801b719e3c072b38b1d4ede5afb7af23d3f6", 357125, nil, "fidelity-pipeline's newest grade #55194@b5522464 is missing"},
-		"#48707 under typed hold 355470":                           {"48707", 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d", 355471, nil, "hold #355470 by landing-desk-3 is open"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -94,7 +93,7 @@ func holdRecord(t *testing.T, raw string) client.Record {
 }
 
 func TestAHoldHoldsThePRsItWasPostedWithAndItsTextIsProse(t *testing.T) {
-	hold := holdRecord(t, `{"seq":2948,"lane":"root","kind":"hold","text":"hold #2 until the cutover, behind the test PR #2","refs":{"prs":["Forge-AI/monorepo#1"]}}`)
+	hold := holdRecord(t, `{"seq":2948,"lane":"root","kind":"hold","text":"hold #2 until the cutover, behind the test PR #2","refs":{"prs":["Forge-AI/monorepo#1"]},"fields":{"attrs":{"breaks":"the cutover deletes what it reads"}}}`)
 
 	for pr, want := range map[int]int{1: 1, 2: 0} {
 		if open := openHolds(Claim{Repo: monorepo, PR: pr}, []client.Record{hold}, nil); len(open) != want {
@@ -103,8 +102,27 @@ func TestAHoldHoldsThePRsItWasPostedWithAndItsTextIsProse(t *testing.T) {
 	}
 }
 
+func TestOnlyHisHoldOrOneNamingAProductionFailureStopsAGo(t *testing.T) {
+	claim := Claim{Repo: monorepo, PR: 50011}
+	for name, c := range map[string]struct {
+		hold string
+		open int
+	}{
+		"run-search-shape's lane hold 450329":     {`{"seq":450329,"lane":"run-search-shape","kind":"hold","text":"until #49305 lands","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
+		"root's plain hold":                       {`{"seq":457669,"lane":"root","kind":"hold","text":"hold #50011: copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
+		"his own hold from the board":             {`{"seq":565538,"lane":"owner","kind":"hold","text":"hold #50011 at 61c1c7ab3c07: the owner rejected this head on the board","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 1},
+		"a root hold naming a production failure": {`{"seq":567568,"lane":"supervisor","kind":"hold","text":"readers-first: #49305 not live on every client.","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"breaks":"#50011 writes a format that a client still on a build without #49305 cannot read"}}}`, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if open := openHolds(claim, []client.Record{holdRecord(t, c.hold)}, nil); len(open) != c.open {
+				t.Fatalf("open holds %q, want %d", open, c.open)
+			}
+		})
+	}
+}
+
 func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
-	lift := holdRecord(t, `{"seq":364345,"lane":"root","kind":"hold","text":"hold #48889 lift: the rework is done","resolves":362361,"refs":{"prs":["Forge-AI/monorepo#48889"]}}`)
+	lift := holdRecord(t, `{"seq":364345,"lane":"root","kind":"hold","text":"hold #48889 lift: the rework is done","resolves":362361,"refs":{"prs":["Forge-AI/monorepo#48889"]},"fields":{"attrs":{"breaks":"the rework is not in yet"}}}`)
 	claim := Claim{Repo: monorepo, PR: 48889}
 
 	if open := openHolds(claim, []client.Record{lift}, map[int64]bool{lift.Seq: true}); len(open) != 0 {
@@ -118,17 +136,19 @@ func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
 func TestAHoldCciReadsClosedIsNotOpenThoughItsLiftNamesNoPR(t *testing.T) {
 	claim := Claim{Repo: monorepo, PR: 51563}
 	for status, want := range map[string]int{"closed": 0, "open": 1} {
-		hold := holdRecord(t, `{"seq":521104,"lane":"owner-relay","kind":"hold","text":"Hold the update dialog change at 08906a2 and withdraw my 520879","re":520879,"refs":{"prs":["Forge-AI/monorepo#51563"]},"status":"`+status+`","num":"#521104"}`)
+		hold := holdRecord(t, `{"seq":521104,"lane":"owner","kind":"hold","text":"hold #51563 at 08906a2: the owner rejected this head on the board","re":520879,"refs":{"prs":["Forge-AI/monorepo#51563"]},"status":"`+status+`","num":"#521104"}`)
 		if open := openHolds(claim, []client.Record{hold}, nil); len(open) != want {
 			t.Fatalf("status %s: open holds %q, want %d", status, open, want)
 		}
 	}
 }
 
-func TestAHoldWrittenAsProseInARootRecordStopsNoGo(t *testing.T) {
-	_, refusals := gate(recordsBefore(t, "48707", 355281), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
-	if slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "hold ") }) {
-		t.Fatalf("refusals %q; root 342984's hold was prose, so only typed hold 355470 stops this go", refusals)
+func TestNeitherRootsProseHoldNorALanesTypedHoldNamingNoFailureStopsAGo(t *testing.T) {
+	for _, before := range []int64{355281, 355471} {
+		_, refusals := gate(recordsBefore(t, "48707", before), 48707, "8fcfba3211db21eb43c6dedb4a1ad6e02eda069d")
+		if slices.ContainsFunc(refusals, func(refusal string) bool { return strings.HasPrefix(refusal, "hold ") }) {
+			t.Fatalf("before %d, refusals %q; root 342984 wrote prose and landing-desk-3's 355470 names no breaks=, so neither holds", before, refusals)
+		}
 	}
 }
 
