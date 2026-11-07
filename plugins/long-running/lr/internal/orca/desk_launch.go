@@ -726,7 +726,7 @@ func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, acti
 		if withdrawing {
 			return d.withdrawnBeforeWorker(container, lane, action.ActionID, by, out)
 		}
-		if canFallBack && incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
+		if canFallBack && (isFile(filepath.Join(attempt, spritePrepare)) || incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief))) {
 			return d.macFallback(ctx, container, lane, action, spec, "its Sprite never started a worker, receipts in "+attempt+": "+reason)
 		}
 		return d.refuseLaunch(ctx, container, lane, action, "a Sprite that never started a worker: "+reason, "its receipts are in "+attempt+"; post the go again under a new key")
@@ -845,6 +845,11 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	}
 	if err := d.recordTo(ctx, escalationPref+container+"/"+key+":launched", fmt.Sprintf("LAUNCHED %s %s: dispatch %s terminal %s%s", key, lane, dispatch, terminal, on), verdictTo(spec.By)); err != nil {
 		return err
+	}
+	if len(reading) > 0 {
+		if err := d.recordTo(ctx, escalationPref+container+"/"+key+":moved", fmt.Sprintf("%s started off its planned host%s", lane, on), lanes.OwnerRelay); err != nil {
+			return err
+		}
 	}
 	if err := d.transfer(lane); err != nil {
 		return err

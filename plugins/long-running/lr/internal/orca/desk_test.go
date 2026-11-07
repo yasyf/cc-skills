@@ -5377,3 +5377,34 @@ func TestAnEvidenceLaneReadingSentryStartsOnTheMacAndFailsThereWithNoSpriteRelau
 	}
 	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "Orca does not list worktree")
 }
+
+func TestALaneWhoseSpriteNeverStartedAWorkerStartsOnTheMacAndTellsTheCommunicator(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	t.Setenv("HOME", t.TempDir())
+	brief := w.brief(testLane, testBrief)
+	w.lines()
+	key := "R" + strings.TrimPrefix(w.line(launchText(testLane, brief)).Name(), "#")
+	refusal := "cc-remote orca prepare exited 1; /b/brief.worker keeps its output, and nothing was attached or retried"
+	w.launchOut[testLane] = "preparing a Sprite\n" + refusal + "\n"
+	w.lines()
+	w.step(w.desk.deliver)
+	w.write(filepath.Join(spriteAttempt(brief), spritePrepare), "1\n")
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	w.step(w.desk.flush)
+
+	if len(w.spawns) != 2 || w.spawns[1].argv[2] != "start" {
+		t.Fatal(w.spawns)
+	}
+	if action := w.action(testLane, key); action.Status != incident.ActionVerified {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCHED "+key), "on this Mac: its Sprite never started a worker")
+	moved := w.postOpening(testLane + " started off its planned host")
+	if !slices.Equal(moved.To, []string{lanes.OwnerRelay}) {
+		t.Fatalf("the move went to %v, want %s", moved.To, lanes.OwnerRelay)
+	}
+}
