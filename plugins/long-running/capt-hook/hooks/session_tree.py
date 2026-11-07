@@ -39,8 +39,16 @@ class Subagent:
     def name(self) -> str | None:
         return self.meta.get("name")
 
+    @property
+    def agent_type(self) -> str | None:
+        return spawned_type(self.meta)
+
     def read_events(self) -> Sequence[TranscriptEvent]:
         return parse(self.transcript).events
+
+
+def spawned_type(meta: dict) -> str | None:
+    return meta.get("spawnedAgentType") or meta.get("agentType")
 
 
 def lane_of(task: Task) -> str | None:
@@ -63,7 +71,7 @@ def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _
         return lane
     outermost = None
     for fields in agent_chain(evt):
-        if (name := fields.get("name")) and not skip(fields.get("agentType")):
+        if (name := fields.get("name")) and not skip(spawned_type(fields)):
             outermost = name
     return outermost
 

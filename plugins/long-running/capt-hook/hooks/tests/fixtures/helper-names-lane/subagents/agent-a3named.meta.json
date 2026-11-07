@@ -1,0 +1,1 @@
+{"agentType": "doctor-92", "name": "doctor-92", "taskKind": "in_process_teammate", "spawnedAgentType": "long-running:orca-doctor", "description": "Diagnose a stalled lane launch"}

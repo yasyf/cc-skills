@@ -1,0 +1,1 @@
+{"type": "user", "uuid": "a3named-0", "sessionId": "helper-names-lane", "timestamp": "2026-11-06T16:51:09Z", "message": {"role": "user", "content": "Register slice: lane=lane-a step=1\nslice-hash: 0123456789ab\nLane lane-a has produced no terminal since its launch. Say whether it is queued, refused, failed or running."}}
