@@ -786,6 +786,27 @@ func TestAStandingDeskBriefCarriesTheDeskContractIntoTheSpriteSpec(t *testing.T)
 	}
 }
 
+func TestASpriteSpecNamesEveryBuildkiteReadInTheFormBkDeskServes(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.spriteWith(prepared())
+	f.launched()
+	spec := f.startedSpec()
+	for _, read := range []string{
+		"bk build <pipeline> <number>",
+		"bk jobs <pipeline> <number>",
+		"bk builds <pipeline> [--branch <glob>] [--since <date>]",
+		"bk annotations <pipeline> <number> [<context>]",
+		"bk grep <pipeline> <number> <job id or step key> <regex>",
+		"bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>]",
+		"bk api <path> [--fields <names>]",
+		"--to bk-desk '<read>'`, one read per ask",
+	} {
+		if !strings.Contains(spec, read) {
+			t.Fatalf("spec lacks %q:\n%s", read, spec)
+		}
+	}
+}
+
 func TestADeskSpriteCopiesItsStoreDetachedAfterItsWorkerStartsSoACopyNeverHoldsTheLaunch(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.deskDrive(deskConfig)

@@ -90,7 +90,7 @@ func (e Env) launchStanding(ctx context.Context, session standingSession, brief 
 		env = append(env, "LAUNCH_ROLE="+session.role)
 	}
 	if slices.ContainsFunc(states, runnerBeat) {
-		argv = []string{e.tool("desk-launch.py"), "lane", session.lane, session.model, session.effort, path, "--drive", e.Config.Drive, "--lane", communicator}
+		argv = []string{e.tool("lr"), "launch", "lane", session.lane, session.model, session.effort, path, "--drive", e.Config.Drive, "--lane", communicator}
 		if session.role != "" {
 			argv = append(argv, "--role", session.role)
 		}

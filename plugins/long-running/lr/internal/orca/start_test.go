@@ -2408,7 +2408,7 @@ func TestAnAdoptedTerminalIsNamedNotClosed(t *testing.T) {
 }
 
 func (h *harness) rebindLine() string {
-	return "post the launch to the drive's orca runner, whose terminal coordinates the Run: desk-launch.py lane lane-a opus high " + h.brief + "; a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id run_1"
+	return "post the launch to the drive's orca runner, whose terminal coordinates the Run: lr launch lane lane-a opus high " + h.brief + "; a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id run_1"
 }
 
 func TestATerminalThatDoesNotCoordinateTheRunCreatesNothingAndNamesTheRebind(t *testing.T) {

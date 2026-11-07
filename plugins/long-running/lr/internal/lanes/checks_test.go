@@ -136,7 +136,7 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 		return shell.Result{Stdout: slackHistory(t0.Add(-mins(4)), "Triggered: x\n"+monitorLink)}, nil
 	})}
 	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default(), Launch: func(context.Context, Fired) (string, error) {
-		return "", errors.New(strings.Repeat("--flag ", 40) + "desk-launch exited 2")
+		return "", errors.New(strings.Repeat("--flag ", 40) + "lr launch exited 2")
 	}}
 
 	for range 2 {
@@ -148,7 +148,7 @@ func TestAFailedAlertLaunchRaisesOneBlockerToRoot(t *testing.T) {
 	equal(t, len(bus.posted), 1)
 	equal(t, bus.posted[0].Kind, blockerKind)
 	contains(t, bus.posted[0].Text, "ALERT-UNOPENED Triggered: x: no incident record names https://app.datadoghq.com/monitors/338724738 4 min after it fired, and the supervisor's launch of dd-338724738-fix failed: ")
-	contains(t, bus.posted[0].Text, "desk-launch exited 2")
+	contains(t, bus.posted[0].Text, "lr launch exited 2")
 }
 
 func TestAnAlertWithAFixLaneNamingItJoinsThatLaneAndLaunchesNothing(t *testing.T) {
