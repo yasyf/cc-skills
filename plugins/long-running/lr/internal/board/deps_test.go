@@ -344,7 +344,7 @@ func TestARulingThatSupersedesAPRsShapeTakesItsTapOffAndItsPostReadsSuperseded(t
 		t.Fatalf("rows = %+v, %v", rows, err)
 	}
 	card := Card(repo, rows[0])
-	if !strings.HasPrefix(card.Title, "Superseded: #45583 at ") || card.Options != nil || card.PRs[0].Blocks != "Superseded: move lookups to postgres." {
+	if card.Title != "Superseded: #45583, lookups read the S3 index" || card.Options != nil || card.PRs[0].Blocks != "Superseded: move lookups to postgres." {
 		t.Fatalf("card = %+v, want it to read superseded in his words with no buttons", card)
 	}
 	if !slices.ContainsFunc(f.posts, func(p posted) bool {

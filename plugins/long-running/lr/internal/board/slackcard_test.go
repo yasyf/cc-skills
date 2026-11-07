@@ -460,6 +460,27 @@ func TestAnAlertFixCardSaysThePacificMinuteItMergesItselfAt(t *testing.T) {
 	}
 }
 
+func TestAResolvedCardReadsAsThePRsTitleWithNoCommit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		change func(*store.ReviewRow)
+		want   string
+	}{
+		"approved":          {func(r *store.ReviewRow) { r.Tapped = true }, "#45583, faster chats"},
+		"landed":            {func(r *store.ReviewRow) { r.State, r.Tapped = prrow.StateLanded, true }, "#45583, faster chats"},
+		"a gitmoji title":   {func(r *store.ReviewRow) { r.Tapped, r.Title = true, "sandsql-storage: 🐛 take up a parked database" }, "#45583, take up a parked database"},
+		"a variation emoji": {func(r *store.ReviewRow) { r.Tapped, r.Title = true, "sandsql-core: ⚡️ boot reads a saved index" }, "#45583, boot reads a saved index"},
+		"a scoped type":     {func(r *store.ReviewRow) { r.Tapped, r.Title = true, "fix(api): refuse a missing body" }, "#45583, refuse a missing body"},
+		"no title read yet": {func(r *store.ReviewRow) { r.Tapped, r.Title = true, "" }, "#45583"},
+		"a port":            {func(r *store.ReviewRow) { r.Tapped, r.Port = true, prrow.PortOf+"49144" }, "Port, old tree to new: dev #49144: #45583, faster chats"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Card(repo, readyRow(tc.change)).Title; got != tc.want {
+				t.Fatalf("title = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestHisApprovalPostKeepsTheMinuteItFirstReachedHimAtAHead(t *testing.T) {
 	row := readyRow(nil)
 	s := withLedger(t, row)

@@ -166,7 +166,7 @@ func TestWithdrawingAPRRedrawsItsSlackPostAtOnceAndThePostReadsWithdrawn(t *test
 		t.Fatalf("rows = %+v, %v", rows, err)
 	}
 	card := Card(repo, rows[0])
-	if !strings.HasPrefix(card.Title, "Withdrawn: #45583 at ") || card.Waits != "" || card.Options != nil || card.PRs[0].Blocks != "Withdrawn: "+why+"." {
+	if card.Title != "Withdrawn: #45583, faster chats" || card.Waits != "" || card.Options != nil || card.PRs[0].Blocks != "Withdrawn: "+why+"." {
 		t.Fatalf("card = %+v, want it read withdrawn with the reason and no buttons", card)
 	}
 	if pulled, err := f.Pull(context.Background(), "meta-desk", "#45583", why, &bytes.Buffer{}); err != nil || pulled || len(on.redrawn) != 2 {

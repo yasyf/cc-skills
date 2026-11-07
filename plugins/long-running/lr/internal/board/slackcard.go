@@ -10,10 +10,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -33,6 +35,8 @@ const (
 	withdrawnLead  = "Withdrawn: "
 	supersededLead = "Superseded: "
 )
+
+var prScope = regexp.MustCompile(`^[\w./-]+(?:\([\w./-]+\))?!?:\s+`)
 
 type SlackCard struct {
 	Status      string       `json:"status"`
@@ -102,7 +106,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		opening = cardtext.PortOpener + "#" + source + ": "
 	}
 	card := SlackCard{
-		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
+		Status: "info", Title: resolvedTitle(row),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
@@ -132,6 +136,16 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
 	}
 	return card
+}
+
+func resolvedTitle(row store.ReviewRow) string {
+	words := strings.TrimLeftFunc(prScope.ReplaceAllString(row.Title, ""), func(r rune) bool {
+		return unicode.IsSymbol(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Cf, r) || unicode.IsSpace(r)
+	})
+	if words == "" {
+		return fmt.Sprintf("#%d", row.Number)
+	}
+	return fmt.Sprintf("#%d, %s", row.Number, words)
 }
 
 func OffersApproval(row store.ReviewRow) bool {
