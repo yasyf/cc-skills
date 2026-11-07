@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from captain_hook import Allow, BaseHookEvent, Block, Call, Event, HookResult, Input, Tool, on
+from captain_hook.util import reqenv
+from captain_hook.util.builds import is_local_build
 
 from .compaction_handoff import Bound, CompactionState
 
@@ -31,6 +33,13 @@ VALUE_FLAGS = {
     "ruff": frozenset({"--select", "--extend-select", "--ignore", "--config", "--output-format", "--target-version", "--line-length", "--exclude"}),
 }
 LAUNCHERS = frozenset({"npx", "bunx", "uvx"})
+MAC = "/Users/"
+MAC_REFUSAL = (
+    "This Mac compiles nothing for a lane: `lr go-delta` builds and vets Go on a Sprite,"
+    " `remote-builder exec --lane go|cargo --machine mac -- <args>` runs any other go or cargo command, and CI typechecks."
+    " `GO_LOCAL=1` or `CARGO_LOCAL=1` runs one command here."
+)
+HATCHES = {"go": "GO_LOCAL", "cargo": "CARGO_LOCAL"}
 INFO_FLAGS = frozenset({"--version", "-version", "-v", "-V", "--help", "-h"})
 VERBOSE_V = frozenset({"pytest"})
 LANE_ENV = {"CLAUDE_LONG_RUNNING_LANE": "lane-b", "CLAUDE_LONG_RUNNING_DRIVE": "leftovers-oct-18"}
@@ -105,6 +114,13 @@ def runs(name: str, args: tuple[str, ...]) -> bool:
 
 def builds(call: Call) -> bool:
     return runs(call.name, call.args)
+
+
+def compiles_here(call: Call) -> bool:
+    if call.name == "tsc" or call.name in LAUNCHERS and call.args[:1] == ("tsc",):
+        return not informational("tsc", call.args[call.name != "tsc" :])
+    local = is_local_build(call) or call.name == "go" and words("go", call.args)[:1] in (["run"], ["install"])
+    return local and (reqenv.env_map() | dict(call.source.env)).get(HATCHES[call.name]) != "1"
 
 
 @on(  # capt-hook: no-escape the owner bans local tests and whole-module builds in every drive session
@@ -209,3 +225,30 @@ def no_local_builds_in_a_drive(evt: BaseHookEvent) -> HookResult | None:
     if not any(builds(call) for call in evt.command.calls()):
         return None
     return evt.block(REFUSAL)
+
+
+@on(  # capt-hook: no-escape the owner ordered the Mac off every lane compile (m1731, cci 576330)
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash")],
+    tests={
+        Input(command="nice -n 10 go build -C go/sand -trimpath -o go/sand/bin/next/darwin_arm64/sand ./next/main.go", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Block(pattern=r"^This Mac compiles nothing for a lane[\s\S]*remote-builder exec"),
+        Input(command="go vet ./internal/reply/", env=LANE_ENV, cwd="/Users/yasyf/repos/cc-skills"): Block(),
+        Input(command="cd go/sand && go test ./internal/vm -run TestX", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Block(),
+        Input(command="go run ./cmd/sand version", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Block(),
+        Input(command="go install ./cmd/lr", env=LANE_ENV, cwd="/Users/yasyf/repos/cc-skills"): Block(),
+        Input(command="cargo build -p sandsql-server", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Block(),
+        Input(command="npx tsc --noEmit -p api", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Block(),
+        Input(command="GO_LOCAL=1 go vet ./internal/reply/", env=LANE_ENV, cwd="/Users/yasyf/repos/cc-skills"): Allow(),
+        Input(command="CARGO_LOCAL=1 cargo build -p sandsql-server", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Allow(),
+        Input(command="remote-builder exec --lane go --machine mac -- vet ./internal/vm", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Allow(),
+        Input(command="lr go-delta", env=LANE_ENV, cwd="/Users/yasyf/repos/cc-skills"): Allow(),
+        Input(command="go env GOROOT", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Allow(),
+        Input(command="tsc --version", env=LANE_ENV, cwd="/Users/yasyf/Code/monorepo"): Allow(),
+        Input(command="go vet ./internal/reply/", env=LANE_ENV, cwd="/home/sprite/cc-skills"): Allow(),
+        Input(command="go vet ./internal/reply/", env={}, cwd="/Users/yasyf/repos/cc-skills"): Allow(),
+    },
+)
+def mac_compiles_nothing_for_a_lane(evt: BaseHookEvent) -> HookResult | None:
+    if not str(evt.cwd).startswith(MAC) or not any(compiles_here(call) for call in evt.command.calls()):
+        return None
+    return evt.block(MAC_REFUSAL)

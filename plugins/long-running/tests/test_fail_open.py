@@ -68,6 +68,7 @@ KEPT_REFUSALS = KEPT | {
     "lane_slack_status.lanes_post_no_release_status": "a Slack post cannot be unsent, and the Slack permission rule stays (answer 8f1682a)",
     "lane_landing.hand_landings_meet_the_runner_checks": "card-hand-merge-rule (answer fd9233e): the owner picked a block for a hand landing with no tap at its head, since a merge cannot be recalled",
     "local_builds.no_local_builds_in_a_drive": "the run already saturates the Mac when a warning lands (answer 7e82747)",
+    "local_builds.mac_compiles_nothing_for_a_lane": "the owner ordered the refusal (m1731, cci 576330): a compile on the Mac is already burning his CPU when a warning lands",
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",
     "go_posts_parse.go_posts_parse": "the meta desk ordered the refusal: the landing pass reads no go worded any other way and says nothing, so a warned post leaves its PR unlanded, as #51409 sat 90 minutes (cci 547882)",
     "override_decides_parse.override_decides_parse": "the meta desk ordered the refusal: the supervisor skips an override worded any other way with no record, so a warned post leaves its PR waiting on a count that never comes, as four did (cci 536838)",
