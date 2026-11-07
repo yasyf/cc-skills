@@ -28,6 +28,8 @@ NOOP = "A do-nothing Bash call ends no turn, and the owner sees every one. A wak
 CHORE_DESK = "meta-desk"
 CHORE_RUNS, CHORE_ASKS = "chore-runs", "chore-asks"
 CHORE_VERBS = frozenset({"cci"})
+NOT_CHORES = frozenset({"grep", "post", "show", "announce", "drive", "me"})
+HELP = frozenset({"-h", "--help"})
 TAIL = "cci tail --lane relay-fix-2 -n 1"
 TAIL_SHAPE = "cci tail --lane -n"
 READS = "Two Bash reads in a row with no subagent between them. Hand the rest of this read to `Agent` with `Explore` and `model: sonnet`, and keep only its answer."
@@ -169,7 +171,7 @@ def chores(evt: BaseHookEvent) -> list[str]:
     return [
         " ".join([call.name, *[arg for arg in call.args if not arg.startswith("-")][:1], *sorted({arg.split("=", 1)[0] for arg in call.args if arg.startswith("-")})])
         for call in evt.command.calls()
-        if call.name in CHORE_VERBS and not {"grep", "post", "show"} & set(call.args[:1])
+        if call.name in CHORE_VERBS and not NOT_CHORES & set(call.args[:1]) and not HELP & set(call.args)
     ]
 
 
@@ -201,6 +203,10 @@ def ask_for_a_verb(evt: BaseHookEvent, shape: str) -> None:
         Input(command="cci show 412110", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci show"]}): Allow(),
         Input(command="cci grep --drive rebuild --kind ask relay", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci grep --drive --kind"]}): Allow(),
         Input(command="cci post --lane owner-relay --kind note --text x", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci post --kind --lane --text"]}): Allow(),
+        Input(command="cci --help", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci --help"]}): Allow(),
+        Input(command="cci drive", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci drive"]}): Allow(),
+        Input(command="cci me", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci me"]}): Allow(),
+        Input(command="cci announce --desc relay --drive rebuild --lane owner-relay --role lane", state=ACTIVE, env=DRIVE_CONFIG, seen={CHORE_RUNS: ["cci announce --desc --drive --lane --role"]}): Allow(),
     }),
 )
 def repeated_chores_ask_for_a_verb(evt: BaseHookEvent) -> None:
