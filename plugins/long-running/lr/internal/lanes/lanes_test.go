@@ -2667,7 +2667,7 @@ func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *test
 		return func([]int) (map[int]string, error) { return states, nil }
 	}
 
-	refusal, err := DoneRefusal(s, lane2, states(map[int]string{12: Closed, 13: NeedsWork}))
+	refusal, err := DoneRefusal(s, lane2, nil, "/Users/me", states(map[int]string{12: Closed, 13: NeedsWork}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2675,11 +2675,45 @@ func TestADoneWhileTheLaneOwnsAnOpenPRIsRefusedNamingItAndTheBlockedForm(t *test
 	contains(t, refusal, "cci post --lane conflicts-2 --kind blocked --pr 13 --to <your desk>")
 
 	for lane, found := range map[string]map[int]string{lane2: {12: Closed, 13: Closed}, "never-1": {}} {
-		refusal, err := DoneRefusal(s, lane, states(found))
+		refusal, err := DoneRefusal(s, lane, nil, "/Users/me", states(found))
 		if err != nil {
 			t.Fatal(err)
 		}
 		equal(t, refusal, "")
+	}
+}
+
+func TestASpriteDoneNamingAFileOnItsOwnDiskIsRefusedNamingTheDocFix(t *testing.T) {
+	s := memory(t)
+	registered(t, s, store.Lane{Name: "overdue-sweep-2", Role: "lane", Placement: placedOnSprite})
+	registered(t, s, store.Lane{Name: "mac-sweep-1", Role: "lane", Placement: "orca"})
+	none := func([]int) (map[int]string, error) { return nil, nil }
+	done := func(lane string, said ...string) string {
+		t.Helper()
+		refusal, err := DoneRefusal(s, lane, said, "/Users/me", none)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return refusal
+	}
+
+	for _, said := range [][]string{
+		{"29 unmet. Unmet table with live lanes: ~/.vcache/scratch/overdue-sweep/unmet.md."},
+		{"29 unmet", "table=$HOME/sweep/unmet.md"},
+		{"29 unmet, table in (/home/sprite/sweep/unmet.md)"},
+	} {
+		refusal := done("overdue-sweep-2", said...)
+		contains(t, refusal, "overdue-sweep-2 runs on a Sprite")
+		contains(t, refusal, "`ccn doc add --body-file <path>` and cite the doc id")
+	}
+	contains(t, done("overdue-sweep-2", "table at ~/.vcache/scratch/overdue-sweep/unmet.md."), "read ~/.vcache/scratch/overdue-sweep/unmet.md once")
+
+	for lane, said := range map[string][]string{
+		"overdue-sweep-2": {"29 unmet. Unmet table with live lanes: ccn doc b50496a; merged yasyf/cc-skills#3713, https://github.com/yasyf/cc-skills/pull/3713, ran /codex", "brief=/Users/me/handoffs/plan.md"},
+		"mac-sweep-1":     {"29 unmet. Unmet table with live lanes: ~/.vcache/scratch/overdue-sweep/unmet.md"},
+		"never-1":         {"table at /tmp/unmet.md"},
+	} {
+		equal(t, done(lane, said...), "")
 	}
 }
 

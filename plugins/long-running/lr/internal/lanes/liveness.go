@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,8 @@ const (
 	nodeChars    = 8
 	unreadShown  = 10
 )
+
+var diskPath = regexp.MustCompile("(?:^|[\\s\"'`(\\[=])((?:~|\\$HOME)/[^\\s\"'`)\\]]*|/[^\\s/\"'`)\\]]+/[^\\s\"'`)\\]]*)")
 
 type Liveness struct {
 	Lane        string   `json:"lane"`
@@ -280,25 +283,44 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 	return "", nil
 }
 
-func DoneRefusal(s *store.Store, lane string, states func(prs []int) (map[int]string, error)) (refusal string, err error) {
+func DoneRefusal(s *store.Store, lane string, said []string, home string, states func(prs []int) (map[int]string, error)) (refusal string, err error) {
 	defer recovered(&err)
-	owned := must(s.Owners())[lane]
-	if lane == Root || len(owned) == 0 {
+	if lane == Root {
 		return "", nil
 	}
-	found := must(states(owned))
 	var open []int
 	var flags strings.Builder
-	for _, n := range owned {
-		if found[n] != Closed {
-			open = append(open, n)
-			fmt.Fprintf(&flags, " --pr %d", n)
+	if owned := must(s.Owners())[lane]; len(owned) > 0 {
+		found := must(states(owned))
+		for _, n := range owned {
+			if found[n] != Closed {
+				open = append(open, n)
+				fmt.Fprintf(&flags, " --pr %d", n)
+			}
 		}
 	}
-	if len(open) == 0 {
+	if len(open) > 0 {
+		return fmt.Sprintf("A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: %s\ncci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'\n```", numberList(open), lane, flags.String()), nil
+	}
+	if row, found := laneOf(s, lane); !found || row.Placement != placedOnSprite {
 		return "", nil
 	}
-	return fmt.Sprintf("A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: %s\ncci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'\n```", numberList(open), lane, flags.String()), nil
+	if paths := spriteOnly(said, home); len(paths) > 0 {
+		return fmt.Sprintf("%s runs on a Sprite, so nobody on the Mac can read %s once the Sprite stops: put each file in cc-notes with `ccn doc add --body-file <path>` and cite the doc id, or attach it to the record with `--path <path>`.", lane, strings.Join(paths, ", ")), nil
+	}
+	return "", nil
+}
+
+func spriteOnly(said []string, home string) []string {
+	var paths []string
+	for _, words := range said {
+		for _, named := range diskPath.FindAllStringSubmatch(words, -1) {
+			if path := strings.TrimRight(named[1], ".,;:"); !strings.HasPrefix(path, home+"/") && !slices.Contains(paths, path) {
+				paths = append(paths, path)
+			}
+		}
+	}
+	return paths
 }
 
 func (p Post) Draft(drive string) client.Draft {
