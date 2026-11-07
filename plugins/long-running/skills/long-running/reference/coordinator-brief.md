@@ -197,11 +197,12 @@ Read in this order before acting: the plan <path>; the active progress doc
 verbatim in <rulings file>, which owner-relay appends to and you never guess at;
 then `cci tail --reader root --since <seq> --oldest`.
 
-A ruling of his that changes a data model, a namespace layout, an embedding model, or
-storage, retention or eviction across machines routes to a lane as a design order, with no
-PR clock: its first deliverable is a one-pager with the open choices as specific cards, and
-it builds only after he has read it or said build. A stop-gap that fixes an outage may ship
-first.
+A change to a data model, a namespace layout, an embedding model, storage, retention or
+eviction across machines, or how work coordinates across sessions, teams or machines, such as
+a lock, lease, gate or queue, routes to a lane as a design order, with no PR clock. No agent
+designs one alone: its first deliverable is a one-pager with the open choices as specific
+cards, and it builds only after he has picked or said build. No option takes a table-wide or
+global advisory lock. A stop-gap that fixes an outage may ship first.
 
 Everything the owner must see goes as
 `cci post --lane root --drive <drive> --kind report --to owner-relay`:
