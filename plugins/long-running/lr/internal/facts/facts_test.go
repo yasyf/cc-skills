@@ -2938,3 +2938,26 @@ func TestTheMinuteHisPostReachedHimCarriesToANewHeadAndRestartsOnAFundamentalCha
 		})
 	}
 }
+
+func TestAFinderOverrideAtAnOlderHeadLeavesTheNewHeadsMajorUncleared(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	putFact(t, h.store, 1, head, "finder", "ask", tappedAt)
+	putFact(t, h.store, 1, head, "fidelity", "pass", tappedAt)
+	counted := func(at string) client.Draft {
+		return client.Draft{Drive: "d", Lane: bus.SweepLane, Kind: "decide", PRs: []string{"1"}, Text: "finder-override #1 at " + at + ": 434757. Counted from grader-appeals-3's cci #7, whose owner rows exist."}
+	}
+
+	if _, err := client.Post(context.Background(), counted("aa11bb2")); err != nil {
+		t.Fatal(err)
+	}
+	if row := h.snapshot(t)[1]; row.Cleared() || !slices.ContainsFunc(gates.Missing(row), func(gate string) bool { return strings.HasPrefix(gate, "a grade needs a verdict: finder") }) {
+		t.Fatalf("an override at an older head cleared the new head: %+v", row)
+	}
+
+	if _, err := client.Post(context.Background(), counted(head[:7])); err != nil {
+		t.Fatal(err)
+	}
+	if row := h.snapshot(t)[1]; !row.Cleared() || slices.ContainsFunc(gates.Missing(row), func(gate string) bool { return strings.HasPrefix(gate, "a grade needs a verdict") }) {
+		t.Fatalf("the counted override at the head did not clear it: %+v %v", row, gates.Missing(row))
+	}
+}

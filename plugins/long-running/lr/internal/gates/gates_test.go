@@ -161,7 +161,7 @@ func TestACarriedTapAdmitsNothingUntilTheNewHeadIsGreen(t *testing.T) {
 
 func TestMissingNamesEveryOpenGate(t *testing.T) {
 	f := machine.Facts{Repo: repo, Number: 1, Head: newHead, CI: machine.CIFailure, Mergeable: machine.MergeableConflict, Finder: machine.FinderAsk, Fidelity: machine.FidelityPass, Hold: machine.MoverRoot, Carries: []int{2}}
-	want := []string{"CI is not green", "mergeability is conflict", "branch carries #2", "a grade needs a verdict", "no approving review", "no tap", "held by root"}
+	want := []string{"CI is not green", "mergeability is conflict", "branch carries #2", "a grade needs a verdict: finder ask and no counted finder-override at e718a74", "no approving review", "no tap", "held by root"}
 	if got := Missing(f); !slices.Equal(got, want) {
 		t.Fatalf("got %v, want %v", got, want)
 	}
@@ -281,5 +281,18 @@ func TestCarriedOverrides(t *testing.T) {
 				t.Fatalf("CarriedOverrides = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestACountedFinderOverrideClearsItsGradeAndTheVerdictWaitNamesTheGradeLeft(t *testing.T) {
+	f := green
+	f.Finder, f.FinderOverride = machine.FinderAsk, true
+	if got := Missing(f); len(got) != 0 {
+		t.Fatalf("a counted finder-override at the head left %v", got)
+	}
+	f.Fidelity = machine.FidelityFail
+	want := []string{"a grade needs a verdict: fidelity fail and no counted fidelity-override at e718a74"}
+	if got := Missing(f); !slices.Equal(got, want) {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
