@@ -81,7 +81,7 @@ UNWATCHED = f"The owner's Slack watch is not running, so his next message waits 
 WATCHING = [{"id": "w1", "type": "shell", "status": "running", "description": OWNER_WATCH, "command": WATCH_COMMAND}]
 HOLDER = "900424b6-0000"
 OWED_REPLY = {"thread_ts": "1793684147.131059", "ts": "1793705742.180139", "text": "A, but as buttons", "permalink": "https://acme.slack.com/archives/D0B6Z/p1793705742180139"}
-THREAD_READ = "The communicator reads only a Slack message or thread the owner linked or wrote in. Ask a lane with `lr ask-lane '<question>'` for any other, and its answer arrives as a record."
+THREAD_READ = "The communicator reads only a Slack message or thread the owner linked or wrote in. Spawn a fresh read subagent for any other (`Agent`, `general-purpose`, Sonnet unless it needs Opus): it reads the thread, any lane's transcript, inbox and cc-notes, and answers him directly, never through root."
 LINKED_DM = "https://poetic-technology.slack.com/archives/D05FWN0NCMQ/p1793926112596459"
 ONE_MESSAGE = {"channel_id": "D05FWN0NCMQ", "oldest": "1793926112.596459", "latest": "1793926112.596459", "limit": 1, "include_rich_message_fields": True}
 WROTE_IN_LIMIT = "50"
@@ -646,7 +646,7 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
         reading([T.user("where are we")], OWED_HERE, "Bash", command="cc-slack thread --url D0B6Z/p1793684147131059"): Allow(),
         reading([T.user("where are we")], OWED_HERE, "Bash", command=f"cc-slack thread --url '{OWED_REPLY['permalink']}'"): Allow(),
         reading(delivered(), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"]): Allow(),
-        reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts="1793600000.000001"): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in.*`lr ask-lane"),
+        reading([T.user("where are we")], OWED_HERE, channel_id="D0B6Z", thread_ts="1793600000.000001"): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in.*fresh read subagent"),
         reading([T.user("where are we")], json.dumps({"replies": [OWED_REPLY], "holder_session": "another-drive"}), channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"]): Block(),
         reading(delivered(), NONE_OWED, "mcp__slack__slack_get_thread", channel="C1", ts="1793600000.000001", limit=20): Block(),
         reading([T.user("where are we")], NONE_OWED, "Bash", command="cc-slack thread --url C0B/p1793600000000001 --limit 1000"): Block(),

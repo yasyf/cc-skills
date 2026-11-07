@@ -84,8 +84,7 @@ CCX_MCP_SEARCHES = tuple(f"mcp__plugin_cc-context_cc-context__ccx_{name}" for na
 SLACK_THREAD_TOOLS = ("mcp__slack__slack_get_thread", "mcp__plugin_cc-slack_cc-slack__slack_thread")
 DRIVE_GREP = re.compile(r"^grep (?!.*--budget)(?=.*--drive[ =]\S)")
 ASK_LANE = (
-    "The communicator runs no search inline: ask a lane with `lr ask-lane '<question>'`, `--mac` for Slack or a transcript, "
-    "and it answers in a record. "
+    "The communicator runs no search inline: a fresh Sonnet read subagent answers him from any lane's transcript, inbox and notes, never through root. "
     "Bounded reads stay yours: `cci show <seq>`, `cci grep --drive <drive>` at its default budget, one named file, or a thread the owner linked or wrote in."
 )
 SLACK_HISTORY = "mcp__slack__slack_conversations_history"
@@ -783,7 +782,7 @@ hook(  # capt-hook: no-escape the owner ruled wide searches off the communicator
     ],
     skip_if=[FromSubagent(), ReadsOneSlackMessage()],
     tests=communicator_tests({
-        Input(command="cci grep dashboard --drive durable-agents-rebuild --budget 400000", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: ask a lane with `lr ask-lane"),
+        Input(command="cci grep dashboard --drive durable-agents-rebuild --budget 400000", state=ACTIVE): Block(pattern=r"^The communicator runs no search inline: a fresh Sonnet read subagent"),
         Input(command="cci grep dashboard --drive durable-agents-rebuild", state=ACTIVE): Allow(),
         Input(tool="mcp__plugin_cc-inbox_cci__find", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),
         Input(tool="mcp__slack__slack_search_messages", tool_input={"query": "dashboard"}, state=ACTIVE): Block(),

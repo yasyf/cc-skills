@@ -88,7 +88,7 @@ KEPT_REFUSALS = KEPT | {
     "register_gates.hook_edit_guard": "trust: hook-file edits",
     "release_cards.release_leaves_out_what_his_open_cards_gate": "an apply cannot be recalled and sandsql cannot roll back, so a warning on the start lands after the stack ships (cci 386973)",
     "shell_waits.A Bash call never waits in a shell loop, s": "the owner ordered the refusal: a shell wait already holds the lane's next message when a warning lands",
-    "root_context.The communicator runs no search inline: as": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
+    "root_context.The communicator runs no search inline: a ": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "root_replies.tap_claims_match_the_board": STOP.format(what="the owner would read a false claim about what waits on him"),
     "stale_pick_sends.stale_pick_sends": "the owner ordered the refusal (559488): a send under an old pick reaches another person the moment it posts, so a warning lands after the message is out",
     "shell_script_file.BLOCKED: Claude Code reads `$$(`, `$${` or": "the call would hold on a permission prompt, so a warning lands too late",
