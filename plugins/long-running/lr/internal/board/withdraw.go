@@ -162,14 +162,18 @@ func slackTime(ts string) (time.Time, error) {
 	return time.Unix(whole, nanos), nil
 }
 
-func (c Cards) answeredInThread(ctx context.Context, card string, answers func(ts string, at time.Time) bool) (string, []string, error) {
+type threadAnswer struct {
+	words, post, link string
+}
+
+func (c Cards) answeredInThread(ctx context.Context, card string, answers func(ts string, at time.Time) bool) (threadAnswer, error) {
 	post, err := c.slackPost(ctx, card)
 	if err != nil || post == "" {
-		return "", nil, err
+		return threadAnswer{}, err
 	}
 	thread, err := c.slackThread(ctx, post)
 	if err != nil {
-		return "", nil, err
+		return threadAnswer{}, err
 	}
 	for _, message := range slices.Backward(thread.Messages) {
 		if !message.FromUser {
@@ -177,13 +181,13 @@ func (c Cards) answeredInThread(ctx context.Context, card string, answers func(t
 		}
 		at, err := slackTime(message.TS)
 		if err != nil {
-			return "", nil, err
+			return threadAnswer{}, err
 		}
 		if answers(message.TS, at) {
-			return fmt.Sprintf("answered in its thread: “%s”", clipWords(message.Text, hisWordsCut)), []string{"--replaced-by", thread.link(post, message.TS)}, nil
+			return threadAnswer{clipWords(message.Text, hisWordsCut), post, thread.link(post, message.TS)}, nil
 		}
 	}
-	return "", nil, nil
+	return threadAnswer{}, nil
 }
 
 func (c Cards) slackUser(ctx context.Context) (string, error) {
