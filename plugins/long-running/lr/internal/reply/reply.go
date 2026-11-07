@@ -35,26 +35,27 @@ import (
 )
 
 const (
-	communicator = "owner-relay"
-	storeDir     = "replies"
-	postTimeout  = 30 * time.Second
-	tapTimeout   = 90 * time.Second
-	maxTitle     = 140
-	maxPick      = 200
-	maxPicks     = 4
-	pickSplit    = " :: "
-	maxLinks     = 5
-	maxPRs       = 10
-	maxBlocks    = 8
-	cardPrefix   = "card-"
-	withdrawn    = " withdrawn"
-	alreadyGone  = "no block "
-	pickLink     = "Pick on the card"
-	needsYou     = "needs_you"
-	progress     = "progress"
-	info         = "info"
-	incident     = "incident"
-	done         = "done"
+	communicator   = "owner-relay"
+	storeDir       = "replies"
+	postTimeout    = 30 * time.Second
+	nearestRulings = 3
+	tapTimeout     = 90 * time.Second
+	maxTitle       = 140
+	maxPick        = 200
+	maxPicks       = 4
+	pickSplit      = " :: "
+	maxLinks       = 5
+	maxPRs         = 10
+	maxBlocks      = 8
+	cardPrefix     = "card-"
+	withdrawn      = " withdrawn"
+	alreadyGone    = "no block "
+	pickLink       = "Pick on the card"
+	needsYou       = "needs_you"
+	progress       = "progress"
+	info           = "info"
+	incident       = "incident"
+	done           = "done"
 
 	typeExplanation = "explanation"
 	typeUpdate      = "update"
@@ -180,13 +181,14 @@ type step struct {
 }
 
 type Fanout struct {
-	Runner shell.Runner
-	Entry  drive.Entry
-	Now    func() time.Time
-	Log    *slog.Logger
-	Judge  board.Judge
-	Shoot  func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
-	Cards  board.Cards
+	Runner  shell.Runner
+	Entry   drive.Entry
+	Now     func() time.Time
+	Log     *slog.Logger
+	Judge   board.Judge
+	Shoot   func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
+	Cards   board.Cards
+	Rulings string
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
@@ -374,6 +376,29 @@ func (f Fanout) approvesTapped(r Reply) error {
 		return nil
 	}
 	return fmt.Errorf("ALREADY TAPPED: he tapped %s, and his tap counts once for a PR, so nothing went out; no card asks him to Approve it again unless a push its head record marks --attr delta=fundamental changes it, and the runner draws that card itself", strings.Join(tapped, ", "))
+}
+
+func (f Fanout) rulingsWarning(ctx context.Context, r Reply) string {
+	if len(r.Picks) == 0 || f.Rulings == "" {
+		return ""
+	}
+	done, err := f.Runner.Run(ctx, shell.Command{
+		Argv:  []string{f.Rulings, "match", "--drive", f.Entry.Drive, "--repo", f.Entry.Checkout, "-k", strconv.Itoa(nearestRulings)},
+		Stdin: r.Title + "\n" + strings.Join(r.Picks, "\n"), Timeout: tapTimeout,
+	})
+	if err != nil {
+		return fmt.Sprintf("his register did not read, so no pick was checked against a ruling he already gave: %v", err)
+	}
+	var nearest []string
+	for line := range strings.Lines(done.Stdout) {
+		if row, found := strings.CutPrefix(strings.TrimSpace(line), "- "); found {
+			nearest = append(nearest, row)
+		}
+	}
+	if len(nearest) == 0 {
+		return ""
+	}
+	return "his rulings nearest this question are " + strings.Join(nearest, "; ") + "; drop any pick one of them already settles"
 }
 
 func (f Fanout) tapWarning(r Reply) string {

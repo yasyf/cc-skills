@@ -2439,3 +2439,23 @@ func TestAnApproveCardOnAPRHeAlreadyTappedIsRefused(t *testing.T) {
 		})
 	}
 }
+
+func TestAPickCardNamesHisNearestRulingsSoAPickHeSettledComesOff(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply("- 1026183 Prompt rows: keep the judge's prompt as written\n> his words\n- 1026190 Prompt edits go through the eval\n", "/claude/rulings.py", "match")
+	f := fanout(t, fake)
+	f.Rulings = "/claude/rulings.py"
+
+	warning := f.rulingsWarning(context.Background(), Reply{Title: "Rewrite the judge prompt?", Picks: []string{"Rewrite it", "Keep it"}})
+
+	if want := "his rulings nearest this question are 1026183 Prompt rows: keep the judge's prompt as written; 1026190 Prompt edits go through the eval; drop any pick one of them already settles"; warning != want {
+		t.Fatalf("warning = %q, want %q", warning, want)
+	}
+	run := fake.Calls()[0]
+	if want := []string{"/claude/rulings.py", "match", "--drive", "d", "--repo", "/repo", "-k", "3"}; !slices.Equal(run.Argv, want) || run.Stdin != "Rewrite the judge prompt?\nRewrite it\nKeep it" {
+		t.Fatalf("ran %q with %q", run.Argv, run.Stdin)
+	}
+	if warning := f.rulingsWarning(context.Background(), Reply{Title: "Landed"}); warning != "" || len(fake.Calls()) != 1 {
+		t.Fatalf("a reply with no picks warned %q and ran %d commands", warning, len(fake.Calls()))
+	}
+}
