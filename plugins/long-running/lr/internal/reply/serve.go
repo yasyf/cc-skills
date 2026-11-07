@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -110,7 +111,11 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil)}
+			claude, err := drive.ConfigDir()
+			if err != nil {
+				return "reply: " + err.Error(), true
+			}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil), Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py")}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)
@@ -166,6 +171,9 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			if warning := fanout.tapWarning(r); warning != "" {
+				warned = append(warned, warning)
+			}
+			if warning := fanout.rulingsWarning(ctx, r); warning != "" {
 				warned = append(warned, warning)
 			}
 			r, warning = fanout.withPortOpening(r)
