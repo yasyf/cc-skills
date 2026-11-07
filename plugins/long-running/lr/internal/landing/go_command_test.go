@@ -1025,3 +1025,28 @@ func TestAGoAnswerThatDoesNotReadRefusesNothingAndSaysSo(t *testing.T) {
 		t.Fatalf("stderr = %q, want it to open %q", stderr.String(), gateUnread)
 	}
 }
+
+func TestARefusedGoOnATappedHeadSaysTheTapCountsAndGoHoldsNothing(t *testing.T) {
+	s, err := store.Open(filepath.Join(t.TempDir(), storeFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	const tapped, moved = "f6ba6ca76c4a58b07736cb1e5466c06cce4d7bbf", "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+	if err := s.PutReviewRows([]store.ReviewRow{{Repo: "o/r", Number: 52540, Head: tapped, Tapped: true}, {Repo: "o/r", Number: 52537, Head: moved}}); err != nil {
+		t.Fatal(err)
+	}
+
+	note, err := tappedNote(s, "o/r", 52540, tapped)
+	if err != nil || !strings.HasPrefix(note, "TAPPED #52540 at f6ba6ca: his tap counts at this head") || !strings.Contains(note, "lr landing gate 52540") {
+		t.Fatalf("note = %q, %v; want the tap counted and the gate verb named", note, err)
+	}
+	for _, untapped := range []struct {
+		number int
+		head   string
+	}{{52540, moved}, {52537, moved}, {52534, tapped}} {
+		if note, err := tappedNote(s, "o/r", untapped.number, untapped.head); err != nil || note != "" {
+			t.Fatalf("#%d at %s noted %q, %v; want nothing off a tapped head", untapped.number, untapped.head[:7], note, err)
+		}
+	}
+}
