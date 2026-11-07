@@ -584,7 +584,10 @@ func (c CCRemote) tool(ctx context.Context) (string, []string, error) {
 		}
 		return ""
 	}
-	command := cmp.Or(found(ccRemoteEnv, filepath.Join("bin", "cc-remote")), "cc-remote")
+	command := cmp.Or(os.Getenv(ccRemoteEnv), "cc-remote")
+	if plugin := os.Getenv("BINRUN_PLUGIN_ROOT"); command == "cc-remote" && plugin != "" {
+		command = filepath.Join(plugin, "bin", "cc-remote")
+	}
 	config := found(ccRemoteConfigEnv, "config.yaml")
 	if config == "" {
 		return command, nil, nil

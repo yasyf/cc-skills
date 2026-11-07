@@ -29,7 +29,7 @@ func (r *recordingRunner) Run(_ context.Context, c shell.Command) (shell.Result,
 	return r.reply(c)
 }
 
-func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemote(t *testing.T) {
+func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithThePacksCCRemoteAndTheDrivesConfig(t *testing.T) {
 	state := t.TempDir()
 	writeJSON(t, filepath.Join(state, "runner.json"), map[string]any{"orca": map[string]any{"sprite": map[string]any{"env": map[string]string{"WORKER_CC_REMOTE": "/pin/cc-remote", "CC_REMOTE_CONFIG": "/pin/config.yaml"}}}})
 	runner := &recordingRunner{reply: func(shell.Command) (shell.Result, error) {
@@ -56,7 +56,7 @@ func TestSettledGCRunsANewPassEveryFiveMinutesFromTheCheckoutWithTheDrivesCCRemo
 	got := passes[0]
 	equal(t, got.Argv, []string{filepath.Join(claude, "long-running", "current", "bin", "lr"), "gc", "--run", "run_1", "--keep", "ctx_wanted", "--new", "--shells", "--other-runs"})
 	equal(t, got.Dir, "/checkout")
-	equal(t, got.Env, []string{"WORKER_CC_REMOTE=/pin/cc-remote", "CC_REMOTE_CONFIG=/pin/config.yaml"})
+	equal(t, got.Env, []string{"WORKER_CC_REMOTE=" + filepath.Join(claude, "long-running", "current", "bin", "cc-remote"), "CC_REMOTE_CONFIG=/pin/config.yaml"})
 }
 
 func TestTheCleanupPassKeepsARetiredLaneThatStillHoldsAStandingDutyUntilASuccessorTakesIt(t *testing.T) {

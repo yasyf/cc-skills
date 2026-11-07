@@ -2304,7 +2304,7 @@ func TestTheSpriteHolderScanFindsAProcessInTheCheckoutAndSkipsItself(t *testing.
 	}
 }
 
-func TestASpriteDestroyReadsTheConfigFromTheResolvedPath(t *testing.T) {
+func TestASpriteDestroyRunsThePacksCcRemoteWithTheCheckoutsConfig(t *testing.T) {
 	checkoutRoot := t.TempDir()
 	tools := filepath.Join(checkoutRoot, "tools", "cc-remote")
 	if err := os.MkdirAll(filepath.Join(tools, "bin"), 0o750); err != nil {
@@ -2323,21 +2323,24 @@ func TestASpriteDestroyReadsTheConfigFromTheResolvedPath(t *testing.T) {
 			return "", "", 0
 		}}
 	}
+	pack := filepath.Join(t.TempDir(), "long-running")
 	cases := []struct {
 		name        string
 		runner      *scripted
+		plugin      string
 		command     string
 		config      string
 		wantCommand string
 		wantEnv     []string
 	}{
-		{name: "the checkout gc runs from", runner: repoRunner(checkoutRoot+"\n", 0), wantCommand: filepath.Join(tools, "bin", "cc-remote"), wantEnv: []string{"CC_REMOTE_CONFIG=" + filepath.Join(tools, "config.yaml")}},
-		{name: "the operator's environment wins", runner: repoRunner(checkoutRoot+"\n", 0), command: "/pin/cc-remote", config: "/pin/config.yaml", wantCommand: "/pin/cc-remote", wantEnv: []string{"CC_REMOTE_CONFIG=/pin/config.yaml"}},
-		{name: "a checkout with no tools leaves cc-remote to its own lookup", runner: repoRunner(t.TempDir()+"\n", 0), wantCommand: "cc-remote"},
-		{name: "outside a checkout cc-remote keeps its own lookup", runner: repoRunner("", 128), wantCommand: "cc-remote"},
+		{name: "the pack's pin, never the checkout's", runner: repoRunner(checkoutRoot+"\n", 0), plugin: pack, wantCommand: filepath.Join(pack, "bin", "cc-remote"), wantEnv: []string{"CC_REMOTE_CONFIG=" + filepath.Join(tools, "config.yaml")}},
+		{name: "the operator's environment wins", runner: repoRunner(checkoutRoot+"\n", 0), plugin: pack, command: "/pin/cc-remote", config: "/pin/config.yaml", wantCommand: "/pin/cc-remote", wantEnv: []string{"CC_REMOTE_CONFIG=/pin/config.yaml"}},
+		{name: "a checkout with no tools runs the pack's pin with its own config lookup", runner: repoRunner(t.TempDir()+"\n", 0), plugin: pack, wantCommand: filepath.Join(pack, "bin", "cc-remote")},
+		{name: "outside the pack cc-remote keeps its own lookup", runner: repoRunner("", 128), wantCommand: "cc-remote"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("BINRUN_PLUGIN_ROOT", c.plugin)
 			t.Setenv(ccRemoteEnv, c.command)
 			t.Setenv(ccRemoteConfigEnv, c.config)
 			refusal, err := CCRemote{Runner: c.runner}.Destroy(context.Background(), testSprite)

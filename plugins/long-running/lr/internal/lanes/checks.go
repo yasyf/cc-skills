@@ -29,7 +29,6 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/terminalcap"
-	"golang.org/x/mod/semver"
 )
 
 const (
@@ -46,7 +45,6 @@ const (
 	ReapTopic    = "session-reap"
 	closedTopic  = "terminal-closed"
 	stopTimeout  = 5 * time.Minute
-	stopRelease  = "v0.27.4"
 	stopTries    = 3
 	launchWait   = 45 * time.Second
 	launchMargin = 10 * time.Second
@@ -501,7 +499,7 @@ type CcRemote struct {
 	Config string
 }
 
-func CcRemoteOf(state string) (*CcRemote, error) {
+func CcRemoteOf(state, plugin string) (*CcRemote, error) {
 	data, err := drive.ReadMacOnly(filepath.Join(state, "runner.json"))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -523,21 +521,8 @@ func CcRemoteOf(state string) (*CcRemote, error) {
 		return nil, nil
 	}
 	env := runner.Orca.Sprite.Env
-	tools := filepath.Join(env["WORKER_CHECKOUT"], "tools", "cc-remote")
-	return &CcRemote{Binary: or(env["WORKER_CC_REMOTE"], filepath.Join(tools, "bin", "cc-remote")), Config: or(env["CC_REMOTE_CONFIG"], filepath.Join(tools, "config.yaml"))}, nil
-}
-
-func (r CcRemote) hasStop(ctx context.Context, runner shell.Runner) error {
-	result, err := runner.Run(ctx, shell.Command{Argv: []string{r.Binary, "version"}, Timeout: stopTimeout})
-	if err != nil {
-		return err
-	}
-	printed := strings.TrimSpace(result.Stdout + result.Stderr)
-	version := printed[strings.LastIndex(printed, "\n")+1:]
-	if semver.Compare("v"+version, stopRelease) < 0 {
-		return fmt.Errorf("%s version printed %s, and an orca stop that works on a finished lane first shipped in cc-remote %s", r.Binary, or(version, "nothing"), stopRelease)
-	}
-	return nil
+	config := or(env["CC_REMOTE_CONFIG"], filepath.Join(env["WORKER_CHECKOUT"], "tools", "cc-remote", "config.yaml"))
+	return &CcRemote{Binary: filepath.Join(plugin, "bin", "cc-remote"), Config: config}, nil
 }
 
 type SpriteStops struct {
@@ -557,22 +542,18 @@ func (c *SpriteStops) Check(ctx context.Context, now time.Time) error {
 	if err != nil || len(hosted) == 0 {
 		return err
 	}
-	statuses, err := c.Env.dispatchStatuses(ctx)
+	open, err := c.Env.openDispatches(ctx)
 	if err != nil {
 		c.Log.Warn("sprite stops did not read the Run", "err", err)
 		return nil
 	}
 	why := map[string]string{}
 	for _, lane := range hosted {
-		if reason := endedBecause(lane, dispatchOf(c.Env.receipts(), lane.Name), statuses); reason != "" {
+		if reason := endedBecause(lane, receiptOf(c.Env.receipts(), lane.Name), open); reason != "" {
 			why[lane.Name] = reason
 		}
 	}
 	if len(why) == 0 {
-		return nil
-	}
-	if err := c.CcRemote.hasStop(ctx, c.Env.Runner); err != nil {
-		c.Log.Warn("sprite stops wait for a cc-remote that has orca stop", "lanes", slices.Sorted(maps.Keys(why)), "err", err)
 		return nil
 	}
 	var ended []string
@@ -689,12 +670,49 @@ func (e Env) sprites(ctx context.Context) (map[string]bool, error) {
 	return running, nil
 }
 
-func endedBecause(lane store.Lane, dispatch string, statuses map[string]dispatchRead) string {
-	read, known := statuses[dispatch]
+type openDispatches struct {
+	dispatches, terminals map[string]bool
+}
+
+func (e Env) openDispatches(ctx context.Context) (openDispatches, error) {
+	stdout, err := e.Run(ctx, "orca", "orchestration", "task-list", "--run", e.Config.OrcaRun, "--status", "dispatched", "--brief", "--json")
+	if err != nil {
+		return openDispatches{}, err
+	}
+	var listed struct {
+		OK     bool `json:"ok"`
+		Error  any  `json:"error"`
+		Result struct {
+			Tasks []struct {
+				Dispatch string `json:"dispatch_id"`
+				Assignee string `json:"assignee_handle"`
+			} `json:"tasks"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &listed); err != nil {
+		return openDispatches{}, fmt.Errorf("%w: orca task-list: %w", ErrUnread, err)
+	}
+	if !listed.OK {
+		return openDispatches{}, fmt.Errorf("%w: orca task-list: %v", ErrUnread, listed.Error)
+	}
+	open := openDispatches{dispatches: map[string]bool{}, terminals: map[string]bool{}}
+	for _, task := range listed.Result.Tasks {
+		open.dispatches[task.Dispatch] = true
+		if task.Assignee != "" {
+			open.terminals[task.Assignee] = true
+		}
+	}
+	return open, nil
+}
+
+func endedBecause(lane store.Lane, receipt launchReceipt, open openDispatches) string {
+	dispatch := receipt.Result.DispatchID
 	switch {
-	case known && slices.Contains(settledDispatch, read.Status):
-		return fmt.Sprintf("its dispatch %s is %s", dispatch, read.Status)
-	case !known && (lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn"):
+	case open.dispatches[dispatch] || open.terminals[receipt.agentTerminal()]:
+		return ""
+	case dispatch != "":
+		return fmt.Sprintf("its dispatch %s is no longer open", dispatch)
+	case lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn":
 		return "it was retired by " + lane.RetiredBy
 	}
 	return ""
@@ -1102,7 +1120,7 @@ func NotLiveOf(text string) (map[int][]string, bool) {
 }
 
 func (e Env) gc(ctx context.Context, args ...string) (shell.Result, error) {
-	remote, err := CcRemoteOf(e.State)
+	remote, err := CcRemoteOf(e.State, e.plugin())
 	if err != nil {
 		return shell.Result{}, err
 	}
@@ -1421,7 +1439,7 @@ func (e Env) Checks(ctx context.Context, s *store.Store, log *slog.Logger) ([]Ch
 	if len(landing.Pages.Channels) > 0 {
 		checks = append(checks, (&PageWatch{Env: e, Store: s, Channels: landing.Pages.Channels, BuildCLI: landing.Pages.Build, Token: bkread.Token{Command: landing.CITokenCommand}, Log: log, Refused: refused}).Check)
 	}
-	remote, err := CcRemoteOf(e.State)
+	remote, err := CcRemoteOf(e.State, e.plugin())
 	if err != nil {
 		return nil, err
 	}

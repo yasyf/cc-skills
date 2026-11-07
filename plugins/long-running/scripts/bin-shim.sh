@@ -37,6 +37,7 @@ case "$TOOL" in
     export BINRUN_PLUGIN_ROOT="$ROOT"
     exec "$ROOT/scripts/binrun.sh" "$ROOT/bin/lr.binrun" "$@"
     ;;
+  cc-remote) exec "$ROOT/scripts/binrun.sh" "$ROOT/bin/cc-remote.binrun" "$@" ;;
   incident.py) exec "$ROOT/bin/lr" incident "$@" ;;
   replay.py) exec "$ROOT/bin/lr" replay "$@" ;;
   remote-restack.py) exec "$ROOT/bin/lr" landing restack "$@" ;;

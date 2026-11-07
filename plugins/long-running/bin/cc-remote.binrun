@@ -1,0 +1,56 @@
+#!/usr/bin/env binrun
+{
+  "schema": 1,
+  "name": "cc-remote",
+  "kind": "release-binary",
+  "version": {
+    "static": "0.27.26"
+  },
+  "platforms": {
+    "macos-aarch64": {
+      "size": 6119181,
+      "hash": "sha256",
+      "digest": "59a13a33a0bfa4ed2858dc96fbe20915d1335da67750109b3c711f574e7f4fb0",
+      "format": "tar.gz",
+      "path": "cc-remote",
+      "providers": [
+        {
+          "type": "github-release",
+          "repo": "yasyf/cc-remote",
+          "tag": "v0.27.26",
+          "name": "cc-remote_0.27.26_darwin_arm64.tar.gz"
+        }
+      ]
+    },
+    "linux-x86_64": {
+      "size": 6427059,
+      "hash": "sha256",
+      "digest": "ef6670c759d20eeb89c4d365f55805d959cf698715e1f43cb9f0f171b42c609a",
+      "format": "tar.gz",
+      "path": "cc-remote",
+      "providers": [
+        {
+          "type": "github-release",
+          "repo": "yasyf/cc-remote",
+          "tag": "v0.27.26",
+          "name": "cc-remote_0.27.26_linux_amd64.tar.gz"
+        }
+      ]
+    },
+    "linux-aarch64": {
+      "size": 5839797,
+      "hash": "sha256",
+      "digest": "580957aa5b943fd4fad23dfb49f08b05f078158cdeb9b05817eee289266cb338",
+      "format": "tar.gz",
+      "path": "cc-remote",
+      "providers": [
+        {
+          "type": "github-release",
+          "repo": "yasyf/cc-remote",
+          "tag": "v0.27.26",
+          "name": "cc-remote_0.27.26_linux_arm64.tar.gz"
+        }
+      ]
+    }
+  }
+}
