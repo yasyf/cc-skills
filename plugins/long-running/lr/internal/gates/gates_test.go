@@ -76,82 +76,60 @@ func TestAnyOtherChangeToTheDiffHashesDifferently(t *testing.T) {
 	}
 }
 
-func TestATapCarriesOnlyWhenTheNewHeadMeansTheSameAsTheTappedOne(t *testing.T) {
-	tapped := map[string]string{DiffFact: DiffHash(tappedDiff)}
-	judged := func(behavior, since, fidelity string) map[string]string {
-		return map[string]string{DiffFact: "other", BehaviorFact: behavior, SinceFact: since, fidelityFact: fidelity}
-	}
-	for name, c := range map[string]struct {
-		atTap, atHead map[string]string
-		want          string
-	}{
-		"the same diff":                             {tapped, map[string]string{DiffFact: DiffHash(tappedDiff)}, BySameDiff},
-		"fidelity judged it the same":               {tapped, judged(BehaviorSame, oldHead, "pass"), ByFidelity},
-		"fidelity judged it changed":                {tapped, judged(BehaviorChanged, oldHead, "pass"), ""},
-		"the same since a later carried head":       {tapped, judged(BehaviorSame, "bb22cc33dd44", "pass"), ""},
-		"the same but a plan line is missing":       {tapped, judged(BehaviorSame, oldHead, "fail"), ""},
-		"the same with its plan line overridden":    {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(fidelityKind): "accept"}, ByFidelity},
-		"the same with only its finder overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(finderKind): "accept"}, ""},
-		"changed though a plan line is overridden":  {tapped, map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, fidelityFact: "fail", machine.OverrideFact(fidelityKind): "accept"}, ""},
-		"the same since a shorter form of the head": {tapped, judged(BehaviorSame, oldHead[:7], "pass"), ByFidelity},
-		"the same since nothing named":              {tapped, judged(BehaviorSame, "", "pass"), ""},
-		"a different diff not judged yet":           {tapped, map[string]string{DiffFact: "other", fidelityFact: "pass"}, ""},
-		"no diff recorded at the tapped head":       {map[string]string{}, map[string]string{DiffFact: ""}, ""},
-	} {
-		t.Run(name, func(t *testing.T) {
-			if got, _ := CarriedBy(oldHead, newHead, c.atTap, c.atHead, nil); got != c.want {
-				t.Fatalf("carried by %q, want %q", got, c.want)
+func TestHisTapCountsAtEveryLaterHeadUntilAPushChangesThePRFundamentally(t *testing.T) {
+	const (
+		tapped48159   = "bff7b78f1aeaa79635afa18616059d41a6b8a9df"
+		restacked     = "f882f036d1c9525f67cb75a9eb82de4819aafdf8"
+		testFixed     = "867b002a1fde5e2de8e40798ef1c8edb5da65bc2"
+		landed48159   = "5266ad0e825321f92996008a919d4fb7752bf77d"
+		beforeFloor   = "681434f62a9c498072a71a6a3b1e40c614df9c72"
+		floorKeyed    = "cb60d5e91c969952464d053a11e654601605b981"
+		opened52167   = "3d9f913ed6944cd9b45937e476b548fd86a49247"
+		wiringDropped = "24f1286071665421b6628a2d3272b8dd6cc38cc8"
+		redesigned    = "bb22cc33dd44ee55ff6677889900aabbccddeeff"
+	)
+	type push struct{ was, sha, class, why string }
+	recorded := func(pushes ...push) []store.HeadFact {
+		var facts []store.HeadFact
+		for _, p := range pushes {
+			facts = append(facts, store.HeadFact{Head: p.sha, Kind: DeltaFromFact, Value: p.was})
+			if p.class != "" {
+				facts = append(facts, store.HeadFact{Head: p.sha, Kind: DeltaFact, Value: p.class}, store.HeadFact{Head: p.sha, Kind: DeltaWhyFact, Value: p.why})
 			}
-		})
-	}
-}
-
-func TestAHeadRecordsClassDecidesWhetherHisTapCarries(t *testing.T) {
-	const middle, far = "bb22cc33dd44", "cc33dd44ee55"
-	link := func(head, class, from, why string) []store.HeadFact {
-		facts := []store.HeadFact{{Head: head, Kind: DeltaFromFact, Value: from}}
-		if class != "" {
-			facts = append(facts, store.HeadFact{Head: head, Kind: DeltaFact, Value: class}, store.HeadFact{Head: head, Kind: DeltaWhyFact, Value: why})
 		}
 		return facts
 	}
 	same, changed := map[string]string{DiffFact: "tapped"}, map[string]string{DiffFact: "other"}
+	fidelityChanged := map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: beforeFloor, ChangedFact: "frees redo at the committed floor"}
 	for name, c := range map[string]struct {
-		atHead   map[string]string
-		deltas   []store.HeadFact
-		by, back string
+		tapped, head string
+		atHead       map[string]string
+		pushes       []push
+		by, back     string
 	}{
-		"a review-fix head carries":             {changed, link(newHead, DeltaReviewFix, oldHead, "the finder's nit"), "review-fix", ""},
-		"a fix he ordered carries":              {changed, link(newHead, DeltaOrderedFix, oldHead, "his fix"), "ordered-fix", ""},
-		"a behavior head returns saying so":     {changed, link(newHead, DeltaBehavior, oldHead, "drops archived chats"), "", "a behavior change at " + newHead[:7] + ": drops archived chats"},
-		"a scope head returns saying so":        {changed, link(newHead, DeltaScope, oldHead, "adds the export"), "", "a scope change at " + newHead[:7] + ": adds the export"},
-		"a rebase then a behavior head returns": {changed, slices.Concat(link(middle, DeltaRebase, oldHead, "onto dev"), link(newHead, DeltaBehavior, middle, "drops chats")), "", "a behavior change at " + newHead[:7] + ": drops chats"},
-		"a behavior head then a rebase returns": {changed, slices.Concat(link(middle, DeltaBehavior, oldHead, "drops chats"), link(newHead, DeltaRebase, middle, "onto dev")), "", "a behavior change at " + middle[:7] + ": drops chats"},
-		"a rebase then a review fix names both": {changed, slices.Concat(link(middle, DeltaRebase, oldHead, "onto dev"), link(newHead, DeltaReviewFix, middle, "nit")), "rebase,review-fix", ""},
-		"a class on the same diff names itself": {same, link(newHead, DeltaRebase, oldHead, "onto dev"), "rebase", ""},
-		"no class with the same diff carries":   {same, link(newHead, "", oldHead, ""), BySameDiff, ""},
-		"a label cannot outrank the same diff":  {same, link(newHead, DeltaBehavior, oldHead, "said so"), BySameDiff, ""},
-		"no class with a changed diff returns":  {changed, link(newHead, "", oldHead, ""), "", unjudged},
-		"a class the rule does not know":        {changed, link(newHead, "cleanup", oldHead, "tidy"), "", unjudged},
-		"a classed head with an unclassed one":  {changed, slices.Concat(link(middle, "", oldHead, ""), link(newHead, DeltaRebase, middle, "onto dev")), "", unjudged},
-		"a chain that never reaches his tap":    {changed, link(newHead, DeltaReviewFix, far, "nit"), "", unjudged},
-		"heads that point at each other":        {changed, slices.Concat(link(middle, DeltaRebase, newHead, "back"), link(newHead, DeltaRebase, middle, "forth")), "", unjudged},
-		"a class beside fidelity judging a change": {
-			map[string]string{DiffFact: "other", BehaviorFact: BehaviorChanged, SinceFact: oldHead, ChangedFact: "drops chats"},
-			link(newHead, DeltaReviewFix, oldHead, "nit"), "", "fidelity judged a change: drops chats",
-		},
-		"a behavior class beside fidelity judging it the same": {
-			map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "pass"},
-			link(newHead, DeltaBehavior, oldHead, "drops chats"), "", "a behavior change at " + newHead[:7] + ": drops chats",
-		},
-		"no class with fidelity judging it the same": {
-			map[string]string{DiffFact: "other", BehaviorFact: BehaviorSame, SinceFact: oldHead, fidelityFact: "pass"},
-			link(newHead, "", oldHead, ""), ByFidelity, "",
-		},
-		"a shorter form of each head": {changed, link(newHead[:7], DeltaRebase, oldHead[:7], "onto dev"), "rebase", ""},
+		"#48159 rebased, test-fixed and restacked (555986, 557596, 559864)": {tapped48159, landed48159, changed, []push{
+			{tapped48159, restacked, "rebase", "onto dev"},
+			{restacked, testFixed, "review-fix", "onto dev, plus one test fix"},
+			{testFixed, landed48159, "rebase", "restacked onto dev"},
+		}, ByTap, ""},
+		"#48159's floor-key fix after his tap, which fidelity judged a change (546590)": {beforeFloor, floorKeyed, fidelityChanged, []push{
+			{beforeFloor, floorKeyed, "behavior", "floor-key fix"},
+		}, ByTap, ""},
+		"#52167's test-only push with no class (560387)": {opened52167, wiringDropped, changed, []push{{opened52167, wiringDropped, "", ""}}, ByTap, ""},
+		"a new head no record names":                     {opened52167, wiringDropped, changed, nil, ByTap, ""},
+		"a push that changes the PR fundamentally": {opened52167, redesigned, changed, []push{
+			{opened52167, wiringDropped, "review-fix", "nit"},
+			{wiringDropped, redesigned, DeltaFundamental, "replaces the floor with a lease"},
+		}, "", "a fundamental change at bb22cc3: replaces the floor with a lease"},
+		"a fundamental change before his tap": {wiringDropped, redesigned, changed, []push{
+			{opened52167, wiringDropped, DeltaFundamental, "a redesign he then tapped"},
+			{wiringDropped, redesigned, "rebase", "onto dev"},
+		}, ByTap, ""},
+		"a label cannot outrank the same diff": {opened52167, redesigned, same, []push{{opened52167, redesigned, DeltaFundamental, "said so"}}, BySameDiff, ""},
+		"heads that point at each other":       {opened52167, redesigned, changed, []push{{wiringDropped, redesigned, "", ""}, {redesigned, wiringDropped, "", ""}}, ByTap, ""},
 	} {
 		t.Run(name, func(t *testing.T) {
-			by, back := CarriedBy(oldHead, newHead, same, c.atHead, c.deltas)
+			by, back := CarriedBy(c.tapped, c.head, same, c.atHead, recorded(c.pushes...))
 			if by != c.by || back != c.back {
 				t.Fatalf("carried by %q, returned %q; want %q, %q", by, back, c.by, c.back)
 			}
@@ -159,9 +137,14 @@ func TestAHeadRecordsClassDecidesWhetherHisTapCarries(t *testing.T) {
 	}
 }
 
-func TestCarryWhyWordsEachClassPlainly(t *testing.T) {
-	if got, want := CarryWhy("rebase,review-fix"), "every change since the tapped head is a rebase or a review fix"; got != want {
-		t.Fatalf("got %q, want %q", got, want)
+func TestCarryWhyWordsEachReasonPlainly(t *testing.T) {
+	for by, want := range map[string]string{
+		BySameDiff: "the PR's own diff is the same as at the tapped head",
+		ByTap:      "his tap counts once for the PR, and no push since changed it fundamentally",
+	} {
+		if got := CarryWhy(by); got != want {
+			t.Fatalf("CarryWhy(%q) = %q, want %q", by, got, want)
+		}
 	}
 }
 

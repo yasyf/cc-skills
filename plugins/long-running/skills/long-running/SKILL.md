@@ -339,8 +339,8 @@ The coordinator's brief lists every desk it starts and what each does.
 ## The owner's surfaces
 
 - Every PR goes to the owner. A PR that is green, approved and graded at its head reaches his tap card
-  within one runner pass and lands on his tap. Only the classes he exempted land on a go, and nothing new
-  joins them without his word (`landing_approval`). The tap rules are in [landing.md](reference/landing.md), and so is the rule for forward ports. A port lands faithful to its old-tree PR, and a fix past its source is its own follow-up. Its body opens with `port of #n`, and every card and reply he reads on it opens `Port, old tree to new: dev #n`.
+  within one runner pass and lands on his tap. His tap counts once for a PR and is never asked for again, by a card or a READY, unless a push changes the PR fundamentally (`--attr delta=fundamental` on its `head` record) or a later decision of his directly conflicts with it.
+  Only the classes he exempted land on a go, and nothing new joins them without his word (`landing_approval`). The tap rules are in [landing.md](reference/landing.md), and so is the rule for forward ports. A port lands faithful to its old-tree PR, and a fix past its source is its own follow-up. Its body opens with `port of #n`, and every card and reply he reads on it opens `Port, old tree to new: dev #n`.
 - Each concept has one store ([sources-of-truth.md](reference/sources-of-truth.md)); drive PRs live in the PR
   ledger, `lr board rows --json`, which every PR card, list and gate reads. A PR waits on him only when its row
   says `ready_for_tap` and not tapped, else `Not ready for your tap` with `waits_on`. No lane keeps a PR list or

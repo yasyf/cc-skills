@@ -615,7 +615,7 @@ def board_rows(drive: str) -> dict[str, dict]:
 
 
 def unready(rows: dict[str, dict], prs: list[str]) -> list[str]:
-    return [UNREADY.format(pr=pr, waits=rows[pr]["waits_on"] if pr in rows else NO_ROW) for pr in prs if pr not in rows or not rows[pr]["ready_for_tap"]]
+    return [UNREADY.format(pr=pr, waits=rows[pr]["waits_on"] if pr in rows else NO_ROW) for pr in prs if pr not in rows or not rows[pr]["ready_for_tap"] or rows[pr].get("tapped")]
 
 
 def owner_waits(drive: str, *args: str) -> list[dict]:

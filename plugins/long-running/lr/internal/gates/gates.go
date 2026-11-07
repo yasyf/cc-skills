@@ -23,33 +23,21 @@ const (
 	MissingFact  = "gates-missing"
 	ShownFact    = "approval-shown"
 	MergesAtFact = "merges-at"
-	fidelityFact = "fidelity"
 
-	BehaviorSame    = "same"
 	BehaviorChanged = "changed"
 
 	BySameDiff = "same-diff"
-	ByFidelity = "fidelity"
+	ByTap      = "tap"
 
-	DeltaFact     = "delta"
-	DeltaFromFact = "delta-from"
-	DeltaWhyFact  = "delta-why"
-
-	DeltaRebase     = "rebase"
-	DeltaReviewFix  = "review-fix"
-	DeltaOrderedFix = "ordered-fix"
-	DeltaBehavior   = "behavior"
-	DeltaScope      = "scope"
-
-	classSeparator = ","
-	unjudged       = "its diff changed, and neither its head record nor fidelity says it means the same yet"
+	DeltaFact        = "delta"
+	DeltaFromFact    = "delta-from"
+	DeltaWhyFact     = "delta-why"
+	DeltaFundamental = "fundamental"
 )
 
 var (
-	OverrideFacts  = []string{machine.OverrideFact(finderKind), machine.OverrideFact(fidelityKind)}
-	DeltaFacts     = []string{DeltaFact, DeltaFromFact, DeltaWhyFact, DiffFact}
-	carryingWords  = map[string]string{DeltaRebase: "a rebase", DeltaReviewFix: "a review fix", DeltaOrderedFix: "a fix the owner ordered", BySameDiff: "a push that left the PR's own diff the same"}
-	returningWords = map[string]string{DeltaBehavior: "a behavior change", DeltaScope: "a scope change"}
+	OverrideFacts = []string{machine.OverrideFact(finderKind), machine.OverrideFact(fidelityKind)}
+	DeltaFacts    = []string{DeltaFact, DeltaFromFact, DeltaWhyFact, DiffFact}
 )
 
 var (
@@ -134,69 +122,28 @@ func OverrideHeads(facts []store.HeadFact, head string) []string {
 }
 
 func CarriedBy(tapped, head string, atTap, atHead map[string]string, deltas []store.HeadFact) (by, returned string) {
-	since := deltasSince(tapped, head, deltas)
 	if SameDiff(atTap, atHead) {
-		return cmp.Or(since.carrying(), BySameDiff), ""
+		return BySameDiff, ""
 	}
-	if back := since.returning(); back != "" {
-		return "", back
+	at := head
+	for range len(deltas) + 1 {
+		if at == "" || sameHead(at, tapped) {
+			break
+		}
+		said := factsAt(at, deltas)
+		if said[DeltaFact] == DeltaFundamental {
+			return "", fmt.Sprintf("a fundamental change at %s: %s", short(at), said[DeltaWhyFact])
+		}
+		at = said[DeltaFromFact]
 	}
-	if atHead[BehaviorFact] == BehaviorChanged && sameHead(atHead[SinceFact], tapped) {
-		return "", "fidelity judged a change: " + atHead[ChangedFact]
-	}
-	if by := since.carrying(); by != "" {
-		return by, ""
-	}
-	if sameHead(atHead[SinceFact], tapped) && atHead[BehaviorFact] == BehaviorSame && (atHead[fidelityFact] == string(machine.FidelityPass) || atHead[machine.OverrideFact(fidelityKind)] != "") {
-		return ByFidelity, ""
-	}
-	return "", unjudged
+	return ByTap, ""
 }
 
 func CarryWhy(by string) string {
-	switch by {
-	case BySameDiff:
+	if by == BySameDiff {
 		return "the PR's own diff is the same as at the tapped head"
-	case ByFidelity:
-		return "fidelity judged no behavior or scope change since the tapped head"
 	}
-	var words []string
-	for class := range strings.SplitSeq(by, classSeparator) {
-		words = append(words, carryingWords[class])
-	}
-	return "every change since the tapped head is " + strings.Join(words, " or ")
-}
-
-type delta struct {
-	head, class, why string
-}
-
-type deltaChain struct {
-	links   []delta
-	reached bool
-}
-
-func deltasSince(tapped, head string, deltas []store.HeadFact) deltaChain {
-	var chain deltaChain
-	at := head
-	for range len(deltas) + 1 {
-		if sameHead(at, tapped) {
-			chain.reached = true
-			return chain
-		}
-		said := factsAt(at, deltas)
-		from := said[DeltaFromFact]
-		class := said[DeltaFact]
-		if _, carries := carryingWords[class]; !carries && from != "" && SameDiff(factsAt(from, deltas), said) {
-			class = BySameDiff
-		}
-		chain.links = append(chain.links, delta{at, class, said[DeltaWhyFact]})
-		at = from
-		if at == "" {
-			return chain
-		}
-	}
-	return chain
+	return "his tap counts once for the PR, and no push since changed it fundamentally"
 }
 
 func LeadsBack(from, head string, deltas []store.HeadFact) bool {
@@ -218,30 +165,6 @@ func factsAt(head string, deltas []store.HeadFact) map[string]string {
 		}
 	}
 	return said
-}
-
-func (c deltaChain) carrying() string {
-	if !c.reached {
-		return ""
-	}
-	var classes []string
-	for _, link := range c.links {
-		if _, carries := carryingWords[link.class]; !carries {
-			return ""
-		}
-		classes = append(classes, link.class)
-	}
-	slices.Sort(classes)
-	return strings.Join(slices.Compact(classes), classSeparator)
-}
-
-func (c deltaChain) returning() string {
-	for _, link := range c.links {
-		if words, returns := returningWords[link.class]; returns {
-			return fmt.Sprintf("%s at %s: %s", words, short(link.head), link.why)
-		}
-	}
-	return ""
 }
 
 func sameHead(a, b string) bool {
