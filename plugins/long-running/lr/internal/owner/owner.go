@@ -465,7 +465,7 @@ func Command(a *app.App, lane LaneOf) *cobra.Command {
 			return err
 		},
 	}
-	owner.AddCommand(mark, add, list, unread, start, ruleCommand(a, &driveName), watchCommand(a, &driveName, lane), threadWordCommand(a, &driveName, lane), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName))
+	owner.AddCommand(mark, add, list, unread, start, ruleCommand(a, &driveName), watchCommand(a, &driveName, lane), threadWordCommand(a, &driveName, lane), awayCommand(a, &driveName), wordCommand(&driveName), recaptureCommand(a, &driveName), promptsCommand(&driveName))
 	owner.AddCommand(questionCommands(a, &driveName)...)
 	return owner
 }
