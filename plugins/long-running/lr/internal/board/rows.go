@@ -1,6 +1,7 @@
 package board
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -178,12 +179,7 @@ func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 			if err != nil {
 				return err
 			}
-			s, err := store.Open(entry.Store())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = s.Close() }()
-			read, err := lrfacts.New(a, cfg, s).ReadOnce(c.Context(), named)
+			read, err := ReadPRs(c.Context(), a, entry, cfg, named)
 			if err != nil {
 				return err
 			}
@@ -191,4 +187,13 @@ func readCommand(a *app.App, opened func() (drive.Entry, string, error)) *cobra.
 			return nil
 		},
 	}
+}
+
+func ReadPRs(ctx context.Context, a *app.App, entry drive.Entry, cfg config.Config, numbers []int) (int, error) {
+	s, err := store.Open(entry.Store())
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = s.Close() }()
+	return lrfacts.New(a, cfg, s).ReadOnce(ctx, numbers)
 }

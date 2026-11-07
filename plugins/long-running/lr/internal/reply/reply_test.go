@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -57,7 +58,7 @@ func fanout(t *testing.T, runner shell.Runner) Fanout {
 	if err := os.WriteFile(filepath.Join(entry.StateDir, talkboard.Links), []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return Fanout{Runner: runner, Entry: entry, Now: func() time.Time { return sentAt }}
+	return Fanout{Runner: runner, Entry: entry, Now: func() time.Time { return sentAt }, Log: slog.New(slog.DiscardHandler)}
 }
 
 func calls(fake *shelltest.Fake, tool string) []shell.Command {

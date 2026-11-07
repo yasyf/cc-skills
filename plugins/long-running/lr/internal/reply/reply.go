@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"os"
 	"os/exec"
@@ -178,6 +179,7 @@ type Fanout struct {
 	Runner shell.Runner
 	Entry  drive.Entry
 	Now    func() time.Time
+	Log    *slog.Logger
 	Judge  board.Judge
 	Shoot  func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
 	Cards  board.Cards
