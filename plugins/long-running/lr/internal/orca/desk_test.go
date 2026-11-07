@@ -61,6 +61,7 @@ type deskWorld struct {
 	now              time.Time
 	records          []client.Record
 	posts            []client.Draft
+	posted           chan struct{}
 	calls            [][]string
 	dispatches       map[string]*fakeDispatch
 	runInbox         []orcaMessage
@@ -99,7 +100,7 @@ func newDeskWorld(t *testing.T) *deskWorld {
 	t.Setenv("CCI_HOME", t.TempDir())
 	home := t.TempDir()
 	w := &deskWorld{
-		t: t, home: home, now: time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC),
+		t: t, home: home, now: time.Date(2026, 11, 3, 8, 0, 0, 0, time.UTC), posted: make(chan struct{}, 1),
 		dispatches: map[string]*fakeDispatch{}, mailboxes: map[string][]orcaMessage{}, unread: map[string][]orcaMessage{}, refusals: map[string]object{},
 		coordinate: testRun, launchOut: map[string]string{}, process: &fakeProcess{exited: true}, busy: "95.0",
 	}
@@ -134,6 +135,9 @@ func newDeskWorld(t *testing.T) *deskWorld {
 		Registry: registry,
 	}
 	w.desk.open()
+	var closeStore func()
+	w.desk.store, closeStore = w.desk.store.Held()
+	t.Cleanup(closeStore)
 	w.desk.passSince = w.now
 	if err := w.desk.ensure(deskRunner, deskRunner); err != nil {
 		t.Fatal(err)
@@ -237,6 +241,10 @@ func (w *deskWorld) Post(_ context.Context, d client.Draft) (client.Record, erro
 	}
 	w.posts = append(w.posts, d)
 	w.mu.Unlock()
+	select {
+	case w.posted <- struct{}{}:
+	default:
+	}
 	return w.add(object{"lane": d.Lane, "kind": d.Kind, "text": d.Text, "to": d.To, "topic": d.Topic}), nil
 }
 
@@ -939,18 +947,28 @@ func TestALaunchThatEndedOnANoticeWithANewReceiptLaunched(t *testing.T) {
 func TestASpawnedLauncherHoldsItsLogUntilItExits(t *testing.T) {
 	dir := t.TempDir()
 	log, stop := filepath.Join(dir, "launch.out"), filepath.Join(dir, "stop")
-	process, err := SpawnDetached([]string{"/bin/sh", "-c", `echo notice; until [ -e "$1" ]; do sleep 0.05; done`, "launcher", stop}, log, nil)
-	if err != nil {
+	if err := syscall.Mkfifo(stop, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SpawnDetached([]string{"/bin/sh", "-c", `echo notice; read -r _ < "$1"`, "launcher", stop}, log, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !launcherRunning(log) {
 		t.Fatal("a running launcher's log reads as free")
 	}
-	if err := os.WriteFile(stop, nil, 0o600); err != nil {
+	if err := os.WriteFile(stop, []byte("stop\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for !process.Exited() {
-		time.Sleep(10 * time.Millisecond)
+	exited, err := os.Open(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exited.Close()
+	if err := syscall.Flock(int(exited.Fd()), syscall.LOCK_EX); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(exited.Fd()), syscall.LOCK_UN); err != nil {
+		t.Fatal(err)
 	}
 	if launcherRunning(log) {
 		t.Fatal("an exited launcher's log reads as held")
@@ -4362,15 +4380,16 @@ func (w *deskWorld) postsWhere(keep func(client.Draft) bool) []client.Draft {
 
 func (w *deskWorld) awaitPosts(count int, keep func(client.Draft) bool) []client.Draft {
 	w.t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
-	for time.Now().Before(deadline) {
+	for {
 		if found := w.postsWhere(keep); len(found) >= count {
 			return found
 		}
-		time.Sleep(time.Millisecond)
+		select {
+		case <-w.posted:
+		case <-time.After(30 * time.Second):
+			w.t.Fatalf("no %d posts in %v", count, w.postsWhere(keep))
+		}
 	}
-	w.t.Fatalf("no %d posts in %v", count, w.posts)
-	return nil
 }
 
 func (w *deskWorld) advance(by time.Duration) {

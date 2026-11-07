@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -182,7 +183,7 @@ func TestWorktreeActions(t *testing.T) {
 }
 
 func TestLocalRemovalsRunOneAtATime(t *testing.T) {
-	var running, most atomic.Int64
+	lock := filepath.Join(t.TempDir(), "remove.lock")
 	orca := newOrca()
 	git := newGit()
 	for _, n := range []string{"0", "1", "2"} {
@@ -191,21 +192,22 @@ func TestLocalRemovalsRunOneAtATime(t *testing.T) {
 		found := checkout(tree)
 		git.reads[tree] = CheckoutRead{Found: &found}
 	}
+	var unguarded atomic.Int64
 	orca.onRemove = func(string) {
-		now := running.Add(1)
-		for {
-			seen := most.Load()
-			if now <= seen || most.CompareAndSwap(seen, now) {
-				break
-			}
+		probe, err := os.Open(lock)
+		if err != nil {
+			t.Error(err)
+			return
 		}
-		time.Sleep(50 * time.Millisecond)
-		running.Add(-1)
+		defer probe.Close()
+		if err := syscall.Flock(int(probe.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); !errors.Is(err, syscall.EWOULDBLOCK) {
+			unguarded.Add(1)
+		}
 	}
-	tally, _ := runGC(t, orca, git, gcOptions{})
+	tally, _ := runGC(t, orca, git, gcOptions{lock: lock})
 	wantTally(t, tally, Tally{verbClosed: 3, verbRemoved: 3})
-	if most.Load() != 1 {
-		t.Fatalf("%d removals ran at once", most.Load())
+	if unguarded.Load() != 0 {
+		t.Fatalf("%d removals ran without holding the exclusive removal lock that keeps any other from running beside them", unguarded.Load())
 	}
 }
 
