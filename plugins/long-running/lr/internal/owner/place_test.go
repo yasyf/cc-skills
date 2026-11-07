@@ -57,7 +57,7 @@ func TestPlaceOfReadsTheLatestWordThatNamesARow(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for row, want := range map[string]string{"m1": AtRoot, "m2.2": "1793000000.000001", "m2": "1793000000.000001", "m3": "", "m4": AtRoot, "m5": ""} {
+	for row, want := range map[string]string{"m1": "1793000000.000009", "m2.2": "1793000000.000001", "m2": "1793000000.000001", "m3": "", "m4": "1793000000.000013", "m5": ""} {
 		got, err := PlaceOf(state, row)
 		if err != nil || got != want {
 			t.Errorf("PlaceOf(%s) = %q, %v; want %q", row, got, err, want)
@@ -77,7 +77,7 @@ func TestHisThreadWordRecordsTheThreadItsRowsAnswerIn(t *testing.T) {
 		want string
 	}{
 		"a DM thread":      {threadWord{Channel: "D0B6Z", Thread: aThread, TS: "1793831441.972589", Text: "explain how you built it"}, aThread},
-		"his DM root":      {threadWord{Channel: "D0B6Z", Thread: "1793831441.972589", TS: "1793831441.972589", Text: "explain how you built it"}, AtRoot},
+		"his DM root":      {threadWord{Channel: "D0B6Z", Thread: "1793831441.972589", TS: "1793831441.972589", Text: "explain how you built it"}, "1793831441.972589"},
 		"a channel thread": {threadWord{Channel: "C0B75AL4XEW", Thread: aThread, TS: "1793831441.972589", Text: "explain how you built it"}, ""},
 	} {
 		t.Run(name, func(t *testing.T) {

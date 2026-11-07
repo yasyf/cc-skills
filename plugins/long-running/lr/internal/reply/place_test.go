@@ -215,3 +215,58 @@ func TestAnIncidentLineWithNoAlertPostsAndSaysWhatToAdd(t *testing.T) {
 		t.Fatalf("cc-slack calls = %+v, want one post", posted)
 	}
 }
+
+func TestAReplyToHisDMRootMessageThreadsUnderItWithNoFlag(t *testing.T) {
+	const his = "1794050403.997319"
+	f, fake := fanout(t, nil), scripted()
+	postedInThread(fake, threadCopy)
+	ledgerHolds(t, f.Entry, "| m1780 | Nov 7 9:20 PM | why did the reply post at the root |  | open |")
+	wordsFile := filepath.Join(filepath.Dir(owner.Ledger(f.Entry.StateDir)), "word-rows.jsonl")
+	if err := os.WriteFile(wordsFile, []byte(`{"ts":"`+his+`","thread":"`+his+`","rows":["m1780"]}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"order": "m1780", "status": info}); failed {
+		t.Fatalf("reply refused: %s", text)
+	}
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != his {
+		t.Fatalf("cc-slack calls = %+v, want one post under his message %s", posted, his)
+	}
+}
+
+func TestAnEditOfARootReplyToHisMessageMovesItIntoHisThreadAndLeavesOneCopy(t *testing.T) {
+	const his = "1794050403.997319"
+	f, fake := fanout(t, nil), scripted()
+	ledgerHolds(t, f.Entry, "| m1780 | Nov 7 9:20 PM | why did the reply post at the root |  | open |")
+	wordsFile := filepath.Join(filepath.Dir(owner.Ledger(f.Entry.StateDir)), "word-rows.jsonl")
+	if err := os.WriteFile(wordsFile, []byte(`{"ts":"`+his+`","thread":"`+his+`","rows":["m1780"]}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.Runner = fake
+	f.Send(context.Background(), Reply{ID: "r1", Title: "The answer", MD: "The body.", Status: info, Order: "m1780"})
+	root := calls(fake, "cc-slack")
+	if len(root) != 1 || slices.Contains(root[0].Argv, "--thread") {
+		t.Fatalf("first post = %+v, want one post at his DM root", root)
+	}
+
+	if text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"id": "r1", "order": "m1780", "status": info}); failed {
+		t.Fatalf("edit refused: %s", text)
+	}
+	edits := calls(fake, "cc-slack")[1:]
+	if len(edits) != 2 || flag(t, edits[0].Argv, "--thread") != his || !strings.Contains(edits[0].Argv[len(edits[0].Argv)-1], "The body.") {
+		t.Fatalf("cc-slack calls = %+v, want the reply posted under his message %s and then its root copy withdrawn", edits, his)
+	}
+	var stub struct {
+		Body     string `json:"body"`
+		Replaces string `json:"replaces"`
+	}
+	if err := json.Unmarshal([]byte(flag(t, edits[1].Argv, "--card")), &stub); err != nil {
+		t.Fatal(err)
+	}
+	if stub.Replaces != permalink || strings.Contains(stub.Body, "The body.") || !strings.Contains(stub.Body, "your thread") {
+		t.Fatalf("root edit = %+v, want the root copy at %s withdrawn to a pointer with none of the reply", stub, permalink)
+	}
+	saved, _ := stored(t, f, "r1")
+	if saved.Thread != his {
+		t.Fatalf("stored reply thread = %q, want %s so a later edit edits the thread copy", saved.Thread, his)
+	}
+}
