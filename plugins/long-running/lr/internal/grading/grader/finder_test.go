@@ -485,6 +485,28 @@ func TestAPostTheStoreRefusedFailsThePass(t *testing.T) {
 	holdsAll(t, readText(t, directory, ResultFile), "this lane may not post here")
 }
 
+func noneDown(context.Context, string, string) (client.Reach, error) {
+	return client.Reach{}, nil
+}
+
+func TestARepostOfASpriteGradeAddressedToAStoodDownLaneReachesItsLiveRoute(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"sprite": "grader-a", "lane": "devred-notice", "to": []string{"desk-runner", "restate-queue"}})
+	shell, _ := newFinderFake(t, replyOf(findingOf("minor", "a.go:1", "minor")))
+	deps := shell.deps()
+	deps.Post = nil
+	if err := Finder(context.Background(), directory, deps); err != nil {
+		t.Fatal(err)
+	}
+	routes := map[string]client.Reach{"devred-notice": {Down: true}, "restate-queue": {Down: true, Lane: "restate-stack-1"}}
+	reach := func(_ context.Context, _, name string) (client.Reach, error) { return routes[name], nil }
+
+	if err := Repost(context.Background(), directory, shell.post, reach); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, shell.posted[0]["--to"], "root,desk-runner,restate-stack-1")
+}
+
 func TestASpriteFinderReturnsItsReviewAndCensusForCoordinatorPosting(t *testing.T) {
 	directory := finderJobDir(t, map[string]any{"sprite": "grader-a"})
 	shell, _ := newFinderFake(t, replyOf(findingOf("minor", "go/poll.go:9", "census: the poll interval predates this PR")))
@@ -497,7 +519,7 @@ func TestASpriteFinderReturnsItsReviewAndCensusForCoordinatorPosting(t *testing.
 	if len(shell.posted) != 0 {
 		t.Fatal("the Sprite posted to a local replica", shell.posted)
 	}
-	if err := Repost(context.Background(), directory, shell.post); err != nil {
+	if err := Repost(context.Background(), directory, shell.post, noneDown); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(shell.posted), 2)
