@@ -125,7 +125,7 @@ RULINGS = f"{sys.executable} {script('rulings.py')}"
 PLAIN_READS = {f"{RULINGS} rows": ROWS, f"{RULINGS} glossary": GLOSSARY, "cci post": "#1\n", f"ccn -R {REPO} answer list": ANSWERS, **judged()}
 PROGRAM_ACTIVE = [CompactionState(active=True, coordinator=True, slug="brook")]
 INCIDENT_WINDOW = timedelta(hours=6)
-INCIDENT_STORE = [sys.executable, str(script("actions.py")), "list", "--json"]
+INCIDENT_STORE = [str(Path(__file__).parents[2] / "bin" / "lr"), "incident", "written", "--since", f"{INCIDENT_WINDOW.total_seconds():.0f}s"]
 INCIDENT_DIGEST = ["cci", "digest", "--json", "--since", "6h", "--budget", "4000000"]
 INCIDENT_CLOSEOUT = ["cci", "grep", "--ignore-case=false", "--lane", "root", "--json", "-n", "1", "--since", "6h", "--", r"->\s\S+\s(re\s#[0-9]+\s)?(FIX-LIVE|Incident\sclosed)"]
 SETTLED_INCIDENT = ("closed", "recovered")

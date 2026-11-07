@@ -321,6 +321,54 @@ func (s Store) read(id string, fn func(*sql.Tx) error) error {
 	return fn(tx)
 }
 
+type Written struct {
+	Header
+	Facts WrittenFacts `json:"facts"`
+}
+
+type WrittenFacts struct {
+	Target   string `json:"target"`
+	Alert    string `json:"alert"`
+	RepairPR int    `json:"repair_pr"`
+	NotOurs  string `json:"not_ours"`
+}
+
+func (s Store) WrittenSince(since time.Time) ([]Written, error) {
+	ids, err := s.IDs()
+	if err != nil {
+		return nil, err
+	}
+	written := []Written{}
+	for _, id := range ids {
+		path, err := s.Path(id)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return nil, err
+		}
+		if info.ModTime().Before(since) {
+			continue
+		}
+		var incident Written
+		err = s.read(id, func(tx *sql.Tx) error {
+			header, err := readHeader(tx)
+			if err != nil {
+				return err
+			}
+			facts, err := readFacts(tx, []string{"target", "alert", "repair_pr", "not_ours"})
+			incident = Written{Header: header, Facts: WrittenFacts{Target: facts.Target, Alert: facts.Alert, RepairPR: facts.RepairPR, NotOurs: facts.NotOurs}}
+			return err
+		})
+		if err != nil {
+			return nil, err
+		}
+		written = append(written, incident)
+	}
+	return written, nil
+}
+
 func (s Store) Exists(id string) (bool, error) {
 	path, err := s.Path(id)
 	if err != nil {
