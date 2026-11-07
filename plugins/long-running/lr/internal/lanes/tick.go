@@ -549,6 +549,9 @@ func dutyOf(lane store.Lane) string {
 	if client.Stem(lane.Name) == OwnerRelay {
 		return communicatorDuty
 	}
+	if slices.Contains(oneShotRoles, lane.Role) {
+		return ""
+	}
 	return or(lane.Standing, must(BriefOf(lane.Brief)).Standing)
 }
 

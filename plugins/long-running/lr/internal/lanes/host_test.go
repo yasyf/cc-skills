@@ -476,6 +476,72 @@ func TestAStandingLaneWhoseWorkerEndedWithItsDutyOpenRelaunchesAfterTenMinutes(t
 	equal(t, []any{f.launches, len(f.ofKind("blocker"))}, []any{[]string{"board-refresher-7"}, 0})
 }
 
+func TestAnIncidentEvidenceOrCommsLaneWithAStandingLineIsNeverRelaunchedAfterItsDoneOrWorkerDone(t *testing.T) {
+	for _, role := range []string{"evidence", "comms"} {
+		for name, end := range map[string]func(*store.Store, *fake, string){
+			"done": func(_ *store.Store, f *fake, lane string) {
+				f.feed = append(f.feed, rec(2, lane, "done", t0, "evidence posted"))
+			},
+			"worker-done": func(s *store.Store, _ *fake, lane string) {
+				do(s.SetLaneState(lane, store.LaneRetired, t0, retiredWorkerDone, ""))
+			},
+		} {
+			t.Run(role+" "+name, func(t *testing.T) {
+				s := memory(t)
+				lane := "dd-337919253-" + role
+				f := incidentLane(t, s, lane, role)
+				end(s, f, lane)
+				f.peers = nil
+
+				tick(t, s, f, t0.Add(mins(1)))
+				tick(t, s, f, t0.Add(mins(12)))
+				tick(t, s, f, t0.Add(mins(30)))
+
+				equal(t, []any{len(f.launches), len(f.ofKind("blocker"))}, []any{0, 0})
+			})
+		}
+	}
+}
+
+func TestAnIncidentEvidenceOrCommsLanesDoneIsNotRefusedAndItsSpawnIsNeverRegisteredForTheStandingLineInItsBrief(t *testing.T) {
+	for _, role := range []string{"evidence", "comms"} {
+		s := memory(t)
+		lane := "dd-337919253-" + role
+		f := incidentLane(t, s, lane, role)
+
+		refusal, err := DoneRefusal(s, lane, []string{"evidence posted"}, "/Users/me", func([]int) (map[int]string, error) { return nil, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		equal(t, []string{refusal, dutyOf(row(t, s, lane))}, []string{"", ""})
+
+		fresh := memory(t)
+		f.feed = []Record{spawned(1, lane+"-2", row(t, s, lane).Brief, t0.Add(-time.Hour), map[string]string{"role": role})}
+		f.peers = []Row{who(lane+"-2", true, t0)}
+		tick(t, fresh, f, t0)
+		if _, found := laneOf(fresh, lane+"-2"); found {
+			t.Fatalf("%s registered from a spawn whose brief's Standing line a one-shot role never holds", lane+"-2")
+		}
+	}
+}
+
+func incidentLane(t *testing.T, s *store.Store, lane, role string) *fake {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), lane+".brief.md")
+	duty := "until the incident's FIX-LIVE, then worker_done."
+	text := fmt.Sprintf("ccx: lane=%s role=%s effort=high\n# %s\nStanding: %s\n", lane, role, lane, duty)
+	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.WantLane(store.Lane{Name: lane, Brief: path, Model: "opus", Effort: "high", Role: role, State: store.LaneDesired, Placement: "orca", Standing: duty}, t0.Add(-2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	f := newFake(t, nil, []Row{who(lane, true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	f.posts = nil
+	return f
+}
+
 func TestARetiredLaneWhoseBriefHasNoStandingLineIsNotADutyEvenAfterAStandingPredecessor(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
