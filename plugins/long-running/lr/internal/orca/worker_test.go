@@ -2643,6 +2643,21 @@ func TestARawPinInstallsTheDownloadedFileWithItsDigestAndVersion(t *testing.T) {
 	}
 }
 
+func TestASpriteLaunchWithdrawnWhileItStartsStopsItsWorkerBeforeWorkerStart(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	mark := filepath.Join(f.home, "desk-lane-lane-a-R566716.withdrawn")
+	f.write(mark, "cci #566950\n", 0o600)
+	f.env[withdrawnEnv] = mark
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || !strings.HasPrefix(failed, "withdrawn by cci #566950 before worker-start on "+workerWorkspace) || !strings.HasSuffix(failed, stopSaid) || !slices.Equal(f.calls[len(f.calls)-1], stopCall) {
+		t.Fatal(failed, err, f.calls)
+	}
+	if exists(filepath.Join(f.attempt, "worker-start.json")) {
+		t.Fatal("the worker started")
+	}
+}
+
 func TestAFailedCopyStopsThePreparedWorker(t *testing.T) {
 	f := newWorkerFixture(t)
 	plan := filepath.Join(f.home, ".claude", "scratch", "plan.md")

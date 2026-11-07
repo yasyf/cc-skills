@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 
@@ -17,6 +18,8 @@ const (
 	stageKeyEnv   = "LAUNCH_STAGE_KEY"
 	fallbackEnv   = "LAUNCH_FALLS_BACK"
 	stageDriveEnv = "LAUNCH_STAGE_DRIVE"
+	withdrawnEnv  = "LAUNCH_WITHDRAWN"
+	withdrawnStop = "withdrawn by "
 )
 
 var (
@@ -51,6 +54,11 @@ func (s launchStages) say(ctx context.Context, stage string) {
 	if _, err := s.bus.Post(ctx, draft); err != nil {
 		fmt.Fprintf(s.stderr, "stage %q left unposted: %v\n", stage, err)
 	}
+}
+
+func withdrawnBy(env func(string) string) string {
+	raw, _ := os.ReadFile(env(withdrawnEnv))
+	return strings.TrimSpace(string(raw))
 }
 
 func prepareStage(line string) string {

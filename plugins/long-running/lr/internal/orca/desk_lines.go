@@ -194,24 +194,36 @@ func (d *Desk) readLines(ctx context.Context) error {
 }
 
 func withdrawalsIn(records []client.Record) map[int64]string {
+	read := map[int64]bool{}
+	for _, record := range records {
+		read[record.Seq] = toDesk(record) && parseDirective(strings.TrimSpace(record.Text)) != nil
+	}
 	withdrawn := map[int64]string{}
 	for _, record := range records {
-		if record.Lane != coordinatorLane || string(record.Kind) != verbWithdraw {
-			continue
-		}
-		for _, seq := range resolvedSeqs(record) {
-			withdrawn[seq] = record.Name()
-		}
-		if record.Re != 0 {
-			withdrawn[record.Re] = record.Name()
+		for _, seq := range closedLines(record) {
+			if read[seq] {
+				withdrawn[seq] = record.Name()
+			}
 		}
 	}
 	return withdrawn
 }
 
+func closedLines(record client.Record) []int64 {
+	root := record.Lane == coordinatorLane
+	if !root && !toDesk(record) {
+		return nil
+	}
+	seqs := resolvedSeqs(record)
+	if root && string(record.Kind) == verbWithdraw && record.Re != 0 {
+		seqs = append(seqs, record.Re)
+	}
+	return seqs
+}
+
 func (d *Desk) lineEnded(ctx context.Context, lane string, line client.Record) (string, error) {
 	if by := d.withdrawals[line.Seq]; by != "" {
-		return fmt.Sprintf("root withdrew it on cci %s", by), nil
+		return fmt.Sprintf("cci %s closed it", by), nil
 	}
 	if ruled := d.ruledAfter(lane, line.Seq); ruled != "" {
 		return ruled, nil
@@ -249,23 +261,28 @@ func rootReplies(record client.Record) bool {
 
 func (d *Desk) readLine(ctx context.Context, record client.Record) error {
 	desk := toDesk(record)
-	replyTo := record.Re
-	if replyTo == 0 {
-		seq, err := d.resolvedDecide(ctx, record)
-		if err != nil {
-			return err
-		}
-		replyTo = seq
-	}
+	root := record.Lane == coordinatorLane
 	isLine := parseDirective(strings.TrimSpace(record.Text)) != nil
+	resolved, err := d.resolvedEarlier(ctx, record)
+	if err != nil {
+		return err
+	}
+	withdrew, err := d.closeGos(ctx, record, resolved)
+	if err != nil {
+		return err
+	}
+	replyTo := record.Re
+	if replyTo == 0 && root {
+		replyTo = resolvedDecide(resolved)
+	}
 	if replyTo == 0 || (desk && isLine) {
-		if desk {
+		if desk && (isLine || !withdrew) {
 			return d.cciLine(ctx, record)
 		}
 		return nil
 	}
 	answered := false
-	if record.Lane == coordinatorLane {
+	if root {
 		closed, err := d.cciRecord(ctx, replyTo)
 		if err != nil {
 			return err
@@ -274,26 +291,73 @@ func (d *Desk) readLine(ctx context.Context, record client.Record) error {
 			return err
 		}
 	}
-	if desk && !answered {
+	if desk && !answered && !withdrew {
 		return d.refuseLine(record)
 	}
 	return nil
 }
 
-func (d *Desk) resolvedDecide(ctx context.Context, record client.Record) (int64, error) {
-	if record.Lane != coordinatorLane {
-		return 0, nil
-	}
+func (d *Desk) resolvedEarlier(ctx context.Context, record client.Record) ([]client.Record, error) {
+	var earlier []int64
 	for _, seq := range resolvedSeqs(record) {
-		closed, err := d.cciRecord(ctx, seq)
-		if err != nil {
-			return 0, err
-		}
-		if closed != nil && closed.Lane == deskRunner && decideLine.MatchString(closed.Text) {
-			return seq, nil
+		if d.withdrawals[seq] == "" {
+			earlier = append(earlier, seq)
 		}
 	}
-	return 0, nil
+	if len(earlier) == 0 {
+		return nil, nil
+	}
+	records, err := d.Bus.Among(ctx, d.Config.Drive, earlier)
+	if err != nil {
+		return nil, d.noteTailFailure(&tailFailure{cause: err})
+	}
+	return records, nil
+}
+
+func (d *Desk) closeGos(ctx context.Context, record client.Record, resolved []client.Record) (bool, error) {
+	closed := slices.ContainsFunc(resolvedSeqs(record), func(seq int64) bool { return d.withdrawals[seq] != "" })
+	log := fmt.Sprintf("escalation:withdraw:cci#%d", record.Seq)
+	by := "cci " + record.Name()
+	for _, goLine := range resolved {
+		parsed := parseDirective(strings.TrimSpace(goLine.Text))
+		if !toDesk(goLine) || parsed == nil || parsed.Verb != verbLaunch {
+			continue
+		}
+		spec := launchSpec.FindStringSubmatch(parsed.Rest)
+		if spec == nil {
+			continue
+		}
+		key, lane := lineKey(parsed, goLine), spec[1]
+		action, err := d.known(laneBook(lane), key)
+		if err != nil {
+			return false, err
+		}
+		if action == nil || action.Kind != kindLaunch {
+			continue
+		}
+		closed = true
+		switch action.Status {
+		case incident.ActionFailed:
+		case incident.ActionAccepted, incident.ActionStarted:
+			if err := d.withdrawLane(ctx, log, by, key, true, heldLaunches{lane: lane, launches: []incident.Action{*action}}); err != nil {
+				return false, err
+			}
+		default:
+			if err := d.recordTo(ctx, log+":"+lane, fmt.Sprintf("WITHDRAW-FAILED %s %s: %s closed its go once it was %s, which stops nothing; withdraw the lane with `orca-desk: withdraw %s`", key, lane, by, action.Status, lane), verdictTo(record.Lane)); err != nil {
+				return false, err
+			}
+		}
+	}
+	return closed, nil
+}
+
+func resolvedDecide(resolved []client.Record) int64 {
+	for _, closed := range resolved {
+		if closed.Lane == deskRunner && decideLine.MatchString(closed.Text) {
+			return closed.Seq
+		}
+	}
+	return 0
 }
 
 func (d *Desk) cciRecord(ctx context.Context, seq int64) (*client.Record, error) {
@@ -411,6 +475,13 @@ func (d *Desk) cciLine(ctx context.Context, record client.Record) error {
 	}
 	if taken, err := d.takes(ctx, parsed, key); !taken || err != nil {
 		return err
+	}
+	if closer := d.withdrawals[record.Seq]; closer != "" && parsed.Verb == verbLaunch {
+		lane := "inbox"
+		if spec := launchSpec.FindStringSubmatch(parsed.Rest); spec != nil {
+			lane = spec[1]
+		}
+		return d.recordTo(ctx, "escalation:launch:"+at, fmt.Sprintf("WITHDRAWN %s %s: cci %s closed its go in the read that brought it; nothing was launched", key, lane, closer), verdictTo(record.Lane))
 	}
 	switch parsed.Verb {
 	case verbLaunch:
@@ -974,6 +1045,9 @@ func (d *Desk) withdraw(ctx context.Context, at, key, target string) error {
 		return err
 	}
 	if len(held) == 0 {
+		if seq, err := strconv.ParseInt(strings.TrimPrefix(target, "R"), 10, 64); err == nil && d.withdrawals[seq] != "" {
+			return nil
+		}
 		return d.record(log, fmt.Sprintf("WITHDRAW-FAILED %s %s: the runner holds no launch or lane under %s; nothing was withdrawn", key, target, target))
 	}
 	for _, entry := range held {
@@ -1007,7 +1081,14 @@ func (d *Desk) withdrawLane(ctx context.Context, log, key, target string, keyed 
 			if err := d.setFact(container, withdrawPending, map[string]any{kindLaunch: action.ActionID, "by": key}); err != nil {
 				return err
 			}
-			if err := d.record(note, fmt.Sprintf("WITHDRAW-PENDING %s %s: by %s; it is still starting, and the runner stops it once it logs LAUNCHED", action.ActionID, lane, key)); err != nil {
+			mark := d.withdrawnMark(container, action.ActionID)
+			if err := os.MkdirAll(filepath.Dir(mark), 0o750); err != nil {
+				return err
+			}
+			if err := os.WriteFile(mark, []byte(key+"\n"), 0o600); err != nil {
+				return err
+			}
+			if err := d.record(note, fmt.Sprintf("WITHDRAW-PENDING %s %s: by %s; it is still starting, so its launcher stops before worker-start, or the runner stops the worker once it logs LAUNCHED", action.ActionID, lane, key)); err != nil {
 				return err
 			}
 		}

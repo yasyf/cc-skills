@@ -92,6 +92,7 @@ type deskWorld struct {
 	refuseWithdrawal bool
 	gitReply         func(argv []string) (shell.Result, error)
 	tails            int
+	amongs           int
 	rest             string
 }
 
@@ -274,6 +275,7 @@ func (w *deskWorld) Tail(_ context.Context, q client.Query) ([]client.Record, er
 func (w *deskWorld) Among(_ context.Context, _ string, seqs []int64) ([]client.Record, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	w.amongs++
 	var found []client.Record
 	for _, record := range w.records {
 		if slices.Contains(seqs, record.Seq) {

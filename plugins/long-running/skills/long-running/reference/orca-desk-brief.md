@@ -296,9 +296,11 @@ orca-desk: withdraw <lane>
 
 The target may also be `unfixed:<msg>:<n>`, or the coordinator can run `cci post --kind withdraw --re <seq>` on a launch record. A stem the runner holds nothing under, such as `replicator-stack`, withdraws its newest numbered lane that the runner holds a launch for or the registry has not retired.
 
+A record that resolves a launch go also withdraws it when root posts it or it is addressed to `orca-desk`, as `cci post --to orca-desk --resolves <go seq>` does. A go resolved in the same read that brings it logs `WITHDRAWN` and is never accepted. A go resolved after it launched stops nothing and logs `WITHDRAW-FAILED` to the resolver, naming the `orca-desk: withdraw <lane>` line that stops it.
+
 - The relay fails an accepted launch that has not started, stops a launched dispatch with `worker-stop`, marks the lane withdrawn, and logs `WITHDRAWN`.
 - Once a lane is withdrawn, its `UNFIXED` lines launch no case lane and a repeat Orca dispatch offer logs `WITHDRAWN`, not `DECIDE`.
-- A launch still starting logs `WITHDRAW-PENDING` and is stopped the moment it logs `LAUNCHED`.
+- A launch still starting logs `WITHDRAW-PENDING`. Its launcher reads the withdrawal before worker-start, rolls back what it made, and the runner logs `WITHDRAWN` saying no worker ran a command. A launcher already past worker-start is stopped the moment it logs `LAUNCHED`.
 - A settled launch with no dispatch, a target holding nothing, or a `worker-stop` Orca refuses logs `WITHDRAW-FAILED`.
 - A `worker-stop` Orca accepts that does not show its terminal gone or idle within 30 seconds, such as `stop_unknown`, logs `WITHDRAW-UNCONFIRMED` with the dispatch and terminal; the coordinator runs `lr gc --done` on it.
 

@@ -40,7 +40,7 @@ orca orchestration worker-start --run "<run>" --spec "<pointer>" \
 
 - `<handle>` is `result.terminal.handle` from `terminal create`.
 - On `worker-start`, `--model` and `--effort` cannot combine with `--terminal`; put both on the `claude` command.
-- Shift-tab is a fallback only before the worker opens a plan. The script checks the terminal screen for `bypass permissions on`.
+- Shift-tab is a fallback only before the worker opens a plan. The script passes a Claude worker once it posts any record since its launch, such as the `registered at its first command` record, or its screen shows `bypass permissions on`.
 - A launch that fails before `worker-start` removes the worktree its create made with `orca worktree rm --force`.
 
 No human reads a lane, so it starts stripped:
@@ -257,7 +257,7 @@ Retry a failed dispatch only after confirming its session has ended and getting 
 Worktree creation gets four attempts and terminal creation gets three.
 - Worktree registration and index: before each attempt and for up to `ORCA_LAUNCH_WORKTREE_SECONDS` (180 s) after a failed create, the script polls `orca worktree show` to adopt a worktree that finished registering after a dropped connection. It then waits within the same ceiling until `git diff-index --cached HEAD` is empty so `git reset --hard` has finished populating the checkout.
 - Terminal creation: if `terminal create` times out after 10 seconds without a handle, the script polls the worktree every four seconds for up to `ORCA_LAUNCH_BOOT_SECONDS` (180 s) to adopt the late terminal before retrying.
-- Agent readiness: before calling `worker-start`, the script blocks on `orca terminal wait --for tui-idle` up to `ORCA_LAUNCH_BOOT_SECONDS`. If a third of that ceiling passes with no idle agent and the screen shows no command-line prompt and no agent UI, the script sends the startup command once with `orca terminal send`. If the agent is still not idle at the ceiling, the script fails with `boot terminal=<handle>: orca terminal wait --for tui-idle reads <timeout, status, or blocked prompt>` without calling `worker-start`. After a Claude start, it checks the screen for `bypass permissions on` up to 10 times, four seconds apart.
+- Agent readiness: before calling `worker-start`, the script blocks on `orca terminal wait --for tui-idle` up to `ORCA_LAUNCH_BOOT_SECONDS`. If a third of that ceiling passes with no idle agent and the screen shows no command-line prompt and no agent UI, the script sends the startup command once with `orca terminal send`. If the agent is still not idle at the ceiling, the script fails with `boot terminal=<handle>: orca terminal wait --for tui-idle reads <timeout, status, or blocked prompt>` without calling `worker-start`. After a Claude start, it waits up to `ORCA_LAUNCH_BOOT_SECONDS`, reading every four seconds, for the lane's first record on its drive or `bypass permissions on` on its screen. A screen Orca has not rendered (`source: screen-unavailable`, empty tail) proves nothing either way. The launch fails only when neither shows by the ceiling.
 - A `worker-start` the Orca runtime did not answer (`runtime_timeout`, `runtime_unavailable`, `remote_runtime_unavailable`, or `invalid_runtime_response`, with an `orchestrationRequestId`) is reissued with `--retry-request <id>` every four seconds until `ORCA_LAUNCH_BOOT_SECONDS`, and the failure line names its tries. Any other failed `worker-start` returns immediately without retrying.
 
 ## Run `orca-check.sh`

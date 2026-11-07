@@ -409,7 +409,7 @@ func (h *harness) Tail(_ context.Context, q client.Query) ([]client.Record, erro
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return slices.DeleteFunc(slices.Clone(h.records), func(r client.Record) bool {
-		return r.Drive != q.Drive || !slices.Contains(q.Lanes, r.Lane) || !slices.Contains(q.Kinds, string(r.Kind)) || r.At.Before(q.Since)
+		return r.Drive != q.Drive || !slices.Contains(q.Lanes, r.Lane) || len(q.Kinds) > 0 && !slices.Contains(q.Kinds, string(r.Kind)) || r.At.Before(q.Since)
 	}), nil
 }
 
@@ -1595,41 +1595,74 @@ func TestAnAgentOrcaNeverRecognizesRollsBackAtTheBootCeiling(t *testing.T) {
 	}
 }
 
-func TestLaunchFailsWhenTheTerminalIsNotInBypassMode(t *testing.T) {
+func TestLaunchFailsWhenTheTerminalIsNotInBypassModeAndTheLanePostsNothingByTheBootCeiling(t *testing.T) {
 	h := newHarness(t)
+	h.tickOnSleep()
 	h.healthy(healthyOptions{agent: agentClaude, screen: "⏸ plan mode on (shift+tab to cycle)"})
 	line, code := h.launch()
-	if code != 1 || !strings.Contains(line, "shift-tab") || len(h.orcaCalls("terminal read")) != bypassReads {
+	if code != 1 || !strings.Contains(line, "shift-tab") || !strings.HasSuffix(line, " for 180s") {
 		t.Fatal(line)
 	}
 }
 
-func TestTheBypassCheckNeverFailsALaneThatAlreadyAnsweredOrFinished(t *testing.T) {
-	later := time.Now().Add(time.Hour)
+func TestTheBypassCheckPassesALaneThatRanItsFirstCommand(t *testing.T) {
+	later := time.Unix(fakeNow, 0).Add(time.Minute)
+	unrendered := okResult(object{"terminal": object{"handle": "term_a", "status": "running", "source": screenUnavailable, "tail": []string{}}})
+	planMode := okResult(object{"terminal": object{"tail": []string{"❯", "⏸ plan mode on (shift+tab to cycle)"}}})
+	registered := client.Record{Drive: "brook", Lane: "lane-a", Kind: "state", Text: "registered at its first command", At: later}
 	tests := []struct {
 		name    string
+		screen  reply
 		records []client.Record
 		code    int
 	}{
-		{"answered since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "answer", At: later}}, 0},
-		{"done since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "done", At: later}}, 0},
-		{"answered before its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "answer", At: time.Unix(0, 0)}}, 1},
-		{"another lane answered", []client.Record{{Drive: "brook", Lane: "lane-b", Kind: "answer", At: later}}, 1},
-		{"only a state record since its launch", []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "state", At: later}}, 1},
+		{"an unrendered screen and its first command registered, as #567922 failed #567963's lane", unrendered, []client.Record{registered}, 0},
+		{"plan mode on screen and an answer since its launch", planMode, []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "answer", At: later}}, 0},
+		{"an unrendered screen and nothing posted", unrendered, nil, 1},
+		{"an unrendered screen and a record from before its launch", unrendered, []client.Record{{Drive: "brook", Lane: "lane-a", Kind: "state", At: time.Unix(0, 0)}}, 1},
+		{"an unrendered screen and another lane's first command", unrendered, []client.Record{{Drive: "brook", Lane: "lane-b", Kind: "state", At: later}}, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newHarness(t)
-			h.healthy(healthyOptions{agent: agentClaude, screen: "⏸ plan mode on (shift+tab to cycle)"})
+			h.tickOnSleep()
+			h.healthyClaude()
+			h.reply("terminal read", tt.screen)
 			bindDrive(h, object{"drive": "900424b6", "sessions": []string{}, "orca_run": "run_1", "cci_drive": "brook"}, "900424b6")
 			h.env[driveEnv] = "900424b6"
 			h.records = tt.records
 			line, code := h.launch()
-			if code != tt.code || tt.code == 1 && !strings.Contains(line, "shift-tab") {
+			if code != tt.code || tt.code == 1 && !strings.Contains(line, "has posted nothing since its launch") {
 				t.Fatalf("launch = %d %s, want %d", code, line, tt.code)
 			}
 		})
 	}
+}
+
+func TestAWorkerOrcaFailedAtReadinessFailsNamingTheStageAndNeverWaitsOnTheScreen(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"runId": "run_1", "taskId": "task_a", "dispatchId": "ctx_a", "state": "failed", "stage": "agent_readiness", "failedStage": "agent_readiness", "lastError": "stable_pane_required"}}})
+	line, code := h.launch()
+	if code != 1 {
+		t.Fatal(line)
+	}
+	wantLine(t, line, "lane-a failed worker-start state=failed at agent_readiness (stable_pane_required) terminal=term_a worktree="+h.worktree())
+	wantNoCalls(t, h, "terminal read", "terminal close")
+}
+
+func TestALaunchWithdrawnWhileItStartsStopsBeforeWorkerStart(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	mark := filepath.Join(h.root, "desk-lane-lane-a-R566716.withdrawn")
+	h.writeFile(mark, "cci #566950\n")
+	h.env[withdrawnEnv] = mark
+	line, code := h.launch()
+	if code != 1 {
+		t.Fatal(line)
+	}
+	wantLine(t, line, "lane-a failed withdrawn by cci #566950 before worker-start; rolled back terminal=term_a worktree="+h.worktree()+" branch="+testBranch)
+	wantNoCalls(t, h, "orchestration worker-start")
 }
 
 func TestLaunchStartsTheWorkerOnceOrcaSeesItsAgentIdle(t *testing.T) {
@@ -2352,6 +2385,7 @@ func TestARefusedTerminalCreateFailsAtOnceWithOrcasMessage(t *testing.T) {
 func TestNothingIsRolledBackOnceWorkerStartHasRun(t *testing.T) {
 	for _, options := range []healthyOptions{{state: statusFailed, agent: agentClaude}, {agent: agentClaude, screen: "plan mode on"}} {
 		h := newHarness(t)
+		h.tickOnSleep()
 		h.healthy(options)
 		if _, code := h.launch(); code != 1 {
 			t.Fatal("the launch succeeded")

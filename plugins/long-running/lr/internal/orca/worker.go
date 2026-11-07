@@ -1175,6 +1175,9 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	if err := w.setUpRepo(workspace); err != nil {
 		return "", err
 	}
+	if by := withdrawnBy(w.Env); by != "" {
+		return "", refuse("%s%s before worker-start on %s", withdrawnStop, by, workspace)
+	}
 	w.stages.say(w.ctx, "starting the worker on "+workspace)
 	w.unattached = false
 	taskID, dispatch, err := w.startWorker(spec, "--on", environment, "--worktree", "id:"+worktreeID, "--terminal", w.terminal)
