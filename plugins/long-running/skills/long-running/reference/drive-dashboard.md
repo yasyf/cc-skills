@@ -26,7 +26,7 @@ At drive start, `lr dashboard install` writes the launchd job `com.yasyf.long-ru
 
 ## Going live
 
-`lr dashboard restart` records the git tree of the dashboard it serves in `<state dir>/dashboard.served`. When the installed `dashboard/` tree differs and the app still answers, the restart refuses unless `--proof <file>` proves that tree or `--ordered <m-id>` names the owner's own order in his ledger. A restart of an unchanged tree, or of an app that stopped answering, needs neither, so crash recovery is never held. The proof is JSON:
+`lr dashboard restart` records the git tree of the dashboard it serves in `<state dir>/dashboard.served`. When the installed `dashboard/` tree differs and the app still answers, the restart refuses unless `--proof <file>` proves that tree or `--record <seq>` names the owner record of his order. Past the pass that read it, that record also needs its lane's R26 still-unmet record. A restart of an unchanged tree, or of an app that stopped answering, needs neither, so crash recovery is never held. The proof is JSON:
 
 ```json
 {"commit": "<full sha>", "tree": "<git rev-parse <commit>:plugins/long-running/dashboard>",

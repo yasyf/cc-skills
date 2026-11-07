@@ -423,7 +423,7 @@ Write `obs.json` beside the drive's `lr.json`, naming each key's SSM parameter, 
 }
 ```
 
-Then run `lr obs install --config <lr.json>` on the Mac from the installed lr. It writes a launchd agent that runs that lr's `lr obs desk`. The desk reads the three keys from SSM once at start, so restart it after a key rotates or after an SSO sign-in lapse stopped a start. `lr obs install` leaves a loaded desk running when its plist is unchanged, so a desk still on an older lr restarts with `lr obs restart --config <lr.json>`, run once on the owner's word for that restart. Oncall reads use the profile's live sign-in on every read. A Sentry token that only uploads releases and source maps answers every issue read with HTTP 403; the token needs `event:read`.
+Then run `lr obs install --config <lr.json>` on the Mac from the installed lr. It writes a launchd agent that runs that lr's `lr obs desk`. The desk reads the three keys from SSM once at start, so restart it after a key rotates or after an SSO sign-in lapse stopped a start. `lr obs install` leaves a loaded desk running when its plist is unchanged, so a desk still on an older lr restarts with `lr obs restart --config <lr.json> --record <seq>`, run once on the owner record of his word for that restart. Past the pass that read it, that record also needs its lane's R26 still-unmet record. Oncall reads use the profile's live sign-in on every read. A Sentry token that only uploads releases and source maps answers every issue read with HTTP 403; the token needs `event:read`.
 
 ## Prepare and attach separately
 
