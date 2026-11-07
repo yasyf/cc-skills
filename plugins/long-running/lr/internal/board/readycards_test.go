@@ -862,9 +862,9 @@ func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var tap struct{ Summary string }
-	if err := json.Unmarshal(block, &tap); err != nil || !strings.HasPrefix(tap.Summary, source+". ") {
-		t.Fatalf("tap card summary = %q, %v", tap.Summary, err)
+	var tap struct{ Title, Summary string }
+	if err := json.Unmarshal(block, &tap); err != nil || !strings.HasPrefix(tap.Summary, source+". ") || tap.Title != "Port, old tree to new: dev #49144: Tap: #50888, sand: fix 50888" {
+		t.Fatalf("tap card title = %q, summary = %q, %v", tap.Title, tap.Summary, err)
 	}
 	list := ReadyCards{Cards: f.Cards, Repo: readyRepo}.listCard(context.Background(), listName(1), []store.ReviewRow{row})
 	if change := list["rows"].([]map[string]any)[0]["pr"].(SlackPRRow).Change; !strings.HasPrefix(change, source+". ") {
