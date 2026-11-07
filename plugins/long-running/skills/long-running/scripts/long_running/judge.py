@@ -360,9 +360,11 @@ class Call:
 def captures(state: Path) -> dict[str, dict]:
     """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes."""
     path = state / "owner-prompts.jsonl"
-    if not path.exists():
-        return {}
-    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    return live_captures(path.read_text()) if path.exists() else {}
+
+
+def live_captures(stored: str) -> dict[str, dict]:
+    entries = [json.loads(line) for line in stored.splitlines() if line.strip()]
     gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
     return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
 

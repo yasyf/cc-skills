@@ -49,7 +49,7 @@ and standing-rules citations, then prints uncited, unexcluded ranked matches as
 The register is the cc-notes ledger labelled ``register`` and ``program:<program>``: one row
 per owner ruling, board answer, design rule and design exception, holding the owner's words
 verbatim. This script is its only writer. Owner captures are read from
-``<state dir>/owner-prompts.jsonl``; per-ruling cards are written to ``<state dir>/cards/``.
+``<state dir>/owner-prompts.jsonl``, on a Sprite from the Mac's through ``lr owner prompts``; per-ruling cards are written to ``<state dir>/cards/``.
 
 ``round`` puts the next confirmation round on the session's live cc-present board: at most ten queued ruling cards,
 foundational rows first, one card each whose pick is ``Right`` or ``Some wrong``, opened as a new round on the board alone;
@@ -516,10 +516,17 @@ class Register:
     drive: str | None = None
     runtime: Runtime | None = None
     tips: str = ""
+    host: str = ""
 
     @cached_property
     def brief_paths(self) -> list[Path]:
         return briefs(self.state)
+
+    @cached_property
+    def captures(self) -> dict[str, dict]:
+        if self.host == ledger.SPRITE_HOST:
+            return judge.live_captures(self.shell.run(["lr", "owner", "prompts", "--drive", self.drive]))
+        return judge.captures(self.state)
 
     @cached_property
     def open_pulls(self) -> dict[str, dict[str, str]]:
@@ -540,7 +547,7 @@ class Register:
         state = state_dir(args, args.runtime.drives, args.runtime.scratch)
         identity, rows, tips = register_reads.load(shell.run, args.runtime.lock, args.runtime.held, repo, program, state, last, kept_any)
         entry = entry_of(args) or {}
-        return cls(shell, repo, program, state, identity, rows, entry.get("ledger", ""), entry.get("drive"), args.runtime, tips)
+        return cls(shell, repo, program, state, identity, rows, entry.get("ledger", ""), entry.get("drive"), args.runtime, tips, entry.get("host", ""))
 
     def write(self, key: str, **fields: object) -> None:
         values = {name: stored(value) for name, value in fields.items()}
@@ -1017,7 +1024,7 @@ def lane_slice(loaded: Register, want: Want, plan: Path | None, named: Named = N
     tail.append(f"The register's other rows match nothing of this lane or pass the {SLICE_CAP // 1000} KB cap; read them with `ccn ledger show {loaded.ledger[:12]}`.")
     if want.step == INCIDENT_STEP:
         done = set(loaded.classified())
-        pending = [capture for item, capture in judge.captures(loaded.state).items() if item not in done]
+        pending = [capture for item, capture in loaded.captures.items() if item not in done]
         out.add(["", f"## Owner captures not yet classified ({len(pending)})"])
         if left := sum(not out.add(["", f"### {capture['digest']} | {capture.get('source', '')} | {capture.get('at', '')}", *(f"> {line}" for line in capture["text"].splitlines())]) for capture in pending):
             tail.append(f"{left} more unclassified owner captures pass the cap; `rulings.py classify` with no files lists them.")
@@ -1668,7 +1675,7 @@ def applied(loaded: Register, captured: dict[str, dict], entry: dict, files: Cal
 
 def classifiable(loaded: Register, args: argparse.Namespace) -> dict[str, dict]:
     if not args.answer:
-        return judge.captures(loaded.state)
+        return loaded.captures
     sourced = answer_capture(loaded, args.answer)
     return {sourced["digest"]: sourced}
 
@@ -1786,7 +1793,7 @@ def later_answers(fields: dict[str, str]) -> set[str]:
 
 
 def confirm_capture(loaded: Register, fields: dict[str, str], identity: str) -> dict | None:
-    if local := judge.captures(loaded.state).get(identity):
+    if local := loaded.captures.get(identity):
         return local
     return answer_capture(loaded, identity) if identity[:SHORT] in later_answers(fields) else None
 
@@ -1897,7 +1904,7 @@ def amended_words(args: argparse.Namespace, loaded: Register) -> int:
     fields = loaded.row(args.key)
     answers = listed(fields.get("answer"))
     if args.capture:
-        if not (capture := judge.captures(loaded.state).get(args.capture)):
+        if not (capture := loaded.captures.get(args.capture)):
             print(f"UNKNOWN-CAPTURE {args.capture}: no capture with this digest in {loaded.state / 'owner-prompts.jsonl'}", file=args.stdout)
             return 1
         source, body, at, proof, cited, named = f"capture {args.capture}", capture["text"], capture["at"], f"proof:{capture.get('source', 'prompt')}:{args.capture}", [], {"capture": args.capture}
@@ -2065,7 +2072,7 @@ def cmd_readback(args: argparse.Namespace, shell: ledger.Shell) -> int:
         print(f"WARNING READBACK-SLICE-FROM-BRIEF #{args.contract}: {read.sliced_by}", file=args.stdout)
     fresh = lane_slice(loaded, read.want, plan_path(args, loaded))
     posted = datetime.fromisoformat(read.record["at"])
-    later = {digest for digest, capture in judge.captures(loaded.state).items() if captured_at(capture["at"]) > posted}
+    later = {digest for digest, capture in loaded.captures.items() if captured_at(capture["at"]) > posted}
     rows = loaded.rulings()
     keys = [key for key in SLICED_ROW.findall(fresh) if not (heard := proof_digests(rows[key]) if key in rows else {key}) or not heard <= later]
     lines = read.body.splitlines()
@@ -2333,7 +2340,7 @@ def cmd_table(args: argparse.Namespace, shell: ledger.Shell) -> int:
 
 def cmd_glossary(args: argparse.Namespace, shell: ledger.Shell) -> int:
     loaded = Register.load(args, shell)
-    texts = [capture["text"] for capture in judge.captures(loaded.state).values()]
+    texts = [capture["text"] for capture in loaded.captures.values()]
     for fields in loaded.rulings().values():
         texts += [fields.get("words") or "", *(str(repeat.get("words") or "") for repeat in listed(fields.get("repeats")))]
     owner = sorted({word for text in texts for word in WORD.findall(text.lower())} - {noun.lower() for noun in PRODUCT_NOUNS})
@@ -2515,7 +2522,7 @@ def cmd_authorize(args: argparse.Namespace, shell: ledger.Shell) -> int:
         if (found := card_proof(args, loaded, shell, key, fields, owner, entry["sessions"][-1])) is None:
             return 1
     else:
-        capture = judge.captures(loaded.state).get(args.prompt) or {}
+        capture = loaded.captures.get(args.prompt) or {}
         board = capture.get("source") == "board"
         if board and (capture.get("verdict") != "approved" or capture.get("row")):
             print(f"AUTHORIZE-NOT-AFFIRMATIVE {key}: board capture {args.prompt} is no approval of a card, which grants nothing", file=args.stdout)
