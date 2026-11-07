@@ -70,6 +70,8 @@ var (
 	flakyNotice = regexp.MustCompile("> failed (?:`([^`]+)`.*? )?on <(https://buildkite\\.com/[^|>]+)\\|[^>]*> at <[^|>]*/commit/([0-9a-f]+)\\|.*?(?:it looks flaky and|touches what it reads, so) nobody was told")
 	testName    = regexp.MustCompile(`^(?:Test\w+|\w+(?:::\w+)+)$`)
 	redSlug     = regexp.MustCompile(`^` + trunkTopic + `-[0-9a-f]+\b`)
+	fixHead     = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?HEAD #(\d+)\b`)
+	fixLive     = regexp.MustCompile(`^(?:\d{1,2}:\d{2} [AP]M )?FIX-LIVE\b`)
 	infraLine   = regexp.MustCompile(`(?im)^.*(?:API rate limit exceeded|secondary rate limit|quota exceeded|\b403\b.*\b(?:rate limit|quota)\b|\b429 Too Many Requests|no space left on device).*$`)
 	dataFile    = []string{".json", ".md", ".txt", ".yaml", ".yml"}
 	finished    = []string{stateSuccess, "FAILURE", "ERROR"}
@@ -1088,9 +1090,14 @@ func (w *TrunkWatch) fixedBefore(ctx context.Context, records []client.Record, a
 		if record.Seq <= after || record.Lane == self || record.Lane == deskRunnerLane || !slices.ContainsFunc(names, func(name string) bool { return slices.Contains(slugs, redSlug.FindString(name)) }) {
 			continue
 		}
+		live := string(record.Kind) == "fix-live" || fixLive.MatchString(record.Text)
+		head := fixHead.FindStringSubmatch(record.Text)
+		if !live && (string(record.Kind) != "head" || head == nil) {
+			continue
+		}
 		for _, pr := range record.Refs.PRs {
 			key := cmp.Or(pr.Repo, w.Repo) + "#" + strconv.Itoa(pr.Number)
-			if checked[key] {
+			if !live && strconv.Itoa(pr.Number) != head[1] || checked[key] {
 				continue
 			}
 			checked[key] = true

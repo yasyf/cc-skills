@@ -570,7 +570,7 @@ func TestAFixMergedBeforeARedBuildClosesItsIncidentAndTheBuildOpensANewOne(t *te
 	f := newTrunkWatch(t)
 	failingBuild(t, f, 1, uploadFailed)
 	first := slices.DeleteFunc(trunkRecords(t, "incident"), func(r client.Record) bool { return !opened(r) })[0]
-	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: redSlug(1) + "-fix", Kind: "report", Topic: redSlug(1), PRs: []string{"48100"}, Text: "the fix"}); err != nil {
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: redSlug(1) + "-fix", Kind: "head", Topic: redSlug(1), PRs: []string{"48100"}, Text: "HEAD #48100 abc1234"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -583,6 +583,26 @@ func TestAFixMergedBeforeARedBuildClosesItsIncidentAndTheBuildOpensANewOne(t *te
 	}
 	if lines := trunkRecords(t, "go"); len(lines) != 2 || !strings.HasPrefix(lines[1].Text, "orca-desk: incident "+redSlug(2)+" ") {
 		t.Fatalf("lines = %+v, want a new incident once the fix did not hold", lines)
+	}
+}
+
+func TestADependencyTheFixLaneNamesMergingLeavesItsIncidentOpen(t *testing.T) {
+	f := newTrunkWatch(t)
+	failingBuild(t, f, 1, uploadFailed)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: redSlug(1) + "-fix", Kind: "head", Topic: redSlug(1), PRs: []string{"48200", "48100"}, Text: "HEAD #48200 abc1234: restacked onto dev after #48100 landed"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: redSlug(1) + "-fix", Kind: "report", Topic: redSlug(1), PRs: []string{"48100"}, Text: "#48200 depends on #48100"}); err != nil {
+		t.Fatal(err)
+	}
+
+	failingBuild(t, f, 2, uploadFailed, func(fake *shelltest.Fake) {
+		fake.Reply("2026-10-30T19:00:00Z\n", "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48100")
+		fake.Reply("\n", "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48200")
+	})
+
+	if closed := trunkRecords(t, "done"); len(closed) != 0 {
+		t.Fatalf("closers = %+v, want the incident open while its own fix #48200 is unmerged", closed)
 	}
 }
 
