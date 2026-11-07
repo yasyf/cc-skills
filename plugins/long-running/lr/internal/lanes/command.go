@@ -214,7 +214,7 @@ func DoneCheckCommand(a *app.App) *cobra.Command {
 	var attrs []string
 	cmd := &cobra.Command{
 		Use:   "done-check LANE",
-		Short: "Print why a lane may not post done: it owns an open PR, or it runs on a Sprite and the done's text or attributes name a file on that Sprite's disk; print nothing when it may",
+		Short: "Print why a lane may not post done: it owns an open PR, it still holds a standing duty the supervisor would relaunch, or it runs on a Sprite and the done's text or attributes name a file on that Sprite's disk; print nothing when it may",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, state, err := Loaded(a)

@@ -50,8 +50,9 @@ You own and spawn the drive's desk runner, its launch runner and every standing 
 each remote, as the owner ruled at 6:57 PM on Nov 2 2026: "the remote desk runner/lunch
 runner, all of that stuff, which should be owned and spawned by the root and should be
 remote as per our earlier decisions, should all be spawned by the root controller".
-Start them with `lr desks start`, before any lane and again after any relaunch; it starts
-only what is down. The launch runner is the one exception to remote for now: it starts
+Start each desk once with `lr launch lane`, from a brief with its `Standing:` line, then run
+`lr desks start` before any lane and again after any relaunch; it relaunches every standing
+desk in the registry whose row is down. The launch runner is the one exception to remote for now: it starts
 from your Orca terminal on the Mac, because it drives the Mac's Orca app.
 
 Then load the `long-running` skill: every rule there that names the coordinator binds you, and

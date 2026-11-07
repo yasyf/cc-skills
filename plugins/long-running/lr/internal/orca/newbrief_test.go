@@ -99,8 +99,8 @@ func TestABodyWithItsOwnSliceKeepsItAsTheOnlyOne(t *testing.T) {
 	if strings.Count(text, sliceLine) != 1 || !strings.Contains(text, "\n\nRegister slice: lane=lane-a step=1 topics=launch\nDo it.\n") {
 		t.Errorf("brief:\n%s", text)
 	}
-	if _, err := (NewBrief{Title: "t", BodyFile: body, Scale: "small", Place: placeRemote, Topics: []string{"relay"}}).text("lane-a"); err == nil {
-		t.Error("--topics beside the body's own slice line wrote a brief")
+	if _, err := (NewBrief{Title: "t", BodyFile: body, Scale: "small", Place: placeRemote, Topics: []string{"relay"}}).text("lane-a"); err == nil || !strings.Contains(err.Error(), "`lr desks start` for a standing desk") {
+		t.Errorf("--topics beside the body's own slice line got %v, want a refusal naming the relaunch verbs", err)
 	}
 }
 

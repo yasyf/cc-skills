@@ -182,10 +182,11 @@ hook for your session, claims cci lane `root` and reports your `cci me` line to
 
 You own desk-runner, the relay and every desk; the communicator starts none of them.
 Next, before any lane, and again after any relaunch, run `lr desks start`. It takes the
-Run for this terminal, starts only what is down, and starts nothing when a desk's brief
-is missing or says place=local. It starts the relay, the landing pass,
-`fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` and
-`board-refresher`. The landing pass and every desk run remote, each an lr-launched lane
+Run for this terminal and relaunches every standing desk in the registry whose row is
+down: each lane whose brief carries a `Standing:` line. Start a desk the registry does
+not hold yet, such as `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` or
+`board-refresher` on a new drive, once with `lr launch lane <desk> <model> <effort> <brief>`
+from a brief with its `Standing:` line. The landing pass and every desk run remote, each an lr-launched lane
 registered to you, on a Sprite unless its brief says `place=local why=<need>`, naming what only
 the Mac has. You never spawn a desk with Agent: a subagent ends with your window. The relay is the
 one exception: it runs under launchd on the Mac, because it drives the Mac's Orca app and

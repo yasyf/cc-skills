@@ -149,6 +149,16 @@ func TestAStandingDeskWhoseLaunchFailedRelaunchesOnTheNextPassUnderTheNextNumber
 	contains(t, f.briefs["pr-unblock-18"], "Partial work: pr-unblock-17 never started, so the work it took over is still pr-unblock-16's: read its records with `cci tail --drive d1 --lane pr-unblock-16 --oldest` and fetch `refs/lr/work/pr-unblock-16`, which holds any edit its Sprite pushed.\nReplaces: pr-unblock-17\n")
 }
 
+func TestADutyOnlyItsRowCarriedIsWrittenIntoTheRelaunchedBrief(t *testing.T) {
+	s := memory(t)
+	f := pr17Row(t, s, pr17Duty)
+
+	tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{"pr-unblock-18"})
+	contains(t, f.briefs["pr-unblock-18"], "\nStanding: "+pr17Duty+"\n# conflicts-2: restack the five approved stacks\n")
+}
+
 func TestARelaunchAfterTwoNeverStartedLanesPointsAtTheLaneThatLastRan(t *testing.T) {
 	s := memory(t)
 	f := pr17Row(t, s, pr17Duty,

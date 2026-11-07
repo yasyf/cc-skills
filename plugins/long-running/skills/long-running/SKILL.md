@@ -404,8 +404,8 @@ lr launch chores <state dir>/chores/brief.md
 The communicator fills each brief, then launches the four as sibling Orca sessions, each bound to its own
 lane. `lr launch` posts to the orca runner when one is up and otherwise launches from the communicator's
 terminal, which coordinates the Run, since the coordinator has not started a runner yet. The coordinator
-runs its own subscribe line (R9), then `lr desks start` before any lane: the Run binding and every standing
-desk its brief names, each desk with a `Standing:` line. The communicator's lines above start no runner and
+runs its own subscribe line (R9), then `lr desks start` before any lane: the Run binding and a relaunch of every standing
+desk in the registry whose row is down, each a lane whose brief carries a `Standing:` line; a desk the registry does not hold yet starts once with `lr launch lane`. The communicator's lines above start no runner and
 no desk. Every Mac lane registers its branch prefix at spawn with `ledger.py register`; a Sprite lane skips it, since the Mac's supervisor registers each PR from the lane's `opened` and `head` records.
 
 `lr owner start` subscribes the communicator: the owner's taps, asks, decides, blocks and incidents wake it on arrival, and reports, notes, answers and other routine kinds reach it together, at most every five minutes and at once ahead of any other record.

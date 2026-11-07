@@ -25,6 +25,7 @@ var (
 		"board-refresher":    deskMedium,
 		"drive-watchdog":     deskMedium,
 		"grader-appeals":     deskMedium,
+		"install-desk":       deskMedium,
 		"meta-desk":          deskMedium,
 		"old-tree-port-desk": deskMedium,
 		"alerts-desk":        {"sonnet", "low"},

@@ -77,7 +77,7 @@ func (n NewBrief) text(lane string) (string, error) {
 	case !briefSlice.MatchString(said):
 		header = sliceHeader(lane, cmp.Or(n.Step, stepAll), n.Topics, said) + "\n" + header
 	case n.Step != "" || len(n.Topics) > 0:
-		return "", fmt.Errorf("the body carries its own `%s` line, and --step and --topics write that line; drop them or the body's line", sliceLine)
+		return "", fmt.Errorf("the body carries its own `%s` line, and --step and --topics write that line; drop them or the body's line. A body that is another lane's brief relaunches that lane instead: `lr desks start` for a standing desk, or `lr launch lane <stem> <model> <effort> <its brief>`, which copies it under the next name", sliceLine)
 	}
 	sections := []string{fmt.Sprintf("# %s: %s", lane, n.Title), header}
 	if n.Contract != "" {
