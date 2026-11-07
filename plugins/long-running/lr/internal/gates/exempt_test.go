@@ -96,7 +96,7 @@ func TestAHoldHoldsThePRsItWasPostedWithAndItsTextIsProse(t *testing.T) {
 	hold := holdRecord(t, `{"seq":2948,"lane":"root","kind":"hold","text":"hold #2 until the cutover, behind the test PR #2","refs":{"prs":["Forge-AI/monorepo#1"]},"fields":{"attrs":{"breaks":"the cutover deletes what it reads"}}}`)
 
 	for pr, want := range map[int]int{1: 1, 2: 0} {
-		if open := openHolds(Claim{Repo: monorepo, PR: pr}, []client.Record{hold}, nil); len(open) != want {
+		if open := openHolds(Claim{Repo: monorepo, PR: pr}, []client.Record{hold}, nil, nil); len(open) != want {
 			t.Fatalf("#%d: open holds %q", pr, open)
 		}
 	}
@@ -112,9 +112,11 @@ func TestOnlyHisHoldOrOneNamingAProductionFailureStopsAGo(t *testing.T) {
 		"root's plain hold":                       {`{"seq":457669,"lane":"root","kind":"hold","text":"hold #50011: copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
 		"his own hold from the board":             {`{"seq":565538,"lane":"owner","kind":"hold","text":"hold #50011 at 61c1c7ab3c07: the owner rejected this head on the board","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 1},
 		"a root hold naming a production failure": {`{"seq":567568,"lane":"supervisor","kind":"hold","text":"readers-first: #49305 not live on every client.","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"breaks":"#50011 writes a format that a client still on a build without #49305 cannot read"}}}`, 1},
+		"a lane hold citing his words":             {`{"seq":574001,"lane":"old-tree-port-desk-1","kind":"hold","text":"#50011 deletes old-tree code before Step 11","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"ruling":"18082c8"}}}`, 1},
+		"a lane hold citing words not his":         {`{"seq":574002,"lane":"root","kind":"hold","text":"copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"ruling":"60f978d"}}}`, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if open := openHolds(claim, []client.Record{holdRecord(t, c.hold)}, nil); len(open) != c.open {
+			if open := openHolds(claim, []client.Record{holdRecord(t, c.hold)}, nil, map[string]bool{"18082c8": true, "60f978d": false}); len(open) != c.open {
 				t.Fatalf("open holds %q, want %d", open, c.open)
 			}
 		})
@@ -125,10 +127,10 @@ func TestAHoldThatLiftsAnEarlierHoldIsNotOpen(t *testing.T) {
 	lift := holdRecord(t, `{"seq":364345,"lane":"root","kind":"hold","text":"hold #48889 lift: the rework is done","resolves":362361,"refs":{"prs":["Forge-AI/monorepo#48889"]},"fields":{"attrs":{"breaks":"the rework is not in yet"}}}`)
 	claim := Claim{Repo: monorepo, PR: 48889}
 
-	if open := openHolds(claim, []client.Record{lift}, map[int64]bool{lift.Seq: true}); len(open) != 0 {
+	if open := openHolds(claim, []client.Record{lift}, map[int64]bool{lift.Seq: true}, nil); len(open) != 0 {
 		t.Fatalf("a lift reads as open: %q", open)
 	}
-	if open := openHolds(claim, []client.Record{lift}, nil); len(open) != 1 {
+	if open := openHolds(claim, []client.Record{lift}, nil, nil); len(open) != 1 {
 		t.Fatalf("a hold that lifts nothing should stay open, got %q", open)
 	}
 }
@@ -137,7 +139,7 @@ func TestAHoldCciReadsClosedIsNotOpenThoughItsLiftNamesNoPR(t *testing.T) {
 	claim := Claim{Repo: monorepo, PR: 51563}
 	for status, want := range map[string]int{"closed": 0, "open": 1} {
 		hold := holdRecord(t, `{"seq":521104,"lane":"owner","kind":"hold","text":"hold #51563 at 08906a2: the owner rejected this head on the board","re":520879,"refs":{"prs":["Forge-AI/monorepo#51563"]},"status":"`+status+`","num":"#521104"}`)
-		if open := openHolds(claim, []client.Record{hold}, nil); len(open) != want {
+		if open := openHolds(claim, []client.Record{hold}, nil, nil); len(open) != want {
 			t.Fatalf("status %s: open holds %q, want %d", status, open, want)
 		}
 	}

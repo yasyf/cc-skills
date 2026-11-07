@@ -877,6 +877,36 @@ func TestAHoldNamingAFailureAsksHimOnceAndHisLandItEndsItAtOnce(t *testing.T) {
 	}
 }
 
+func TestAHoldCitingHisWordsHoldsAsHisAndOneCitingAnyoneElsesGatesNothing(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 46468, head: head, login: "drive-bot"}, {number: 50314, head: head2, login: "drive-bot"}},
+		status(46468), status(50314, func(r *statusRow) { r.Head = head2 }))
+	h.runner.Reply(`{"tags":["from:owner","scope:durable"]}`, "ccn", "-R", landingConfig.Checkout, "show", "18082c8")
+	h.runner.Reply(`{"tags":["header:Landing","scope:durable"]}`, "ccn", "-R", landingConfig.Checkout, "show", "60f978d")
+	rulingHold(t, "old-tree-port-desk-1", "#46468 deletes old-tree code before Step 11", repo+"#46468", "18082c8")
+	rulingHold(t, "root", "hold #50314: copy pass first", repo+"#50314", "60f978d")
+
+	h.snapshot(t)
+	by := h.snapshot(t)
+
+	if by[46468].Hold != machine.MoverOwner || by[50314].Hold != "" {
+		t.Fatalf("holds #46468 %q, #50314 %q; want his cited ruling to hold as his and the relay note to gate nothing", by[46468].Hold, by[50314].Hold)
+	}
+	shows := slices.DeleteFunc(h.runner.Calls(), func(call shell.Command) bool { return call.Argv[0] != "ccn" })
+	if len(shows) != 2 {
+		t.Fatalf("ccn reads = %d across two passes, want one per ruling id", len(shows))
+	}
+	if decides := breaksDecides(t); len(decides) != 0 {
+		t.Fatalf("decides = %+v, want none: his own words are no question for him", decides)
+	}
+}
+
+func rulingHold(t *testing.T, lane, text, pr, ruling string) {
+	t.Helper()
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}, Attrs: map[string]string{bus.RulingAttr: ruling}}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 const breaksWords = "the api cut ships it before its reader"
 
 func breaksHold(t *testing.T, lane, text, pr string) client.Record {

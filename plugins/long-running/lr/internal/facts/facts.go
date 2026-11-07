@@ -1138,7 +1138,11 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	if err != nil {
 		return nil, err
 	}
-	records = slices.DeleteFunc(records, func(record client.Record) bool { return !bus.HoldGates(record) })
+	his, err := HisRulings(ctx, s.Store, s.Repo, s.Runner, s.Checkout, bus.Rulings(records), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	records = slices.DeleteFunc(records, func(record client.Record) bool { return !bus.HoldGates(record, his) })
 	if len(records) == 0 {
 		return nil, nil
 	}
@@ -1147,11 +1151,12 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		return nil, fmt.Errorf("read what the holds resolve: %w", err)
 	}
 	records = slices.DeleteFunc(records, func(record client.Record) bool { return lifts[record.Seq] })
-	answered, err := s.landAnswers(ctx, records)
+	breaks := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return bus.HoldIsHis(record, his) })
+	answered, err := s.landAnswers(ctx, breaks)
 	if err != nil {
 		return nil, fmt.Errorf("read his answers to the holds that name a failure: %w", err)
 	}
-	if err := s.decideBreaks(ctx, records, answered); err != nil {
+	if err := s.decideBreaks(ctx, breaks, answered); err != nil {
 		return nil, err
 	}
 	held := make(map[int]hold)
@@ -1159,7 +1164,7 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 		for _, pr := range bus.HeldBy(record, s.Repo) {
 			one := held[pr]
 			switch {
-			case record.Lane != bus.OwnerBy:
+			case !bus.HoldIsHis(record, his):
 				if !answered[heldPR{record.Seq, pr}] && one.by != machine.MoverOwner {
 					one.by, one.record, one.why = machine.MoverRoot, record.Name(), fmt.Sprintf("breaks:%s (record %s)", bus.Breaks(record), record.Name())
 				}
@@ -1179,8 +1184,7 @@ type heldPR struct {
 	pr   int
 }
 
-func (s Source) landAnswers(ctx context.Context, records []client.Record) (map[heldPR]bool, error) {
-	breaks := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return record.Lane == bus.OwnerBy })
+func (s Source) landAnswers(ctx context.Context, breaks []client.Record) (map[heldPR]bool, error) {
 	if len(breaks) == 0 {
 		return nil, nil
 	}
@@ -1205,8 +1209,7 @@ func (s Source) landAnswers(ctx context.Context, records []client.Record) (map[h
 	return answered, nil
 }
 
-func (s Source) decideBreaks(ctx context.Context, records []client.Record, answered map[heldPR]bool) error {
-	breaks := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return record.Lane == bus.OwnerBy })
+func (s Source) decideBreaks(ctx context.Context, breaks []client.Record, answered map[heldPR]bool) error {
 	if !s.Reads || len(breaks) == 0 {
 		return nil
 	}

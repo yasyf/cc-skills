@@ -534,14 +534,35 @@ func HoldsUntilTap(record client.Record) bool {
 	return len(record.Refs.PRs) == 1 && (record.Fields.Attrs[holdUntilAttr] == holdUntilTap || untilHisWord.MatchString(record.Text))
 }
 
-const BreaksAttr = "breaks"
+const (
+	BreaksAttr = "breaks"
+	RulingAttr = "ruling"
+)
 
-func HoldGates(record client.Record) bool {
-	return string(record.Kind) == "hold" && (record.Lane == OwnerBy || Breaks(record) != "")
+func HoldIsHis(record client.Record, his map[string]bool) bool {
+	return string(record.Kind) == "hold" && (record.Lane == OwnerBy || his[Ruling(record)])
+}
+
+func HoldGates(record client.Record, his map[string]bool) bool {
+	return HoldIsHis(record, his) || string(record.Kind) == "hold" && Breaks(record) != ""
 }
 
 func Breaks(record client.Record) string {
 	return record.Fields.Attrs[BreaksAttr]
+}
+
+func Ruling(record client.Record) string {
+	return record.Fields.Attrs[RulingAttr]
+}
+
+func Rulings(records []client.Record) []string {
+	var ids []string
+	for _, record := range records {
+		if id := Ruling(record); id != "" && string(record.Kind) == "hold" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func HeldBy(record client.Record, repo string) []int {

@@ -49,7 +49,7 @@ func (w *HoldWatch) Run(ctx context.Context) {
 
 func (w *HoldWatch) Handle(ctx context.Context, record client.Record) {
 	named := bus.HeldBy(record, w.Repo)
-	if len(named) == 0 || !bus.HoldGates(record) {
+	if len(named) == 0 || !bus.HoldGates(record, nil) && bus.Ruling(record) == "" {
 		return
 	}
 	snapshot, err := w.Read(ctx, named)

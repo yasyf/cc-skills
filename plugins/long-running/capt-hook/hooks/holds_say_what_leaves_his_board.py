@@ -54,7 +54,7 @@ def hold_posts(evt: BaseHookEvent) -> Iterator[Hold]:
 
 
 def gates(hold: Hold) -> bool:
-    return hold.lane == OWNER or bool(hold.attrs.get("breaks"))
+    return hold.lane == OWNER or bool(hold.attrs.get("breaks")) or bool(hold.attrs.get("ruling"))
 
 
 def holds(evt: BaseHookEvent) -> Iterator[str]:
