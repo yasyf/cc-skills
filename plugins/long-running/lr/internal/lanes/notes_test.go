@@ -112,6 +112,20 @@ func TestASyncThatRanPastItsDeadlineNamesTheSpriteAndNotTheScript(t *testing.T) 
 	}
 }
 
+func TestAFailedSyncReportsCcnsErrorAndNotItsSlowPhaseLines(t *testing.T) {
+	env := notesEnv(t, lane2, spriteReceipt(), func(c shell.Command) (shell.Result, error) {
+		if c.Argv[1] == "api" {
+			return shell.Result{Stdout: fmt.Sprintf(`{"sprites":[{"name":%q}]}`, notesSprite)}, nil
+		}
+		return shell.Result{}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: "ccn sync: still pushing 1 refs after 10s\nccn sync: pushing 1 refs took 14s\nerror: sync origin: push origin: boom\nrefs/cc-notes/notes/a24d471 did not reach origin\n"}
+	})
+	err := env.publishNotes(context.Background(), givenToken, lane2)
+	if err == nil || strings.Contains(err.Error(), "still pushing") {
+		t.Fatalf("publish = %v, want ccn's error line, not its slow-phase line", err)
+	}
+	contains(t, err.Error(), "push origin: boom")
+}
+
 func TestAFailedSyncReportsItsFirstStderrLineAndNotTheScript(t *testing.T) {
 	env := notesEnv(t, lane2, spriteReceipt(), func(c shell.Command) (shell.Result, error) {
 		if c.Argv[1] == "api" {
