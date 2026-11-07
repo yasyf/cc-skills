@@ -48,6 +48,7 @@ var (
 	logEscapes    = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
 	htmlTags      = regexp.MustCompile(`<[^>]*>`)
 	parallelShard = regexp.MustCompile(`^[1-9][0-9]*/[1-9][0-9]*$`)
+	fixedArity    = map[string]int{"build": 2, "jobs": 2, "retry": 3}
 	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
 )
@@ -137,6 +138,10 @@ func parse(text string) ([]string, string) {
 	match := request.FindStringSubmatch(text)
 	if match == nil {
 		return nil, usage
+	}
+	if arity, fixed := fixedArity[match[1]]; fixed {
+		words := strings.Fields(match[2])
+		match[2] = strings.Join(words[:min(arity, len(words))], " ")
 	}
 	rest, err := shellquote.Split(match[2])
 	if err != nil {
