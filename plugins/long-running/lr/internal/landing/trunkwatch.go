@@ -920,6 +920,12 @@ type redIncident struct {
 	slug   string
 	owner  string
 	cases  []failingCase
+	fixes  []fixPR
+}
+
+type fixPR struct {
+	repo   string
+	number int
 }
 
 func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, what string, failing []failingCase, blamed culprit) error {
@@ -1103,7 +1109,30 @@ func (w *TrunkWatch) cases(ctx context.Context, url string) ([]failingCase, bool
 
 func (w *TrunkWatch) settleReds(ctx context.Context, built time.Time) ([]redIncident, error) {
 	w.settled = w.Now()
-	opened, err := client.Open(ctx, w.Drive, "incident")
+	reds, err := openReds(ctx, w.Drive, w.Repo)
+	if err != nil {
+		return nil, err
+	}
+	var open []redIncident
+	for _, red := range reds {
+		fix, err := w.fixedBefore(ctx, red, built)
+		if err != nil {
+			return nil, err
+		}
+		if fix == 0 {
+			open = append(open, red)
+			continue
+		}
+		text := fmt.Sprintf("INCIDENT %s CLOSED: #%d merged as its fix, so a later red build failing its cases opens a new incident.", red.opener.Fields.Attrs[redAttr], fix)
+		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "done", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-red-fixed:" + strconv.FormatInt(red.opener.Seq, 10), Resolves: red.opener.Seq, Force: true, Text: text}); err != nil {
+			return nil, err
+		}
+	}
+	return open, nil
+}
+
+func openReds(ctx context.Context, drive, repo string) ([]redIncident, error) {
+	opened, err := client.Open(ctx, drive, "incident")
 	if err != nil {
 		return nil, err
 	}
@@ -1111,7 +1140,7 @@ func (w *TrunkWatch) settleReds(ctx context.Context, built time.Time) ([]redInci
 	if len(opened) == 0 {
 		return nil, nil
 	}
-	records, err := client.Tail(ctx, client.Query{Drive: w.Drive, Since: opened[0].At})
+	records, err := client.Tail(ctx, client.Query{Drive: drive, Since: opened[0].At})
 	if err != nil {
 		return nil, err
 	}
@@ -1127,7 +1156,7 @@ func (w *TrunkWatch) settleReds(ctx context.Context, built time.Time) ([]redInci
 			}
 		}
 	}
-	var open []redIncident
+	reds := make([]redIncident, 0, len(opened))
 	for _, opener := range opened {
 		slug := opener.Fields.Attrs[redAttr]
 		owner, chain := slug+"-fix", []string{}
@@ -1135,24 +1164,26 @@ func (w *TrunkWatch) settleReds(ctx context.Context, built time.Time) ([]redInci
 			chain = append(chain, at)
 			owner = cmp.Or(owners[at], owner)
 		}
-		fix, err := w.fixedBefore(ctx, records, opener.Seq, built, chain)
-		if err != nil {
-			return nil, err
-		}
-		if fix == 0 {
-			open = append(open, redIncident{opener: opener, slug: redSlug.FindString(owner), owner: owner, cases: openedCases(opener)})
-			continue
-		}
-		text := fmt.Sprintf("INCIDENT %s CLOSED: #%d merged as its fix, so a later red build failing its cases opens a new incident.", slug, fix)
-		if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "done", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-red-fixed:" + strconv.FormatInt(opener.Seq, 10), Resolves: opener.Seq, Force: true, Text: text}); err != nil {
-			return nil, err
-		}
+		reds = append(reds, redIncident{opener: opener, slug: redSlug.FindString(owner), owner: owner, cases: openedCases(opener), fixes: namedFixes(records, opener.Seq, chain, repo)})
 	}
-	return open, nil
+	return reds, nil
 }
 
-func (w *TrunkWatch) fixedBefore(ctx context.Context, records []client.Record, after int64, built time.Time, slugs []string) (int, error) {
-	checked := map[string]bool{}
+func (w *TrunkWatch) fixedBefore(ctx context.Context, red redIncident, built time.Time) (int, error) {
+	for _, pr := range red.fixes {
+		at, err := w.mergedAt(ctx, pr.repo, pr.number)
+		if err != nil {
+			return 0, err
+		}
+		if !at.IsZero() && !at.After(built) {
+			return pr.number, nil
+		}
+	}
+	return 0, nil
+}
+
+func namedFixes(records []client.Record, after int64, slugs []string, repo string) []fixPR {
+	var fixes []fixPR
 	for _, record := range records {
 		names := slices.Concat([]string{record.Lane, record.Topic, record.Fields.Attrs[ownerAttr]}, record.To)
 		if record.Seq <= after || record.Lane == self || record.Lane == deskRunnerLane || !slices.ContainsFunc(names, func(name string) bool { return slices.Contains(slugs, redSlug.FindString(name)) }) {
@@ -1164,21 +1195,14 @@ func (w *TrunkWatch) fixedBefore(ctx context.Context, records []client.Record, a
 			continue
 		}
 		for _, pr := range record.Refs.PRs {
-			key := cmp.Or(pr.Repo, w.Repo) + "#" + strconv.Itoa(pr.Number)
-			if !live && strconv.Itoa(pr.Number) != head[1] || checked[key] {
+			fix := fixPR{cmp.Or(pr.Repo, repo), pr.Number}
+			if !live && strconv.Itoa(pr.Number) != head[1] || slices.Contains(fixes, fix) {
 				continue
 			}
-			checked[key] = true
-			at, err := w.mergedAt(ctx, pr.Repo, pr.Number)
-			if err != nil {
-				return 0, err
-			}
-			if !at.IsZero() && !at.After(built) {
-				return pr.Number, nil
-			}
+			fixes = append(fixes, fix)
 		}
 	}
-	return 0, nil
+	return fixes
 }
 
 func openedCases(opener client.Record) []failingCase {

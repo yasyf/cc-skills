@@ -483,3 +483,61 @@ func TestAHandEnqueueAsksTheSweepOnlyAboutTheHeadsItTakesAtAnyDriveSize(t *testi
 		t.Fatalf("asked the sweep %d times at N=1 and %d at N=%d, want 1 at both", one, many, scaletest.N())
 	}
 }
+
+func openRed(t *testing.T, slug string) client.Record {
+	t.Helper()
+	opener, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "incident", To: []string{"root"}, Topic: "dev-red", ID: "dev-red-open:" + slug, Force: true, Attrs: map[string]string{"dev-red": slug, "job:0": "go"}, Text: "INCIDENT OPEN " + slug + ": go fails."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return opener
+}
+
+func devRedHolds(t *testing.T) []client.Record {
+	t.Helper()
+	return slices.DeleteFunc(gateRecords(t, "report"), func(r client.Record) bool { return !strings.HasPrefix(r.Text, "DEV-RED-HOLD") })
+}
+
+func TestAnOpenDevRedHoldsEveryPRButItsFixWithOneRecordAndTheHeldPRsEnqueueOnceItCloses(t *testing.T) {
+	f := newGates(t)
+	slug := "dev-red-1ad58822aa"
+	opener := openRed(t, slug)
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: slug + "-fix", Kind: "head", Topic: slug, PRs: []string{"52527"}, Text: "HEAD #52527 abc1234"}); err != nil {
+		t.Fatal(err)
+	}
+	acts := []pass.Act{enqueueAct(51847, "held", "dev"), enqueueAct(52527, "fix", "dev")}
+
+	for range 3 {
+		f.admit(t, acts, 52527)
+	}
+	holds := devRedHolds(t)
+	if len(holds) != 1 || holds[0].Topic != "51847" || !strings.Contains(holds[0].Text, slug) || !strings.Contains(holds[0].Text, "#52527") {
+		t.Fatalf("holds = %+v, want one record on #51847's topic naming %s and its fix #52527", holds, slug)
+	}
+
+	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "supervisor", Kind: "done", To: []string{"root"}, Topic: "dev-red", Resolves: opener.Seq, Force: true, Text: "INCIDENT " + slug + " CLOSED"}); err != nil {
+		t.Fatal(err)
+	}
+	f.admit(t, acts, 51847, 52527)
+}
+
+func TestADevRedHoldsEachOfManyQueuedPRsWithOneRecordAcrossPasses(t *testing.T) {
+	f := newGates(t)
+	openRed(t, "dev-red-e2d9d66aaa")
+	acts := make([]pass.Act, scaletest.N())
+	for i := range acts {
+		acts[i] = enqueueAct(i+1, "branch-"+strconv.Itoa(i+1), "dev")
+	}
+
+	for range 3 {
+		f.admit(t, acts)
+	}
+	holds := devRedHolds(t)
+	topics := map[string]bool{}
+	for _, hold := range holds {
+		topics[hold.Topic] = true
+	}
+	if len(holds) != len(acts) || len(topics) != len(acts) {
+		t.Fatalf("%d holds on %d topics for %d PRs over 3 passes, want one each", len(holds), len(topics), len(acts))
+	}
+}
