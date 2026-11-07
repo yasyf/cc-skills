@@ -209,7 +209,7 @@ merged and installed before any other tooling change. No new Python enters the p
 **R15.** CI is the verifier and runs every test. Before it pushes, a lane runs `go build` and `go vet` over the Go packages
 it touched and the typecheck over the TypeScript it touched, which the `vet_before_push` hook enforces, and the hook warns,
 never refuses, when `gofmt -l` lists a Go file it touched; the `local_builds` hook refuses every other local test, build and
-lint beyond the touched packages. Batch jobs run on in-region compute. Machine load never holds a remote build or an owner-directed
+lint beyond the touched packages. On the Mac it also refuses a lane's direct `go build`, `vet`, `test`, `run` or `install`, `cargo build` and `tsc`: `lr go-delta` builds and vets Go on a Sprite, `remote-builder exec --lane go|cargo --machine mac -- <args>` is the only other build verb, and `GO_LOCAL=1` or `CARGO_LOCAL=1` runs one command here. Batch jobs run on in-region compute. Machine load never holds a remote build or an owner-directed
 apply. A wrapper that runs a build or check remotely fails with a clear error when no remote builder answers, and never falls back to the local toolchain.
 
 **R16.** An active alert gets its fix lane the same turn, without a coordinator: the supervisor
