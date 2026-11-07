@@ -5393,3 +5393,26 @@ func TestALaneWhoseSpriteNeverStartedAWorkerStartsOnTheMacAndTellsTheCommunicato
 		t.Fatalf("the move went to %v, want %s", moved.To, lanes.OwnerRelay)
 	}
 }
+
+func TestAnUnfixedNoneInProseOrACaseAnotherIncidentOwnsLaunchesNoCaseLane(t *testing.T) {
+	for name, body := range map[string]string{
+		"none then prose":       "UNFIXED dev-red-cc97edd147-fix: none within119119. Exact case failed twice on baseline119119 and PASSED0.14s on119148\n",
+		"owned by another lane": "UNFIXED dev-red-cc97edd147-fix: TestLoopCancelDuringPauseSettlesCancelled is independently owned by dev-red-bec43553a5-fix and PR52351\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := newDeskWorld(t)
+			lane := "dev-red-cc97edd147-fix"
+			fixedLane(t, w, lane)
+			message := runMessage("msg_r", typeStatus, "term_fix", 1)
+			message.Subject = "ready: fixed"
+			message.Body = body
+			message.FromHandle = "term_fix"
+			w.write(filepath.Join(w.desk.Config.Receipts, lane+".terminal"), "term_fix\n")
+			w.write(filepath.Join(w.desk.Config.Receipts, lane+".json"), `{"result":{"dispatchId":"ctx_fix"}}`)
+			w.checked(message)
+			if exists, _ := w.desk.store.Exists(laneBook(lane + "-case1")); exists {
+				t.Fatal("a case lane launched")
+			}
+		})
+	}
+}
