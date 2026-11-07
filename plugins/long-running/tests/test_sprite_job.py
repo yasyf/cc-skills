@@ -14,6 +14,14 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "skills/long-running/scripts"
 LR_PRELUDE = "#!/usr/bin/env python3\nimport sys\nsys.argv = sys.argv[2:]\n"
 
+UPLOAD = """if args[0] == "--file":
+    source, upload = args[1].split(":", 1)
+    os.makedirs(os.path.dirname(sprite + upload), exist_ok=True)
+    with open(source, "rb") as given, open(sprite + upload, "wb") as kept:
+        kept.write(given.read())
+    args, mac = args[2:], (mac, upload)
+"""
+
 SPRITE = """#!/usr/bin/env python3
 import os, subprocess, sys
 args = sys.argv[4:]
@@ -21,7 +29,7 @@ stdin = None
 if args[0] == "--no-stdin":
     args, stdin = args[1:], subprocess.DEVNULL
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
-sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
+""" + UPLOAD + """sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
 """
 
 COPY_BACK = SPRITE.replace("sys.exit(subprocess.run(", "copying = any('find . -mindepth' in arg for arg in args)\nran = subprocess.run(").replace(", stdin=stdin).returncode)\n", ", stdin=stdin, stdout=subprocess.PIPE if copying else None)\n")
@@ -512,9 +520,9 @@ stdin, attached = None, True
 if args[0] == "--no-stdin":
     args, stdin, attached = args[1:], subprocess.DEVNULL, False
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
-child = subprocess.Popen([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin)
+""" + UPLOAD + """child =subprocess.Popen([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin)
 try:
-    sys.exit(child.wait(timeout=2 if attached else None))
+    sys.exit(child.wait(timeout=0 if attached else None))
 except subprocess.TimeoutExpired:
     child.kill()
     sys.stderr.write("Error: connection to exec session was lost while stdin was attached; refusing unsafe automatic reconnect because input delivery is uncertain\\n")
@@ -527,8 +535,8 @@ time.sleep(3)
 """
 
 
-def test_a_job_outlives_a_dropped_connection_since_only_the_short_key_exec_forwards_stdin(tmp_path: Path) -> None:
-    """desk-runner GRADER-TOOLING #251279: finder #45029 died a minute in on "connection to exec session 12580 was lost while stdin was attached; refusing unsafe automatic reconnect", since the exec that ran the whole job also carried the keys on stdin."""
+def test_a_job_outlives_a_dropped_connection_since_no_exec_forwards_stdin(tmp_path: Path) -> None:
+    """desk-runner GRADER-TOOLING #251279: finder #45029 died a minute in on "connection to exec session 12580 was lost while stdin was attached; refusing unsafe automatic reconnect", since the exec that ran the whole job also carried the keys on stdin. Nov 6 527373: a short exec carrying a token died the same way, so every exec here, the keys' and the copies' included, sends its input as an uploaded file and attaches none."""
     mac, sprite = tmp_path / "mac", tmp_path / "sprite"
     checkout, directory, config = mac / "checkout", mac / "finder-desk" / "45029-08cb4928b659", mac / "config"
     job_script, grader = plugin_with_job(mac, KEYED_JOB), "finder"
@@ -562,7 +570,7 @@ if any("tail -c +" in arg for arg in args):
         sys.stderr.write("Error: cannot resume output at byte 0: earliest retained byte is 76804\\n")
         sys.exit(1)
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
-sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
+""" + UPLOAD + """sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]], stdin=stdin).returncode)
 """
 
 
@@ -595,8 +603,13 @@ if [ "$WAY" = unreachable ]; then
 fi
 shift 3
 if [ "$1" = --no-stdin ]; then
-  exec </dev/null
   shift
+  if [ "$1" = --file ]; then
+    upload=${2#*:}
+    mkdir -p "$SPRITE_ROOT${upload%/*}" && cat "${2%%:*}" >"$SPRITE_ROOT$upload"
+    shift 2
+  fi
+  exec </dev/null
 fi
 dropped= flock=
 for arg do
@@ -616,7 +629,7 @@ shift
 for arg do
   shift
   case $arg in
-    "$MAC_ROOT"*) set -- "$@" "$SPRITE_ROOT$arg" ;;
+    "$MAC_ROOT"*|"${upload:-$MAC_ROOT}") set -- "$@" "$SPRITE_ROOT$arg" ;;
     *) set -- "$@" "$arg" ;;
   esac
 done

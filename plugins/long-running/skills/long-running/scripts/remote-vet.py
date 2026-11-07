@@ -240,7 +240,7 @@ def main(argv: list[str] | None = None) -> int:
     patch = run("git", "diff", "--binary", "--no-renames", base, tree, cwd=worktree)
     token = run("gh", "auth", "token", "--hostname", "github.com").strip()
     work = f"{root}/vet-{args.lane}"
-    sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--", "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines), "\n".join(formatted)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    sprited = subprocess.Popen(["sprite", "exec", "-s", sprite, "--no-stdin", "--file", f"/dev/stdin:{(upload := f'/dev/shm/lr-stdin-{os.urandom(8).hex()}')}", "--", "sh", "-c", 'exec <"$1" && rm -f "$1" && shift && exec "$@"', "sh", upload, "sh", "-c", SPRITE_SCRIPT, "sh", clone, work, base, config.get("vet", {}).get("prepare", ""), "\n".join(lines), "\n".join(formatted)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stage = ["connect"]
     verdict: list[int] = []
     errors: list[str] = []
