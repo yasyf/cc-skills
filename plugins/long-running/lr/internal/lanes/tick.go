@@ -179,6 +179,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 		}
 		do(s.Advance(CursorName, last))
 	}
+	for _, one := range said.revived {
+		revive(s, d, one, found, now)
+	}
 	launchOwedHeirs(s, d, found, now, &out)
 	taken := map[string]bool{}
 	for _, lane := range must(s.AllLanes()) {
@@ -842,6 +845,53 @@ func liveAlias(found map[string]Peer, stem, predecessor string, now time.Time) s
 			return name
 		}
 	}
+	return ""
+}
+
+func revive(s *store.Store, d Deps, one revival, found map[string]Peer, now time.Time) {
+	why := unrevivable(s, one.lane, peerOf(found, one.lane))
+	if one.revived {
+		why = launchRevived(s, d, one, found, now)
+	}
+	if why == "" {
+		return
+	}
+	do(d.Post(Post{Kind: "report", To: []string{one.by}, LaneRef: one.lane, Re: one.seq, Text: fmt.Sprintf("REVIVE REFUSED: %s did not launch: %s.", one.lane, why)}))
+}
+
+func unrevivable(s *store.Store, name string, peer *Peer) string {
+	row, known := laneOf(s, name)
+	if !known {
+		return "the registry has no lane by that name"
+	}
+	if row.State == store.LaneHeld {
+		return fmt.Sprintf("it is held, not retired: %s. A revive brings back only a retired lane", row.Reason)
+	}
+	heard := "it was never heard"
+	if !row.Heard.IsZero() {
+		heard = fmt.Sprintf("it was last heard %s (%s)", pacific(row.Heard), row.Last)
+	}
+	session := "a live session answers for it"
+	if peer == nil || !peer.Live {
+		session = "no live session answers for it, so the supervisor's liveness check relaunches or holds it, not a revive"
+	}
+	return fmt.Sprintf("it is %s, not retired, so the registry counts it running; %s, and %s. A revive brings back only a retired lane", row.State, heard, session)
+}
+
+func launchRevived(s *store.Store, d Deps, one revival, found map[string]Peer, now time.Time) string {
+	lane, _ := laneOf(s, one.lane)
+	if peer := peerOf(found, lane.Name); peer != nil && peer.Live {
+		return ""
+	}
+	err := fmt.Errorf("its brief %s is gone", lane.Brief)
+	if briefExists(lane.Brief) {
+		err = d.Launch(lane.Name, lane.Model, lane.Effort, lane.Brief, fmt.Sprintf("%s%s:revive:%d", launchKey, lane.Name, one.seq))
+	}
+	if err != nil {
+		hold(s, lane.Name, "its revive did not launch: "+err.Error(), now)
+		return fmt.Sprintf("%v, so the supervisor holds it", err)
+	}
+	do(s.SetLaneState(lane.Name, store.LaneLaunching, now, "", ""))
 	return ""
 }
 
