@@ -41,6 +41,7 @@ type cardShell struct {
 	removed   []string
 	reasons   []string
 	replaced  []string
+	settled   [][]string
 	asked     []string
 	redrawn   []string
 	whoami    int
@@ -64,6 +65,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		}
 		encoded, err := json.Marshal(shown)
 		return shell.Result{Stdout: string(encoded)}, err
+	case strings.HasPrefix(argv, "cc-slack card-answer "):
+		f.settled = append(f.settled, c.Argv[2:])
+		return shell.Result{}, nil
 	case strings.HasPrefix(argv, "cc-slack thread --url "):
 		return shell.Result{Stdout: f.threads[c.Argv[3]]}, nil
 	case argv == "cc-slack whoami":
@@ -588,14 +592,18 @@ func TestOwnerRelaysRecordOfHisThreadAnswerTakesTheCardsButtonsQuotingHisMessage
 			}
 
 			if !tc.closes {
-				if len(on.removed) != 0 {
-					t.Fatalf("removed %v; want the card left waiting with its buttons", on.removed)
+				if len(on.removed)+len(on.settled) != 0 {
+					t.Fatalf("removed %v, settled %v; want the card left waiting with its buttons", on.removed, on.settled)
 				}
 				return
 			}
-			want := "answered in its thread: “Just do the whole team folder then that's fine”"
-			if !reflect.DeepEqual(on.removed, []string{card}) || !reflect.DeepEqual(on.reasons, []string{want}) || !reflect.DeepEqual(on.replaced, []string{hisAnswer}) {
-				t.Fatalf("removed %v with %q linking %v; want %s gone quoting and linking his answer %s", on.removed, on.reasons, on.replaced, card, hisAnswer)
+			words := "Just do the whole team folder then that's fine"
+			settled := []string{"--waits", card, "--card", cardPost, "--label", words, "--other", "--settled", "--via", hisAnswer}
+			if !reflect.DeepEqual(on.settled, [][]string{settled}) {
+				t.Fatalf("settled %q; want his words shown answered on the Slack card, linked to his message", on.settled)
+			}
+			if !reflect.DeepEqual(on.removed, []string{card}) || !reflect.DeepEqual(on.reasons, []string{"answered in its thread: “" + words + "”"}) {
+				t.Fatalf("removed %v with %q; want %s off the board quoting his answer", on.removed, on.reasons, card)
 			}
 		})
 	}

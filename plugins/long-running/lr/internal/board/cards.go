@@ -587,13 +587,20 @@ func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) er
 		fmt.Fprintf(out, "WARNING no card closes on owner-relay's record of his thread answer this pass, since its records did not read: %v\n", err)
 	}
 	for _, card := range shown {
-		why, flags, err := c.answered(ctx, card, rows, tapped[card], relayed[card])
+		why, said, err := c.answered(ctx, card, rows, tapped[card], relayed[card])
 		if err != nil {
 			fmt.Fprintf(out, "WARNING %s stays up: its Slack post or thread did not read, and the next pass reads it again: %v\n", card, err)
 			continue
 		}
 		if why == "" {
 			continue
+		}
+		var flags []string
+		if said.link != "" {
+			flags = []string{"--replaced-by", said.link}
+			if _, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "card-answer", "--waits", card, "--card", said.post, "--label", said.words, "--other", "--settled", "--via", said.link}}); err != nil {
+				fmt.Fprintf(out, "WARNING %s: its Slack card did not take his thread answer, so it reads withdrawn: %v\n", card, err)
+			}
 		}
 		if err := c.sweepOff(ctx, lane, card, known[card], why, why, out, flags...); err != nil {
 			return err
@@ -602,19 +609,26 @@ func (c Cards) closeAnswered(ctx context.Context, lane string, out io.Writer) er
 	return nil
 }
 
-func (c Cards) answered(ctx context.Context, card string, rows []ownerAnswer, tapped bool, relayed time.Time) (string, []string, error) {
+func (c Cards) answered(ctx context.Context, card string, rows []ownerAnswer, tapped bool, relayed time.Time) (string, threadAnswer, error) {
 	i := slices.IndexFunc(rows, func(row ownerAnswer) bool { return closesCard(row, card) && (tapped || inThread(row)) })
+	var said threadAnswer
+	var err error
 	switch {
 	case i >= 0 && inThread(rows[i]):
 		ts := threadTS(rows[i])
-		why, flags, err := c.answeredInThread(ctx, card, func(said string, _ time.Time) bool { return said == ts })
-		return cmp.Or(why, answeredReason), flags, err
+		if said, err = c.answeredInThread(ctx, card, func(at string, _ time.Time) bool { return at == ts }); err != nil || said.link == "" {
+			return answeredReason, said, err
+		}
 	case i >= 0:
-		return answeredReason, nil, nil
+		return answeredReason, said, nil
 	case tapped || relayed.IsZero():
-		return "", nil, nil
+		return "", said, nil
+	default:
+		if said, err = c.answeredInThread(ctx, card, func(_ string, at time.Time) bool { return !at.After(relayed) }); err != nil || said.link == "" {
+			return "", said, err
+		}
 	}
-	return c.answeredInThread(ctx, card, func(_ string, said time.Time) bool { return !said.After(relayed) })
+	return fmt.Sprintf("answered in its thread: “%s”", said.words), said, nil
 }
 
 func (c Cards) relayedAnswers(ctx context.Context) (map[string]time.Time, error) {
