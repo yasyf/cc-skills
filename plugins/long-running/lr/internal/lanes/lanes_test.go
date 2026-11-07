@@ -2293,6 +2293,46 @@ func TestARevivedLaneIsLiveAgainAndTakesTheDutyOfTheStandingLaneItSucceeds(t *te
 	equal(t, []any{got.State, got.RetiredBy, got.Standing}, []any{store.LaneDesired, "", "refresh the owner's board every pass"})
 }
 
+func TestAReviveOfALaneTheRegistryHoldsDesiredPostsOneRefusalToTheRequester(t *testing.T) {
+	s := memory(t)
+	const name = "cp-egress-reset-fix-2"
+	heard := t0.Add(-33 * time.Minute)
+	if _, err := s.WantLane(store.Lane{Name: name, Brief: writeBrief(t), Model: "opus", Effort: "high", Role: "lane", State: store.LaneDesired, Predecessor: "cp-egress-reset-fix-1"}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	do(s.LaneHeard(name, heard, "landed", 1))
+	do(s.Advance(CursorName, 1))
+	f := newFake(t, []Record{ask(2, "revive", name, t0, nil, "", nil)}, nil)
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	var answers []Post
+	for _, post := range f.posts {
+		if post.Re == 2 {
+			answers = append(answers, post)
+		}
+	}
+	equal(t, answers, []Post{{Kind: "report", To: []string{Root}, LaneRef: name, Re: 2, Text: "REVIVE REFUSED: cp-egress-reset-fix-2 did not launch: it is desired, not retired, so the registry counts it running; it was last heard 9:27 AM (landed), and no live session answers for it, so the supervisor's liveness check relaunches or holds it, not a revive. A revive brings back only a retired lane."}})
+	equal(t, f.launches, []string(nil))
+}
+
+func TestAReviveOfARetiredLaneWithNoSessionLaunchesItFromItsBrief(t *testing.T) {
+	s := memory(t)
+	const name = "lf-grant-fix-2"
+	if _, err := s.WantLane(store.Lane{Name: name, Brief: writeBrief(t), Model: "opus", Effort: "high", Role: "lane", State: store.LaneRetired, RetiredBy: "done"}, t0.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	do(s.Advance(CursorName, 1))
+	f := newFake(t, []Record{ask(2, "revive", name, t0, nil, "", nil)}, nil)
+
+	tick(t, s, f, t0.Add(mins(1)))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	answered := slices.ContainsFunc(f.posts, func(post Post) bool { return post.Re == 2 })
+	equal(t, []any{f.launches, f.keys, row(t, s, name).State, answered}, []any{[]string{name}, []string{"supervisor-launch:lf-grant-fix-2:revive:2"}, store.LaneLaunching, false})
+}
+
 func TestAStandingLaneStoppedWithNoSuccessorRelaunchesOnceItIsNoLongerHeard(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)

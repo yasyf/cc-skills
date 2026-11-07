@@ -39,6 +39,12 @@ type refusal struct {
 	why  string
 }
 
+type revival struct {
+	lane, by string
+	seq      int64
+	revived  bool
+}
+
 type handed struct {
 	from, to string
 	prs      []int
@@ -61,6 +67,7 @@ type folded struct {
 	untyped    []Record
 	unheard    []string
 	refused    []refusal
+	revived    []revival
 	unassigned []unassigned
 	deps       Deps
 }
@@ -134,6 +141,11 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 	case verb == "revive" && known && row.State == store.LaneRetired:
 		do(s.ReviveLane(name, at))
 		do(s.SetLaneStanding(name, or(row.Standing, inheritedDuty(s, name, row.Brief, ""))))
+		if !fresh {
+			out.revived = append(out.revived, revival{lane: name, by: r.Lane, seq: r.Seq, revived: true})
+		}
+	case verb == "revive" && !fresh:
+		out.revived = append(out.revived, revival{lane: name, by: r.Lane, seq: r.Seq})
 	case verb == "step" && known:
 		do(s.SetLaneStep(name, r.Attr("step")))
 	case verb == "owner":
