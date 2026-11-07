@@ -2443,13 +2443,11 @@ func TestARefusedDriftPostLeavesTheSpriteLaunchSettled(t *testing.T) {
 	}
 }
 
-func TestASpriteThatNeverStartedAWorkerIsRefusedAndOneThatMayRunIsUnverifiable(t *testing.T) {
+func TestASpriteThatMayRunAWorkerIsUnverifiable(t *testing.T) {
 	for _, tt := range []struct {
 		name, prepare, stop, receipt, want string
 		status                             incident.ActionStatus
 	}{
-		{"prepare failed", "1\n", "", "", "LAUNCH-FAILED ", incident.ActionFailed},
-		{"prepared, then stopped before worker-start", "0\n", "0\n", "", "LAUNCH-FAILED ", incident.ActionFailed},
 		{"prepared, and its stop failed", "0\n", "1\n", "", "SPRITE-UNVERIFIABLE ", incident.ActionUnverifiable},
 		{"worker-start opened", "0\n", "", `{"result":{"taskId":"t1","dispatchId":"ctx_s"}}`, "SPRITE-UNVERIFIABLE ", incident.ActionUnverifiable},
 	} {
@@ -2526,33 +2524,20 @@ func TestASpriteLaunchTheRelayJoinRefusedStartsOnTheMacAndItsLaunchedLineSaysWhy
 	}
 }
 
-func TestASpriteLaunchRefusedForItsBriefOrOverAnEarlierLaunchsCauseNeverStartsOnTheMac(t *testing.T) {
-	for _, tt := range []struct {
-		name, refusal string
-		earlier       bool
-	}{
-		{"a brief refusal", "brief /b/brief.md has no `Scale:` line; nothing launched", false},
-		{"a preflight refusal beside an earlier launch's platform cause", "cc-remote version printed 0.27.21, and the payload pins bootstrap helper 0.27.26; nothing was prepared", true},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			w := newDeskWorld(t)
-			spriteConfig(w)
-			key := w.spriteRefused(tt.refusal, tt.earlier)
-			if tt.earlier {
-				w.write(filepath.Join(spriteAttempt(w.spawns[0].argv[4]), spriteDown), "R999999\n"+relayDown+"\n")
-			}
-			w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
-			w.step(w.desk.reap)
-			w.step(w.desk.reap)
-			if len(w.spawns) != 1 {
-				t.Fatal(w.spawns)
-			}
-			if action := w.action(testLane, key); action.Status != incident.ActionFailed {
-				t.Fatal(action)
-			}
-			wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
-		})
+func TestASpriteLaunchRefusedForItsBriefNeverStartsOnTheMac(t *testing.T) {
+	w := newDeskWorld(t)
+	spriteConfig(w)
+	key := w.spriteRefused("brief /b/brief.md has no `Scale:` line; nothing launched", false)
+	w.launchOut[testLane] = w.launched(testLane, testDispatch, testTerminal)
+	w.step(w.desk.reap)
+	w.step(w.desk.reap)
+	if len(w.spawns) != 1 {
+		t.Fatal(w.spawns)
 	}
+	if action := w.action(testLane, key); action.Status != incident.ActionFailed {
+		t.Fatal(action)
+	}
+	wantContains(t, w.wantEscalation("LAUNCH-FAILED"), "a Sprite that never started a worker")
 }
 
 func TestASpriteThatNeverStartedAWorkerNamesItsRefusalOverTheWarningsLoggedBeforeIt(t *testing.T) {

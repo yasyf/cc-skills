@@ -914,13 +914,13 @@ func ledgered(t *testing.T, f Fanout) string {
 	return path
 }
 
-func TestAProgressReplyToHisOrderWritesTheLedgerRowAndPostsNothingToSlack(t *testing.T) {
+func TestAProgressReplyToHisOrderWritesTheLedgerRowAndPostsAtHisDMRoot(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	path := ledgered(t, f)
 	sent := f.Send(context.Background(), Reply{ID: "rp", Title: "Vector search", MD: "tp-desc-vector-1 is designing it.", Status: progress, Order: "m447", By: "11:30 PM", Routed: 400803}.led())
-	if got := calls(fake, "cc-slack"); len(got) != 0 {
-		t.Fatalf("a progress reply reached Slack: %q", got[0].Argv)
+	if got := calls(fake, "cc-slack"); len(got) != 1 || slices.Contains(got[0].Argv, "--thread") {
+		t.Fatalf("cc-slack calls = %+v, want one post at his DM root", got)
 	}
 	ledger, err := os.ReadFile(path)
 	if err != nil {
@@ -1671,13 +1671,23 @@ func TestAProgressReplyWithItsIDEditsTheMessageItPosted(t *testing.T) {
 	}
 }
 
-func TestAProgressReplyWithNoMessageAndNoThreadStaysOffSlack(t *testing.T) {
+func TestAProgressReplyWithNoMessageAndNoThreadPostsAtHisDMRoot(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgered(t, f)
 	f.Send(context.Background(), Reply{ID: "r5", Title: "t", MD: "under way", Status: progress, Order: "m447"})
-	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
-		t.Fatalf("cc-slack calls = %+v, want none", posted)
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
+		t.Fatalf("cc-slack calls = %+v, want one", posted)
+	}
+}
+
+func TestAThreadReplyTurnsMarkdownBoldIntoSlackBold(t *testing.T) {
+	fake := threadedFake()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r7", Title: "t", MD: "**Fixed.** It ships tonight.", Status: info, Thread: hisThread})
+	posted := calls(fake, "cc-slack")
+	if len(posted) == 0 || !strings.Contains(strings.Join(posted[0].Argv, " "), "*Fixed.* It ships tonight.") || strings.Contains(strings.Join(posted[0].Argv, " "), "**") {
+		t.Fatalf("cc-slack calls = %+v, want Slack bold", posted)
 	}
 }
 
@@ -2326,6 +2336,26 @@ func TestAKeyPickCitesTheCodeThatReadsTheKey(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			err := tc.reply.unreadAsk()
 			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "UNREAD CREDENTIAL") {
+				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			}
+		})
+	}
+}
+
+func TestAReplyCarryingATagFragmentIsRefused(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"a typed closing title tag":     {Reply{Title: "Sprites are back</title>", MD: "Fixed."}, true},
+		"an opening md tag in the body": {Reply{Title: "Sprites", MD: "<md>Fixed."}, true},
+		"a Slack mention and link":      {Reply{Title: "Sprites", MD: "<@U123> see <https://example.com|the run>."}, false},
+		"a hidden cite":                 {Reply{Title: "Sprites", MD: "Fixed. <!-- enroll.go:88 -->"}, false},
+		"a comparison":                  {Reply{Title: "Sprites", MD: "Fewer than 3 < 5 failures."}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := tc.reply.strayMarkup()
+			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "STRAY MARKUP") {
 				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
 			}
 		})

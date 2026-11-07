@@ -332,7 +332,7 @@ func TestADeskBriefOnTheMacWithNoMacNeedLaunchesRemoteAndAMissingBriefFaultsOnly
 			t.Fatalf("%s launched %q, want once", good, launched)
 		}
 	}
-	if launched := m.lines("desk-launch.py lane"); len(launched) != 4 {
+	if launched := m.lines("desk-launch.py lane"); len(launched) != 5 {
 		t.Fatalf("launched %q, want every desk with a brief", launched)
 	}
 }
