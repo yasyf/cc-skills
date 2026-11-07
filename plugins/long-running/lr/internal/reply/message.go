@@ -37,7 +37,7 @@ func (f Fanout) checkedMessage(ctx context.Context, r Reply) (Reply, error) {
 	checked, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "check-post", "-"}, Stdin: m.Text, Timeout: postTimeout})
 	var exit *shell.ExitError
 	switch {
-	case errors.As(err, &exit) && exit.Code == 1:
+	case errors.As(err, &exit) && exit.Code == 1 && strings.TrimSpace(checked.Stdout) != "":
 		return r, fmt.Errorf("DRAFT FAILS CHECK-POST: the message this card would send breaks the cc-slack post rules, so nothing went out; fix each line and send again:\n%s", strings.TrimSpace(checked.Stdout))
 	case err != nil:
 		return r, fmt.Errorf("DRAFT UNCHECKED: cc-slack check-post did not run on the message, so nothing went out: %w", err)
