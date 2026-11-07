@@ -2826,6 +2826,19 @@ func coordinator(t *testing.T, s *store.Store, brief string) *fake {
 	return f
 }
 
+func TestANumberedCoordinatorThatPostsWorkerDoneRelaunchesAsRoot(t *testing.T) {
+	s := memory(t)
+	f := newFake(t, []Record{spawned(1, "root-1", writeBrief(t), t0.Add(-2*time.Hour), map[string]string{"model": "opus", "effort": "xhigh"})}, []Row{who("root-1", true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	finished := who("root-1", false, t0.Add(-mins(20)))
+	finished.Succeeded = true
+	f.peers = []Row{finished}
+
+	tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{Root})
+}
+
 func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(t *testing.T) {
 	s, brief := memory(t), writeBrief(t)
 	f := coordinator(t, s, brief)

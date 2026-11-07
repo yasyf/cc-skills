@@ -387,6 +387,10 @@ func died(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]
 		return
 	}
 	if peer != nil && peer.Row.Succeeded && lane.Handoff == "" && lane.Asked.IsZero() {
+		if coordinates(lane.Name) {
+			relaunch(s, d, lane, found, "posted worker_done, and a drive always keeps its coordinator", "", taken, now, out)
+			return
+		}
 		if lane.Heard.IsZero() {
 			hold(s, lane.Name, unheardDone, now)
 			raiseUnheard(s, d, lane.Name, now)
@@ -717,8 +721,13 @@ func retiredMailBrief(lane store.Lane) string {
 	return fmt.Sprintf("Act on what reached %s while it was gone; any record of yours naming a card here acknowledges his answer to it, and %s prints each one whole:\n%s\nIts worktree may be gone, since gc removes one that is clean and pushed: its records name each branch and PR it pushed, so cut a fresh worktree from those.", lane.Name, strings.Join(shows, " and "), pageText(lane.Page, "text"))
 }
 
+func coordinates(name string) bool {
+	base, _ := family(name)
+	return base == Root
+}
+
 func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, why, partial, spent string, taken map[string]bool, now time.Time, out *Outcome) string {
-	if old.Name == Root {
+	if coordinates(old.Name) {
 		relaunchCoordinator(s, d, old, found, why, now, out)
 		return Root
 	}
