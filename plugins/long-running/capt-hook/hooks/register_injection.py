@@ -324,6 +324,7 @@ class SpawnedByABuildLane:
         spawn("api-fix", "Sentry issue API-1N80 spiked. Fix it."): Warn(),
         spawn("lane-a", "Lane lane-a: build the relay. Arm a Monitor on the PR."): Allow(),
         spawn("lane-a", f"Your brief is {BRIEFS / 'quoted-rulings.md'}; read it."): Allow(),
+        spawn("lane-a", "Your brief is /work/comms-alert-tree/b/quoted-rulings.md; read it."): Allow(),
         spawn("api-sessions-fix", f"Your brief is {BRIEFS / 'alert.md'}; read it."): Warn(pattern=r"incident-template-fix\.md"),
         spawn("api-sessions-fix", f"ccx: incident=none\n{ALERT_BRIEF}"): Allow(),
         Input(tool="Agent", tool_input={"name": "incident-api-fix", "prompt": "Fix it."}): Allow(),
@@ -334,7 +335,7 @@ def warn_incident_brief_without_403_stand_down(evt: BaseHookEvent) -> HookResult
         return None
     try:
         found = agent_spawn(evt.as_input(TaskCall))
-        texts = [found.prompt, found.brief.read_text() if found.brief else ""] if found else []
+        texts = [BRIEF_FILE.sub("", found.prompt), found.brief.read_text() if found.brief else ""] if found else []
     except UNREAD:
         return None
     if not found:
