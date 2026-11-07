@@ -1451,7 +1451,7 @@ func keepDuties(s *store.Store, d Deps, found map[string]Peer, taken map[string]
 		if peer != nil {
 			last = newer(peer.Seen, head.Heard)
 		}
-		if alive(peer, last, now) || now.Sub(head.Since) < unownedAfter {
+		if head.RetiredBy != retiredWorkerDone && alive(peer, last, now) || now.Sub(head.Since) < unownedAfter {
 			continue
 		}
 		if at, ok := heard[head.RetiredBy]; ok && succeeds(head.RetiredBy, name) && now.Sub(at) < StaleAfter {

@@ -498,6 +498,20 @@ func TestAPlainStandDownRecordNamingItsLivePosterAsSuccessorEndsTheChainSoNothin
 	equal(t, []any{len(f.launches), row(t, s, refresher).RetiredBy}, []any{0, "board-refresher"})
 }
 
+func TestAStandingLaneWhoseWorkerEndedRelaunchesAfterTenMinutesThoughItsIdleSessionStaysLive(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	do(s.SetLaneState(refresher, store.LaneRetired, t0, retiredWorkerDone, ""))
+
+	f.peers = []Row{who(refresher, true, t0.Add(mins(9)))}
+	tick(t, s, f, t0.Add(mins(9)))
+	equal(t, len(f.launches), 0)
+	f.peers = []Row{who(refresher, true, t0.Add(mins(11)))}
+	tick(t, s, f, t0.Add(mins(11)))
+
+	equal(t, f.launches, []string{"board-refresher-7"})
+}
+
 func TestAStandingLaneWhoseWorkerEndedWithItsDutyOpenRelaunchesAfterTenMinutes(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
