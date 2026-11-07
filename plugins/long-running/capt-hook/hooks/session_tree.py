@@ -13,6 +13,7 @@ from cc_transcript.discovery import subagent_paths
 from cc_transcript.models import TranscriptEvent
 
 from captain_hook import BaseHookEvent
+from captain_hook.annotations import session_annotations
 from captain_hook.tasks import Task
 from captain_hook.util import reqenv
 
@@ -69,6 +70,14 @@ def drive_lane(evt: BaseHookEvent, skip: Callable[[str | None], bool] = lambda _
 
 def teammate_lane(evt: BaseHookEvent) -> str | None:
     return next((fields["name"] for fields in agent_chain(evt) if fields.get("taskKind") == IN_PROCESS_TEAMMATE and fields.get("name")), None)
+
+
+def agent_lane(evt: BaseHookEvent) -> str | None:
+    return (session_annotations(evt).get("lane") or teammate_lane(evt)) if evt.agent_id else None
+
+
+def post_lane(evt: BaseHookEvent) -> str | None:
+    return agent_lane(evt) or drive_lane(evt)
 
 
 def agent_chain(evt: BaseHookEvent) -> Iterator[dict]:

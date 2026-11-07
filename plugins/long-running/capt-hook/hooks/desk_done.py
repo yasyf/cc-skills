@@ -6,6 +6,8 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .lane_rotation import alias_of, route, routed
 from .meta_records import post_records
+from .teammate_posts import BRIEFED, TEAMMATE
+from .teammate_posts import DONE as TEAMMATE_DONE
 from .tests.register_fixtures import DRIVE_CONFIG
 
 DESK_DONE = "A desk never posts `--kind done`, since done retires the lane and the drive loses its desk. Post a finished PR as `cci post --kind landed --pr <n>` and keep the desk running."
@@ -29,6 +31,8 @@ class DeskPostsDone:
         Input(command=OBS_DONE, env=DRIVE_CONFIG, commands=route("obs-desk", "obs-desk", "desired", meta=True)): Block(pattern=r"^A desk never posts `--kind done`[\s\S]*`cci post --kind landed --pr <n>`"),
         Input(command=OBS_DONE.replace("--lane obs-desk ", ""), env=DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "obs-desk"}, commands=route("obs-desk", "obs-desk", "desired", meta=True)): Block(),
         Input(command=OBS_DONE.replace("obs-desk", "meta-desk-3"), env=DRIVE_CONFIG, commands=route("meta-desk-3", "meta-desk-3", "desired", meta=True)): Block(),
+        Input(command=TEAMMATE_DONE, env=TEAMMATE, commands=route("meta-desk-3", "meta-desk-3", "desired", meta=True)): Block(),
+        Input(command=TEAMMATE_DONE, env=TEAMMATE, agent_id="a1b2c3", transcript=BRIEFED, commands=route("live-tasks-parse", "live-tasks-parse", "desired")): Allow(),
         Input(command=OBS_DONE.replace("obs-desk", "board-refresher-7"), env=DRIVE_CONFIG, commands=route("board-refresher-7", "board-refresher-7", "desired", standing="refresh the board")): Block(),
         Input(tool=POST_TOOL, tool_input={"lane": "obs-desk", "kind": "done", "to": ["meta-desk"], "text": "merged #3465"}, env=DRIVE_CONFIG, commands=route("obs-desk", "obs-desk", "desired", meta=True)): Block(),
         Input(command="cci post --drive d --lane live-claim-scope --kind done --to meta-desk --text 'merged #3470'", env=DRIVE_CONFIG, commands=route("live-claim-scope", "root", "desired", meta=True)): Allow(),

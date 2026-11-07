@@ -10,7 +10,7 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .lane_rotation import ROOT, route, routed
 from .owner_facing import PR_TAIL, post_values, record_text
-from .session_tree import drive_lane
+from .session_tree import post_lane
 from .tests.register_fixtures import DRIVE_CONFIG
 
 ITEM = re.compile(r"(?i)\bm\d+\b")
@@ -43,7 +43,7 @@ def pr_numbers(values: object) -> tuple[int, ...]:
 def post_records(evt: BaseHookEvent) -> Iterator[Post]:
     if evt.tool_name == POST_TOOL:
         given = evt._tool_input
-        lane = str(given.get("lane") or drive_lane(evt) or "")
+        lane = str(given.get("lane") or post_lane(evt) or "")
         for record in [given, *(given.get("records") or ())]:
             text = str(record.get("text") or "")
             yield Post(str(record.get("lane") or lane), [str(to) for to in record.get("to") or ()], str(record.get("kind") or ""), text, not record.get("path") and "\n" not in text, {str(key): str(value) for key, value in (record.get("attrs") or given.get("attrs") or {}).items()}, str(record.get("topic") or ""), (str(record["head"]),) if record.get("head") else (), (str(record["re"]),) if record.get("re") else (), pr_numbers(record.get("pr") or given.get("pr")), text)
@@ -57,7 +57,7 @@ def post_records(evt: BaseHookEvent) -> Iterator[Post]:
         recipients = [to for value in values.get("to", ()) for to in str(value).split(",")]
         pairs = (pair.partition("=") for value in values.get("attr", ()) for pair in str(value).split(","))
         said = " ".join(str(word) for word in (*values.get("text", ()), *values.get("words", ())[1:]) if word)
-        yield Post(str((values.get("lane") or (drive_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]), tuple(values.get("head", ())), tuple(str(value) for value in values.get("re", ())), pr_numbers(values.get("pr")), said)
+        yield Post(str((values.get("lane") or (post_lane(evt) or "",))[0]), recipients, ",".join(values.get("kind", ())), text, inline, {key: value for key, _, value in pairs}, str((values.get("topic") or ("",))[0]), tuple(values.get("head", ())), tuple(str(value) for value in values.get("re", ())), pr_numbers(values.get("pr")), said)
 
 
 def posts(evt: BaseHookEvent) -> Iterator[tuple[str, list[str], str, str, bool, dict[str, str]]]:
