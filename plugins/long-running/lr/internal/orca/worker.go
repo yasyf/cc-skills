@@ -31,7 +31,7 @@ import (
 const (
 	routeSprite       = "sprite"
 	routeLocal        = "local"
-	carriedBox        = "/home/sprite/drive/carried"
+	carriedBox        = carry.Box
 	cargoBuildDir     = "CARGO_BUILD_BUILD_DIR=/var/tmp/cargo-build/{workspace-path-hash}"
 	sponsorKey        = "/home/sprite/.cc-inbox/relay/default/service.pem"
 	sponsorProfile    = "aws-profile:"

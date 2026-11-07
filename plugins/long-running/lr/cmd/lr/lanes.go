@@ -7,6 +7,7 @@ func init() {
 	register(lanes.RouteCommand)
 	register(lanes.RequestCommand)
 	register(lanes.DoneCheckCommand)
+	register(lanes.CarryBackCommand)
 	register(lanes.StopSpritesCommand)
 	register(lanes.RunnerCommand)
 	register(lanes.NscCommand)

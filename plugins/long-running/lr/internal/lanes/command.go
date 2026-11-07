@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -248,6 +249,50 @@ func DoneCheckCommand(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&text, "text", "", "the done record's text")
 	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "each key=value attribute the done record carries")
+	return cmd
+}
+
+func CarryBackCommand(a *app.App) *cobra.Command {
+	var text string
+	var attrs []string
+	cmd := &cobra.Command{
+		Use:   "carry-back LANE",
+		Short: "Copy each file or directory a Sprite lane's record names under " + carry.Box + " to the same path on the Mac, keeping any file the Mac already holds; print why each one that did not copy stayed behind",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, state, err := Loaded(a)
+			if err != nil {
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, StoreFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			lane, err := Resolve(cmd.Context(), cfg.Drive, args[0])
+			if err != nil {
+				return err
+			}
+			row, found, err := s.Lane(lane)
+			if err != nil || !found || row.Placement != placedOnSprite {
+				return err
+			}
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
+			if err != nil {
+				return err
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			if left := carry.Back(cmd.Context(), a.Runner, spriteOf(env.receipts(), lane), home, append([]string{text}, attrs...)); len(left) > 0 {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s runs on a Sprite and the Mac did not get %s: %s\n", lane, strings.Join(left, ", "), offSprite)
+			}
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&text, "text", "", "the record's text")
+	cmd.Flags().StringArrayVar(&attrs, "attr", nil, "each key=value attribute the record carries")
 	return cmd
 }
 
