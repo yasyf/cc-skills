@@ -159,7 +159,10 @@ func (p Poster) Numbered(ctx context.Context, lane string) (string, error) {
 		}
 	}
 	if highest == 0 && slices.Contains(taken, lane) {
-		return lane, nil
+		reach, err := client.Resolve(ctx, entry.Bus(), lane)
+		if err != nil || !reach.Down {
+			return lane, err
+		}
 	}
 	return fmt.Sprintf("%s-%d", lane, highest+1), nil
 }

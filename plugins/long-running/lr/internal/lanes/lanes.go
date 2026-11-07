@@ -553,6 +553,7 @@ type owing struct {
 	rows     []deletions.Owed
 	orders   []owner.Row
 	promises []Promise
+	prs      []int
 	err      error
 	notes    error
 }
@@ -629,6 +630,21 @@ func (out *folded) owesNothing(s *store.Store, name string, fresh bool, at time.
 	return !owes
 }
 
+func (out *folded) ownsNoOpenPR(s *store.Store, name string, fresh bool, at time.Time) bool {
+	owned := must(s.Owners())[name]
+	if fresh || len(owned) == 0 {
+		return true
+	}
+	states, err := out.deps.PRStates(owned)
+	one := owing{name: name, err: err, prs: slices.DeleteFunc(owned, func(n int) bool { return states[n] == Closed })}
+	if err == nil && len(one.prs) == 0 {
+		return true
+	}
+	hold(s, name, one.owes(), at)
+	out.owing = append(out.owing, one)
+	return false
+}
+
 func refusedOwing(s *store.Store, d Deps, name string, now time.Time) bool {
 	one, owes := owingOf(s, d, name)
 	if owes {
@@ -656,6 +672,9 @@ func (o owing) owes() string {
 	if len(o.orders) > 0 {
 		owed = append(owed, fmt.Sprintf("it was assigned %d owner orders with no delivered proof: %s", len(o.orders), owner.Tokens(o.orders)))
 	}
+	if len(o.prs) > 0 {
+		owed = append(owed, fmt.Sprintf("its Orca worker finished while it owns %d open PRs: %s", len(o.prs), numberList(o.prs)))
+	}
 	if len(o.promises) > 0 {
 		owed = append(owed, "its cards promise him something by a clock, with no delivered proof: "+promiseCards(o.promises))
 	}
@@ -673,6 +692,9 @@ func (o owing) post(s *store.Store, d Deps) {
 	}
 	if o.err != nil || len(o.orders) > 0 {
 		remedies = append(remedies, "deliver each order and post `cci post --kind report --attr delivered=owner:<row>` once he has it")
+	}
+	if len(o.prs) > 0 {
+		remedies = append(remedies, "land or close each PR, or relaunch it to finish them")
 	}
 	if o.err != nil || len(o.promises) > 0 {
 		remedies = append(remedies, "deliver what each card promised and post `cci post --kind report --attr delivered=card:<card>` once he has it")

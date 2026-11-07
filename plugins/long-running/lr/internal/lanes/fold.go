@@ -132,7 +132,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 			do(s.SetLaneStanding(name, ""))
 		}
 	case verb == "done" && known && row.State != store.LaneRetired:
-		if out.owesNothing(s, name, fresh, at) {
+		if (r.Lane != runner || out.ownsNoOpenPR(s, name, fresh, at)) && out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, "done", at)
 			do(s.SetLaneStanding(name, ""))
 		}
