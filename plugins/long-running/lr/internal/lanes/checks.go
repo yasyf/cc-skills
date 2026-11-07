@@ -712,7 +712,7 @@ func endedBecause(lane store.Lane, receipt launchReceipt, open openDispatches) s
 		return ""
 	case dispatch != "":
 		return fmt.Sprintf("its dispatch %s is no longer open", dispatch)
-	case lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn":
+	case lane.RetiredBy == "done" || lane.RetiredBy == "withdrawn" || lane.RetiredBy == retiredDutyEnded:
 		return "it was retired by " + lane.RetiredBy
 	}
 	return ""

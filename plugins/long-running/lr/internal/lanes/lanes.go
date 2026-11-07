@@ -63,6 +63,7 @@ const (
 	retiredWorkerDone = "worker-done"
 	retiredSilent     = "silent"
 	retiredStopped    = "stand-down"
+	retiredDutyEnded  = "duty-ended"
 	retiredMailTopic  = "retired-mail"
 	boardLink         = "board-link"
 	CardWakeTopic     = "card-wake:"
@@ -700,11 +701,14 @@ func strippedBy(s *store.Store, owner string, numbers []int) []string {
 
 func unseen(s *store.Store, name, cited string) (read string, newest int64) {
 	newest = must(s.NewestSeq(name))
+	if newest == 0 {
+		return "", 0
+	}
 	if cited == "" {
 		return "cites no last-read=<seq>", newest
 	}
 	seq, err := strconv.ParseInt(cited, 10, 64)
-	if err == nil && (newest == 0 || seq >= newest) {
+	if err == nil && seq >= newest {
 		return "", newest
 	}
 	return fmt.Sprintf("cites last-read=%s, older than %s's newest record #%d", cited, name, newest), newest

@@ -453,7 +453,7 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 func TestAStandingLaneEndedByADoneRequestRelaunchesWhileItsBriefKeepsItsStandingLine(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)
-	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, Root, nil))
+	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, "meta-desk-3", nil))
 	f.peers = nil
 
 	tick(t, s, f, t0.Add(mins(1)))
@@ -461,6 +461,41 @@ func TestAStandingLaneEndedByADoneRequestRelaunchesWhileItsBriefKeepsItsStanding
 	tick(t, s, f, t0.Add(mins(30)))
 
 	equal(t, []any{f.launches, len(f.ofKind("blocker"))}, []any{[]string{"board-refresher-7"}, 0})
+}
+
+func TestRootsDoneEndsAStandingLanesDutySoNothingRelaunchesItLiveOrAlreadyRetired(t *testing.T) {
+	for name, retired := range map[string]bool{"live": false, "retired": true} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f, _ := standingLane(t, s)
+			if retired {
+				do(s.SetLaneState(refresher, store.LaneRetired, t0, retiredWorkerDone, ""))
+			}
+			f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, Root, nil))
+			f.peers = nil
+
+			tick(t, s, f, t0.Add(mins(1)))
+			tick(t, s, f, t0.Add(mins(12)))
+			tick(t, s, f, t0.Add(mins(30)))
+
+			equal(t, []any{len(f.launches), row(t, s, refresher).RetiredBy, len(f.ofKind("blocker"))}, []any{0, retiredDutyEnded, 0})
+		})
+	}
+}
+
+func TestAPlainStandDownRecordNamingItsLivePosterAsSuccessorEndsTheChainSoNothingRelaunches(t *testing.T) {
+	s := memory(t)
+	f, _ := standingLane(t, s)
+	down := rec(2, "board-refresher", "stand-down", t0, refresher+" stands down: the live refresher is this window, board-refresher.", refresher)
+	down.Fields.Attrs = map[string]string{"successor": "board-refresher"}
+	f.feed = append(f.feed, down)
+
+	for _, at := range []time.Time{t0.Add(mins(1)), t0.Add(mins(12)), t0.Add(mins(30))} {
+		f.peers = []Row{who("board-refresher", true, at)}
+		tick(t, s, f, at)
+	}
+
+	equal(t, []any{len(f.launches), row(t, s, refresher).RetiredBy}, []any{0, "board-refresher"})
 }
 
 func TestAStandingLaneWhoseWorkerEndedWithItsDutyOpenRelaunchesAfterTenMinutes(t *testing.T) {
@@ -552,4 +587,36 @@ func TestARetiredLaneWhoseBriefHasNoStandingLineIsNotADutyEvenAfterAStandingPred
 	tick(t, s, f, t0.Add(mins(30)))
 
 	equal(t, []any{len(f.launches), len(f.ofKind("blocker"))}, []any{0, 0})
+}
+
+func retiredRelay(t *testing.T, s *store.Store) *fake {
+	t.Helper()
+	f := newFake(t, []Record{spawned(1, "owner-relay-3", standingBrief(t, "owner-relay-3"), t0.Add(-2*time.Hour), nil)}, []Row{who("owner-relay-3", true, t0.Add(-time.Hour))})
+	tick(t, s, f, t0.Add(-time.Hour))
+	do(s.SetLaneState("owner-relay-3", store.LaneRetired, t0, retiredWorkerDone, ""))
+	f.posts = nil
+	return f
+}
+
+func TestAnOwnerRelayHeirIsPlacedOnTheMac(t *testing.T) {
+	s := memory(t)
+	f := retiredRelay(t, s)
+	f.peers = nil
+
+	tick(t, s, f, t0.Add(mins(11)))
+
+	equal(t, f.launches, []string{"owner-relay-4"})
+	contains(t, f.briefs["owner-relay-4"], "ccx: place=local why=cc-present\n")
+}
+
+func TestARetiredLaneIsNeverRelaunchedBesideALiveMemberOfItsFamily(t *testing.T) {
+	s := memory(t)
+	f := retiredRelay(t, s)
+
+	for _, at := range []time.Time{t0.Add(mins(11)), t0.Add(mins(30))} {
+		f.peers = []Row{who(OwnerRelay, true, at)}
+		tick(t, s, f, at)
+	}
+
+	equal(t, []any{len(f.launches), row(t, s, "owner-relay-3").RetiredBy}, []any{0, OwnerRelay})
 }

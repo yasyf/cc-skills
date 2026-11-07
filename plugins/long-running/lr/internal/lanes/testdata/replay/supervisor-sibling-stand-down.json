@@ -1,0 +1,201 @@
+{
+ "class": "supervisor-sibling-stand-down",
+ "defect": 586470,
+ "expect": {
+  "launched": [],
+  "relaunched": [],
+  "held": [],
+  "unread": []
+ },
+ "fix": "yasyf/cc-skills#3804",
+ "input": {
+  "briefs": {
+   "owner-relay-5": "ccx: place=remote\nStanding: relay the owner's words to the drive and its answers to him.\n"
+  },
+  "records": [
+   {
+    "at": "2026-11-07T09:10:21.700Z",
+    "fields": {
+     "attrs": {
+      "brief": "/scratch/owner-relay-5/brief.md",
+      "model": "sonnet",
+      "effort": "high"
+     }
+    },
+    "kind": "state",
+    "lane": "root",
+    "refs": {
+     "prs": []
+    },
+    "seq": 585765,
+    "text": "SPAWNED owner-relay-5 /scratch/owner-relay-5/brief.md",
+    "topic": "spawn:owner-relay-5"
+   },
+   {
+    "at": "2026-11-07T09:12:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 585800,
+    "text": "LAUNCHED R585765 owner-relay-5: dispatch ctx_80987905279d terminal term_e951703f on Sprite pool-ddqjvmxh",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:13:30.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "owner-relay-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 585840,
+    "text": "owner-relay-5 up: reading the queue the retired owner-relay-4 left.",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:15:59.906Z",
+    "fields": {
+     "attrs": {
+      "successor": "owner-relay"
+     }
+    },
+    "kind": "stand-down",
+    "lane": "owner-relay",
+    "refs": {
+     "prs": []
+    },
+    "seq": 585913,
+    "text": "owner-relay-5 stands down: the live communicator is owner-relay. owner-relay-5 is the supervisor's relaunch of the retired owner-relay-3 chain (585761). Post nothing to him; records addressed to owner-relay-5 reach owner-relay.",
+    "to": [
+     "owner-relay-5"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:16:00.100Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "answer",
+    "lane": "owner-relay",
+    "refs": {
+     "prs": []
+    },
+    "seq": 585914,
+    "text": "owner-relay-5 stood down with owner-relay as successor.",
+    "to": [
+     "meta-desk",
+     "supervisor"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:23:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "stopped",
+    "lane": "owner-relay-5",
+    "refs": {
+     "prs": []
+    },
+    "seq": 586070,
+    "text": "owner-relay-5 stood down by owner-relay (585913); the live relay is owner-relay on the Mac. No PR of mine open."
+   },
+   {
+    "at": "2026-11-07T09:24:00.000Z",
+    "fields": {
+     "attrs": {
+      "lane": "owner-relay-5",
+      "verb": "done"
+     }
+    },
+    "kind": "decide",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 586081,
+    "text": "registry request: done owner-relay-5, its Orca worker finished",
+    "to": [
+     "supervisor",
+     "mq-health"
+    ],
+    "topic": "done:owner-relay-5"
+   },
+   {
+    "at": "2026-11-07T09:24:01.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "report",
+    "lane": "desk-runner",
+    "refs": {
+     "prs": []
+    },
+    "seq": 586082,
+    "text": "OUTCOME relay_0c066c799160 owner-relay-5: worker_done succeeded dispatch=ctx_80987905279d: owner-relay-5 stood down",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:50:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "owner-relay",
+    "refs": {
+     "prs": []
+    },
+    "seq": 586460,
+    "text": "relayed root's ruling to restate-queue.",
+    "to": [
+     "root"
+    ]
+   },
+   {
+    "at": "2026-11-07T09:51:00.000Z",
+    "fields": {
+     "attrs": {}
+    },
+    "kind": "note",
+    "lane": "owner-relay",
+    "refs": {
+     "prs": []
+    },
+    "seq": 586471,
+    "text": "no new owner words.",
+    "to": [
+     "root"
+    ]
+   }
+  ],
+  "tokens": {},
+  "who": [
+   {
+    "lane": "owner-relay",
+    "session": "f16618df",
+    "live": true,
+    "seen_at": "2026-11-07T10:00:00Z",
+    "announced_at": "2026-11-07T08:00:00Z"
+   }
+  ]
+ },
+ "recurs": {
+  "kinds": [
+   "report"
+  ],
+  "text": "RELAUNCHED owner-relay"
+ }
+}

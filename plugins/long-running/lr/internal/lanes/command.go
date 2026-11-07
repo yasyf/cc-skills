@@ -119,7 +119,7 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&asJSON, "json", false, "one JSON object per lane")
 	cmd.Flags().BoolVar(&idle, "idle", false, "the idle-session census: claude and codex processes, Orca worktrees and terminals, and what a whole-Run gc would close, remove, destroy and keep; changes nothing")
-	cmd.AddCommand(handoffCommand(a), handoffRegistryCommand(a), adoptMetaCommand(a), sameCommand())
+	cmd.AddCommand(handoffCommand(a), handoffRegistryCommand(a), adoptMetaCommand(a), sameCommand(), standDownCommand(a))
 	return cmd
 }
 
@@ -138,6 +138,16 @@ func sameCommand() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func standDownCommand(a *app.App) *cobra.Command {
+	cmd := RequestCommand(a)
+	request := cmd.RunE
+	cmd.Use, cmd.Short, cmd.Args = "stand-down LANE --successor LANE", "Stand LANE down for its successor, the record `lr request stand-down` posts", cobra.ExactArgs(1)
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		return request(cmd, append([]string{"stand-down"}, args...))
+	}
+	return cmd
 }
 
 func adoptMetaCommand(a *app.App) *cobra.Command {

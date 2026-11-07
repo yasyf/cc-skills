@@ -2272,7 +2272,7 @@ func TestACoordinatorsDoneEndsTheDutyASuccessorInheritedAndNothingRelaunchesIt(t
 	tick(t, s, f, t0.Add(mins(40)))
 
 	got := row(t, s, heir)
-	equal(t, []any{got.RetiredBy, got.Standing, len(f.launches), len(f.ofKind("blocker"))}, []any{"done", "", 0, 0})
+	equal(t, []any{got.RetiredBy, got.Standing, len(f.launches), len(f.ofKind("blocker"))}, []any{retiredDutyEnded, "", 0, 0})
 }
 
 func TestARevivedLaneIsLiveAgainAndTakesTheDutyOfTheStandingLaneItSucceeds(t *testing.T) {
@@ -2314,7 +2314,7 @@ func TestAStandingDeskWhoseBriefNamesNoMacNeedRelaunchesRemote(t *testing.T) {
 	f := newFake(t, []Record{spawned(1, refresher, path, t0.Add(-2*time.Hour), nil)}, []Row{who(refresher, true, t0.Add(-time.Hour))})
 	tick(t, s, f, t0.Add(-time.Hour))
 	f.posts = nil
-	f.feed = append(f.feed, rec(2, refresher, "done", t0, "finished"), ask(3, "done", refresher, t0, nil, "", nil))
+	f.feed = append(f.feed, rec(2, refresher, "done", t0, "finished"), ask(3, "done", refresher, t0, nil, "meta-desk-3", nil))
 	f.peers = nil
 
 	tick(t, s, f, t0.Add(mins(1)))

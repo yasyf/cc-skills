@@ -32,7 +32,7 @@ var (
 	}
 )
 
-var macDesks = map[string]string{"install-desk": "mac-build"}
+var macDesks = map[string]string{"install-desk": "mac-build", OwnerRelay: "cc-present"}
 
 func MacDeskNeed(name string) string {
 	base, _ := family(name)

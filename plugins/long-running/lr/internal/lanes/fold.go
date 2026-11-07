@@ -119,6 +119,11 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredWorkerDone, at)
 		}
+	case verb == "done" && known && r.Lane == Root && dutyOf(row) != "":
+		if row.State == store.LaneRetired || out.owesNothing(s, name, fresh, at) {
+			out.retireHolding(s, name, retiredDutyEnded, at)
+			do(s.SetLaneStanding(name, ""))
+		}
 	case verb == "done" && known && row.State != store.LaneRetired:
 		if out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, "done", at)
@@ -1046,15 +1051,24 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 		}
 	case kind == "done" && !known && !isRoot && name != mainLane && name != runner && !fixedLaneCloses(r):
 		out.handOn(s, name, must(s.HeldBy(name, out.deps.Ledger)), fresh)
+	case kind == "stand-down" && (isRoot || standsDownForLiveHeir(s, r)):
+		foldRootStandDown(s, r, fresh, at, out)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
 		if !out.rotated(s, row, r, fresh, at) && out.owesNothing(s, name, fresh, at) {
 			retire(s, name, "stand-down", at)
 		}
 	case kind == "go" && name != Self && withdrawOrder.MatchString(text):
 		foldWithdraw(s, r, fresh, at, out)
-	case kind == "stand-down" && isRoot:
-		foldRootStandDown(s, r, fresh, at, out)
 	}
+}
+
+func standsDownForLiveHeir(s *store.Store, r Record) bool {
+	named := r.Attr("successor")
+	if named == "" || r.Lane == Self || r.Addressed()[r.Lane] {
+		return false
+	}
+	heir, found := laneOf(s, heirOf(s, named))
+	return named == r.Lane || found && isLive(heir.State)
 }
 
 func foldCarried(s *store.Store, r Record, at time.Time) bool {
@@ -1161,12 +1175,12 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 			}
 		}
 	}
-	successor = heirOf(s, successor, slices.Collect(maps.Keys(named))...)
 	if len(named) == 0 {
 		for _, to := range r.To {
 			named[to] = true
 		}
 	}
+	successor = heirOf(s, successor, slices.Collect(maps.Keys(named))...)
 	heirs := map[string]bool{successor: true}
 	for old := range named {
 		gone, _ := laneOf(s, old)
@@ -1183,7 +1197,7 @@ func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *
 		if !found {
 			continue
 		}
-		if !fresh && isLive(gone.State) {
+		if !fresh && isLive(gone.State) && successor != r.Lane {
 			if one, found := unreadBy(s, r, old, citedIn(r), Request{Verb: "stand-down", Lane: old, Successor: successor}); found {
 				out.unread = append(out.unread, one)
 				hold(s, old, one.why, at)

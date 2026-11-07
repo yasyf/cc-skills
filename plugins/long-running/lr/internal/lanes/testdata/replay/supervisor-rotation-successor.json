@@ -4,12 +4,9 @@
  "expect": {
   "launched": [
    "alerts-desk-4",
-   "port-desk-15",
    "register-seed-7"
   ],
-  "relaunched": [
-   "port-desk-14"
-  ],
+  "relaunched": [],
   "held": [],
   "local": []
  },
