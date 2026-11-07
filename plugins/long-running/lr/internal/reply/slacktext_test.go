@@ -120,3 +120,16 @@ func TestPRTitlesReadInOneLedgerReadAndOneGitHubQueryAtAnyCount(t *testing.T) {
 		}
 	}
 }
+
+func TestABareNumberTheLedgerLacksAsksGitHubNothing(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	ledgerRow(t, f, inCI)
+	r, warning := f.withPRTitles(context.Background(), Reply{MD: "Step #7 is done."})
+	if gh := slices.DeleteFunc(fake.Calls(), func(c shell.Command) bool { return c.Argv[0] != "gh" }); len(gh) != 0 || warning != "" || len(r.names.titles) != 0 {
+		t.Fatalf("gh calls %+v, warning %q, titles %+v; want no query for a number that may not be a PR", gh, warning, r.names.titles)
+	}
+	if got := r.slackText(r.MD); got != "Step #7 is done." {
+		t.Fatalf("slack text = %q, want the number as written", got)
+	}
+}

@@ -33,7 +33,8 @@ type prNames struct {
 
 // withPRTitles reads the title of every PR the reply names, the drive's own
 // from its PR ledger and the rest in one GitHub query, so Slack names each by
-// its title. The second result is one warning line, or empty.
+// its title. A bare #N takes its title from the ledger alone, since it may
+// number a step or a record. The second result is one warning line, or empty.
 func (f Fanout) withPRTitles(ctx context.Context, r Reply) (Reply, string) {
 	if cfg, err := board.DriveConfig(f.Entry); err == nil {
 		r.names.repo = cfg.Repo
@@ -44,10 +45,23 @@ func (f Fanout) withPRTitles(ctx context.Context, r Reply) (Reply, string) {
 			r.names.titles[strings.ToLower(card.URL)] = board.PlainTitle(card.Title)
 		}
 	}
-	urls := r.namedPRURLs(cardtext.HiddenCite.ReplaceAllString(r.MD, " "))
 	var own []int
-	for _, url := range urls {
+	var asked []string
+	for _, found := range mention.FindAllStringSubmatch(cardtext.HiddenCite.ReplaceAllString(r.MD, " "), -1) {
+		url := r.mentionURL(found)
+		if url == "" {
+			continue
+		}
 		if repo, number := pullOf(url); strings.EqualFold(repo, r.names.repo) {
+			own = append(own, number)
+		}
+		if found[7] == "" {
+			asked = appendNew(asked, url)
+		}
+	}
+	for _, pr := range r.PRs {
+		asked = appendNew(asked, pr)
+		if repo, number := pullOf(pr); strings.EqualFold(repo, r.names.repo) {
 			own = append(own, number)
 		}
 	}
@@ -64,7 +78,7 @@ func (f Fanout) withPRTitles(ctx context.Context, r Reply) (Reply, string) {
 			}
 		}
 	}
-	unread := slices.DeleteFunc(urls, func(url string) bool { return r.names.titles[strings.ToLower(url)] != "" })
+	unread := slices.DeleteFunc(asked, func(url string) bool { return r.names.titles[strings.ToLower(url)] != "" })
 	if len(unread) == 0 {
 		return r, ""
 	}
@@ -103,17 +117,6 @@ func (f Fanout) githubTitles(ctx context.Context, urls []string) (map[string]str
 		}
 	}
 	return titles, nil
-}
-
-func (r Reply) namedPRURLs(md string) []string {
-	var urls []string
-	for _, found := range mention.FindAllStringSubmatch(md, -1) {
-		urls = appendNew(urls, r.mentionURL(found))
-	}
-	for _, pr := range r.PRs {
-		urls = appendNew(urls, pr)
-	}
-	return slices.DeleteFunc(urls, func(url string) bool { return url == "" })
 }
 
 func (r Reply) mentionURL(found []string) string {
