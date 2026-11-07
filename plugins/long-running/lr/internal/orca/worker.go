@@ -69,9 +69,9 @@ const (
 	holdTimeout       = time.Minute
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
-	fetchAsToken      = `IFS= read -r FETCH_TOKEN; export FETCH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$FETCH_TOKEN"; }; f'; `
-	fetchNotesScript  = fetchAsToken + `cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*" "+$3*:$3*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
-	fetchRedScript    = fetchAsToken + `cd "$1" && git fetch --quiet --no-tags --depth="$2" origin "$3" && git merge-base --is-ancestor "$4" HEAD`
+	gitAuthFromStdin  = `IFS= read -r FETCH_TOKEN; export FETCH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$FETCH_TOKEN"; }; f'; `
+	fetchNotesScript  = gitAuthFromStdin + `cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*" "+$3*:$3*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
+	fetchRedScript    = gitAuthFromStdin + `cd "$1" && git fetch --quiet --no-tags --depth="$2" origin "$3" && git merge-base --is-ancestor "$4" HEAD`
 	redReceipt        = "red-commit.log"
 	runSetup          = `cd "$1" && exec sh -c "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`

@@ -2461,7 +2461,7 @@ func TestTheNotesPullImportsDocsBeforeTheRestLandsAndHandsGitTheTokenThroughACre
 	dir := t.TempDir()
 	root := filepath.Join(dir, "root")
 	logged := filepath.Join(dir, "logged")
-	fake := "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + logged + "\nprintf 'env=%s helper=%s\\n' \"$NOTES_TOKEN\" \"$GIT_CONFIG_VALUE_1\" >> " + logged + "\n"
+	fake := "#!/bin/sh\nprintf '%s %s\\n' \"${0##*/}\" \"$*\" >> " + logged + "\nprintf 'env=%s helper=%s\\n' \"$FETCH_TOKEN\" \"$GIT_CONFIG_VALUE_1\" >> " + logged + "\n"
 	f := newWorkerFixture(t)
 	for _, tool := range []string{"git", "ccn", "sprite-env"} {
 		f.write(filepath.Join(dir, tool), fake, 0o700)

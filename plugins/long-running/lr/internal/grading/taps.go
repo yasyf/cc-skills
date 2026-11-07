@@ -186,7 +186,7 @@ func askOptions(text string) []string {
 		numbered := askOption.FindStringSubmatch(said)
 		switch {
 		case numbered != nil && numbered[1] == "1":
-			options, open = []string{numbered[2]}, true
+			options, open = append(options[:0], numbered[2]), true
 		case numbered != nil && numbered[1] == strconv.Itoa(len(options)+1):
 			options, open = append(options, numbered[2]), true
 		case said == "":

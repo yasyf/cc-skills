@@ -63,7 +63,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 				s.escalate(ctx, record, fmt.Sprintf("tap-order-missing:%d", record.Seq), nil, fmt.Sprintf("Owner pick %s (%s) reads as a land or hold order, but its card names no one PR, so no land order can come from it. Nothing was blocked; name the PR in a record and carry it with lr landing order.", record.Name(), record.Fields.Attrs["block"]))
 			}
 		}
-		tap, ordered, err := s.orderOf(ctx, record)
+		tap, ordered, err := s.orderOf(record)
 		if err != nil {
 			return err
 		}
@@ -92,7 +92,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 	return nil
 }
 
-func (s Source) orderOf(ctx context.Context, record client.Record) (bus.Tap, bool, error) {
+func (s Source) orderOf(record client.Record) (bus.Tap, bool, error) {
 	if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
 		return tap, true, nil
 	}
