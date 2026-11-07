@@ -544,7 +544,7 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	pr := Card(repo, row).PRs[0]
 	pr.Port = ""
 	return json.Marshal(map[string]any{
-		"id": id, "type": "card", "title": fmt.Sprintf("Tap: #%d, %s", row.Number, row.Title),
+		"id": id, "type": "card", "title": fmt.Sprintf("%sTap: #%d, %s", portTitleOpening(row), row.Number, row.Title),
 		"summary": portOpening(repo, row) + fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(prrow.ChangeWords(row)), " ")),
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{

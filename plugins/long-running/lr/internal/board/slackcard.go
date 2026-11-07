@@ -101,10 +101,7 @@ type SlackPRCard struct {
 
 func Card(repo string, row store.ReviewRow) SlackCard {
 	at := row.Head[:min(waitsSHA, len(row.Head))]
-	opening := ""
-	if source, port := strings.CutPrefix(row.Port, prrow.PortOf); port {
-		opening = cardtext.PortOpener + "#" + source + ": "
-	}
+	opening := portTitleOpening(row)
 	card := SlackCard{
 		Status: "info", Title: resolvedTitle(row),
 		PRs: []SlackPRRow{{
@@ -162,6 +159,14 @@ func drawnSignature(card SlackCard) string {
 
 func waitsOnHim(row store.ReviewRow) bool {
 	return row.ReadyForTap && !row.Tapped
+}
+
+func portTitleOpening(row store.ReviewRow) string {
+	source, port := strings.CutPrefix(row.Port, prrow.PortOf)
+	if !port {
+		return ""
+	}
+	return cardtext.PortOpener + "#" + source + ": "
 }
 
 func portLine(repo string, row store.ReviewRow) string {
