@@ -22,7 +22,7 @@ from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rulings_consumers import separate
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
-HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr"})
+HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr", "orca-doctor"})
 HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:")
 LANE_AGENTS = frozenset({"long-running:lane", "long-running:lane-ship"})
 SPAWNED = f"{sys.executable} {script('drive.py')} spawned"
@@ -72,6 +72,7 @@ NO_403_STAND_DOWN = (
 ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
 STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
 BRIEFS = Path(__file__).parent / "tests" / "fixtures" / "briefs"
+HELPER_NAMES_LANE = BRIEFS.parent / "helper-names-lane.jsonl"
 DEEP_BRIEFS = BRIEFS / "a-worktree-root-deep-enough-that-any-message-carrying-this-brief-path-in-its-prose-runs-past-the-three-hundred-character-copy-bar-on-every-machine-and-every-checkout-of-this-repo"
 SLICE = f"{sys.executable} {script('rulings.py')} slice"
 FRESH_SLICE = {SLICE: "fresh /tmp/brief.md slice-hash 0123456789ab\n"}
@@ -105,7 +106,8 @@ def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
 
 
 def helper(agent_type: str | None) -> bool:
-    return agent_type in HELPER_AGENTS or (agent_type or "").startswith(HELPER_PLUGINS)
+    kind = agent_type or ""
+    return kind.rpartition(":")[2] in HELPER_AGENTS or kind.startswith(HELPER_PLUGINS)
 
 
 @dataclass
@@ -451,6 +453,8 @@ DESK_LOOP_CLAUDE = {CLAUDE_STARTED: "claude -p --model claude-sonnet-5-5 'answer
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=NESTED_CLAUDE): Allow(),
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=DESK_LOOP_CLAUDE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands={CLAUDE_STARTED: (1, "")}): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a1doctor", transcript=HELPER_NAMES_LANE): Allow(),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a2lane", transcript=HELPER_NAMES_LANE): Rewrite("cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
     }),
 )
 def register_lane_at_first_command(evt: BaseHookEvent) -> HookResult | None:
