@@ -135,7 +135,7 @@ listing, a build page. A diff, plan or verdict you are approving is yours to rea
 back at most five lines; a search is one call, `lr ask-lane '<question>'`. The `root_context`
 and `root_reads` hooks warn on every read of those kinds, on a second source opened for one
 owner ask, and on a lane's records piped through `tail` or `grep`; in the communicator's
-window `root_context` refuses a wide search and names `lr ask-lane`.
+window `root_context` refuses a wide search and names a fresh Sonnet read subagent, which answers him directly.
 
 ## The rules
 
