@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 
@@ -8,9 +9,10 @@ from captain_hook.command_schema import CommandSchema, Operand, Option
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound
-from .register_injection import drive_args
+from .register_injection import drive_args, own_lane
 
 DRIVE = {"CLAUDE_LONG_RUNNING_DRIVE": "900424b6"}
+LANE = {**DRIVE, "CLAUDE_LONG_RUNNING_LANE": "pr-unblock-19"}
 BODY = ("body", "body-file")
 PULL = re.compile(r"^/?repos/[^/]+/[^/]+/pulls/\d+/?$")
 PR_EDIT = CommandSchema(
@@ -62,7 +64,7 @@ OPEN = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN\n"}
 OWN = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN lane/fix\n"}
 OTHERS = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "OPEN lane/other\n"}
 LANDED = {"git rev-parse --abbrev-ref HEAD": "lane/fix\n", "gh pr view": "MERGED lane/fix\n"}
-FROZEN = "A PR's title stays as opened, and so does its body unless the PR is open on this worktree's branch. Post the change as a PR comment with `gh pr comment <n> --body-file <file>` instead."
+FROZEN = "A PR's title stays as opened, and so does its body unless the PR is open on this worktree's branch or your lane owns it. Post the change as a PR comment with `gh pr comment <n> --body-file <file>` instead."
 
 
 class InDrive:
@@ -85,7 +87,12 @@ def edits_pr_text(evt: BaseHookEvent) -> bool:
 
 
 def own_open(evt: BaseHookEvent, pr: str) -> bool:
-    return ran(evt, "gh", "pr", "view", *filter(None, [pr]), "--json", "state,headRefName", "--jq", '.state+" "+.headRefName') == f"OPEN {ran(evt, 'git', 'rev-parse', '--abbrev-ref', 'HEAD')}"
+    return ran(evt, "gh", "pr", "view", *filter(None, [pr]), "--json", "state,headRefName", "--jq", '.state+" "+.headRefName') == f"OPEN {ran(evt, 'git', 'rev-parse', '--abbrev-ref', 'HEAD')}" or lane_owns(evt, pr)
+
+
+def lane_owns(evt: BaseHookEvent, pr: str) -> bool:
+    lane = own_lane(evt)
+    return bool(lane and pr.isdigit()) and int(pr) in json.loads(ran(evt, "lr", "lanes", lane, "--json") or "{}").get("prs", [])
 
 
 def retitled_branches(evt: BaseHookEvent, call: Call) -> set[str]:
@@ -111,6 +118,10 @@ def ran(evt: BaseHookEvent, *argv: str) -> str:
     tests={
         Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OTHERS): Warn(pattern=r"gh pr comment"),
         Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=OWN): Allow(),
+        Input(command="gh pr edit 42758 --body-file body.md", env=LANE, commands={**OTHERS, "lr lanes": '{"lane":"pr-unblock-19","prs":[42758]}'}): Allow(),
+        Input(command="gh api -X PATCH repos/acme/app/pulls/42758 -f body=new", env=LANE, commands={**OTHERS, "lr lanes": '{"lane":"pr-unblock-19","prs":[42758]}'}): Allow(),
+        Input(command="gh pr edit 42758 --body-file body.md", env=LANE, commands={**OTHERS, "lr lanes": '{"lane":"pr-unblock-19","prs":[41000]}'}): Warn(pattern=r"your lane owns it"),
+        Input(command="gh pr edit 42758 --title 'x: y'", env=LANE, commands={**OTHERS, "lr lanes": '{"lane":"pr-unblock-19","prs":[42758]}'}): Warn(pattern=r"stays as opened"),
         Input(command="gh pr edit --body-file body.md", env=DRIVE, commands=OWN): Allow(),
         Input(command="gh pr edit 42758 --body-file body.md", env=DRIVE, commands=LANDED): Warn(pattern=r"stays as opened"),
         Input(command="gh pr edit 42758 --title 'x: y'", env=DRIVE, commands=OWN): Warn(pattern=r"stays as opened"),
