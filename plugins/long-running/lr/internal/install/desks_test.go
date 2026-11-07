@@ -2,6 +2,7 @@ package install
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -67,5 +69,34 @@ func TestTheReadBackNamesEachDriveDeskStillRunningAProcessFromBeforeTheInstall(t
 	}
 	if !reflect.DeepEqual(stale, want) {
 		t.Fatalf("stale desks %+v, want %+v: a desk started after the install, one already on the installed pack, one not running and another drive's desk all stay off the read-back", stale, want)
+	}
+}
+
+type checkingPoster struct {
+	t    *testing.T
+	sent []string
+}
+
+func (c *checkingPoster) Post(_ context.Context, to []string, body bus.Body) (bus.Record, error) {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	if err := bus.Check(body.Kind(), raw, to); err != nil {
+		return bus.Record{}, err
+	}
+	c.sent = append(c.sent, strings.Join(to, ",")+" "+body.Kind())
+	return bus.Record{}, nil
+}
+
+func TestTheStaleDeskListPostPassesTheBusKindAndRecipientRule(t *testing.T) {
+	poster := &checkingPoster{t: t}
+	text := staleText("0.7.1807", time.Date(2026, 11, 5, 21, 30, 0, 0, time.Local), []desk{{Label: "com.long-running.d1.obs", PID: 11, Started: time.Date(2026, 11, 5, 20, 0, 0, 0, time.Local), Version: "0.7.1805"}})
+
+	if err := tellInstallDesk(context.Background(), poster, text); err != nil {
+		t.Fatalf("the post that ends lr install was refused: %v", err)
+	}
+	if !reflect.DeepEqual(poster.sent, []string{"install-desk note"}) {
+		t.Fatalf("sent %v, want one note to install-desk", poster.sent)
 	}
 }
