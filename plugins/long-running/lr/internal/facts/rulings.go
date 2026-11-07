@@ -2,7 +2,6 @@ package facts
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -15,10 +14,8 @@ import (
 const (
 	rulingRead   = "ruling-read"
 	rulingHis    = "his"
-	rulingNotHis = "not his"
-	rulingGone   = "no such note"
-	fromOwnerTag = "from:owner"
-	noSuchNote   = 3
+	rulingNotHis = "not his answer"
+	noSuchAnswer = 3
 )
 
 func HisRulings(ctx context.Context, s *store.Store, repo string, runner shell.Runner, checkout string, ids []string, now time.Time) (map[string]bool, error) {
@@ -47,22 +44,13 @@ func HisRulings(ctx context.Context, s *store.Store, repo string, runner shell.R
 }
 
 func whoseWords(ctx context.Context, runner shell.Runner, checkout, id string) (string, error) {
-	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", checkout, "show", id, "--json"}})
+	_, err := runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", checkout, "answer", "show", id, "--json"}})
 	var exit *shell.ExitError
-	if errors.As(err, &exit) && exit.Code == noSuchNote {
-		return rulingGone, nil
+	if errors.As(err, &exit) && exit.Code == noSuchAnswer {
+		return rulingNotHis, nil
 	}
 	if err != nil {
 		return "", fmt.Errorf("read ruling %s: %w", id, err)
 	}
-	var note struct {
-		Tags []string `json:"tags"`
-	}
-	if err := json.Unmarshal([]byte(shown.Stdout), &note); err != nil {
-		return "", fmt.Errorf("ruling %s: %w", id, err)
-	}
-	if slices.Contains(note.Tags, fromOwnerTag) {
-		return rulingHis, nil
-	}
-	return rulingNotHis, nil
+	return rulingHis, nil
 }

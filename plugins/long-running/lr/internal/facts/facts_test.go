@@ -877,19 +877,19 @@ func TestAHoldNamingAFailureAsksHimOnceAndHisLandItEndsItAtOnce(t *testing.T) {
 	}
 }
 
-func TestAHoldCitingHisWordsHoldsAsHisAndOneCitingAnyoneElsesGatesNothing(t *testing.T) {
+func TestAHoldCitingHisAnswerHoldsAsHisAndOneCitingAnyOtherNoteGatesNothing(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 46468, head: head, login: "drive-bot"}, {number: 50314, head: head2, login: "drive-bot"}},
 		status(46468), status(50314, func(r *statusRow) { r.Head = head2 }))
-	h.runner.Reply(`{"tags":["from:owner","scope:durable"]}`, "ccn", "-R", landingConfig.Checkout, "show", "18082c8")
-	h.runner.Reply(`{"tags":["header:Landing","scope:durable"]}`, "ccn", "-R", landingConfig.Checkout, "show", "60f978d")
+	h.runner.Reply(`{"id":"18082c8"}`, "ccn", "-R", landingConfig.Checkout, "answer", "show", "18082c8")
+	h.runner.Fail(3, `"c3230a2" is a doc`, "ccn", "-R", landingConfig.Checkout, "answer", "show", "c3230a2")
 	rulingHold(t, "old-tree-port-desk-1", "#46468 deletes old-tree code before Step 11", repo+"#46468", "18082c8")
-	rulingHold(t, "root", "hold #50314: copy pass first", repo+"#50314", "60f978d")
+	rulingHold(t, "root", "hold #50314: copy pass first", repo+"#50314", "c3230a2")
 
 	h.snapshot(t)
 	by := h.snapshot(t)
 
 	if by[46468].Hold != machine.MoverOwner || by[50314].Hold != "" {
-		t.Fatalf("holds #46468 %q, #50314 %q; want his cited ruling to hold as his and the relay note to gate nothing", by[46468].Hold, by[50314].Hold)
+		t.Fatalf("holds #46468 %q, #50314 %q; want his cited answer to hold as his and a doc to gate nothing", by[46468].Hold, by[50314].Hold)
 	}
 	shows := slices.DeleteFunc(h.runner.Calls(), func(call shell.Command) bool { return call.Argv[0] != "ccn" })
 	if len(shows) != 2 {
@@ -926,6 +926,7 @@ func breaksDecides(t *testing.T) []client.Record {
 	}
 	return slices.DeleteFunc(records, func(record client.Record) bool { return !slices.Contains(record.To, "owner-relay") })
 }
+
 func TestBackfillPostsOneOpenedRecordPerOpenPRItFindsThroughOwnersAndRows(t *testing.T) {
 	h := newHarness(t, []recordedPR{
 		{number: 1, head: head, login: "drive-bot", branch: "one", body: "## Summary\n\nA user sees it.\n", unopened: true},

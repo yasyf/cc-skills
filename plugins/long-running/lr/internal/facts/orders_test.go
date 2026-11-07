@@ -1013,6 +1013,7 @@ func TestALanesUntilTapHoldGatesNothingAndShowsOnNoRow(t *testing.T) {
 		t.Fatalf("row = %+v, want no hold he reads", row)
 	}
 }
+
 func TestAnUntilTapHoldBesideOneNamingAFailureReadsAsHeld(t *testing.T) {
 	h := surfaceHarness(t)
 	holdUntilTap(t, "hold #4242 his approval was at an older head")

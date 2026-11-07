@@ -6,14 +6,14 @@ from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import Bound
 from .holds_say_what_leaves_his_board import BREAKS, ENV, gates, hold_posts
 
-INERT = "A hold gates landing only when it cites his words ordering it or names the production failure landing causes, so this one holds nothing and shows on no row he reads. Add `--attr ruling=<the from:owner answer id>` or `--attr breaks=<the failure>`, or post no hold."
+INERT = "A hold gates landing only when it cites his words ordering it or names the production failure landing causes, so this one holds nothing and shows on no row he reads. Add `--attr ruling=<his answer id>` or `--attr breaks=<the failure>`, or post no hold."
 
 
 @on(
     Event.PreToolUse,
     only_if=[Bound(), Or(Tool(POST_TOOL), And(Tool("Bash"), Runs("cci", "post")))],
     tests={
-        Input(command="cci post --lane run-search-shape --kind hold --pr 50011 --text 'until #49305 lands'", env=ENV): Warn(pattern=r"^A hold gates landing only when.*`--attr ruling=<the from:owner answer id>` or `--attr breaks=<the failure>`"),
+        Input(command="cci post --lane run-search-shape --kind hold --pr 50011 --text 'until #49305 lands'", env=ENV): Warn(pattern=r"^A hold gates landing only when.*`--attr ruling=<his answer id>` or `--attr breaks=<the failure>`"),
         Input(command="cci post --lane root --kind hold --pr 50314 --attr until=tap --text 'hold #50314: copy pass first'", env=ENV): Warn(),
         Input(tool=POST_TOOL, tool_input={"lane": "root", "kind": "hold", "pr": ["50314"], "text": "hold #50314: copy pass first"}, env=ENV): Warn(),
         Input(command=f"cci post --lane root --kind hold --pr 50314 --attr '{BREAKS}' --text 'hold #50314: the cutover has not run'", env=ENV): Allow(),

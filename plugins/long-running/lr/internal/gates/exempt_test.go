@@ -108,15 +108,15 @@ func TestOnlyHisHoldOrOneNamingAProductionFailureStopsAGo(t *testing.T) {
 		hold string
 		open int
 	}{
-		"run-search-shape's lane hold 450329":     {`{"seq":450329,"lane":"run-search-shape","kind":"hold","text":"until #49305 lands","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
-		"root's plain hold":                       {`{"seq":457669,"lane":"root","kind":"hold","text":"hold #50011: copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
-		"his own hold from the board":             {`{"seq":565538,"lane":"owner","kind":"hold","text":"hold #50011 at 61c1c7ab3c07: the owner rejected this head on the board","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 1},
-		"a root hold naming a production failure": {`{"seq":567568,"lane":"supervisor","kind":"hold","text":"readers-first: #49305 not live on every client.","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"breaks":"#50011 writes a format that a client still on a build without #49305 cannot read"}}}`, 1},
+		"run-search-shape's lane hold 450329":      {`{"seq":450329,"lane":"run-search-shape","kind":"hold","text":"until #49305 lands","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
+		"root's plain hold":                        {`{"seq":457669,"lane":"root","kind":"hold","text":"hold #50011: copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 0},
+		"his own hold from the board":              {`{"seq":565538,"lane":"owner","kind":"hold","text":"hold #50011 at 61c1c7ab3c07: the owner rejected this head on the board","refs":{"prs":["Forge-AI/monorepo#50011"]}}`, 1},
+		"a root hold naming a production failure":  {`{"seq":567568,"lane":"supervisor","kind":"hold","text":"readers-first: #49305 not live on every client.","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"breaks":"#50011 writes a format that a client still on a build without #49305 cannot read"}}}`, 1},
 		"a lane hold citing his words":             {`{"seq":574001,"lane":"old-tree-port-desk-1","kind":"hold","text":"#50011 deletes old-tree code before Step 11","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"ruling":"18082c8"}}}`, 1},
-		"a lane hold citing words not his":         {`{"seq":574002,"lane":"root","kind":"hold","text":"copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"ruling":"60f978d"}}}`, 0},
+		"a lane hold citing a note not his answer": {`{"seq":574002,"lane":"root","kind":"hold","text":"copy pass first","refs":{"prs":["Forge-AI/monorepo#50011"]},"fields":{"attrs":{"ruling":"c3230a2"}}}`, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if open := openHolds(claim, []client.Record{holdRecord(t, c.hold)}, nil, map[string]bool{"18082c8": true, "60f978d": false}); len(open) != c.open {
+			if open := openHolds(claim, []client.Record{holdRecord(t, c.hold)}, nil, map[string]bool{"18082c8": true, "c3230a2": false}); len(open) != c.open {
 				t.Fatalf("open holds %q, want %d", open, c.open)
 			}
 		})
