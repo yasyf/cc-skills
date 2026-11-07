@@ -265,6 +265,9 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk log test 12 " + failedJob + " 22/36",
 		"bk log test 12 job 0/36",
 		"bk log test 12 job 22/36 extra",
+		"bk retry test 12",
+		"bk retry test 12 job",
+		"bk retry test twelve " + failedJob,
 		"bk build test",
 		"bk build test twelve",
 		"bk jobs test twelve",
@@ -287,6 +290,20 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 				t.Fatalf("reply = %+v", read)
 			}
 		})
+	}
+}
+
+func TestARetryPutsTheNamedJobsRetryAndAnswersTheNewJob(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: `{"id":"0190aaaa-bbbb-cccc-dddd-eeeeffff0000","state":"scheduled","web_url":"https://buildkite.com/forge/test/builds/12#0190aaaa"}`}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk retry test 12 "+failedJob)
+
+	if got, want := strings.Join(runner.calls[0].Argv, " "), "tools/ci bk api -no-wait -X PUT /pipelines/test/builds/12/jobs/"+failedJob+"/retry"; got != want {
+		t.Fatalf("ran %q, want %q", got, want)
+	}
+	if read.refused || !strings.HasSuffix(read.head, "retried as job 0190aaaa-bbbb-cccc-dddd-eeeeffff0000, scheduled") || read.url != "https://buildkite.com/forge/test/builds/12#0190aaaa" {
+		t.Fatalf("reply = %+v", read)
 	}
 }
 
