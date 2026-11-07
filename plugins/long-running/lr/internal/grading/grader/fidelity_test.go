@@ -205,7 +205,7 @@ func TestASpriteFidelityReturnsItsGradeForCoordinatorPosting(t *testing.T) {
 	if len(shell.posted) != 0 {
 		t.Fatal("the Sprite posted to a local replica", shell.posted)
 	}
-	if err := Repost(context.Background(), directory, shell.post); err != nil {
+	if err := Repost(context.Background(), directory, shell.post, noneDown); err != nil {
 		t.Fatal(err)
 	}
 	if len(shell.posted) == 0 {

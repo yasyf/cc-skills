@@ -1,6 +1,7 @@
 package grader
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -23,6 +24,7 @@ import (
 const (
 	JobFile     = "job.json"
 	PostsFile   = "posts.jsonl"
+	rootLane    = "root"
 	ResultFile  = "result.json"
 	AnswersFile = "answers.json"
 	LandedFile  = "landed.json"
@@ -773,7 +775,7 @@ func draftOf(argv []string) (client.Draft, error) {
 	return draft, nil
 }
 
-func Repost(ctx context.Context, dir string, post func(context.Context, client.Draft) (client.Record, error)) error {
+func Repost(ctx context.Context, dir string, post func(context.Context, client.Draft) (client.Record, error), reach func(ctx context.Context, drive, name string) (client.Reach, error)) error {
 	data, err := os.ReadFile(filepath.Join(dir, PostsFile))
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -793,11 +795,32 @@ func Repost(ctx context.Context, dir string, post func(context.Context, client.D
 			failures = append(failures, err)
 			continue
 		}
+		if draft.To, err = reachable(ctx, draft, reach); err != nil {
+			failures = append(failures, err)
+			continue
+		}
 		if _, err := post(ctx, draft); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
+}
+
+func reachable(ctx context.Context, draft client.Draft, reach func(ctx context.Context, drive, name string) (client.Reach, error)) ([]string, error) {
+	to := make([]string, 0, len(draft.To))
+	for _, name := range draft.To {
+		found, err := reach(ctx, draft.Drive, name)
+		if err != nil {
+			return nil, err
+		}
+		if found.Down {
+			name = cmp.Or(found.Lane, rootLane)
+		}
+		if !slices.Contains(to, name) {
+			to = append(to, name)
+		}
+	}
+	return to, nil
 }
 
 func (p *pass) ask(model, schema, session, question string, timeout time.Duration) (string, error) {
