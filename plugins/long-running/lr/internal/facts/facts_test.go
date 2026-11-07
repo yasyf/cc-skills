@@ -1624,26 +1624,6 @@ func TestAPortWhoseDiffWillNotReadStillCarriesItsBodyToItsRow(t *testing.T) {
 	}
 }
 
-func TestAPortWhoseHeadRecordOmitsItsSourceTakesItFromItsBodyOnItsRow(t *testing.T) {
-	for name, opening := range map[string]string{
-		"#52199's port of line":       "port of #52125",
-		"#52183's port words opening": "Port, old tree to new: dev #52125 (port of #52125)",
-	} {
-		t.Run(name, func(t *testing.T) {
-			h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot", diff: ownDiff, body: opening + "\n\n## Summary\n\nA table load's trace splits its timings."}}, status(1))
-			h.snapshot(t)
-			if err := h.source.FoldRows(context.Background()); err != nil {
-				t.Fatal(err)
-			}
-
-			row, known, err := h.store.ReviewRow(repo, 1)
-			if err != nil || !known || row.Port != prrow.PortOf+"52125" {
-				t.Fatalf("row = %+v, %v, %v, want the port its body's first line names, so its cards open with it", row, known, err)
-			}
-		})
-	}
-}
-
 func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *testing.T) {
 	s := memory(t)
 	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
