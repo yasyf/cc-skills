@@ -1108,7 +1108,7 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	if !slices.Contains(create, "--no-parent") || slices.Contains(create, "--parent-worktree") {
 		t.Fatal(create)
 	}
-	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=high"+codexLimits+codexLaneConfig+" -c mcp_servers={}'")
+	wantLine(t, flag(h.orcaCalls("terminal create")[0], "--command"), "sh -c 'PATH="+pluginBin+":$PATH exec env CLAUDE_LONG_RUNNING_LANE=lane-a codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-6.1-sol -c service_tier=fast -c model_reasoning_effort=high"+codexLimits(briefReadBudget)+codexLaneConfig+" -c mcp_servers={}'")
 	start := h.orcaCalls("orchestration worker-start")[0]
 	if flag(start, "--terminal") != "term_a" || slices.Contains(start, "--agent") || slices.Contains(start, "--model") || slices.Contains(start, "--effort") {
 		t.Fatal(start)
@@ -1117,7 +1117,7 @@ func TestAnIncidentLaneRunsCodexOnTheFastTierInItsOwnTerminalInATopLevelWorktree
 	wantLine(t, strings.TrimSpace(h.readReceipt("lane-a.terminal")), "term_a")
 	spec := h.spec()
 	brief := strings.TrimPrefix(strings.SplitN(spec, " in full first", 2)[0], "Lane lane-a: read ")
-	if !strings.Contains(spec, " Print it whole in one call with `ccx code read --full --budget 32000 "+brief+"`") {
+	if !strings.Contains(spec, codexBriefRead(brief, briefReadBudget)) {
 		t.Fatal(spec)
 	}
 }

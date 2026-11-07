@@ -14,13 +14,14 @@ const (
 	codexCompactLimit  = 300000
 	codexCompactConfig = "model_auto_compact_token_limit"
 	briefReadBudget    = 32000
+	briefBytesPerToken = 3
+	execOutputDefault  = 10000
 	codexOutputConfig  = "tool_output_token_limit"
 )
 
 var (
 	astraModel  = regexp.MustCompile(`(?i)(^|[-_.])astra([-_.0-9]|$)`)
 	laneCompact = fmt.Sprintf("%s=%d", compactWindowEnv, laneCompactWindow)
-	codexLimits = fmt.Sprintf(" -c %s=%d -c %s=%d", codexCompactConfig, codexCompactLimit, codexOutputConfig, briefReadBudget)
 )
 
 func (o Order) costFaults(text string) []string {
@@ -45,10 +46,18 @@ func (o Order) costFaults(text string) []string {
 	return faults
 }
 
-func codexLimitsScript() string {
-	return fmt.Sprintf("config=\"${CODEX_HOME:-$HOME/.codex}/config.toml\"\nmkdir -p \"${config%%/*}\"\n{ echo '%[1]s = %[2]d'; echo '%[3]s = %[4]d'; grep -v -e '^%[1]s' -e '^%[3]s' \"$config\" 2>/dev/null; } > \"$config.lr\" && mv \"$config.lr\" \"$config\"\n", codexCompactConfig, codexCompactLimit, codexOutputConfig, briefReadBudget)
+func codexReadBudget(briefBytes int) int {
+	return max(briefReadBudget, briefBytes/briefBytesPerToken)
 }
 
-func codexBriefRead(brief string) string {
-	return fmt.Sprintf(" Print it whole in one call with `ccx code read --full --budget %d %s`, never by section or in pieces.", briefReadBudget, brief)
+func codexLimits(budget int) string {
+	return fmt.Sprintf(" -c %s=%d -c %s=%d", codexCompactConfig, codexCompactLimit, codexOutputConfig, budget)
+}
+
+func codexLimitsScript(budget int) string {
+	return fmt.Sprintf("config=\"${CODEX_HOME:-$HOME/.codex}/config.toml\"\nmkdir -p \"${config%%/*}\"\n{ echo '%[1]s = %[2]d'; echo '%[3]s = %[4]d'; grep -v -e '^%[1]s' -e '^%[3]s' \"$config\" 2>/dev/null; } > \"$config.lr\" && mv \"$config.lr\" \"$config\"\n", codexCompactConfig, codexCompactLimit, codexOutputConfig, budget)
+}
+
+func codexBriefRead(brief string, budget int) string {
+	return fmt.Sprintf(" Print it whole in one call, `ccx code read --full --budget %[1]d %[2]s`, and give that call and any `exec` around it a `max_output_tokens` of %[1]d, as in a first line `// @exec: {\"max_output_tokens\": %[1]d}`, since an exec result stops at %[3]d tokens without it. Print the command's output text itself, never its result object, whose JSON escaping outgrows the budget. Never read it by section or in pieces.", budget, brief, execOutputDefault)
 }
