@@ -68,17 +68,17 @@ func (e Env) send(ctx context.Context, sprite string, port int, key, body string
 	return err
 }
 
-func (e Env) Push(ctx context.Context, config string, port int) error {
+func (e Env) Push(ctx context.Context, config string, port int) (string, error) {
 	runner, err := readRunner(config)
 	if err != nil {
-		return err
+		return "", err
 	}
-	host, failed := runner.Host, []string{}
+	host, unheld, failed := runner.Host, []string{}, []string{}
 	for _, profile := range host.AWSProfiles {
 		exported, err := e.Runner.Run(ctx, shell.Command{Argv: []string{"aws", "configure", "export-credentials", "--profile", profile, "--format", "process"}, Timeout: stepTimeout})
 		if err != nil {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s did not export: %s\n", profile, tail(err))
-			failed = append(failed, profile)
+			unheld = append(unheld, profile)
 			continue
 		}
 		if err := e.send(ctx, host.Sprite, port, profile, exported.Stdout); err != nil {
@@ -90,7 +90,7 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 			Expiration string `json:"Expiration"`
 		}
 		if err := json.Unmarshal([]byte(exported.Stdout), &until); err != nil {
-			return fmt.Errorf("aws export-credentials for %s printed no JSON", profile)
+			return "", fmt.Errorf("aws export-credentials for %s printed no JSON", profile)
 		}
 		_, _ = fmt.Fprintf(e.Out, "desk-creds push: %s on %s until %s\n", profile, host.Sprite, until.Expiration)
 	}
@@ -100,12 +100,12 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 		value := strings.TrimSpace(printed.Stdout)
 		if err != nil || value == "" {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s's command printed nothing, exit %d\n", name, printed.Code)
-			failed = append(failed, name)
+			unheld = append(unheld, name)
 			continue
 		}
 		body, err := json.Marshal(map[string]string{"Value": value, expiration: until})
 		if err != nil {
-			return err
+			return "", err
 		}
 		if err := e.send(ctx, host.Sprite, port, secretPrefix+name, string(body)); err != nil {
 			_, _ = fmt.Fprintf(e.Err, "desk-creds push: %s did not reach %s: %s\n", name, host.Sprite, tail(err))
@@ -114,8 +114,15 @@ func (e Env) Push(ctx context.Context, config string, port int) error {
 		}
 		_, _ = fmt.Fprintf(e.Out, "desk-creds push: %s on %s until %s\n", name, host.Sprite, until)
 	}
-	if len(failed) > 0 {
-		return fmt.Errorf("desk-creds push: %s did not reach %s", strings.Join(failed, ", "), host.Sprite)
+	var faults []string
+	if len(unheld) > 0 {
+		faults = append(faults, "this host holds no "+strings.Join(unheld, ", "))
 	}
-	return nil
+	if len(failed) > 0 {
+		faults = append(faults, strings.Join(failed, ", ")+" did not reach it")
+	}
+	if len(faults) > 0 {
+		return host.Sprite, fmt.Errorf("desk-creds push to %s: %s", host.Sprite, strings.Join(faults, "; "))
+	}
+	return host.Sprite, nil
 }

@@ -175,7 +175,7 @@ func TestPushHandsEachSecretOverStandardInputWithAnExpiryThreePushesOut(t *testi
 	e, _ := envFor(t, host)
 	config := writeConfig(t, t.TempDir(), map[string]any{"host": map[string]any{"sprite": "dar-desk-1", "aws_profiles": []string{"core-auto"}, "secrets": map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}}}})
 
-	if err := e.Push(context.Background(), config, 9181); err != nil {
+	if _, err := e.Push(context.Background(), config, 9181); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,13 +207,47 @@ func TestAFailedPushNamesWhatDidNotArriveAndStillSendsTheRest(t *testing.T) {
 	e, out := envFor(t, host)
 	config := writeConfig(t, t.TempDir(), map[string]any{"host": map[string]any{"sprite": "s", "aws_profiles": []string{"core-auto"}, "secrets": map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}}}})
 
-	err := e.Push(context.Background(), config, 9181)
+	_, err := e.Push(context.Background(), config, 9181)
 
 	if err == nil || !strings.Contains(out.String(), "core-auto did not export: refused") {
 		t.Fatalf("got %v, said %q", err, out.String())
 	}
 	if host.index("secret/GH_TOKEN") < 0 {
 		t.Fatalf("the secret was not sent: %+v", host.calls)
+	}
+}
+
+func TestAPushWhoseSourceHoldsNothingRefusesByNameAndSendsOnlyWhatItHolds(t *testing.T) {
+	exported, err := json.Marshal(credentials(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &fakeHost{
+		fail:    map[string]bool{"--profile core-auto": true, "op read trunk": true},
+		replies: map[string]shell.Result{"aws configure": {Stdout: string(exported)}, "gh auth token": {Stdout: "gho_user\n"}},
+	}
+	e, _ := envFor(t, host)
+	config := writeConfig(t, t.TempDir(), map[string]any{"host": map[string]any{
+		"sprite":       "dar-desk-3",
+		"aws_profiles": []string{"core-auto", "release-operator"},
+		"secrets":      map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}, "TRUNK_MERGE_API_KEY": {"op", "read", "trunk"}, "BUILDKITE_TOKEN": {"op", "read", "buildkite"}},
+	}})
+
+	sprite, err := e.Push(context.Background(), config, 9181)
+
+	if sprite != "dar-desk-3" || err == nil || err.Error() != "desk-creds push to dar-desk-3: this host holds no core-auto, BUILDKITE_TOKEN, TRUNK_MERGE_API_KEY" {
+		t.Fatalf("pushed to %q: %v", sprite, err)
+	}
+	if strings.Contains(err.Error(), "gho_user") || strings.Contains(err.Error(), "AKIA") {
+		t.Fatalf("a value reached the refusal: %v", err)
+	}
+	for _, unsent := range []string{"9181/core-auto", "secret/TRUNK_MERGE_API_KEY", "secret/BUILDKITE_TOKEN"} {
+		if host.index(unsent) >= 0 {
+			t.Fatalf("pushed %s, which this host does not hold", unsent)
+		}
+	}
+	if host.index("9181/release-operator") < 0 || host.index("secret/GH_TOKEN") < 0 {
+		t.Fatalf("what this host holds was not sent: %+v", host.calls)
 	}
 }
 
@@ -351,6 +385,51 @@ func TestKeepPushesWhenARestartedServeAsksAndAnswersTheAsk(t *testing.T) {
 	}
 	if pushes < 2 {
 		t.Fatalf("%d pushes: the ask did not push", pushes)
+	}
+}
+
+func TestKeepBlocksOnTheHostItPushesToNowAndOnlyOnAServesAsk(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	host := &fakeHost{fail: map[string]bool{"op read trunk": true}}
+	e, _ := envFor(t, host)
+	dir := t.TempDir()
+	runnerFor := func(sprite string) map[string]any {
+		return map[string]any{"drive": drive, "host": map[string]any{"sprite": sprite, "secrets": map[string][]string{"TRUNK_MERGE_API_KEY": {"op", "read", "trunk"}}}}
+	}
+	config := writeConfig(t, dir, runnerFor("dar-desk-1"))
+	ctx, stop := context.WithCancel(context.Background())
+	kept := make(chan error, 1)
+	go func() { kept <- e.Keep(ctx, config, 9181) }()
+	waitFor(t, "the first push", func() bool { return host.index("op read trunk") >= 0 })
+	writeConfig(t, dir, runnerFor("dar-desk-3"))
+
+	started := t0
+	waitFor(t, "a blocker", func() bool {
+		if _, err := client.Post(context.Background(), client.Draft{Drive: drive, Lane: "meta-desk", Kind: askKind, Text: "install cc-slack on every host"}); err != nil {
+			t.Fatal(err)
+		}
+		started = started.Add(time.Second)
+		if err := AskForPush(context.Background(), drive, started); err != nil {
+			t.Fatal(err)
+		}
+		return len(records(t, "blocker")) > 0
+	})
+	stop()
+
+	if err := <-kept; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Keep = %v", err)
+	}
+	served := map[int64]bool{}
+	for _, ask := range records(t, askKind) {
+		served[ask.Seq] = ask.Lane == serveLane
+	}
+	for _, blocker := range records(t, "blocker") {
+		if !served[blocker.Re] {
+			t.Fatalf("blocked on an ask no serve posted: %+v", blocker)
+		}
+		if !strings.Contains(blocker.Text, "push to dar-desk-3: this host holds no TRUNK_MERGE_API_KEY") || strings.Contains(blocker.Text, "dar-desk-1") {
+			t.Fatalf("blocker %q", blocker.Text)
+		}
 	}
 }
 
