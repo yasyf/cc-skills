@@ -209,12 +209,14 @@ func heirOf(s *store.Store, named string, standingDown ...string) string {
 	return heir
 }
 
+const stoodDownByRecord = "was stood down for it by record"
+
 func wantHeir(s *store.Store, heir store.Lane, by string, fresh bool, at time.Time) {
 	if _, known := laneOf(s, heir.Name); known || fresh {
 		must(s.WantLane(heir, at))
 		return
 	}
-	heir.Reason = or(heir.Reason, fmt.Sprintf("was stood down for it by record %s", by))
+	heir.Reason = or(heir.Reason, fmt.Sprintf("%s %s", stoodDownByRecord, by))
 	do(s.Probe(owedLaunch+heir.Name, at))
 	must(s.WantLane(heir, at))
 }
@@ -509,7 +511,7 @@ func reviveFixed(s *store.Store, r Record, at time.Time) {
 
 func postedBeforeItsStandIn(r Record, row, standIn store.Lane, at time.Time) bool {
 	neverUp := slices.Contains([]store.LaneState{store.LaneLaunching, store.LaneHeld}, standIn.State) && standIn.Heard.IsZero()
-	return standIn.Predecessor == row.Name && neverUp && at.After(row.Since) && !endsItself(r) && !strings.HasPrefix(standIn.Reason, rotationEnded)
+	return standIn.Predecessor == row.Name && neverUp && at.After(row.Since) && !endsItself(r) && !strings.HasPrefix(standIn.Reason, rotationEnded) && !strings.HasPrefix(standIn.Reason, stoodDownByRecord)
 }
 
 func endsItself(r Record) bool {

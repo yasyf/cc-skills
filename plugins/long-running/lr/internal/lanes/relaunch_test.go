@@ -604,3 +604,16 @@ func TestALostLaneThatPostsBeforeItsStandInComesUpKeepsItsPlaceAndTheStandInStan
 
 	equal(t, []any{row(t, s, lane2).State, row(t, s, "conflicts-3").State}, []any{store.LaneDesired, store.LaneRetired})
 }
+
+func TestALaneStoodDownForANamedSuccessorThatPostsAgainStaysDownAndItsSuccessorKeepsItsLaunch(t *testing.T) {
+	s, brief := memory(t), writeBrief(t)
+	f := adopted(t, s, brief, "", 46001)
+	f.feed = append(f.feed, ask(2, "stand-down", lane2, t0, nil, "", map[string]string{"successor": "conflicts-3", "last-read": "1"}))
+	tick(t, s, f, t0)
+	f.posts = nil
+
+	f.feed = append(f.feed, rec(3, lane2, "ask", t0.Add(mins(1)), `{"verb":"route","args":["--","conflicts-2"],"lane":"conflicts-2"}`, "store-desk"))
+	tick(t, s, f, t0.Add(mins(2)))
+
+	equal(t, []any{row(t, s, lane2).State, row(t, s, "conflicts-3").State == store.LaneRetired, len(f.ofKind("stand-down"))}, []any{store.LaneRetired, false, 0})
+}
