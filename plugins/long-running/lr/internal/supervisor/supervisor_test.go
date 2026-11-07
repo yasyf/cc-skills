@@ -622,7 +622,8 @@ func TestTheSupervisorMovesToANewerInstallWithoutReadingOrReplayingHistory(t *te
 	equal(t, len(b.posted), 0)
 }
 
-func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestart(t *testing.T) {
+func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestartEvenWhileACleanupPassRuns(t *testing.T) {
+	holding := true
 	claude := t.TempDir()
 	pin := func(version, binary string) {
 		link(t, claude, version)
@@ -646,7 +647,8 @@ func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	upgrade := &Upgrade{
-		Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Binary: "0.390.1", Read: time.Now(), Holding: nothingHolds, Yield: func(bool) {},
+		Env: lanes.Env{Bus: &recordingBus{}, Claude: claude, State: configs(t)}, Running: "0.7.820", Binary: "0.390.1", Read: time.Now(), Holding: func() bool { return holding }, Yield: func(bool) {},
+		Sleep: func(time.Duration) { t.Fatal("waited on a cleanup pass to serve a pack in place") },
 		Serve: func(version string) error { return s.ServeVersion("d", 42, version) },
 	}
 
@@ -663,6 +665,7 @@ func TestABumpThatKeepsTheBinaryMovesTheLeaseWithoutARestart(t *testing.T) {
 	equal(t, lease.Version, "0.7.821")
 	equal(t, lease.Generation, int64(1))
 
+	holding = false
 	pin("0.7.822", "0.391.1")
 	stale, err = upgrade.Stale(context.Background())
 	if err != nil {
