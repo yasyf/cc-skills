@@ -178,7 +178,7 @@ The `lanes` table of the drive store holds one row per worker, and only the supe
 - A `<lane>-handoff` writer's `handoff <lane>: doc <id>` becomes the newest handoff of the lane holding that work.
 
 **A lane is retired only by typed records, never by prose or by its name:**
-- its own `done` with no `--re` or `--resolves` (a `done` or `handoff` with either, such as the record `close` posts for a ROTATE ask, closes those records and leaves the lane live), `stopped`, or `stand-down` record;
+- its own `done`, with or without `--re` or `--resolves`, `stopped`, or `stand-down` record. A lane that closes a record and keeps working posts `answer --resolves`, as `close` with how `answer` does, and a `handoff` that answers a ROTATE leaves it live. Only root, owner-relay and the supervisor stay live on a `done` that closes another record;
 - a `stand-down` request, which retires it or hands it to the successor it names;
 - for a lane that has posted nothing since its launch, another lane's records taking its last PR.
 

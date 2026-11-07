@@ -979,8 +979,8 @@ func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
 	equal(t, defects[0].To, []string{"meta-desk-2"})
 }
 
-func TestALaneThatClosesItsRotateAskWithDoneOrAHandoffStaysLive(t *testing.T) {
-	for _, kind := range []string{"done", "handoff"} {
+func TestALaneThatClosesItsRotateAskWithAnAnswerOrAHandoffStaysLive(t *testing.T) {
+	for _, kind := range []string{"answer", "handoff"} {
 		s := memory(t)
 		f := adopted(t, s, writeBrief(t), "")
 		closed := rec(3, lane2, kind, t0, "Handoff written as cc-notes doc 5fc90b8 and posted; owner-relay keeps working.", Self)
@@ -993,6 +993,26 @@ func TestALaneThatClosesItsRotateAskWithDoneOrAHandoffStaysLive(t *testing.T) {
 
 		lane := row(t, s, lane2)
 		equal(t, []any{lane.State, settledLane(lane), len(f.ofKind("stand-down"))}, []any{store.LaneDesired, false, 0})
+	}
+}
+
+func TestALaneThatPostedDoneOrStoppedIsNeverRelaunchedByARecordAddressedToIt(t *testing.T) {
+	for name, end := range map[string]Record{
+		"done answering its ask":  rec(2, lane2, "done", t0, "done: #46001 merged", Root).withRe(1),
+		"done resolving its ask":  rec(2, lane2, "done", t0, "done: #46001 merged", Root).withResolves(1),
+		"stopped out of its work": rec(2, lane2, "stopped", t0, "STOPPED conflicts-2: out of scope", Root),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "", 46001)
+			f.feed = append(f.feed, end, rec(3, Root, "answer", t0.Add(mins(5)), "Post the notebook and STOPPED.", lane2).withRe(2))
+			f.peers = []Row{{Lane: lane2, SeenAt: t0, Dispatch: "ctx_1"}}
+
+			tick(t, s, f, t0.Add(mins(30)))
+			tick(t, s, f, t0.Add(mins(31)))
+
+			equal(t, []any{row(t, s, lane2).State, len(f.launches)}, []any{store.LaneRetired, 0})
+		})
 	}
 }
 
@@ -1062,21 +1082,6 @@ func TestALaneRetiresWhenEveryOwedDeletionIsAnotherLanes(t *testing.T) {
 
 	equal(t, row(t, s, lane2).RetiredBy, "done")
 	equal(t, len(f.ofKind("defect")), 0)
-}
-
-func TestADoneAnsweringARecordClosesThatItemAndLeavesTheLaneLive(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "")
-	answer := rec(2, lane2, "done", t0, "done on 373500: the branch is deleted", Root)
-	answer.Re = 1
-	f.feed = append(f.feed, answer)
-	f.peers = []Row{who(lane2, false, t0)}
-
-	tick(t, s, f, t0.Add(mins(1)))
-
-	if got := row(t, s, lane2); got.State == store.LaneRetired {
-		t.Fatalf("a done answering one record retired the lane, by %q", got.RetiredBy)
-	}
 }
 
 func TestTheHourlyTickPostsOneOwedDeletionDigestPerChangedSetOfGaps(t *testing.T) {
