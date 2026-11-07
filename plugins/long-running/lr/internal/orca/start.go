@@ -1456,6 +1456,7 @@ func (l *launch) startWorker() (string, error) {
 		if _, code := l.tool("orca", "terminal", "send", "--terminal", l.terminal, "--text", l.spec, "--enter", "--json"); code != 0 {
 			return "", l.fail("spec send terminal=%s after agent_readiness timeout", l.terminal)
 		}
+		l.postSpawned()
 		return fmt.Sprintf("%s unsupervised task=%s dispatch=%s terminal=%s worktree=%s", l.lane, receipt.Result.TaskID, receipt.Result.DispatchID, l.terminal, l.wt), nil
 	}
 	switch receipt.Result.State {

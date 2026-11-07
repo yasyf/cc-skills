@@ -44,6 +44,7 @@ const (
 	kindSpawn       = "spawn"
 	kindRequest     = "decide"
 	kindLanded      = "landed"
+	firstCommand    = ": registered at its first command"
 	unreadMark      = " down or hand its PRs on, but it "
 	turnDied        = "died"
 	NeedsWork       = "needs-work"

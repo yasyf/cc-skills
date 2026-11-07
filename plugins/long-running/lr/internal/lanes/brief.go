@@ -15,6 +15,7 @@ import (
 var (
 	macBrief    = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?place=local(?:\s|$)`)
 	macNeed     = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?why=(\S+).*$`)
+	briefRole   = regexp.MustCompile(`(?m)^ccx:(?:.*[ \t])?role=([\w-]+)`)
 	sliceStep   = regexp.MustCompile(`(?m)^Register slice: lane=\S+ step=(\S+)`)
 	standing    = regexp.MustCompile(`(?m)^Standing: *(\S.*?)[ \t]*$`)
 	noDuty      = regexp.MustCompile(`(?i)^none\b`)
@@ -31,6 +32,7 @@ const (
 )
 
 type Brief struct {
+	Role        string
 	Step        string
 	Standing    string
 	Deliverable string
@@ -50,6 +52,9 @@ var (
 
 func parseBrief(text string) Brief {
 	var said Brief
+	if found := briefRole.FindStringSubmatch(text); found != nil {
+		said.Role = found[1]
+	}
 	if found := sliceStep.FindStringSubmatch(text); found != nil {
 		said.Step = found[1]
 	}

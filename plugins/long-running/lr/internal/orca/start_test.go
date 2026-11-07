@@ -1269,6 +1269,25 @@ func TestACodexReadinessTimeoutSendsTheSpecAndRunsUnsupervised(t *testing.T) {
 	}
 }
 
+func TestACodexLaneRunningUnsupervisedInADrivePostsItsSpawnedRecord(t *testing.T) {
+	h := newHarness(t)
+	h.healthyClaude()
+	bindDrive(h, object{"drive": "900424b6", "sessions": []string{}, "orca_run": "run_1", "cci_drive": "brook"}, "900424b6")
+	h.env[driveEnv] = "900424b6"
+	h.env["CLAUDE_LONG_RUNNING_LANE"] = "orca-desk"
+	h.reply("orchestration worker-start", reply{rc: 1, out: object{"ok": true, "result": object{"state": "failed", "failedStage": "agent_readiness", "taskId": "task_a", "dispatchId": "ctx_a", "effects": []object{{"kind": "terminal", "role": "agent", "id": "term_codex"}}}}})
+	h.reply("terminal send", reply{out: object{"ok": true}})
+	wantLine(t, h.launchedAs(agentCodex, "high"), "lane-a unsupervised task=task_a dispatch=ctx_a terminal=term_a worktree="+h.worktree())
+	want := []client.Draft{{
+		Drive: "brook", Lane: "orca-desk", Kind: "state", Topic: "spawn:lane-a", LaneRefs: []string{"lane-a"},
+		Attrs: map[string]string{"brief": h.brief, "model": agentCodex, "effort": "high", "placement": "orca"},
+		Text:  "SPAWNED lane-a " + h.brief,
+	}}
+	if !reflect.DeepEqual(h.posted, want) {
+		t.Fatalf("got %+v", h.posted)
+	}
+}
+
 func TestAnIncidentReadinessTimeoutSendsTheSpecToItsOwnTerminal(t *testing.T) {
 	h := newHarness(t)
 	h.healthyCodex()
