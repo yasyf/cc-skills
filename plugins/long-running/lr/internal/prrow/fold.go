@@ -814,7 +814,7 @@ func (f Fold) read(t *store.Tx, row store.ReviewRow, record client.Record) (stor
 func changesWords(record client.Record, before, after store.ReviewRow) bool {
 	switch string(record.Kind) {
 	case "opened", "head", "lr.head":
-		return record.Fields.Attrs[deltaAttr] == gates.DeltaScope || after.Title != before.Title || after.Description != before.Description
+		return record.Fields.Attrs[deltaAttr] == gates.DeltaFundamental || after.Title != before.Title || after.Description != before.Description
 	}
 	return false
 }

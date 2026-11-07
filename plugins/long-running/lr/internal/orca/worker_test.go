@@ -2076,7 +2076,7 @@ func TestASpriteWorkerInsideADriveCarriesTheLaneTheDriveAndTheLandingRepoToItsAg
 
 func TestASpriteCodexLaneInADriveCarriesAPRRecordOfCCIRecords(t *testing.T) {
 	for model, want := range map[string]string{
-		"gpt-6.1-sol": workerBrief + "\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive 'brook' --lane 'lane-a' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive 'brook' --lane 'lane-a' --kind head --head <number>=<sha>`. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n" + verbsBlock("ccx and cci", slices.Concat(ccxLines, cciLines)...),
+		"gpt-6.1-sol": workerBrief + "\n\n## PR record\n\nCodex runs no PR hook, so `ccx vcs ship` neither hands your PR to the landing pass nor posts its `opened` record, and the incident clock and the landing pass read both. Right after each ship that opens a PR, run `cci post --drive 'brook' --lane 'lane-a' --kind opened --pr <number> --text 'opened #<number>'`, and after each later push `cci post --drive 'brook' --lane 'lane-a' --kind head --head <number>=<was>..<sha>`, adding `--attr delta=fundamental` only when the push changes what the PR does at its core. Every `ready` record you post carries `--pr <number>`, which hands the PR to the landing pass.\n" + verbsBlock("ccx and cci", slices.Concat(ccxLines, cciLines)...),
 		"opus":        workerBrief,
 	} {
 		t.Run(model, func(t *testing.T) {

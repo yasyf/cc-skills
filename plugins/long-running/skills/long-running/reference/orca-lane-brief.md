@@ -428,7 +428,8 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   <prefix>/<lane>/`. A Sprite lane skips it; the Mac's supervisor registers its PRs from its `opened` and `head` records.
 - On every PR open, push, enqueue, and READY: `ledger.py report --ledger <id> --drive <drive> --repo <owner/name> --pr <n> --head
   <full sha> --lane <lane> --verdict <clean|red|conflicting|held> --text "<one line>"`,
-  plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`; the
+  plus `--ask <id>` for an owner ask. READY is `--verdict clean --text "READY ..."`, asking nobody
+  for his tap, and on a PR he tapped at any head naming that tap, never asking for a fresh one; the
   desk reads only this cci record, and a SendMessage to a looping desk is never read.
   `--repo` is the PR's repository; without it a number names a PR in the ledger checkout's
   repository.
@@ -524,13 +525,12 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   named. Post a `head` record for every push, addressed
   `--to desk-runner,fidelity-pipeline,finder-desk` and never to the coordinator, as are your
   `state` records. A restack that moves several PRs posts one record carrying every head,
-  `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ... --attr delta=<class>`, with a
+  `cci post --kind head --head <pr>=<was>..<sha> --head <pr>=<was>..<sha> ...`, with a
   note after the sha such as `patch-identical` when the range-diff says so, never one record per PR. Each
   `<sha>` is the full 40 characters: a short one leaves the row at its old head until the next read.
-  The class says what the push did, and it decides whether the owner's tap stays: `rebase`,
-  `review-fix` or `ordered-fix` keep it, and `behavior` or `scope` send the PR back to him, the note
-  saying what changed. `reference/landing.md`, tap carry, has the rule. PRs that differ in class take
-  one record per class. A port of an old-tree PR adds `--attr port-of=<old PR> --attr port-interacts=no|yes`
+  The owner's tap counts once for a PR and carries to every later head. Only a push that changes the PR
+  fundamentally adds `--attr delta=fundamental`, its note saying what changed, in a record of its own, and
+  only that push asks him again. `reference/landing.md`, tap carry, has the rule. A port of an old-tree PR adds `--attr port-of=<old PR> --attr port-interacts=no|yes`
   to every head record, one record per port. Its PR body opens with the line `port of #<n>`, and every card and reply about it opens its title with `Port, old tree to new: dev #<n>`. A writer half of a readers-first pair, yours or a port's, carries `Readers-First: #<reader PR>` on its own body line from its first ship, so the landing pass holds it until the coordinator names the live release that carries the reader; `reference/landing.md` D21 has the rule. A port lands faithful to that PR, and a fix past it is a follow-up PR on top; `reference/landing.md`, Old-tree forward port, has the rule. A fix for a flaking test adds `--attr flake-fix=<the test that flaked>` to every head record whose patch changed: it lands with no tap when every changed file is test or fixture code and no added line names a timeout, and without the attr a tap rule naming its paths sends it to the owner; `reference/landing.md`, Test-flake fixes, has the rule. The supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
   a PR done. On a drive whose runner has no finder, run one finder pass yourself.
   A `## Body addendum` that answers a second-fix major by naming the class the fix

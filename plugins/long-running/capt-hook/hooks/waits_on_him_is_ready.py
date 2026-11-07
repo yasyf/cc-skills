@@ -19,6 +19,7 @@ ROWS = f"{LR} board rows"
 ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
 HELD = {ROWS: json.dumps([{"number": 49730, "ready_for_tap": False, "waits_on": "held by root: cutover pick"}])}
 READY = {ROWS: json.dumps([{"number": 49730, "ready_for_tap": True, "waits_on": ""}])}
+CARRIED = {ROWS: json.dumps([{"number": 48159, "ready_for_tap": True, "tapped": True, "waits_on": "You approved it; the landing desk lands it next; your tap at bff7b78 carried to this head: his tap counts once for the PR, and no push since changed it fundamentally"}])}
 REFUSED = "A line naming a PR as waiting on the owner stands only when its row says `ready_for_tap`. Say what each one waits on instead, from `lr board rows --json`:\n```\n{lines}\n```"
 UNREAD = "Warning, nothing was refused: `lr board rows` did not answer, so this line naming a PR as waiting on the owner went unchecked. Read the row before it reaches him."
 
@@ -58,6 +59,7 @@ def card_claims(evt: BaseHookEvent) -> list[str]:
         Input(command="cc-present reply --block b --body '#49730 waits on your tap'", env=ENV, commands=HELD): Block(pattern=r"#49730 is not ready"),
         Input(command="cci post --lane a --kind report --pr 49731 --text '#49731 waits on his tap'", env=ENV, commands=READY): Block(pattern=r"#49731 is not ready for his tap: it has no row"),
         Input(command="cci post --lane a --kind report --pr yasyf/cc-skills#3120 --text 'A base waiting only on his tap, itself or through what it carries, raises nothing.'", env=ENV, commands=READY): Allow(),
+        Input(command="cci post --lane a --kind ready --pr 48159 --text '#48159 is green and waits on his tap again'", env=ENV, commands=CARRIED): Block(pattern=r"#48159 is not ready for his tap: You approved it; .*carried to this head"),
         Input(command="cci post --lane a --kind blocked --text '#49730 waits on his tap'", env=ENV, commands=READY): Allow(),
         Input(command="cc-present reply --block b --body '#49730 waits on your tap'", env=ENV, commands=READY): Allow(),
         Input(command="cci post --lane a --kind report --text '#49730 does not wait on his tap'", env=ENV, commands=HELD): Allow(),

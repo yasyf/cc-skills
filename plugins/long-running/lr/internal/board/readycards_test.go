@@ -144,13 +144,14 @@ func TestNoTapCardAsksForAPRThatMergedOrThatHeTappedBeforeTheStoreFoldedIt(t *te
 	}
 }
 
-func TestNoTapCardAsksAtAHeadHisEarlierTapCarriesTo(t *testing.T) {
+func TestATapCardAsksAgainOnlyAfterAPushChangesThePRFundamentally(t *testing.T) {
 	for name, c := range map[string]struct {
 		delta string
 		asks  int
 	}{
-		"a review fix since his tap":     {gates.DeltaReviewFix, 0},
-		"an unjudged push since his tap": {"", 1},
+		"#48159's review fix since his tap":            {"review-fix", 0},
+		"#52167's push with no class (560387)":         {"", 0},
+		"a fundamental change to the PR since his tap": {gates.DeltaFundamental, 1},
 	} {
 		t.Run(name, func(t *testing.T) {
 			liveDrive(t)

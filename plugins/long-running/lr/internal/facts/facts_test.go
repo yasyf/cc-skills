@@ -1653,12 +1653,9 @@ func TestATapTheOldCarryLeftOnTheCurrentHeadStandsThereAndAnchorsTheNextHead(t *
 	}
 }
 
-func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T) {
+func TestATapCountsAtANewHeadUnlessAPushChangedThePRFundamentally(t *testing.T) {
 	restacked := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(ownDiff)
 	respaced := strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)
-	judged := func(behavior string, since string) map[string]string {
-		return map[string]string{"fidelity": "pass", gates.BehaviorFact: behavior, gates.SinceFact: since, gates.ChangedFact: "the list now drops archived chats"}
-	}
 	for name, tc := range map[string]struct {
 		diff   string
 		graded map[string]string
@@ -1666,12 +1663,10 @@ func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T
 		back   string
 	}{
 		"a restack whose own diff is the same":       {diff: restacked, by: gates.BySameDiff},
-		"whitespace changed inside a line, ungraded": {diff: respaced},
-		"fidelity judged the new head the same":      {diff: respaced, graded: judged(gates.BehaviorSame, head2), by: gates.ByFidelity},
-		"fidelity judged the new head changed":       {diff: respaced, graded: judged(gates.BehaviorChanged, head2)},
-		"fidelity judged it against another head":    {diff: respaced, graded: judged(gates.BehaviorSame, head3)},
-		"a review fix its head record names":         {diff: respaced, graded: map[string]string{gates.DeltaFact: gates.DeltaReviewFix, gates.DeltaFromFact: head2}, by: gates.DeltaReviewFix},
-		"a behavior change its head record names":    {diff: respaced, graded: map[string]string{gates.DeltaFact: gates.DeltaBehavior, gates.DeltaFromFact: head2, gates.DeltaWhyFact: "drops chats"}, back: "a behavior change at " + head[:7] + ": drops chats"},
+		"a changed diff no record names":             {diff: respaced, by: gates.ByTap},
+		"fidelity judged the new head changed":       {diff: respaced, graded: map[string]string{"fidelity": "pass", gates.BehaviorFact: gates.BehaviorChanged, gates.SinceFact: head2, gates.ChangedFact: "drops archived chats"}, by: gates.ByTap},
+		"a behavior push its head record names":      {diff: respaced, graded: map[string]string{gates.DeltaFact: "behavior", gates.DeltaFromFact: head2, gates.DeltaWhyFact: "drops chats"}, by: gates.ByTap},
+		"a fundamental change its head record names": {diff: respaced, graded: map[string]string{gates.DeltaFact: gates.DeltaFundamental, gates.DeltaFromFact: head2, gates.DeltaWhyFact: "replaces the list"}, back: "a fundamental change at " + head[:7] + ": replaces the list"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -1686,33 +1681,14 @@ func TestATapCarriesToANewHeadOnlyWhenItMeansWhatTheTappedHeadMeant(t *testing.T
 			if row.TapFrom != head2 || row.CarriedBy != tc.by || row.Admitted() != (tc.by != "") {
 				t.Fatalf("tap %q from %q by %q, want from %s by %q", row.Tap, row.TapFrom, row.CarriedBy, head2, tc.by)
 			}
-			if tc.back != "" && row.TapReturned != tc.back {
+			if row.TapReturned != tc.back {
 				t.Fatalf("returned %q, want %q", row.TapReturned, tc.back)
 			}
 		})
 	}
 }
 
-func TestEachNewHeadIsJudgedAgainstTheHeadHeTappedNeverTheLastCarriedOne(t *testing.T) {
-	s := memory(t)
-	putFact(t, s, 1, head2, "tap", "tapped", tappedAt)
-	on(t, s, recordedPR{number: 1, head: head2, login: "drive-bot", diff: ownDiff}).snapshot(t)
-	putFact(t, s, 1, head, "fidelity", "pass", tappedAt.Add(time.Hour))
-	putFact(t, s, 1, head, gates.BehaviorFact, gates.BehaviorSame, tappedAt.Add(time.Hour))
-	putFact(t, s, 1, head, gates.SinceFact, head2, tappedAt.Add(time.Hour))
-	carried := on(t, s, recordedPR{number: 1, head: head, login: "drive-bot", diff: ownDiff + "+\tlog(rows)\n"}).snapshot(t)[1]
-
-	next := on(t, s, recordedPR{number: 1, head: head3, login: "drive-bot", diff: ownDiff + "+\tlog(rows)\n"}).snapshot(t)[1]
-
-	if carried.CarriedBy != gates.ByFidelity {
-		t.Fatalf("first new head carried by %q, want fidelity", carried.CarriedBy)
-	}
-	if next.Admitted() || next.TapFrom != head2 {
-		t.Fatalf("second new head: tap %q from %q, want it judged against %s, so the same diff as the carried head proves nothing", next.Tap, next.TapFrom, head2)
-	}
-}
-
-func TestHisTapCarriesStepByStepThroughRebasesReviewFixesAndPatchIdenticalPushes(t *testing.T) {
+func TestHisTapCountsStepByStepUntilAFundamentalChange(t *testing.T) {
 	const tapped, rebased, requeued, regraded = "2bd148b6570b8cb7d058e448a526adb1ac4b005a", "586c3c7c4acf81a4cbbccb1559372fc0706cbca3", "b2146f72cd37edd653cdac0b9a35f4fcb4b64632", "c0ffee0000000000000000000000000000000001"
 	resolved := ownDiff + "+\tlog(rows)\n"
 	moved := strings.NewReplacer("1111111..2222222", "3333333..4444444", "-10,3 +10,4", "-42,3 +44,4").Replace(resolved)
@@ -1724,16 +1700,16 @@ func TestHisTapCarriesStepByStepThroughRebasesReviewFixesAndPatchIdenticalPushes
 		by     string
 	}{
 		"51193: a rebase, then an unclassed push with the same diff": {
-			steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, "", moved}}, by: "rebase,same-diff",
+			steps: []step{{rebased, "rebase", resolved}, {requeued, "", moved}}, by: gates.ByTap,
 		},
-		"51193 with a behavior change, then an unclassed push with the same diff": {
-			steps: []step{{rebased, gates.DeltaBehavior, resolved}, {requeued, "", moved}},
+		"51193 with a behavior push, then an unclassed push with the same diff": {
+			steps: []step{{rebased, "behavior", resolved}, {requeued, "", moved}}, by: gates.ByTap,
 		},
-		"51193 with an unclassed push that changed the diff": {
-			steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, "", resolved + "+\tdrop(rows)\n"}},
+		"51193 with a fundamental change, then an unclassed push with the same diff": {
+			steps: []step{{rebased, gates.DeltaFundamental, resolved}, {requeued, "", moved}},
 		},
 		"a tap while CI still runs, then a rebase, a review fix and a patch-identical push": {
-			rollup: "PENDING", steps: []step{{rebased, gates.DeltaRebase, resolved}, {requeued, gates.DeltaReviewFix, fixed}, {regraded, "", fixed}}, by: "rebase,review-fix,same-diff",
+			rollup: "PENDING", steps: []step{{rebased, "rebase", resolved}, {requeued, "review-fix", fixed}, {regraded, "", fixed}}, by: gates.ByTap,
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

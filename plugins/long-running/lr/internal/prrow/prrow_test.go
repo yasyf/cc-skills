@@ -1358,7 +1358,7 @@ func TestAHeadRecordsClassAndWhatItReplacedReachTheStore(t *testing.T) {
 	folded(t, f, 1)
 	postHead(t, 1, unnamed)
 	folded(t, f, 1)
-	postClassed(t, 1, unnamed, classed, gates.DeltaReviewFix, "the finder's nit")
+	postClassed(t, 1, unnamed, classed, gates.DeltaFundamental, "replaces the design")
 
 	folded(t, f, 1)
 
@@ -1373,8 +1373,8 @@ func TestAHeadRecordsClassAndWhatItReplacedReachTheStore(t *testing.T) {
 	want := map[string]string{
 		unnamed + " " + gates.DeltaFromFact: tapped,
 		classed + " " + gates.DeltaFromFact: unnamed,
-		classed + " " + gates.DeltaFact:     gates.DeltaReviewFix,
-		classed + " " + gates.DeltaWhyFact:  "the finder's nit",
+		classed + " " + gates.DeltaFact:     gates.DeltaFundamental,
+		classed + " " + gates.DeltaWhyFact:  "replaces the design",
 	}
 	if !maps.Equal(said, want) {
 		t.Fatalf("facts = %v, want %v", said, want)
@@ -1390,19 +1390,19 @@ func TestAHeadRecordPointingBackAlongItsOwnLineageKeepsTheLineage(t *testing.T) 
 	}{
 		"48611: a head restored after a restack": {
 			heads: func() {
-				postClassed(t, 1, earlier, restored, gates.DeltaRebase, "onto dev")
-				postClassed(t, 1, restored, restacked, gates.DeltaRebase, "patch-identical")
-				postClassed(t, 1, restacked, restored, gates.DeltaRebase, "restored pre-restack head")
+				postClassed(t, 1, earlier, restored, "rebase", "onto dev")
+				postClassed(t, 1, restored, restacked, "rebase", "patch-identical")
+				postClassed(t, 1, restacked, restored, "rebase", "restored pre-restack head")
 			},
 			want: map[string]string{restored: earlier, restacked: restored},
 		},
 		"51253: a class record whose text names the head it moved from first": {
 			heads: func() {
-				postClassed(t, 1, tapped, fixed, gates.DeltaReviewFix, "replay")
+				postClassed(t, 1, tapped, fixed, "review-fix", "replay")
 				postClassed(t, 1, fixed, rebased, "", "restack, range-diff patch-identical")
 				if _, err := client.Post(context.Background(), client.Draft{
 					Drive: "d", Lane: "lane-7", Kind: "head", Text: fmt.Sprintf("#1 moved from %s to %s, a rebase onto dev", fixed, rebased), PRs: []string{testRepo + "#1"},
-					ID: "head/1/moved", Attrs: map[string]string{"delta": gates.DeltaRebase},
+					ID: "head/1/moved", Attrs: map[string]string{"delta": "rebase"},
 				}); err != nil {
 					t.Fatal(err)
 				}
@@ -1443,10 +1443,10 @@ func TestARowSaysHisTapCarriedOrReturnedAndWhy(t *testing.T) {
 		tapped bool
 		waits  string
 	}{
-		"carried by a class":          {map[string]string{factCarriedBy: "review-fix", factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: every change since the tapped head is a review fix"},
-		"carried by the same diff":    {map[string]string{factCarriedBy: gates.BySameDiff, factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: the PR's own diff is the same as at the tapped head"},
-		"returned by a behavior head": {map[string]string{factReturned: "a behavior change at bbbbbbb: drops chats", factTapFrom: from}, false, "Only your approval; your tap at aaaaaaa does not carry to this head: a behavior change at bbbbbbb: drops chats"},
-		"his own tap at this head":    {map[string]string{"tap": string(machine.TapTapped), factCarriedBy: "rebase", factTapFrom: from}, true, tappedWaits},
+		"counted once for the PR":       {map[string]string{factCarriedBy: gates.ByTap, factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: his tap counts once for the PR, and no push since changed it fundamentally"},
+		"carried by the same diff":      {map[string]string{factCarriedBy: gates.BySameDiff, factTapFrom: from}, true, "You approved it; the landing desk lands it next; your tap at aaaaaaa carried to this head: the PR's own diff is the same as at the tapped head"},
+		"ended by a fundamental change": {map[string]string{factReturned: "a fundamental change at bbbbbbb: replaces the design", factTapFrom: from}, false, "Only your approval; your tap at aaaaaaa does not carry to this head: a fundamental change at bbbbbbb: replaces the design"},
+		"his own tap at this head":      {map[string]string{"tap": string(machine.TapTapped), factCarriedBy: gates.ByTap, factTapFrom: from}, true, tappedWaits},
 	} {
 		t.Run(name, func(t *testing.T) {
 			facts := map[string]string{factCI: CIGreen, factApprovers: "a", factMergeable: string(machine.MergeableClean), "finder": string(machine.FinderClear), "fidelity": string(machine.FidelityPass)}
@@ -1464,14 +1464,14 @@ func TestACarryReachesTheRowThroughTheRead(t *testing.T) {
 	postOpened(t, 1, "aaaaaaaaaaaa", "dev", "body")
 	folded(t, f, 1)
 	read := cleanRead(1, "aaaaaaaaaaaa")
-	read.TapFrom, read.CarriedBy = "9999999", gates.DeltaRebase
+	read.TapFrom, read.CarriedBy = "9999999", gates.ByTap
 
 	if err := f.PostReads(context.Background(), []machine.Facts{read}); err != nil {
 		t.Fatal(err)
 	}
 	row := folded(t, f, 1)
 
-	if !row.Tapped || row.TappedBy != "carried from 9999999" || !strings.Contains(row.WaitsOn, "is a rebase") {
+	if !row.Tapped || row.TappedBy != "carried from 9999999" || !strings.Contains(row.WaitsOn, "counts once for the PR") {
 		t.Fatalf("tapped %v by %q, waits %q", row.Tapped, row.TappedBy, row.WaitsOn)
 	}
 }
@@ -1839,10 +1839,10 @@ func TestAnExemptHeadSaysItsClassAndOnlyHisTapReadsTapped(t *testing.T) {
 		"a class no ruling lands untapped": {map[string]string{"exempt": "dev-red"}, Held{}, false, true, onlyHim},
 		"exempt and tapped by him":         {map[string]string{"exempt": "test-only", "tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
 		"exempt with a tap carried": {
-			map[string]string{"exempt": "test-only", factCarriedBy: "review-fix", factTapFrom: from},
+			map[string]string{"exempt": "test-only", factCarriedBy: gates.ByTap, factTapFrom: from},
 			Held{},
 			true, true,
-			strings.TrimSuffix(tappedWaits, ".") + "; your tap at aaaaaaa carried to this head: " + gates.CarryWhy("review-fix"),
+			strings.TrimSuffix(tappedWaits, ".") + "; your tap at aaaaaaa carried to this head: " + gates.CarryWhy(gates.ByTap),
 		},
 		"tapped by him":         {map[string]string{"tap": string(machine.TapTapped)}, Held{}, true, true, tappedWaits},
 		"exempt, until his tap": {map[string]string{"exempt": "test-only"}, Held{AwaitsTap: "asks his tap"}, false, true, tapEndsHold + "asks his tap"},
@@ -2117,7 +2117,7 @@ func TestAHeadThatChangesThePRsWordsWaitsForAGitHubReadTakenAfterItAndThenShowsI
 		body     string
 		forUsers string
 	}{
-		"delta=scope":             {map[string]string{"delta": gates.DeltaScope}, "", "A user sees it."},
+		"delta=fundamental":       {map[string]string{"delta": gates.DeltaFundamental}, "", "A user sees it."},
 		"a body the head carries": {nil, rebuilt, "A user sees the rebuild."},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -2153,7 +2153,7 @@ func TestAHeadThatChangesThePRsWordsWaitsForAGitHubReadTakenAfterItAndThenShowsI
 	}
 }
 
-func TestADeltaScopeAtTheReadHeadPostsOneMoreReadWithItsBodyAndATitleEditPostsOne(t *testing.T) {
+func TestAFundamentalDeltaAtTheReadHeadPostsOneMoreReadWithItsBodyAndATitleEditPostsOne(t *testing.T) {
 	f, _ := foldFor(t)
 	postOpened(t, 1, headA, "dev", "")
 	folded(t, f, 1)
@@ -2174,9 +2174,9 @@ func TestADeltaScopeAtTheReadHeadPostsOneMoreReadWithItsBodyAndATitleEditPostsOn
 		return len(found), bodies
 	}
 
-	postWordsHead(t, headA, map[string]string{"delta": gates.DeltaScope}, "")
+	postWordsHead(t, headA, map[string]string{"delta": gates.DeltaFundamental}, "")
 	if row := folded(t, f, 1); WordsWait(row) == "" {
-		t.Fatalf("a delta=scope head at the read head left the row's words read")
+		t.Fatalf("a delta=fundamental head at the read head left the row's words read")
 	}
 	again := read
 	again.ReadAt = time.Now().Add(time.Second)

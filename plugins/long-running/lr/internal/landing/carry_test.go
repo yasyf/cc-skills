@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/landing"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 )
@@ -52,10 +53,10 @@ func TestTheOwnersNov2TapOn46107CarriesToItsSameDiffRestackOnTheSessionHeTappedI
 	}
 }
 
-func TestTapCarriedNamesTheClassEveryHeadSinceHisTapSaid(t *testing.T) {
+func TestTapCarriedSaysHisTapCountsOnceForThePR(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
-	carried := machine.Facts{Repo: monorepo, Number: 46107, Head: restack, Tap: machine.TapTapped, TapFrom: tappedAt, CarriedBy: "rebase,review-fix"}
+	carried := machine.Facts{Repo: monorepo, Number: 46107, Head: restack, Tap: machine.TapTapped, TapFrom: tappedAt, CarriedBy: gates.ByTap}
 
 	if err := landing.CarryTaps(ctx, "d", []machine.Facts{carried}); err != nil {
 		t.Fatal(err)
@@ -65,8 +66,8 @@ func TestTapCarriedNamesTheClassEveryHeadSinceHisTapSaid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "TAP-CARRIED #46107 from a28ab62 to ff335d010b by rebase,review-fix: every change since the tapped head is a rebase or a review fix"
-	if len(writes) != 1 || writes[0].Text != want || writes[0].Fields.Attrs["proof"] != "rebase,review-fix" {
+	want := "TAP-CARRIED #46107 from a28ab62 to ff335d010b by tap: his tap counts once for the PR, and no push since changed it fundamentally"
+	if len(writes) != 1 || writes[0].Text != want || writes[0].Fields.Attrs["proof"] != gates.ByTap {
 		t.Fatalf("writes = %+v, want one reading %q", writes, want)
 	}
 }

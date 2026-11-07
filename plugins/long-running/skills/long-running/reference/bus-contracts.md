@@ -41,7 +41,7 @@ A record has a `seq`, `drive`, `lane`, `kind`, `at` and `text`, with optional `t
 | kind | means | text | to |
 | --- | --- | --- | --- |
 | `decision` | a call your lane made that another lane could build on or contradict | the decision; link a durable decision with `--ccn` | the lanes it binds, or broadcast |
-| `head` | the current head of a PR or branch you own | the full 40-hex SHA; for a head that replaced an earlier one, `<new> (was <old>): <what changed>`, saying `patch-identical` for a restack whose range-diff changes no patch, with `--attr delta=<class>` as `reference/landing.md`, tap carry, defines | broadcast |
+| `head` | the current head of a PR or branch you own | the full 40-hex SHA; for a head that replaced an earlier one, `<new> (was <old>): <what changed>`, saying `patch-identical` for a restack whose range-diff changes no patch, with `--attr delta=fundamental` only when the push changes the PR fundamentally, as `reference/landing.md`, tap carry, defines | broadcast |
 | `contract` | an interface, schema, name or invariant another lane consumes | the contract, with a longer body attached by `--path` | broadcast |
 | `blocker` | something that stops a lane and needs another lane's act | what is stuck and who can clear it | the lane that can clear it |
 | `ask` | a question another lane must answer | the question | the lane asked |
