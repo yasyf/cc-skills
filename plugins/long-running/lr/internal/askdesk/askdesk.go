@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -48,6 +49,7 @@ type Desk struct {
 	Now    func() time.Time
 	Log    io.Writer
 	Read   func(context.Context, string) Reply
+	Apart  func(client.Record) bool
 }
 
 func (d Desk) holdDuty(ctx context.Context) (release func()) {
@@ -92,8 +94,22 @@ func (d Desk) Serve(ctx context.Context) error {
 
 func (d Desk) Follow(ctx context.Context) {
 	defer d.holdDuty(ctx)()
+	if d.Apart == nil {
+		d.keepFollowing(ctx, every)
+		return
+	}
+	var wg sync.WaitGroup
+	for _, apart := range []bool{true, false} {
+		wg.Go(func() {
+			d.keepFollowing(ctx, func(ask client.Record) bool { return d.Apart(ask) == apart })
+		})
+	}
+	wg.Wait()
+}
+
+func (d Desk) keepFollowing(ctx context.Context, takes func(client.Record) bool) {
 	for ctx.Err() == nil {
-		err := d.follow(ctx)
+		err := d.follow(ctx, takes)
 		if ctx.Err() != nil {
 			return
 		}
@@ -105,13 +121,13 @@ func (d Desk) Follow(ctx context.Context) {
 	}
 }
 
-func (d Desk) follow(ctx context.Context) error {
-	caught, err := d.Pass(ctx, client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}})
+func (d Desk) follow(ctx context.Context, takes func(client.Record) bool) error {
+	caught, err := d.pass(ctx, client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}}, takes)
 	if err != nil {
 		return err
 	}
 	return client.Follow(ctx, client.Watch{Drive: d.Drive, Reader: d.Lane, After: caught.After}, func(ask client.Record) error {
-		if string(ask.Kind) != AskKind || !slices.Contains(ask.To, d.Lane) {
+		if string(ask.Kind) != AskKind || !slices.Contains(ask.To, d.Lane) || !takes(ask) {
 			return nil
 		}
 		if err := d.answer(ctx, ask); err != nil {
@@ -122,13 +138,19 @@ func (d Desk) follow(ctx context.Context) error {
 }
 
 func (d Desk) Pass(ctx context.Context, query client.Query) (client.Query, error) {
+	return d.pass(ctx, query, every)
+}
+
+func every(client.Record) bool { return true }
+
+func (d Desk) pass(ctx context.Context, query client.Query, takes func(client.Record) bool) (client.Query, error) {
 	asks, err := client.Tail(ctx, query)
 	if err != nil {
 		return query, err
 	}
 	for _, ask := range asks {
 		query = client.Query{Drive: query.Drive, After: ask.Seq, Kinds: query.Kinds}
-		if ask.Status != openStatus || !slices.Contains(ask.To, d.Lane) {
+		if ask.Status != openStatus || !slices.Contains(ask.To, d.Lane) || !takes(ask) {
 			continue
 		}
 		if err := d.answer(ctx, ask); err != nil {
@@ -146,7 +168,7 @@ func (d Desk) answer(ctx context.Context, ask client.Record) error {
 	read := d.Read(ctx, asked)
 	answer := client.Draft{
 		Drive: d.Drive, Lane: d.Lane, Kind: AnswerKind, Text: read.Head, To: []string{ask.Lane},
-		Resolves: ask.Seq, URL: read.URL, Force: true, Attrs: map[string]string{},
+		Re: ask.Seq, Resolves: ask.Seq, URL: read.URL, Force: true, Attrs: map[string]string{},
 	}
 	if read.Exit != 0 || read.Stderr != "" {
 		answer.Attrs[exitAttr], answer.Attrs[stderrAttr] = strconv.Itoa(read.Exit), read.Stderr

@@ -120,6 +120,12 @@ func StoreRuns(config string, run Run) func(context.Context, string) Reply {
 	}
 }
 
+func AsksHandoff(ask client.Record) bool {
+	text, err := client.WholeText(ask)
+	var asked Asked
+	return err == nil && json.Unmarshal([]byte(text), &asked) == nil && asked.Verb == HandoffRegistryVerb
+}
+
 func RunOnMac(ctx context.Context, bus CCI, drive string, asked Asked, out, errs io.Writer) error {
 	lane := asked.Lane
 	text, err := json.Marshal(asked)
