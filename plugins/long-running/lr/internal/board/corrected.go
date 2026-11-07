@@ -3,6 +3,7 @@ package board
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"time"
@@ -63,8 +64,12 @@ func (c Cards) Corrected(ctx context.Context, lane string) error {
 	if len(drawnFrom) == 0 {
 		return c.Store.Advance(cursor, read)
 	}
+	topics, err := c.topics(ctx, drawnFrom)
+	if err != nil {
+		return err
+	}
 	for _, record := range fresh {
-		sources, err := c.reaches(ctx, record, drawnFrom, oldest)
+		sources, err := c.staleSources(ctx, record, drawnFrom, oldest, topics)
 		if err != nil {
 			return err
 		}
@@ -104,6 +109,32 @@ func (c Cards) drawnFrom(ctx context.Context) (map[int64][]string, int64, error)
 		}
 	}
 	return drawnFrom, oldest, nil
+}
+
+func (c Cards) staleSources(ctx context.Context, record client.Record, drawnFrom map[int64][]string, oldest int64, topics map[string][]int64) ([]int64, error) {
+	if record.Kind == "correction" {
+		return c.reaches(ctx, record, drawnFrom, oldest)
+	}
+	sources := slices.DeleteFunc(answered(record, oldest), func(seq int64) bool { return drawnFrom[seq] == nil })
+	if record.Topic != "" {
+		sources = append(sources, topics[record.Topic]...)
+	}
+	slices.Sort(sources)
+	return slices.Compact(sources), nil
+}
+
+func (c Cards) topics(ctx context.Context, drawnFrom map[int64][]string) (map[string][]int64, error) {
+	found, err := c.Among(ctx, c.Bus, slices.Collect(maps.Keys(drawnFrom)))
+	if err != nil {
+		return nil, err
+	}
+	topics := map[string][]int64{}
+	for _, source := range found {
+		if source.Topic != "" {
+			topics[source.Topic] = append(topics[source.Topic], source.Seq)
+		}
+	}
+	return topics, nil
 }
 
 func (c Cards) reaches(ctx context.Context, record client.Record, drawnFrom map[int64][]string, oldest int64) ([]int64, error) {

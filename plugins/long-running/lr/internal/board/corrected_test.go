@@ -102,3 +102,31 @@ func TestAnAskStillReadsAsDrawnOnceItsCardIsWithdrawn(t *testing.T) {
 		t.Fatalf("drawn = %v, %v, want ask 559601 drawn", drawn, err)
 	}
 }
+
+func TestAHeadFlagsACardStaleOnlyWhenItAnswersTheCardsSourceOrCarriesItsTopic(t *testing.T) {
+	ctx := context.Background()
+	f := correctedBoard(t, "card-rmw5yuqv3")
+	if err := f.RecordAsk(ctx, "card-rmw5yuqv3", 576900); err != nil {
+		t.Fatal(err)
+	}
+	f.bus = []client.Record{
+		{Seq: 576900, Lane: "owner-relay", Kind: "ask", Topic: "slack-grant", Text: "Grant the Slack label?"},
+		{Seq: 577100, Lane: "owner-relay", Kind: "answer", Re: 576900, Text: "Root has had no coordinator since 8:38 PM."},
+		{Seq: 577274, Lane: "meta-desk", Kind: "head", Re: 577100, Text: "HEAD #3775 relaunches root"},
+		{Seq: 577430, Lane: "meta-desk", Kind: "head", Re: 577274, Text: "HEAD #3776 escalates orphan orders"},
+		{Seq: 577500, Lane: "meta-desk", Kind: "head", Re: 576900, Text: "HEAD #3777 grants the label"},
+		{Seq: 577501, Lane: "meta-desk", Kind: "head", Topic: "slack-grant", Text: "HEAD #3778 renders the grant"},
+	}
+
+	if err := f.Corrected(ctx, "supervisor"); err != nil {
+		t.Fatal(err)
+	}
+
+	flagged := make([]string, 0, len(f.posts))
+	for _, post := range f.posts {
+		flagged = append(flagged, post.ID)
+	}
+	if want := []string{"stale-card:card-rmw5yuqv3:577500", "stale-card:card-rmw5yuqv3:577501"}; !slices.Equal(flagged, want) {
+		t.Fatalf("flagged = %v, want %v", flagged, want)
+	}
+}
