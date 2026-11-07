@@ -100,9 +100,10 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 }
 
 func (g *Gates) Admit(ctx context.Context, acts []pass.Act, snapshot []machine.Facts) []pass.Act {
+	reds := g.openReds(ctx, acts)
 	refused := map[string]bool{}
 	for _, act := range acts {
-		if act.Verdict.Action == machine.ActionEnqueue && g.refuses(ctx, act.Facts) {
+		if act.Verdict.Action == machine.ActionEnqueue && (g.heldRed(ctx, act.Facts, reds) || g.refuses(ctx, act.Facts)) {
 			refused[act.Facts.Branch] = true
 		}
 	}
@@ -125,6 +126,42 @@ func downstackMeets(f machine.Facts, byBranch map[string]machine.Facts, branches
 		}
 	}
 	return false
+}
+
+func (g *Gates) openReds(ctx context.Context, acts []pass.Act) []redIncident {
+	if !slices.ContainsFunc(acts, func(act pass.Act) bool {
+		return act.Verdict.Action == machine.ActionEnqueue && act.Facts.Repo == g.Repo
+	}) {
+		return nil
+	}
+	reds, err := openReds(ctx, g.Drive, g.Repo)
+	if err != nil {
+		g.Log.Warn("the open dev-red incidents did not read, so they hold no head this pass", "err", err)
+	}
+	return reds
+}
+
+func (g *Gates) heldRed(ctx context.Context, f machine.Facts, reds []redIncident) bool {
+	pr := fixPR{f.Repo, f.Number}
+	if f.Repo != g.Repo || len(reds) == 0 || slices.ContainsFunc(reds, func(red redIncident) bool { return slices.Contains(red.fixes, pr) }) {
+		return false
+	}
+	for _, red := range reds {
+		slug := red.opener.Fields.Attrs[redAttr]
+		fix := "no fix PR is named yet"
+		if len(red.fixes) > 0 {
+			fix = "its fix is #" + strconv.Itoa(red.fixes[0].number)
+		}
+		text := fmt.Sprintf("DEV-RED-HOLD #%d stays out of the queue while %s is open on %s (%s); %s. It enqueues on the first pass after %s closes.", f.Number, slug, g.Trunk, red.opener.Name(), fix, slug)
+		holder, unowned, err := reach(g.Store, g.Drive, f)
+		if err == nil {
+			_, err = client.Post(ctx, client.Draft{Drive: g.Drive, Lane: self, Kind: "report", To: slices.Compact([]string{holder, rootLane}), Topic: strconv.Itoa(f.Number), ID: "dev-red-hold:" + slug + ":" + pullRef(f), PRs: []string{pullRef(f)}, Text: unowned + text})
+		}
+		if err != nil {
+			g.Log.Warn("a dev-red hold went unposted", "pr", f.Number, "incident", slug, "err", err)
+		}
+	}
+	return true
 }
 
 func (g *Gates) refuses(ctx context.Context, f machine.Facts) bool {
