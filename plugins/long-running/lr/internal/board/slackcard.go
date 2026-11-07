@@ -136,13 +136,18 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 }
 
 func namedTitle(number int, title string) string {
-	words := strings.TrimLeftFunc(prScope.ReplaceAllString(title, ""), func(r rune) bool {
-		return unicode.IsSymbol(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Cf, r) || unicode.IsSpace(r)
-	})
+	words := PlainTitle(title)
 	if words == "" {
 		return fmt.Sprintf("#%d", number)
 	}
 	return fmt.Sprintf("#%d, %s", number, words)
+}
+
+// PlainTitle is a PR title without its component scope and gitmoji.
+func PlainTitle(title string) string {
+	return strings.TrimLeftFunc(prScope.ReplaceAllString(title, ""), func(r rune) bool {
+		return unicode.IsSymbol(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Cf, r) || unicode.IsSpace(r)
+	})
 }
 
 func OffersApproval(row store.ReviewRow) bool {

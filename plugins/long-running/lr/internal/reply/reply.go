@@ -154,6 +154,7 @@ type Reply struct {
 	Words map[string]string `json:"words,omitempty"`
 
 	diagram Artifact
+	names   prNames
 }
 
 type Outcome struct {
@@ -1320,12 +1321,11 @@ func (r Reply) withPickLink(body string, drawn Outcome) string {
 }
 
 func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
-	body := strings.ReplaceAll(mdLink.ReplaceAllString(r.inSlack(r.MD), "<$2|$1>"), "**", "*")
-	for _, pr := range r.PRs {
-		body += "\n" + pr
-	}
+	body := strings.ReplaceAll(slackHead.ReplaceAllString(mdLink.ReplaceAllString(r.slackText(r.MD), "<$2|$1>"), "*$1*"), "**", "*")
 	for _, link := range r.Links {
-		body += "\n<" + link.URL + "|" + link.Label + ">"
+		if !unfurled.MatchString(link.URL) {
+			body += "\n<" + link.URL + "|" + link.Label + ">"
+		}
 	}
 	return f.dmStatus(ctx, slices.Concat([]string{"--thread", r.Thread}, r.tapFlags(), r.pictureFlags(), []string{"*" + r.Title + "*\n" + body})...)
 }
@@ -1378,17 +1378,16 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
-	body = r.inSlack(body)
-	for _, pr := range r.PRs {
-		body += "\n" + pr
-	}
+	body = r.slackText(body)
 	buttons := make([]Link, 0, len(r.Links))
 	for _, link := range r.Links {
-		if strings.HasPrefix(link.URL, "https://") {
+		switch {
+		case unfurled.MatchString(link.URL):
+		case strings.HasPrefix(link.URL, "https://"):
 			buttons = append(buttons, link)
-			continue
+		default:
+			body += "\n<" + link.URL + "|" + link.Label + ">"
 		}
-		body += "\n<" + link.URL + "|" + link.Label + ">"
 	}
 	key := r.ID
 	if replaces != "" {

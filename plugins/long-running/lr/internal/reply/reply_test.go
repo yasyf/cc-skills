@@ -531,14 +531,14 @@ func TestAFailedWithdrawalNamesItselfAndStillRecordsTheEdit(t *testing.T) {
 	}
 }
 
-func TestAStatusReplyNamesItsPRsInTheSlackCardTextForCCSlackToLinkAndCard(t *testing.T) {
+func TestAStatusReplyListsAPRItsTextNeverNamesUnderItsText(t *testing.T) {
 	fake := scripted()
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r5", Title: "The relay fix", MD: "Checks passed.", Status: "done", PRs: []string{landPR}})
 	posted := calls(fake, "cc-slack")
 	if len(posted) != 1 {
 		t.Fatalf("cc-slack calls = %+v, want one card", posted)
 	}
-	if card := slack(t, posted[0]); card.Body != "Checks passed.\n"+landPR || len(card.Refs) != 0 {
+	if card := slack(t, posted[0]); card.Body != "Checks passed.\n\n- "+landPR || len(card.Refs) != 0 {
 		t.Fatalf("card = %+v, want the PR in its text and no refs", card)
 	}
 }
@@ -744,7 +744,7 @@ func TestAnExplainMoreThatIsOnlyALinkStaysRefused(t *testing.T) {
 
 func TestASlackBodyGoesWholeAsMarkdownForCCSlackToRender(t *testing.T) {
 	fake := scripted()
-	md := "## Relay\n**Fixed** in [the PR](https://github.com/yasyf/cc-skills/pull/2196).\n\n| check | state |\n|---|---|\n| lr-go | green |\n" + strings.Repeat("More words. ", 500)
+	md := "## Relay\n**Fixed** in [the PR](https://github.com/yasyf/cc-skills/pull/2196).\n\n| check | state |\n|---|---|\n| lr-go | green |\n" + strings.Repeat("more words ", 500) + "end"
 	fanout(t, fake).Send(context.Background(), Reply{ID: "long", Title: "t", MD: md, Status: "done"})
 	if body := slack(t, calls(fake, "cc-slack")[0]).Body; body != md {
 		t.Fatalf("slack body = %q, want the whole reply, unrendered and uncut", body)
@@ -781,7 +781,7 @@ func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
 	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != r.Thread || slices.Contains(posted[0].Argv, "--card") {
 		t.Fatalf("cc-slack calls = %+v, want one text post under thread %s", posted, r.Thread)
 	}
-	want := "*The relay lane is half done*\n" + long + "\n" + landPR + "\n<https://studio.example.ts.net/one-pagers/relay/|One-pager>"
+	want := "*The relay lane is half done*\n" + long + "\n\n- " + landPR + "\n<https://studio.example.ts.net/one-pagers/relay/|One-pager>"
 	if text := posted[0].Argv[len(posted[0].Argv)-1]; text != want {
 		t.Fatalf("thread text = %q, want the title, the whole reply, its PR and its link", text)
 	}
