@@ -32,6 +32,7 @@ const (
 	routeSprite       = "sprite"
 	routeLocal        = "local"
 	carriedBox        = "/home/sprite/drive/carried"
+	cargoBuildDir     = "CARGO_BUILD_BUILD_DIR=/var/tmp/cargo-build/{workspace-path-hash}"
 	sponsorKey        = "/home/sprite/.cc-inbox/relay/default/service.pem"
 	sponsorProfile    = "aws-profile:"
 	serviceKeyName    = "/ci/desk-host/cci-service-key"
@@ -776,7 +777,7 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if err := w.receipt(beforeWorker, script); err != nil {
 		return nil, err
 	}
-	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane}
+	argv := []string{w.ccRemote, "orca", "prepare", w.lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", w.kind, "--model", w.modelID, "--effort", w.effort, "--brief-file", w.brief, "--before-worker-file", filepath.Join(w.attempt, beforeWorker), "--env", laneEnv + "=" + w.lane, "--env", cargoBuildDir}
 	if w.kind == agentClaude {
 		argv = append(argv, "--env", laneCompact)
 	}
