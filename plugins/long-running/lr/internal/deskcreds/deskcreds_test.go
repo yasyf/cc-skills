@@ -175,7 +175,7 @@ func TestPushHandsEachSecretOverStandardInputWithAnExpiryThreePushesOut(t *testi
 	e, _ := envFor(t, host)
 	config := writeConfig(t, t.TempDir(), map[string]any{"host": map[string]any{"sprite": "dar-desk-1", "aws_profiles": []string{"core-auto"}, "secrets": map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}}}})
 
-	if _, err := e.Push(context.Background(), config, 9181); err != nil {
+	if err := e.Push(context.Background(), config, 9181); err != nil {
 		t.Fatal(err)
 	}
 
@@ -207,7 +207,7 @@ func TestAFailedPushNamesWhatDidNotArriveAndStillSendsTheRest(t *testing.T) {
 	e, out := envFor(t, host)
 	config := writeConfig(t, t.TempDir(), map[string]any{"host": map[string]any{"sprite": "s", "aws_profiles": []string{"core-auto"}, "secrets": map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}}}})
 
-	_, err := e.Push(context.Background(), config, 9181)
+	err := e.Push(context.Background(), config, 9181)
 
 	if err == nil || !strings.Contains(out.String(), "core-auto did not export: refused") {
 		t.Fatalf("got %v, said %q", err, out.String())
@@ -233,10 +233,10 @@ func TestAPushWhoseSourceHoldsNothingRefusesByNameAndSendsOnlyWhatItHolds(t *tes
 		"secrets":      map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}, "TRUNK_MERGE_API_KEY": {"op", "read", "trunk"}, "BUILDKITE_TOKEN": {"op", "read", "buildkite"}},
 	}})
 
-	sprite, err := e.Push(context.Background(), config, 9181)
+	err = e.Push(context.Background(), config, 9181)
 
-	if sprite != "dar-desk-3" || err == nil || err.Error() != "desk-creds push to dar-desk-3: this host holds no core-auto, BUILDKITE_TOKEN, TRUNK_MERGE_API_KEY" {
-		t.Fatalf("pushed to %q: %v", sprite, err)
+	if err == nil || err.Error() != "desk-creds push to dar-desk-3: this host holds no core-auto, BUILDKITE_TOKEN, TRUNK_MERGE_API_KEY" {
+		t.Fatalf("got %v", err)
 	}
 	if strings.Contains(err.Error(), "gho_user") || strings.Contains(err.Error(), "AKIA") {
 		t.Fatalf("a value reached the refusal: %v", err)
@@ -361,7 +361,7 @@ func TestKeepPushesWhenARestartedServeAsksAndAnswersTheAsk(t *testing.T) {
 	started := t0
 	waitFor(t, "an answered ask", func() bool {
 		started = started.Add(time.Second)
-		if err := AskForPush(context.Background(), drive, started); err != nil {
+		if err := AskForPush(context.Background(), drive, "dar-desk-1", started); err != nil {
 			t.Fatal(err)
 		}
 		return len(records(t, "answer")) > 0
@@ -388,20 +388,15 @@ func TestKeepPushesWhenARestartedServeAsksAndAnswersTheAsk(t *testing.T) {
 	}
 }
 
-func TestKeepBlocksOnTheHostItPushesToNowAndOnlyOnAServesAsk(t *testing.T) {
+func TestKeepBlocksOnTheAskingHostAndOnlyOnAServesAsk(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	host := &fakeHost{fail: map[string]bool{"op read trunk": true}}
 	e, _ := envFor(t, host)
-	dir := t.TempDir()
-	runnerFor := func(sprite string) map[string]any {
-		return map[string]any{"drive": drive, "host": map[string]any{"sprite": sprite, "secrets": map[string][]string{"TRUNK_MERGE_API_KEY": {"op", "read", "trunk"}}}}
-	}
-	config := writeConfig(t, dir, runnerFor("dar-desk-1"))
+	config := writeConfig(t, t.TempDir(), map[string]any{"drive": drive, "host": map[string]any{"sprite": "dar-desk-1", "secrets": map[string][]string{"TRUNK_MERGE_API_KEY": {"op", "read", "trunk"}}}})
 	ctx, stop := context.WithCancel(context.Background())
 	kept := make(chan error, 1)
 	go func() { kept <- e.Keep(ctx, config, 9181) }()
 	waitFor(t, "the first push", func() bool { return host.index("op read trunk") >= 0 })
-	writeConfig(t, dir, runnerFor("dar-desk-3"))
 
 	started := t0
 	waitFor(t, "a blocker", func() bool {
@@ -409,7 +404,7 @@ func TestKeepBlocksOnTheHostItPushesToNowAndOnlyOnAServesAsk(t *testing.T) {
 			t.Fatal(err)
 		}
 		started = started.Add(time.Second)
-		if err := AskForPush(context.Background(), drive, started); err != nil {
+		if err := AskForPush(context.Background(), drive, "dar-desk-3", started); err != nil {
 			t.Fatal(err)
 		}
 		return len(records(t, "blocker")) > 0
@@ -433,10 +428,58 @@ func TestKeepBlocksOnTheHostItPushesToNowAndOnlyOnAServesAsk(t *testing.T) {
 	}
 }
 
+func TestKeepPushesToEachHostThatAsksAndRefusesPerHostByName(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	host := &fakeHost{fail: map[string]bool{"-s pool-b ": true}, replies: map[string]shell.Result{"gh auth token": {Stdout: "gho_user\n"}}}
+	e, _ := envFor(t, host)
+	config := writeConfig(t, t.TempDir(), map[string]any{"drive": drive, "host": map[string]any{"sprite": "dar-desk-1", "secrets": map[string][]string{"GH_TOKEN": {"gh", "auth", "token"}}}})
+	ctx, stop := context.WithCancel(context.Background())
+	kept := make(chan error, 1)
+	go func() { kept <- e.Keep(ctx, config, 9181) }()
+	waitFor(t, "the first push", func() bool { return host.index("-s dar-desk-1 ") >= 0 })
+
+	asker := func(seq int64) string {
+		for _, ask := range records(t, askKind) {
+			if ask.Seq == seq {
+				return strings.Split(ask.ID, "/")[1]
+			}
+		}
+		return ""
+	}
+	started := t0
+	waitFor(t, "an answer and a blocker", func() bool {
+		for _, sprite := range []string{"dar-desk-4", "pool-b"} {
+			started = started.Add(time.Second)
+			if err := AskForPush(context.Background(), drive, sprite, started); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return len(records(t, "answer")) > 0 && len(records(t, "blocker")) > 0
+	})
+	stop()
+
+	if err := <-kept; err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("Keep = %v", err)
+	}
+	for _, answer := range records(t, "answer") {
+		if asker(answer.Resolves) != "dar-desk-4" || answer.Text != "pushed every credential to dar-desk-4" {
+			t.Fatalf("answer %+v", answer)
+		}
+	}
+	for _, blocker := range records(t, "blocker") {
+		if asker(blocker.Re) != "pool-b" || !strings.HasPrefix(blocker.Text, "desk-creds push to pool-b: GH_TOKEN did not reach it;") || strings.Contains(blocker.Text, "gho_user") {
+			t.Fatalf("blocker %+v", blocker)
+		}
+	}
+	if host.index("-s dar-desk-4 ") < 0 {
+		t.Fatalf("dar-desk-4 got no push: %+v", host.calls)
+	}
+}
+
 func TestARestartedServeAsksThePushLaneOncePerStart(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	for _, started := range []time.Time{t0, t0.Add(11 * time.Minute)} {
-		if err := AskForPush(context.Background(), drive, started); err != nil {
+		if err := AskForPush(context.Background(), drive, "dar-desk-1", started); err != nil {
 			t.Fatal(err)
 		}
 	}
