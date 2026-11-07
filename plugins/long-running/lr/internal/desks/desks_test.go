@@ -162,16 +162,16 @@ func TestTheCoordinatorRelaunchesEveryDownStandingDeskTheRegistryHolds(t *testin
 	}
 	all := m.lines("")
 	rebind := slices.Index(all, "lr relay rebind --config "+filepath.Join(state, "lr.json"))
-	first := slices.IndexFunc(all, func(line string) bool { return strings.HasPrefix(line, "desk-launch.py") })
+	first := slices.IndexFunc(all, func(line string) bool { return strings.HasPrefix(line, "lr launch") })
 	if rebind < 0 || first < rebind {
 		t.Fatalf("this terminal must take the Run before any desk launches: %q", all)
 	}
-	launched := m.lines("desk-launch.py lane")
+	launched := m.lines("lr launch lane")
 	if len(launched) != len(everyDesk) {
 		t.Fatalf("launched %q, want every standing desk in %q", launched, everyDesk)
 	}
 	for _, name := range everyDesk {
-		want := fmt.Sprintf("desk-launch.py lane %s-4 ", name)
+		want := fmt.Sprintf("lr launch lane %s-4 ", name)
 		suffix := fmt.Sprintf("%s --drive %s --lane %s", filepath.Join(state, name+"-4", "brief.md"), testDrive, lanes.Root)
 		if !slices.ContainsFunc(launched, func(line string) bool { return strings.HasPrefix(line, want) && strings.HasSuffix(line, suffix) }) {
 			t.Fatalf("no launch of %s-4 posted as the coordinator from its brief in %q", name, launched)
@@ -199,7 +199,7 @@ func TestOnlyAStandingDutyHeldByNoLiveLaneIsRelaunched(t *testing.T) {
 	if err := start(context.Background(), a, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if launched := m.lines("desk-launch.py"); len(launched) != 0 {
+	if launched := m.lines("lr launch"); len(launched) != 0 {
 		t.Fatalf("launched %q, want nothing: no down lane holds a duty of its own", launched)
 	}
 }
@@ -210,8 +210,8 @@ func TestADutyOnlyTheRowCarriesIsWrittenIntoTheSuccessorsBrief(t *testing.T) {
 	if err := start(context.Background(), a, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if launched := m.lines("desk-launch.py lane board-refresher-15 "); len(launched) != 1 {
-		t.Fatalf("launched %q, want board-refresher-15 once", m.lines("desk-launch.py"))
+	if launched := m.lines("lr launch lane board-refresher-15 "); len(launched) != 1 {
+		t.Fatalf("launched %q, want board-refresher-15 once", m.lines("lr launch"))
 	}
 	written, err := os.ReadFile(filepath.Join(state, "board-refresher-15", "brief.md"))
 	if err != nil || string(written) != "Standing: refresh the owner's cards\nccx: role=read place=remote\n" {
@@ -230,7 +230,7 @@ func TestADeskUpUnderAnyNumberIsNotStartedAgain(t *testing.T) {
 	if !strings.Contains(out.String(), "fidelity-desk is up as fidelity-desk-3") {
 		t.Fatalf("got %q", out.String())
 	}
-	if launched := m.lines("desk-launch.py lane fidelity-desk"); len(launched) != 0 {
+	if launched := m.lines("lr launch lane fidelity-desk"); len(launched) != 0 {
 		t.Fatalf("relaunched a live desk: %q", launched)
 	}
 	if rebound := m.lines("lr relay rebind"); len(rebound) != 1 {
@@ -248,8 +248,8 @@ func TestADownDeskRelaunchesUnderItsNextNameFromItsRecordedBrief(t *testing.T) {
 				t.Fatal(err)
 			}
 			successor := filepath.Join(dir, "fidelity-desk-4", "brief.md")
-			want := fmt.Sprintf("desk-launch.py lane fidelity-desk-4 opus medium %s --drive %s --lane %s", successor, testDrive, lanes.Root)
-			if launched := m.lines("desk-launch.py lane fidelity-desk"); !slices.Equal(launched, []string{want}) {
+			want := fmt.Sprintf("lr launch lane fidelity-desk-4 opus medium %s --drive %s --lane %s", successor, testDrive, lanes.Root)
+			if launched := m.lines("lr launch lane fidelity-desk"); !slices.Equal(launched, []string{want}) {
 				t.Fatalf("launched %q, want %q", launched, want)
 			}
 			if copied, err := os.ReadFile(successor); err != nil || string(copied) != onlyDeskBrief {
@@ -269,7 +269,7 @@ func TestADownDeskNeverTakesANameAnotherLanePostedUnder(t *testing.T) {
 	if err := start(context.Background(), a, &bytes.Buffer{}); err != nil {
 		t.Fatal(err)
 	}
-	if launched := m.lines("desk-launch.py lane red-sweep"); len(launched) != 1 || !strings.HasPrefix(launched[0], "desk-launch.py lane red-sweep-4 ") {
+	if launched := m.lines("lr launch lane red-sweep"); len(launched) != 1 || !strings.HasPrefix(launched[0], "lr launch lane red-sweep-4 ") {
 		t.Fatalf("got %q, want red-sweep-4 launched once", launched)
 	}
 }
@@ -293,7 +293,7 @@ func TestARoleWhoseRowPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
 			if err := start(context.Background(), a, &out); err != nil {
 				t.Fatal(err)
 			}
-			if launched := m.lines("desk-launch.py lane board-refresher"); len(launched) != 0 {
+			if launched := m.lines("lr launch lane board-refresher"); len(launched) != 0 {
 				t.Fatalf("launched a second board writer: %q", launched)
 			}
 			want := "board-refresher is up as board-refresher-7; launching another takes `lr request stand-down board-refresher-7 --successor <lane> --open '<items>'` first"
@@ -328,11 +328,11 @@ func TestADeskBriefOnTheMacWithNoMacNeedLaunchesRemoteAndAMissingBriefFaultsOnly
 		if strings.Contains(err.Error(), good) {
 			t.Fatalf("got %v, want only the bad desks named", err)
 		}
-		if launched := m.lines("desk-launch.py lane " + good + "-4 "); len(launched) != 1 {
+		if launched := m.lines("lr launch lane " + good + "-4 "); len(launched) != 1 {
 			t.Fatalf("%s launched %q, want once", good, launched)
 		}
 	}
-	if launched := m.lines("desk-launch.py lane"); len(launched) != 5 {
+	if launched := m.lines("lr launch lane"); len(launched) != 5 {
 		t.Fatalf("launched %q, want every desk with a brief", launched)
 	}
 }
@@ -344,13 +344,13 @@ func TestOneFailedLaunchIsNamedAndTheOthersStillRun(t *testing.T) {
 		rows = append(rows, name+"-3")
 	}
 	put(t, state, down(t, rows...)...)
-	m.refuse = "desk-launch.py lane red-sweep"
+	m.refuse = "lr launch lane red-sweep"
 	var out bytes.Buffer
 	err := start(context.Background(), a, &out)
 	if err == nil || !strings.Contains(err.Error(), "red-sweep-4:") {
 		t.Fatalf("got %v, want red-sweep named", err)
 	}
-	if launched := m.lines("desk-launch.py lane"); len(launched) != len(everyDesk) {
+	if launched := m.lines("lr launch lane"); len(launched) != len(everyDesk) {
 		t.Fatalf("got %q, want every launch tried", launched)
 	}
 	if !strings.Contains(out.String(), "LAUNCH-FAILED") {

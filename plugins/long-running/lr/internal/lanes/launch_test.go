@@ -81,7 +81,7 @@ func TestWithARunnerUpDriveStartPostsEachSessionsLaunchToItAsTheCommunicator(t *
 				t.Fatal(err)
 			}
 
-			equal(t, ran, append([]string{"/claude/long-running/current/bin/desk-launch.py", "lane", want.lane, want.model, want.effort, brief, "--drive", testDrive, "--lane", "owner-relay"}, want.role...))
+			equal(t, ran, append([]string{"/claude/long-running/current/bin/lr", "launch", "lane", want.lane, want.model, want.effort, brief, "--drive", testDrive, "--lane", "owner-relay"}, want.role...))
 		})
 	}
 }
@@ -111,7 +111,7 @@ func TestASubDrivesCoordinatorLaunchesOnOpus(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, ran[3:5], []string{"opus", "high"})
+	equal(t, ran[4:6], []string{"opus", "high"})
 }
 
 func TestASubDrivesCoordinatorLaunchedBeforeItCouldRegisterIsAdoptedOnOpus(t *testing.T) {
@@ -148,7 +148,7 @@ func TestASupervisorStartedFromAnotherLanesSessionLaunchesUnderItsOwnName(t *tes
 		t.Setenv(name, "pack-install-1")
 	}
 	claude, seen := t.TempDir(), filepath.Join(t.TempDir(), "seen")
-	launcher := filepath.Join(claude, "long-running", "current", "bin", "desk-launch.py")
+	launcher := filepath.Join(claude, "long-running", "current", "bin", "lr")
 	if err := os.MkdirAll(filepath.Dir(launcher), 0o750); err != nil {
 		t.Fatal(err)
 	}

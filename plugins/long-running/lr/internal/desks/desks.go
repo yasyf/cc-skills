@@ -164,5 +164,5 @@ func (d drive) launchOne(ctx context.Context, next owing) (string, error) {
 	if err := os.WriteFile(brief, next.text, 0o600); err != nil {
 		return "", err
 	}
-	return d.run(ctx, "desk-launch.py", "lane", next.lane, next.model, next.effort, brief, "--drive", d.config.Drive, "--lane", lanes.Root)
+	return d.run(ctx, "lr", "launch", "lane", next.lane, next.model, next.effort, brief, "--drive", d.config.Drive, "--lane", lanes.Root)
 }

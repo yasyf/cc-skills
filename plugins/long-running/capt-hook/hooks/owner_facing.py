@@ -60,7 +60,7 @@ ACTIVE = [CompactionState(active=True, coordinator=True)]
 INCIDENT_AUTHORITY = re.compile(r"\bIncident Turn\b")
 FIX_ROLE = "fix"
 INCIDENT_ROUTE = (
-    "Warning, nothing was blocked: Launch an incident fix lane with `desk-launch.py incident <name> <fix-brief>`. "
+    "Warning, nothing was blocked: Launch an incident fix lane with `lr launch incident <name> <fix-brief>`. "
     "Support briefs say `ccx: role=<role>`; a non-incident fix lane, `ccx: incident=none`."
 )
 READER_ROLE = "reader"
@@ -68,7 +68,7 @@ READER_NAME = re.compile(r"^(?:slack|alert)-[\w-]*\b(?:read|reader|look|thread)\
 ALERT_TALK = re.compile(r"\b(?:incident|outage|alert)s?\b", re.IGNORECASE)
 FIX_BESIDE_READER = (
     "Warning, nothing was blocked: a Slack or alert reader lane launches beside the incident fix lane, in the same turn. "
-    "Launch the fix now with `desk-launch.py incident <name> <fix-brief>`."
+    "Launch the fix now with `lr launch incident <name> <fix-brief>`."
 )
 REPLY_WINDOW = 256
 PUBLISH_CLAIM = re.compile(r"(?<!not )(?<!n't )\b(?:is|are|was|were|been|now|went|got)\s+(?:published|released|live|cut)\b", re.IGNORECASE)
@@ -134,7 +134,7 @@ PLAN_MODE_IN_INCIDENT = (
     "Warning, nothing was blocked: plan mode is forbidden while a customer-visible outage is open; the forward fix ships from the lane that holds it;"
     " replan after fix-live"
 )
-ROOT_PROBE = "Warning, nothing was blocked: during an incident the coordinator only spawns, routes, and acks: send this to a lane (desk-launch.py lane ...)"
+ROOT_PROBE = "Warning, nothing was blocked: during an incident the coordinator only spawns, routes, and acks: send this to a lane (lr launch lane ...)"
 PROBES = ("kubectl", "pup", "curl")
 PLAN_TALK = re.compile(r"\bplan[ -]?mode\b|\breplan\b", re.IGNORECASE)
 PLAN_CONDITIONAL = re.compile(
@@ -160,7 +160,7 @@ CAUSE_KINDS = {"go", "decision", "decide", "note", "report", "state", "incident"
 RECORD_REF = re.compile(r"#(\d{3,})\b")
 UNQUOTED_CAUSE = (
     "Warning, nothing was blocked: this coordinator record names a cause and quotes no lane record."
-    " Quote the lane `MECHANISM` record's `#<seq>`, or send the question to a lane with `desk-launch.py lane`."
+    " Quote the lane `MECHANISM` record's `#<seq>`, or send the question to a lane with `lr launch lane`."
 )
 RELEASE_PROBES = (("release", "start"), ("release", "status"), ("release", "watch"))
 INBOX_FILE = re.compile(r"/inbox/[\w.-]+\.md\b")
@@ -219,7 +219,7 @@ def spawn(name: str, prompt: str, **extra: object) -> Input:
     only_if=[Coordinator(), Tool("Agent")],
     skip_if=[FromSubagent(), Annotated("incident", "none")],
     tests=separate("owner_facing.route_incident_fix_lanes_to_sol", coordinator_tests({
-        spawn("pr-review-pipeline-fix", "CI incident, effort high."): Warn(pattern=r"desk-launch\.py incident <name> <fix-brief>"),
+        spawn("pr-review-pipeline-fix", "CI incident, effort high."): Warn(pattern=r"lr launch incident <name> <fix-brief>"),
         spawn("incident-api-1n80-fix", "Fix it."): Warn(),
         spawn("lane-failing-fix", INCIDENT_TURN): Warn(),
         spawn("api-1n80-fix", "ccx: role=fix\nFix the outage on api."): Warn(),
@@ -263,7 +263,7 @@ def read_beside(name: str, prompt: str, *siblings: object, earlier: tuple[object
     only_if=[Coordinator(), Tool("Agent")],
     skip_if=[FromSubagent()],
     tests=separate("owner_facing.launch_the_fix_beside_the_reader", coordinator_tests({
-        read_beside("outage-reader", OUTAGE_READ): Warn(pattern=r"same turn\. Launch the fix now with `desk-launch\.py incident <name> <fix-brief>`"),
+        read_beside("outage-reader", OUTAGE_READ): Warn(pattern=r"same turn\. Launch the fix now with `lr launch incident <name> <fix-brief>`"),
         read_beside("slack-read-outage-1", "Read the outage thread."): Warn(),
         read_beside("outage-reader", OUTAGE_READ, earlier=(T.tool("Bash", command=FIX_LAUNCH),)): Warn(),
         read_beside("outage-reader", OUTAGE_READ, T.tool("Bash", command=FIX_LAUNCH)): Allow(),

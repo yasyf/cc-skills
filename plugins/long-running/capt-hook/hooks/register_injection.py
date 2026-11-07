@@ -73,7 +73,7 @@ TENANT_EDGE_403 = re.compile(r"\b403s?\b")
 STAND_DOWN = re.compile(r"\bstand[- ]?down\b", re.IGNORECASE)
 NO_403_STAND_DOWN = (
     "Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s."
-    " Start it from the drive's `root/incident-template-fix.md` and launch it with `desk-launch.py incident <name> <brief>`, or mark a non-incident brief `ccx: incident=none`."
+    " Start it from the drive's `root/incident-template-fix.md` and launch it with `lr launch incident <name> <brief>`, or mark a non-incident brief `ccx: incident=none`."
 )
 ALERT_BRIEF = "Datadog monitor 100000001 fired on POST /api/sessions.\n1. Classify the failing requests.\n2. Fix it.\n"
 STANDS_DOWN = ALERT_BRIEF.replace("2. Fix it.", "2. If they are tenant-edge 403s, post STAND-DOWN and stop.\n3. Fix it.")
@@ -324,7 +324,7 @@ class SpawnedByABuildLane:
         spawn("rewrite-worker", "Rewrite the incident section of the skill.", env=DRIVE_CONFIG | {DRIVE_LANE_ENV: "skill-sweep-1"}): Allow(),
         spawn("api-fix", ALERT_BRIEF, env=DRIVE_CONFIG | {DRIVE_LANE_ENV: "alerts-desk-3"}): Warn(),
         spawn("rewrite-worker", "Rewrite the incident section of the skill."): Warn(),
-        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*desk-launch\.py incident <name> <brief>"),
+        spawn("api-sessions-fix", ALERT_BRIEF): Warn(pattern=r"^Warning, nothing was blocked: an alert or incident brief needs a step that stands down on tenant-edge 403s[\s\S]*lr launch incident <name> <brief>"),
         spawn("api-sessions-fix", STANDS_DOWN): Allow(),
         spawn("lane-a", SLICED): Allow(),
         spawn("incident-api-fix", "Fix it."): Warn(),

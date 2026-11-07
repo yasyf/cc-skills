@@ -18,6 +18,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
@@ -51,7 +52,7 @@ const (
 	terminalCreateAttempts = 3
 	saidEvery              = 30
 	spritePreamble         = " The dispatch preamble's line against posting to GitHub or other channels means status chatter, so the brief's PR steps stand. GitHub is `gh`, which reads its token from your environment, one hourly budget shared by every lane on this Sprite: wait on a PR's CI with `ccx vcs pr watch <owner/name#number> --until ci`, which batches one query per machine, and never with `pr-poll.sh` or a `gh` loop. This Sprite has no yarn and no node_modules, so typecheck the TypeScript you touched with `ts-delta.sh <package>`, which prints the errors your change adds; errors that come from an npm package's own types are left to CI. Typecheck the Go you touched with `lr go-delta`, which prints every type error in those packages and their tests except the ones from code this checkout lacks, such as the generated sandsql/component and sand/proto packages or a module outside its sparse set. This Sprite has no Slack tool and no connector gateway, so never wait on one: read a Slack thread through the cci records addressed to you or ask root to read it, and send Slack only by asking owner-relay over cci. There is no Gemini key here either: write your own PR text, and hand any long-form copy that AGENTS.md routes to gemini-4-argon (docs, retros, Slack copy) as facts to owner-relay or a Mac lane, which runs gemini on the Mac."
-	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to bk-desk \"bk build <pipeline> <number>\"`, or `bk builds <pipeline> --branch <glob> --since <date>`, or `bk jobs <pipeline> <number>`, or `bk annotations <pipeline> <number> [<context>]`, or `bk log <pipeline> <number> <job id, or step key and its N/M from bk jobs for a parallel step> [--grep '<regex>'] [--context <n>]`, which for a failed job answers its failures with the lines around them, or `bk api <path> [--fields <name,parent.child>]`; the answer arrives within about two minutes and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
+	spriteBuildkite        = " tools/ci bk does not run on this Sprite. To read Buildkite, post `cci post --kind ask --to " + bk.Lane + " '<read>'`, one read per ask, written as exactly one of " + bk.Reads + "; any other wording, such as a question in prose, is refused. For a failed job, bk log answers its failures with the lines around them. The answer arrives within about two minutes and `cci show <seq>` prints its body. Ask once per need, never in a polling loop."
 	standingDesk           = " Standing desk: loop until rotation; setup and quiet cycles are not done. Send worker_done only at rotation, naming the handoff doc. Mail reaches you only between tool calls, so no foreground command runs over five minutes: run a long read in the background and report it by record."
 	seededStore            = " This Sprite's cci store fills from a copy of the Mac's store, and the relay brings each record posted after it joined, so never run `cci relay sync`: it walks every origin for minutes and finds nothing that copy lacks. While `sprite-env services list` shows `store-seed`, the copy is still landing, so check on the Mac before you report a record absent."
 	noPRLine               = " This brief orders no PR: push the work as a branch and never open a PR for it."
@@ -786,7 +787,7 @@ func (l *launch) composeSpec() error {
 }
 
 func (l *launch) checkBinding() error {
-	l.rebind = fmt.Sprintf("post the launch to the drive's orca runner, whose terminal coordinates the Run: desk-launch.py lane %s %s %s %s; a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id %s", l.lane, l.model, l.effort, l.brief, l.run)
+	l.rebind = fmt.Sprintf("post the launch to the drive's orca runner, whose terminal coordinates the Run: lr launch lane %s %s %s %s; a drive with no runner rebinds from its coordinator's Orca terminal: orca orchestration run-use --id %s", l.lane, l.model, l.effort, l.brief, l.run)
 	said, _ := l.saved(".binding.json", "orca", orchestration, "run-current", "--full", "--json")
 	var current struct {
 		Result struct {

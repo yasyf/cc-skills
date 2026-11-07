@@ -1,4 +1,4 @@
-"""Which lane briefs owe a `Scale:` line, read the same way by the Agent spawn hook and the orca desk runner, which each warn and never refuse, and by `desk-launch.py`, which refuses before it posts.
+"""Which lane briefs owe a `Scale:` line, read the same way by the Agent spawn hook and the orca desk runner, which each warn and never refuse, and by `lr launch`, which refuses before it posts.
 
 A new lane brief carries one; a handoff writer (`<lane>-handoff`), a successor (`<lane>-<n>` with n >= 2, or a brief
 with a `Replaces: <lane>` line), and a brief file last written before the rule existed never owe it, since each

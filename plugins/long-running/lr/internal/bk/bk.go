@@ -24,8 +24,9 @@ import (
 )
 
 const (
-	Lane = "bk-desk"
-	Duty = "answers lanes' Buildkite reads over cci"
+	Lane  = "bk-desk"
+	Duty  = "answers lanes' Buildkite reads over cci"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
 
 	fresh       = time.Minute
 	readTimeout = 5 * time.Minute
@@ -39,7 +40,7 @@ const (
 	failureMark = `--- FAIL|panic:|FAIL\s`
 	maxContext  = 50
 	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
-	usage       = "name one read: bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
+	usage       = "name one read: " + Reads
 )
 
 var (
