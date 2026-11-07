@@ -41,6 +41,18 @@ type depShell struct {
 	redrawn      []map[string]any
 	refuse       string
 	refuseRedraw string
+	owners       map[string]string
+}
+
+func (f *depShell) owned(c shell.Command, card string) error {
+	lane := c.Argv[slices.Index(c.Argv, "--lane")+1]
+	if owner := f.owners[card]; owner != "" && owner != lane && !slices.Contains(c.Argv, "--take-over") {
+		return &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: fmt.Sprintf("refusing to write card %q: lane %s owns it", card, owner)}
+	}
+	if f.owners != nil {
+		f.owners[card] = lane
+	}
+	return nil
 }
 
 func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -68,11 +80,16 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 		for _, card := range f.board {
 			blocks = append(blocks, card)
 		}
-		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}})
+		encoded, err := json.Marshal(map[string]any{"doc": map[string]any{"blocks": blocks}, "owners": f.owners})
 		return shell.Result{Stdout: string(encoded)}, err
 	case strings.Contains(argv, "remove-block"):
 		if f.refuse != "" {
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: f.refuse}
+		}
+		if f.owners != nil {
+			if err := f.owned(c, c.Argv[2]); err != nil {
+				return shell.Result{Code: 1}, err
+			}
 		}
 		f.removed = append(f.removed, c.Argv[2])
 		f.reasons = append(f.reasons, c.Argv[slices.Index(c.Argv, "--reason")+1])
@@ -90,6 +107,9 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 		var card map[string]any
 		if err := json.Unmarshal([]byte(c.Stdin), &card); err != nil {
 			return shell.Result{}, err
+		}
+		if err := f.owned(c, card["id"].(string)); err != nil {
+			return shell.Result{Code: 1}, err
 		}
 		f.redrawn = append(f.redrawn, card)
 		return shell.Result{}, nil
@@ -451,7 +471,7 @@ func TestAnUnsureJudgeKeepsTheCardAndFlagsItToItsLane(t *testing.T) {
 	}
 }
 
-func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
+func TestARecheckWriteOnAnUnownedCardNamesItselfAndNeverTakesTheCardOver(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()
 	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
@@ -464,8 +484,8 @@ func TestARecheckWriteNamesItselfAndTakesTheCardOver(t *testing.T) {
 		t.Fatal(err)
 	}
 	i := slices.IndexFunc(f.shell.calls, func(call string) bool { return strings.Contains(call, "update-block") })
-	if i < 0 || !strings.Contains(f.shell.calls[i], "--lane board-watch --take-over") {
-		t.Fatalf("calls = %v, want --lane board-watch --take-over", f.shell.calls)
+	if i < 0 || !strings.HasSuffix(f.shell.calls[i], "--lane board-watch") {
+		t.Fatalf("calls = %v, want the redraw to name board-watch and take nothing over", f.shell.calls)
 	}
 }
 
@@ -489,6 +509,28 @@ func TestARulingRecheckReachesTheRootThatDrewACardAndWithdrawsItsTapToRoot(t *te
 	}
 	if !slices.ContainsFunc(f.posts, func(p posted) bool { return p.kind == "withdraw" && slices.Equal(p.to, []string{"root"}) }) {
 		t.Fatalf("posts = %+v, want the tap's withdraw posted to root", f.posts)
+	}
+}
+
+func TestARedrawKeepsTheCardWithTheLaneThatDrewItSoThatLaneCanStillWithdrawIt(t *testing.T) {
+	f := newDeps(t, lookupsDoc)
+	f.shell.owners = map[string]string{lookupsCard: "owner-relay"}
+	ctx := context.Background()
+	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.postgresRuling(t)
+	f.says(lookupsCard, premiseKind, "yes", "Lookups now read Postgres.")
+	f.says(lookupsCard, decidedKind, "no", "whether to merge is still open")
+	moved, err := f.Ruling(ctx, []string{postgresRule})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 1 || moved[0].How != "redrew" || f.shell.owners[lookupsCard] != "owner-relay" {
+		t.Fatalf("moved = %v, owner = %q; want the card redrawn and still owner-relay's", moved, f.shell.owners[lookupsCard])
+	}
+	if _, err := f.shell.Run(ctx, shell.Command{Argv: []string{"cc-present", "remove-block", lookupsCard, "--session", "s1", "--reason", "edited", "--lane", "owner-relay"}}); err != nil {
+		t.Fatalf("owner-relay's withdraw after the redraw: %v", err)
 	}
 }
 

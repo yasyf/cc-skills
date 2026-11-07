@@ -86,8 +86,9 @@ func URLs(started string) (url, tailnet string) {
 }
 
 type liveDoc struct {
-	Rev int64                      `json:"rev"`
-	Doc map[string]json.RawMessage `json:"doc"`
+	Rev    int64                      `json:"rev"`
+	Doc    map[string]json.RawMessage `json:"doc"`
+	Owners map[string]string          `json:"owners"`
 }
 
 type entry struct {
@@ -95,7 +96,7 @@ type entry struct {
 	raw json.RawMessage
 }
 
-func Fit(ctx context.Context, runner shell.Runner, e drive.Entry, id string, card []byte) error {
+func Fit(ctx context.Context, runner shell.Runner, e drive.Entry, lane, id string, card []byte) error {
 	read, err := runner.Run(ctx, shell.Command{
 		Argv:    []string{"cc-present", "outcomes", "--all", "--session", Session(e)},
 		Dir:     e.Checkout,
@@ -144,7 +145,7 @@ func Fit(ctx context.Context, runner shell.Runner, e drive.Entry, id string, car
 		switch {
 		case b.id == Banner:
 			size -= len(b.raw) + 1
-		case b.id == Section || b.id == id || size <= Budget/2:
+		case b.id == Section || b.id == id || size <= Budget/2 || cmp.Or(live.Owners[b.id], lane) != lane:
 			kept = append(kept, b)
 		default:
 			rolled = append(rolled, b)
@@ -178,7 +179,7 @@ func Fit(ctx context.Context, runner shell.Runner, e drive.Entry, id string, car
 		}
 		rolled = rolled[n:]
 	}
-	return push(ctx, runner, e, live, kept, rolls)
+	return push(ctx, runner, e, lane, live, kept, rolls)
 }
 
 func archive(ctx context.Context, runner shell.Runner, e drive.Entry, version json.RawMessage, link string, n int, replies []entry) (Archive, error) {
@@ -215,7 +216,7 @@ func archive(ctx context.Context, runner shell.Runner, e drive.Entry, version js
 	return Archive{N: n, Session: session, URL: url, Tailnet: tailnet, Replies: len(replies)}, nil
 }
 
-func push(ctx context.Context, runner shell.Runner, e drive.Entry, live liveDoc, kept []entry, archives []Archive) error {
+func push(ctx context.Context, runner shell.Runner, e drive.Entry, lane string, live liveDoc, kept []entry, archives []Archive) error {
 	listed := make([]string, 0, len(archives))
 	for _, a := range slices.Backward(archives) {
 		listed = append(listed, fmt.Sprintf("[Archive %d](%s) (%d replies)", a.N, cmp.Or(a.Tailnet, a.URL), a.Replies))
@@ -244,7 +245,7 @@ func push(ctx context.Context, runner shell.Runner, e drive.Entry, live liveDoc,
 		return err
 	}
 	_, err = runner.Run(ctx, shell.Command{
-		Argv:    []string{"cc-present", "push", "-", "--session", Session(e), "--rev", strconv.FormatInt(live.Rev, 10), "--round", "current"},
+		Argv:    []string{"cc-present", "push", "-", "--session", Session(e), "--rev", strconv.FormatInt(live.Rev, 10), "--round", "current", "--lane", lane},
 		Stdin:   string(body),
 		Dir:     e.Checkout,
 		Timeout: timeout,
