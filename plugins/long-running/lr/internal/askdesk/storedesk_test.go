@@ -39,6 +39,20 @@ func TestTheStoreDeskRunsOnlyAListedVerbAndNamesTheCardPathsWhenAskedForACard(t 
 	}
 }
 
+func TestTheStoreDeskRunsOwnerPromptsSoASpriteLaneReadsTheMacsCaptures(t *testing.T) {
+	var ran []string
+	read := StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, _ string) (string, string, int, error) {
+		ran = argv
+		return "{\"digest\": \"72d2b9383e1ac624\"}\n", "", 0, nil
+	})
+
+	answer := read(context.Background(), `{"verb": "owner prompts", "args": ["--since=629293ae14388dc9", "--"]}`)
+
+	if want := []string{"owner", "prompts", "--config", "/mac/lr.json", "--since=629293ae14388dc9", "--"}; !slices.Equal(ran, want) || strings.HasPrefix(answer.Head, failedRead) {
+		t.Fatalf("the desk ran %q and answered %q, want %q run", ran, answer.Head, want)
+	}
+}
+
 func TestANumberedLaneReadsTheStoreDesksAnswerAddressedToIt(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	registry := `{"brief":"brief.md","notice_to":"root"}` + "\n"

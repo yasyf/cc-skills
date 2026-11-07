@@ -54,6 +54,7 @@ var StoreVerbs = []string{
 	"lanes",
 	HandoffRegistryVerb,
 	"owner audit",
+	"owner prompts",
 	"request",
 	"route",
 	"rules check-pr",
