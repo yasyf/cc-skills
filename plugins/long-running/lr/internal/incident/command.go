@@ -1,6 +1,7 @@
 package incident
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
@@ -26,7 +27,7 @@ func Command(a *app.App) *cobra.Command {
 		Use:   "incident",
 		Short: "Launch an incident's lanes and read its state from the bus",
 	}
-	cmd.AddCommand(runCommand(a))
+	cmd.AddCommand(runCommand(a), writtenCommand(a))
 	cmd.AddCommand(update.IncidentCommands(a)...)
 	return cmd
 }
@@ -61,5 +62,27 @@ func runCommand(a *app.App) *cobra.Command {
 	if err := cmd.MarkFlagRequired("fix-brief"); err != nil {
 		panic(err)
 	}
+	return cmd
+}
+
+func writtenCommand(a *app.App) *cobra.Command {
+	var since time.Duration
+	cmd := &cobra.Command{
+		Use:   "written",
+		Short: "Each incident this machine's action store wrote within --since, with its target, alert, repair PR and not-ours facts, as JSON",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			root, err := DefaultRoot()
+			if err != nil {
+				return err
+			}
+			written, err := Store{Root: root}.WrittenSince(a.Now().Add(-since))
+			if err != nil {
+				return err
+			}
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(written)
+		},
+	}
+	cmd.Flags().DurationVar(&since, "since", 6*time.Hour, "how long ago the oldest write it reports may be")
 	return cmd
 }

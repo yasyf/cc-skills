@@ -247,6 +247,34 @@ func TestFactsReadOnlyTheNamedKeys(t *testing.T) {
 	}
 }
 
+func TestWrittenSinceReadsOnlyIncidentsWrittenInTheWindow(t *testing.T) {
+	s := created(t, map[string]any{"kind": "alert", "target": "executor", "alert": "Datadog 333856815", "repair_pr": 41555, "runbook": "5dbc941"})
+	if err := s.Create(newIncident("i0", map[string]any{"target": "api"})); err != nil {
+		t.Fatal(err)
+	}
+	for id, written := range map[string]time.Time{"i0": storeNow.Add(-7 * time.Hour), "i1": storeNow.Add(-time.Hour)} {
+		path, err := s.Path(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, written, written); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := s.WrittenSince(storeNow.Add(-6 * time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Written{{Header: newIncident("i1", nil).Header, Facts: WrittenFacts{Target: "executor", Alert: "Datadog 333856815", RepairPR: 41555}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("WrittenSince = %+v, want %+v", got, want)
+	}
+	none, err := Store{Root: filepath.Join(t.TempDir(), "absent")}.WrittenSince(storeNow.Add(-6 * time.Hour))
+	if err != nil || len(none) != 0 || none == nil {
+		t.Fatalf("WrittenSince on a machine with no store = %#v, %v; want an empty list", none, err)
+	}
+}
+
 func TestSettingADictReplacesItsChildrenAndCounts(t *testing.T) {
 	s := created(t, map[string]any{"accounting": map[string]any{"rerun": 1, "nested": map[string]any{"a": 1}}})
 	if err := s.Input("i1", func(tx *Tx) error {
