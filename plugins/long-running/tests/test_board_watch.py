@@ -114,6 +114,9 @@ class RecordedShell(board_watch.Shell):
     def posted(self, name: str, kind: str = "owner") -> list[str]:
         return [post[post.index(name) + 1] for post in self.posts if name in post and post[post.index("--kind") + 1] == kind]
 
+    def owned(self) -> list[list[str]]:
+        return [post for post in self.posts if post[post.index("--kind") + 1] == "owner"]
+
 
 def run(state: Path, shell: board_watch.Shell | None = None) -> list[dict]:
     assert board_watch.main(["start", "--session", SESSION, "--program", "brook", "--state-dir", str(state)], shell or RecordedShell()) == 0
@@ -378,7 +381,7 @@ def test_a_merge_tap_names_the_head_and_resolves_only_open_asks_on_that_row(tmp_
         "Owner on board board-1, merge-prs: 202 rejected at 413b38e noted \u201csplit it\u201d",
     ]
     assert shell.posted("--resolves-seq") == ["11", "12"]
-    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=101"], ["--pr=202"]]
+    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.owned()] == [["--pr=101"], ["--pr=202"]]
 
 
 def test_a_tap_resolves_open_asks_naming_its_block_or_card_but_not_a_longer_id(tmp_path: Path) -> None:
@@ -479,29 +482,15 @@ def test_a_structured_tap_reaches_root_and_not_owner_relay_as_an_owner_record_wi
     assert shell.ledger == [(["owner", "add", "--drive", "brook", "--state", "addressed", "--routed", "77"], f"{QUESTION}: picked \u201cYes, read-only\u201d")]
 
 
-def test_ten_taps_reach_owner_relay_as_one_summary_line_and_the_eleventh_waits_for_its_batch(tmp_path: Path) -> None:
+def test_each_tap_reaches_owner_relay_once_as_it_arrives_with_its_pacific_time(tmp_path: Path) -> None:
     shell = RecordedShell()
-    shell.watch = lambda session: iter([TAP] * 11)
+    shell.watch = lambda session: iter([TAP] * 2)
     run(tmp_path, shell)
 
-    assert shell.posted("--to") == ["root"] * 11
-    assert (shell.posted("--to", "note"), shell.posted("--topic", "note")) == (["owner-relay"], ["tap-batch"])
-    assert shell.posted("--text", "note") == ["The owner made 10 taps on board board-1, each already with the coordinator, at the time each names: " + "; ".join([f"{QUESTION.removeprefix('Owner on board board-1, ')}: picked \u201cYes, read-only\u201d ({TAPPED})"] * 10)]
-    assert (tmp_path / "boards" / f"{SESSION}-taps.jsonl").read_text().count("\n") == 1
-
-
-def test_a_tap_batch_leaves_out_a_card_that_has_left_the_board_and_posts_nothing_when_all_have(tmp_path: Path) -> None:
-    class Withdrawn(RecordedShell):
-        def shown(self, session: str, block: str) -> dict | None:
-            return super().shown(session, block) | {"onBoard": False}
-
-    shell = Withdrawn()
-    shell.watch = lambda session: iter([TAP] * 10)
-    run(tmp_path, shell)
-
-    assert shell.posted("--to") == ["root"] * 10
-    assert shell.posted("--topic", "note") == []
-    assert (tmp_path / "boards" / f"{SESSION}-taps.jsonl").read_text() == ""
+    assert shell.posted("--to") == ["root"] * 2
+    assert (shell.posted("--to", "note"), shell.posted("--topic", "note")) == (["owner-relay"] * 2, ["tap"] * 2)
+    assert shell.posted("--text", "note") == [f"The owner tapped on board board-1 at {TAPPED}, already with the coordinator: {QUESTION.removeprefix('Owner on board board-1, ')}: picked \u201cYes, read-only\u201d"] * 2
+    assert len(set(shell.posted("--id", "note"))) == 2
 
 
 def test_a_write_in_reaches_owner_relay_alone_resolves_nothing_and_opens_a_row(tmp_path: Path) -> None:
@@ -553,11 +542,11 @@ def test_a_triage_tap_posts_one_record_per_row_with_its_block_row_verdict_and_he
     shell.watch = lambda session: iter(['{"blockId":"merge-prs","schemaVersion":1,"type":"triage.decided","verdicts":{"202":{"verdict":"approved","head":"413b38e"},"merge-row-101":{"verdict":"rejected"}}}\n'])
     run(tmp_path, shell)
 
-    assert [attrs(post) for post in shell.posts] == [
+    assert [attrs(post) for post in shell.owned()] == [
         {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "202", "verdict": "approved", "head": "413b38e", "answer": "structured"},
         {"event": "triage.decided", "session": SESSION, "block": "merge-prs", "row": "merge-row-101", "verdict": "rejected", "head": "abc1234", "answer": "structured"},
     ]
-    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.posts] == [["--pr=202"], ["--pr=101"]]
+    assert [[arg for arg in post if arg.startswith("--pr=")] for post in shell.owned()] == [["--pr=202"], ["--pr=101"]]
     assert sorted(shell.spawned) == ["apply_writes", "keep_snapshot"]
 
 

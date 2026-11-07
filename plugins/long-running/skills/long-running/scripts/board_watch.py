@@ -40,9 +40,7 @@ names the block, its card, or the merge row (`merge-row-<pr>` or `merge:<pr>`); 
 write-in, a note, an input, any other reply) goes to `owner-relay` alone and resolves nothing, since
 the communicator routes it; `none` (a submit, an emptied choice) goes to the coordinator. Each answer also adds a row
 to the communicator's owner ledger: `lr owner add` writes it `addressed` at its record for `structured`, and `lr owner received` writes
-`noted` and `free-text` due at their deadline, with the acknowledgement he reads on that row and in chat. The communicator hears of taps only in batches: every tenth
-`structured` answer on a board posts one `note` to `owner-relay` on topic `tap-batch`, a single line
-naming those ten with the Pacific time of each, which `<state dir>/boards/<session>-taps.jsonl` holds until the tenth arrives; a tap whose card has left the board by then is left out of the line, and a batch whose cards have all left posts nothing. Its idempotency key is the event's line number
+`noted` and `free-text` due at their deadline, with the acknowledgement he reads on that row and in chat. Each `structured` answer also posts one `note` to `owner-relay` on topic `tap` the moment it arrives, naming the tap and its Pacific time. Its idempotency key is the event's line number
 in the events file plus a hash of the line, so a restart that resumes from the watch's cursor
 never posts an event twice. Each record carries attributes a reader takes without parsing the
 text: `event`, `session` and `block`; a decision's `verdict`; a pick's `picked` option ids,
@@ -165,8 +163,7 @@ FREE_TEXT = "free-text"
 NO_ANSWER = "none"
 LANE_PICKS = frozenset({"choice.selected", "pack.interaction"})
 ANSWER_TO = {STRUCTURED: "root", NOTED: f"root,{RELAY_LANE}", FREE_TEXT: RELAY_LANE, NO_ANSWER: "root"}
-TAPS_PER_LINE = 10
-TAP_TOPIC = "tap-batch"
+TAP_TOPIC = "tap"
 CCN_SECONDS = 60
 
 
@@ -434,7 +431,7 @@ def open_asks(shell: Shell, bus: Bus, names: list[str]) -> list[dict]:
     return [asks[seq] for seq in sorted(asks)]
 
 
-def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> list[dict]:
+def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shell, bus: Bus) -> list[str]:
     key = f"board:{session}:{bus.lines}:{hashlib.sha256(line.encode()).hexdigest()[:8]}"
     block = event.get("blockId", "")
     fields = {"event": event["type"], "session": session, "block": block}
@@ -446,7 +443,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
             pr = board_rows.pr_of(row)
             answer = answer_of(single, session, shell)
             post_owner(shell, bus, f"{key}:{row}", announced(single, session, doc), block, named(single, doc), [pr] if pr else [], fields | {"row": row, "verdict": entry["verdict"], "head": entry.get("head") or heads.get(row) or ""}, answer)
-            taps += [{"block": block, "tap": f"{place(doc, block)}: {told(single, doc)}"}] if answer == STRUCTURED else []
+            taps += [f"{place(doc, block)}: {told(single, doc)}"] if answer == STRUCTURED else []
         return taps
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
@@ -464,27 +461,16 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
             print(f"board-watch {session}: the cards resting on {card} were not re-checked: {done.stderr.strip()}", flush=True)
         unclaimed = answer == STRUCTURED and event["type"] in LANE_PICKS and shell.root_session(bus.drive) in (None, session)
         wake_lane(card or block, block, words, key, seq, unclaimed, session, shell, bus)
-    return [{"block": block, "tap": f"{place(doc, block)}: {told(event, doc)}"}] if answer == STRUCTURED else []
+    return [f"{place(doc, block)}: {told(event, doc)}"] if answer == STRUCTURED else []
 
 
-def batch_taps(taps: list[dict], pending: Path, session: str, shell: Shell, bus: Bus) -> None:
-    if not taps:
-        return
+def note_taps(taps: list[str], session: str, shell: Shell, bus: Bus) -> None:
     when = shell.now().astimezone(answer_rows.PACIFIC).strftime("%b %-d %-I:%M %p PT")
-    with pending.open("a") as sink:
-        sink.writelines(f"{json.dumps(tap | {'at': when}, ensure_ascii=False)}\n" for tap in taps)
-    held = [json.loads(line) for line in pending.read_text().splitlines() if line.strip()]
-    batches = len(held) // TAPS_PER_LINE
-    for index in range(batches):
-        shown = [tap for tap in held[index * TAPS_PER_LINE : (index + 1) * TAPS_PER_LINE] if (shell.shown(session, tap["block"]) or {}).get("onBoard")]
-        if not shown:
-            continue
-        text = f"The owner made {len(shown)} taps on board {session[:8]}, each already with the coordinator, at the time each names: " + "; ".join(f"{' '.join(tap['tap'].split())} ({tap['at']})" for tap in shown)
+    for index, tap in enumerate(taps):
+        text = f"The owner tapped on board {session[:8]} at {when}, already with the coordinator: {' '.join(tap.split())}"
         argv = ["post", "--drive", bus.drive, "--lane", BUS_LANE, "--kind", "note", "--to", RELAY_LANE, "--topic", TAP_TOPIC, "--id", f"{TAP_TOPIC}:{session}:{bus.lines}:{index}", *attr_args({"session": session}), "--text", CREDENTIAL.sub(REDACTED, text)]
         if (done := shell.cci(argv)).returncode:
-            print(f"board-watch {session}: the tap batch did not post: {done.stderr.strip()}", flush=True)
-    if batches:
-        pending.write_text("".join(f"{json.dumps(tap, ensure_ascii=False)}\n" for tap in held[batches * TAPS_PER_LINE :]))
+            print(f"board-watch {session}: the tap note did not post: {done.stderr.strip()}", flush=True)
 
 
 def answer_of(event: dict, session: str, shell: Shell) -> str:
@@ -697,7 +683,7 @@ def record(line: str, state: Path, session: str, shell: Shell, seen: set[str], b
     if owner and ((doc if event.get("blockId") else (shell.outcomes(session) or {}).get("doc")) or {}).get("proof"):
         return
     if owner:
-        batch_taps(announce(event, line, session, doc, shell, bus), state / BOARDS / f"{session}-taps.jsonl", session, shell, bus)
+        note_taps(announce(event, line, session, doc, shell, bus), session, shell, bus)
     with (state / CAPTURES).open("a") as sink:
         for capture in captures(event, session, doc, shell.now(), bus.lines):
             if capture["digest"] not in seen:
