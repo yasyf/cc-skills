@@ -55,9 +55,10 @@ var (
 )
 
 type Settings struct {
-	CLI          string   `json:"cli"`
-	Checkout     string   `json:"checkout"`
-	TokenCommand []string `json:"token_command"`
+	CLI               string   `json:"cli"`
+	Checkout          string   `json:"checkout"`
+	TokenCommand      []string `json:"token_command"`
+	RetryTokenCommand []string `json:"retry_token_command"`
 }
 
 func LoadSettings(path string) (Settings, error) {
@@ -66,8 +67,8 @@ func LoadSettings(path string) (Settings, error) {
 		return Settings{}, err
 	}
 	var s Settings
-	if err := json.Unmarshal(raw, &s); err != nil || strings.TrimSpace(s.CLI) == "" || s.Checkout == "" || len(s.TokenCommand) == 0 {
-		return Settings{}, fmt.Errorf("%s needs cli, checkout and token_command, the command that prints this host's read-only Buildkite token", path)
+	if err := json.Unmarshal(raw, &s); err != nil || strings.TrimSpace(s.CLI) == "" || s.Checkout == "" || len(s.TokenCommand) == 0 || len(s.RetryTokenCommand) == 0 {
+		return Settings{}, fmt.Errorf("%s needs cli, checkout, token_command, the command that prints this host's read-only Buildkite token, and retry_token_command, the one that prints the token bk retry writes with", path)
 	}
 	return s, nil
 }
@@ -87,23 +88,35 @@ type Desk struct {
 	Now      func() time.Time
 	Log      io.Writer
 
-	token string
-	cache map[string]reply
+	token, retryToken string
+	cache             map[string]reply
 }
 
 func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive, state string, now func() time.Time, log io.Writer) (*Desk, error) {
-	printed, err := runner.Run(ctx, shell.Command{Argv: settings.TokenCommand, Timeout: tokenWait})
+	token, err := printToken(ctx, runner, settings.TokenCommand)
 	if err != nil {
-		return nil, fmt.Errorf("the Buildkite token command failed: %w", err)
+		return nil, err
 	}
-	token := strings.TrimSpace(printed.Stdout)
-	if token == "" {
-		return nil, errors.New("the Buildkite token command printed nothing")
+	retryToken, err := printToken(ctx, runner, settings.RetryTokenCommand)
+	if err != nil {
+		return nil, err
 	}
 	return &Desk{
 		Runner: runner, CLI: strings.Fields(settings.CLI), Checkout: settings.Checkout, Drive: drive,
-		Bodies: filepath.Join(state, bodiesDir), Now: now, Log: log, token: token, cache: map[string]reply{},
+		Bodies: filepath.Join(state, bodiesDir), Now: now, Log: log, token: token, retryToken: retryToken, cache: map[string]reply{},
 	}, nil
+}
+
+func printToken(ctx context.Context, runner shell.Runner, argv []string) (string, error) {
+	printed, err := runner.Run(ctx, shell.Command{Argv: argv, Timeout: tokenWait})
+	if err != nil {
+		return "", fmt.Errorf("the Buildkite token command %s failed: %w", argv[0], err)
+	}
+	token := strings.TrimSpace(printed.Stdout)
+	if token == "" {
+		return "", fmt.Errorf("the Buildkite token command %s printed nothing", argv[0])
+	}
+	return token, nil
 }
 
 func (d *Desk) Serve(ctx context.Context, claude string) error {
@@ -273,7 +286,7 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 		}
 		return summary(said)
 	case "retry":
-		said, failure := d.run(ctx, "api", "-no-wait", "-X", "PUT", "/pipelines/"+args[1]+"/builds/"+args[2]+"/jobs/"+args[3]+"/retry")
+		said, failure := d.runAs(ctx, d.retryToken, "api", "-no-wait", "-X", "PUT", "/pipelines/"+args[1]+"/builds/"+args[2]+"/jobs/"+args[3]+"/retry")
 		if failure != nil {
 			return *failure
 		}
@@ -378,9 +391,13 @@ func fieldText(row any, path string) string {
 }
 
 func (d *Desk) run(ctx context.Context, args ...string) (string, *reply) {
+	return d.runAs(ctx, d.token, args...)
+}
+
+func (d *Desk) runAs(ctx context.Context, token string, args ...string) (string, *reply) {
 	result, err := d.Runner.Run(ctx, shell.Command{
 		Argv: slices.Concat(d.CLI, args), Dir: d.Checkout,
-		Env: []string{"BUILDKITE_TOKEN=" + d.token}, Timeout: readTimeout, Idempotent: true,
+		Env: []string{"BUILDKITE_TOKEN=" + token}, Timeout: readTimeout, Idempotent: true,
 	})
 	if err == nil {
 		return result.Stdout, nil
