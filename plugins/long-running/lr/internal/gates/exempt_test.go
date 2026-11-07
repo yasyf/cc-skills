@@ -384,19 +384,26 @@ func TestAPortItsBodyOrASilentHeadRecordNamesLandsWithNoTapOnlyWhenFidelityGrade
 	next := []string{"go/sand/next/internal/platformapi/oauth.go"}
 	for name, c := range map[string]struct {
 		grade string
+		desk  string
 		attrs string
 		body  string
 		want  string
 	}{
-		"#52183: its body names the source and fidelity grades it pure":    {PortGrade, "", opening, ""},
-		"the older port of line counts as its body's port words":           {PortGrade, "", "port of #49000\n\nthe rest", ""},
-		"a head record silent on interaction, graded pure":                 {PortGrade, `,"port-of":"49000"`, "", ""},
-		"its body names the source and fidelity grades it some other port": {"class old-tree-port", "", opening, "no fidelity grade of pure port, no interaction stands in"},
-		"a lane that says it interacts outranks a pure grade":              {PortGrade, `,"port-of":"49000","port-interacts":"yes"`, opening, "port-interacts=no"},
-		"port words past the opening name no source":                       {PortGrade, "", "sand-next: a fix (port of #49000)", "port: no head record at abc1234 carries port-of=<old-tree PR> and its body does not open"},
+		"#52183: its body names the source and fidelity grades it pure":            {PortGrade, "", "", opening, ""},
+		"the older port of line counts as its body's port words":                   {PortGrade, "", "", "port of #49000\n\nthe rest", ""},
+		"a head record silent on interaction, graded pure":                         {PortGrade, "", `,"port-of":"49000"`, "", ""},
+		"its body names the source and fidelity grades it old-tree-port":           {"class old-tree-port", "", "", opening, ""},
+		"its body names the source and fidelity grades it some other class":        {"class twin", "", "", opening, "no fidelity grade of pure port, no interaction stands in"},
+		"a lane that says it interacts outranks a pure grade":                      {PortGrade, "", `,"port-of":"49000","port-interacts":"yes"`, opening, "port-interacts=no"},
+		"port words past the opening name no source":                               {PortGrade, "", "", "sand-next: a fix (port of #49000)", "port: no head record at abc1234 carries port-of=<old-tree PR> and its body does not open"},
+		"#51495: the pipeline grades it test-only and fidelity-desk old-tree-port": {"looks fine", "class old-tree-port", "", opening, ""},
+		"the pipeline grades it test-only and fidelity-desk some other class":      {"looks fine", "class twin", "", opening, "no fidelity grade of pure port, no interaction stands in"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			records := graded(t, c.grade)
+			if c.desk != "" {
+				records = append(records, pipelineGrade(t, 2, "ok", ClassOf(TestOnlyGrade)), decoded(t, `{"seq":3,"lane":"fidelity-desk-31","kind":"review","text":"fidelity: ok `+portHead+` `+c.desk+`: line for line","refs":{"prs":[49999]}}`))
+			}
 			if c.attrs != "" {
 				records = append(records, headRecord(t, portHead, c.attrs))
 			}

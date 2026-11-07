@@ -28,6 +28,7 @@ const (
 	TestOnlyGrade = "test-only or CI-only, no non-test code"
 
 	PipelineLane      = "fidelity-pipeline"
+	FidelityDeskLane  = "fidelity-desk"
 	FidelityClassAttr = "fidelity-class"
 	NoClass           = "none"
 
@@ -153,9 +154,12 @@ func portInteracts(said string, c Claim, r Read) bool {
 	if said != "" {
 		return said != PortCleanWord
 	}
-	pure := slices.DeleteFunc(slices.Clone(r.Exempt), func(phrase string) bool { return ClassOf(phrase) != ClassOf(PortGrade) })
+	pure := slices.DeleteFunc(slices.Clone(r.Exempt), func(phrase string) bool { return !isPortClass(ClassOf(phrase)) })
 	lanes, standing := fidelityStanding(c, r.Records)
-	return !slices.Contains(lanes, PipelineLane) || !standing[PipelineLane].ok || gradedPhrase(standing[PipelineLane].record, pure) == ""
+	return !slices.ContainsFunc(lanes, func(lane string) bool {
+		grade := standing[lane]
+		return grade.ok && (gradedPhrase(grade.record, pure) != "" || client.Stem(lane) == FidelityDeskLane && exemptPhrase(grade.record.Text, pure) != "")
+	})
 }
 
 func FlakeAt(c Claim, records []client.Record) bool {
