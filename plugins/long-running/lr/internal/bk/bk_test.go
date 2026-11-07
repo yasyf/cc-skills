@@ -22,11 +22,12 @@ import (
 )
 
 const (
-	drive     = "brook"
-	lane      = "chat-list-1"
-	checkout  = "/drive/checkout"
-	readToken = "bk-token-never-in-a-record"
-	failedJob = "01a1acec-8921-462e-be74-64ca11399168"
+	drive       = "brook"
+	lane        = "chat-list-1"
+	checkout    = "/drive/checkout"
+	readToken   = "bk-token-never-in-a-record"
+	writeScoped = "bk-write-scope-never-in-a-record"
+	failedJob   = "01a1acec-8921-462e-be74-64ca11399168"
 )
 
 var started = time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
@@ -39,8 +40,11 @@ type fakeRunner struct {
 }
 
 func (f *fakeRunner) Run(_ context.Context, c shell.Command) (shell.Result, error) {
-	if c.Argv[0] == "print-token" {
+	switch c.Argv[0] {
+	case "print-token":
 		return shell.Result{Stdout: readToken + "\n"}, nil
+	case "print-retry-token":
+		return shell.Result{Stdout: writeScoped + "\n"}, nil
 	}
 	f.calls = append(f.calls, c)
 	if said, found := f.replies[c.Argv[len(c.Argv)-1]]; found {
@@ -53,7 +57,7 @@ func newDesk(t *testing.T, runner *fakeRunner) (*Desk, *time.Time) {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	now := started
-	desk, err := NewDesk(context.Background(), runner, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), func() time.Time { return now }, io.Discard)
+	desk, err := NewDesk(context.Background(), runner, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}, RetryTokenCommand: []string{"print-retry-token"}}, drive, t.TempDir(), func() time.Time { return now }, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +306,13 @@ func TestARetryPutsTheNamedJobsRetryAndAnswersTheNewJob(t *testing.T) {
 	if got, want := strings.Join(runner.calls[0].Argv, " "), "tools/ci bk api -no-wait -X PUT /pipelines/test/builds/12/jobs/"+failedJob+"/retry"; got != want {
 		t.Fatalf("ran %q, want %q", got, want)
 	}
+	if got := runner.calls[0].Env; !slices.Equal(got, []string{"BUILDKITE_TOKEN=" + writeScoped}) {
+		t.Fatalf("the retry ran with env %q, want only the retry token", got)
+	}
+	desk.read(context.Background(), "bk build test 12")
+	if got := runner.calls[1].Env; !slices.Equal(got, []string{"BUILDKITE_TOKEN=" + readToken}) {
+		t.Fatalf("a read ran with env %q, want only the read token", got)
+	}
 	if read.refused || !strings.HasSuffix(read.head, "retried as job 0190aaaa-bbbb-cccc-dddd-eeeeffff0000, scheduled") || read.url != "https://buildkite.com/forge/test/builds/12#0190aaaa" {
 		t.Fatalf("reply = %+v", read)
 	}
@@ -541,7 +552,7 @@ func TestTheTokenReachesOnlyTheClientsEnvironment(t *testing.T) {
 }
 
 func TestADeskStartRefusesATokenCommandThatPrintsNothing(t *testing.T) {
-	_, err := NewDesk(context.Background(), emptyToken{}, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}}, drive, t.TempDir(), time.Now, io.Discard)
+	_, err := NewDesk(context.Background(), emptyToken{}, Settings{CLI: "tools/ci bk", Checkout: checkout, TokenCommand: []string{"print-token"}, RetryTokenCommand: []string{"print-retry-token"}}, drive, t.TempDir(), time.Now, io.Discard)
 	if err == nil {
 		t.Fatal("a desk started with no token")
 	}
@@ -556,9 +567,10 @@ func (emptyToken) Run(context.Context, shell.Command) (shell.Result, error) {
 func TestSettingsNameTheClientCheckoutAndTokenCommand(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "bk.json")
 	for name, body := range map[string]string{
-		"no cli":      `{"checkout": "/c", "token_command": ["t"]}`,
-		"no checkout": `{"cli": "tools/ci bk", "token_command": ["t"]}`,
-		"no command":  `{"cli": "tools/ci bk", "checkout": "/c"}`,
+		"no cli":      `{"checkout": "/c", "token_command": ["t"], "retry_token_command": ["r"]}`,
+		"no checkout": `{"cli": "tools/ci bk", "token_command": ["t"], "retry_token_command": ["r"]}`,
+		"no command":  `{"cli": "tools/ci bk", "checkout": "/c", "retry_token_command": ["r"]}`,
+		"no retry":    `{"cli": "tools/ci bk", "checkout": "/c", "token_command": ["t"]}`,
 		"not json":    `{`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -570,7 +582,7 @@ func TestSettingsNameTheClientCheckoutAndTokenCommand(t *testing.T) {
 			}
 		})
 	}
-	if err := os.WriteFile(path, []byte(`{"cli": "tools/ci bk", "checkout": "/c", "token_command": ["t"]}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"cli": "tools/ci bk", "checkout": "/c", "token_command": ["t"], "retry_token_command": ["r"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	settings, err := LoadSettings(path)
