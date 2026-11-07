@@ -457,7 +457,7 @@ func factsOfRow(repo string, row store.ReviewRow, stored map[string]string) (mac
 		ForeignAuthor: stored[prrow.FactForeign], Draft: stored[prrow.FactDraft] == "yes",
 		Closed: prrow.Terminal(row.State), Merged: row.State == prrow.StateLanded,
 		CI: prrow.CIFromWords(row.CI), Approved: row.Approvers != prrow.None, Mergeable: machine.Mergeable(row.Mergeable), Queue: queue,
-		UnsafeWait: row.UnsafeWait,
+		UnsafeWait: row.UnsafeWait, Body: row.Description,
 	}
 	if row.Approvers != prrow.None {
 		f.Approvers = strings.Split(row.Approvers, ", ")
