@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -15,6 +16,7 @@ var (
 	paragraphBreak = regexp.MustCompile(`\n\s*\n`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
+	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
 )
 
 // ChangeWords is what changes for a user as he reads it on a card: the
@@ -49,6 +51,9 @@ func ChangeFlaw(forUsers string) string {
 		if strings.ContainsAny(word, "0123456789") && strings.ContainsAny(word, "abcdef") {
 			return fmt.Sprintf("its Summary carries the hash %s", word)
 		}
+	}
+	if found := codeTerm.FindString(cardtext.Link.ReplaceAllString(said, " ")); found != "" {
+		return fmt.Sprintf("its Summary carries %s, a code term a user never sees", strings.TrimLeft(found, " \t\n("))
 	}
 	return ""
 }

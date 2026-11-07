@@ -305,7 +305,7 @@ func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, 
 			continue
 		}
 		at := row.Head[:min(waitsSHA, len(row.Head))]
-		text := fmt.Sprintf("#%d at %s: its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes or exit codes; the plan goes on a Plan: line outside the Summary. The post reads the new body.", row.Number, at, flaw)
+		text := fmt.Sprintf("#%d at %s: its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes, exit codes or code terms such as symbol names, paths and routes; the plan goes on a Plan: line outside the Summary. The post reads the new body.", row.Number, at, flaw)
 		if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("change-words:%s#%d", r.Repo, row.Number), text); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
