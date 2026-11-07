@@ -32,7 +32,7 @@ const (
 	openState     = "OPEN"
 )
 
-var ownerWordLanes = []string{"board-watch", "owner-relay"}
+var ownerWordLanes = []string{"board-watch", "owner-relay", "pr-cards"}
 
 func orderCommand(a *app.App) *cobra.Command {
 	var seq int64
