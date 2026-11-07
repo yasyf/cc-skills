@@ -38,13 +38,13 @@ var (
 )
 
 type Deploy struct {
-	Target  string    `json:"target"`
-	Env     string    `json:"env"`
-	Release string    `json:"release"`
-	Name    string    `json:"name"`
-	Build   string    `json:"build"`
-	Commit  string    `json:"commit"`
-	Since   time.Time `json:"since"`
+	Component string    `json:"target"`
+	Env       string    `json:"env"`
+	Release   string    `json:"release"`
+	Name      string    `json:"name"`
+	Build     string    `json:"build"`
+	Commit    string    `json:"commit"`
+	Since     time.Time `json:"since"`
 }
 
 type Cut struct {
@@ -228,7 +228,7 @@ func (r *ReleaseRead) Locate(ctx context.Context, view ReleaseView, sha string) 
 	for _, name := range touched {
 		target := TargetState{Name: name}
 		for _, deploy := range view.Deploys {
-			if deploy.Target != name {
+			if deploy.Component != name {
 				continue
 			}
 			held, err := r.carries(ctx, deploy.Commit, sha)
