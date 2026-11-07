@@ -194,7 +194,7 @@ jobs:
           go-version-file: plugins/long-running/lr/go.mod
           cache-dependency-path: plugins/long-running/lr/go.sum
       - name: build, vet, test (race)
-        run: go build -o /dev/null ./cmd/lr && go vet ./... && go run gotest.tools/gotestsum@v1.13.0 --format standard-quiet --jsonfile "$RUNNER_TEMP/go-test.json" -- -race -timeout 20m ./...
+        run: go build -o /dev/null ./cmd/lr && go vet ./... && go run gotest.tools/gotestsum@v1.13.0 --format standard-quiet --jsonfile "$RUNNER_TEMP/go-test.json" -- -race -gcflags='modernc.org/...=-race=false' -timeout 20m ./...
       - name: slowest tests
         if: ${{ !cancelled() }}
         run: go run gotest.tools/gotestsum@v1.13.0 tool slowest --jsonfile "$RUNNER_TEMP/go-test.json" --threshold 2s
