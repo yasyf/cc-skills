@@ -2112,9 +2112,9 @@ func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsOnlyWhileItsBriefKee
 		launches                  []string
 		retiredBy, owner          string
 	}{
-		"a standing lane relaunches":                     {duty, duty, []string{heir}, heir, heir},
-		"a one-shot lane retires by done":                {"", "", nil, "done", unblock},
-		"a lane whose Standing line was deleted retires": {duty, "", nil, "done", unblock},
+		"a standing lane relaunches":                                {duty, duty, []string{heir}, heir, heir},
+		"a one-shot lane owning an open PR is held":                 {"", "", nil, "", refresher},
+		"a lane whose Standing line was deleted is held for its PR": {duty, "", nil, "", refresher},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -2137,6 +2137,26 @@ func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsOnlyWhileItsBriefKee
 			equal(t, []any{f.launches, row(t, s, refresher).RetiredBy, owners(t, s, 46001)[46001]}, []any{tc.launches, tc.retiredBy, tc.owner})
 		})
 	}
+}
+
+func TestAOneShotLaneWhoseOrcaWorkerFinishedIsHeldWhileItOwnsAnOpenPRAndRetiresOnceItCloses(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52503, 52514)
+	f.states = map[int]string{52503: Waiting, 52514: Closed}
+	f.feed = append(f.feed, ask(2, "done", lane2, t0, nil, runner, nil))
+
+	tick(t, s, f, t0.Add(mins(1)))
+
+	equal(t, []any{row(t, s, lane2).State, row(t, s, lane2).RetiredBy}, []any{store.LaneHeld, ""})
+	defects := f.ofKind("defect")
+	equal(t, len(defects), 1)
+	contains(t, defects[0].Text, "its Orca worker finished while it owns 1 open PRs: #52503")
+
+	f.states[52503] = Closed
+	f.feed = append(f.feed, ask(3, "done", lane2, t0.Add(mins(2)), nil, runner, nil))
+	tick(t, s, f, t0.Add(mins(3)))
+
+	equal(t, row(t, s, lane2).RetiredBy, "done")
 }
 
 func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {

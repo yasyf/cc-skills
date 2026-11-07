@@ -590,13 +590,15 @@ func TestALaunchOfAStemTakesTheNumberPastEveryNameItsStemEverHad(t *testing.T) {
 	for _, d := range []client.Draft{
 		{Drive: "prog", Lane: "supervisor", Kind: "stand-down", Text: "desk-4 stood down", To: []string{"desk-4"}, Successor: "desk-5"},
 		{Drive: "prog", Lane: "owner-relay", Kind: "state", Text: "owner-relay up"},
+		{Drive: "prog", Lane: "restate-queue", Kind: "state", Text: "restate-queue up"},
+		{Drive: "prog", Lane: "supervisor", Kind: "stand-down", Text: "restate-queue stood down: the supervisor retired it (done).", To: []string{"restate-queue"}},
 	} {
 		if _, err := client.Post(context.Background(), d); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	for lane, want := range map[string]string{"desk": "desk-6", "desk-2": "desk-2", "owner-relay": "owner-relay", "fresh": "fresh-1"} {
+	for lane, want := range map[string]string{"desk": "desk-6", "desk-2": "desk-2", "owner-relay": "owner-relay", "restate-queue": "restate-queue-1", "fresh": "fresh-1"} {
 		if got, err := f.poster.Numbered(context.Background(), lane); err != nil || got != want {
 			t.Fatalf("Numbered(%s) = %q, %v; want %q", lane, got, err, want)
 		}
