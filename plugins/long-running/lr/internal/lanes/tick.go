@@ -743,7 +743,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	}
 	for _, name := range slices.Sorted(maps.Keys(found)) {
 		peer := found[name]
-		if alive(&peer, peer.Seen, now) && name != old.Name && Stem(name) == Stem(old.Name) {
+		if alive(&peer, peer.Seen, now) && (succeeds(name, old.Name) || name == Stem(old.Name)) {
 			retire(s, old.Name, name, now)
 			do(d.Post(Post{Kind: "stand-down", To: []string{old.Name}, Text: withCarried(fmt.Sprintf("%s stood down for %s, already up; %s %s.", old.Name, name, old.Name, why), carriedWork(d, old, now)), Successor: name, PRs: old.PRs}))
 			return name

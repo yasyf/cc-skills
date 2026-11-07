@@ -345,6 +345,17 @@ func TestADeadLaneRelaunchesWithItsHandoffAndIsToldItStoodDownAtOnce(t *testing.
 	equal(t, row(t, s, "conflicts-4").State, store.LaneDesired)
 }
 
+func TestADeadLaneWhosePredecessorStillRunsGetsASuccessorAndNeverStandsDownForThePredecessor(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 46001)
+	f.peers = []Row{who(lane2, false, t0.Add(-mins(30))), who("conflicts-1", true, t0)}
+
+	tick(t, s, f, t0)
+
+	equal(t, f.launches, []string{"conflicts-3"})
+	equal(t, row(t, s, lane2).RetiredBy, "conflicts-3")
+}
+
 func TestARelaunchBriefKeepsTheLanesPlacementAndCarriesItsRegisterSlice(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46001)
