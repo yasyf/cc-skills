@@ -3301,9 +3301,13 @@ func TestAnInstallDeskRelaunchesOnTheMacWhateverItsBriefSays(t *testing.T) {
 	s := memory(t)
 	f := newFake(t, []Record{spawned(1, "install-desk-2", writeBrief(t), t0.Add(-time.Hour), map[string]string{"model": "opus", "effort": "medium"})}, []Row{who("install-desk-2", true, t0.Add(-mins(1)))})
 	tick(t, s, f, t0.Add(-mins(1)))
-	f.peers = []Row{who("install-desk-2", false, t0.Add(-mins(30)))}
+	if err := s.SetLanePRs("install-desk-2", []int{46001}); err != nil {
+		t.Fatal(err)
+	}
+	f.peers = []Row{who("install-desk-2", false, t0.Add(-mins(20)))}
 
 	tick(t, s, f, t0)
 
-	equal(t, strings.Split(f.briefs["install-desk-3"], "\n")[1], "ccx: place=local why=mac-build")
+	equal(t, f.launches, []string{"install-desk-3"})
+	contains(t, f.briefs["install-desk-3"], "\nccx: place=local why=mac-build\n")
 }

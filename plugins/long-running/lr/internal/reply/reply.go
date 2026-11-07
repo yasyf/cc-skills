@@ -91,6 +91,7 @@ var (
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 	repoName   = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 	namedBlock = regexp.MustCompile(`block "([^"]+)"`)
+	strayTag   = regexp.MustCompile(`</?[a-zA-Z][\w-]*(?:[\s/>]|$)`)
 	notBranch  = regexp.MustCompile(`^$|^[-/.]|[/.]$|^@$|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|/\.|\.lock(?:/|$)`)
 )
 
@@ -677,7 +678,7 @@ func (f Fanout) placed(r Reply) (Reply, error) {
 		if err != nil {
 			return r, err
 		}
-		if r.quiet() || was.ownMessage(r).Ref != "" || surface(was.Surfaces, "slack").Ref != "" {
+		if was.ownMessage(r).Ref != "" || surface(was.Surfaces, "slack").Ref != "" {
 			return r, nil
 		}
 		return r, fmt.Errorf(`%s has no recorded place, so this posted nothing, since he would not see it where he asked; pass thread with the ts of the Slack DM thread he asked in, or thread "root" if he asked anywhere else`, row)
@@ -906,6 +907,13 @@ func (r Reply) unreadAsk() error {
 	}
 	shown := cardtext.HiddenCite.ReplaceAllString(strings.Join(asked, "\n"), " ")
 	return cmp.Or(cardtext.UnshownDoc(shown), cardtext.UncitedCredential(shown))
+}
+
+func (r Reply) strayMarkup() error {
+	if tag := strayTag.FindString(r.Title + "\n" + r.MD); tag != "" {
+		return fmt.Errorf("STRAY MARKUP: %q is a tag fragment, and Slack would show it to him raw, so nothing went out; read the title and md once for stray markup and resend without it", strings.TrimSpace(tag))
+	}
+	return nil
 }
 
 func (r Reply) bareExplainMore() error {
@@ -1244,7 +1252,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if r.Thread != "" && drawn.Surface == "" {
 		return f.inThread(ctx, r)
 	}
-	if drawn.Surface != "" || r.quiet() || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && r.Status == "" {
+	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && r.Status == "" {
 		return nil
 	}
 	card, err := f.statusCard(r, r.MD, "")
@@ -1291,7 +1299,7 @@ func (r Reply) withPickLink(body string, drawn Outcome) string {
 }
 
 func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
-	body := mdLink.ReplaceAllString(r.inSlack(r.MD), "<$2|$1>")
+	body := strings.ReplaceAll(mdLink.ReplaceAllString(r.inSlack(r.MD), "<$2|$1>"), "**", "*")
 	for _, pr := range r.PRs {
 		body += "\n" + pr
 	}

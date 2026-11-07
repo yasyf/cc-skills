@@ -68,6 +68,7 @@ func TestAReplyPostsWhereItsRowCameFrom(t *testing.T) {
 		"a pasted link to a thread message":    {map[string]any{"order": "m740", "status": info}, hisThread},
 		"his row named by its line":            {map[string]any{"on": "line:m740", "status": info}, hisThread},
 		"a terminal row":                       {map[string]any{"order": "m741", "status": info}, atRoot},
+		"a progress reply on a terminal row":   {map[string]any{"order": "m741", "status": progress}, atRoot},
 		"a board row":                          {map[string]any{"order": "m742", "status": info}, atRoot},
 		"a chosen thread beats the row":        {map[string]any{"order": "m741", "status": info, "thread": "1793000000.000002"}, "1793000000.000002"},
 		"a row with no place told to the root": {map[string]any{"order": "m744", "status": info, "thread": owner.AtRoot}, atRoot},
@@ -146,12 +147,12 @@ func TestAReplyWhoseRowHasNoPlaceRefusesAndPostsNothing(t *testing.T) {
 }
 
 func TestARowWithNoPlaceRefusesNothingThatPostsNothingNew(t *testing.T) {
-	t.Run("a progress reply writes only his row", func(t *testing.T) {
+	t.Run("a progress reply names a thread before it posts", func(t *testing.T) {
 		f, fake := fanout(t, nil), scripted()
 		ledgerHolds(t, f.Entry, lostRow)
 		text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"order": "m744", "status": progress})
-		if failed || len(calls(fake, "cc-slack")) != 0 {
-			t.Fatalf("reply = %q, failed %v; slack = %+v; want the row written and no post", text, failed, calls(fake, "cc-slack"))
+		if !failed || len(calls(fake, "cc-slack")) != 0 {
+			t.Fatalf("reply = %q, failed %v; slack = %+v; want a refusal that asks for a thread", text, failed, calls(fake, "cc-slack"))
 		}
 	})
 	t.Run("an edit keeps the message it already posted", func(t *testing.T) {

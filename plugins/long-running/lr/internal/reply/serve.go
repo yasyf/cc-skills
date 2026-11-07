@@ -152,6 +152,9 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.unreadAsk(); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if err := r.strayMarkup(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			if r, err = fanout.pictured(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
