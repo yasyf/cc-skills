@@ -54,6 +54,33 @@ func RowReadAt(s *store.Store, repo string, number int, head string) (string, er
 	return NoRowIn(s, repo)
 }
 
+func StandingTapAt(s *store.Store, repo string, number int, head string) (string, error) {
+	tapped, err := s.StandingTap(repo, number)
+	if err != nil || tapped == "" {
+		return "", err
+	}
+	if sameHead(tapped, head) {
+		return fmt.Sprintf("he tapped it at %s, so it lands on that tap and owes no new one", short(head)), nil
+	}
+	atTap, err := s.Facts(repo, number, tapped)
+	if err != nil {
+		return "", err
+	}
+	atHead, err := s.Facts(repo, number, head)
+	if err != nil {
+		return "", err
+	}
+	deltas, err := s.HeadFacts(repo, number, DeltaFacts)
+	if err != nil {
+		return "", err
+	}
+	by, _ := CarriedBy(tapped, head, atTap, atHead, deltas)
+	if by == "" {
+		return "", nil
+	}
+	return fmt.Sprintf("his tap at %s carries to %s, since %s, so it lands on that tap and owes no new one", short(tapped), short(head), CarryWhy(by)), nil
+}
+
 func TapCardShownAt(s *store.Store, repo string, number int, head string) (string, error) {
 	shown, err := s.HeadFacts(repo, number, []string{ShownFact})
 	if err != nil {

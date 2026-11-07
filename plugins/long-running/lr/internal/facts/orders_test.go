@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -674,6 +675,61 @@ func TestAPickOfABranchBuiltBeforeItsPROpensOrdersThatPROnceItOpensAndOnlyOnce(t
 
 	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, "#4242") || !strings.Contains(written[0].Text, surfaceHead[:12]) {
 		t.Fatalf("orders = %+v, want one land order for the PR opened on the branch he picked, at its head", written)
+	}
+}
+
+func TestAPickOfABranchWhosePROpensAsADraftIsItsTapOnceTheDraftIsReady(t *testing.T) {
+	h := unreadHarness(t)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Branch, r.State = "call-id", prrow.StateDraft })
+	ownerRecord(t, "Owner on board b, How should a tool call carry its ids? (call-id-choice): picked “Call row gets its ids directly”", map[string]string{
+		"event": "choice.selected", "block": "call-id-choice", "picked": "call-id-1", bus.BuiltAttr: repo + ":call-id",
+	})
+
+	writeOrders(t, h)
+	if written, refused := orders(t), refusals(t); len(written) != 0 || len(refused) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v; want his pick kept for the PR while it is a draft", written, refused)
+	}
+
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Branch = "call-id" })
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, "#4242") {
+		t.Fatalf("orders = %+v, want his pick to be the green PR's one land order", written)
+	}
+	if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
+		t.Fatalf("row = %+v, want the gate to pass it on his pick with no Approve tap", row)
+	}
+}
+
+func TestHisTapOnADraftMarksItReadyOnlyAtItsCurrentHead(t *testing.T) {
+	for name, c := range map[string]struct {
+		rowHead string
+		ordered bool
+	}{
+		"#52283 tapped at its current head": {surfaceHead, true},
+		"a tap at a head it has moved off":  {head, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := unreadHarness(t)
+			h.runner.Reply("", "gh", "pr", "ready")
+			drawWaiting(t, h.store, surfacePR, c.rowHead, func(r *store.ReviewRow) { r.State = prrow.StateDraft })
+			ownerRecord(t, "Owner on board b, Save only: land, measure more, or drop? (save-choice): picked “Land it” at "+repo+"#4242 "+surfaceHead, map[string]string{
+				"event": "choice.selected", "block": "save-choice", "picked": "save-1", "heads": repo + "#4242=" + surfaceHead,
+			})
+
+			writeOrders(t, h)
+
+			readied := slices.ContainsFunc(h.runner.Calls(), func(call shell.Command) bool {
+				return slices.Equal(call.Argv, []string{"gh", "pr", "ready", strconv.Itoa(surfacePR)})
+			})
+			written, refused := orders(t), refusals(t)
+			if readied != c.ordered || (len(written) == 1) != c.ordered || (len(refused) == 1) == c.ordered {
+				t.Fatalf("marked ready = %v, orders = %+v, refusals = %+v; want ready and ordered = %v", readied, written, refused, c.ordered)
+			}
+			if !c.ordered && refused[0].Fields.Attrs["reason"] != prrow.IsDraft {
+				t.Fatalf("refusal = %+v", refused[0])
+			}
+		})
 	}
 }
 

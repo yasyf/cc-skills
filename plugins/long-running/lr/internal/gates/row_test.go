@@ -2,6 +2,7 @@ package gates
 
 import (
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -120,6 +121,37 @@ func TestAHeadWhoseTapCardWasShownTakesNoExemptGoWhateverItsClassAndAStoreThatNe
 			}
 			if got, err := TapCardShownAt(s, repo, 1, newHead); err != nil || got != c.want {
 				t.Errorf("TapCardShownAt = %q, %v, want %q", got, err, c.want)
+			}
+		})
+	}
+}
+
+func TestLandingGoNamesTheStoredTapItCountsAndNonePastAFundamentalPush(t *testing.T) {
+	const tapped, head = "4c45c06aa1b2c3d4e5f60718293a4b5c6d7e8f90", "cdf7ad5aa1b2c3d4e5f60718293a4b5c6d7e8f90"
+	for name, c := range map[string]struct {
+		delta string
+		says  string
+	}{
+		"#52229, restacked since his tap": {"", "his tap at 4c45c06 carries to cdf7ad5"},
+		"a push that changed it":          {DeltaFundamental, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, err := store.Memory()
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = s.Close() })
+			for _, fact := range [][3]string{{tapped, tapFact, string(machine.TapTapped)}, {head, DeltaFromFact, tapped}, {head, DeltaFact, c.delta}} {
+				if _, err := s.PutFact("o/r", 52229, fact[0], fact[1], fact[2], time.Now()); err != nil {
+					t.Fatal(err)
+				}
+			}
+			said, err := StandingTapAt(s, "o/r", 52229, head)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.says == "" && said != "" || c.says != "" && !strings.HasPrefix(said, c.says) {
+				t.Fatalf("said %q, want it to open %q", said, c.says)
 			}
 		})
 	}

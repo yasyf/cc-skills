@@ -268,8 +268,11 @@ process choice has nothing to build. Mark a held branch with
 `git config branch.<branch>.held-for card-<slug>` so the Stop hooks ask no PR of it, and
 unset the key once he picks. A card pushed to the board, a `reply` with `picks` or a
 Slack card carries that fact as `build` on its recommended option (a repo and branch, or
-`none` and why). His pick of that option is his tap on the drive PR open on that branch,
-now or once it opens, so name the branch even when the pick is an open PR as built.
+`none` and why). His pick of that option is his one tap on the drive PR on that branch,
+now or once it opens and leaves draft, so name the branch even when the pick is an open
+PR as built. Never ask owner-relay for an Approve card on a PR built on his pick; when
+the card named no branch, ask owner-relay to record the pick naming the PR and run
+`lr landing order <PR> --record <seq>` on it.
 The card check warns, and still draws it, when that option needs code and names none. It warns the same way when that option splits, merges or shares out a
 thing the card never says the purpose of, or breaks the purpose it states: say in the
 background what the thing is for, from the paragraph of the repo's model doc (in the

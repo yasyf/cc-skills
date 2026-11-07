@@ -233,6 +233,13 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 	}
 	var unchecked error
 	if card.TapOf == "" {
+		tapped, err := l.tappedAsked(cards, card.Block)
+		if err != nil {
+			return "", err
+		}
+		if len(tapped) > 0 {
+			return "", linkRefusal{fmt.Sprintf("refused: he already tapped %s, and his tap counts once for a PR, so no card asks him to Approve it again; only a push its head record marks --attr delta=fundamental returns it to him, and the runner draws that card", strings.Join(tapped, ", "))}
+		}
 		var refused error
 		if refused, unchecked = cards.Check(ctx, l.Judge, card.Block, card.Replaces...); refused != nil {
 			return "", linkRefusal{refused.Error()}
@@ -494,4 +501,31 @@ func (c Cards) replace(ctx context.Context, lane, dm string, replaced []string, 
 		return c.Retire(ctx, lane, newVersionWhy, replaced, out)
 	}
 	return c.Replace(ctx, lane, newVersionAsks, dm, replaced, out)
+}
+
+func (l Link) tappedAsked(cards Cards, block json.RawMessage) ([]string, error) {
+	var card tapCard
+	if err := json.Unmarshal(block, &card); err != nil {
+		return nil, err
+	}
+	var numbers []int
+	for _, child := range card.Children {
+		if child.Type == "pr" {
+			numbers = append(numbers, child.Number)
+		}
+	}
+	if len(numbers) == 0 {
+		return nil, nil
+	}
+	rows, err := cards.Store.NumberedReviewRows(numbers)
+	if err != nil {
+		return nil, err
+	}
+	var tapped []string
+	for _, row := range rows {
+		if row.Tapped && strings.EqualFold(row.Repo, l.Repo) && card.asksFor(row.Number) {
+			tapped = append(tapped, fmt.Sprintf("#%d", row.Number))
+		}
+	}
+	return tapped, nil
 }

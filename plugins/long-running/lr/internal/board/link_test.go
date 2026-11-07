@@ -993,3 +993,31 @@ func TestOnlyAPRReferenceNamesAPRAndABuildLinkNamesNone(t *testing.T) {
 		t.Fatalf("named PRs = %v, want %v and no builds/13033", got, want)
 	}
 }
+
+func TestAHandDrawnApproveCardForAPRHeTappedIsRefusedAndAnUntappedOneIsNotRefusedForATap(t *testing.T) {
+	for name, tapped := range map[string]bool{"#52229, tapped at an earlier head": true, "a PR he never tapped": false} {
+		t.Run(name, func(t *testing.T) {
+			liveDrive(t)
+			f := newLink(t)
+			row := tapRow(52229)
+			row.Tapped = tapped
+			putRows(t, f, row)
+			block, err := TapCard(readyRepo, row)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := DrawCard(context.Background(), linkDrive, "board-refresher", "retap", cardBody{Block: block}); err != nil {
+				t.Fatal(err)
+			}
+			f.run(t)
+
+			if tapped && len(askCalls(f)) != 0 {
+				t.Fatalf("asks = %v, want no card for a PR he tapped", askCalls(f))
+			}
+			_, err = awaitLink(context.Background(), linkDrive, "board-refresher", "retap", busStart)
+			if refused := err != nil && strings.Contains(err.Error(), "he already tapped #52229"); refused != tapped {
+				t.Fatalf("awaitLink err = %v, want refused = %v", err, tapped)
+			}
+		})
+	}
+}

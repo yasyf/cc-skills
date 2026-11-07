@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -24,7 +25,7 @@ const (
 	OrderLane   = "tap-orders"
 	OrderGrace  = time.Minute
 	OrderWindow = time.Hour
-	builtPick   = "built-pick"
+	BuiltPick   = "built-pick"
 	tapRecord   = "lr.tap"
 	openState   = "OPEN"
 	fullSHA     = 40
@@ -106,14 +107,14 @@ func (s Source) orderOf(record client.Record) (bus.Tap, bool, error) {
 	}
 	row, open := openOn(rows, branch)
 	if !open {
-		_, err := s.Store.PutFact(s.Repo, 0, branch, builtPick, strconv.FormatInt(record.Seq, 10), s.Now())
+		_, err := s.Store.PutFact(s.Repo, 0, branch, BuiltPick, strconv.FormatInt(record.Seq, 10), s.Now())
 		return bus.Tap{}, false, err
 	}
 	return builtTap(record, s.Repo, row), true, nil
 }
 
 func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
-	parked, err := s.Store.TrunkFacts(s.Repo, builtPick)
+	parked, err := s.Store.TrunkFacts(s.Repo, BuiltPick)
 	if err != nil || !slices.ContainsFunc(slices.Collect(maps.Values(parked)), func(seq string) bool { return seq != "" }) {
 		return err
 	}
@@ -140,7 +141,7 @@ func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
 				continue
 			}
 		}
-		if _, err := s.Store.PutFact(s.Repo, 0, branch, builtPick, "", now); err != nil {
+		if _, err := s.Store.PutFact(s.Repo, 0, branch, BuiltPick, "", now); err != nil {
 			return err
 		}
 	}
@@ -148,7 +149,9 @@ func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
 }
 
 func openOn(rows []store.ReviewRow, branch string) (store.ReviewRow, bool) {
-	at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Branch == branch && !prrow.Terminal(row.State) })
+	at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
+		return row.Branch == branch && !prrow.Terminal(row.State) && row.State != prrow.StateDraft
+	})
 	if at < 0 {
 		return store.ReviewRow{}, false
 	}
@@ -160,6 +163,7 @@ func builtTap(record client.Record, repo string, row store.ReviewRow) bus.Tap {
 }
 
 func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Tap, now time.Time) error {
+	tapped := tap.Head
 	if tap.Head == "" {
 		written, err := client.Tail(ctx, client.Query{Drive: s.Drive, After: record.Seq, Kinds: []string{tapRecord}, PR: fmt.Sprintf("%s#%d", s.Repo, tap.PR)})
 		if err != nil {
@@ -172,6 +176,15 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	head, refusal, open, err := s.orderAt(ctx, tap)
 	if err != nil || !open {
 		return err
+	}
+	if refusal == prrow.IsDraft && tapped != "" {
+		readied, err := s.markReady(ctx, tap.PR, tapped)
+		if err != nil {
+			return err
+		}
+		if readied {
+			refusal = ""
+		}
 	}
 	orders := bus.Bus{Drive: s.Drive, Lane: OrderLane}
 	switch {
@@ -202,6 +215,17 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		s.Log.Info("an owner tap became a land order", "record", record.Name(), "pr", tap.PR, "head", tap.Head, "order", order.Seq)
 	}
 	return s.endTapHolds(ctx, tap, record)
+}
+
+func (s Source) markReady(ctx context.Context, number int, tapped string) (bool, error) {
+	row, found, err := s.Store.ReviewRow(s.Repo, number)
+	if err != nil || !found || !strings.HasPrefix(row.Head, tapped) {
+		return false, err
+	}
+	if _, err := s.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "ready", strconv.Itoa(number)}}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s Source) movedSinceRefusal(ctx context.Context, word client.Record, tap bus.Tap) (bool, error) {
