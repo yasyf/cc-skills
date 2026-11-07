@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-inbox/client"
+
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
@@ -546,6 +548,56 @@ func TestSweepKeepsAnAnsweredCardWhoseAnswerHasNoCcnRow(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "PROBLEM card-unrowed: the owner's answer on card-unrowed-choice has no ccn answer row") {
 		t.Fatalf("out = %s", out.String())
+	}
+}
+
+func TestOwnerRelaysRecordOfHisThreadAnswerTakesTheCardsButtonsQuotingHisMessage(t *testing.T) {
+	const card = "card-run-files"
+	question := map[string]any{"ts": slackTS(100 * time.Second), "from_user": true, "text": "Why can't we keep doing the current thing?"}
+	answer := map[string]any{"ts": slackTS(70 * time.Second), "from_user": true, "text": "Just do the whole team folder then that's fine "}
+	later := map[string]any{"ts": slackTS(30 * time.Second), "from_user": true, "text": "and say when it ships"}
+	botReply := map[string]any{"ts": slackTS(50 * time.Second), "from_bot": true, "text": "Building the team-folder grant."}
+	hisAnswer := "https://acme.slack.com/archives/D0B6Z/p" + strings.ReplaceAll(slackTS(70*time.Second), ".", "") + "?thread_ts=" + slackTS(2*time.Minute) + "&cid=D0B6Z"
+	relayed := func(attrs map[string]string) client.Record {
+		record := client.Record{Lane: "owner-relay", Kind: "owner", At: cardsNow.Add(-time.Minute), Text: "Owner on the card: his pick is the team folder."}
+		record.Fields.Attrs = attrs
+		return record
+	}
+	for name, tc := range map[string]struct {
+		record client.Record
+		thread []map[string]any
+		closes bool
+	}{
+		"owner-relay's record of his answer":                   {relayed(map[string]string{"card": card}), []map[string]any{question, answer, botReply, later}, true},
+		"lr's relay of his raw words, which may be a question": {relayed(map[string]string{"card": card, "row": "m1606"}), []map[string]any{question, answer}, false},
+		"a record whose card he never wrote under":             {relayed(map[string]string{"card": card}), []map[string]any{botReply}, false},
+		"a record naming another card":                         {relayed(map[string]string{"card": "card-other"}), []map[string]any{question, answer}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			on := &cardShell{cards: []string{card}, questions: map[string]bool{card: true}, posts: map[string]string{card: cardPost}, threads: map[string]string{cardPost: cardThread(t, tc.thread...)}}
+			f := newCards(t, on, nil)
+			f.Tail = func(_ context.Context, q client.Query) ([]client.Record, error) {
+				if !slices.Equal(q.Kinds, []string{"owner"}) || !slices.Equal(q.Lanes, []string{"owner-relay"}) || !q.Since.Before(tc.record.At) {
+					return nil, fmt.Errorf("unexpected query %+v", q)
+				}
+				return []client.Record{tc.record}, nil
+			}
+
+			if err := f.closeAnswered(context.Background(), "supervisor", &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+
+			if !tc.closes {
+				if len(on.removed) != 0 {
+					t.Fatalf("removed %v; want the card left waiting with its buttons", on.removed)
+				}
+				return
+			}
+			want := "answered in its thread: “Just do the whole team folder then that's fine”"
+			if !reflect.DeepEqual(on.removed, []string{card}) || !reflect.DeepEqual(on.reasons, []string{want}) || !reflect.DeepEqual(on.replaced, []string{hisAnswer}) {
+				t.Fatalf("removed %v with %q linking %v; want %s gone quoting and linking his answer %s", on.removed, on.reasons, on.replaced, card, hisAnswer)
+			}
+		})
 	}
 }
 

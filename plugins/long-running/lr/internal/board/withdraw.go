@@ -81,31 +81,17 @@ func (c Cards) hisWord(ctx context.Context, card string) (string, error) {
 	if err != nil || post == "" {
 		return "", err
 	}
-	read, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", post, "--raw"}})
+	thread, err := c.slackThread(ctx, post)
 	if err != nil {
 		return "", err
 	}
-	var thread struct {
-		Channel  string `json:"channel_id"`
-		Thread   string `json:"thread_ts"`
-		Messages []struct {
-			TS       string `json:"ts"`
-			FromUser bool   `json:"from_user"`
-			Raw      struct {
-				Reactions []slackReaction `json:"reactions"`
-			} `json:"raw"`
-		} `json:"messages"`
-	}
-	if err := json.Unmarshal([]byte(read), &thread); err != nil {
-		return "", fmt.Errorf("cc-slack thread --url %s: %w", post, err)
-	}
 	him := ""
 	for _, message := range thread.Messages {
-		seconds, err := strconv.ParseFloat(message.TS, 64)
+		at, err := slackTime(message.TS)
 		if err != nil {
-			return "", fmt.Errorf("slack ts %q: %w", message.TS, err)
+			return "", err
 		}
-		ago := c.Now().Sub(time.Unix(int64(seconds), 0))
+		ago := c.Now().Sub(at)
 		if ago >= readingWindow {
 			continue
 		}
@@ -124,15 +110,80 @@ func (c Cards) hisWord(ctx context.Context, card string) (string, error) {
 			}
 			did = "reacted to a message in"
 		}
-		base, _, _ := strings.Cut(post, "/archives/")
-		link := fmt.Sprintf("%s/archives/%s/p%s?thread_ts=%s&cid=%s", base, thread.Channel, strings.ReplaceAll(message.TS, ".", ""), thread.Thread, thread.Channel)
-		return fmt.Sprintf("he %s %s's Slack thread %s ago, so he may be reading or answering it now; answer him in that thread first, %s", did, card, ago.Round(time.Second), link), nil
+		return fmt.Sprintf("he %s %s's Slack thread %s ago, so he may be reading or answering it now; answer him in that thread first, %s", did, card, ago.Round(time.Second), thread.link(post, message.TS)), nil
 	}
 	return "", nil
 }
 
 type slackReaction struct {
 	Users []string `json:"users"`
+}
+
+type slackThread struct {
+	Channel  string `json:"channel_id"`
+	Thread   string `json:"thread_ts"`
+	Messages []struct {
+		TS       string `json:"ts"`
+		FromUser bool   `json:"from_user"`
+		Text     string `json:"text"`
+		Raw      struct {
+			Reactions []slackReaction `json:"reactions"`
+		} `json:"raw"`
+	} `json:"messages"`
+}
+
+func (c Cards) slackThread(ctx context.Context, post string) (slackThread, error) {
+	read, err := c.run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", post, "--raw"}})
+	if err != nil {
+		return slackThread{}, err
+	}
+	var thread slackThread
+	if err := json.Unmarshal([]byte(read), &thread); err != nil {
+		return slackThread{}, fmt.Errorf("cc-slack thread --url %s: %w", post, err)
+	}
+	return thread, nil
+}
+
+func (t slackThread) link(post, ts string) string {
+	base, _, _ := strings.Cut(post, "/archives/")
+	return fmt.Sprintf("%s/archives/%s/p%s?thread_ts=%s&cid=%s", base, t.Channel, strings.ReplaceAll(ts, ".", ""), t.Thread, t.Channel)
+}
+
+func slackTime(ts string) (time.Time, error) {
+	seconds, fraction, _ := strings.Cut(ts, ".")
+	whole, err := strconv.ParseInt(seconds, 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("slack ts %q: %w", ts, err)
+	}
+	nanos, err := strconv.ParseInt((fraction + "000000000")[:9], 10, 64)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("slack ts %q: %w", ts, err)
+	}
+	return time.Unix(whole, nanos), nil
+}
+
+func (c Cards) answeredInThread(ctx context.Context, card string, answers func(ts string, at time.Time) bool) (string, []string, error) {
+	post, err := c.slackPost(ctx, card)
+	if err != nil || post == "" {
+		return "", nil, err
+	}
+	thread, err := c.slackThread(ctx, post)
+	if err != nil {
+		return "", nil, err
+	}
+	for _, message := range slices.Backward(thread.Messages) {
+		if !message.FromUser {
+			continue
+		}
+		at, err := slackTime(message.TS)
+		if err != nil {
+			return "", nil, err
+		}
+		if answers(message.TS, at) {
+			return fmt.Sprintf("answered in its thread: “%s”", clipWords(message.Text, hisWordsCut)), []string{"--replaced-by", thread.link(post, message.TS)}, nil
+		}
+	}
+	return "", nil, nil
 }
 
 func (c Cards) slackUser(ctx context.Context) (string, error) {

@@ -51,6 +51,8 @@ func (m Moved) Line() string {
 		return fmt.Sprintf("redrew %s on the new premise: %s", m.Card.Card, m.Why)
 	case "superseded":
 		return fmt.Sprintf("took %s off his merge list; its approval post now reads %q", m.Card.Card, m.Why)
+	case "withdrew":
+		return fmt.Sprintf("withdrew %s, whose Slack post now reads %q with no buttons", m.Card.Card, m.Why)
 	}
 	return fmt.Sprintf("kept %s and flagged it to %s: %s", m.Card.Card, laneOr(m.Card.Lane), m.Why)
 }
@@ -59,6 +61,8 @@ func (m Moved) laneReport(cause string) string {
 	switch m.How {
 	case "superseded":
 		return fmt.Sprintf("%s superseded the shape of your PR %s: its tap is off his merge list, and its approval post now reads %q. Rebuild it on the ruling; a new head draws a new card.", cause, m.Card.Card, m.Why)
+	case "withdrew":
+		return fmt.Sprintf("%s settles your card %s, so it left the owner's board and its Slack post now reads %q with no buttons. Act on what he decided; draw nothing new for it.", cause, m.Card.Card, m.Why)
 	case "held":
 		return fmt.Sprintf("Card %s stays on the owner's board for you to redraw or withdraw: %s changes it, and %s.", m.Card.Card, cause, m.Why)
 	}
@@ -322,7 +326,7 @@ func (r Recheck) Ruling(ctx context.Context, keys []string) ([]Moved, error) {
 		return nil, err
 	}
 	cause := "his ruling " + strings.Join(keys, ", ")
-	moved, err := r.move(ctx, refs, map[string]boardRead{}, strings.Join(evidence, "\n\n"), cause)
+	moved, err := r.move(ctx, refs, map[string]boardRead{}, strings.Join(evidence, "\n\n"), cause, supersession{why: fmt.Sprintf("superseded by your ruling: “%s”", clipWords(strings.Join(said, " "), hisWordsCut))})
 	if err != nil {
 		return nil, err
 	}
@@ -368,7 +372,7 @@ func (r Recheck) Pick(ctx context.Context, card, said string) ([]Moved, error) {
 		return nil, err
 	}
 	evidence, cause := fmt.Sprintf("His pick, just made on another card of his board, answering %q: %s", asked, said), "his pick on "+card
-	moved, err := r.move(ctx, refs, map[string]boardRead{r.Cards.Session: board}, evidence, cause)
+	moved, err := r.move(ctx, refs, map[string]boardRead{r.Cards.Session: board}, evidence, cause, supersession{why: "superseded by your answer on another card: " + clipWords(said, hisWordsCut), post: slackOf(answered)})
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +395,23 @@ func questionOn(card json.RawMessage) (string, error) {
 	return strings.Join(slices.Compact(slices.DeleteFunc(asked, func(part string) bool { return part == "" })), " / "), nil
 }
 
-func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[string]boardRead, evidence, cause string) ([]Moved, error) {
+type supersession struct {
+	why, post string
+}
+
+func slackOf(block json.RawMessage) string {
+	var shown struct {
+		Slack *struct {
+			URL string `json:"url"`
+		} `json:"slack"`
+	}
+	if json.Unmarshal(block, &shown) != nil || shown.Slack == nil {
+		return ""
+	}
+	return shown.Slack.URL
+}
+
+func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[string]boardRead, evidence, cause string, settled supersession) ([]Moved, error) {
 	for _, ref := range refs {
 		if _, read := boards[ref.Session]; read {
 			continue
@@ -416,7 +436,7 @@ func (r Recheck) move(ctx context.Context, refs []store.CardRef, boards map[stri
 	}
 	var moved []Moved
 	for _, one := range checked {
-		done, err := r.apply(ctx, one)
+		done, err := r.apply(ctx, one, settled)
 		if err != nil {
 			return nil, err
 		}
@@ -538,7 +558,7 @@ func (r Recheck) judge(ctx context.Context, ref store.CardRef, board boardRead, 
 	return one, err
 }
 
-func (r Recheck) apply(ctx context.Context, one judged) (*Moved, error) {
+func (r Recheck) apply(ctx context.Context, one judged, settled supersession) (*Moved, error) {
 	if one.gone {
 		return nil, one.cards.Store.DropCardDeps(one.ref)
 	}
@@ -551,8 +571,31 @@ func (r Recheck) apply(ctx context.Context, one judged) (*Moved, error) {
 	switch verdictOf(one.decided) {
 	case "no":
 		return r.redraw(ctx, one.cards, one.ref, one.shown, one.rev, one.premise.Sentence)
+	case "yes":
+		return r.withdraw(ctx, one, settled)
 	}
 	return &Moved{one.ref, "flagged", sentenceOf(one.decided)}, nil
+}
+
+func (r Recheck) withdraw(ctx context.Context, one judged, settled supersession) (*Moved, error) {
+	known, err := one.cards.ends(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var flags []string
+	if settled.post != "" {
+		flags = []string{"--replaced-by", settled.post}
+	}
+	withdrew, err := one.cards.close(ctx, r.Lane, one.ref.Card, known[one.ref.Card], settled.why, settled.why, io.Discard, flags...)
+	switch {
+	case err != nil && strings.Contains(err.Error(), boardHoldRefusal):
+		return &Moved{one.ref, "held", "the board holds it while he works on it, so it keeps its buttons: " + one.decided.Sentence}, nil
+	case err != nil:
+		return nil, err
+	case !withdrew:
+		return &Moved{one.ref, "flagged", one.decided.Sentence}, nil
+	}
+	return &Moved{one.ref, "withdrew", settled.why}, nil
 }
 
 func verdictOf(v *Judgment) string {

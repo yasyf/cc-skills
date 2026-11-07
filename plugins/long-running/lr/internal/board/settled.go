@@ -34,6 +34,8 @@ const (
 	optionsKind        = "options"
 	setOptionsKind     = "set-options"
 	drawnForHim        = "A coding agent drew this card on the owner's board for him to answer."
+	rowAttr            = "row"
+	relayWindow        = 24 * time.Hour
 )
 
 type ownerAnswer struct {
@@ -177,7 +179,16 @@ func closesCard(answer ownerAnswer, id string) bool {
 }
 
 func inThread(answer ownerAnswer) bool {
-	return slices.ContainsFunc(answer.Tags, func(tag string) bool { return strings.HasPrefix(tag, threadProof) })
+	return threadTS(answer) != ""
+}
+
+func threadTS(answer ownerAnswer) string {
+	for _, tag := range answer.Tags {
+		if ts, found := strings.CutPrefix(tag, threadProof); found {
+			return ts
+		}
+	}
+	return ""
 }
 
 func settles(ctx context.Context, judge Judge, source settlingSource, card json.RawMessage, question string, answers []ownerAnswer, since string) (*Settling, error) {

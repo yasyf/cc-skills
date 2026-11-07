@@ -36,6 +36,8 @@ type depShell struct {
 	board        map[string]map[string]any
 	calls        []string
 	removed      []string
+	reasons      []string
+	replaced     []string
 	redrawn      []map[string]any
 	refuse       string
 	refuseRedraw string
@@ -73,6 +75,10 @@ func (f *depShell) Run(_ context.Context, c shell.Command) (shell.Result, error)
 			return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: f.refuse}
 		}
 		f.removed = append(f.removed, c.Argv[2])
+		f.reasons = append(f.reasons, c.Argv[slices.Index(c.Argv, "--reason")+1])
+		if i := slices.Index(c.Argv, "--replaced-by"); i > 0 {
+			f.replaced = append(f.replaced, c.Argv[i+1])
+		}
 		delete(f.board, c.Argv[2])
 		return shell.Result{}, nil
 	case strings.HasPrefix(argv, "cc-slack redraw-pr-cards --pr "):
@@ -194,7 +200,7 @@ func TestDependRecordsThePRsAndRegisterNamesACardRestsOn(t *testing.T) {
 	}
 }
 
-func TestAPostgresRulingThatReadsAsDecidingTheLookupsCardLeavesItUpAndTellsTheLaneThatDrewIt(t *testing.T) {
+func TestAPostgresRulingThatReadsAsDecidingTheLookupsCardTakesItsButtonsAndTellsTheLaneThatDrewIt(t *testing.T) {
 	f := newDeps(t, lookupsDoc)
 	ctx := context.Background()
 	if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", nil); err != nil {
@@ -207,14 +213,53 @@ func TestAPostgresRulingThatReadsAsDecidingTheLookupsCardLeavesItUpAndTellsTheLa
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(moved) != 1 || moved[0].How != "flagged" || len(f.shell.removed) != 0 {
-		t.Fatalf("moved = %v, removed = %v; a ruling elsewhere is no tap on this card", moved, f.shell.removed)
+	want := "superseded by your ruling: “move lookups to postgres”"
+	if len(moved) != 1 || moved[0].How != "withdrew" || !reflect.DeepEqual(f.shell.removed, []string{lookupsCard}) || !reflect.DeepEqual(f.shell.reasons, []string{want}) || len(f.shell.replaced) != 0 {
+		t.Fatalf("moved = %v, removed = %v with %q linking %v; want the card withdrawn naming his ruling", moved, f.shell.removed, f.shell.reasons, f.shell.replaced)
 	}
-	if told := f.posts[0]; !reflect.DeepEqual(told.to, []string{"lane-a"}) || !strings.Contains(told.text, "his ruling moves lookups to Postgres") {
-		t.Fatalf("told = %+v", told)
+	if !slices.ContainsFunc(f.posts, func(p posted) bool {
+		return p.kind == "report" && reflect.DeepEqual(p.to, []string{"lane-a"}) && strings.Contains(p.text, "settles your card "+lookupsCard)
+	}) {
+		t.Fatalf("posts = %+v, want lane-a told its card is settled", f.posts)
 	}
-	if refs, err := f.Cards.Store.CardsDependingOn([]string{"lookups"}); err != nil || len(refs) != 1 {
-		t.Fatalf("a card still up stops depending: %v, %v", refs, err)
+}
+
+func TestAPickThatDecidesACardRestingOnItTakesThatCardsButtonsAndLinksThePick(t *testing.T) {
+	const pickPost = "https://acme.slack.com/archives/D0B6Z/p1793599000000100"
+	order := map[string]any{"id": "card-merge-order", "type": "card", "title": "Which lands first?", "slack": map[string]any{"url": pickPost}, "children": []any{
+		map[string]any{"id": "card-merge-order-pick", "type": "choice", "prompt": "Which first?", "options": []any{map[string]any{"id": "index", "label": "the index change"}}},
+	}}
+	for name, tc := range map[string]struct {
+		decided, refuse, how string
+		removed              []string
+	}{
+		"a pick that decides it":            {decided: "yes", how: "withdrew", removed: []string{lookupsCard}},
+		"a pick that leaves it open":        {decided: "no", how: "redrew"},
+		"a card the board holds for him":    {decided: "yes", refuse: "refusing to remove block: the human's choice.selected holds it for 30 minutes", how: "held"},
+		"a judge unsure whether it decides": {decided: "unsure", how: "flagged"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newDeps(t, lookupsDoc, order)
+			ctx := context.Background()
+			if _, err := f.Cards.Depend(ctx, lookupsCard, "lane-a", []string{"card:card-merge-order"}); err != nil {
+				t.Fatal(err)
+			}
+			f.shell.refuse = tc.refuse
+			f.says(lookupsCard, premiseKind, "yes", "The index change lands first, so this merge waits on it.")
+			f.says(lookupsCard, decidedKind, tc.decided, "his pick lands the index change first, which is what this card asks")
+
+			moved, err := f.Pick(ctx, "card-merge-order", "picked “the index change”")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if len(moved) != 1 || moved[0].How != tc.how || !slices.Equal(f.shell.removed, tc.removed) {
+				t.Fatalf("moved = %v, removed = %v; want %s with %v removed", moved, f.shell.removed, tc.how, tc.removed)
+			}
+			if tc.how == "withdrew" && (!reflect.DeepEqual(f.shell.reasons, []string{"superseded by your answer on another card: picked “the index change”"}) || !reflect.DeepEqual(f.shell.replaced, []string{pickPost})) {
+				t.Fatalf("reasons %q linking %v; want his pick named and its card linked", f.shell.reasons, f.shell.replaced)
+			}
+		})
 	}
 }
 
