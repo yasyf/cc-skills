@@ -380,7 +380,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	name, kind, text := r.Lane, r.Kind, r.Text
 	row, known := laneOf(s, name)
 	heard := kind
-	if kind == "done" && r.answersAnother() {
+	if fixedLaneCloses(r) {
 		heard = "answer"
 	}
 	do(s.LaneHeard(name, at, heard, r.Seq))
@@ -670,7 +670,11 @@ func endedBy(r Record) []string {
 
 func closesAnItem(s *store.Store, r Record) bool {
 	lane, known := laneOf(s, r.Lane)
-	return r.Kind == "done" && (r.answersAnother() || known && isStanding(lane))
+	return fixedLaneCloses(r) || r.Kind == "done" && known && isStanding(lane)
+}
+
+func fixedLaneCloses(r Record) bool {
+	return r.Kind == "done" && r.answersAnother() && slices.Contains(fixedLanes, r.Lane)
 }
 
 func foldGates(s *store.Store, r Record, fresh bool, at time.Time) {
@@ -854,8 +858,8 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 		if lane.State != store.LaneRetired {
 			continue
 		}
-		if !answer && !restedOnItsOwnEnd(lane) {
-			if assigns && !slices.Contains(fixedLanes, lane.Name) && (lane.Last != "done" || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
+		if !answer && !retiredForSilence(lane) {
+			if assigns && !slices.Contains(fixedLanes, lane.Name) && (!slices.Contains([]string{"done", "stopped"}, lane.Last) || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
 				unreached = append(unreached, unassigned{r, lane})
 			}
 			continue
@@ -884,8 +888,8 @@ func asksOfALane(r Record) bool {
 	return r.Lane != boardLink && asker && (isOrder(r.Kind, r.Text) || slices.Contains(replies, r.Kind))
 }
 
-func restedOnItsOwnEnd(lane store.Lane) bool {
-	return !isStanding(lane) && (lane.RetiredBy == retiredSilent || (lane.RetiredBy == retiredStopped && lane.Last == "stopped"))
+func retiredForSilence(lane store.Lane) bool {
+	return !isStanding(lane) && lane.RetiredBy == retiredSilent
 }
 
 func Cards(text string) []string {
@@ -1024,11 +1028,11 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	switch {
 	case kind == kindLanded:
 		foldLanded(s, r, at)
-	case kind == "done" && settles && !r.answersAnother() && !isStanding(row):
+	case kind == "done" && settles && !isStanding(row):
 		if out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, "done", at)
 		}
-	case kind == "done" && !known && !isRoot && name != mainLane && name != runner && !r.answersAnother():
+	case kind == "done" && !known && !isRoot && name != mainLane && name != runner && !fixedLaneCloses(r):
 		out.handOn(s, name, must(s.HeldBy(name, out.deps.Ledger)), fresh)
 	case settles && (kind == "stopped" || kind == "stand-down" || (kind == "state" && stoppedLine.MatchString(text))):
 		if !out.rotated(s, row, r, fresh, at) && out.owesNothing(s, name, fresh, at) {

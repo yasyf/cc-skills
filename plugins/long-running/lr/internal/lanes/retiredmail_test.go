@@ -137,19 +137,21 @@ func TestAWakeARestingLaneDeclinesIsTriedAgainNextTick(t *testing.T) {
 	equal(t, f.launches, []string(nil))
 }
 
-func TestWhichRecordsReachAGoneLane(t *testing.T) {
+func TestOnlyHisCardAnswerRelaunchesALaneThatStopped(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
 		record   Record
 		launches []string
 	}{
-		{"a lane's answer", rec(3, "meta-desk-3", "answer", t0.Add(mins(5)), "Yes, build it.", lane2), []string{heir}},
-		{"a lane's ask", rec(3, "owner-relay", "ask", t0.Add(mins(5)), "Which branch holds this?", lane2), []string{heir}},
-		{"a lane's decide", rec(3, "meta-desk-3", "decide", t0.Add(mins(5)), "Take option two.", lane2), []string{heir}},
+		{"his card answer", cardWake(3, lane2, "picked Combined", t0.Add(mins(5))), []string{heir}},
+		{"root's answer to its stop", rec(3, Root, "answer", t0.Add(mins(5)), "Post the notebook and STOPPED.", lane2).withRe(2), nil},
+		{"a lane's answer", rec(3, "meta-desk-3", "answer", t0.Add(mins(5)), "Yes, build it.", lane2), nil},
+		{"a lane's ask", rec(3, "owner-relay", "ask", t0.Add(mins(5)), "Which branch holds this?", lane2), nil},
+		{"a lane's decide", rec(3, "meta-desk-3", "decide", t0.Add(mins(5)), "Take option two.", lane2), nil},
 		{"a report tells it nothing to do", rec(3, "install-desk", "report", t0.Add(mins(5)), "Installed.", lane2), nil},
 		{"a note tells it nothing to do", rec(3, "meta-desk-3", "note", t0.Add(mins(5)), "FYI.", lane2), nil},
 		{"the supervisor's own stand-down", rec(3, Self, "stand-down", t0.Add(mins(5)), "stopped, so mail to it passes on", lane2), nil},
-		{"the supervisor asking for an overdue item", rec(3, Self, "ask", t0.Add(mins(5)), "org/repo#7 row-wait overdue", lane2), []string{heir}},
+		{"the supervisor asking for an overdue item", rec(3, Self, "ask", t0.Add(mins(5)), "org/repo#7 row-wait overdue", lane2), nil},
 		{"the supervisor's report", rec(3, Self, "report", t0.Add(mins(5)), "RETIRED for owning no PR.", lane2), nil},
 		{"the board link saying the card drew", rec(3, boardLink, "answer", t0.Add(mins(5)), "card-chat is on his board", lane2), nil},
 		{"a record to another lane", rec(3, "meta-desk-3", "answer", t0.Add(mins(5)), "Yes.", "other-1"), nil},
@@ -297,14 +299,14 @@ func TestARegistryRequestCCIForwardsToTheSupervisorsRetiredOwnerRaisesNoNotice(t
 	equal(t, len(f.ofKind("blocker")), 0)
 }
 
-func TestAnOverdueItemAsksALaneThatStoppedItselfAndRootForOneThatFinished(t *testing.T) {
+func TestAnOverdueItemOfALaneThatStoppedOrFinishedAsksRoot(t *testing.T) {
 	s := memory(t)
 	stoppedOnACard(t, s)
 	owner, err := ItemOwner(s, testDrive, lane2, 7)
 	if err != nil {
 		t.Fatal(err)
 	}
-	equal(t, owner, lane2)
+	equal(t, owner, Root)
 
 	s = memory(t)
 	f := adopted(t, s, writeBrief(t), "")
@@ -324,7 +326,7 @@ func TestAStandingDeskIsLeftToItsOwnDutyCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	equal(t, restedOnItsOwnEnd(row(t, s, lane2)), false)
+	equal(t, stoppedToWait(row(t, s, lane2)), false)
 }
 
 func TestAGoneLaneWhoseBriefIsGoneIsHeldWithHisAnswerInTheBlocker(t *testing.T) {

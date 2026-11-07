@@ -312,7 +312,7 @@ func ItemOwner(s *store.Store, drive, pusher string, pr int) (owner string, err 
 	}
 	named := must(s.OwnerOf([]int{pr}))
 	for _, name := range []string{pusher, named[pr]} {
-		if lane, found := newest(s, Canonical(drive, name)); found && lane.State == store.LaneRetired && restedOnItsOwnEnd(lane) {
+		if lane, found := newest(s, Canonical(drive, name)); found && lane.State == store.LaneRetired && retiredForSilence(lane) {
 			return lane.Name, nil
 		}
 	}
@@ -522,7 +522,11 @@ func defaultOwner(s *store.Store) string {
 }
 
 func endedAlone(lane store.Lane) bool {
-	return slices.Contains(endsAlone, lane.RetiredBy) && !restedOnItsOwnEnd(lane) && dutyOf(lane) == ""
+	return slices.Contains(endsAlone, lane.RetiredBy) && !stoppedToWait(lane) && dutyOf(lane) == ""
+}
+
+func stoppedToWait(lane store.Lane) bool {
+	return !isStanding(lane) && lane.RetiredBy == retiredStopped && lane.Last == "stopped"
 }
 
 func handedOn(to string, from []string, prs []int) Post {

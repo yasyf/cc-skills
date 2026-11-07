@@ -235,7 +235,7 @@ A text read that includes the decision marks it `[WITHDRAWN #n]`.
 ```sh
 cci post --drive <drive> --lane supervisor --kind blocker --topic <pr> --to <lane> --text 'DESK #<pr> <sha9>: <job>'
 cci tail --drive <drive> --cursor <lane> --reader <lane>
-cci post --drive <drive> --lane <lane> --kind done --topic <pr> --to supervisor --re <blocker seq> --text 'The blocker is fixed on the new head.'
+cci post --drive <drive> --lane <lane> --kind answer --topic <pr> --to supervisor --resolves <blocker seq> --text 'The blocker is fixed on the new head.'
 ```
 
 The coordinator's digest keeps the blocker open until an explicit closure, even after a new head is posted.

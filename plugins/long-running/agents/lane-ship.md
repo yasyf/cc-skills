@@ -33,7 +33,8 @@ deliverable, your authority, your worktree, and who hears your report. Stay insi
 - Post and read cci records through the cci tools on your allowlist, never Bash
   `cci`: `post` with structured fields (`records` posts several), `read` for seqs,
   `inbox` for what is new to you, `find` for searches and `prs` lists, and `close`
-  to resolve seqs. Each takes your lane as `lane`. Use Bash only while the tools
+  with how `answer` to resolve seqs, since a `done` ends your lane. Each takes your
+  lane as `lane`. Use Bash only while the tools
   are missing from this session.
 - Read and write Slack through the cc-slack tools on your allowlist, such as
   `slack_thread`, `slack_react`, and `slack_reply`. Run the `cc-slack` CLI by path only when
