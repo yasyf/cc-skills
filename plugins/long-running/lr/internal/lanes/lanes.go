@@ -39,6 +39,10 @@ const (
 	owedLaunch      = "launch-owed:"
 	hourCursor      = "lanes.hour"
 	orderSaidCursor = "lanes.order-said."
+	orphanCursor    = "lanes.orphans"
+	orphanedCursor  = "lanes.orphaned."
+	orphanSweep     = 5 * time.Minute
+	orphanAfter     = 10 * time.Minute
 	owedSubject     = "owed-deletions"
 	lateSubject     = "owed-deletions-past-due"
 	kindSpawn       = "spawn"

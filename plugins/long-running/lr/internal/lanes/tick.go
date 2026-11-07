@@ -206,6 +206,7 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	openAnswered(s, d, found, taken, now, &out)
 	keepDuties(s, d, found, taken, now, &out)
 	hourly(s, d, now)
+	orphanOrders(s, d, now)
 	alarmRowWaits(s, d, now)
 	missedPromises(s, d, now)
 	woken, err := chaseUnread(s, d, found, out.Woken, taken, now, &out)
@@ -1445,6 +1446,30 @@ func unsaid(s *store.Store, orders []owner.Row) []owner.Row {
 		do(s.Advance(cursor, 1))
 		return named
 	})
+}
+
+func orphanOrders(s *store.Store, d Deps, now time.Time) {
+	sweep := now.Unix() / int64(orphanSweep.Seconds())
+	if last := must(s.Cursor(orphanCursor)); sweep <= last {
+		return
+	}
+	do(s.Advance(orphanCursor, sweep))
+	orders, err := d.Orders(s)
+	if errors.Is(err, ErrUnread) {
+		return
+	}
+	do(err)
+	for _, order := range owner.Only(orders, owner.Open) {
+		cursor := orphanedCursor + order.ID
+		since := must(s.Cursor(cursor))
+		if since == 0 {
+			do(s.Advance(cursor, now.Unix()))
+			continue
+		}
+		if now.Sub(time.Unix(since, 0)) >= orphanAfter {
+			escalateTo(s, d, "order:"+order.ID, fmt.Sprintf("his order has had no live lane for %d minutes or more: %s. Relaunch it with `lr launch lane --order owner:%s`.", int(orphanAfter.Minutes()), truncated(order.Text, 200), order.ID), OwnerRelay, now)
+		}
+	}
 }
 
 func hourly(s *store.Store, d Deps, now time.Time) {
