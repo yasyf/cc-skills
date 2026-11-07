@@ -32,7 +32,7 @@ const (
 	supDesk       = "codex-supervisor"
 	pollInterval  = 30 * time.Second
 	instead       = "Leave the fetch alone and report what you measured so far."
-	taskListKey   = "orchestration task-list --run " + run + " --status dispatched"
+	taskListKey   = "orchestration task-list --run " + run + " --status dispatched --brief"
 	runCurrentKey = "orchestration run-current"
 	boundListKey  = "orchestration worker-list --include-remote"
 )
