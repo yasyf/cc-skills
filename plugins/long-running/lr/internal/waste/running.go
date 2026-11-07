@@ -15,6 +15,8 @@ import (
 
 var squashed = regexp.MustCompile(`(?m)\(#(\d+)\)$`)
 
+const lrSource = "plugins/long-running/lr"
+
 var pacificZone = func() *time.Location {
 	zone, err := time.LoadLocation("America/Los_Angeles")
 	if err != nil {
@@ -43,8 +45,8 @@ func Current(client ccx.Client, claude, lr string) (*Running, error) {
 func (r *Running) holds(ctx context.Context, number int, mergedSince time.Time) (bool, error) {
 	if r.held == nil {
 		var tagged []map[int]bool
-		for _, tag := range []string{"lr--v" + r.LR, "long-running--v" + r.Pack} {
-			subjects, err := r.CCX.GH(ctx, ccx.MaxAgeCached, "api", "--paginate", fmt.Sprintf("repos/%s/commits?sha=%s&since=%s&per_page=100", r.Repo, tag, mergedSince.UTC().Format(time.RFC3339)), "--jq", `.[].commit.message | split("\n")[0]`)
+		for _, query := range []string{"sha=lr--v" + r.LR, "sha=long-running--v" + r.Pack, "sha=long-running--v" + r.Pack + "&path=" + lrSource} {
+			subjects, err := r.CCX.GH(ctx, ccx.MaxAgeCached, "api", "--paginate", fmt.Sprintf("repos/%s/commits?%s&since=%s&per_page=100", r.Repo, query, mergedSince.UTC().Format(time.RFC3339)), "--jq", `.[].commit.message | split("\n")[0]`)
 			if err != nil {
 				return false, err
 			}
@@ -58,9 +60,10 @@ func (r *Running) holds(ctx context.Context, number int, mergedSince time.Time) 
 			}
 			tagged = append(tagged, numbers)
 		}
+		inLR, inPack, touchesLR := tagged[0], tagged[1], tagged[2]
 		r.held = map[int]bool{}
-		for pr := range tagged[0] {
-			r.held[pr] = tagged[1][pr]
+		for pr := range inPack {
+			r.held[pr] = inLR[pr] || !touchesLR[pr]
 		}
 	}
 	return r.held[number], nil
