@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -38,7 +39,6 @@ type rollWorld struct {
 	t       *testing.T
 	store   *store.Store
 	env     map[string]string
-	workers []Worker
 	replies map[string]shell.Result
 	first   map[string]shell.Result
 	boxes   []string
@@ -72,14 +72,22 @@ func newRollWorld(t *testing.T) *rollWorld {
 	f := &workerFixture{t: t}
 	f.write(filepath.Join(root, "plugin", "bin", "lr.binrun"), lrPin("linux-x86_64"), 0o700)
 	w.env = map[string]string{"WORKER_CCI_URL": testCCIURL, "WORKER_CCI_SHA256": testCCISHA, "BINRUN_PLUGIN_ROOT": filepath.Join(root, "plugin"), "WORKER_TOOLS": rollTools}
-	w.workers = []Worker{
-		{Dispatch: "ctx_done", Status: statusCompleted, Workspace: rollTree + "done", Terminal: "term_done"},
-		{Dispatch: "ctx_c", Workspace: rollTree + "c", Terminal: "term_c"},
-		{Dispatch: "ctx_a", Workspace: rollTree + "a", Terminal: "term_a"},
-		{Dispatch: "ctx_a2", Workspace: rollTree + "a", Terminal: "term_a2"},
-		{Dispatch: "ctx_mac", Workspace: "repo::/Users/me/worktrees/lane", Terminal: "term_mac"},
-		{Dispatch: "ctx_unstarted"},
-		{Dispatch: "ctx_b", Workspace: rollTree + "b", Terminal: "term_b"},
+	for _, lane := range []struct {
+		name, sprite string
+		state        store.LaneState
+		placement    string
+	}{
+		{"lane-done", "pool-done", store.LaneRetired, "sprite"},
+		{"lane-c", "pool-c", store.LaneDesired, "sprite"},
+		{"lane-a", "pool-a", store.LaneDesired, "sprite"},
+		{"lane-a2", "pool-a", store.LaneDesired, "sprite"},
+		{"lane-mac", "", store.LaneDesired, ""},
+		{"lane-b", "pool-b", store.LaneDesired, "sprite"},
+	} {
+		if _, err := s.WantLane(store.Lane{Name: lane.name, Brief: "/briefs/" + lane.name + ".md", State: lane.state, Placement: lane.placement}, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+			t.Fatal(err)
+		}
+		writeJSON(t, filepath.Join(w.receipts, lane.name+".json"), map[string]any{"result": map[string]any{"server": map[string]string{"name": lane.sprite}}})
 	}
 	return w
 }
@@ -92,13 +100,6 @@ func (w *rollWorld) Sprites() (map[SpriteKey]Sprite, error) {
 		{rollTree + "b", "term_b"}:       {Workspace: "pool-b", Root: rollRoot},
 		{rollTree + "c", "term_c"}:       {Workspace: "pool-c", Root: rollRoot},
 	}, nil
-}
-
-func (w *rollWorld) Workers(_ context.Context, run string) ([]Worker, error) {
-	if run != rollRun {
-		w.t.Fatal(run)
-	}
-	return w.workers, nil
 }
 
 func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error) {
@@ -133,8 +134,8 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Receipts: w.receipts, Drive: &w.drive, DriveConfig: w.config, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
-	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
+	roller := SpriteRoll{Runner: w, Fleet: w, Store: w.store, Receipts: w.receipts, Drive: &w.drive, DriveConfig: w.config, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	err := roller.Run(context.Background(), func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
 		return failed.Line
@@ -175,23 +176,29 @@ func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
 	}
 }
 
-func TestARollInstallsOnThePoolSpriteOfALiveLaneTheRunDoesNotList(t *testing.T) {
+func TestARollInstallsOnlyTheSpritesOfLiveLanesAndNamesALiveLaneItCannotPlace(t *testing.T) {
 	w := newRollWorld(t)
 	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
 	for _, lane := range []store.Lane{
 		{Name: "meta-desk-4", Brief: "/briefs/meta-desk-4.md", State: store.LaneDesired, Placement: "sprite"},
 		{Name: "mac-lane", Brief: "/briefs/mac-lane.md", State: store.LaneDesired},
+		{Name: "install-desk-4", Brief: "/briefs/install-desk-4.md", State: store.LaneRetired, Placement: "sprite"},
+		{Name: "owed-takeover-6", Brief: "/briefs/owed-takeover-6.md", State: store.LaneDesired, Placement: "sprite"},
 	} {
 		if _, err := w.store.WantLane(lane, at); err != nil {
 			t.Fatal(err)
 		}
 	}
 	writeJSON(t, filepath.Join(w.receipts, "meta-desk-4.json"), map[string]any{"result": map[string]any{"dispatchId": "ctx_aa5ce279457c", "server": map[string]string{"name": "pool-mkjizircrzsea54o"}}})
+	writeJSON(t, filepath.Join(w.receipts, "install-desk-4.json"), map[string]any{"result": map[string]any{"server": map[string]string{"name": "install-desk-4"}}})
 	if refused := w.roll(""); refused != "" {
 		t.Fatal(refused)
 	}
 	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c", "pool-mkjizircrzsea54o"}) {
-		t.Fatal("the roll did not visit the live lane's pool Sprite beside the Run's live Sprites", w.boxes)
+		t.Fatal("the roll did not visit just the live lanes' Sprites", w.boxes)
+	}
+	if !strings.Contains(w.out.String(), "lr sprites roll: no launch receipt names the Sprite of live lanes owed-takeover-6, so the roll passes them over\n") {
+		t.Fatal(w.out.String())
 	}
 	if census := w.census(); census["pool-mkjizircrzsea54o"]["long-running@skills"] != rollPack {
 		t.Fatal(census)
@@ -654,7 +661,7 @@ func TestAPinThatFailsOnTheProbeIsMarkedBadAndNeverRolledOnAgain(t *testing.T) {
 func TestAFailureBeforeAnyPinMarksNothingBad(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\n", Stderr: "curl: (6) Could not resolve host: github.com\n"}
-	if refused := w.roll(""); refused != "lr sprites roll: the cci or lr install failed on pool-a, so 2 more Sprites keep what they run: curl: (6) Could not resolve host: github.com" {
+	if refused := w.roll(""); refused != "lr sprites roll: 1 of 3 Sprites failed twice and keep what they hold, and no pin is marked bad: pool-a" {
 		t.Fatal(refused)
 	}
 	for _, tool := range []string{"ccx", "long-running@skills"} {
@@ -676,7 +683,7 @@ func TestAFailureThatShowsNoPinAtFaultMarksNoPinBad(t *testing.T) {
 
 		refused := w.roll("")
 
-		if want := "lr sprites roll: nothing shows a pin at fault for the failed install on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: " + said; refused != want {
+		if want := "lr sprites roll: 1 of 3 Sprites failed twice and keep what they hold, and no pin is marked bad: pool-a"; refused != want || !strings.Contains(w.out.String(), "pool-a failed twice and holds cci=0.49.36 lr=9.9.9: "+said+"\n") {
 			t.Fatalf("refused\n%s\nwant\n%s", refused, want)
 		}
 		for _, tool := range [][2]string{{"ccx", rollCCX}, {"long-running@skills", rollPack}} {
@@ -728,7 +735,7 @@ func TestADownloadTheServerFailedTransientlyMarksNoPinBad(t *testing.T) {
 func TestAnInstallThatRunsOutOfTimeMarksNoPinBad(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\n"}
-	if refused := w.roll(""); refused != "lr sprites roll: the install ran out of time on pool-a, so 2 more Sprites keep what they run and no pin is marked bad: installed lr 9.9.9" {
+	if refused := w.roll(""); refused != "lr sprites roll: 1 of 3 Sprites failed twice and keep what they hold, and no pin is marked bad: pool-a" {
 		t.Fatal(refused)
 	}
 	if why, err := w.store.BadTool("ccx", rollCCX); err != nil || why != "" {
@@ -862,6 +869,38 @@ func TestABoxTheSpriteAPICannotAnswerForIsPassedOver(t *testing.T) {
 	}
 }
 
+func TestOneSpriteWhoseServiceFailsToStartLeavesTheOther99Rolled(t *testing.T) {
+	w := newRollWorld(t)
+	live := make([]store.Lane, 100)
+	for i := range live {
+		live[i] = store.Lane{Name: fmt.Sprintf("lane-%03d", i), Brief: "/briefs/lane.md", State: store.LaneDesired, Placement: "sprite"}
+		writeJSON(t, filepath.Join(w.receipts, live[i].Name+".json"), map[string]any{"result": map[string]any{"server": map[string]string{"name": fmt.Sprintf("sprite-%03d", i)}}})
+	}
+	if err := w.store.PutLanes(live, time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatal(err)
+	}
+	const said = "Job for codex-ask.service failed because the control process exited with error code."
+	w.replies["sprite-000"] = shell.Result{Code: 1, Stdout: "installed cci 0.49.36\ninstalled lr 9.9.9\ninstalled ccx " + rollCCX + "\n", Stderr: said + "\n"}
+
+	refused := w.roll("")
+
+	if want := "lr sprites roll: 1 of 100 Sprites failed twice and keep what they hold, and no pin is marked bad: sprite-000"; refused != want {
+		t.Fatalf("refused\n%s\nwant\n%s", refused, want)
+	}
+	if len(w.boxes) != 101 || w.boxes[0] != "sprite-000" || w.boxes[100] != "sprite-000" {
+		t.Fatal("the roll did not go on past the failed Sprite and retry it last", len(w.boxes), w.boxes[0], w.boxes[len(w.boxes)-1])
+	}
+	census := w.census()
+	for i := 1; i < 100; i++ {
+		if box := fmt.Sprintf("sprite-%03d", i); census[box][packTool] != rollPack {
+			t.Fatal(box, census[box])
+		}
+	}
+	if why, err := w.store.BadTool(packTool, rollPack); err != nil || why != "" {
+		t.Fatal("one Sprite's service marked the pack bad:", why, err)
+	}
+}
+
 func TestABoxThatTimesOutWithNothingInstalledIsPassedOver(t *testing.T) {
 	w := newRollWorld(t)
 	w.replies["pool-a"] = shell.Result{Code: shell.CodeTimedOut}
@@ -906,7 +945,7 @@ func TestACensusWithNoSpriteSaysSoInsteadOfPrintingNothing(t *testing.T) {
 
 func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
 	w := newRollWorld(t)
-	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live lane of the drive or worker of Run "+rollRun+" and runner.json names it no grader" || len(w.boxes) != 0 {
+	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live lane of the drive and runner.json names it no grader" || len(w.boxes) != 0 {
 		t.Fatal(refused, w.boxes)
 	}
 }
@@ -954,10 +993,12 @@ type supervisedInstall struct {
 	cciURL, cciSHA string
 	lrURL, lrSHA   string
 	dir            string
+	service        string
+	freeMB         string
 }
 
 func newSupervisedInstall(t *testing.T) *supervisedInstall {
-	s := &supervisedInstall{t: t, dir: t.TempDir()}
+	s := &supervisedInstall{t: t, dir: t.TempDir(), service: "running"}
 	s.cciURL, s.cciSHA = s.archive("cci", "cci", "#!/bin/sh\necho cci 0.49.68\n")
 	s.lrURL, s.lrSHA = s.archive("lr", "lr", "#!/bin/sh\necho lr 9.9.9\n")
 	return s
@@ -995,9 +1036,20 @@ func (s *supervisedInstall) run(home, path string, tools ...string) (string, err
 
 func (s *supervisedInstall) runAfter(home, path string, tools []string, tail ...string) (string, error) {
 	s.t.Helper()
+	stubs := s.t.TempDir()
+	listed := "#!/bin/sh\necho '[{\"name\":\"cc-remote-codex-ask\",\"state\":{\"status\":\"" + s.service + "\"}}]'\n"
+	if err := os.WriteFile(filepath.Join(stubs, "sprite-env"), []byte(listed), 0o700); err != nil { //nolint:gosec // the stub has to execute
+		s.t.Fatal(err)
+	}
+	if s.freeMB != "" {
+		free := "#!/bin/sh\necho 'Filesystem 1048576-blocks Used Available Capacity Mounted on'\necho '/dev/loop0 12288 11845 " + s.freeMB + " 97% /home/sprite'\n"
+		if err := os.WriteFile(filepath.Join(stubs, "df"), []byte(free), 0o700); err != nil { //nolint:gosec // the stub has to execute
+			s.t.Fatal(err)
+		}
+	}
 	args := slices.Concat([]string{"-c", installTools, "sh", s.cciURL, s.cciSHA, s.lrURL, s.lrSHA, "lr"}, tools, tail)
 	run := exec.Command("sh", args...)
-	run.Env = append(os.Environ(), "HOME="+home, "PATH="+path)
+	run.Env = append(os.Environ(), "HOME="+home, "PATH="+stubs+":"+path)
 	out, err := run.CombinedOutput()
 	return string(out), err
 }
@@ -1115,6 +1167,34 @@ func TestASuperviseThatNeverStartsFailsTheInstallWithoutBlamingThePin(t *testing
 	}
 	if last := lastSaid(shell.Result{Stdout: out}); pinAtFault.MatchString(last) {
 		t.Fatalf("a service that did not start would mark the pin bad: %s", last)
+	}
+}
+
+func TestAnInstallWithTooLittleFreeSpaceNamesTheShortfallBeforeInstallingAnything(t *testing.T) {
+	s := newSupervisedInstall(t)
+	s.freeMB = "443"
+	out, err := s.run(t.TempDir(), os.Getenv("PATH"), s.tool("codex-ask", "1.15.1")...)
+	if err == nil || strings.Contains(out, "installed ") {
+		t.Fatalf("a box short of space took an install:\n%s", out)
+	}
+	if !strings.Contains(out, "has 443M free and an install needs 1024M, so free 581M there\n") {
+		t.Fatalf("the install did not name the shortfall:\n%s", out)
+	}
+	if pinAtFault.MatchString(lastSaid(shell.Result{Stderr: out})) {
+		t.Fatalf("a full disk would mark the pin bad:\n%s", out)
+	}
+}
+
+func TestABoxWhoseCodexAskServiceIsAlreadyDownIsUnreachedAndInstallsNothing(t *testing.T) {
+	s := newSupervisedInstall(t)
+	s.service = "failed"
+	home, _ := s.home("codex-ask", "/payload/codex-ask")
+	out, err := s.run(home, os.Getenv("PATH"), s.tool("codex-ask", "1.15.1")...)
+	if err == nil || strings.Contains(out, "installed ") {
+		t.Fatalf("a box whose services are down took an install:\n%s", out)
+	}
+	if !spriteUnreached(shell.Result{Code: 1, Stderr: out}) {
+		t.Fatalf("a box whose services are down counted as a failed install:\n%s", out)
 	}
 }
 
