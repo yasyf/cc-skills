@@ -910,7 +910,7 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 			n.Log.Warn("landed-not-live did not read the release builds", "err", err)
 			return nil
 		}
-		unchanged, err := n.unchanged(ctx)
+		carried, err := n.carried(ctx)
 		if err != nil {
 			n.Log.Warn("landed-not-live did not read the releases", "err", err)
 			return nil
@@ -919,7 +919,7 @@ func (n *LandedNotLive) Check(ctx context.Context, now time.Time) error {
 			entry := landed[number]
 			for _, target := range entry.targets {
 				commits, known := running[target]
-				if !known || withheld[target] || slices.ContainsFunc(slices.Concat(commits, releasing[target], unchanged[target]), func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
+				if !known || withheld[target] || slices.ContainsFunc(slices.Concat(commits, releasing[target], carried[target]), func(commit string) bool { return n.holdsSHA(ctx, commit, entry.sha) }) {
 					continue
 				}
 				owed[target] = append(owed[target], number)
@@ -978,21 +978,27 @@ func (n *LandedNotLive) releasing(ctx context.Context) (map[string][]string, err
 	return releasing, nil
 }
 
-func (n *LandedNotLive) unchanged(ctx context.Context) (map[string][]string, error) {
+func (n *LandedNotLive) carried(ctx context.Context) (map[string][]string, error) {
 	cuts, err := readCuts(ctx, n.Env.Runner, &n.Token, n.ReleaseCLI, n.Env.Config.Checkout)
 	if err != nil {
 		return nil, err
 	}
-	unchanged := map[string][]string{}
+	carried := map[string][]string{}
 	for _, cut := range cuts {
 		if cut.Mode == dryRunMode {
 			continue
 		}
 		for _, stack := range cut.Unchanged {
-			unchanged[stack.Component] = append(unchanged[stack.Component], cut.Commit)
+			carried[stack.Component] = append(carried[stack.Component], cut.Commit)
+		}
+		if !slices.Contains([]string{releaseRunning, releaseQueued, releaseHeld}, cut.Status) {
+			continue
+		}
+		for _, component := range cut.Components {
+			carried[component] = append(carried[component], cut.Commit)
 		}
 	}
-	return unchanged, nil
+	return carried, nil
 }
 
 func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string]bool, error) {
@@ -1047,12 +1053,13 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 	kept, rowsSaid := map[string]int64{}, map[string]string{}
 	for _, pick := range slices.SortedFunc(maps.Keys(rows), func(a, b ownerPick) int { return strings.Compare(a.Block, b.Block) }) {
 		rowSaid, prs, oldest := notLiveParts(landed, rows[pick], now)
-		rowsSaid[pick.Block] = rowSaid
-		if rowSaid == n.rows[pick.Block] {
+		targets := strings.Join(slices.Sorted(maps.Keys(rows[pick])), " ")
+		rowsSaid[pick.Block] = targets
+		if targets == n.rows[pick.Block] {
 			kept[pick.Block] = n.blockers[pick.Block]
 			continue
 		}
-		facts := sha256.Sum256([]byte(pick.Block + "\n" + rowSaid))
+		facts := sha256.Sum256([]byte(pick.Block + "\n" + targets))
 		id := NotLiveTopic + ":" + or(pick.Block, Root) + ":" + hex.EncodeToString(facts[:])[:12]
 		minutes := int(now.Sub(oldest).Minutes())
 		draft := client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: id, PRs: prs, Resolves: n.blockers[pick.Block], Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release", rowSaid, minutes)}

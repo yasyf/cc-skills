@@ -660,8 +660,8 @@ func TestACardRowAnsweredAndUnchangedPostsNothingWhenAnotherRowMoves(t *testing.
 		return fmt.Sprintf(`{"pr":%q,"state":"landed","title":"t","landed_sha":%q,"landed_at":%q}`, pr, sha, landed)
 	}
 	ledger := "[" + row("47799", "abc") + "," + row("51250", "def") + "]"
-	files := map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "rust/crates/preset/src/lib.rs\n", "ghi": "go/sand/internal/vm/run.go\n"}
-	check, bus := notLive(t, "", files, `[{"target":"sand","commit":"c1"},{"target":"sand-next","commit":"n1"}]`, false)
+	files := map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "rust/crates/preset/src/lib.rs\n", "ghi": "api/src/one.ts\n"}
+	check, bus := notLive(t, "", files, `[{"target":"sand","commit":"c1"},{"target":"sand-next","commit":"n1"},{"target":"api","commit":"a1"}]`, false)
 	answers := check.Env.Runner
 	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
 		switch {
@@ -690,7 +690,7 @@ func TestACardRowAnsweredAndUnchangedPostsNothingWhenAnotherRowMoves(t *testing.
 	equal(t, len(cardRows(answered)), 0)
 	moved := slices.DeleteFunc(slices.Clone(bus.posted[answered:]), func(d client.Draft) bool { return d.Kind != blockerKind })
 	equal(t, len(moved), 1)
-	contains(t, moved[0].Text, "LANDED-NOT-LIVE sand: #47799, #47801. ")
+	contains(t, moved[0].Text, "LANDED-NOT-LIVE api: #47801; sand: #47799. ")
 
 	restarted := *check
 	restarted.said, restarted.blockers, restarted.rows, restarted.read = "", nil, nil, time.Time{}
@@ -742,9 +742,18 @@ func TestAFailedReleaseBuildPutsItsLandingBackInTheCount(t *testing.T) {
 	contains(t, bus.posted[1].Text, "LANDED-NOT-LIVE sand: #47799. ")
 }
 
-func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
-	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q},{"pr":"48377","state":"landed","title":"api: one","landed_sha":"def","landed_at":%q},{"pr":"48400","state":"landed","title":"api: two","landed_sha":"ghi","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(-2*time.Hour).Format(time.RFC3339), t0.Add(NotLiveEvery-NotLiveOwed).Format(time.RFC3339))
-	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "api/src/one.ts\n", "ghi": "api/src/two.ts\n"}, `[{"target":"sand","commit":"c1"},{"target":"api","commit":"c2"}]`, false)
+func TestANewLandingOnAnOwedTargetPostsNoNewBlockerUntilAnotherTargetIsOwed(t *testing.T) {
+	landed := func(pr, title, sha string, at time.Time) string {
+		return fmt.Sprintf(`{"pr":%q,"state":"landed","title":%q,"landed_sha":%q,"landed_at":%q}`, pr, title, sha, at.Format(time.RFC3339))
+	}
+	ledger := "[" + strings.Join([]string{
+		landed("47799", "sand: fix it", "abc", t0.Add(-2*time.Hour)),
+		landed("48377", "api: one", "def", t0.Add(-2*time.Hour)),
+		landed("48400", "api: two", "ghi", t0.Add(NotLiveEvery-NotLiveOwed)),
+		landed("48500", "sand-next: three", "jkl", t0.Add(2*NotLiveEvery-NotLiveOwed)),
+	}, ",") + "]"
+	files := map[string]string{"abc": "go/sand/internal/vm/vm.go\n", "def": "api/src/one.ts\n", "ghi": "api/src/two.ts\n", "jkl": "rust/crates/preset/src/lib.rs\n"}
+	check, bus := notLive(t, ledger, files, `[{"target":"sand","commit":"c1"},{"target":"api","commit":"c2"},{"target":"sand-next","commit":"n1"}]`, false)
 	blockers := func() []client.Draft {
 		return slices.DeleteFunc(slices.Clone(bus.posted), func(d client.Draft) bool { return d.Kind != blockerKind })
 	}
@@ -760,14 +769,19 @@ func TestANewLandingOnATargetAddsOneRecordNamingEveryTarget(t *testing.T) {
 	if err := check.Check(context.Background(), t0.Add(NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
+	equal(t, len(blockers()), 1)
+
+	if err := check.Check(context.Background(), t0.Add(2*NotLiveEvery)); err != nil {
+		t.Fatal(err)
+	}
 	equal(t, len(blockers()), 2)
 	second := blockers()[1]
-	equal(t, second.PRs, []string{"48377", "48400", "47799"})
+	equal(t, second.PRs, []string{"48377", "48400", "47799", "48500"})
 	equal(t, second.Resolves, int64(2))
-	contains(t, second.Text, "LANDED-NOT-LIVE api: #48377, #48400; sand: #47799. ")
+	contains(t, second.Text, "LANDED-NOT-LIVE api: #48377, #48400; sand: #47799; sand-next: #48500. ")
 
 	posted := len(bus.posted)
-	if err := check.Check(context.Background(), t0.Add(2*NotLiveEvery)); err != nil {
+	if err := check.Check(context.Background(), t0.Add(3*NotLiveEvery)); err != nil {
 		t.Fatal(err)
 	}
 	equal(t, len(bus.posted), posted)
@@ -803,6 +817,28 @@ func TestALandingAReleaseFoundUnchangedOnItsTargetOwesNothingThere(t *testing.T)
 	if strings.Contains(bus.posted[1].Text, "tools/ci") {
 		t.Fatalf("the blocker printed a release command: %s", bus.posted[1].Text)
 	}
+}
+
+func TestARunningReleaseWithNoApplyJobYetCarriesTheLandingsOnItsComponents(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"13717","mode":"release","status":"running","commit":"39ba620","components":["sanddb"]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324")
+}
+
+func TestAnEndedReleaseThatNamedATargetLeavesItsLandingsOwed(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"13716","mode":"release","status":"cancelled","commit":"39ba620","components":["sanddb","sand-next"]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324; sanddb: #49101")
 }
 
 func TestADryRunThatFoundATargetUnchangedLeavesItsLandingsOwed(t *testing.T) {
