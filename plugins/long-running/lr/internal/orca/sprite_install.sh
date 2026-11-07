@@ -9,6 +9,18 @@ plugins="$HOME/.claude/plugins"
 mkdir -p "$bin" "$plugins"
 exec 9> "$bin/.install.lock"
 flock 9
+if [ -f "$HOME/.cc-remote/services/codex-ask" ]; then
+  status=$(sprite-env services list | jq -r '.[] | select(.name == "cc-remote-codex-ask") | .state.status')
+  if [ "$status" = failed ]; then
+    echo "services down: cc-remote-codex-ask is $status" >&2
+    exit 1
+  fi
+fi
+free=$(df -Pm "$HOME" | awk 'NR == 2 { print $4 }')
+if [ "$free" -lt 1024 ]; then
+  echo "no space: $HOME has ${free}M free and an install needs 1024M, so free $((1024 - free))M there" >&2
+  exit 1
+fi
 [ -f "$plugins/installed_plugins.json" ] || echo '{"version":2,"plugins":{}}' > "$plugins/installed_plugins.json"
 [ -f "$plugins/known_marketplaces.json" ] || echo '{}' > "$plugins/known_marketplaces.json"
 said() {

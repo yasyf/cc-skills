@@ -35,11 +35,9 @@ const (
 	sameFailureStop      = 3
 )
 
-var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\) .*\berror: 4\d\d\b|Not found in archive`)
+const servicesDown = "services down: "
 
-type runWorkers interface {
-	Workers(ctx context.Context, run string) ([]Worker, error)
-}
+var pinAtFault = regexp.MustCompile(`^refused: |curl: \(22\) .*\berror: 4\d\d\b|Not found in archive`)
 
 type hostedTasks interface {
 	Sprites() (map[SpriteKey]Sprite, error)
@@ -47,7 +45,6 @@ type hostedTasks interface {
 
 type SpriteRoll struct {
 	Runner      shell.Runner
-	Orca        runWorkers
 	Fleet       hostedTasks
 	Store       *store.Store
 	Receipts    string
@@ -201,12 +198,8 @@ func (r SpriteRoll) notBad(pins spritePins) error {
 	return nil
 }
 
-func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string, probe string, probeOnly bool) error {
+func (r SpriteRoll) Run(ctx context.Context, env func(string) string, probe string, probeOnly bool) error {
 	pins, err := r.pins(env)
-	if err != nil {
-		return err
-	}
-	workers, err := r.Orca.Workers(ctx, run)
 	if err != nil {
 		return err
 	}
@@ -214,14 +207,9 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	if err != nil {
 		return err
 	}
-	boxes, err := lanes.LiveSprites(r.Store, r.Receipts)
+	boxes, unplaced, err := lanes.LiveSprites(r.Store, r.Receipts)
 	if err != nil {
 		return err
-	}
-	for _, worker := range workers {
-		if sprite, onSprite := hosted[SpriteKey{worker.Workspace, worker.Terminal}]; !worker.Settled() && onSprite {
-			boxes = append(boxes, sprite.Workspace)
-		}
 	}
 	slices.Sort(boxes)
 	boxes = slices.Compact(boxes)
@@ -254,7 +242,7 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 	if probe != "" {
 		at := slices.Index(boxes, probe)
 		if at < 0 {
-			return refuse("nothing rolled: %s hosts no live lane of the drive or worker of Run %s and runner.json names it no grader", probe, run)
+			return refuse("nothing rolled: %s hosts no live lane of the drive and runner.json names it no grader", probe)
 		}
 		boxes = slices.Concat([]string{probe}, slices.Delete(boxes, at, at+1))
 		if probeOnly {
@@ -262,6 +250,9 @@ func (r SpriteRoll) Run(ctx context.Context, run string, env func(string) string
 		}
 	}
 	answered, _, err := r.install(ctx, pins, boxes, probe)
+	if len(unplaced) > 0 {
+		fmt.Fprintf(r.Out, "lr sprites roll: no launch receipt names the Sprite of live lanes %s, so the roll passes them over\n", strings.Join(unplaced, " "))
+	}
 	missed, carryErr := r.carryDrive(ctx, answered, roots)
 	if err != nil {
 		return err
@@ -331,7 +322,9 @@ func (r SpriteRoll) install(ctx context.Context, pins spritePins, boxes []string
 			continue
 		}
 		if box != r.Host && !proven[failedTool(boxPins, installed)] {
-			return answered, nil, r.failed(box, boxPins, installed, result, len(boxes)-done-1)
+			if err := r.markBad(box, boxPins, installed, result, len(boxes)-done-1); err != nil {
+				return answered, nil, err
+			}
 		}
 		failed = append(failed, box)
 		said[box] = lastSaid(result)
@@ -430,7 +423,7 @@ func failedTool(pins spritePins, installed map[string]string) string {
 
 func spriteUnreached(result shell.Result) bool {
 	said := result.Stdout + result.Stderr
-	return result.Code == shell.CodeTimedOut || strings.Contains(said, "failed to start sprite command") || strings.Contains(said, "failed to fetch sprite version")
+	return result.Code == shell.CodeTimedOut || strings.Contains(said, "failed to start sprite command") || strings.Contains(said, "failed to fetch sprite version") || strings.Contains(said, servicesDown)
 }
 
 func lastSaid(result shell.Result) string {
@@ -441,17 +434,11 @@ func lastSaid(result shell.Result) string {
 	return said[strings.LastIndex(said, "\n")+1:]
 }
 
-func (r SpriteRoll) failed(box string, pins spritePins, installed map[string]string, result shell.Result, left int) error {
+func (r SpriteRoll) markBad(box string, pins spritePins, installed map[string]string, result shell.Result, left int) error {
 	said := lastSaid(result)
-	if result.Code == shell.CodeTimedOut {
-		return refuse("lr sprites roll: the install ran out of time on %s, so %d more Sprites keep what they run and no pin is marked bad: %s", box, left, said)
-	}
 	failed := slices.IndexFunc(pins.tools, func(tool spriteTool) bool { return installed[tool.Name] != tool.Version })
-	if installed["cci"] == "" || installed["lr"] == "" || failed < 0 {
-		return refuse("lr sprites roll: the cci or lr install failed on %s, so %d more Sprites keep what they run: %s", box, left, said)
-	}
-	if !pinAtFault.MatchString(said) {
-		return refuse("lr sprites roll: nothing shows a pin at fault for the failed install on %s, so %d more Sprites keep what they run and no pin is marked bad: %s", box, left, said)
+	if result.Code == shell.CodeTimedOut || installed["cci"] == "" || installed["lr"] == "" || failed < 0 || !pinAtFault.MatchString(said) {
+		return nil
 	}
 	tool := pins.tools[failed]
 	if err := r.Store.MarkBadTool(tool.Name, tool.Version, fmt.Sprintf("its install failed on %s: %s", box, said), r.Now()); err != nil {
@@ -552,7 +539,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	var skip []string
 	roll := &cobra.Command{
 		Use:   "roll",
-		Short: "Install runner.json's Sprite pins on the desk host, every Sprite a live lane of the drive or a live worker in its Run runs on, each of which that answers then gets the drive's entry and lr.json written again, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin that fails before any box installed it is marked bad, stops the roll, and is never rolled again; a later box's failure is retried once at the end, and three in a row failing the same way stop the roll",
+		Short: "Install runner.json's Sprite pins on the desk host, every Sprite a live lane of the drive runs on, each of which that answers then gets the drive's entry and lr.json written again, and the grader pins on its finder and fidelity Sprites, the probe Sprite first; a pin whose install shows it at fault before any box installed it is marked bad, stops the roll, and is never rolled again; any other box's failure is retried once at the end, and three in a row failing the same way stop the roll",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			s, cfg, state, err := opened()
@@ -600,11 +587,11 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err := json.Unmarshal(raw, &carried); err != nil {
 				return err
 			}
-			roller := SpriteRoll{Runner: a.Runner, Orca: Client{Runner: a.Runner}, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Receipts: filepath.Join(home, "long-running", "orca-launch", cfg.OrcaRun), Drive: &entry, DriveConfig: carried, Host: file.Host.Sprite, Graders: file.graders(), Skip: skip, Now: a.Now, Out: cmd.OutOrStdout()}
+			roller := SpriteRoll{Runner: a.Runner, Fleet: CCRemote{Runner: a.Runner, State: filepath.Join(home, "cc-remote")}, Store: s, Receipts: filepath.Join(home, "long-running", "orca-launch", cfg.OrcaRun), Drive: &entry, DriveConfig: carried, Host: file.Host.Sprite, Graders: file.graders(), Skip: skip, Now: a.Now, Out: cmd.OutOrStdout()}
 			if probeOnly && probe == "" {
 				return errors.New("--probe-only needs --probe, so it names the one Sprite to install on")
 			}
-			return refusalExit(cmd, roller.Run(cmd.Context(), cfg.OrcaRun, env, probe, probeOnly))
+			return refusalExit(cmd, roller.Run(cmd.Context(), env, probe, probeOnly))
 		},
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
