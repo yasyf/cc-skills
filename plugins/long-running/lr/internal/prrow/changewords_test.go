@@ -22,7 +22,21 @@ func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
 		"an exit code":         {"A Watch now exits 79 when its deploy never ran.", owed, "exits 79"},
 		"a brief name":         {"The watch-unreached-1 brief orders it.", owed, "watch-unreached-1 brief"},
 		"hex-looking words":    {"The defaced cache is gone.", "The defaced cache is gone.", ""},
-		"carriage returns":     {"Plan: step 2.\r\n\r\nChats load.\r\n", "Chats load.", ""},
+		"a symbol name": {
+			"`Replication::release` now ends a closed database's lane itself, in a tracked task that holds the record's owner lock. A wake can no longer bring an ended lane back.",
+			owed, "`Replication::release`",
+		},
+		"a bare symbol": {"Replication::release now ends a closed database's lane.", owed, "Replication::release"},
+		"a route":       {"The server sends /wake only under that lock and only while the database is open.", owed, "/wake"},
+		"a path":        {"Search reads go/sand/next/internal/memory first.", owed, "go/sand/next/internal/memory"},
+		"a source file": {"It moves the check into memory/search.go.", owed, "memory/search.go"},
+		"a column name": {"The row_count column fills on create.", owed, "row_count"},
+		"a call":        {"It calls settle() once per chat.", owed, "settle()"},
+		"plain words a user reads": {
+			"Chats on iOS and macOS open in one second, read/write locks are gone, and [the chat](https://app.withforge.com/chats/1) loads on 11/06/2026.",
+			"Chats on iOS and macOS open in one second, read/write locks are gone, and [the chat](https://app.withforge.com/chats/1) loads on 11/06/2026.", "",
+		},
+		"carriage returns": {"Plan: step 2.\r\n\r\nChats load.\r\n", "Chats load.", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			row := store.ReviewRow{Lane: "watch-lane", ForUsers: test.summary}
