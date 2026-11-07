@@ -503,7 +503,7 @@ func (w *workerLaunch) carryBrief() error {
 		notes = w.checkout
 	}
 	w.driveCheckout = carry.DriveCheckout(w.Env(workerDriveDir))
-	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Checkout: w.driveCheckout, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
+	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Checkout: w.driveCheckout, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Lane: w.lane, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
 	}

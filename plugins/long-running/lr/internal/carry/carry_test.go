@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
@@ -153,6 +154,45 @@ func TestADirectoryTravelsWholeAndOneOverTheCapStaysBehind(t *testing.T) {
 		t.Fatal(err)
 	}
 	if left := leftBehind(t, c, "See "+big+"\n"); !strings.Contains(left, big+" holds 65 MiB, over the 64 MiB a launch carries") {
+		t.Fatalf("warning %q", left)
+	}
+}
+
+func TestAnotherLanesFifoOrDanglingLinkInTheDrivesScratchNeverStopsTheStagedLane(t *testing.T) {
+	c, _ := carrier(t)
+	c.Lane = "slack-bugs-4"
+	drive := filepath.Join(c.Home, ".local/state/lr-scratch/durable-agents-rebuild")
+	put(t, filepath.Join(drive, "slack-bugs-4/notes.md"), "mine\n")
+	put(t, filepath.Join(drive, "agentic-stack-build-1/eval-pr-subset/kept.json"), "{}\n")
+	fifo := filepath.Join(drive, "agentic-stack-build-1/eval-pr-subset/claim-centrally-means-shared-server.json")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dangling := filepath.Join(drive, "agentic-stack-build-2/eval-pr-subset/gone.json")
+	if err := os.MkdirAll(filepath.Dir(dangling), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(c.Home, "missing"), dangling); err != nil {
+		t.Fatal(err)
+	}
+
+	out, left := c.Carry(context.Background(), "Scratch is "+drive+" here.\n")
+
+	if out != "Scratch is "+box+drive+" here.\n" {
+		t.Fatalf("rewritten brief %q", out)
+	}
+	if got := landed(t, c, box+drive+"/slack-bugs-4/notes.md"); got != "mine\n" {
+		t.Fatalf("the lane's own note holds %q", got)
+	}
+	if len(left) != 1 || !strings.Contains(left[0], fifo) || !strings.Contains(left[0], dangling) {
+		t.Fatalf("warnings %q, want one naming %s and %s", left, fifo, dangling)
+	}
+
+	own := filepath.Join(drive, "slack-bugs-4/pipe")
+	if err := syscall.Mkfifo(own, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if left := leftBehind(t, c, "Scratch is "+drive+" here.\n"); !strings.Contains(left, drive+" holds "+own+", which is neither a file nor a directory") {
 		t.Fatalf("warning %q", left)
 	}
 }

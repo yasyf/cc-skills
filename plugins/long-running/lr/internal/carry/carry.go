@@ -66,6 +66,7 @@ type Carrier struct {
 	Into     string
 	Box      string
 	Drive    string
+	Lane     string
 	Vars     map[string]string
 }
 
@@ -144,7 +145,7 @@ func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]st
 					faults = append(faults, err)
 				}
 				copies[one] = onBox
-				if err == nil && isBrief(one.id) {
+				if onBox != "" && isBrief(one.id) {
 					if err := c.follow(ctx, one.id, copies); err != nil {
 						faults = append(faults, err)
 					}
@@ -348,13 +349,17 @@ func (c Carrier) file(name string) (string, error) {
 		return "", fmt.Errorf("%s lies outside the drive's state dir and the scratch, plan, handoff and plugin-cache directories a launch carries", name)
 	}
 	var size int64
-	var entries []string
+	var entries, skipped []string
 	err = filepath.WalkDir(resolved, func(walked string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if !entry.IsDir() && !entry.Type().IsRegular() {
-			return fmt.Errorf("%s holds %s, which is neither a file nor a directory", name, walked)
+			if c.Lane == "" || slices.Contains(strings.Split(walked, "/"), c.Lane) {
+				return fmt.Errorf("%s holds %s, which is neither a file nor a directory", name, walked)
+			}
+			skipped = append(skipped, walked)
+			return nil
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -374,6 +379,9 @@ func (c Carrier) file(name string) (string, error) {
 		if err := copyEntry(entry, filepath.Join(c.Into, name, strings.TrimPrefix(entry, resolved))); err != nil {
 			return "", err
 		}
+	}
+	if len(skipped) > 0 {
+		return c.Box + name, fmt.Errorf("%s travels without %s, outside lane %s and neither files nor directories", name, strings.Join(skipped, ", "), c.Lane)
 	}
 	return c.Box + name, nil
 }

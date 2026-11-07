@@ -346,13 +346,13 @@ func placedLocal(text string) bool {
 	return placed != nil && placed[1] == "local"
 }
 
-func carryWarnings(ctx context.Context, runner shell.Runner, home, repo, driveDir, brief, text string) ([]string, error) {
+func carryWarnings(ctx context.Context, runner shell.Runner, home, repo, driveDir, lane, brief, text string) ([]string, error) {
 	into, err := os.MkdirTemp("", "lr-carry")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = os.RemoveAll(into) }()
-	_, left := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Checkout: carry.DriveCheckout(driveDir), Into: into, Box: into, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text)
+	_, left := (carry.Carrier{Runner: runner, Home: home, Repo: repo, Checkout: carry.DriveCheckout(driveDir), Into: into, Box: into, Lane: lane, Vars: map[string]string{carry.DriveDir: driveDir}}).Carry(ctx, text)
 	warnings := make([]string, 0, len(left))
 	for _, behind := range left {
 		warnings = append(warnings, fmt.Sprintf("brief %s names what stays behind on a Sprite: %s", brief, behind))
@@ -383,7 +383,7 @@ func (o Order) faults(ctx context.Context, runner shell.Runner, home, repo, driv
 	if macPinned(o.Lane, o.Model, text) {
 		return faults, nil, nil
 	}
-	warnings, err := carryWarnings(ctx, runner, home, repo, driveDir, o.Brief, text)
+	warnings, err := carryWarnings(ctx, runner, home, repo, driveDir, o.Lane, o.Brief, text)
 	if err != nil {
 		return nil, nil, err
 	}

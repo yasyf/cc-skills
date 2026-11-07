@@ -71,7 +71,7 @@ Run it from the terminal that already owns the named native Run. The script chec
 
 ### What refuses the launch
 
-A path the brief's own text names that does not exist, lies outside those directories or is over 64 MiB, or a `ccn` entity that does not render, warns and the lane starts without it. A credential such as `~/.ssh`, `~/.aws` or `~/.iris/credentials.json` lies outside them, so a brief that names one, even to forbid it, launches without it: the caller reads a `WARN` line and a stage. Register rows the launch quoted between `Register slice:` and `slice-hash:` are not carried or checked.
+A path the brief's own text names that does not exist, lies outside those directories or is over 64 MiB, or a `ccn` entity that does not render, warns and the lane starts without it. A credential such as `~/.ssh`, `~/.aws` or `~/.iris/credentials.json` lies outside them, so a brief that names one, even to forbid it, launches without it: the caller reads a `WARN` line and a stage. A named directory holding a socket, fifo or link stays behind naming it, except one in another lane's scratch: that entry alone stays behind, named in one warning, and the rest of the directory travels. Register rows the launch quoted between `Register slice:` and `slice-hash:` are not carried or checked.
 
 Each refusal names its cause, and nothing is prepared unless noted.
 
