@@ -87,6 +87,7 @@ var (
 	tapOrder   = regexp.MustCompile(`(?i)^\s*(?:tap|approve)\b`)
 	asksTap    = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
 	describes  = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
+	notLanding = regexp.MustCompile(`(?i)\b(?:is|was|got|been|now|stays?|PR|it) closed\b|#\d+,? (?:is |was )?closed\b|\bclos(?:e|es|ed|ing) (?:#\d+|it\b|this\b|unlanded|unmerged|without)|\bunlanded\b|\bwithdr(?:aw|awn|ew|awing)\b|\b(?:not|never|won't|will not|does not|doesn't) land(?:s|ing)?\b|\babandon(?:ed|ing)?\b`)
 	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
 	repoName   = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 	namedBlock = regexp.MustCompile(`block "([^"]+)"`)
@@ -278,6 +279,20 @@ func (r Reply) namedPRs() ([][]string, []int) {
 	return said, numbers
 }
 
+func (r Reply) saidNotLanding() []int {
+	var numbers []int
+	for _, said := range sentence.Split(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " "), -1) {
+		if !notLanding.MatchString(said) {
+			continue
+		}
+		for _, found := range namedPR.FindAllStringSubmatch(said, -1) {
+			number, _ := strconv.Atoi(cmp.Or(found[2], found[4], found[5], found[6]))
+			numbers = append(numbers, number)
+		}
+	}
+	return numbers
+}
+
 func inRepo(repo string, found []string) bool {
 	return strings.HasSuffix(strings.ToLower(repo), strings.ToLower(cmp.Or(found[1], found[3], repo)))
 }
@@ -390,11 +405,12 @@ func (f Fanout) withNamedPRs(r Reply) (Reply, string) {
 		return r, fmt.Sprintf("the PR ledger did not read, so no PR this names drew its Approve: %v", err)
 	}
 	var over []string
+	closed := r.saidNotLanding()
 	for n, found := range said {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
 		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
 		switch {
-		case at < 0 || !inRepo(repo, found) || !board.OffersApproval(rows[at]):
+		case at < 0 || !inRepo(repo, found) || !board.OffersApproval(rows[at]) || slices.Contains(closed, numbers[n]):
 		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
 		case len(r.PRs) >= maxPRs:
 			if !slices.Contains(over, url) {

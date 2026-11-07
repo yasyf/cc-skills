@@ -47,12 +47,15 @@ func (f Fanout) untappable(ctx context.Context, r Reply) error {
 	}
 	var refused []string
 	stillUnread := false
+	closed := r.saidNotLanding()
 	for n, pr := range r.PRs {
 		repo := pullURL.FindStringSubmatch(pr)[1]
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
 			return row.Number == numbers[n] && strings.EqualFold(repo, cfg.Repo)
 		})
 		switch {
+		case slices.Contains(closed, numbers[n]):
+			refused = append(refused, pr+" is one this reply says is closed, withdrawn or not landing, so reword that sentence if it lands")
 		case at >= 0 && rows[at].State == prrow.StateLanded:
 			refused = append(refused, pr+" is merged")
 		case at >= 0 && rows[at].State == prrow.StateClosed:

@@ -103,7 +103,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	at := row.Head[:min(waitsSHA, len(row.Head))]
 	opening := portTitleOpening(row)
 	card := SlackCard{
-		Status: "info", Title: resolvedTitle(row),
+		Status: "info", Title: namedTitle(row.Number, row.Title),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
@@ -121,7 +121,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		card.Title, card.PRs[0].Blocks = lead+card.Title, said
 	}
 	if !OffersApproval(row) {
-		card.Title = opening + card.Title
+		card.Title, card.PRs[0].Head = opening+card.Title, ""
 		return card
 	}
 	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove #%d at %s?", opening, row.Number, at)
@@ -135,14 +135,14 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	return card
 }
 
-func resolvedTitle(row store.ReviewRow) string {
-	words := strings.TrimLeftFunc(prScope.ReplaceAllString(row.Title, ""), func(r rune) bool {
+func namedTitle(number int, title string) string {
+	words := strings.TrimLeftFunc(prScope.ReplaceAllString(title, ""), func(r rune) bool {
 		return unicode.IsSymbol(r) || unicode.Is(unicode.Mn, r) || unicode.Is(unicode.Cf, r) || unicode.IsSpace(r)
 	})
 	if words == "" {
-		return fmt.Sprintf("#%d", row.Number)
+		return fmt.Sprintf("#%d", number)
 	}
-	return fmt.Sprintf("#%d, %s", row.Number, words)
+	return fmt.Sprintf("#%d, %s", number, words)
 }
 
 func OffersApproval(row store.ReviewRow) bool {

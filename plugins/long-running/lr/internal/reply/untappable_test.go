@@ -46,6 +46,10 @@ func TestEveryPRInPrsMustDrawHisApproveOrNothingPosts(t *testing.T) {
 		})
 	}
 
+	if err := f.untappable(context.Background(), Reply{MD: "#2196 is closed unlanded.", PRs: []string{landPR}}); err == nil || !strings.Contains(err.Error(), landPR+" is one this reply says is closed") {
+		t.Fatalf("refusal = %v, want the PR the reply calls closed refused though its row still reads open", err)
+	}
+
 	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix", State: prrow.StateLanded})
 	if err := f.untappable(context.Background(), Reply{PRs: []string{landPR}}); err == nil || !strings.Contains(err.Error(), landPR+" is merged") {
 		t.Fatalf("refusal = %v, want the landed row's PR named merged", err)

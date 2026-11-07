@@ -474,8 +474,12 @@ func TestAResolvedCardReadsAsThePRsTitleWithNoCommit(t *testing.T) {
 		"a port":            {func(r *store.ReviewRow) { r.Tapped, r.Port = true, prrow.PortOf+"49144" }, "Port, old tree to new: dev #49144: #45583, faster chats"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if got := Card(repo, readyRow(tc.change)).Title; got != tc.want {
-				t.Fatalf("title = %q, want %q", got, tc.want)
+			card := Card(repo, readyRow(tc.change))
+			if card.Title != tc.want {
+				t.Fatalf("title = %q, want %q", card.Title, tc.want)
+			}
+			if card.PRs[0].Head != "" {
+				t.Fatalf("PR head = %q, want none, since Slack prints a head it is sent", card.PRs[0].Head)
 			}
 		})
 	}
@@ -513,5 +517,21 @@ func TestACardShownAtAHeadTheStoreHasNotReadStillRecordsItAtThatHead(t *testing.
 				t.Fatalf("shown facts = %+v, %v, want one at the card's own head", facts, err)
 			}
 		})
+	}
+}
+
+func TestAMergeCardNamesThePRByItsTitleAndNoCommit(t *testing.T) {
+	raw, err := ReservedCard(repo, 51022, "6c46e2b0123456789", []ReservedRow{{Key: "r1", Sentence: "no table-wide locks"}}, CardPR{Title: "search: ✨ exclude tool results"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Title string `json:"title"`
+	}
+	if err := json.Unmarshal([]byte(raw), &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Title != "Merge #51022, exclude tool results?" {
+		t.Fatalf("title = %q, want the PR's words and no commit, which stays the card's title once it resolves", card.Title)
 	}
 }
