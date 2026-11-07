@@ -9,6 +9,7 @@ from itertools import pairwise
 from collections.abc import Sequence
 from pathlib import Path
 
+from cc_transcript.models import UserEvent
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Or, T, Tool, Warn, WorkflowState, hook, on, workflow_state
@@ -84,6 +85,11 @@ THREAD_READ = "The communicator reads only a Slack message or thread the owner l
 LINKED_DM = "https://poetic-technology.slack.com/archives/D05FWN0NCMQ/p1793926112596459"
 ONE_MESSAGE = {"channel_id": "D05FWN0NCMQ", "oldest": "1793926112.596459", "latest": "1793926112.596459", "limit": 1, "include_rich_message_fields": True}
 WROTE_IN_LIMIT = "50"
+CCI_TOOLS = "mcp__plugin_cc-inbox_cci__"
+COMMS_REPORT = re.compile(r'<channel source="plugin:cc-inbox:cci" kind="report" lane="[\w.-]+-comms"[^>]*>(?P<tagged>.*?)</channel>|^\S+ report [\w.-]+-comms\b(?P<listed>[^\n]*)', re.DOTALL | re.MULTILINE)
+ALERT_THREAD = "https://acme.slack.com/archives/C0ALERTS1/p1794007606259359"
+MECHANISM_LINE = f"Mechanism line for the alert thread {ALERT_THREAD}: the reader stopped following its writer."
+RELAYED = f"@3:39 PM\n430@c54329bf report dd-1-comms>owner-relay ^561438 {MECHANISM_LINE}"
 CHANNEL_ROOT = "https://poetic-technology.slack.com/archives/C0BQSADC7SS/p1793933670476009"
 HIS_ROOT = json.dumps({"channel_id": "C0BQSADC7SS", "thread_ts": "1793933670.476009", "messages": [{"ts": "1793933670.476009", "user": OPERATOR, "from_user": True, "from_claude": False, "text": "switch it over now"}], "truncated": False})
 OTHERS_ROOT = json.dumps({"channel_id": "C0BQSADC7SS", "thread_ts": "1793933670.476009", "messages": [{"ts": "1793933670.476009", "user": "U0B2TEAMMATE", "from_user": False, "from_claude": False, "text": "turning it back on"}], "truncated": False})
@@ -562,7 +568,7 @@ class ReadsOwnerThread:
             return True
         held = owed["replies"] if owed["holder_session"] == evt.session_id else []
         named = json.dumps(evt.input.raw)
-        return names(named, {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | owner_threads(evt)) or names(named, captured_threads(evt)) or wrote_in(evt)
+        return names(named, {ts for reply in held for ts in (reply["thread_ts"], reply["ts"])} | owner_threads(evt)) or names(named, captured_threads(evt) | relayed_threads(evt)) or wrote_in(evt)
 
 
 def names(named: str, threads: set[str]) -> bool:
@@ -585,6 +591,17 @@ def captured_threads(evt: BaseHookEvent) -> set[str]:
     path = Path(entry["state_dir"]) / CAPTURES if (entry := drive_entry(evt)) else None
     captured = [json.loads(line) for line in path.read_text().splitlines() if line.strip()] if path and path.is_file() else []
     return {message.get(key, "") for message in captured if message["source"] == "slack" for key in ("thread", "ts")} | linked([message["text"] for message in captured])
+
+
+def relayed_threads(evt: BaseHookEvent) -> set[str]:
+    events = evt.ctx.t.events
+    delivered = [*queued_prompts(events), *(event.text for event in events if isinstance(event, UserEvent) and event.text)]
+    read = [use.result.content for use in evt.ctx.t.tool_calls.items if use.result is not None and reads_cci(use.call)]
+    return linked([found["tagged"] or found["listed"] for text in [*delivered, *read] for found in COMMS_REPORT.finditer(text)])
+
+
+def reads_cci(call: object) -> bool:
+    return call.name.startswith(CCI_TOOLS) or call.name == "Bash" and any(Path(cmd.argv[0]).name == "cci" for cmd in call.command_line if cmd.argv)
 
 
 def wrote_in(evt: BaseHookEvent) -> bool:
@@ -646,6 +663,11 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
         reading([T.user("where are we")], NONE_OWED, url=CHANNEL_ROOT, limit=15): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in"),
         reading([T.user("where are we")], NONE_OWED, "Bash", command=f"cc-slack thread --url {CHANNEL_ROOT} --limit 15"): Block(),
         reading([T.user("where are we")], NONE_OWED, "mcp__slack__slack_get_thread", thread_read=HIS_ROOT, channel="C0BQSADC7SS", ts="1793933670.476009"): Block(),
+        reading([T.user("where are we"), *T.tool_turn(f"{CCI_TOOLS}read", result=RELAYED, seqs=["430@c54329bf"])], NONE_OWED, channel_id="C0ALERTS1", thread_ts="1794007606.259359"): Allow(),
+        reading(tap_queued(f'<channel source="plugin:cc-inbox:cci" kind="report" lane="dd-1-comms" seq="430">{MECHANISM_LINE}</channel>'), NONE_OWED, url=ALERT_THREAD, limit=15): Allow(),
+        reading([T.user("where are we")], NONE_OWED, channel_id="C0ALERTS1", thread_ts="1794007606.259359"): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in"),
+        reading([T.user("where are we"), *T.tool_turn(f"{CCI_TOOLS}read", result=RELAYED.replace("dd-1-comms", "dd-1-fix"), seqs=["430@c54329bf"])], NONE_OWED, channel_id="C0ALERTS1", thread_ts="1794007606.259359"): Block(),
+        reading([T.user("where are we"), *T.tool_turn(f"{CCI_TOOLS}read", result=RELAYED, seqs=["430@c54329bf"])], NONE_OWED, channel_id="C0ALERTS1", thread_ts="1793600000.000001"): Block(),
     }),
 )
 
