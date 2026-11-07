@@ -41,7 +41,8 @@ const (
 
 var (
 	unfixedLine    = regexp.MustCompile("(?m)^[ \\t>*-]*(?:`UNFIXED ([\\w.-]+):[ \\t]*(\\S.*?)`|UNFIXED ([\\w.-]+):[ \\t]*(\\S.*?))[ \\t]*$")
-	unfixedNone    = regexp.MustCompile(`(?i)^` + namesNothing + `\b\s*(?:$|[(:;,.—–-])`)
+	unfixedNone    = regexp.MustCompile(`(?i)^` + namesNothing + `\b`)
+	fixLaneName    = regexp.MustCompile(`\b[a-z0-9]+(?:-[a-z0-9]+)*-fix\b`)
 	unknownCause   = regexp.MustCompile(`\bUNKNOWN\b`)
 	handedBack     = regexp.MustCompile(`(?i)^(?:[\w-]+:\s*)?(?:NOT-OURS|stood down|stopped)\b`)
 	lineage        = regexp.MustCompile(`(?:-opus|-case\d+)+$`)
@@ -997,7 +998,7 @@ func unfixedCasesOf(text, lane string, dropped []config.Refusal) ([]string, map[
 	cases := map[string]string{}
 	for _, found := range unfixedLine.FindAllStringSubmatch(text, -1) {
 		named, written := found[1]+found[3], found[2]+found[4]
-		if _, _, ruled := config.RefusedLine(dropped, written); named != lane || unfixedNone.MatchString(written) || ruled {
+		if _, _, ruled := config.RefusedLine(dropped, written); named != lane || unfixedNone.MatchString(written) || ownedElsewhere(written, lane) || ruled {
 			continue
 		}
 		known := collapsed(written)
@@ -1007,6 +1008,10 @@ func unfixedCasesOf(text, lane string, dropped []config.Refusal) ([]string, map[
 		}
 	}
 	return order, cases
+}
+
+func ownedElsewhere(written, lane string) bool {
+	return slices.ContainsFunc(fixLaneName.FindAllString(written, -1), func(named string) bool { return firstLane(named) != firstLane(lane) })
 }
 
 func isHandedBack(message orcaMessage) bool {
