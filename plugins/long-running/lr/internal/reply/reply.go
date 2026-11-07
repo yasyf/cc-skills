@@ -1243,14 +1243,14 @@ func (f Fanout) thread(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "talk", Error: err.Error()}}
 	}
-	if err := talkboard.Fit(ctx, f.Runner, f.Entry, id, block); err != nil {
+	if err := talkboard.Fit(ctx, f.Runner, f.Entry, communicator, id, block); err != nil {
 		return []Outcome{failed("talk", err)}
 	}
 	talked := Outcome{Surface: "talk", Ref: id}
 	var left []string
 	for {
 		_, err := f.Runner.Run(ctx, shell.Command{
-			Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current"},
+			Argv:    []string{"cc-present", "update-block", "-", "--session", talkboard.Session(f.Entry), "--round", "current", "--lane", communicator},
 			Stdin:   string(block),
 			Dir:     f.Entry.Checkout,
 			Timeout: postTimeout,

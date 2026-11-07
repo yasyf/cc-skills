@@ -1,6 +1,7 @@
 package reply
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -23,8 +24,10 @@ var archiveLink = regexp.MustCompile(`\(` + regexp.QuoteMeta(boardHost) + `([^)]
 
 type talkBoards struct {
 	*shelltest.Fake
-	docs  map[string][]json.RawMessage
-	calls int
+	docs    map[string][]json.RawMessage
+	owners  map[string]string
+	updated []string
+	calls   int
 }
 
 func newTalkBoards(blocks ...string) *talkBoards {
@@ -33,7 +36,7 @@ func newTalkBoards(blocks ...string) *talkBoards {
 	for _, b := range blocks {
 		live = append(live, json.RawMessage(b))
 	}
-	return &talkBoards{Fake: scripted(), docs: map[string][]json.RawMessage{"talk-d": live}}
+	return &talkBoards{Fake: scripted(), docs: map[string][]json.RawMessage{"talk-d": live}, owners: map[string]string{}}
 }
 
 func (b *talkBoards) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
@@ -43,14 +46,27 @@ func (b *talkBoards) Run(ctx context.Context, c shell.Command) (shell.Result, er
 	}
 	b.calls++
 	session := c.Argv[at+1]
+	var lane string
+	if i := slices.Index(c.Argv, "--lane"); i >= 0 {
+		lane = c.Argv[i+1]
+	}
 	refuse := func(why string) (shell.Result, error) {
 		return shell.Result{Code: 1}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: "cc-present: " + why}
 	}
+	owned := func(id string) (shell.Result, error) {
+		return refuse(fmt.Sprintf("refusing to write card %q: lane %s owns it", id, b.owners[id]))
+	}
 	switch c.Argv[1] {
 	case "outcomes":
-		out, err := json.Marshal(map[string]any{"rev": b.calls, "doc": map[string]any{"version": 1, "title": "", "blocks": b.docs[session]}})
+		out, err := json.Marshal(map[string]any{"rev": b.calls, "doc": map[string]any{"version": 1, "title": "", "blocks": b.docs[session]}, "owners": b.owners})
 		return shell.Result{Stdout: string(out)}, err
 	case "update-block":
+		id := blockID(json.RawMessage(c.Stdin))
+		if cmp.Or(b.owners[id], lane) != lane {
+			return owned(id)
+		}
+		b.updated = append(b.updated, id)
+		b.owners[id] = lane
 		blocks := slices.Clone(b.docs[session])
 		if i := slices.IndexFunc(blocks, func(raw json.RawMessage) bool { return blockID(raw) == blockID(json.RawMessage(c.Stdin)) }); i >= 0 {
 			blocks[i] = json.RawMessage(c.Stdin)
@@ -71,9 +87,23 @@ func (b *talkBoards) Run(ctx context.Context, c shell.Command) (shell.Result, er
 		if err := json.Unmarshal([]byte(c.Stdin), &doc); err != nil {
 			return refuse(err.Error())
 		}
+		was, now := byID(b.docs[session]), byID(doc.Blocks)
+		for id, owner := range b.owners {
+			if c.Argv[1] == "push" && owner != lane && now[id] != was[id] {
+				return owned(id)
+			}
+		}
 		b.docs[session] = doc.Blocks
 	}
 	return shell.Result{Stdout: "url: " + boardHost + session + "\n"}, nil
+}
+
+func byID(blocks []json.RawMessage) map[string]string {
+	raws := make(map[string]string, len(blocks))
+	for _, raw := range blocks {
+		raws[blockID(raw)] = string(raw)
+	}
+	return raws
 }
 
 func blockID(raw json.RawMessage) string {
@@ -165,6 +195,35 @@ func TestTalkMakesTheSameCallsWithOneReplyOnItOrAThousand(t *testing.T) {
 	}
 	if counts[1] != 2 || counts[1000] != counts[1] {
 		t.Fatalf("talk calls = %v, want one read and one write at either size", counts)
+	}
+}
+
+func TestAReplyOnAFullTalkWritesOnlyItsOwnCardAndLeavesAnotherLanesCardAsItIs(t *testing.T) {
+	proof := fmt.Sprintf(`{"id":"reply-proof","type":"card","title":"Proof","mirror":false,"children":[{"id":"reply-proof-md","type":"markdown","md":%q}]}`, strings.Repeat("p", 4<<10))
+	old := make([]string, 0, 81)
+	old = append(old, proof)
+	for n := range 80 {
+		old = append(old, fmt.Sprintf(`{"id":"reply-old%d","type":"card","title":"Earlier","mirror":false,"children":[{"id":"reply-old%d-md","type":"markdown","md":%q}]}`, n, n, strings.Repeat("o", 8<<10)))
+	}
+	boards := newTalkBoards(old...)
+	boards.owners["reply-proof"] = "dashboard-proof-1"
+	for n := range 80 {
+		boards.owners[fmt.Sprintf("reply-old%d", n)] = communicator
+	}
+
+	talk := surface(fanout(t, boards).Send(context.Background(), Reply{ID: "rnew", Title: "Relay", MD: "It holds."}), "talk")
+	if talk.Error != "" || talk.Ref != "reply-rnew" {
+		t.Fatalf("talk = %+v, want the new reply on Talk", talk)
+	}
+	if !slices.Equal(boards.updated, []string{"reply-rnew"}) {
+		t.Fatalf("cards written = %v, want only reply-rnew", boards.updated)
+	}
+	live := byID(boards.docs["talk-d"])
+	if live["reply-proof"] != proof {
+		t.Fatalf("reply-proof on the live board = %.80q, want dashboard-proof-1's card as it was", live["reply-proof"])
+	}
+	if _, kept := live["reply-old0"]; kept || live["reply-rnew"] == "" {
+		t.Fatal("the live board kept its oldest reply or lost the new one, want the roll to archive its own cards around the other lane's")
 	}
 }
 

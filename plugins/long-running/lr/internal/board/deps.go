@@ -224,6 +224,7 @@ func (c Cards) card(ctx context.Context, card string) (json.RawMessage, bool, in
 type boardRead struct {
 	rev    int64
 	blocks map[string]json.RawMessage
+	owners map[string]string
 }
 
 func (c Cards) wholeBoard(ctx context.Context) (boardRead, error) {
@@ -236,11 +237,12 @@ func (c Cards) wholeBoard(ctx context.Context) (boardRead, error) {
 		Doc struct {
 			Blocks []json.RawMessage `json:"blocks"`
 		} `json:"doc"`
+		Owners map[string]string `json:"owners"`
 	}
 	if err := json.Unmarshal([]byte(shown), &outcomes); err != nil {
 		return boardRead{}, fmt.Errorf("cc-present outcomes --all: %w", err)
 	}
-	read := boardRead{rev: outcomes.Rev, blocks: make(map[string]json.RawMessage, len(outcomes.Doc.Blocks))}
+	read := boardRead{rev: outcomes.Rev, blocks: make(map[string]json.RawMessage, len(outcomes.Doc.Blocks)), owners: outcomes.Owners}
 	for _, block := range outcomes.Doc.Blocks {
 		var top struct {
 			ID string `json:"id"`
@@ -533,6 +535,7 @@ type judged struct {
 	cards   Cards
 	shown   json.RawMessage
 	rev     int64
+	owner   string
 	gone    bool
 	premise *Judgment
 	decided *Judgment
@@ -545,7 +548,7 @@ func (r Recheck) judge(ctx context.Context, ref store.CardRef, board boardRead, 
 	if !onBoard {
 		return judged{ref: ref, cards: cards, gone: true}, nil
 	}
-	one := judged{ref: ref, cards: cards, shown: shown, rev: board.rev}
+	one := judged{ref: ref, cards: cards, shown: shown, rev: board.rev, owner: board.owners[ref.Card]}
 	var err error
 	if one.premise, err = r.Judge(ctx, premiseKind, evidence, string(shown)); err != nil || verdictOf(one.premise) != "yes" {
 		return one, err
@@ -570,7 +573,7 @@ func (r Recheck) apply(ctx context.Context, one judged, settled supersession) (*
 	}
 	switch verdictOf(one.decided) {
 	case "no":
-		return r.redraw(ctx, one.cards, one.ref, one.shown, one.rev, one.premise.Sentence)
+		return r.redraw(ctx, one, one.premise.Sentence)
 	case "yes":
 		return r.withdraw(ctx, one, settled)
 	}
@@ -612,9 +615,10 @@ func sentenceOf(v *Judgment) string {
 	return v.Sentence
 }
 
-func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, shown json.RawMessage, rev int64, premise string) (*Moved, error) {
+func (r Recheck) redraw(ctx context.Context, one judged, premise string) (*Moved, error) {
+	ref := one.ref
 	var card map[string]any
-	if err := json.Unmarshal(shown, &card); err != nil {
+	if err := json.Unmarshal(one.shown, &card); err != nil {
 		return nil, err
 	}
 	note := map[string]any{"id": ref.Card + "-premise", "type": "markdown", "md": "**What changed since this card was drawn:** " + premise}
@@ -628,7 +632,7 @@ func (r Recheck) redraw(ctx context.Context, cards Cards, ref store.CardRef, sho
 	if err != nil {
 		return nil, err
 	}
-	if _, err := cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", cards.Session, "--rev", strconv.FormatInt(rev, 10), "--lane", r.Lane, "--take-over"}, Stdin: string(encoded)}); err != nil {
+	if _, err := one.cards.run(ctx, shell.Command{Argv: []string{"cc-present", "update-block", "-", "--session", one.cards.Session, "--rev", strconv.FormatInt(one.rev, 10), "--lane", cmp.Or(one.owner, r.Lane)}, Stdin: string(encoded)}); err != nil {
 		return refused(ref, fmt.Sprintf("redraw it to state %q", premise), err)
 	}
 	return &Moved{ref, "redrew", premise}, nil
