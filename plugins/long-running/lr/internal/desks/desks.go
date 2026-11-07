@@ -164,8 +164,9 @@ func (d drive) owed(out io.Writer) (owed []owing, faults error, err error) {
 		switch {
 		case err != nil:
 			faulted = append(faulted, fmt.Errorf("%s has no brief to launch: %w", standingDesk.name, err))
-		case placedLocal.Match(text):
-			faulted = append(faulted, fmt.Errorf("%s: %s says place=local, and every desk runs remote", standingDesk.name, next.from))
+		case placedLocal.Match(text) && !lanes.DeskOnMac(text):
+			next.text = append([]byte("ccx: place=remote\n"), text...)
+			owed = append(owed, next)
 		default:
 			next.text = text
 			owed = append(owed, next)
@@ -225,13 +226,11 @@ func (d drive) launch(ctx context.Context, out io.Writer, owed []owing) error {
 
 func (d drive) launchOne(ctx context.Context, next owing) (string, error) {
 	brief := d.brief(next.lane)
-	if next.from != brief {
-		if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(brief, next.text, 0o600); err != nil {
-			return "", err
-		}
+	if err := os.MkdirAll(filepath.Dir(brief), 0o750); err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(brief, next.text, 0o600); err != nil {
+		return "", err
 	}
 	return d.run(ctx, "desk-launch.py", "lane", next.lane, next.model, next.effort, brief, "--drive", d.config.Drive, "--lane", lanes.Root)
 }

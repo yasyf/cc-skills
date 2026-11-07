@@ -450,18 +450,17 @@ func TestAStandingDeskRelaunchedAndDeadThreeTimesInAnHourStopsWithOneBlockerNami
 	}
 }
 
-func TestAStandingLaneEndedByADoneRecordNeverRelaunchesAndItsBlockerNamesTheBrief(t *testing.T) {
+func TestAStandingLaneEndedByADoneRequestRelaunchesWhileItsBriefKeepsItsStandingLine(t *testing.T) {
 	s := memory(t)
-	f, path := standingLane(t, s)
+	f, _ := standingLane(t, s)
 	f.feed = append(f.feed, ask(2, "done", refresher, t0, nil, Root, nil))
 	f.peers = nil
 
 	tick(t, s, f, t0.Add(mins(1)))
 	tick(t, s, f, t0.Add(mins(12)))
-	tick(t, s, f, t0.Add(mins(40)))
+	tick(t, s, f, t0.Add(mins(30)))
 
-	equal(t, []any{len(f.launches), len(f.ofKind("blocker"))}, []any{0, 1})
-	contains(t, f.ofKind("blocker")[0].Text, path)
+	equal(t, []any{f.launches, len(f.ofKind("blocker"))}, []any{[]string{"board-refresher-7"}, 0})
 }
 
 func TestAStandingLaneWhoseWorkerEndedWithItsDutyOpenRelaunchesAfterTenMinutes(t *testing.T) {

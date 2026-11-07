@@ -267,14 +267,18 @@ func TestARoleWhoseHolderPostsUnderAnyNameLaunchesNoSecondWriter(t *testing.T) {
 	}
 }
 
-func TestABriefThatStaysOnTheMacOrIsMissingFaultsOnlyItsOwnDesk(t *testing.T) {
+func TestADeskBriefOnTheMacWithNoMacNeedLaunchesRemoteAndAMissingBriefFaultsOnlyItsOwnDesk(t *testing.T) {
 	a, m, state := newDrive(t, lanes.Root, "fidelity-desk", "red-sweep", "drive-watchdog")
 	writeBrief(t, state, "alerts-desk", "ccx: role=watch place=local\n")
 	err := start(context.Background(), a, &bytes.Buffer{})
-	if err == nil || !strings.Contains(err.Error(), "alerts-desk") || !strings.Contains(err.Error(), "every desk runs remote") || !strings.Contains(err.Error(), "board-refresher has no brief") {
-		t.Fatalf("got %v, want each bad desk named", err)
+	if err == nil || strings.Contains(err.Error(), "alerts-desk") || !strings.Contains(err.Error(), "board-refresher has no brief") {
+		t.Fatalf("got %v, want only the desk with no brief named", err)
 	}
-	for _, good := range []string{"fidelity-desk", "red-sweep", "drive-watchdog"} {
+	placed, readErr := os.ReadFile(filepath.Join(state, "alerts-desk", "brief.md"))
+	if readErr != nil || !strings.HasPrefix(string(placed), "ccx: place=remote\nccx: role=watch place=local\n") {
+		t.Fatalf("alerts-desk launched from %q (%v), want its brief placed remote", placed, readErr)
+	}
+	for _, good := range []string{"fidelity-desk", "red-sweep", "drive-watchdog", "alerts-desk"} {
 		if strings.Contains(err.Error(), good) {
 			t.Fatalf("got %v, want only the bad desks named", err)
 		}
@@ -282,8 +286,8 @@ func TestABriefThatStaysOnTheMacOrIsMissingFaultsOnlyItsOwnDesk(t *testing.T) {
 			t.Fatalf("%s launched %q, want once", good, launched)
 		}
 	}
-	if launched := m.lines("desk-launch.py lane"); len(launched) != 3 {
-		t.Fatalf("launched %q, want only the three desks with a good brief", launched)
+	if launched := m.lines("desk-launch.py lane"); len(launched) != 4 {
+		t.Fatalf("launched %q, want every desk with a brief", launched)
 	}
 }
 

@@ -147,7 +147,7 @@ cci post --drive "$DRIVE" --lane supervisor --kind blocker --topic <pr> --text "
 cci post --drive "$DRIVE" --lane artifact-contract --kind withdraw --topic artifact-reads --to partial-release --re "$VERDICT_SEQ" --text "verdict retracted; contract changed"
 ```
 
-**B2. Read at every wake and before every decision, report or merge.** A lane's first tool call on any wake is `cci tail --drive <drive> --cursor <lane> --reader <lane>` with its `--topic` and `--kind` subscription filters. Read again before deciding, reporting, asking or merging; a lane parked on a CI watch reads before it acts on the watch's return. Never act on a message before reading `cci`.
+**B2. Read at every wake and before every decision, report or merge.** A lane's first tool call on any wake is `cci tail --drive <drive> --cursor <lane> --reader <lane>` with its `--topic` and `--kind` subscription filters. Read again before deciding, reporting, asking or merging; a lane parked on a CI watch reads before it acts on the watch's return. Never act on a message before reading `cci`. A lane's merge is refused while a record another lane addressed to it sits unread and unanswered.
 
 - `merge_own_red` refuses a lane's merge while a record another lane addressed to it sits past its cursor with no closing reply. The refusal is that read: every such record prints in one refusal, with the newest other records and a line naming how to read the rest, and the cursor moves past them. A lane's own records never count.
 - A read that shows `[ANSWERED #n]` or `[WITHDRAWN #n]` on an entry ends any wait on it.
