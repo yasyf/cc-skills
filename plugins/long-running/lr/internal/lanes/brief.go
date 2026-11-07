@@ -100,6 +100,13 @@ func BriefOf(path string) (Brief, error) {
 	return said, nil
 }
 
+func WithDuty(body []byte, duty string) []byte {
+	if duty == "" || standing.Match(body) {
+		return body
+	}
+	return append([]byte("Standing: "+duty+"\n"), body...)
+}
+
 func DeskOnMac(body []byte) bool {
 	own := macNeed.FindSubmatch(body)
 	return macBrief.Match(body) && own != nil && slices.Contains(MacNeeds, string(own[1]))

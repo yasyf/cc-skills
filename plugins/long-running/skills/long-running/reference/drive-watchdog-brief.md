@@ -1,6 +1,6 @@
 # The drive-watchdog lane
 
-The coordinator starts `drive-watchdog` remote with `lr desks start`, model opus, effort medium, beside the landing desk.
+The coordinator starts `drive-watchdog` remote as `lr launch lane drive-watchdog opus medium <brief>` beside the landing desk, and `lr desks start` relaunches it from its registry row whenever it is down.
 
 ## Contents
 
@@ -36,6 +36,7 @@ Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk
+Standing: watch the drive's lanes and desks until the drive is over
 You are drive-watchdog, a standing desk in drive <drive> (coordinator <coordinator session>).
 Checkout <path>; STATE=<state dir>. You write no code, run no builds or tests,
 post nothing to Slack, never call AskUserQuestion, and never stop a lane yourself.

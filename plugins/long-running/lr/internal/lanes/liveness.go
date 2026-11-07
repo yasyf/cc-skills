@@ -87,6 +87,67 @@ func LivenessRows(s *store.Store) (rows []Liveness, err error) {
 	return rows, nil
 }
 
+type StandingDesk struct {
+	Stem string
+	Lane store.Lane
+	Duty string
+	Live bool
+	Cost Cost
+}
+
+func StandingDesks(drive string, rows []store.Lane, now time.Time) (desks []StandingDesk, err error) {
+	defer recovered(&err)
+	named, stems := map[string]store.Lane{}, map[string][]store.Lane{}
+	for _, row := range rows {
+		row.Name = Canonical(drive, row.Name)
+		named[row.Name] = row
+		stem, _ := family(row.Name)
+		stems[stem] = append(stems[stem], row)
+	}
+	for _, stem := range slices.Sorted(maps.Keys(stems)) {
+		if stem == Root || stem == OwnerRelay {
+			continue
+		}
+		head := heldBy(stems[stem], now)
+		seen := map[string]bool{head.Name: true}
+		for head.State == store.LaneRetired {
+			next, found := named[Canonical(drive, head.RetiredBy)]
+			if !found || seen[next.Name] {
+				break
+			}
+			head, seen[next.Name] = next, true
+		}
+		if headStem, _ := family(head.Name); headStem != stem {
+			continue
+		}
+		duty := dutyOf(head)
+		if duty == "" {
+			continue
+		}
+		cost, desk := DeskCostOf(head.Name)
+		if !desk {
+			cost = successorCost(head)
+		}
+		desks = append(desks, StandingDesk{Stem: stem, Lane: head, Duty: duty, Live: holds(head, now), Cost: cost})
+	}
+	return desks, nil
+}
+
+func heldBy(rows []store.Lane, now time.Time) (head store.Lane) {
+	live, newest := false, -1
+	for _, row := range rows {
+		_, n := family(row.Name)
+		if rowLive := holds(row, now); newest < 0 || rowLive && !live || rowLive == live && n > newest {
+			head, live, newest = row, rowLive, n
+		}
+	}
+	return head
+}
+
+func holds(row store.Lane, now time.Time) bool {
+	return isLive(row.State) || row.Heard.After(row.Since) && now.Sub(row.Heard) < StaleAfter
+}
+
 func RegistryLines(s *store.Store, names []string, now time.Time) (lines []string, err error) {
 	defer recovered(&err)
 	for _, lane := range must(s.AllLanes()) {
@@ -275,7 +336,7 @@ func StandingRefusal(s *store.Store, r Request) (refusal string, err error) {
 		return "", nil
 	}
 	if duty := dutyOf(lane); duty != "" && r.Successor == "" {
-		return fmt.Sprintf("%s is standing (%s): it stands down only for a successor, so name one with --successor%s", r.Lane, duty, dutyEnd(lane)), nil
+		return fmt.Sprintf("%s is standing (%s): it stands down only for a successor, so name one with --successor, or %s to end the duty", r.Lane, duty, dutyEnd(lane)), nil
 	}
 	if r.Open == "" {
 		return fmt.Sprintf("%s is a desk, so its stand-down carries its open items for whoever takes them: every owner order it holds (`lr owner audit`), and every ask, PR and card it owes. Name them with --open '<item>; <item>', or pass --open none", r.Lane), nil
@@ -302,7 +363,14 @@ func DoneRefusal(s *store.Store, lane string, said []string, home string, states
 	if len(open) > 0 {
 		return fmt.Sprintf("A lane that owns an open PR never posts done, since done retires it for good. Post the blocked record below and wait for each PR to land or close:\n```\nopen: %s\ncci post --lane %s --kind blocked%s --to <your desk> --text '<what lands it>'\n```", numberList(open), lane, flags.String()), nil
 	}
-	if row, found := laneOf(s, lane); !found || row.Placement != placedOnSprite {
+	row, found := laneOf(s, lane)
+	if !found {
+		return "", nil
+	}
+	if duty := dutyOf(row); duty != "" {
+		return fmt.Sprintf("%s is standing (%s), and the supervisor relaunches a standing lane after its done. A desk keeps its duty and rotates instead of posting done. If the duty is over, %s, then post done.", lane, duty, dutyEnd(row)), nil
+	}
+	if row.Placement != placedOnSprite {
 		return "", nil
 	}
 	if paths := spriteOnly(said, home); len(paths) > 0 {

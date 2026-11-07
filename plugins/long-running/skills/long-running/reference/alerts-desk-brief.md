@@ -10,7 +10,7 @@
 
 ## What the desk does
 
-The coordinator starts one `alerts-desk` remote beside the other desks with `lr desks start`, model sonnet, effort low. It watches whatever the drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
+The coordinator starts one `alerts-desk` remote beside the other desks as `lr launch lane alerts-desk sonnet low <brief>`, and `lr desks start` relaunches it from its registry row whenever it is down. It watches whatever the drive deploys, applies, releases, or migrates. `scripts/monitor-watch.py` owns the polling and dedup. Fill the angle brackets and paste the brief below.
 
 - **A1. Report monitor transitions, and nothing else.** The desk runs `monitor-watch.py watch --alert-drive <drive>` in the foreground under `lr wait` over the drive's monitors, by tag glob such as `release-target:*` and by named id. It messages the coordinator only on a move into Alert, Warn, or No Data, or a recovery to OK. Each message carries the monitor id, name, transition time, a one-line first read, any `production-operations` entry from the last 24 hours on the monitor's target (SKILL.md R24), and its launch decision. It never messages on an unchanged state or a timer tick, owns no fixes, and posts nothing to Slack.
 - **A2. A run-binding watch proves a new run starts and finishes.** After an apply or release of `executor`, `api`, `runtime-v2`, or `restate-worker`, the watch or bake records a newly bound run, its start, and its completion. Crash and storage health alone cannot pass the watch.
@@ -45,6 +45,7 @@ An alert in a watched channel opens its own incident.
 
 ```text
 ccx: role=watch
+Standing: watch the drive's production monitors and launch incident lanes until the drive is over
 You are alerts-desk: the production monitor watch for this drive.
 Model sonnet, effort low. Run until the coordinator sends "drive over".
 

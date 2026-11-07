@@ -561,9 +561,9 @@ func afterHandoff(lane store.Lane) string {
 
 func dutyEnd(lane store.Lane) string {
 	if lane.Standing != "" {
-		return fmt.Sprintf(", or end the duty it took from the lane it succeeds with `lr request done %s`", lane.Name)
+		return fmt.Sprintf("run `lr request done %s`, which ends the duty it took from the lane it succeeds", lane.Name)
 	}
-	return fmt.Sprintf(", or delete the `Standing:` line in %s to end the duty", lane.Brief)
+	return fmt.Sprintf("delete the `Standing:` line in %s", lane.Brief)
 }
 
 func retireSilent(s *store.Store, d Deps, lane store.Lane, why string, now time.Time, out *Outcome) {
@@ -941,6 +941,7 @@ func successorBrief(old store.Lane, name, why, partial, work string, d Deps, tra
 	if err != nil {
 		return "", err
 	}
+	body = WithDuty(body, old.Standing)
 	drive, checkout := d.Drive, d.Checkout
 	start := handoffStart(old, d, transcript)
 	before := []string{

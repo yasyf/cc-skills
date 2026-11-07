@@ -2762,6 +2762,34 @@ func TestASpriteDoneNamingAFileOnItsOwnDiskIsRefusedNamingTheDocFix(t *testing.T
 	}
 }
 
+func TestADoneFromALaneStillStandingSaysToEndItsDutyFirst(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	do(os.WriteFile(brief, []byte("# bk-reads-1\nStanding: read Buildkite logs until bk-desk is back\n"), 0o600))
+	for _, lane := range []store.Lane{
+		{Name: "bk-reads-1", Brief: brief},
+		{Name: "port-desk-2", Brief: "/gone.md", Standing: "forward-port every old-tree PR"},
+		{Name: "fix-lane-1", Brief: "/gone.md"},
+	} {
+		lane.Model, lane.Effort, lane.Role, lane.State = "opus", "high", "lane", store.LaneDesired
+		if _, err := s.WantLane(lane, t0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	done := func(lane string) string {
+		t.Helper()
+		refusal, err := DoneRefusal(s, lane, nil, "/Users/me", func([]int) (map[int]string, error) { return nil, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		return refusal
+	}
+
+	equal(t, done("bk-reads-1"), "bk-reads-1 is standing (read Buildkite logs until bk-desk is back), and the supervisor relaunches a standing lane after its done. A desk keeps its duty and rotates instead of posting done. If the duty is over, delete the `Standing:` line in "+brief+", then post done.")
+	contains(t, done("port-desk-2"), "If the duty is over, run `lr request done port-desk-2`, which ends the duty it took from the lane it succeeds, then post done.")
+	equal(t, done("fix-lane-1"), "")
+}
+
 func TestARequestPostsOneTypedDecideToTheSupervisor(t *testing.T) {
 	draft := Request{Verb: "stand-down", Lane: lane2, Successor: "conflicts-3", LastRead: "7", PRs: []int{1, 2}, By: Root}.Draft(testDrive)
 

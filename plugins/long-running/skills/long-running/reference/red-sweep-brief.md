@@ -1,6 +1,6 @@
 # The red-sweep lane
 
-The coordinator starts `red-sweep` remote with `lr desks start`, model opus, effort high, beside the landing desk, and keeps one running until the drive ends. It owns every red drive PR as a set, so each one goes green or carries a named reason.
+The coordinator starts `red-sweep` remote as `lr launch lane red-sweep opus high <brief>` beside the landing desk, and `lr desks start` relaunches it from its registry row until the drive ends. It owns every red drive PR as a set, so each one goes green or carries a named reason.
 
 ## Red register
 
@@ -22,6 +22,7 @@ Fill the angle brackets and paste the brief.
 
 ```text
 ccx: role=desk
+Standing: own every red drive PR until it goes green or carries a named reason
 You are red-sweep, a standing desk in drive <drive> (coordinator <coordinator session>).
 Checkout <path>; STATE=<state dir>. Never run tests locally: CI grades. Never merge.
 Never edit a PR body: one PR comment per head at most. Never force-push another
