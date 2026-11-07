@@ -648,6 +648,33 @@ func TestALostPassTellsItsPRsLaneOnceThatItRunsAgain(t *testing.T) {
 	}
 }
 
+func TestALostPassNamesTheLastLinesItsJobLogged(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	f.now = time.Now()
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	logged := "sprite-job: the plan copy took 0 s\nTraceback (most recent call last):\n    raise CalledProcessError(retcode, process.args,\nsubprocess.CalledProcessError: Command '['gh', 'auth', 'token']' returned non-zero exit status 1.\n\n"
+	if err := os.WriteFile(filepath.Join(directory, logFile), []byte(logged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeResult(t, directory, `{"error":"the job on Sprite sdf-rel-4 ended with status 1 and no result after the plan copy","no_result":true}`, f.now)
+
+	if _, err := f.pool.Settle(context.Background(), []string{name}); err != nil {
+		t.Fatal(err)
+	}
+
+	var lost []string
+	for _, note := range recordsOf(t, kindNote) {
+		if strings.HasPrefix(note.Text, "GRADER-LOST ") {
+			lost = append(lost, note.Text)
+		}
+	}
+	if len(lost) != 1 || !strings.Contains(lost[0], "after the plan copy; its log ends: Traceback (most recent call last): | raise CalledProcessError(retcode, process.args, | subprocess.CalledProcessError: Command '['gh', 'auth', 'token']' returned non-zero exit status 1.") {
+		t.Fatalf("lost = %q", lost)
+	}
+}
+
 func TestAFailedPassTellsItsPRsLaneOnceAtItsFirstFailure(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	f.now = time.Now()

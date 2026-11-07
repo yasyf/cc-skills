@@ -29,6 +29,8 @@ const (
 	spriteStalledFor = 30 * time.Minute
 	causeChars       = 200
 	causeHash        = 12
+	logTailLines     = 3
+	logTailChars     = 600
 	watchdogLane     = "drive-watchdog"
 	kindState        = "state"
 	kindReport       = "report"
@@ -76,16 +78,33 @@ func (p *JobPool) finished(ctx context.Context, ref workerRef, directory string,
 func failureOf(directory string) string {
 	data, err := os.ReadFile(filepath.Join(directory, grader.ResultFile))
 	if err != nil {
-		return "the job exited and wrote no result"
+		return "the job exited and wrote no result" + logTail(directory)
 	}
 	var outcome struct {
 		Error   string `json:"error"`
 		Skipped string `json:"skipped"`
+		Lost    bool   `json:"no_result"`
 	}
 	if err := json.Unmarshal(data, &outcome); err != nil || outcome.Error+outcome.Skipped == "" {
-		return "its result.json is empty or does not parse"
+		return "its result.json is empty or does not parse" + logTail(directory)
+	}
+	if outcome.Lost {
+		return outcome.Error + logTail(directory)
 	}
 	return outcome.Error + outcome.Skipped
+}
+
+func logTail(directory string) string {
+	data, err := os.ReadFile(filepath.Join(directory, logFile))
+	if err != nil {
+		return ""
+	}
+	lines := slices.DeleteFunc(strings.Split(string(data), "\n"), func(line string) bool { return strings.TrimSpace(line) == "" })
+	if len(lines) == 0 {
+		return ""
+	}
+	tail := []rune(strings.Join(lines[max(0, len(lines)-logTailLines):], " | "))
+	return "; its log ends: " + string(tail[max(0, len(tail)-logTailChars):])
 }
 
 func jobNames(directory string) (grader.Job, error) {

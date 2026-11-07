@@ -209,7 +209,7 @@ from pathlib import Path
 sys.path.insert(0, sys.argv[2])
 import desk_result
 for name, argv in json.loads(os.environ.get("SPRITE_JOB_KEYS") or "{}").items():
-    if not (value := subprocess.run(argv, capture_output=True, text=True, check=True).stdout.strip()):
+    if not (value := subprocess.run(argv, stdout=subprocess.PIPE, text=True, check=True).stdout.strip()):
         error = f"the {name} command printed nothing, so the job would run without {name}"
         desk_result.write(Path(sys.argv[1]), json.dumps({"error": error}) + "\n")
         sys.exit(f"sprite-job: {error}")
