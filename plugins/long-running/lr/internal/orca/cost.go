@@ -37,7 +37,7 @@ func (o Order) costFaults(text string) []string {
 	}
 	fix := fmt.Sprintf("add the line `%s owner:m<row>` naming his words to brief %s, or launch `lr launch lane %s %s high %s`", lanes.OwnerPickLine, o.Brief, o.Lane, standard, o.Brief)
 	var faults []string
-	if o.Lane != coordinatorLane && (fableModel.MatchString(o.Model) || astraModel.MatchString(o.Model)) {
+	if !isCoordinator(o.Lane) && (fableModel.MatchString(o.Model) || astraModel.MatchString(o.Model)) {
 		faults = append(faults, fmt.Sprintf("%s starts only when the owner named it for this work: %s", o.Model, fix))
 	}
 	if slices.Contains(lanes.AboveHigh, o.Effort) {

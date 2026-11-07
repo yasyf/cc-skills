@@ -473,6 +473,13 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 	if len(resolved) > 0 {
 		do(s.ResolveUnread(resolved))
 	}
+	if r.Re != 0 {
+		for _, lane := range must(s.UnreadLanes(r.Re)) {
+			if Stem(lane) == Stem(name) {
+				do(s.TakeUnread(lane, r.Re))
+			}
+		}
+	}
 	answers := resolved
 	if r.Re != 0 {
 		answers = append(slices.Clone(resolved), r.Re)

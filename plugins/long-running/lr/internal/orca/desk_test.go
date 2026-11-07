@@ -2687,6 +2687,7 @@ func TestTheCoordinatorLaunchesOnTheMacWhileALaneWithNoPlaceTakesASprite(t *test
 	}{
 		{coordinatorLane, "fable", coordinatorBrief, "start"},
 		{coordinatorLane, "opus", coordinatorBrief, "start"},
+		{coordinatorLane + "-3", "opus", coordinatorBrief, "start"},
 		{testLane, "opus", testBrief + "ccx: role=build\n", "sprite"},
 	} {
 		t.Run(tt.lane+"/"+tt.model, func(t *testing.T) {
