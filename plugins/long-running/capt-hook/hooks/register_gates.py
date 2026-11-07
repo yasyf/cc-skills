@@ -822,7 +822,14 @@ def owning_lane(evt: BaseHookEvent) -> str | None:
 
 
 def incident_lane(evt: BaseHookEvent, lane: str) -> bool:
-    return bool(INCIDENT_LANE.match(lane) or (FIX_LANE.search(lane) and open_incidents(evt, read_incident_source)))
+    if INCIDENT_LANE.match(lane):
+        return True
+    if not FIX_LANE.search(lane):
+        return False
+    try:
+        return bool(open_incidents(evt, read_incident_source))
+    except READ_ERRORS:
+        return False
 
 
 def has_pr(entry: dict, lane: str) -> bool:
@@ -877,7 +884,7 @@ def gated(command: str, said: str = "accepted lane-a\n", env: dict[str, str] = L
         gated("ccx vcs ship -m x", "CONTRACT-MISSING inc-api-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "inc-api-fix"}): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=OPEN_FIX): Allow(),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}): Warn(pattern=r"`alerts-api-0305-fix`"),
-        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Warn(pattern=UNREAD_WARNING),
+        gated("ccx vcs ship -m x", "CONTRACT-MISSING alerts-api-0305-fix: none\n", env={"CLAUDE_LONG_RUNNING_LANE": "alerts-api-0305-fix"}, incidents=(1, "store down")): Warn(pattern=r"`alerts-api-0305-fix` has no read-back"),
         gated("ccx vcs ship -m x", "CONTRACT-MISSING lane-a: none\n", prs=(1, "ccn down")): Warn(pattern=UNREAD_WARNING),
         gated("ccx vcs ship -m x", "Traceback: boom\n"): Warn(pattern=UNREAD_WARNING),
     }),
