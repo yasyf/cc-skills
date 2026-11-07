@@ -50,6 +50,7 @@ type rollWorld struct {
 	skip      []string
 	argv      map[string][]string
 
+	receipts  string
 	drive     drive.Entry
 	config    map[string]json.RawMessage
 	carried   map[string][]shell.Command
@@ -63,7 +64,7 @@ func newRollWorld(t *testing.T) *rollWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = s.Close() })
-	w := &rollWorld{t: t, store: s, replies: map[string]shell.Result{}, first: map[string]shell.Result{}, argv: map[string][]string{}, carried: map[string][]shell.Command{}, uncarried: map[string]shell.Result{}}
+	w := &rollWorld{t: t, store: s, receipts: t.TempDir(), replies: map[string]shell.Result{}, first: map[string]shell.Result{}, argv: map[string][]string{}, carried: map[string][]shell.Command{}, uncarried: map[string]shell.Result{}}
 	w.drive = drive.Entry{Drive: "brook", Repo: "Forge-AI/monorepo", StateDir: "/Users/me/.claude/scratch/brook", Sessions: []string{"root-session"}}
 	if err := json.Unmarshal([]byte(`{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"/Users/me/worktrees/runner","author":"drive-bot","label":"brook","movers":["lanes"],"orca_run":"`+rollRun+`"}`), &w.config); err != nil {
 		t.Fatal(err)
@@ -132,7 +133,7 @@ func (w *rollWorld) Run(_ context.Context, c shell.Command) (shell.Result, error
 func (w *rollWorld) roll(probe string) string {
 	w.t.Helper()
 	w.out.Reset()
-	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Drive: &w.drive, DriveConfig: w.config, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
+	roller := SpriteRoll{Runner: w, Orca: w, Fleet: w, Store: w.store, Receipts: w.receipts, Drive: &w.drive, DriveConfig: w.config, Host: w.host, Graders: w.graders, Skip: w.skip, Now: func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, Out: &w.out}
 	err := roller.Run(context.Background(), rollRun, func(name string) string { return w.env[name] }, probe, w.probeOnly)
 	var failed *Failed
 	if errors.As(err, &failed) {
@@ -170,6 +171,29 @@ func TestARollInstallsOnTheDeskHostThoughItHostsNoWorker(t *testing.T) {
 		t.Fatal("the roll did not visit the host and each live Sprite once", w.boxes)
 	}
 	if census := w.census(); census["desk-host"]["long-running@skills"] != rollPack {
+		t.Fatal(census)
+	}
+}
+
+func TestARollInstallsOnThePoolSpriteOfALiveLaneTheRunDoesNotList(t *testing.T) {
+	w := newRollWorld(t)
+	at := time.Date(2026, 11, 3, 12, 0, 0, 0, time.UTC)
+	for _, lane := range []store.Lane{
+		{Name: "meta-desk-4", Brief: "/briefs/meta-desk-4.md", State: store.LaneDesired, Placement: "sprite"},
+		{Name: "mac-lane", Brief: "/briefs/mac-lane.md", State: store.LaneDesired},
+	} {
+		if _, err := w.store.WantLane(lane, at); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeJSON(t, filepath.Join(w.receipts, "meta-desk-4.json"), map[string]any{"result": map[string]any{"dispatchId": "ctx_aa5ce279457c", "server": map[string]string{"name": "pool-mkjizircrzsea54o"}}})
+	if refused := w.roll(""); refused != "" {
+		t.Fatal(refused)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-a", "pool-b", "pool-c", "pool-mkjizircrzsea54o"}) {
+		t.Fatal("the roll did not visit the live lane's pool Sprite beside the Run's live Sprites", w.boxes)
+	}
+	if census := w.census(); census["pool-mkjizircrzsea54o"]["long-running@skills"] != rollPack {
 		t.Fatal(census)
 	}
 }
@@ -532,6 +556,34 @@ func TestRollHostPinsInstallsTheDeskHostsPinsOnANamedSpriteNoRunNames(t *testing
 	}
 }
 
+func TestRollWorkerPinsInstallsEveryWorkerPinTheLongRunningPackIncludedOnANamedSprite(t *testing.T) {
+	w := newRollWorld(t)
+	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
+	runner := filepath.Join(t.TempDir(), "runner.json")
+	raw := `{"host":{"sprite":"desk-host"},"orca":{"sprite":{"env":{"WORKER_CCI_URL":"` + testCCIURL + `","WORKER_CCI_SHA256":"` + testCCISHA + `"},"tools":` + rollGraderTools + `}}}`
+	if err := os.WriteFile(runner, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := RollWorkerPins(context.Background(), w, w.store, runner, "pool-mkjizircrzsea54o", func() time.Time { return time.Date(2026, 11, 3, 13, 0, 0, 0, time.UTC) }, &w.out); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(w.boxes, []string{"pool-mkjizircrzsea54o"}) {
+		t.Fatal(w.boxes)
+	}
+	argv := w.argv["pool-mkjizircrzsea54o"]
+	for _, tool := range []string{packTool, "ccx", "ccn", graderTool} {
+		if !slices.Contains(argv, tool) {
+			t.Fatal("the worker Sprite went without", tool, argv)
+		}
+	}
+	if slices.Contains(argv, "no-cci-daemon") {
+		t.Fatal("a worker Sprite was told to go without its cci daemon", argv)
+	}
+	if census := w.census()["pool-mkjizircrzsea54o"]; census[packTool] != rollPack {
+		t.Fatal(census)
+	}
+}
+
 func TestADownDeskHostRefusesTheSameWayEveryPass(t *testing.T) {
 	w := newRollWorld(t)
 	t.Setenv("BINRUN_PLUGIN_ROOT", w.env["BINRUN_PLUGIN_ROOT"])
@@ -854,7 +906,7 @@ func TestACensusWithNoSpriteSaysSoInsteadOfPrintingNothing(t *testing.T) {
 
 func TestAProbeWithNoLiveWorkerRollsNothing(t *testing.T) {
 	w := newRollWorld(t)
-	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live worker of Run "+rollRun+" and runner.json names it no grader" || len(w.boxes) != 0 {
+	if refused := w.roll("pool-done"); refused != "nothing rolled: pool-done hosts no live lane of the drive or worker of Run "+rollRun+" and runner.json names it no grader" || len(w.boxes) != 0 {
 		t.Fatal(refused, w.boxes)
 	}
 }
