@@ -151,7 +151,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
 	t.Setenv(drive.Env, "d")
 	f := fanout(t, nil)
-	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix"})
+	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load"})
 	entry, err := json.Marshal(f.Entry)
 	if err != nil {
 		t.Fatal(err)
@@ -1078,7 +1078,7 @@ func TestAPRCardMissingALedgerFieldPostsAndWarnsInOneLine(t *testing.T) {
 			fake := scripted()
 			f := fanout(t, fake)
 			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
-			got, warning := f.withPRCards(context.Background(), r)
+			got, warning, _ := f.withPRCards(context.Background(), r)
 			if !strings.Contains(warning, "the plan row, the risk") || strings.Contains(warning, "what it changes") || strings.Contains(warning, "\n") {
 				t.Fatalf("warning = %q, want one line naming the two missing fields", warning)
 			}
@@ -1095,11 +1095,33 @@ func TestAPRCardMissingALedgerFieldPostsAndWarnsInOneLine(t *testing.T) {
 	}
 }
 
+func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
+	fake := scripted()
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\n## Risk profile\n\nLow: one retry loop.\n"}`, "gh", "pr", "view")
+	f := fanout(t, fake)
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+	r, _, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].Title != "relay: fix the reconnect" || r.PRCards[0].Risk != "Low: one retry loop." {
+		t.Fatalf("cards = %+v, err %v; want the title and risk from the PR body", r.PRCards, err)
+	}
+}
+
+func TestAPRCardWithNothingInItsRowOrItsBodyIsRefused(t *testing.T) {
+	fake := scripted()
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"Fixes the reconnect."}`, "gh", "pr", "view")
+	f := fanout(t, fake)
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+	_, _, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	if err == nil || !strings.HasPrefix(err.Error(), "EMPTY PR CARD: "+landPR) {
+		t.Fatalf("err = %v, want the empty card refused", err)
+	}
+}
+
 func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
-	r, _ := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	r, _, _ := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	f.Send(context.Background(), r)
 	var card struct {
 		Children []map[string]any `json:"children"`
@@ -1118,7 +1140,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low", WaitsOn: "Your tap", Title: "Relay fix"})
-	r, warning := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	r, warning, _ := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	if warning != "" {
 		t.Fatalf("warning = %q on a PR with every line", warning)
 	}
@@ -1182,11 +1204,11 @@ var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanRow: 
 func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
 	f := fanout(t, scripted())
-	if _, warning := f.withPRCards(context.Background(), r); !strings.HasPrefix(warning, "no row in the PR ledger, so no Approve and he sees a link: "+landPR) {
+	if _, warning, _ := f.withPRCards(context.Background(), r); !strings.HasPrefix(warning, "no row in the PR ledger, so no Approve and he sees a link: "+landPR) {
 		t.Fatalf("no row warned %q", warning)
 	}
 	ledgerRow(t, f, inCI)
-	if _, warning := f.withPRCards(context.Background(), r); warning != "" {
+	if _, warning, _ := f.withPRCards(context.Background(), r); warning != "" {
 		t.Fatalf("a PR in CI warned %q, want its Approve drawn with nothing to say", warning)
 	}
 	if flags := r.tapFlags(); !slices.Equal(flags, []string{"--tap-pr", landPR}) {
@@ -1195,7 +1217,7 @@ func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testi
 	superseded := inCI
 	superseded.SupersededBy = "#2197"
 	ledgerRow(t, f, superseded)
-	if _, warning := f.withPRCards(context.Background(), r); warning != "" {
+	if _, warning, _ := f.withPRCards(context.Background(), r); warning != "" {
 		t.Fatalf("a superseded PR warned %q, want a link and nothing to say", warning)
 	}
 }
@@ -1239,14 +1261,14 @@ func TestAPRNotWaitingIsOnlyAMentionAndANoPRReplyReadsNothing(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, Tapped: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low"})
-	mention, warning := f.withPRCards(context.Background(), Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
+	mention, warning, _ := f.withPRCards(context.Background(), Reply{ID: "r2", Title: "The relay fix landed", MD: "m", Status: "done", PRs: []string{landPR}})
 	if warning != "" || len(mention.PRCards) != 0 {
 		t.Fatalf("withPRCards = %+v, %q, want a PR nothing waits on left a plain mention", mention.PRCards, warning)
 	}
-	if plain, warning := f.withPRCards(context.Background(), Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
+	if plain, warning, _ := f.withPRCards(context.Background(), Reply{ID: "r3", Title: "t", MD: "m"}); warning != "" || plain.PRCards != nil {
 		t.Fatalf("a reply naming no PR read the store: %+v, %q", plain, warning)
 	}
-	unrowed, warning := f.withPRCards(context.Background(), Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
+	unrowed, warning, _ := f.withPRCards(context.Background(), Reply{ID: "r4", Title: "Land it?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR + "0"}})
 	if !strings.Contains(warning, "no row in the PR ledger") || len(unrowed.PRCards) != 1 || unrowed.PRCards[0].Change != "" {
 		t.Fatalf("withPRCards = %+v, %q, want a PR with no ledger row warned on and drawn bare", unrowed.PRCards, warning)
 	}
@@ -2155,9 +2177,9 @@ func TestAnApprovingPickTheCardCannotTieToOnePRAtOneHeadWarnsOnTheCardAndInTheRe
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
-			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
+			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load"})
 			r, _ := tc.reply.mended()
-			r, _ = f.withPRCards(context.Background(), r)
+			r, _, _ = f.withPRCards(context.Background(), r)
 			got, warning := r.untiedApprovals()
 			if tc.warns != strings.HasPrefix(warning, "APPROVES NOTHING") || tc.warns != strings.Contains(got.Words[got.Picks[0]], untiedPick) {
 				t.Fatalf("warning = %q, words = %q, want warns %v", warning, got.Words, tc.warns)
