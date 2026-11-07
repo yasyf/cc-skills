@@ -931,9 +931,9 @@ func (r Reply) bareExplainMore() error {
 // its card to carry. The reply posts whatever it finds: the second result is
 // one warning line naming what is missing, or empty. A PR he cannot approve,
 // on a reply with no picks, is only a mention.
-func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
+func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string, error) {
 	if len(r.PRs) == 0 {
-		return r, ""
+		return r, "", nil
 	}
 	said := board.NewAnswerWords(f.Runner, f.Entry.Checkout)
 	numbers := make([]int, len(r.PRs))
@@ -941,7 +941,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
 	repo, rows, read := board.Rows(f.Entry, numbers)
-	var short, unrowed []string
+	var short, unrowed, blank []string
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
@@ -960,17 +960,26 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
+		if row.ForUsers == "" || row.Risk == "" || board.PlanWords(row) == "" {
+			row = f.fromGitHub(ctx, row, pr)
+		}
+		if row.ForUsers == "" && row.Risk == "" && board.PlanWords(row) == "" {
+			blank = append(blank, pr)
+		}
 		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), row.Risk, prrow.BlocksWords(row)}}
 		var missing []string
-		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {row.PlanRow, "the plan row"}, {row.Risk, "the risk"}} {
+		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {board.PlanWords(row), "the plan row"}, {row.Risk, "the risk"}} {
 			if field.said == "" {
 				missing = append(missing, field.name)
 			}
 		}
 		if len(missing) > 0 {
-			short = append(short, fmt.Sprintf("%s has no %s in its ledger row", pr, strings.Join(missing, ", ")))
+			short = append(short, fmt.Sprintf("%s's ledger row and PR body lack %s", pr, strings.Join(missing, ", ")))
 		}
 		cards = append(cards, card)
+	}
+	if len(r.Picks) > 0 && len(blank) > 0 {
+		return r, "", fmt.Errorf("EMPTY PR CARD: %s has no Summary, plan line or Risk profile in its ledger row or its PR body, so its card would carry nothing and nothing went out; its lane writes them into the PR body, then this sends again", strings.Join(blank, ", "))
 	}
 	if len(r.Picks) > 0 {
 		r.PRCards = cards
@@ -985,7 +994,19 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string) {
 	if len(warned) > 0 && read != nil {
 		warned = append(warned, fmt.Sprintf("the PR ledger did not read: %v", read))
 	}
-	return r, strings.Join(warned, "; ")
+	return r, strings.Join(warned, "; "), nil
+}
+
+func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {
+	done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "view", pr, "--json", "title,body"}, Timeout: postTimeout})
+	var read struct{ Title, Body string }
+	if err != nil || json.Unmarshal([]byte(done.Stdout), &read) != nil {
+		return row
+	}
+	var body store.ReviewRow
+	prrow.ApplyBody(&body, read.Body)
+	row.Title, row.ForUsers, row.Risk, row.PlanLine = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Risk, body.Risk), cmp.Or(row.PlanLine, body.PlanLine)
+	return row
 }
 
 func (r Reply) prChild(id, pr string) map[string]any {
