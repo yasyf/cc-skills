@@ -71,6 +71,7 @@ func LoadSettings(path string) (Settings, error) {
 
 type reply struct {
 	head, body, url string
+	refused         bool
 	at              time.Time
 }
 
@@ -109,14 +110,14 @@ func (d *Desk) Serve(ctx context.Context) error {
 func (d *Desk) loop() askdesk.Desk {
 	return askdesk.Desk{Lane: Lane, Drive: d.Drive, Duty: Duty, Bodies: d.Bodies, Now: d.Now, Log: d.Log, Read: func(ctx context.Context, text string) askdesk.Reply {
 		read := d.read(ctx, text)
-		return askdesk.Reply{Head: read.head, Body: read.body, URL: read.url}
+		return askdesk.Reply{Head: read.head, Body: read.body, URL: read.url, Refused: read.refused}
 	}}
 }
 
 func (d *Desk) read(ctx context.Context, text string) reply {
 	args, refusal := parse(text)
 	if refusal != "" {
-		return reply{head: "bk read refused", body: refusal}
+		return reply{head: "bk read refused", body: refusal, refused: true}
 	}
 	key := shellquote.Join(args...)
 	now := d.Now()

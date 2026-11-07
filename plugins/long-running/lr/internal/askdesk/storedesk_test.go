@@ -193,3 +193,30 @@ func TestAStoreDeskAnswerPastTheRelaysBodyCapReachesTheSpriteWholeInBodiesTheRel
 		}
 	}
 }
+
+func TestARefusedAskIsAnsweredButStaysOpenForTheDesksLaneToServe(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ask, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "dd-339598808-fix", Kind: AskKind, Text: "retry job 0199 on build 27723", To: []string{"bk-desk"}, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk := Desk{Lane: "bk-desk", Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: func(context.Context, string) Reply {
+		return Reply{Head: "bk read refused", Body: "retry is no read", Refused: true}
+	}}
+
+	if _, err := desk.Pass(context.Background(), client.Query{Drive: "d", Since: time.Now().Add(-CatchUp), Kinds: []string{AskKind}}); err != nil {
+		t.Fatal(err)
+	}
+
+	answers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AnswerKind, PartKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(answers) != 1 || answers[0].Kind != PartKind || answers[0].Re != ask.Seq || answers[0].Resolves != 0 {
+		t.Fatalf("ask #%d answered by %+v: want one note that replies to it and resolves nothing", ask.Seq, answers)
+	}
+	asks, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AskKind}})
+	if err != nil || len(asks) != 1 || asks[0].Status != openStatus {
+		t.Fatalf("asks = %+v, %v: want the refused ask still open", asks, err)
+	}
+}

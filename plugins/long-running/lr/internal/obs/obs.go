@@ -225,7 +225,7 @@ func (d *Desk) readOne(ctx context.Context, text string) askdesk.Reply {
 }
 
 func refused(why string) askdesk.Reply {
-	return askdesk.Reply{Head: "obs read refused: " + clip(why), Body: why}
+	return askdesk.Reply{Head: "obs read refused: " + clip(why), Body: why, Refused: true}
 }
 
 func (d *Desk) sentryRead(ctx context.Context, verb string, rest []string) (askdesk.Reply, string) {
