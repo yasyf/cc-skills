@@ -3,6 +3,7 @@ package shell
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,8 @@ const (
 	CodeTimedOut      = 124
 	CodeMissingBinary = 127
 	killGrace         = 5 * time.Second
+	spriteStdinDir    = "/dev/shm"
+	spriteStdinOpened = `exec <"$1" && rm -f "$1" && shift && exec "$@"`
 )
 
 var (
@@ -155,7 +158,8 @@ func once(ctx context.Context, c Command) (Result, error) {
 		defer cancel()
 	}
 	var stdout, stderr bytes.Buffer
-	cmd := CommandContext(ctx, c.Argv[0], c.Argv[1:]...)
+	argv, uploaded := reconnectable(c)
+	cmd := CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = c.Dir
 	cmd.Stdin = strings.NewReader(c.Stdin)
 	cmd.Stdout = &stdout
@@ -171,7 +175,7 @@ func once(ctx context.Context, c Command) (Result, error) {
 		cmd.Env = append(os.Environ(), c.Env...)
 	}
 	err := cmd.Run()
-	result := Result{Stdout: stdout.String(), Stderr: stderr.String()}
+	result := Result{Stdout: stdout.String(), Stderr: strings.Replace(stderr.String(), uploaded, "", 1)}
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
@@ -190,4 +194,17 @@ func once(ctx context.Context, c Command) (Result, error) {
 	default:
 		return result, err
 	}
+}
+
+func reconnectable(c Command) ([]string, string) {
+	split := slices.Index(c.Argv, "--")
+	if split < 2 || c.Argv[0] != "sprite" || c.Argv[1] != "exec" || slices.Contains(c.Argv[:split], "--no-stdin") {
+		return c.Argv, ""
+	}
+	if c.Stdin == "" {
+		return slices.Concat(c.Argv[:2], []string{"--no-stdin"}, c.Argv[2:]), ""
+	}
+	remote := spriteStdinDir + "/lr-stdin-" + rand.Text()
+	argv := slices.Concat(c.Argv[:2], []string{"--no-stdin", "--file", "/dev/stdin:" + remote}, c.Argv[2:split+1], []string{"sh", "-c", spriteStdinOpened, "sh", remote}, c.Argv[split+1:])
+	return argv, fmt.Sprintf("Uploaded /dev/stdin -> %s (%d bytes)\n", remote, len(c.Stdin))
 }
