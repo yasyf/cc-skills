@@ -58,6 +58,8 @@ var (
 	workerBytes    = len(workerBrief)
 	versionCall    = []string{"cc-remote", "version"}
 	currentRunCall = []string{"orca", "orchestration", "run-current", "--full", "--json"}
+	taskListCall   = []string{"orca", "orchestration", "task-list", "--run", workerRun, "--status", "dispatched", "--brief", "--json"}
+	stopCall       = []string{"cc-remote", "orca", "stop", workerLane, "--provider", "sprites", "--profile", "agents"}
 	boundWorker    = workerReply{out: object{"ok": true, "result": object{"run": object{"id": workerRun, "coordinator_handle": "term_coordinator"}}}}
 	startedReceipt = object{"ok": true, "result": object{"runId": workerRun, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
 	allocationKept = []string{"allocation.json", "before-worker.sh", "brief.md", "prepare.err", "prepare.status", "request.json"}
@@ -67,7 +69,6 @@ var (
 	relayFailure   = "cci: relay: 500 internal: the relay failed; retry\n"
 	localKept      = sorted(startKept, "request.json")
 	stopKept       = []string{"stop.err", "stop.json", spriteStop}
-	stopCall       = []string{"cc-remote", "orca", "stop", workerLane, "--provider", "sprites", "--profile", "agents"}
 	stopSaid       = "; cc-remote orca stop " + workerLane + " stopped that worker, so the lane can launch again"
 	verbHelps      = map[string]string{
 		"ccx vcs ship":     cobraHelp("ccx vcs ship [paths...]", "  -m, --message stringArray      commit message\n", "      --new-branch string[=\"-\"]   start a new branch\n"),
@@ -1208,6 +1209,26 @@ func TestAPrepareAFullOrgRefusesQuotesTheProviderAndStartsNoWorker(t *testing.T)
 	said := "Error: failed to start sprite command: Maximum concurrent sprites limit (200) reached for your organization."
 	f.reply("cc-remote orca prepare", workerReply{code: 1, err: "cc-remote: resuming sprite pool-a\n" + said + "\n"})
 	f.refusedWith(fmt.Sprintf("the org is at its Sprite limit, so no Sprite started: %s; %s/prepare.err keeps its output", said, f.attempt), versionCall, currentRunCall, f.prepareCall())
+}
+
+func TestALaneHoldingAMachineNoOpenDispatchUsesStopsItAndPreparesAgain(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	held := "cc-remote: " + workerLane + " already exists and is already recorded under /state/cc-remote as machine " + workerLane + "; resume it or destroy it before creating again\n"
+	said := "Error: failed to start sprite command: Storage not ready"
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: held}, workerReply{code: 1, err: said + "\n"})
+	f.reply("orca orchestration task-list", workerReply{out: object{"ok": true, "result": object{"tasks": []object{{"title": "another-lane", "dispatch_id": "ctx_other"}}}}})
+	want := fmt.Sprintf("cc-remote orca prepare exited 1; %s keeps its output, and nothing was attached or retried; the Sprite platform said %s", f.attempt, said)
+	f.refusedWith(want, versionCall, currentRunCall, f.prepareCall(), taskListCall, stopCall, f.prepareCall())
+}
+
+func TestALaneHoldingAMachineItsOpenDispatchUsesIsNeitherStoppedNorPreparedAgain(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.sprite()
+	held := "cc-remote: lane " + workerLane + " already claimed warm workspace pool-a, now prepared; a lane gets one first worker until cc-remote orca stop " + workerLane + " stops it\n"
+	f.reply("cc-remote orca prepare", workerReply{code: 1, err: held})
+	f.reply("orca orchestration task-list", workerReply{out: object{"ok": true, "result": object{"tasks": []object{{"title": workerLane, "dispatch_id": "ctx_live"}}}}})
+	f.refusedWith("lane "+workerLane+" holds a machine, and its dispatch ctx_live is still open, so nothing was prepared again", versionCall, currentRunCall, f.prepareCall(), taskListCall)
 }
 
 func TestAFailedInstallRefusesNamingItsStepAndWhatItSaidNotTheEchoedScript(t *testing.T) {
