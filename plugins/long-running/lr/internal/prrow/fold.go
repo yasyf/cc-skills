@@ -87,8 +87,9 @@ const (
 )
 
 var (
-	foldKinds = []string{"opened", "head", "lr.head", readKind, "duplicate", "decide", "landed"}
-	anySHA    = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	foldKinds  = []string{"opened", "head", "lr.head", readKind, "duplicate", "decide", "landed"}
+	anySHA     = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
+	bodyPortOf = regexp.MustCompile(`(?i)^\s*port of #(\d+)\b`)
 )
 
 type Fold struct {
@@ -232,6 +233,9 @@ func (f Fold) Pass(ctx context.Context, held map[int]Held) ([]store.ReviewRow, e
 		ports := portsOf(rows, atHeads)
 		for number, row := range rows {
 			row.Port = portState(atHeads[number], ports[number])
+			if said := bodyPortOf.FindStringSubmatch(row.Description); row.Port == None && said != nil {
+				row.Port = PortOf + said[1]
+			}
 			row.MovedAt = movedAt(before[number], row, written)
 			rows[number] = row
 		}
