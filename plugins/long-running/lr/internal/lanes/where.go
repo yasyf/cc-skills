@@ -59,6 +59,11 @@ type Cut struct {
 	Unchanged  []struct {
 		Component string `json:"component"`
 	} `json:"unchanged"`
+	Plan *struct {
+		Stacks map[string]struct {
+			Counts map[string]int `json:"counts"`
+		} `json:"stackPlans"`
+	} `json:"plan"`
 	Timestamps struct {
 		Running   time.Time `json:"running"`
 		Converged time.Time `json:"converged"`

@@ -1124,6 +1124,13 @@ func (n *LandedNotLive) carried(ctx context.Context) (map[string][]string, error
 		for _, stack := range cut.Unchanged {
 			carried[stack.Component] = append(carried[stack.Component], cut.Commit)
 		}
+		if cut.Plan != nil {
+			for key, stack := range cut.Plan.Stacks {
+				if component, _, found := strings.Cut(key, "/"); found && plansNothing(stack.Counts) {
+					carried[component] = append(carried[component], cut.Commit)
+				}
+			}
+		}
 		if !slices.Contains([]string{releaseRunning, releaseQueued, releaseHeld}, cut.Status) {
 			continue
 		}
@@ -1132,6 +1139,15 @@ func (n *LandedNotLive) carried(ctx context.Context) (map[string][]string, error
 		}
 	}
 	return carried, nil
+}
+
+func plansNothing(counts map[string]int) bool {
+	for kind, count := range counts {
+		if kind != "same" && count > 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string]bool, error) {

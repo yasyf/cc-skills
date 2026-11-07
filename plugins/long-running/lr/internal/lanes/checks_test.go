@@ -841,6 +841,17 @@ func TestAnEndedReleaseThatNamedATargetLeavesItsLandingsOwed(t *testing.T) {
 	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324; sanddb: #49101")
 }
 
+func TestALandingAReleasePlannedWithZeroChangesOnItsTargetOwesNothingThere(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"13730","mode":"release","status":"converged","commit":"39ba620","plan":{"stackPlans":{"sanddb/plat-usw2-prod":{"counts":{}},"sand-next/plat-usw2-prod":{"counts":{"same":4,"update":1}}}}}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324")
+}
+
 func TestADryRunThatFoundATargetUnchangedLeavesItsLandingsOwed(t *testing.T) {
 	check, bus := releasedUnchanged(t, `[{"id":"12590","mode":"dry-run","status":"converged","commit":"39ba620","unchanged":[{"component":"sanddb","env":"plat-usw2-prod"},{"component":"sand-next","env":"plat-usw2-prod"}]}]`)
 
