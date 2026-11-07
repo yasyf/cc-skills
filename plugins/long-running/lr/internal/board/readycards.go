@@ -542,7 +542,7 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	id := tapCardID(row)
 	url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
 	pr := Card(repo, row).PRs[0]
-	pr.Port = ""
+	pr.Port, pr.Head = "", row.Head
 	return json.Marshal(map[string]any{
 		"id": id, "type": "card", "title": fmt.Sprintf("%sTap: #%d, %s", portTitleOpening(row), row.Number, row.Title),
 		"summary": portOpening(repo, row) + fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(prrow.ChangeWords(row)), " ")),

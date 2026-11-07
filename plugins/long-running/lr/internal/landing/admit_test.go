@@ -158,7 +158,7 @@ func TestAReservedRowHoldsItsStackOnOneCardAndMergeOnThatCardAdmitsIt(t *testing
 		t.Fatal(err)
 	}
 	said := card.Children[0].MD
-	if card.ID != "merge:1:e718a74" || !strings.Contains(card.Title, "#1 ") || !strings.Contains(said, "No cloud deletion.") || !strings.Contains(said, "reserved/cloud-delete") || !strings.Contains(said, "delete the old bucket, by lane, +3") {
+	if card.ID != "merge:1:e718a74" || card.Title != "Merge #1, delete the old bucket?" || !strings.Contains(said, "No cloud deletion.") || !strings.Contains(said, "reserved/cloud-delete") || !strings.Contains(said, "delete the old bucket, by lane, +3") {
 		t.Fatalf("card = %+v", card)
 	}
 	answer := card.Children[2]

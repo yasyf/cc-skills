@@ -1218,6 +1218,11 @@ func TestEveryOpenPRANoPickReplyNamesJoinsPRsForItsApprove(t *testing.T) {
 		"already tapped":              {tapped, named, nil},
 		"named only in a hidden cite": {inCI, Reply{Title: "Relay", MD: "It is fixed. <!-- #2196 -->"}, nil},
 		"a question with picks":       {inCI, Reply{Title: "Which fix?", MD: "#2196 is in CI.", Picks: []string{"A", "B"}}, nil},
+		"closed before its row read":  {inCI, Reply{Title: "Gate PR closed", MD: "Closing #2196 unlanded; the hold stays. Nothing to tap.\n\n- " + landPR}, nil},
+		"said closed":                 {inCI, Reply{Title: "Relay", MD: "#2196 is closed."}, nil},
+		"said withdrawn":              {inCI, Reply{Title: "Relay", MD: "[#2196](" + landPR + ") is withdrawn from your queue."}, nil},
+		"said not landing":            {inCI, Reply{Title: "Relay", MD: "#2196 is not landing; the old tree keeps it."}, nil},
+		"another PR said closed":      {inCI, Reply{Title: "Relay", MD: "#2196 is in CI. #2190 is closed."}, []string{landPR}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
