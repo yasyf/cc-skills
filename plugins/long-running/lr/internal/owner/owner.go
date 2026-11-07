@@ -16,6 +16,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
@@ -38,8 +39,6 @@ const (
 	byTime     = "3:04 PM"
 	overnight  = 12 * time.Hour
 
-	carriedChars = 1500
-
 	subscribeWait   = time.Minute
 	communicator    = "owner-relay"
 	broadcastsHeard = "incident"
@@ -53,11 +52,13 @@ var batchedKinds = []string{"report", "note", "answer", "done", "head", "state",
 var topicResults = []string{"mechanism", "fix-live", "not-ours"}
 
 var (
-	contentAsk = regexp.MustCompile(`(?i)\b(?:recap|report|summary|(?:up|ip)d\w{0,2}t\w?)\b`)
-	rowID      = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
-	rowState   = regexp.MustCompile(`(?m)^\| m\d+(?:\.\d+)? \| .* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
-	cellBreak  = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
-	pacific    = mustZone("America/Los_Angeles")
+	contentAsk  = regexp.MustCompile(`(?i)\b(?:recap|report|summary|(?:up|ip)d\w{0,2}t\w?)\b`)
+	promise     = regexp.MustCompile(`(?i)\b(?:will|shall|going to|gonna|about to|(?:i|we|it|they|she|he)['’]ll|next|soon|shortly|later|eta|tonight|tomorrow|looking into|on it|digging into)\b|\bby \d{1,2}(?::\d{2})?\s*[ap]\.?m\b`)
+	replyClause = regexp.MustCompile(`[.!?;\n]+\s*|,\s+(?:and|but)\s+`)
+	rowID       = regexp.MustCompile(`(?m)^\| m(\d+)(?:\.\d+)? \|`)
+	rowState    = regexp.MustCompile(`(?m)^\| m\d+(?:\.\d+)? \| .* \| (open|responded|addressed|no-order|due [^|]*) \|$`)
+	cellBreak   = strings.NewReplacer("|", `\|`, "\r\n", "<br>", "\n", "<br>", "\r", "<br>")
+	pacific     = mustZone("America/Los_Angeles")
 )
 
 func mustZone(name string) *time.Location {
@@ -217,30 +218,45 @@ func carried(path, replies, row, reply string) error {
 	if reply == "" {
 		return errors.New(refusal)
 	}
-	md, err := replyMD(replies, reply)
+	sent, err := storedReply(replies, reply)
 	if err != nil {
 		return fmt.Errorf("%s: %w", refusal, err)
 	}
-	if len(md) < carriedChars {
-		return fmt.Errorf("%s; reply %s is %d characters, a promise rather than the content", refusal, reply, len(md))
+	if len(sent.Picks) == 0 && onlyPromises(sent.MD) {
+		return fmt.Errorf("%s; reply %s only says what will happen, a promise rather than the content: say where the thing he asked about stands now", refusal, reply)
 	}
 	return nil
 }
 
+func onlyPromises(md string) bool {
+	for _, clause := range replyClause.Split(md, -1) {
+		if strings.ContainsFunc(clause, unicode.IsLetter) && !promise.MatchString(clause) {
+			return false
+		}
+	}
+	return true
+}
+
+type sentReply struct {
+	MD    string   `json:"md"`
+	Picks []string `json:"picks"`
+}
+
 func replyMD(replies, reply string) (string, error) {
+	sent, err := storedReply(replies, reply)
+	return sent.MD, err
+}
+
+func storedReply(replies, reply string) (sentReply, error) {
 	sent, err := os.ReadFile(filepath.Join(replies, reply+".json"))
 	if err != nil {
-		return "", err
+		return sentReply{}, err
 	}
 	var body struct {
-		Reply struct {
-			MD string `json:"md"`
-		} `json:"reply"`
+		Reply sentReply `json:"reply"`
 	}
-	if err := json.Unmarshal(sent, &body); err != nil {
-		return "", err
-	}
-	return body.Reply.MD, nil
+	err = json.Unmarshal(sent, &body)
+	return body.Reply, err
 }
 
 func hisWords(text string) string {

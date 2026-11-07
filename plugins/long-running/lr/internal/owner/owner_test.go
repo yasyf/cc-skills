@@ -343,15 +343,35 @@ func TestAContentAskStaysDueUntilAReplyCarriesIt(t *testing.T) {
 	if err := carried(path, dir, "m1", "short"); err == nil || !strings.Contains(err.Error(), "a promise") {
 		t.Fatalf("a promise closed a content ask: %v", err)
 	}
-	body, err := json.Marshal(map[string]map[string]string{"reply": {"md": strings.Repeat("x", carriedChars)}})
+	for name, md := range map[string]string{
+		"rmw6394e5":             "The redundant part Sikan found is the steps log, about 14 progress rows rewritten per publish, and finished active-call rows kept forever; removing them cuts about 30% of statement bytes and 35% of retained journal data. The steps log is still read by the dashboard's run history, compaction and session convert, so the design moves those readers to the call traces table and then deletes the log; that design is the recommended option on the question above this line, and no code has changed so far.",
+		"state and a next step": "CI is green on 4f1c2d0, and it lands by 7:10 PM.",
+	} {
+		writeReply(t, dir, "full", map[string]any{"md": md})
+		if err := carried(path, dir, "m1", "full"); err != nil {
+			t.Fatalf("%s: the reply carrying it was refused: %v", name, err)
+		}
+	}
+	for _, md := range []string{"I'll look.", "Will fix by 7:30 PM.", "Looking into it; I’ll report back tonight.", "We're going to land it next, and it will be live by 8 PM."} {
+		writeReply(t, dir, "promise", map[string]any{"md": md})
+		if err := carried(path, dir, "m1", "promise"); err == nil || !strings.Contains(err.Error(), "a promise") {
+			t.Fatalf("%q closed a content ask: %v", md, err)
+		}
+	}
+	writeReply(t, dir, "rmw5yuqv3", map[string]any{"md": "Which way should the journal drop the steps log?", "picks": []string{"Move the readers, then delete the log", "Keep the log"}})
+	if err := carried(path, dir, "m1", "rmw5yuqv3"); err != nil {
+		t.Fatalf("his own pick card was refused: %v", err)
+	}
+}
+
+func writeReply(t *testing.T, dir, id string, reply map[string]any) {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{"reply": reply})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "full.json"), body, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id+".json"), body, 0o600); err != nil {
 		t.Fatal(err)
-	}
-	if err := carried(path, dir, "m1", "full"); err != nil {
-		t.Fatalf("the reply carrying it was refused: %v", err)
 	}
 }
 
