@@ -973,6 +973,8 @@ func successorBrief(old store.Lane, name, why, partial, work string, d Deps, tra
 	}
 	place := "ccx: place=remote"
 	switch {
+	case MacDeskNeed(old.Name) != "":
+		place = "ccx: place=local why=" + MacDeskNeed(old.Name)
 	case DeskOnMac(body):
 		place = string(macNeed.FindSubmatch(body)[0])
 	case macBrief.Match(body) && dutyOf(old) == "" && !endsAtRotation(old):

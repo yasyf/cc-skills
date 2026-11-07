@@ -32,6 +32,13 @@ var (
 	}
 )
 
+var macDesks = map[string]string{"install-desk": "mac-build"}
+
+func MacDeskNeed(name string) string {
+	base, _ := family(name)
+	return macDesks[base]
+}
+
 func DeskCostOf(name string) (Cost, bool) {
 	base, _ := family(name)
 	cost, desk := DeskCosts[base]
