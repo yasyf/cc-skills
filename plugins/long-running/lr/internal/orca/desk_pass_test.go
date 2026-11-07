@@ -103,9 +103,9 @@ func TestASweepAndARelayingPassCostTheSameOrcaCallsAtAnyRunHistory(t *testing.T)
 		w.sentRelay("R2", "")
 		return swept, w.orcaCount()
 	}
-	sweep, relay := costs(2000)
-	if manySweep, manyRelay := costs(20000); sweep != manySweep || relay != manyRelay {
-		t.Fatalf("a sweep made %d Orca calls at 2,000 retained dispatches and %d at 20,000; a relaying pass made %d and %d", sweep, manySweep, relay, manyRelay)
+	sweep, relay := costs(1)
+	if manySweep, manyRelay := costs(scaletest.N()); sweep != manySweep || relay != manyRelay {
+		t.Fatalf("a sweep made %d Orca calls at 1 retained dispatch and %d at %d; a relaying pass made %d and %d", sweep, manySweep, scaletest.N(), relay, manyRelay)
 	}
 }
 
