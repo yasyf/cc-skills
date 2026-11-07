@@ -109,8 +109,8 @@ CC_PRESENT = CommandSchema(
     "cc-present",
     operands=(Operand("verb"), Operand("words", count="*")),
     options=(
-        *(Option(name, (f"--{name}",)) for name in ("after", "block", "blocks", "body", "cwd", "doc", "note", "reason", "root", "round", "round-title", "session", "slack", "title")),
-        *(Option(name, (f"--{name}",), bool) for name in ("clear", "dry-run", "new")),
+        *(Option(name, (f"--{name}",)) for name in ("after", "block", "blocks", "body", "cwd", "doc", "lane", "note", "owner-order", "owner-reask", "re", "reason", "reopen", "replaced-by", "rev", "root", "round", "round-title", "session", "since", "slack", "title")),
+        *(Option(name, (f"--{name}",), bool) for name in ("all", "clear", "dry-run", "new", "no-doc", "replace", "take-over")),
     ),
 )
 CC_SLACK = CommandSchema(

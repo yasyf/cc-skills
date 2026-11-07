@@ -550,6 +550,8 @@ def start_board_watch(evt: BaseHookEvent) -> HookResult | None:
         update("clean-card.json"): Allow(),
         update("clean-card.json", commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Warn(pattern=r"marking share-open drawn: exit 1"),
         posting(f"cc-present update-block {board('clean-card.json')} --dry-run", commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Allow(),
+        posting(f"cc-present update-block {board('clean-card.json')} --session s1 --lane supervisor --rev 13409 --dry-run", commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Allow(),
+        posting(f"cc-present update-block {board('clean-card.json')} --lane supervisor --rev 13409", reviewed=(sha12("clean-card.json"),), commands={f"{BOARD_CARDS} mark-drawn": (1, "no ledger")}): Warn(pattern=r"marking share-open drawn: exit 1"),
     }),
 )
 def mark_cards_drawn(evt: BaseHookEvent) -> HookResult | None:
