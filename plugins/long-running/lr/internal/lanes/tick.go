@@ -947,8 +947,8 @@ func successorBrief(old store.Lane, name, why, partial, work string, d Deps, tra
 	before := []string{
 		"Before any write (an edit, commit, push, ship, PR comment, or a record that claims work):",
 		fmt.Sprintf("  1. From %s, run `%s lane-status %s --held`. Each line is a worktree %s made, with its branch, dirty files, push state, and PR; `no worktree found` means it made none.", checkout, filepath.Join(d.Bin, "drive.py"), old.Name, old.Name),
-		fmt.Sprintf("  2. Run `cci who --drive %s --lane %s --json --fields live,status,status_at`. It prints %s's session, if one is still live, with its harness status.", drive, old.Name, old.Name),
-		fmt.Sprintf("  3. If it prints a live session whose status is not `idle`, %s has a turn running and may still write: write nothing, post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: status <status> since <status_at>\"` and stop. Never stop, signal or close that session or its terminal.", old.Name, drive, name, old.Name),
+		fmt.Sprintf("  2. Run `cci who --drive %s --lane %s --json --fields lane,live,status,status_at`. It prints every live session bound as %s or answering under it as an alias, yours included, with its lane and harness status.", drive, old.Name, old.Name),
+		fmt.Sprintf("  3. If it prints a live session whose lane is `%s` and whose status is not `idle`, %s has a turn running and may still write: write nothing, post `cci post --drive %s --lane %s --kind blocker --to root --text \"LIVE %s: status <status> since <status_at>\"` and stop. Never stop, signal or close that session or its terminal.", old.Name, old.Name, drive, name, old.Name),
 		fmt.Sprintf("  4. An idle session or none writes nothing, even with its claude and shell still open in its worktree: continue in %s's worktree and branch from the state lane-status shows; the trees of the PRs it only named print without `--held`.", old.Name),
 	}
 	if old.Placement == placedOnSprite {

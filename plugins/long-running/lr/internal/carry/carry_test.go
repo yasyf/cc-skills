@@ -242,6 +242,34 @@ func TestTheDrivesCheckoutIsTheSpritesOwnWhileAStrayMacFileStillStaysBehind(t *t
 	}
 }
 
+func TestAToolUnderTheInstallLinkRunsTheSpritesOwnInstall(t *testing.T) {
+	c, fake := carrier(t)
+	installed := filepath.Join(c.Home, ".claude/plugins/cache/skills/long-running/0.7.1937")
+	put(t, filepath.Join(installed, "bin/drive.py"), "#!/bin/bash\n")
+	if err := os.MkdirAll(filepath.Join(c.Home, ".claude/long-running"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(installed, filepath.Join(c.Home, ".claude/long-running/current")); err != nil {
+		t.Fatal(err)
+	}
+	brief := "Run `" + c.Home + "/.claude/long-running/current/bin/drive.py lane-status meta-desk-3 --held`.\n"
+
+	out, left := c.Carry(context.Background(), brief)
+
+	if want := "Run `/home/sprite/.claude/long-running/current/bin/drive.py lane-status meta-desk-3 --held`.\n"; out != want {
+		t.Fatalf("rewritten brief %q, want %q", out, want)
+	}
+	if len(left) != 0 {
+		t.Fatalf("warnings %q, want none", left)
+	}
+	if entries, _ := os.ReadDir(c.Into); len(entries) != 0 {
+		t.Fatalf("carried %d entries for an installed tool, want none", len(entries))
+	}
+	if calls := fake.Calls(); len(calls) != 0 {
+		t.Fatalf("ran %v for an installed tool", calls)
+	}
+}
+
 func TestADriveCheckoutIsTheOneItsLrJSONNames(t *testing.T) {
 	dir := t.TempDir()
 	put(t, filepath.Join(dir, "lr.json"), `{"repo":"Forge-AI/monorepo","drive":"brook","checkout":"/Users/o/brook-runner","author":"drive-bot","label":"brook","movers":["lanes"]}`)
