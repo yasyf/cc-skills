@@ -21,6 +21,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/asks"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -268,7 +269,7 @@ func (w *TrunkWatch) compareBuilds(ctx context.Context, history []trunkCommit) e
 	}
 	for position := min(until, len(builds)-1) - 1; position >= 0; position-- {
 		newer, older := builds[position], builds[position+1]
-		if err := w.compare(ctx, history, newer.index, older.index, newer.url, older.url); err != nil {
+		if err := w.compare(ctx, history, newer.index, older.index, newer.url, older.url, position > 0); err != nil {
 			return err
 		}
 		if _, err := w.Store.PutFact(w.Repo, 0, trunkJobsHead, trunkJobsFact, newer.url, w.Now()); err != nil {
@@ -278,7 +279,7 @@ func (w *TrunkWatch) compareBuilds(ctx context.Context, history []trunkCommit) e
 	return nil
 }
 
-func (w *TrunkWatch) compare(ctx context.Context, history []trunkCommit, since, until int, newest, previous string) error {
+func (w *TrunkWatch) compare(ctx context.Context, history []trunkCommit, since, until int, newest, previous string, passedOver bool) error {
 	build, err := w.build(ctx, newest)
 	if err != nil {
 		return err
@@ -309,7 +310,14 @@ func (w *TrunkWatch) compare(ctx context.Context, history []trunkCommit, since, 
 	number := buildURL.FindStringSubmatch(newest)[2]
 	text := fmt.Sprintf("POST-MERGE-RED trunk-jobs:%s %s build %s: %s has jobs failing that %s did not: %s. Landed between the two: %s. A soft-failed job leaves the build green, so nothing else reads it; a fix is owed.", number, w.Trunk, number, newest, previous, strings.Join(fresh, ", "), between)
 	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "report", To: []string{rootLane}, ID: "trunk-jobs:" + number, Text: text})
-	return err
+	if err != nil || !passedOver || !slices.ContainsFunc(fresh, func(name string) bool { return !strings.Contains(name, "soft-failed") }) {
+		return err
+	}
+	fix, err := w.namedFix(ctx, history[since].CommittedDate)
+	if err != nil {
+		return err
+	}
+	return w.fileRed(ctx, history[since], newest, fix, fmt.Sprintf("%s's %s fails %s on %s, a build the next one passed over; fix it", w.Trunk, w.Config.Check, strings.Join(fresh, ", "), newest))
 }
 
 func newFailures(newest, previous trunkBuild) []string {
@@ -958,12 +966,40 @@ func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, wha
 		}
 	}
 	key := url + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(caseNames(fresh))))[:12]
+	to, err := w.landedBy(ctx, red)
+	if err != nil {
+		return err
+	}
 	text := fmt.Sprintf("INCIDENT OPEN %s: %s fails %s. A later red build failing these cases joins %s; it closes when a PR named for it merges.", slug, url, caseNames(fresh), slug)
-	if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "incident", To: []string{rootLane}, Topic: trunkTopic, ID: "dev-red-open:" + key, Force: true, Attrs: attrs, Text: text}); err != nil {
+	if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "incident", To: to, Topic: trunkTopic, ID: "dev-red-open:" + key, Force: true, Attrs: attrs, Text: text}); err != nil {
 		return err
 	}
 	_, err = client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "go", To: []string{orcaDesk}, Topic: trunkTopic, ID: "fix-lane:" + key, Text: fmt.Sprintf("%s: incident %s %s :: %s", orcaDesk, slug, url, what)})
 	return err
+}
+
+func (w *TrunkWatch) landedBy(ctx context.Context, red trunkCommit) ([]string, error) {
+	to := []string{rootLane, lanes.OwnerRelay}
+	found := squashedPR.FindStringSubmatch(firstLine(red.Message))
+	if found == nil {
+		return to, nil
+	}
+	rows, err := w.Store.PRs(w.Repo)
+	if err != nil {
+		return nil, err
+	}
+	at := slices.IndexFunc(rows, func(row store.PR) bool { return strconv.Itoa(row.Number) == found[1] && row.Lane != "" })
+	if at < 0 {
+		return to, nil
+	}
+	peers, err := client.Who(ctx, w.Drive)
+	if err != nil {
+		return nil, err
+	}
+	if live := slices.IndexFunc(peers, func(peer client.Peer) bool { return peer.Live && client.Stem(peer.Lane) == client.Stem(rows[at].Lane) }); live >= 0 {
+		to = append(to, peers[live].Lane)
+	}
+	return to, nil
 }
 
 func (w *TrunkWatch) cases(ctx context.Context, url string) ([]failingCase, bool) {

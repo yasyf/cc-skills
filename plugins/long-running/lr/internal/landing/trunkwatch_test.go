@@ -585,3 +585,29 @@ func TestAFixMergedBeforeARedBuildClosesItsIncidentAndTheBuildOpensANewOne(t *te
 		t.Fatalf("lines = %+v, want a new incident once the fix did not hold", lines)
 	}
 }
+
+func TestARedDashboardBuildALaterBuildPassedOverOpensItsOwnIncidentAndFixLaneInOnePass(t *testing.T) {
+	f := newTrunkWatch(t)
+	build := func(n int) string { return "https://buildkite.com/forge/test/builds/" + strconv.Itoa(119120+n) }
+	f.pass(t, trunkHistory(trunkCommit(redOID(1), "SUCCESS", build(1)), trunkCommit(redOID(0), "SUCCESS", build(0))), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"119121", greenRead)
+		bkReply(fake, buildPath+"119120", greenRead)
+	})
+
+	f.pass(t, trunkHistory(trunkCommit(redOID(3), "FAILURE", build(3)), trunkCommit(redOID(2), "FAILURE", build(2)), trunkCommit(redOID(1), "SUCCESS", build(1))), func(fake *shelltest.Fake) {
+		bkReply(fake, buildPath+"119123", failedRead)
+		bkReply(fake, buildPath+"119122", `{"branch":"dev","state":"failed","jobs":[{"id":"job-9","type":"script","name":"Drive the dashboard against a real sand iris serve","step_key":"dashboard-e2e","state":"failed"}]}`)
+		bkReply(fake, buildPath+"119121", greenRead)
+		bkReply(fake, "/pipelines/test/builds?per_page=30", `[]`)
+		bkReply(fake, buildPath+"119123/jobs/job-1/log", `{"content":"`+uploadFailed+`"}`)
+	})
+
+	lines := trunkRecords(t, "go")
+	if len(lines) != 2 || !strings.HasPrefix(lines[0].Text, "orca-desk: incident "+redSlug(2)+" "+build(2)+" :: ") || !strings.HasPrefix(lines[1].Text, "orca-desk: incident "+redSlug(3)+" ") {
+		t.Fatalf("lines = %+v, want a fix lane for the passed-over dashboard build and one for the newest build", lines)
+	}
+	openers := slices.DeleteFunc(trunkRecords(t, "incident"), func(r client.Record) bool { return !opened(r) })
+	if len(openers) != 2 || !strings.Contains(openers[0].Text, "fails dashboard-e2e") || !slices.Contains(openers[0].To, "owner-relay") {
+		t.Fatalf("openers = %+v, want the dashboard incident posted to owner-relay", openers)
+	}
+}
