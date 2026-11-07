@@ -1158,6 +1158,20 @@ func (s *Store) ResolveUnread(seqs []int64) error {
 	return err
 }
 
+func (s *Store) UnreadLanes(seq int64) ([]string, error) {
+	rows, err := s.db.Query("SELECT lane FROM unread WHERE seq = ?", seq)
+	return collect(rows, err, func(rows *sql.Rows) (string, error) {
+		var lane string
+		err := rows.Scan(&lane)
+		return lane, err
+	})
+}
+
+func (s *Store) TakeUnread(lane string, seq int64) error {
+	_, err := s.db.Exec("DELETE FROM unread WHERE lane = ? AND seq = ?", lane, seq)
+	return err
+}
+
 func (s *Store) KeepUnread(states ...LaneState) error {
 	args := make([]any, len(states))
 	for i, state := range states {

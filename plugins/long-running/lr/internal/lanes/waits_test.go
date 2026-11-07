@@ -277,6 +277,21 @@ func TestAStandingDeskMakingToolCallsOrPostingIsNotLost(t *testing.T) {
 	}
 }
 
+func TestAStandingDeskAnsweringAnOrderUnderItsStemTakesItButAnotherLanesAnswerDoesNot(t *testing.T) {
+	for answerer, relaunched := range map[string]int{Stem(refresher): 0, lane2: 1} {
+		t.Run(answerer, func(t *testing.T) {
+			s := memory(t)
+			f, _ := standingLane(t, s)
+			f.feed = append(f.feed, rec(2, Root, "ask", t0, "grade #49730 first", refresher, lane2), rec(3, answerer, "answer", t0.Add(mins(10)), "graded it", Root).withRe(2))
+			f.peers = orcaPeers(refresher, t0.Add(-mins(5)), t0.Add(mins(40)))
+
+			out := tick(t, s, f, t0.Add(mins(40)))
+
+			equal(t, len(out.Relaunched), relaunched)
+		})
+	}
+}
+
 func TestAnOrdinaryLaneOrTheMetaLaneQuietWithAnOrderIsNeverRelaunchedForIt(t *testing.T) {
 	for name, role := range map[string]string{"an ordinary lane": "", "the meta lane": RoleMeta} {
 		t.Run(name, func(t *testing.T) {
