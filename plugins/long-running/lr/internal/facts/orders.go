@@ -1,10 +1,13 @@
 package facts
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
 const (
@@ -20,6 +24,7 @@ const (
 	OrderLane   = "tap-orders"
 	OrderGrace  = time.Minute
 	OrderWindow = time.Hour
+	builtPick   = "built-pick"
 	tapRecord   = "lr.tap"
 	openState   = "OPEN"
 	fullSHA     = 40
@@ -39,6 +44,9 @@ func (s Source) WriteOrders(ctx context.Context) error {
 		return err
 	}
 	now := s.Now()
+	if err := s.orderBuiltPicks(ctx, now); err != nil {
+		return err
+	}
 	records, err := s.Bus.ReadOwner(ctx, since, now.Add(-OrderWindow))
 	if err != nil {
 		return err
@@ -55,7 +63,11 @@ func (s Source) WriteOrders(ctx context.Context) error {
 				s.escalate(ctx, record, fmt.Sprintf("tap-order-missing:%d", record.Seq), nil, fmt.Sprintf("Owner pick %s (%s) reads as a land or hold order, but its card names no one PR, so no land order can come from it. Nothing was blocked; name the PR in a record and carry it with lr landing order.", record.Name(), record.Fields.Attrs["block"]))
 			}
 		}
-		if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
+		tap, ordered, err := s.orderOf(ctx, record)
+		if err != nil {
+			return err
+		}
+		if ordered {
 			if failed := s.writeOrder(ctx, record, tap, now); failed != nil {
 				s.Log.Warn("an owner tap has no land order yet", "record", record.Name(), "pr", tap.PR, "err", failed)
 				settled = settled && age >= OrderWindow
@@ -78,6 +90,73 @@ func (s Source) WriteOrders(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (s Source) orderOf(ctx context.Context, record client.Record) (bus.Tap, bool, error) {
+	if tap, ordered := bus.OrderOf(record, s.Repo); ordered {
+		return tap, true, nil
+	}
+	repo, branch, built := bus.Built(record)
+	if !built || !strings.EqualFold(repo, s.Repo) {
+		return bus.Tap{}, false, nil
+	}
+	rows, err := s.Store.ReviewRows(s.Repo)
+	if err != nil {
+		return bus.Tap{}, false, err
+	}
+	row, open := openOn(rows, branch)
+	if !open {
+		_, err := s.Store.PutFact(s.Repo, 0, branch, builtPick, strconv.FormatInt(record.Seq, 10), s.Now())
+		return bus.Tap{}, false, err
+	}
+	return builtTap(record, s.Repo, row), true, nil
+}
+
+func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
+	parked, err := s.Store.TrunkFacts(s.Repo, builtPick)
+	if err != nil || !slices.ContainsFunc(slices.Collect(maps.Values(parked)), func(seq string) bool { return seq != "" }) {
+		return err
+	}
+	rows, err := s.Store.ReviewRows(s.Repo)
+	if err != nil {
+		return err
+	}
+	for branch, seq := range parked {
+		row, open := openOn(rows, branch)
+		if seq == "" || !open {
+			continue
+		}
+		picked, err := strconv.ParseInt(seq, 10, 64)
+		if err != nil {
+			return fmt.Errorf("built pick on %s: %w", branch, err)
+		}
+		records, err := client.Among(ctx, s.Drive, []int64{picked})
+		if err != nil {
+			return err
+		}
+		if len(records) > 0 {
+			if failed := s.writeOrder(ctx, records[0], builtTap(records[0], s.Repo, row), now); failed != nil {
+				s.Log.Warn("an owner pick of a built branch has no land order yet", "record", records[0].Name(), "pr", row.Number, "err", failed)
+				continue
+			}
+		}
+		if _, err := s.Store.PutFact(s.Repo, 0, branch, builtPick, "", now); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func openOn(rows []store.ReviewRow, branch string) (store.ReviewRow, bool) {
+	at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Branch == branch && !prrow.Terminal(row.State) })
+	if at < 0 {
+		return store.ReviewRow{}, false
+	}
+	return rows[at], true
+}
+
+func builtTap(record client.Record, repo string, row store.ReviewRow) bus.Tap {
+	return bus.Tap{PR: row.Number, Head: cmp.Or(bus.PickedHead(record, repo, row.Number), row.Head), By: bus.OwnerBy, Value: string(machine.TapTapped)}
 }
 
 func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Tap, now time.Time) error {

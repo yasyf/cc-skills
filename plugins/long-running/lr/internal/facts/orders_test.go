@@ -618,6 +618,65 @@ func TestAnApprovingPickOnAReplyMarksTheRowTappedAtItsHeadAndTheQueueKeepsIt(t *
 	}
 }
 
+func TestAPickOfTheOptionACardBuildsAsAPROrdersThatPRAtTheHeadTheCardShowed(t *testing.T) {
+	pick := "Owner on board b, A chat killed mid-create never reopens: which fix? (rmw5myh8a-choice): picked “Retire it behind a tombstone” at " + repo + "#4242 " + surfaceHead
+	for name, c := range map[string]struct {
+		built   string
+		ordered bool
+	}{
+		"#52060's card had it name the PR's branch": {repo + ":redo-epoch-reopen", true},
+		"a branch of another repository":            {"other/repo:redo-epoch-reopen", false},
+		"an option no branch builds":                {"", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			h := unreadHarness(t)
+			drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Branch = "redo-epoch-reopen" })
+			attrs := map[string]string{"event": "choice.selected", "block": "rmw5myh8a-choice", "picked": "rmw5myh8a-1", "heads": repo + "#4242=" + surfaceHead}
+			if c.built != "" {
+				attrs[bus.BuiltAttr] = c.built
+			}
+			ownerRecord(t, pick, attrs)
+
+			writeOrders(t, h)
+
+			written := orders(t)
+			if !c.ordered {
+				if len(written) != 0 || len(blockers(t)) != 0 {
+					t.Fatalf("orders = %+v, blockers = %+v; want neither", written, blockers(t))
+				}
+				return
+			}
+			if len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) || len(blockers(t)) != 0 {
+				t.Fatalf("orders = %+v, blockers = %+v; want one land order at the head his card showed", written, blockers(t))
+			}
+			if row := h.snapshot(t)[surfacePR]; !row.Admitted() {
+				t.Fatalf("row = %+v, want it tapped", row)
+			}
+		})
+	}
+}
+
+func TestAPickOfABranchBuiltBeforeItsPROpensOrdersThatPROnceItOpensAndOnlyOnce(t *testing.T) {
+	h := unreadHarness(t)
+	drawWaiting(t, h.store, 4243, surfaceHead, func(r *store.ReviewRow) { r.Branch = "some-other-branch" })
+	ownerRecord(t, "Owner on board b, Wait durably or fail fast? (durable-choice): picked “Wait durably”", map[string]string{
+		"event": "choice.selected", "block": "durable-choice", "picked": "durable-1", bus.BuiltAttr: repo + ":durable-wait",
+	})
+
+	writeOrders(t, h)
+	if written, said := orders(t), blockers(t); len(written) != 0 || len(said) != 0 {
+		t.Fatalf("orders = %+v, blockers = %+v; want his pick parked quietly until a PR opens on its branch", written, said)
+	}
+
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Branch = "durable-wait" })
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, "#4242") || !strings.Contains(written[0].Text, surfaceHead[:12]) {
+		t.Fatalf("orders = %+v, want one land order for the PR opened on the branch he picked, at its head", written)
+	}
+}
+
 func TestHisTapOnAHeldRowIsOrderedAtItsHeadAndTheHoldStillKeepsItFromTheQueue(t *testing.T) {
 	h := unreadHarness(t)
 	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.Hold = "root:the cutover" })
