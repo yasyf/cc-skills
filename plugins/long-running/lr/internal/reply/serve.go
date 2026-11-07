@@ -183,6 +183,10 @@ func Tool(a *app.App) channel.Tool {
 			if warning != "" {
 				warned = append(warned, warning)
 			}
+			r, warning = fanout.withPRTitles(ctx, r)
+			if warning != "" {
+				warned = append(warned, warning)
+			}
 			sent := receipt(r, fanout.Send(ctx, r))
 			if len(warned) > 0 {
 				sent = "Warning, posted anyway: " + strings.Join(warned, "; ") + ".\n" + sent
