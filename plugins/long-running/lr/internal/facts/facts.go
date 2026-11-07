@@ -108,9 +108,11 @@ func (f fromCheckout) Run(ctx context.Context, c shell.Command) (shell.Result, e
 }
 
 func (s Source) Snapshot(ctx context.Context) ([]machine.Facts, error) {
+	lap := s.stopwatch()
 	if err := s.WriteOrders(ctx); err != nil {
 		return nil, fmt.Errorf("write his land orders: %w", err)
 	}
+	lap("orders")
 	held, rows, err := s.foldRecords(ctx)
 	if err != nil {
 		return nil, err
@@ -202,29 +204,36 @@ func (s Source) ReadOnce(ctx context.Context, named []int) (int, error) {
 }
 
 func (s Source) foldRecords(ctx context.Context) (map[int]hold, []store.ReviewRow, error) {
+	lap := s.stopwatch()
 	select {
 	case folding <- struct{}{}:
 	case <-ctx.Done():
 		return nil, nil, ctx.Err()
 	}
 	defer func() { <-folding }()
+	lap("fold lock")
 	if err := s.ingestBus(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read the bus: %w", err)
 	}
+	lap("bus")
 	if _, err := s.ingestLegacy(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read today's records: %w", err)
 	}
+	lap("legacy records")
 	if err := s.readLostGrades(ctx); err != nil {
 		return nil, nil, fmt.Errorf("read the grades behind the cursor: %w", err)
 	}
+	lap("lost grades")
 	held, err := s.holds(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("read holds: %w", err)
 	}
+	lap("holds")
 	rows, err := s.Rows().Pass(ctx, heldWords(held))
 	if err != nil {
 		return nil, nil, fmt.Errorf("fold the review rows: %w", err)
 	}
+	lap("review rows")
 	return held, rows, nil
 }
 
@@ -234,6 +243,14 @@ func (s Source) readGitHub(ctx context.Context, rows []store.ReviewRow, held map
 		return nil, err
 	}
 	return s.readNumbers(ctx, readable(rows, itemed), itemed, rows, held, statusesOf)
+}
+
+func (s Source) stopwatch() func(step string) {
+	last := time.Now()
+	return func(step string) {
+		s.Log.Info("a landing read step ended", "step", step, "took", time.Since(last).Round(time.Millisecond).String())
+		last = time.Now()
+	}
 }
 
 func readable(rows []store.ReviewRow, itemed map[int]bool) []int {
@@ -248,10 +265,12 @@ func readable(rows []store.ReviewRow, itemed map[int]bool) []int {
 type statusRead func(ctx context.Context, numbers []int, members memberRead) ([]statusRow, error)
 
 func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]bool, rows []store.ReviewRow, held map[int]hold, statusesOf statusRead) ([]machine.Facts, error) {
+	lap := s.stopwatch()
 	members, err := s.readMembers(ctx, numbers)
 	if err != nil {
 		return nil, fmt.Errorf("read the drive's pull requests: %w", err)
 	}
+	lap("members")
 	open, ended := s.splitEnded(numbers, members, itemed)
 	if err := s.Rows().PostReads(ctx, ended); err != nil {
 		s.Log.Warn("an ended pull request's read went unposted", "error", err)
@@ -260,10 +279,12 @@ func (s Source) readNumbers(ctx context.Context, numbers []int, itemed map[int]b
 	if err != nil {
 		return nil, fmt.Errorf("read queue and CI: %w", err)
 	}
+	lap("queue and CI")
 	required, err := s.requiredChecks(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("read required checks: %w", err)
 	}
+	lap("required checks")
 	return s.assemble(ctx, statuses, members, required, held, rows)
 }
 
