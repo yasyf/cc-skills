@@ -281,6 +281,13 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 	}
 	if len(refusals) > 0 {
 		fmt.Fprintf(stdout, "REFUSED #%d at %s: %s\n", number, head[:7], strings.Join(refusals, "; "))
+		tapped, err := tappedNote(s, cfg.Repo, number, head)
+		if err != nil {
+			return true, lapses, err
+		}
+		if tapped != "" {
+			fmt.Fprintln(stdout, tapped)
+		}
 		unclaimed := ""
 		if gates.FlakeClaimLands(claim, read) {
 			unclaimed = fmt.Sprintf("FLAKE-UNCLAIMED #%d at %s: a flake-fix claim lands it untapped, as the gate reads every changed file as test or fixture code. If it fixes a flaking test, claim it: cci post --drive %s --lane <your lane> --kind head --head %s#%d=%s --attr %s=<the test that flaked>", number, head[:7], cfg.Drive, cfg.Repo, number, head, bus.FlakeFixAttr)
@@ -309,6 +316,14 @@ func (g goGate) one(ctx context.Context, number int, head string, flags goFlags)
 		fmt.Fprintf(stdout, "NOTE #%d: the gate admits it, but %s is not in go_lanes, so this record does not move it; the supervisor's sweep posts the go that counts, or a go.refused record saying why not\n", number, flags.lane)
 	}
 	return false, time.Time{}, nil
+}
+
+func tappedNote(s *store.Store, repo string, number int, head string) (string, error) {
+	row, found, err := s.ReviewRow(repo, number)
+	if err != nil || !found || !row.Tapped || row.Head != head {
+		return "", err
+	}
+	return fmt.Sprintf("TAPPED #%d at %s: his tap counts at this head, so the landing pass lands it once nothing else holds it. go only admits a PR that needs no tap, so this refusal holds nothing; lr landing gate %d names what does.", number, head[:7], number), nil
 }
 
 func (g goGate) portLanded(ctx context.Context, claim gates.Claim, source int) (bool, error) {
