@@ -805,6 +805,28 @@ func TestALandingAReleaseFoundUnchangedOnItsTargetOwesNothingThere(t *testing.T)
 	}
 }
 
+func TestARunningReleaseWithNoApplyJobYetCarriesTheLandingsOnItsComponents(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"13717","mode":"release","status":"running","commit":"39ba620","components":["sanddb"]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324")
+}
+
+func TestAnEndedReleaseThatNamedATargetLeavesItsLandingsOwed(t *testing.T) {
+	check, bus := releasedUnchanged(t, `[{"id":"13716","mode":"release","status":"cancelled","commit":"39ba620","components":["sanddb","sand-next"]}]`)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 2)
+	equal(t, bus.posted[0].Text, "LANDED-NOT-LIVE sand-next: #48324; sanddb: #49101")
+}
+
 func TestADryRunThatFoundATargetUnchangedLeavesItsLandingsOwed(t *testing.T) {
 	check, bus := releasedUnchanged(t, `[{"id":"12590","mode":"dry-run","status":"converged","commit":"39ba620","unchanged":[{"component":"sanddb","env":"plat-usw2-prod"},{"component":"sand-next","env":"plat-usw2-prod"}]}]`)
 
