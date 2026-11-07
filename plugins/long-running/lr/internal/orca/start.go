@@ -46,7 +46,6 @@ const (
 	updateAvailable        = "Update available!"
 	skipUntilNext          = "Skip until next version"
 	screenUnavailable      = "screen-unavailable"
-	bypassReads            = 10
 	worktreeCreates        = 4
 	terminalListAttempts   = 3
 	terminalCreateAttempts = 3
@@ -858,6 +857,9 @@ func (l *launch) start() (string, error) {
 	if err := l.awaitAgent(); err != nil {
 		return "", err
 	}
+	if by := withdrawnBy(l.Env); by != "" {
+		return "", l.fail("%s%s before worker-start", withdrawnStop, by)
+	}
 	l.stages.say(l.ctx, "starting the worker")
 	return l.startWorker()
 }
@@ -1282,6 +1284,7 @@ type workerReceipt struct {
 		DispatchID  string `json:"dispatchId"`
 		State       string `json:"state"`
 		FailedStage string `json:"failedStage"`
+		LastError   string `json:"lastError"`
 	} `json:"result"`
 }
 
@@ -1472,6 +1475,9 @@ func (l *launch) startWorker() (string, error) {
 			return "", l.fail("worker-start outcome_unknown dispatch=%s terminal=%s worktree=%s: worker-show shows no turn started %ds after worker-start; Orca still supervises the dispatch, so run orca orchestration worker-abandon --dispatch %s --json before relaunching", receipt.Result.DispatchID, l.terminal, l.wt, l.boot, receipt.Result.DispatchID)
 		}
 	default:
+		if receipt.Result.FailedStage != "" {
+			return "", l.fail("worker-start state=%s at %s (%s) terminal=%s worktree=%s", receipt.Result.State, receipt.Result.FailedStage, receipt.Result.LastError, l.terminal, l.wt)
+		}
 		if l.startCode != 0 {
 			return "", l.fail("worker-start terminal=%s worktree=%s: %s", l.terminal, l.wt, orcaError(l.savedFile(".json"), l.savedFile(".worker.err")))
 		}
@@ -1488,25 +1494,21 @@ func (l *launch) awaitBypass() error {
 	if l.agent != agentClaude {
 		return nil
 	}
-	for attempt := 1; ; attempt++ {
-		if l.finished() || strings.Contains(l.screenText(), bypassOn) {
-			return nil
-		}
-		if attempt >= bypassReads {
-			return l.fail("terminal=%s does not show bypass permissions on; shift-tab it before the worker opens a plan", l.terminal)
-		}
-		if err := l.pause("terminal " + l.terminal + " does not show bypass permissions on yet"); err != nil {
+	reason := fmt.Sprintf("%s has posted nothing since its launch, not even the record of its first command, and terminal %s does not show bypass permissions on; shift-tab it before the worker opens a plan", l.lane, l.terminal)
+	for !l.ranCommand() && !strings.Contains(l.screenText(), bypassOn) {
+		if err := l.pauseWithin(reason, l.boot); err != nil {
 			return err
 		}
 	}
+	return nil
 }
 
-func (l *launch) finished() bool {
+func (l *launch) ranCommand() bool {
 	entry := namedDrive(l.Env, l.drive)
 	if entry == nil {
 		return false
 	}
-	records, err := l.Bus.Tail(l.ctx, client.Query{Drive: entry.Bus(), Since: l.began, Lanes: []string{l.lane}, Kinds: []string{"answer", kindDone}})
+	records, err := l.Bus.Tail(l.ctx, client.Query{Drive: entry.Bus(), Since: l.began, Lanes: []string{l.lane}})
 	return err == nil && len(records) > 0
 }
 

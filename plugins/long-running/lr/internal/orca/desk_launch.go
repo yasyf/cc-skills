@@ -124,6 +124,10 @@ func (d *Desk) refusedLog(container, key string) string {
 	return strings.TrimSuffix(d.launchLog(container, key), ".out") + ".refused.out"
 }
 
+func (d *Desk) withdrawnMark(container, key string) string {
+	return strings.TrimSuffix(d.launchLog(container, key), ".out") + ".withdrawn"
+}
+
 func (d *Desk) launch(ctx context.Context, container, lane string, action incident.Action) error {
 	spec, err := launchOf(action)
 	if err != nil {
@@ -186,7 +190,7 @@ func sortedStrings(values map[string]string) []string {
 
 func (d *Desk) launchLocal(container, lane string, action incident.Action, spec launchTarget) error {
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
-	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
+	env = append(env, "ORCA_LAUNCH_STATE="+d.Config.Receipts, "LAUNCH_ROLE="+spec.Role, laneEnv+"="+or(spec.By, coordinatorLane), stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive, withdrawnEnv+"="+d.withdrawnMark(container, action.ActionID))
 	if failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) && !isFile(d.spriteLog(container, action.ActionID)) {
 		env = append(env, fallbackEnv+"=1")
 	}
@@ -212,7 +216,7 @@ func (d *Desk) launchSprite(container, lane string, action incident.Action, spec
 		return err
 	}
 	env := append(envPairs(d.Config.LaunchEnv), d.sender...)
-	env = append(env, "WORKER_RUN="+d.Config.Run, stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive)
+	env = append(env, "WORKER_RUN="+d.Config.Run, stageKeyEnv+"="+action.ActionID, stageDriveEnv+"="+d.Config.Drive, withdrawnEnv+"="+d.withdrawnMark(container, action.ActionID))
 	env = append(env, envPairs(sprite.Env)...)
 	tools, err := json.Marshal(sprite.Tools)
 	if err != nil {
@@ -715,6 +719,13 @@ func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, acti
 		return d.macFallback(ctx, container, lane, action, spec, "its Sprite launch failed on the platform: "+down)
 	}
 	if neverStarted(attempt, exited) {
+		by, withdrawing, err := d.pendingWithdrawal(container, action.ActionID)
+		if err != nil {
+			return err
+		}
+		if withdrawing {
+			return d.withdrawnBeforeWorker(container, lane, action.ActionID, by, out)
+		}
 		if canFallBack && incidentLaunch(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)) {
 			return d.macFallback(ctx, container, lane, action, spec, "its Sprite never started a worker, receipts in "+attempt+": "+reason)
 		}
@@ -761,9 +772,20 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	var proofLine, dispatch, terminal string
 	failure := failureLine(out, lane)
 	triedSprite := isFile(d.spriteLog(container, key))
+	by, withdrawing, err := d.pendingWithdrawal(container, key)
+	if err != nil {
+		return err
+	}
 	switch {
 	case found != nil && found[1] == lane:
 		proofLine, dispatch, terminal = found[0], found[3], found[4]
+	case withdrawing && strings.HasPrefix(failure, lane+" failed "+withdrawnStop):
+		return d.withdrawnBeforeWorker(container, lane, key, by, failure)
+	case withdrawing && failure != "":
+		if err := d.endWithdrawal(container, key); err != nil {
+			return err
+		}
+		return d.failedLaunch(ctx, container, lane, key, failure+"; "+by+" withdrew it while it started, so it is not relaunched", verdictTo(spec.By))
 	case capRefusal.MatchString(failure) && !triedSprite && capFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
 		return d.spriteFallback(ctx, container, lane, action, spec, failure, "Orca refused it a terminal on this Mac, which runs as many as Orca allows")
 	case failure != "" && !triedSprite && failureFallsBack(Order{Lane: lane, Model: spec.Model, Role: spec.Role}, d.briefText(spec.Brief)):
@@ -795,12 +817,6 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	}); err != nil {
 		return err
 	}
-	value, marked, err := d.factOf(container, withdrawPending)
-	if err != nil {
-		return err
-	}
-	pending, _ := value.(map[string]any)
-	withdrawing := marked && pending[kindLaunch] == key
 	if !withdrawing {
 		argv := []string{d.tool("drive.py"), "spawned", "--lane", lane, "--brief", spec.Brief, "--model", spec.Model, "--effort", spec.Effort, "--placement", placement}
 		if spec.Role != "" {
@@ -841,11 +857,50 @@ func (d *Desk) settleLaunch(ctx context.Context, container, lane string, action 
 	if !withdrawing {
 		return nil
 	}
+	if err := d.endWithdrawal(container, key); err != nil {
+		return err
+	}
+	return d.stopWithdrawn(ctx, "escalation:withdraw:"+container+"/"+key, by, key, lane, dispatch)
+}
+
+func (d *Desk) pendingWithdrawal(container, key string) (string, bool, error) {
+	value, marked, err := d.factOf(container, withdrawPending)
+	if err != nil || !marked {
+		return "", false, err
+	}
+	pending, _ := value.(map[string]any)
+	if pending[kindLaunch] != key {
+		return "", false, nil
+	}
+	by, _ := pending["by"].(string)
+	return by, true, nil
+}
+
+func (d *Desk) endWithdrawal(container, key string) error {
 	if err := d.store.Edit(container, func(tx *incident.Tx) error { return tx.DropFact(withdrawPending) }); err != nil {
 		return err
 	}
-	by, _ := pending["by"].(string)
-	return d.stopWithdrawn(ctx, "escalation:withdraw:"+container+"/"+key, by, key, lane, dispatch)
+	if err := os.Remove(d.withdrawnMark(container, key)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
+func (d *Desk) withdrawnBeforeWorker(container, lane, key, by, out string) error {
+	if _, err := d.attempt(container, func(tx *incident.Tx) error {
+		_, err := tx.Fail(key, "withdrawn by "+by)
+		return err
+	}); err != nil {
+		return err
+	}
+	if err := d.endWithdrawal(container, key); err != nil {
+		return err
+	}
+	said := fmt.Sprintf("WITHDRAWN %s %s: by %s; it stopped before worker-start, so no worker ran a command", key, lane, by)
+	if out != "" {
+		said += "; its launcher said: " + clipRunes(collapsed(out[strings.LastIndex(out, "\n")+1:]), 300)
+	}
+	return d.record("escalation:withdraw:"+container+"/"+key, said)
 }
 
 func (d *Desk) briefText(brief string) string {
