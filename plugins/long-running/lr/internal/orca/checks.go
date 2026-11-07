@@ -233,7 +233,11 @@ func namesMacNeed(text string) bool {
 }
 
 func alwaysOnMac(lane, model string) bool {
-	return lane == coordinatorLane || fableModel.MatchString(model)
+	return isCoordinator(lane) || fableModel.MatchString(model)
+}
+
+func isCoordinator(lane string) bool {
+	return lanes.Stem(lane) == coordinatorLane
 }
 
 func unreasonedLocal(lane, model, text string) string {
@@ -314,7 +318,7 @@ func failureFallsBack(o Order, text string) bool {
 }
 
 func canLeaveMac(o Order, text string) bool {
-	return o.Lane != coordinatorLane && !fableModel.MatchString(o.Model) && !slices.Contains(submatches(briefWhy, text), whySentry)
+	return !isCoordinator(o.Lane) && !fableModel.MatchString(o.Model) && !slices.Contains(submatches(briefWhy, text), whySentry)
 }
 
 func incidentLaunch(o Order, text string) bool {
