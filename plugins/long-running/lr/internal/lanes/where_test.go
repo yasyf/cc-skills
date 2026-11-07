@@ -63,7 +63,7 @@ func (f *whereReads) read(now time.Time) *ReleaseRead {
 		case argv[0] == "git":
 			return shell.Result{}, nil
 		case slices.Equal(tail, []string{"select", "--pr"}):
-			return shell.Result{Stdout: `{"touched":["api","desktop"]}`}, nil
+			return shell.Result{Stdout: `{"touched":["api","desktop"],"deploying":["api","desktop"]}`}, nil
 		case slices.Equal(tail, []string{"live", "--json"}):
 			f.reads["live"]++
 			if f.liveFails != nil {
