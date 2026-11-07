@@ -432,6 +432,7 @@ func foldRecord(s *store.Store, r Record, late time.Duration, fresh bool, at tim
 		row, known = laneOf(s, name)
 	}
 	if known && isLive(row.State) {
+		out.unassigned = slices.DeleteFunc(out.unassigned, func(one unassigned) bool { return Stem(one.lane.Name) == Stem(name) && one.record.Seq < r.Seq })
 		foldWait(s, r, row, out.deps.Repo)
 		if kind == "blocker" && r.Attr("turn") == turnDied && !fresh {
 			resume(s, name, fmt.Sprintf("turn:%d", r.Seq), "your last turn died on an API error", r, at)
@@ -503,7 +504,7 @@ func reviveFixed(s *store.Store, r Record, at time.Time) {
 	if !known || !slices.Contains(fixedLanes, row.Name) || row.State != store.LaneRetired || !at.After(row.Since) {
 		return
 	}
-	if _, succeeded := laneOf(s, row.RetiredBy); succeeded {
+	if heir, _ := newest(s, row.Name); heir.State != store.LaneRetired {
 		return
 	}
 	do(s.ReviveLane(row.Name, at))
@@ -861,7 +862,7 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 			continue
 		}
 		if !answer && !retiredForSilence(lane) {
-			if assigns && !slices.Contains(fixedLanes, lane.Name) && (!slices.Contains([]string{"done", "stopped"}, lane.Last) || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
+			if assigns && !slices.Contains(fixedLanes, lane.Name) && !familyReads(s, lane.Name, r, named) && (!slices.Contains([]string{"done", "stopped"}, lane.Last) || !slices.Contains(r.resolved(), must(s.NewestSeq(lane.Name)))) {
 				unreached = append(unreached, unassigned{r, lane})
 			}
 			continue
@@ -883,6 +884,15 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 		do(s.SetLanePage(lane.Name, page))
 	}
 	return unreached
+}
+
+func familyReads(s *store.Store, name string, r Record, named map[string]bool) bool {
+	for _, member := range liveFamily(s, name) {
+		if lane, _ := laneOf(s, member); named[member] || lane.Heard.After(r.At) {
+			return true
+		}
+	}
+	return false
 }
 
 func asksOfALane(r Record) bool {
