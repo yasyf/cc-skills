@@ -246,7 +246,7 @@ func (w *Watch) workers(ctx context.Context, e Entry, rows map[string]*Row) ([]s
 		}
 		run = bound.Run.ID
 	}
-	listed := w.orca(ctx, "", nil, "orchestration", "task-list", "--run", run, "--status", "dispatched")
+	listed := w.orca(ctx, "", nil, "orchestration", "task-list", "--run", run, "--status", "dispatched", "--brief")
 	if !listed.OK {
 		return listFailed(listed.Error), nil
 	}

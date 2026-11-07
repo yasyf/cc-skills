@@ -427,7 +427,7 @@ func (d *Desk) openDispatches(ctx context.Context) (map[string]bool, error) {
 	if kept != nil {
 		return kept, nil
 	}
-	reply, err := d.ask(ctx, orchestration, "task-list", "--run", d.Config.Run, "--status", statusDispatched)
+	reply, err := d.ask(ctx, orchestration, "task-list", "--run", d.Config.Run, "--status", statusDispatched, "--brief")
 	if err != nil {
 		return nil, err
 	}
