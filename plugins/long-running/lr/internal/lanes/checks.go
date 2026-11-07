@@ -995,7 +995,7 @@ func (n *LandedNotLive) running(ctx context.Context) (map[string][]string, error
 	}
 	running := map[string][]string{}
 	for _, deploy := range deploys {
-		running[deploy.Target] = append(running[deploy.Target], deploy.Commit)
+		running[deploy.Component] = append(running[deploy.Component], deploy.Commit)
 	}
 	return running, nil
 }
