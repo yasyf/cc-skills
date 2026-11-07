@@ -22,7 +22,13 @@ from .tests.register_fixtures import DRIVE_CONFIG
 from .tests.rulings_consumers import separate
 
 DRIVE_ENV = "CLAUDE_LONG_RUNNING_DRIVE"
-HELPER_AGENTS = frozenset({"Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr", "orca-doctor"})
+HELPER_AGENTS = frozenset({
+    "Explore", "Plan", "claude-code-guide", "statusline-setup", "output-style-setup", "ship-pr", "long-running:orca-doctor",
+    "cc-context:ci-triage", "cc-context:dep-reader", "cc-context:enumerator", "cc-context:pr-review-triage", "cc-context:web-fetch", "cc-context:web-researcher",
+    "cc-review:classify-batch", "cc-review:organize", "cc-slack:slack-triage", "cc-slack:slack-waiter", "cc-present:present-triage",
+    "codex:codex-wrapper", "codex:codex-wrapper-async", "open-pr:pr-style-scout", "open-pr:pr-watcher",
+})
+HELPER_NAMES = frozenset(agent.rpartition(":")[2] for agent in HELPER_AGENTS)
 HELPER_PLUGINS = ("cc-context:", "cc-review:", "cc-slack:", "cc-present:", "codex:", "open-pr:")
 LANE_AGENTS = frozenset({"long-running:lane", "long-running:lane-ship"})
 SPAWNED = f"{sys.executable} {script('drive.py')} spawned"
@@ -107,7 +113,7 @@ def incident_spawn(call: TaskCall, lines: list[str]) -> bool:
 
 def helper(agent_type: str | None) -> bool:
     kind = agent_type or ""
-    return kind.rpartition(":")[2] in HELPER_AGENTS or kind.startswith(HELPER_PLUGINS)
+    return kind.rpartition(":")[2] in HELPER_NAMES or kind.startswith(HELPER_PLUGINS)
 
 
 @dataclass
@@ -416,10 +422,10 @@ def own_lane(evt: BaseHookEvent) -> str | None:
     if evt.agent_id is None:
         return None if nested() else reqenv.getenv(LANE_ENV)
     agent, prompt = own_prompt(evt)
-    if helper(agent.meta.get("agentType")):
+    if helper(agent.agent_type):
         return None
     sliced = SLICE_HEADER.search(brief_of(prompt)[0])
-    lane = sliced[1] if sliced else agent.name if agent.meta.get("agentType") in LANE_AGENTS else None
+    lane = sliced[1] if sliced else agent.name if agent.agent_type in LANE_AGENTS else None
     return None if lane and lane != agent.name and lane == drive_lane(evt) else lane
 
 
@@ -454,6 +460,8 @@ DESK_LOOP_CLAUDE = {CLAUDE_STARTED: "claude -p --model claude-sonnet-5-5 'answer
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands=DESK_LOOP_CLAUDE): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
         Input(command="git status", env=ORCA_LANE | {CLAUDE_PID: "4242"}, commands={CLAUDE_STARTED: (1, "")}): Rewrite("cci announce --lane lane-a >/dev/null && cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a1doctor", transcript=HELPER_NAMES_LANE): Allow(),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a3named", transcript=HELPER_NAMES_LANE): Allow(),
+        Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a4bare", transcript=HELPER_NAMES_LANE): Allow(),
         Input(command="git status", env={DRIVE_ENV: "brook-drive"}, agent_id="a2lane", transcript=HELPER_NAMES_LANE): Rewrite("cci post --lane lane-a --kind state 'lane-a: registered at its first command' >/dev/null; [ $? -ne 76 ] || exit 76\ngit status"),
     }),
 )
