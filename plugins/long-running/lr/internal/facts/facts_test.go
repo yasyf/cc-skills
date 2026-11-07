@@ -2829,6 +2829,19 @@ func TestAHoldNamingAFailureOnAnExemptHeadIsStillRootsToLift(t *testing.T) {
 	}
 }
 
+func TestAHostThatReadsRowsCarriesEachPRsBodySoAPortItOpensWithCounts(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
+	h.source.Reads = false
+	const body = "port of #50799\n\n## Context"
+	if err := h.store.PutReviewRows([]store.ReviewRow{{Repo: repo, Number: 1, Head: head, ReadHead: head, State: prrow.StateOpen, Description: body}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := h.snapshot(t)[1].Body; got != body {
+		t.Fatalf("body = %q, want %q", got, body)
+	}
+}
+
 func TestAShortHeadRecordAsksForOneReadThatFillsTheRowOnAHostThatDoesNotRead(t *testing.T) {
 	h := newHarness(t, []recordedPR{{number: 1, head: head, login: "drive-bot"}}, status(1))
 	h.source.Reads = false
