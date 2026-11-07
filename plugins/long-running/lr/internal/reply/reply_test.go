@@ -166,7 +166,6 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	call, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "reply", "arguments": map[string]any{
 		"title": "Land the relay fix tonight?", "md": "Its checks passed.\n\n| check | state |\n|---|---|\n| lr-go | green |",
 		"picks": []string{"Land it", "Hold it"}, "recommended": "Land it", "prs": []string{landPR},
-		"lines": map[string]string{"change": "Chats load", "plan": "Nothing differed", "risk": "Low", "blocks": "Your tap"},
 	}}})
 	if err != nil {
 		t.Fatal(err)
