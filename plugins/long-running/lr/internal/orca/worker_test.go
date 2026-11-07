@@ -949,7 +949,7 @@ func TestADesksStoreCopyMakesTheSameCallsAtOneOriginAndAThousandAndCarriesEveryO
 }
 
 func (f *workerFixture) catchUpCall(drive string) []string {
-	return []string{"sh", "-c", catchUpStore, "sh", drive, workerWorkspace, filepath.Join(f.attempt, catchUpCopy), "2026-11-06T03:15:11.25Z"}
+	return []string{"sh", "-c", catchUpStore, "sh", drive, workerWorkspace, filepath.Join(f.attempt, catchUpCopy), "2026-11-06T03:15:11.25Z", workerLane}
 }
 
 func TestALaneThatIsNoDeskHoldsTheMailPostedSinceItsLaunchBeganBeforeItsWorkerStarts(t *testing.T) {
@@ -987,7 +987,7 @@ func TestALaneWhoseCatchUpFailsStillStartsAndSaysWhatItLacks(t *testing.T) {
 	}
 }
 
-func TestACatchUpExportsSinceTheLaunchSeedsTheSpriteAndKeepsNoCopy(t *testing.T) {
+func TestACatchUpExportsSinceTheLaunchWithThePredecessorsRecordsSeedsTheSpriteAndKeepsNoCopy(t *testing.T) {
 	for _, landed := range []int{0, 3} {
 		stubs := t.TempDir()
 		calls := filepath.Join(stubs, "calls.log")
@@ -1000,7 +1000,7 @@ func TestACatchUpExportsSinceTheLaunchSeedsTheSpriteAndKeepsNoCopy(t *testing.T)
 			}
 		}
 		copied := filepath.Join(stubs, catchUpCopy)
-		catchUp := exec.Command("sh", "-c", catchUpStore, "sh", "the-drive", workerWorkspace, copied, "2026-11-06T03:15:11.25Z")
+		catchUp := exec.Command("sh", "-c", catchUpStore, "sh", "the-drive", workerWorkspace, copied, "2026-11-06T03:15:11.25Z", "fix-2")
 		catchUp.Env = append(os.Environ(), "PATH="+stubs+":"+os.Getenv("PATH"), "CALLS="+calls, "LANDED="+strconv.Itoa(landed))
 		ended, exit := 0, (*exec.ExitError)(nil)
 		if errors.As(catchUp.Run(), &exit) {
@@ -1013,7 +1013,7 @@ func TestACatchUpExportsSinceTheLaunchSeedsTheSpriteAndKeepsNoCopy(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "cci relay export --drive the-drive --since 2026-11-06T03:15:11.25Z\n" +
+		want := "cci relay export --drive the-drive --since 2026-11-06T03:15:11.25Z --lane fix-2\n" +
 			"sprite exec -s " + workerWorkspace + " --no-stdin --file " + copied + ":/tmp/store-catch-up.gz -- sh -c $HOME/.local/bin/cci relay seed --drive \"$1\" < /tmp/store-catch-up.gz; seeded=$?; rm -f /tmp/store-catch-up.gz; exit $seeded sh the-drive\n"
 		if string(made) != want {
 			t.Fatalf("made\n%s\nwant\n%s", made, want)
