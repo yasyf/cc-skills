@@ -89,7 +89,8 @@ func TestABlockIsReadByItsTitleSummaryMarkdownAndOptions(t *testing.T) {
 func TestACardRefusesCodeTermsCountsASecondQuestionAndARepeatedParagraph(t *testing.T) {
 	question, options := "Pause fresh run indexing now?", []string{"Pause: search stops lagging.", "Wait: search lags an hour."}
 	for name, tc := range map[string]struct{ body, says string }{
-		"a type name":          {"WorkflowVersion rows have no definition.", "code term"},
+		"a method call":        {"Store.Facts() returns nothing for the row.", "code term"},
+		"a package symbol":     {"It reads board.TapCard before it draws.", "code term"},
 		"a snake_case name":    {"It holds safety_vest steps.", "code term"},
 		"a code span":          {"Run `lr board` to see it.", "code term"},
 		"a route":              {"Calls to /api/runs fail.", "code term"},
@@ -103,5 +104,12 @@ func TestACardRefusesCodeTermsCountsASecondQuestionAndARepeatedParagraph(t *test
 	}
 	if err := PlainCard(question, "Search on GitHub and macOS lags by an hour since 6:01 PM on Nov 6, behind #52189.", options); err != nil {
 		t.Fatalf("a plain body with a brand, a time, a date and a PR was refused: %v", err)
+	}
+}
+
+func TestACardNamingCustomersByNamePasses(t *testing.T) {
+	body := "Runs recover on their own after a restart for every team below, and SoFi and GSK saw no failed run.\n\n| Team | Runs that recovered |\n|---|---|\n| SoFi | 41 |\n| AIG | 12 |\n| HSBC | 7 |\n| Chime | 3 |\n| GSK | 19 |"
+	if err := PlainCard("Ship the restart fix to every team tonight?", body, []string{"Ship: every team gets it tonight.", "Wait: it ships with Monday's release."}); err != nil {
+		t.Fatalf("a card naming SoFi, AIG, HSBC, Chime and GSK was refused: %v", err)
 	}
 }

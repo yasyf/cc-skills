@@ -27,8 +27,7 @@ var (
 		{regexp.MustCompile(`\bm\d{3,}\b|\b\d{4,}@[0-9a-f]{6,}\b|(?i)\b(?:cci|ccn|record|seq|answer|order) #?[0-9a-f]*\d[0-9a-f]*\b|\bcard-[a-z0-9-]+|\bmerge:\d+:\w+`), "a record id"},
 		{regexp.MustCompile(`\b(?:dd|sentry)-\d+(?:-\w+)?\b|\b[a-z][a-z0-9]*(?:-[a-z0-9]+)*-(?:fix|desk|evidence|comms|relay|watchdog)(?:-\d+)?\b|\b[a-z]+(?:-[a-z]+)+-\d+\b`), "a lane or incident name; say who does it in plain words, or leave it out"},
 	}
-	codeTerm    = regexp.MustCompile("`[^`\n]+`" + `|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[a-z]+[A-Z][A-Za-z0-9]*\b|\b[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+\b|(?:^|\s)/[a-z][\w/{}.-]*`)
-	brandWords  = map[string]bool{"GitHub": true, "OpenAI": true, "TypeScript": true, "JavaScript": true, "PagerDuty": true, "LinkedIn": true, "YouTube": true, "CodeQL": true, "iPhone": true, "iPad": true, "iOS": true, "macOS": true, "iCloud": true}
+	codeTerm    = regexp.MustCompile("`[^`\n]+`" + `|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_]\w*(?:\.\w+)*\(\)|\b[A-Za-z]\w*\.[A-Za-z]\w*\.[A-Za-z]\w*\b|\b[a-z]\w*\.[A-Z]\w*\b|(?:^|\s)/[a-z][\w/{}.-]*`)
 	proseCount  = regexp.MustCompile(`\b\d+(?:\.\d+)?\b`)
 	notACount   = regexp.MustCompile(`(?i)#\d+|\b\d+ ?min(?:utes?)? \d+ ?s(?:ec(?:onds?)?)?\b|\b\d{1,2}:\d{2}\b|\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{1,2}(?:,? \d{4})?\b`)
 	hash        = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
@@ -50,10 +49,8 @@ func Unplain(text string) string {
 			return fmt.Sprintf("%q is a commit hash; name the PR instead", word)
 		}
 	}
-	for _, term := range codeTerm.FindAllString(shown, -1) {
-		if !brandWords[strings.TrimSpace(term)] {
-			return fmt.Sprintf("%q is a code term; say what it does for a user in plain words", strings.TrimSpace(term))
-		}
+	if term := codeTerm.FindString(shown); term != "" {
+		return fmt.Sprintf("%q is a code term; say what it does for a user in plain words", strings.TrimSpace(term))
 	}
 	return ""
 }
