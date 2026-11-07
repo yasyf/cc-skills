@@ -3,10 +3,14 @@ package askdesk
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
+	"maps"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -58,6 +62,95 @@ func TestANumberedLaneReadsTheStoreDesksAnswerAddressedToIt(t *testing.T) {
 
 	if err != nil || out.String() != registry {
 		t.Fatalf("test-sleeps-ts-1 read %q, %v: want the answer the desk addressed to it", out.String(), err)
+	}
+}
+
+func TestAStoreDeskAnswerRepliesToItsAskSoEveryNodeRoutesItToTheAskerByThatLink(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ask, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "next-hold-fix-2", Kind: AskKind, Text: `{"verb":"lanes handoff-registry","args":["--","next-hold-fix-2"],"lane":"next-hold-fix-2"}`, To: []string{StoreDesk}, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk := Desk{Lane: StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: StoreRuns("/mac/lr.json", func(context.Context, []string, string) (string, string, int, error) {
+		return "{}\n", "", 0, nil
+	})}
+
+	if _, err := desk.Pass(context.Background(), client.Query{Drive: "d", Since: time.Now().Add(-CatchUp), Kinds: []string{AskKind}}); err != nil {
+		t.Fatal(err)
+	}
+
+	answers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AnswerKind}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(answers) != 1 || answers[0].Re != ask.Seq || answers[0].Resolves != ask.Seq {
+		t.Fatalf("ask #%d answered by %+v: want one answer that replies to and resolves it, since a Sprite whose registry gives next-hold-fix to another lane drops an answer addressed by name alone", ask.Seq, answers)
+	}
+}
+
+func TestAHandoffAskIsAnsweredWhileTheDeskRunsAnotherVerbWithOneOrAThousandQueuedBehindIt(t *testing.T) {
+	registry := `{"brief":"brief.md","notice_to":"root"}` + "\n"
+	ranBeforeAnswer := map[int]map[string]int{}
+	for _, queued := range []int{1, 1000} {
+		t.Run(strconv.Itoa(queued), func(t *testing.T) {
+			t.Setenv("CCI_HOME", t.TempDir())
+			for n := range queued {
+				if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "lander-1", Kind: AskKind, Text: fmt.Sprintf(`{"verb":"landing gate","args":["--","%d"],"lane":"lander-1"}`, 50000+n), To: []string{StoreDesk}, Force: true}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if asks, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AskKind}}); err != nil || len(asks) != queued {
+				t.Fatalf("the store holds %d asks, %v: want the %d posted", len(asks), err, queued)
+			}
+			var mu sync.Mutex
+			ran := map[string]int{}
+			gating := make(chan struct{})
+			ctx, cancel := context.WithCancel(context.Background())
+			stopped := make(chan struct{})
+			go func() {
+				Desk{Lane: StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Apart: AsksHandoff, Read: StoreRuns("/mac/lr.json", func(ctx context.Context, argv []string, _ string) (string, string, int, error) {
+					verb := strings.Join(argv[:2], " ")
+					mu.Lock()
+					ran[verb]++
+					first := ran[verb] == 1
+					mu.Unlock()
+					if verb == HandoffRegistryVerb {
+						return registry, "", 0, nil
+					}
+					if first {
+						close(gating)
+					}
+					<-ctx.Done()
+					return "", "", 0, ctx.Err()
+				})}.Follow(ctx)
+				close(stopped)
+			}()
+			t.Cleanup(func() {
+				cancel()
+				<-stopped
+			})
+			asking, stop := context.WithTimeout(context.Background(), 30*time.Second)
+			defer stop()
+			select {
+			case <-gating:
+			case <-asking.Done():
+				t.Fatalf("the desk started none of the %d landing gate asks in 30s", queued)
+			}
+
+			var out, errs bytes.Buffer
+			err := RunOnMac(asking, LiveCCI{}, "d", Asked{Verb: HandoffRegistryVerb, Args: []string{"--", "next-hold-fix-2"}, Lane: "next-hold-fix-2"}, &out, &errs)
+			mu.Lock()
+			ranBeforeAnswer[queued] = maps.Clone(ran)
+			mu.Unlock()
+
+			if err != nil || out.String() != registry {
+				t.Fatalf("with %d landing gate asks queued, next-hold-fix-2 read %q, %v: want the registry while the gate still runs", queued, out.String(), err)
+			}
+		})
+	}
+	want := map[string]int{"landing gate": 1, HandoffRegistryVerb: 1}
+	if !maps.Equal(ranBeforeAnswer[1], want) || !maps.Equal(ranBeforeAnswer[1000], want) {
+		t.Fatalf("the desk ran %v before answering the handoff: want %v at either queue length", ranBeforeAnswer, want)
 	}
 }
 

@@ -295,7 +295,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVer
 	} else {
 		deps.Followers = append(deps.Followers, askdesk.Desk{
 			Lane: askdesk.StoreDesk, Drive: env.Config.Drive, Duty: askdesk.StoreDuty, Bodies: filepath.Join(env.State, askdesk.StoreDesk), Now: a.Now, Log: a.Stderr,
-			Read: askdesk.StoreRuns(filepath.Join(env.State, configFile), storeVerbRun(a.Runner, env.Config.Drive)),
+			Read: askdesk.StoreRuns(filepath.Join(env.State, configFile), storeVerbRun(a.Runner, env.Config.Drive)), Apart: askdesk.AsksHandoff,
 		}.Follow)
 	}
 	deps.Checks = append(deps.Checks, (&background{name: "review-rows", every: TickEvery, run: prfacts.New(a, env.Config, s).FoldRows, store: s, post: post, log: a.Log}).Check)
