@@ -87,6 +87,7 @@ A lane reads with `cci tail --drive <drive> --cursor <lane> --reader <lane>`.
 
 - The call follows the cci daemon's stream and any file source, so it polls nothing.
 - Its `<lane>-wake` cursor keeps a wake from advancing the lane's read cursor.
+- Each wait starts no earlier than where the lane has read, through `cci tail --cursor <lane>` or the cci `inbox` tool, so a record the lane already read never wakes it.
 - Only a record stamped at or after the wait's start wakes it. An older one, such as a reply's parent that relay sync fetches on a Sprite, prints with the next record that wakes the wait, or before `QUIET` at the deadline.
 
 ## Desk inbox rules (I1-I7)
@@ -124,7 +125,7 @@ lr wait 540 cci:<drive>:<desk> [<other file>=<cursor file>...]
 - `lr wait` returns on new addressed records, a new line in another watched file, or, on a mailbox source, `MAILBOX <n> unread`, where `n` counts all unread mailbox entries. Each new unread entry follows that line as a `== <from> <timestamp>` header and its full text. It clips displayed records and file lines to 400 characters with an ellipsis; mailbox text is never clipped.
 - Claude Code delivers an in-process teammate's mail only after its turn ends, never at a tool-call boundary. The printed text is the lane's only copy until then, so the lane acts on it, runs step 0 on the output, and reruns the call in a loop.
 - Run `lr wait` as the Bash call itself, or from a script that passes its whole output through; never use `>/dev/null`, `| tail` or `| cut`.
-- The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk past the cci cursor `<desk>-wake`. It advances `<desk>-wake` and never the desk's own cursor, so a broadcast before an addressed record stays in the desk's read. A desk's first wait starts `<desk>-wake` where the desk's own cursor stands, or at the newest record when the desk has none, so it never replays what the desk already read. The script also advances each file's cursor. Act on the printed records and file lines before reading beyond those cursors under I2.
+- The `cci:<drive>:<desk>` source runs `cci tail` for records addressed to the desk past the cci cursor `<desk>-wake`. It advances `<desk>-wake` and never the desk's own cursor, so a broadcast before an addressed record stays in the desk's read. Every wait starts `<desk>-wake` no earlier than where the desk's own cursor or its cci `inbox` tool cursor stands, or at the newest record when the desk has neither, so it never replays what the desk already read. The script also advances each file's cursor. Act on the printed records and file lines before reading beyond those cursors under I2.
 - Run the 3-minute reconciliation pass, the 30-minute summary, and periodic sources such as `ledger.py watch --drive <drive> ... --once` and `ccx vcs pr watch ... --once` between waits, since a `Monitor` never wakes an in-process desk.
 - A desk re-runs the call on every return and after compaction.
 
