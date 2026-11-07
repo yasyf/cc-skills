@@ -138,7 +138,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 		return 0, "", err
 	}
 	text := staleText(version, moved, stale)
-	if _, err := post.Post(ctx, []string{installDesk}, bus.State{Lane: lane, Text: text}); err != nil {
+	if err := tellInstallDesk(ctx, post, text); err != nil {
 		return 0, "", err
 	}
 	return generation, text, nil

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
@@ -79,6 +80,15 @@ func ran(ctx context.Context, runner shell.Runner, argv ...string) (string, erro
 		return "", nil
 	}
 	return result.Stdout, err
+}
+
+type poster interface {
+	Post(ctx context.Context, to []string, body bus.Body) (bus.Record, error)
+}
+
+func tellInstallDesk(ctx context.Context, p poster, text string) error {
+	_, err := p.Post(ctx, []string{installDesk}, bus.Note{Text: text})
+	return err
 }
 
 func staleText(installed string, moved time.Time, stale []desk) string {
