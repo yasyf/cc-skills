@@ -1053,12 +1053,13 @@ func (n *LandedNotLive) announce(ctx context.Context, landed map[int]landing, ow
 	kept, rowsSaid := map[string]int64{}, map[string]string{}
 	for _, pick := range slices.SortedFunc(maps.Keys(rows), func(a, b ownerPick) int { return strings.Compare(a.Block, b.Block) }) {
 		rowSaid, prs, oldest := notLiveParts(landed, rows[pick], now)
-		rowsSaid[pick.Block] = rowSaid
-		if rowSaid == n.rows[pick.Block] {
+		targets := strings.Join(slices.Sorted(maps.Keys(rows[pick])), " ")
+		rowsSaid[pick.Block] = targets
+		if targets == n.rows[pick.Block] {
 			kept[pick.Block] = n.blockers[pick.Block]
 			continue
 		}
-		facts := sha256.Sum256([]byte(pick.Block + "\n" + rowSaid))
+		facts := sha256.Sum256([]byte(pick.Block + "\n" + targets))
 		id := NotLiveTopic + ":" + or(pick.Block, Root) + ":" + hex.EncodeToString(facts[:])[:12]
 		minutes := int(now.Sub(oldest).Minutes())
 		draft := client.Draft{Drive: drive, Lane: Self, Kind: blockerKind, To: []string{Root}, ID: id, PRs: prs, Resolves: n.blockers[pick.Block], Text: fmt.Sprintf("LANDED-NOT-LIVE %s. The oldest landed %d minutes ago, and no live release, running release build or release that found its target unchanged carries them; each ships with the next release that picks its target, and the owner starts that release", rowSaid, minutes)}
