@@ -34,6 +34,7 @@ import (
 const (
 	alertWindow  = time.Hour
 	alertJoin    = 24 * time.Hour
+	alertBurst   = time.Minute
 	alertRead    = 20
 	threadRead   = 200
 	fixLiveIdle  = 30 * time.Minute
@@ -65,6 +66,8 @@ var (
 	slackMessageID = regexp.MustCompile(`/p\d{16}\b`)
 	alertMessage   = regexp.MustCompile(`https://[\w.-]+/archives/[A-Z0-9]+/p\d{16}(?:\?[^\s|>)]*)?`)
 	recoveredAlert = regexp.MustCompile(`(?i)^\W*(?:Recovered|Resolved)\b`)
+	monitorChanged = regexp.MustCompile(`(?i)^\W*\[Monitor (?:Modified|Created|Deleted)\]`)
+	alertTag       = regexp.MustCompile(`^(?:\W*(?:\[[^\]]*\]|[A-Za-z-]+:))*\W*`)
 	redWatch       = regexp.MustCompile(`The Watch failed for (.+?) on (\S+?): ("[^"]+"(?:, "[^"]+")*) crossed`)
 	redSmoke       = regexp.MustCompile(`(\S+) is live, but (.+?) on (\S+?) went red`)
 	redTarget      = regexp.MustCompile(`:rotating_light: (.+?) went red(?: on (.+?))? after `)
@@ -95,9 +98,22 @@ type Alerts struct {
 	Refused  []config.Refusal
 	Launch   func(ctx context.Context, fired Fired) (string, error)
 	threads  map[string]string
-	launched map[string]bool
+	launched map[string]string
+	bursts   map[string]firing
 	opened   []client.Record
 	isOpened bool
+	firing   []firing
+	changed  []firing
+}
+
+type firing struct {
+	alert     alert
+	component string
+	channel   string
+	card      slackMessage
+	message   slackMessage
+	fired     time.Time
+	headline  string
 }
 
 type Fired struct {
@@ -192,7 +208,18 @@ func (a *Alerts) Check(ctx context.Context, now time.Time) error {
 			a.Log.Warn("alert pass slow", "took", took.Round(time.Second))
 		}
 	}()
-	a.isOpened = false
+	a.isOpened, a.firing, a.changed = false, nil, nil
+	err := a.scan(ctx, now)
+	for _, group := range bursts(a.changed) {
+		err = errors.Join(err, a.post(ctx, a.changedNote(group, now)))
+	}
+	for _, group := range bursts(a.firing) {
+		err = errors.Join(err, a.launch(ctx, group, now))
+	}
+	return err
+}
+
+func (a *Alerts) scan(ctx context.Context, now time.Time) error {
 	threads := map[string]string{}
 	for _, channel := range a.Channels {
 		var history struct {
@@ -337,8 +364,15 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 	}
 	headline, _, _ := strings.Cut(message.Text, "\n")
 	headline = truncated(strings.Join(strings.Fields(headline), " "), 160)
+	this := firing{alert, componentOf(alert, headline), channel, card, message, fired, headline}
+	if monitorChanged.MatchString(message.Text) {
+		first, err := a.Store.Notice("alert:"+channel+":"+message.TS, now)
+		if err == nil && first {
+			a.changed = append(a.changed, this)
+		}
+		return err
+	}
 	minutes := int(now.Sub(fired).Minutes())
-	draft := client.Draft{Drive: a.Env.Config.Drive, Lane: Self, To: []string{Root}, URL: card.Permalink}
 	lane, found, err := a.Store.Lane(alert.slug + "-fix")
 	if err == nil && !found {
 		lane, found, err = a.Store.Lane(alert.red + "-fix")
@@ -347,19 +381,15 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		return err
 	}
 	if found {
-		first, err := a.Store.Notice("alert:"+channel+":"+message.TS, now)
-		if err != nil || !first {
-			return err
-		}
-		draft.Kind, draft.ID, draft.To = "note", "alert-joined:"+channel+":"+message.TS, []string{lane.Name}
-		draft.Text = fmt.Sprintf("ALERT-AGAIN %s: %s fired again %d min ago, so the supervisor told %s and launched nothing new", headline, namedFor(alert, message), minutes, lane.Name)
-		if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
-			return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
-		}
+		return a.join(ctx, this, again(this, lane.Name, now), now)
+	}
+	if a.held(alert) != "" || slices.ContainsFunc(a.firing, func(f firing) bool { return f.alert.slug == alert.slug }) {
 		return nil
 	}
-	if a.launched[alert.slug] || a.launched[alert.red] {
-		return nil
+	if burst, ok := a.bursts[this.component]; ok && fired.Sub(burst.fired).Abs() < alertBurst {
+		joined := again(this, burst.alert.slug+"-fix", now)
+		joined.Text = fmt.Sprintf("ALERT-JOINED %s: %s fired %d min ago on %s within a minute of %s, so the supervisor told %s-fix and launched nothing new", headline, namedFor(alert, message), minutes, this.component, namedFor(burst.alert, burst.message), burst.alert.slug)
+		return a.join(ctx, this, joined, now)
 	}
 	if !a.isOpened {
 		if a.opened, err = a.Env.Bus.Tail(ctx, client.Query{Drive: a.Env.Config.Drive, Since: now.Add(-alertWindow), Kinds: []string{"incident", kindSpawn}}); err != nil {
@@ -379,36 +409,139 @@ func (a *Alerts) raise(ctx context.Context, channel string, card, message slackM
 		return err
 	}
 	ctx = context.WithoutCancel(ctx)
-	holder, launchErr := a.Env.MonitorLane(ctx, alert.name, alert.slug+"-fix")
+	holder, err := a.Env.MonitorLane(ctx, alert.name, alert.slug+"-fix")
 	if holder != "" {
 		return nil
 	}
-	var brief string
-	if launchErr == nil {
-		brief, launchErr = a.Launch(ctx, Fired{alert.slug, headline, card.Permalink, fired, alert.facts, alertLink.FindString(message.Text)})
+	if err != nil {
+		return a.post(ctx, unopened(this, err, now))
 	}
+	a.firing = append(a.firing, this)
+	return nil
+}
+
+func (a *Alerts) join(ctx context.Context, f firing, note client.Draft, now time.Time) error {
+	first, err := a.Store.Notice("alert:"+f.channel+":"+f.message.TS, now)
+	if err != nil || !first {
+		return err
+	}
+	return a.post(ctx, note)
+}
+
+func again(f firing, lane string, now time.Time) client.Draft {
+	return client.Draft{
+		Lane: Self, Kind: "note", ID: "alert-joined:" + f.channel + ":" + f.message.TS, To: []string{lane}, URL: f.card.Permalink,
+		Text: fmt.Sprintf("ALERT-AGAIN %s: %s fired again %d min ago, so the supervisor told %s and launched nothing new", f.headline, namedFor(f.alert, f.message), int(now.Sub(f.fired).Minutes()), lane),
+	}
+}
+
+func (a *Alerts) held(fired alert) string {
+	return cmp.Or(a.launched[fired.slug], a.launched[fired.red])
+}
+
+func (a *Alerts) launch(ctx context.Context, group []firing, now time.Time) error {
+	ctx = context.WithoutCancel(ctx)
+	var err error
+	group = slices.DeleteFunc(group, func(f firing) bool {
+		held := a.held(f.alert)
+		if held == "" {
+			return false
+		}
+		_, found, laneErr := a.Store.Lane(held + "-fix")
+		if err = errors.Join(err, laneErr); found {
+			err = errors.Join(err, a.post(ctx, again(f, held+"-fix", now)))
+		}
+		return true
+	})
+	if len(group) == 0 {
+		return err
+	}
+	lead := group[0]
+	facts := lead.alert.facts
+	for _, also := range group[1:] {
+		facts = append(facts, fmt.Sprintf("also fired within a minute on %s: %s %s, alert message %s", also.component, also.headline, namedFor(also.alert, also.message), also.card.Permalink))
+	}
+	brief, launchErr := a.Launch(ctx, Fired{lead.alert.slug, lead.headline, lead.card.Permalink, lead.fired, facts, alertLink.FindString(lead.message.Text)})
 	if launchErr != nil {
-		draft.Kind, draft.ID = blockerKind, "alert-unopened:"+channel+":"+message.TS
-		failure := []rune(launchErr.Error())
-		draft.Text = fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`; alert message %s", headline, namedFor(alert, message), minutes, alert.slug, string(failure[max(0, len(failure)-200):]), alert.slug, card.Permalink)
-	} else {
-		if a.launched == nil {
-			a.launched = map[string]bool{}
-		}
-		a.launched[alert.slug] = true
-		if alert.red != "" {
-			a.launched[alert.red] = true
-		}
-		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: card.Permalink})
-		draft.Kind, draft.ID, draft.To = kindSpawn, "alert-launched:"+channel+":"+message.TS, []string{Root, OwnerRelay}
-		draft.LaneRefs = []string{alert.slug + "-fix"}
-		draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "high"}
-		draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence; alert message %s", headline, namedFor(alert, message), minutes, alert.slug, alert.slug, card.Permalink)
+		return errors.Join(err, a.post(ctx, unopened(lead, launchErr, now)))
 	}
+	if a.launched == nil {
+		a.launched, a.bursts = map[string]string{}, map[string]firing{}
+	}
+	a.bursts[lead.component] = lead
+	for _, member := range group {
+		a.launched[member.alert.slug] = lead.alert.slug
+		if member.alert.red != "" {
+			a.launched[member.alert.red] = lead.alert.slug
+		}
+		a.opened = append(a.opened, client.Record{Kind: kindSpawn, Text: member.card.Permalink})
+	}
+	draft := client.Draft{Lane: Self, Kind: kindSpawn, ID: "alert-launched:" + lead.channel + ":" + lead.message.TS, To: []string{Root, OwnerRelay}, URL: lead.card.Permalink}
+	draft.LaneRefs = []string{lead.alert.slug + "-fix"}
+	draft.Attrs = map[string]string{"brief": brief, "role": "fix", "model": "incident", "effort": "high"}
+	draft.Text = fmt.Sprintf("ALERT-LAUNCHED %s: no incident record named %s %d min after it fired, so the supervisor launched %s-fix and %s-evidence; alert message %s", lead.headline, named(group), int(now.Sub(lead.fired).Minutes()), lead.alert.slug, lead.alert.slug, lead.card.Permalink)
+	return errors.Join(err, a.post(ctx, draft))
+}
+
+func (a *Alerts) changedNote(group []firing, now time.Time) client.Draft {
+	lead := group[0]
+	return client.Draft{
+		Lane: Self, Kind: "note", Topic: lead.alert.slug, To: []string{Root}, URL: lead.card.Permalink,
+		ID:   "alert-changed:" + lead.channel + ":" + lead.message.TS,
+		Text: fmt.Sprintf("ALERT-CHANGED %s: Datadog changed the definition of %s %d min ago, which is not an alert, so the supervisor launched nothing; a monitor that is in Alert posts its own Triggered message; alert message %s", lead.headline, named(group), int(now.Sub(lead.fired).Minutes()), lead.card.Permalink),
+	}
+}
+
+func unopened(f firing, failed error, now time.Time) client.Draft {
+	failure := []rune(failed.Error())
+	return client.Draft{
+		Lane: Self, Kind: blockerKind, ID: "alert-unopened:" + f.channel + ":" + f.message.TS, To: []string{Root}, URL: f.card.Permalink,
+		Text: fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`; alert message %s", f.headline, namedFor(f.alert, f.message), int(now.Sub(f.fired).Minutes()), f.alert.slug, string(failure[max(0, len(failure)-200):]), f.alert.slug, f.card.Permalink),
+	}
+}
+
+func (a *Alerts) post(ctx context.Context, draft client.Draft) error {
+	draft.Drive = a.Env.Config.Drive
 	if _, err := a.Env.Bus.Post(ctx, draft); err != nil {
 		return fmt.Errorf("%w: cci post: %w", ErrUnread, err)
 	}
 	return nil
+}
+
+func componentOf(fired alert, headline string) string {
+	for _, fact := range fired.facts {
+		if component, ok := strings.CutPrefix(fact, "component "); ok {
+			return strings.ToLower(component)
+		}
+	}
+	name, _, _ := strings.Cut(alertTag.ReplaceAllString(headline, ""), " ")
+	return strings.ToLower(name)
+}
+
+func named(group []firing) string {
+	names := make([]string, 0, len(group))
+	for _, member := range group {
+		names = append(names, namedFor(member.alert, member.message))
+	}
+	return strings.Join(names, ", ")
+}
+
+func bursts(alerts []firing) [][]firing {
+	var groups [][]firing
+	for _, f := range alerts {
+		at := slices.IndexFunc(groups, func(group []firing) bool {
+			return group[0].component == f.component && f.fired.Sub(group[0].fired).Abs() < alertBurst
+		})
+		if at < 0 {
+			groups = append(groups, []firing{f})
+			continue
+		}
+		groups[at] = append(groups[at], f)
+	}
+	for _, group := range groups {
+		slices.SortStableFunc(group, func(a, b firing) int { return a.fired.Compare(b.fired) })
+	}
+	return groups
 }
 
 var fixLiveLine = regexp.MustCompile(`^(\d{1,2}:\d{2} [AP]M )?FIX-LIVE\b`)
