@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -136,8 +137,12 @@ func (g goGate) readHead(ctx context.Context, number int, head, body string, bef
 	if err != nil {
 		return headRead{}, fmt.Errorf("read what its holds resolve: %w", err)
 	}
+	his, err := facts.HisRulings(ctx, g.s, g.cfg.Repo, g.a.Runner, g.cfg.Checkout, bus.Rulings(records), g.a.Now())
+	if err != nil {
+		return headRead{}, err
+	}
 	r := headRead{claim: gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}, records: records}
-	r.read = gates.Read{Lifts: lifts, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards, Body: body}
+	r.read = gates.Read{Lifts: lifts, Rulings: his, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards, Body: body}
 	r.port, r.claimed = gates.PortAt(r.claim, r.read)
 	if r.claimed {
 		r.read.PortSourceMerged, err = g.portLanded(ctx, r.claim, r.port.Source)

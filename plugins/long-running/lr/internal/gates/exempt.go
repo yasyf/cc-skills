@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	kindHold     = "hold"
 	closedStatus = "closed"
 	finderKind   = "finder"
 	fidelityKind = "fidelity"
@@ -74,6 +73,7 @@ type Read struct {
 	Files    []string
 	Cards    []Card
 	Lifts    map[int64]bool
+	Rulings  map[string]bool
 	Body     string
 	Patches  map[string]*string
 
@@ -125,7 +125,7 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	if TaplessClassAt(c, r) {
 		cards = slices.DeleteFunc(slices.Clone(cards), func(card Card) bool { return strings.HasPrefix(card.ID, TapCardPrefix(c.PR)) })
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts, r.Rulings), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", "", refusals
 	}
@@ -548,7 +548,7 @@ func ClassOf(phrase string) string {
 	return strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(lead), "class ")), "-")
 }
 
-func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string {
+func openHolds(c Claim, records []client.Record, lifts map[int64]bool, his map[string]bool) []string {
 	closed := map[int64]bool{}
 	for _, record := range records {
 		closed[record.Resolves] = true
@@ -558,7 +558,7 @@ func openHolds(c Claim, records []client.Record, lifts map[int64]bool) []string 
 	}
 	var out []string
 	for _, record := range records {
-		if string(record.Kind) == kindHold && !closed[record.Seq] && record.Status != closedStatus && !lifts[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
+		if bus.HoldGates(record, his) && !closed[record.Seq] && record.Status != closedStatus && !lifts[record.Seq] && slices.Contains(bus.HeldBy(record, c.Repo), c.PR) {
 			out = append(out, fmt.Sprintf("hold %s by %s is open", record.Name(), record.Lane))
 		}
 	}

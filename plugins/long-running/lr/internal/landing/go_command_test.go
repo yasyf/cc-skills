@@ -625,7 +625,7 @@ func TestAHoldALiftClosedLandsEvenWhenTheLiftNamesNoPR(t *testing.T) {
 			post(client.Draft{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["class test-only"]}`}})
 			post(pipelineOK("o/r#1", head, "test-only", "adds the regression test"))
 			post(client.Draft{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"})
-			hold := post(client.Draft{Drive: "d", Lane: "owner-relay", Kind: "hold", PRs: []string{"o/r#1"}, Text: "Hold #1 until the lane shows quit brings the dialog back"})
+			hold := post(client.Draft{Drive: "d", Lane: "owner", Kind: "hold", PRs: []string{"o/r#1"}, Text: "hold #1 at 51563cc: the owner rejected this head on the board"})
 			if lifted {
 				post(client.Draft{Drive: "d", Lane: "owner-relay", Kind: "lift", Resolves: hold.Seq, Text: "Hold on #1 lifted: the new head carries his order"})
 			}
@@ -657,7 +657,7 @@ func TestAHoldALiftClosedLandsEvenWhenTheLiftNamesNoPR(t *testing.T) {
 				}
 				return
 			}
-			if len(posted) != 0 || len(refusals) != 1 || !strings.Contains(refusals[0].Text, "hold "+hold.Name()+" by owner-relay is open") {
+			if len(posted) != 0 || len(refusals) != 1 || !strings.Contains(refusals[0].Text, "hold "+hold.Name()+" by owner is open") {
 				t.Fatalf("posted %v, refusals %+v; want the open hold to refuse the go", posted, refusals)
 			}
 		})

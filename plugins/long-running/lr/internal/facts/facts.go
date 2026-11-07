@@ -40,6 +40,8 @@ const (
 	graphiteCheck    = "Graphite / mergeability_check"
 	readersFirstHeld = "readers-first-held"
 	readersFirstWhy  = "readers-first:"
+	breaksTold       = "breaks-told"
+	breaksReader     = "owner-relay"
 	openHeadsQuery   = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
 	memberFields     = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
@@ -1116,28 +1118,11 @@ func (h hold) onto(f *machine.Facts) {
 	}
 }
 
-var (
-	holdOpening = regexp.MustCompile(`(?i)^\s*hold\s+#?\d+\s*[:,-]?\s*`)
-	planNamed   = regexp.MustCompile(`(?i)\bplan (?:row|step|\d)`)
-)
+var holdOpening = regexp.MustCompile(`(?i)^\s*hold\s+#?\d+\s*[:,-]?\s*`)
 
 func holdSaid(record client.Record) string {
 	line, _, _ := strings.Cut(record.Text, "\n")
 	return fmt.Sprintf("%s (record %s)", holdOpening.ReplaceAllString(line, ""), record.Name())
-}
-
-func holdWhy(record client.Record, by machine.Mover) string {
-	line, _, _ := strings.Cut(record.Text, "\n")
-	why := holdSaid(record)
-	switch {
-	case by == machine.MoverOwner:
-		return "owner:" + why
-	case strings.Contains(strings.ToLower(record.Lane+" "+line), "cutover"):
-		return "cutover:" + why
-	case planNamed.MatchString(line):
-		return "plan:" + why
-	}
-	return "root:" + why
 }
 
 func heldWords(held map[int]hold) map[int]prrow.Held {
@@ -1150,39 +1135,110 @@ func heldWords(held map[int]hold) map[int]prrow.Held {
 
 func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	records, err := client.Open(ctx, s.Drive, "hold")
-	if err != nil || len(records) == 0 {
-		return nil, err
-	}
-	first := slices.MinFunc(records, func(a, b client.Record) int { return a.At.Compare(b.At) })
-	later, err := client.Tail(ctx, client.Query{Drive: s.Drive, Since: first.At, Kinds: bus.GoReadKinds})
 	if err != nil {
 		return nil, err
 	}
-	gos := bus.RootGos(later)
+	his, err := HisRulings(ctx, s.Store, s.Repo, s.Runner, s.Checkout, bus.Rulings(records), s.Now())
+	if err != nil {
+		return nil, err
+	}
+	records = slices.DeleteFunc(records, func(record client.Record) bool { return !bus.HoldGates(record, his) })
+	if len(records) == 0 {
+		return nil, nil
+	}
 	lifts, err := bus.HoldLifts(records, func(seqs []int64) ([]client.Record, error) { return client.Among(ctx, s.Drive, seqs) })
 	if err != nil {
 		return nil, fmt.Errorf("read what the holds resolve: %w", err)
 	}
+	records = slices.DeleteFunc(records, func(record client.Record) bool { return lifts[record.Seq] })
+	breaks := slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return bus.HoldIsHis(record, his) })
+	answered, err := s.landAnswers(ctx, breaks)
+	if err != nil {
+		return nil, fmt.Errorf("read his answers to the holds that name a failure: %w", err)
+	}
+	if err := s.decideBreaks(ctx, breaks, answered); err != nil {
+		return nil, err
+	}
 	held := make(map[int]hold)
 	for _, record := range records {
-		if lifts[record.Seq] {
-			continue
-		}
-		byOwner := record.Lane == string(machine.MoverOwner)
 		for _, pr := range bus.HeldBy(record, s.Repo) {
 			one := held[pr]
 			switch {
+			case !bus.HoldIsHis(record, his):
+				if !answered[heldPR{record.Seq, pr}] && one.by != machine.MoverOwner {
+					one.by, one.record, one.why = machine.MoverRoot, record.Name(), fmt.Sprintf("breaks:%s (record %s)", bus.Breaks(record), record.Name())
+				}
 			case bus.HoldsUntilTap(record):
 				one.asks, one.asksRecord = append(one.asks, holdSaid(record)), record.Name()
-			case byOwner:
-				one.by, one.record, one.why = machine.MoverOwner, record.Name(), holdWhy(record, machine.MoverOwner)
-			case (strings.HasPrefix(record.Text, readersFirstWhy) || !bus.GoLifts(gos, record, pr)) && one.by != machine.MoverOwner:
-				one.by, one.record, one.why = machine.MoverRoot, record.Name(), holdWhy(record, machine.MoverRoot)
+			default:
+				one.by, one.record, one.why = machine.MoverOwner, record.Name(), "owner:"+holdSaid(record)
 			}
 			held[pr] = one
 		}
 	}
 	return held, nil
+}
+
+type heldPR struct {
+	hold int64
+	pr   int
+}
+
+func (s Source) landAnswers(ctx context.Context, breaks []client.Record) (map[heldPR]bool, error) {
+	if len(breaks) == 0 {
+		return nil, nil
+	}
+	first := slices.MinFunc(breaks, func(a, b client.Record) int { return a.At.Compare(b.At) })
+	taps, err := client.Tail(ctx, client.Query{Drive: s.Drive, Since: first.At, Kinds: []string{tapRecord}})
+	if err != nil {
+		return nil, err
+	}
+	answered := map[heldPR]bool{}
+	for _, raw := range taps {
+		parsed, err := bus.Parse(raw)
+		tap, isTap := parsed.Body.(bus.Tap)
+		if err != nil || !isTap || tap.Value != string(machine.TapTapped) {
+			continue
+		}
+		for _, held := range breaks {
+			if raw.At.After(held.At) && slices.Contains(bus.HeldBy(held, s.Repo), tap.PR) {
+				answered[heldPR{held.Seq, tap.PR}] = true
+			}
+		}
+	}
+	return answered, nil
+}
+
+func (s Source) decideBreaks(ctx context.Context, breaks []client.Record, answered map[heldPR]bool) error {
+	if !s.Reads || len(breaks) == 0 {
+		return nil
+	}
+	told, err := s.Store.TrunkFacts(s.Repo, breaksTold)
+	if err != nil {
+		return err
+	}
+	for _, record := range breaks {
+		key := cmp.Or(record.ID, record.Name())
+		var waiting, refs []string
+		for _, pr := range bus.HeldBy(record, s.Repo) {
+			if !answered[heldPR{record.Seq, pr}] {
+				waiting, refs = append(waiting, fmt.Sprintf("#%d", pr)), append(refs, fmt.Sprintf("%s#%d", s.Repo, pr))
+			}
+		}
+		if told[key] != "" || len(waiting) == 0 {
+			continue
+		}
+		if _, err := client.Post(ctx, client.Draft{
+			Drive: s.Drive, Lane: bus.SweepLane, Kind: "decide", To: []string{breaksReader}, ID: "breaks-decide/" + key, PRs: refs, Re: record.Seq,
+			Text: fmt.Sprintf("For him: %s keeps %s out of the queue because landing it now breaks production: %s. Land it now, or wait? His land-it ends the hold at once.", record.Name(), strings.Join(waiting, ", "), bus.Breaks(record)),
+		}); err != nil {
+			return err
+		}
+		if _, err := s.Store.PutFact(s.Repo, 0, key, breaksTold, record.Name(), s.Now()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s Source) holdReadersFirst(ctx context.Context, f machine.Facts, stored map[string]string) (bool, error) {
@@ -1197,7 +1253,8 @@ func (s Source) holdReadersFirst(ctx context.Context, f machine.Facts, stored ma
 	for _, reader := range readers {
 		if _, err := client.Post(ctx, client.Draft{
 			Drive: s.Drive, Lane: bus.SweepLane, Kind: "hold", ID: fmt.Sprintf("readers-first/%d/%s", f.Number, reader), PRs: []string{strconv.Itoa(f.Number)},
-			Text: fmt.Sprintf("%s #%s not live on every client. Only the coordinator lifts this, naming the live release that carries #%s.", readersFirstWhy, reader, reader),
+			Attrs: map[string]string{bus.BreaksAttr: fmt.Sprintf("#%d writes a format that a client still on a build without #%s cannot read", f.Number, reader)},
+			Text:  fmt.Sprintf("%s #%s not live on every client. His land-it ends this hold, and so does a lift naming the live release that carries #%s.", readersFirstWhy, reader, reader),
 		}); err != nil {
 			return false, err
 		}

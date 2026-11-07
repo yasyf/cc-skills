@@ -60,8 +60,6 @@ var (
 	behaviorSays   = regexp.MustCompile(`^behavior: (same|changed) ([0-9a-f]{7,40}) since ([0-9a-f]{7,40})(?:: (.+))?`)
 )
 
-var GoReadKinds = []string{"go", "decide", "decision", "withdraw", "correction"}
-
 type Fact struct {
 	PR    int
 	Head  string
@@ -401,10 +399,6 @@ func goHeads(text string) []headPair {
 	return pairs
 }
 
-func RootGos(records []client.Record) []client.Record {
-	return LiveGos(records, nil)
-}
-
 func LiveGos(records []client.Record, goLanes []string) []client.Record {
 	lanes := goAuthors(goLanes)
 	closed := make(map[int64]bool)
@@ -462,30 +456,6 @@ func closes(record client.Record) []int64 {
 		}
 	}
 	return seqs
-}
-
-func GoNames(record client.Record, pr int) bool {
-	return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool { return pair.PR == pr })
-}
-
-// GoLifts reports whether one of gos, posted after hold, names pr. Seq only
-// orders a store's arrivals, and a relay backfill numbers an old go last.
-func GoLifts(gos []client.Record, hold client.Record, pr int) bool {
-	return slices.ContainsFunc(gos, func(g client.Record) bool { return postedAfter(g, hold) && GoNames(g, pr) })
-}
-
-func postedAfter(a, b client.Record) bool {
-	if a.Origin == b.Origin {
-		return originSeq(a) > originSeq(b)
-	}
-	return a.At.After(b.At)
-}
-
-func originSeq(record client.Record) int64 {
-	if record.OriginSeq == 0 {
-		return record.Seq
-	}
-	return record.OriginSeq
 }
 
 func GoNamesHead(record client.Record, pr int, head string) bool {
@@ -562,6 +532,37 @@ func HoldLifts(records []client.Record, read func([]int64) ([]client.Record, err
 
 func HoldsUntilTap(record client.Record) bool {
 	return len(record.Refs.PRs) == 1 && (record.Fields.Attrs[holdUntilAttr] == holdUntilTap || untilHisWord.MatchString(record.Text))
+}
+
+const (
+	BreaksAttr = "breaks"
+	RulingAttr = "ruling"
+)
+
+func HoldIsHis(record client.Record, his map[string]bool) bool {
+	return string(record.Kind) == "hold" && (record.Lane == OwnerBy || his[Ruling(record)])
+}
+
+func HoldGates(record client.Record, his map[string]bool) bool {
+	return HoldIsHis(record, his) || string(record.Kind) == "hold" && Breaks(record) != ""
+}
+
+func Breaks(record client.Record) string {
+	return record.Fields.Attrs[BreaksAttr]
+}
+
+func Ruling(record client.Record) string {
+	return record.Fields.Attrs[RulingAttr]
+}
+
+func Rulings(records []client.Record) []string {
+	var ids []string
+	for _, record := range records {
+		if id := Ruling(record); id != "" && string(record.Kind) == "hold" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func HeldBy(record client.Record, repo string) []int {
