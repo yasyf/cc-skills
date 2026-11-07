@@ -179,9 +179,9 @@ def test_check_peek_reads_without_waiting(orca):
 
 
 def test_the_plugin_bin_launches_every_script_by_name():
-    launchers = [path for path in BIN.iterdir() if path.name != "lr.binrun"]
+    launchers = [path for path in BIN.iterdir() if path.suffix != ".binrun"]
     shimmed = set(re.findall(r'^\s*(\S+)\) exec "\$ROOT/bin/lr" ', (BIN.parent / "scripts" / "bin-shim.sh").read_text(), re.MULTILINE))
-    assert sorted(path.name for path in launchers if path.name not in shimmed) == sorted(["lr", *(path.name for path in SCRIPTS.iterdir() if path.name not in shimmed and (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))])
+    assert sorted(path.name for path in launchers if path.name not in shimmed) == sorted(["lr", "cc-remote", *(path.name for path in SCRIPTS.iterdir() if path.name not in shimmed and (path.suffix in (".py", ".sh") or path.name.startswith("cci-")) and (path.read_text().startswith("#!") or "__main__" in path.read_text()))])
     for launcher in launchers:
         assert os.access(launcher, os.X_OK)
         assert os.readlink(launcher) == "../scripts/bin-shim.sh"

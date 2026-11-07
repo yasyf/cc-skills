@@ -186,7 +186,11 @@ func StopSpritesCommand(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			remote, err := CcRemoteOf(state)
+			env, err := NewEnv(a.Runner, cfg, state, a.Now)
+			if err != nil {
+				return err
+			}
+			remote, err := CcRemoteOf(state, env.plugin())
 			if err != nil || remote == nil || cfg.OrcaRun == "" {
 				return err
 			}
@@ -195,10 +199,6 @@ func StopSpritesCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			defer func() { _ = s.Close() }()
-			env, err := NewEnv(a.Runner, cfg, state, a.Now)
-			if err != nil {
-				return err
-			}
 			stops := &SpriteStops{Env: env, Store: s, CcRemote: *remote, Log: a.Log}
 			if leave != "" {
 				return stops.Leave(cmd.Context(), leave, a.Now())

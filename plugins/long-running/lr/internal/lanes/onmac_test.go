@@ -32,7 +32,7 @@ func TestOnASpriteWithNoStoreEveryStoreAndRunnerReadRefusesNamingTheMac(t *testi
 			return err
 		},
 		"cc-remote": func() error {
-			_, err := CcRemoteOf(state)
+			_, err := CcRemoteOf(state, t.TempDir())
 			return err
 		},
 	}

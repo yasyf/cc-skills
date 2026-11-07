@@ -189,10 +189,9 @@ A numbered spawn such as `desk-4` takes over `desk-3` only when its launch names
 - The supervisor still refuses one that reaches it citing none, or one older than the lane's newest record, since a lane can post between the two. It holds the lane with its PRs and posts a `defect` to the coordinator, the lane, and the lane that asked, naming the lane's newest record and the exact `lr request` to run once it is read. A held lane is never relaunched or retired, and its next record makes it live again.
 - A request the lane posts about itself, such as a desk standing itself down for its successor, passes this check: the lane has read every record it wrote, including the request.
 
-**Stop an ended lane's Sprite.** Every five minutes `lr stop-sprites` runs `cc-remote orca stop <lane>` for each retired Sprite lane whose dispatch settled. A lane the Run lists no dispatch for qualifies when its `done` record or a withdrawal retired it.
-- A cc-remote older than 0.27.4, the first whose `orca stop` works on a finished lane's Sprite, skips the pass, and its ended lanes wait for the pin to reach that release.
+**Stop an ended lane's Sprite.** Every five minutes `lr stop-sprites` runs `cc-remote orca stop <lane>`, with the cc-remote the pack pins, for each retired Sprite lane whose dispatch settled. One `task-list` call a pass reads the Run's open dispatches, whatever its history. A lane with no recorded dispatch qualifies when its `done` record or a withdrawal retired it.
 - A failed stop of a Sprite `sprite list` no longer shows closes. A stop that failed on a 5xx or a timeout is tried every pass until it stops, is gone or a person leaves it through `lr stop-sprites`; its third failed pass in a row posts one `SPRITE-STOP-FAILED` blocker, and one closing line follows. Any other failed stop gets three tries and then one blocker. Both go to the meta desk; [orca-sprite-workers.md](orca-sprite-workers.md) has the rules.
-- A live, held or unsettled lane keeps its Sprite.
+- A live, held or unsettled lane keeps its Sprite, and so does one whose agent terminal holds another open dispatch.
 
 ### Check liveness and wake parked lanes
 
