@@ -316,6 +316,27 @@ def test_a_record_of_his_answer_names_the_card_it_answers_and_a_submit_names_non
     assert [(attrs(post)["event"], attrs(post).get("card")) for post in owner] == [("choice.selected", "card-fixes"), ("submit", None)]
 
 
+BUILT_DOC = {"blocks": [{"id": "card-rmw5myh8a", "type": "card", "title": "A chat killed mid-create never reopens: which fix?", "children": [{"id": "rmw5myh8a-choice", "type": "choice", "options": [
+    {"id": "rmw5myh8a-1", "label": "Retire it behind a tombstone", "recommended": True, "build": {"repo": "Forge-AI/monorepo", "branch": "redo-epoch-reopen"}},
+    {"id": "rmw5myh8a-2", "label": "Leave it Creating until the next boot"},
+]}]}]}
+
+
+def test_a_pick_of_the_option_a_branch_builds_names_that_branch_and_no_other_pick_does(tmp_path: Path) -> None:
+    shell = RecordedShell(doc=BUILT_DOC)
+    shell.watch = lambda session: iter([
+        '{"blockId":"rmw5myh8a-choice","optionIds":["rmw5myh8a-1"],"heads":{"Forge-AI/monorepo#52060":"03d865a3a4ec4cf119f5e90be37aa7804cdfa315"},"schemaVersion":1,"type":"choice.selected"}\n',
+        '{"blockId":"rmw5myh8a-choice","optionIds":["rmw5myh8a-2"],"schemaVersion":1,"type":"choice.selected"}\n',
+    ])
+    run(tmp_path, shell)
+
+    picks = [attrs(post) for post in shell.posts if attrs(post).get("event") == "choice.selected"]
+    assert [(pick["picked"], pick.get("built", ""), pick.get("heads", "")) for pick in picks] == [
+        ("rmw5myh8a-1", "Forge-AI/monorepo:redo-epoch-reopen", "Forge-AI/monorepo#52060=03d865a3a4ec4cf119f5e90be37aa7804cdfa315"),
+        ("rmw5myh8a-2", "", ""),
+    ]
+
+
 def test_a_restart_keys_events_after_the_lines_already_recorded(tmp_path: Path) -> None:
     first, second = RecordedShell(), RecordedShell()
     run(tmp_path, first)

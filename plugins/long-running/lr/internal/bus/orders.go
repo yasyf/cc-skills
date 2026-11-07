@@ -25,6 +25,7 @@ const (
 	heldValue   = "withdrawn"
 
 	WriterAttr     = "writer"
+	BuiltAttr      = "built"
 	TapRefusedKind = "tap.refused"
 	TapRefusedFact = "tap-refused"
 	TapPendingKind = "tap.pending"
@@ -223,6 +224,26 @@ func pickedPRs(pick client.Record, repo string) []int {
 		}
 	}
 	return numbers
+}
+
+func Built(record client.Record) (repo, branch string, built bool) {
+	attrs := record.Fields.Attrs
+	if string(record.Kind) != ownerKind || attrs["event"] != "choice.selected" || cardValue(attrs, record.Text) != "" {
+		return "", "", false
+	}
+	repo, branch, built = strings.Cut(attrs[BuiltAttr], ":")
+	return repo, branch, built && repo != "" && branch != ""
+}
+
+func PickedHead(record client.Record, repo string, number int) string {
+	for entry := range strings.SplitSeq(record.Fields.Attrs["heads"], ",") {
+		pr, head, _ := strings.Cut(entry, "=")
+		owner, digits, _ := strings.Cut(pr, "#")
+		if strings.EqualFold(owner, repo) && digits == strconv.Itoa(number) {
+			return strings.ToLower(head)
+		}
+	}
+	return ""
 }
 
 func ReadsAsLand(label string) bool {

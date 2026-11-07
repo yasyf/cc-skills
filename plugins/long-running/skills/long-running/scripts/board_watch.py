@@ -300,6 +300,12 @@ def picked(found: dict | None, ids: list[str]) -> str | None:
     return "; ".join(labels[option] for option in ids) if all(labels.get(option) for option in ids) else None
 
 
+def built(found: dict | None, ids: list[str]) -> str:
+    builds = {option.get("id"): option.get("build") or {} for option in (found or {}).get("options") or []}
+    build = builds.get(ids[0], {}) if len(ids) == 1 else {}
+    return f"{build['repo']}:{build['branch']}" if build.get("repo") and build.get("branch") else ""
+
+
 def unread(session: str, block: str) -> None:
     print(f"board-watch {session}: {block} is not in the board's document, so its event stays only in the events file", flush=True)
 
@@ -445,7 +451,7 @@ def announce(event: dict, line: str, session: str, doc: dict | None, shell: Shel
     if event["type"] == "decision.created":
         fields["verdict"] = event.get("verdict", "")
     if event["type"] == "choice.selected":
-        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items()))}
+        fields |= {"picked": ",".join(event.get("optionIds") or []), "other": "1" if event.get("other") else "", "heads": ",".join(f"{pr}={head}" for pr, head in sorted((event.get("heads") or {}).items())), "built": built(find(doc, block), event.get("optionIds") or [])}
     card = (card_of(doc, block) or {}).get("id")
     if answer_rows.answered(event):
         fields["card"] = card or block
