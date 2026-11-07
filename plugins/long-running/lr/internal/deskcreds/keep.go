@@ -3,6 +3,7 @@ package deskcreds
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -19,14 +20,14 @@ func (e Env) Keep(ctx context.Context, config string, port int) error {
 		return err
 	}
 	var pushing sync.Mutex
-	push := func() error {
+	push := func() (string, error) {
 		pushing.Lock()
 		defer pushing.Unlock()
 		return e.Push(ctx, config, port)
 	}
 	go func() {
 		for {
-			_ = push()
+			_, _ = push()
 			select {
 			case <-ctx.Done():
 				return
@@ -35,19 +36,20 @@ func (e Env) Keep(ctx context.Context, config string, port int) error {
 		}
 	}()
 	return client.Follow(ctx, client.Watch{Drive: runner.Drive, Reader: PushLane}, func(ask client.Record) error {
-		if ask.Kind != askKind {
+		if ask.Kind != askKind || !slices.Contains(ask.To, PushLane) {
 			return nil
 		}
-		if err := push(); err != nil {
+		sprite, err := push()
+		if err != nil {
 			_, err := client.Post(ctx, client.Draft{
 				Drive: runner.Drive, Lane: PushLane, Kind: "blocker", To: []string{"root"}, Re: ask.Seq, Force: true,
-				Text: fmt.Sprintf("desk-creds on %s holds nothing and the push failed: %v; the Mac's %s log names each credential", runner.Host.Sprite, err, Label(runner.Drive)),
+				Text: fmt.Sprintf("%v; the Mac's %s log says why for each credential", err, Label(runner.Drive)),
 			})
 			return err
 		}
-		_, err := client.Post(ctx, client.Draft{
+		_, err = client.Post(ctx, client.Draft{
 			Drive: runner.Drive, Lane: PushLane, Kind: "answer", To: []string{ask.Lane}, Resolves: ask.Seq, Force: true,
-			Text: fmt.Sprintf("pushed every credential to %s", runner.Host.Sprite),
+			Text: fmt.Sprintf("pushed every credential to %s", sprite),
 		})
 		return err
 	})
