@@ -908,6 +908,23 @@ func TestAStandingDeskWhoseLrJSONFailsToLandOnItsSpriteRefusesToStartIt(t *testi
 	}
 }
 
+func TestAStandingDeskWhoseLrJSONUploadTimesOutRecordsTheSpriteDown(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.deskDrive(deskConfig)
+	desk := "# Lane A\nccx: role=desk place=remote\nRun the loop until rotation.\n"
+	f.write(f.brief, desk, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"brief": object{"path": "/box/brief.md", "sha256": hexSum(desk), "bytes": len(desk)}}))
+	said := `Error: failed to upload files: uploading to /dev/shm/lr-stdin-A: write /dev/shm/lr-stdin-A: Put "https://api.sprites.dev/v1/sprites/pool-a/fs/write": context deadline exceeded`
+	f.reply("sprite exec", workerReply{}, workerReply{}, workerReply{code: 1, err: said + "\n"})
+	_, failed, err := f.launch(workerLane, "opus", "high")
+	if err != nil || !strings.Contains(failed, "; the Sprite platform said "+said) {
+		t.Fatal(failed, err)
+	}
+	if !strings.Contains(f.receiptText(spriteDown), said) {
+		t.Fatal(f.receiptText(spriteDown))
+	}
+}
+
 func TestADesksStoreCopyMakesTheSameCallsAtOneOriginAndAThousandAndCarriesEveryOrigin(t *testing.T) {
 	calls := func(origins int) ([]string, int) {
 		stubs := t.TempDir()

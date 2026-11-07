@@ -91,7 +91,7 @@ var (
 	geminiRoute        = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
 	toolsMissingLine   = regexp.MustCompile(`(?m)^missing:(.*)$`)
 	spriteLimitLine    = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
-	spritePlatformLine = regexp.MustCompile(`[^\n]*(?:Storage not ready|failed to start sprite command|HTTP (?:status )?5\d\d)[^\n]*`)
+	spritePlatformLine = regexp.MustCompile(`[^\n]*(?:Storage not ready|failed to start sprite command|failed to upload files|HTTP (?:status )?5\d\d)[^\n]*`)
 	modelAliases       = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
 	obsNamed           = regexp.MustCompile(`(?i)\b(?:sentry|datadog|oncall)\b`)
 	obsRouted          = regexp.MustCompile(`--to[ =]+` + regexp.QuoteMeta(obs.Lane) + `\b`)

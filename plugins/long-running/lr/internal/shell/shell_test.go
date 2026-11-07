@@ -107,6 +107,40 @@ func script(t *testing.T, path, body string) {
 	}
 }
 
+func TestASpriteExecSendsItsStdinAsAnUploadedFileSoADroppedSessionCanReconnect(t *testing.T) {
+	bin, shm := t.TempDir(), t.TempDir()
+	flags := filepath.Join(t.TempDir(), "flags")
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	script(t, filepath.Join(bin, "sprite"), `shift
+while [ "$1" != -- ]; do
+  printf '%s\n' "$1" >> "$FLAGS"
+  [ "$1" = --file ] && file=$2
+  shift
+done
+shift
+mapped=$SHM/${file##*/}
+cat "${file%%:*}" > "$mapped"
+echo "Uploaded ${file%%:*} -> ${file#*:} ($(wc -c < "$mapped" | tr -d ' ') bytes)" >&2
+for arg; do shift; [ "$arg" = "${file#*:}" ] && arg=$mapped; set -- "$@" "$arg"; done
+exec "$@" < /dev/null`)
+
+	result, err := Exec{}.Run(context.Background(), Command{
+		Argv:  []string{"sprite", "exec", "-s", "box", "--", "sh", "-c", `IFS= read -r token; printf '%s|%s' "$token" "$(cat)"; echo said >&2`},
+		Stdin: "secret\nrest\n",
+		Env:   []string{"FLAGS=" + flags, "SHM=" + shm},
+	})
+
+	if err != nil || result.Stdout != "secret|rest" || result.Stderr != "said\n" {
+		t.Fatalf("result %+v, err %v", result, err)
+	}
+	if passed, err := os.ReadFile(flags); err != nil || !strings.Contains(string(passed), "--no-stdin\n--file\n/dev/stdin:"+spriteStdinDir+"/") {
+		t.Fatalf("the CLI got flags %q, err %v, so it attached stdin and would refuse to reconnect", passed, err)
+	}
+	if left, err := os.ReadDir(shm); err != nil || len(left) != 0 {
+		t.Fatalf("the uploaded stdin outlived the call: %v, err %v", left, err)
+	}
+}
+
 func TestAToolMissingForAWindowRunsFromItsPluginThenFromPATHOnceItIsBack(t *testing.T) {
 	brew, plugin := relinking(t)
 	installs(t, "user", plugin)
