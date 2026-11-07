@@ -1,0 +1,8 @@
+Decision needed on pod chats after the "Per-database epoch" pick (card-rmw58vg9m). Finder #557587 says it conflicts with your Nov 2 order (prompt/1102-010803) to get rid of the incarnation machinery and keep it out of browsers and Macs. Under per-database epochs, a chat's bucket path gets a new folder each time another pod takes it. So every reader (the browser, share links, the journal replica) must find the newest folder and switch to it live. It also costs a bucket listing on each cold open. #52130 (readers) and #52076 (writers) do that today.
+
+Options:
+1. (Recommended) Keep one bucket path per chat with no folders. A restarted pod uploads nothing for a chat until that chat is taken. The take already compares the pod's copy with the bucket and catches it up ("just catch up", Oct 26/29). So boot does no per-chat bucket check, the browser and Macs keep today's reader unchanged, and no epoch or incarnation logic exists anywhere. Cost: a chat still on disk after a pod restart waits for its next take before it uploads. The code deletions in #52076 (found guard, holdFound) stay. #52130 closes.
+2. Keep per-database epoch folders as picked, but make them cheap. Folders become sessions/<id>/e<epoch>, one per epoch with no per-pod subfolder. A live reader learns the new folder from the signal it already gets, and a cold open costs one small directory listing. The browser keeps a small folder switch, against your Nov 2 order.
+3. Keep #52130 and #52076 as they are and accept the listing costs.
+
+Reply with 1, 2 or 3.

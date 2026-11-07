@@ -371,6 +371,10 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 	if err != nil {
 		return job{}, err
 	}
+	taps, err := p.taps(ctx, live)
+	if err != nil {
+		return job{}, err
+	}
 	claims := claimedClasses(gos, facts)
 	if gates.FlakeAt(gates.Claim{Repo: facts.Repo, PR: facts.Number, Head: facts.Head}, found) {
 		claims = append(claims, gates.FlakeFixClass)
@@ -394,6 +398,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		ServiceTouches: d.spec.ServiceTouches,
 		Findings:       findings,
 		OwedDeletions:  owed,
+		Taps:           taps,
 	}
 	if !facts.Admitted() {
 		spec.Since = facts.TapFrom

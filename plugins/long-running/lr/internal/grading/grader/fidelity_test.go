@@ -1,8 +1,10 @@
 package grader
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -1110,7 +1112,7 @@ func TestADeletionOnOwnerWordsThatNeverNameTheDeletedThingGradesMissing(t *testi
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			said := unnamedDeletion(c.title, c.body)
+			said := unnamedDeletion(c.title, c.body, nil)
 			equal(t, said != "", c.missing)
 			if c.missing && !strings.HasPrefix(said, "deletes /graphiql page, and the owner words it cites never name graphiql: “remove entirely the code that installs litestream at runtime") {
 				t.Errorf("said %q", said)
@@ -1128,6 +1130,48 @@ func TestAnUnnamedDeletionPostsMissingWithNoModelCall(t *testing.T) {
 	equal(t, len(shell.asks()), 0)
 	if !strings.HasPrefix(shell.texts()[0], "fidelity: missing "+shaHead+" "+deletionKey+" deletes /graphiql page") {
 		t.Errorf("posted %q", shell.texts()[0])
+	}
+}
+
+func TestTheWholeOptionHeTappedGrounds52076sFoundGuardDeletionAtEveryHeadTheLabelFlagged(t *testing.T) {
+	const title = "sandsql: 🔥 restarted pods upload a chat only after its take; delete the found guard"
+	const flagged = "deletes found guard, and the owner words it cites never name found, guard: “One path per chat, no folders”. A drive PR deletes only what a plan step, the owner's words or a drive-touched fix names."
+	raw, err := os.ReadFile(filepath.Join("testdata", "52076", "tap.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tap Tap
+	if err := json.Unmarshal(raw, &tap); err != nil {
+		t.Fatal(err)
+	}
+	for _, head := range []string{"f73f3720", "f096d8f3", "85aad5ff"} {
+		t.Run(head, func(t *testing.T) {
+			body, err := os.ReadFile(filepath.Join("testdata", "52076", "body-"+head+".md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			equal(t, unnamedDeletion(title, string(body), nil), flagged)
+			directory := fidelityDir(t, map[string]any{"grades": []any{}, "taps": []Tap{tap}})
+			shell, repo := newFidelityFake(t, nil, fidelityReplyOf(nil))
+			repo.stat = "0\t412\trust/crates/sandsql-server/src/supervisor/found.rs\n delete mode 100644 rust/crates/sandsql-server/src/supervisor/found.rs\n"
+			shell.title, shell.body = title, string(body)
+			mustFidelity(t, directory, shell)
+			if slices.ContainsFunc(shell.texts(), func(text string) bool { return strings.Contains(text, deletionKey) }) {
+				t.Errorf("posted %q", shell.texts())
+			}
+			equal(t, len(shell.asks()), 1)
+			holdsAll(t, readText(t, directory, "question-1.md"), "The code deletions in #52076 (found guard, holdFound) stay.")
+		})
+	}
+}
+
+func TestTheEmbeddedFidelityRubricIsTheSkillsDeskBrief(t *testing.T) {
+	skill, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "skills", "long-running", "reference", rubricFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(skill, fidelityRubric) {
+		t.Error("briefs/fidelity-desk-brief.md differs from skills/long-running/reference/fidelity-desk-brief.md")
 	}
 }
 

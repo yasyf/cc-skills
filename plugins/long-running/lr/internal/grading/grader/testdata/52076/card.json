@@ -1,0 +1,45 @@
+{
+ "doc": {
+  "blocks": [
+   {
+    "id": "card-rmw5jo8es",
+    "type": "card",
+    "title": "Pod chats in the bucket, new tree: your \"Per-database epoch\" pick collides with your Nov 2 order on incarnations. Which shape?",
+    "summary": "Pod chats in the bucket, new tree: a reviewer found that your \"Per-database epoch\" pick conflicts with your Nov 2 order to remove the incarnation machinery and keep it out of browsers and Macs. That reading of the Nov 2 order is the reviewer's, not your words.",
+    "status": "resolved",
+    "children": [
+     {
+      "id": "rmw5jo8es-md",
+      "type": "markdown",
+      "md": "- **The conflict:** with per-database epochs, a chat's bucket path gets a new folder each time another pod takes the chat. Every reader, meaning the browser, share links and the journal replica, must then find the newest folder and switch to it live. Each cold open also costs a bucket listing.\n- **What is built today:** two open changes, one for writers and one for readers, implement the folders as picked. That is option 3.\n- **What each option moves:** the bucket layout for pod chats and the readers of it. Macs keep their one path in every option.\n- **The two open changes:** option 1 closes the reader change and keeps only the code deletions from the writer change. Option 2 reworks both to the cheaper folder layout. Option 3 lands both as they are.\n\n[Diagram: Pod chat bucket layout: the three shapes side by side](https://yasyf-forge-studio.tail71af5d.ts.net:61211/diagram/rmw5jo8es)"
+     },
+     {
+      "id": "rmw5jo8es-choice",
+      "type": "choice",
+      "options": [
+       {
+        "id": "rmw5jo8es-1",
+        "label": "One path per chat, no folders",
+        "md": "a restarted pod uploads nothing for a chat until it is taken, and the take already catches the bucket up. No epoch logic anywhere and readers stay as today. Cost: a chat on disk after a pod restart waits for its next take to upload",
+        "recommended": true,
+        "build": {
+         "none": "not built until you pick; the two open changes implement the third option"
+        }
+       },
+       {
+        "id": "rmw5jo8es-2",
+        "label": "Cheap epoch folders",
+        "md": "one folder per epoch with no per-pod subfolder. A live reader learns the new folder from the signal it already gets, and a cold open costs one small listing. The browser keeps a small folder switch"
+       },
+       {
+        "id": "rmw5jo8es-3",
+        "label": "Keep both changes as built",
+        "md": "readers find the newest folder themselves and every cold open pays a bucket listing"
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}
