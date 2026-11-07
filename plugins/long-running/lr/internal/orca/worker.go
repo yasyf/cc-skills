@@ -68,7 +68,10 @@ const (
 	holdTimeout       = time.Minute
 	claudeFastMode    = `settings=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json && mkdir -p "${settings%/*}" && { [ -s "$settings" ] || echo '{}' > "$settings"; } && jq '.fastMode = true' "$settings" > "$settings.new" && mv "$settings.new" "$settings"` + "\n"
 	holdWorker        = `sprite-env services create ` + workerAwake + ` --cmd "$HOME/.local/bin/lr" --args sprites,hold --no-stream`
-	fetchNotesScript  = `IFS= read -r NOTES_TOKEN; export NOTES_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$NOTES_TOKEN"; }; f'; cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*" "+$3*:$3*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
+	fetchAsToken      = `IFS= read -r FETCH_TOKEN; export FETCH_TOKEN GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=credential.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.helper; export GIT_CONFIG_VALUE_1='!f() { echo username=x-access-token; echo "password=$FETCH_TOKEN"; }; f'; `
+	fetchNotesScript  = fetchAsToken + `cd "$1" && { git remote set-head origin --auto; ccn sync --prefix "$2docs/"; git fetch --quiet origin "$2*:$2*" "^$2docs/*" "+$3*:$3*"; sprite-env services create notes-reindex --cmd sh --args "-c,cd $1 && $HOME/.local/bin/ccn reindex; sprite-env services delete notes-reindex" --no-stream; }`
+	fetchRedScript    = fetchAsToken + `cd "$1" && git fetch --quiet --no-tags --depth="$2" origin "$3" && git merge-base --is-ancestor "$4" HEAD`
+	redReceipt        = "red-commit.log"
 	runSetup          = `cd "$1" && exec sh -c "$2"`
 	unpackCarried     = `mkdir -p "$1" && tar -xzf - -C "$1"`
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
@@ -82,6 +85,7 @@ var (
 	joinWaits          = []time.Duration{5 * time.Second, 15 * time.Second, 45 * time.Second}
 	spriteLane         = regexp.MustCompile(`\A[a-z0-9][a-z0-9-]{0,54}\z`)
 	fullCommit         = regexp.MustCompile(`\A[0-9a-f]{40}([0-9a-f]{24})?\z`)
+	redLane            = regexp.MustCompile(`\Adev-red-([0-9a-f]{10})(?:-|\z)`)
 	orcaIdent          = regexp.MustCompile(`\A[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\z`)
 	briefTool          = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
 	geminiRoute        = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
@@ -767,7 +771,7 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		script += claudeFastMode
 	}
 	if w.kind == agentCodex {
-		script = codexLimitsScript() + script
+		script = codexLimitsScript(codexReadBudget(w.bytes)) + script
 	}
 	if err := w.receipt(beforeWorker, script); err != nil {
 		return nil, err
@@ -875,6 +879,40 @@ func (w *workerLaunch) fetchNotes(workspace string) error {
 		said += err.Error() + "\n"
 	}
 	return w.receipt(notesReceipt, said)
+}
+
+func (w *workerLaunch) fetchRed(workspace, head string) error {
+	named := redLane.FindStringSubmatch(w.lane)
+	if named == nil {
+		return nil
+	}
+	red, repo := named[1], w.Env(workerLandingRepo)
+	if repo == "" {
+		return refuse("lane %s fixes dev's red at %s, and %s names no repository to fetch it from, %s", w.lane, red, workerLandingRepo, idleWarning)
+	}
+	w.stages.say(w.ctx, "fetching red commit "+red+" into "+workspace)
+	compared, said, code := w.capture("gh", "api", "repos/"+repo+"/compare/"+red+"..."+head, "--jq", `[.status, .ahead_by, .merge_base_commit.sha] | @tsv`)
+	fields := strings.Fields(compared)
+	if code != 0 || len(fields) != 3 {
+		return refuse("GitHub could not compare red commit %s with Sprite %s's checkout %s in %s: %s, %s", red, workspace, head, repo, strings.TrimSpace(said), idleWarning)
+	}
+	ahead, err := strconv.Atoi(fields[1])
+	if err != nil || (fields[0] != "ahead" && fields[0] != "identical") {
+		return refuse("Sprite %s's checkout %s does not contain red commit %s, which lane %s fixes, since GitHub's compare reads %s, %s", workspace, head, red, w.lane, fields[0], idleWarning)
+	}
+	token, said, code := w.capture("gh", "auth", "token")
+	if code != 0 {
+		return refuse("gh auth token exited %d, so Sprite %s cannot fetch red commit %s: %s, %s", code, workspace, red, strings.TrimSpace(said), idleWarning)
+	}
+	fetched, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", fetchRedScript, "sh", w.worktree, strconv.Itoa(ahead + 2), head, fields[2]}, Stdin: token})
+	said = fetched.Stdout + fetched.Stderr
+	if written := w.receipt(redReceipt, said); written != nil {
+		return written
+	}
+	if err != nil {
+		return w.execRefusal(said, "Sprite %s could not fetch red commit %s into its checkout %s; %s keeps its output, %s", workspace, red, w.worktree, filepath.Join(w.attempt, redReceipt), idleWarning)
+	}
+	return nil
 }
 
 func (w *workerLaunch) setUpRepo(workspace string) error {
@@ -1081,6 +1119,10 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 		return "", err
 	}
 	w.worktree, _ = textOf(task["projectRoot"])
+	head, _ := textOf(task["baseCommit"])
+	if err := w.fetchRed(workspace, head); err != nil {
+		return "", err
+	}
 	if err := w.fetchNotes(workspace); err != nil {
 		return "", err
 	}
@@ -1121,7 +1163,7 @@ func (w *workerLaunch) startSprite() (line string, err error) {
 	worktreeID, _ := textOf(task["worktreeId"])
 	whole := ""
 	if w.kind == agentCodex {
-		whole = codexBriefRead(path)
+		whole = codexBriefRead(path, codexReadBudget(w.bytes))
 	}
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s%s%s%s%s", w.lane, path, w.sha, w.bytes, whole, spritePreamble, spriteBuildkite, desk, noPR, read, checkout)
 	if desk == "" {

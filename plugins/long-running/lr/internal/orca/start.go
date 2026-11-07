@@ -111,6 +111,7 @@ type launch struct {
 
 	lane, model, effort, brief, name, agent, modelID, parent string
 	boot, worktreeWait, prepareWait, sparseFiles, stall      int
+	readBudget                                               int
 	prepare                                                  string
 	sparseLanes                                              bool
 	slackMCP                                                 bool
@@ -524,6 +525,9 @@ func (l *launch) resolveLaunch() error {
 	}
 	l.drive = driveName(l.Env, l.Env("ORCA_LAUNCH_RUN"))
 	l.slackMCP = briefSlack.MatchString(text)
+	if err := l.writeLaneBrief(text); err != nil {
+		return l.fail("brief copy: %v", err)
+	}
 	if err := l.composeCommand(); err != nil {
 		return err
 	}
@@ -532,9 +536,6 @@ func (l *launch) resolveLaunch() error {
 	}
 	if briefNoPR.MatchString(text) {
 		l.noPR = noPRLine
-	}
-	if err := l.writeLaneBrief(text); err != nil {
-		return l.fail("brief copy: %v", err)
 	}
 	return nil
 }
@@ -642,7 +643,7 @@ func (l *launch) composeCommand() error {
 	if err != nil {
 		return l.fail("codex config: cannot read the mcp_servers of %s", filepath.Join(home, "config.toml"))
 	}
-	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexLimits + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
+	l.command = "sh -c 'PATH=" + l.bin + ":$PATH exec env CLAUDE_LONG_RUNNING_LANE=" + l.lane + extra.String() + " codex --dangerously-bypass-approvals-and-sandbox -c model=" + l.modelID + tier + " -c model_reasoning_effort=" + l.effort + codexLimits(l.readBudget) + codexLaneConfig + " -c mcp_servers=" + mcp + off + "'"
 	return nil
 }
 
@@ -749,6 +750,7 @@ func (l *launch) writeLaneBrief(text string) error {
 	if l.drive != "" {
 		fmt.Fprintf(&copied, "\n\n## PR record\n\n%s\n", fmt.Sprintf("Codex runs no PR hook, so `ccx vcs ship` neither registers your PR in the drive's ledger nor posts its `opened` record, and the incident clock and the landing desk read both. Right after each ship that opens a PR, run `'%s/drive.py' record --opened --drive '%s' --session \"$CODEX_THREAD_ID\" --lane '%s' --cwd \"$PWD\" --pr <number>=<head>` from your worktree.", l.bin, l.drive, l.lane))
 	}
+	l.readBudget = codexReadBudget(copied.Len())
 	staged := l.laneBrief + ".tmp"
 	if err := os.WriteFile(staged, []byte(copied.String()), 0o600); err != nil {
 		return err
@@ -759,7 +761,7 @@ func (l *launch) writeLaneBrief(text string) error {
 func (l *launch) pointer(brief string) string {
 	whole := ""
 	if l.agent != agentClaude {
-		whole = codexBriefRead(brief)
+		whole = codexBriefRead(brief, l.readBudget)
 	}
 	return "Lane " + l.lane + ": read " + brief + " in full first and execute it exactly; it outranks Orca's preamble and any leave-uncommitted default, so commit, push, open PRs and post as it says. Worktree " + l.wt + ", bypass-permissions mode. Mail reaches you only between tool calls, so run anything over 5 minutes in the background. Ask, report and raise a blocker only with `cci post --kind ask|report|blocker`, since the preamble's `send` and `ask` carry the dispatch lifecycle alone (heartbeats, relay acks, worker_done); its Escalate rules hold." + whole + l.node + l.sparse + l.desk + l.noPR
 }

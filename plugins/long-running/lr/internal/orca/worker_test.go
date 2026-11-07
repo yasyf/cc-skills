@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -468,7 +469,7 @@ func (f *workerFixture) startCalls(task object, told ...string) [][]string {
 	brief := task["brief"].(object)
 	whole := ""
 	if task["agent"].(object)["kind"] == agentCodex {
-		whole = codexBriefRead(brief["path"].(string))
+		whole = codexBriefRead(brief["path"].(string), codexReadBudget(brief["bytes"].(int)))
 	}
 	spec := fmt.Sprintf("Lane %s: read the whole brief at %s, verify its SHA-256 is %s and its size is %d bytes, then follow it exactly.%s%s%s", workerLane, brief["path"], brief["sha256"], brief["bytes"], whole, spritePreamble, spriteBuildkite) + strings.Join(told, "")
 	workspace := task["environment"].(string)
@@ -1968,8 +1969,63 @@ func TestACodexModelKeepsItsEffortTierRefAndMCP(t *testing.T) {
 		t.Fatal(failed, err)
 	}
 	f.wantCalls(slices.Concat([][]string{versionCall, currentRunCall}, cciHelpCalls, [][]string{f.prepareCallFor(workerLane, "codex", "gpt-6.1-sol", "high", "--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}")}, f.startCalls(task, incidentOnSprite), [][]string{holdCall(workerWorkspace)})...)
-	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexLimitsScript()) {
+	if script := f.receiptText("before-worker.sh"); !strings.HasPrefix(script, codexLimitsScript(briefReadBudget)) {
 		t.Fatal(script)
+	}
+}
+
+func TestACodexBriefPastTheExecDefaultReadsWholeInItsFirstCall(t *testing.T) {
+	f := newWorkerFixture(t)
+	brief := "# Lane A\n\n" + strings.Repeat("Write the patch and the report beside this brief.\n", 4000)
+	f.write(f.brief, brief, 0o600)
+	f.spriteWith(overlaid(prepared(), object{"agent": object{"kind": "codex", "model": "gpt-6.1-sol", "effort": "high"}, "brief": briefOf(brief)}))
+	if _, failed, err := f.launch(workerLane, "gpt-6.1-sol", "high"); err != nil || failed != "" {
+		t.Fatal(failed, err)
+	}
+	spec := f.startedSpec()
+	read := regexp.MustCompile("`ccx code read --full --budget (\\d+) /box/brief.md`").FindStringSubmatch(spec)
+	if read == nil {
+		t.Fatal(spec)
+	}
+	budget, err := strconv.Atoi(read[1])
+	if err != nil || budget*4 < len(brief) {
+		t.Fatalf("a budget of %s tokens cuts a %d-byte brief", read[1], len(brief))
+	}
+	if !strings.Contains(spec, `// @exec: {"max_output_tokens": `+read[1]+`}`) {
+		t.Fatal(spec)
+	}
+	if script := f.receiptText("before-worker.sh"); !strings.Contains(script, "tool_output_token_limit = "+read[1]+"'") {
+		t.Fatal(script)
+	}
+}
+
+func TestADevRedLaneStartsOnlyOnACheckoutHoldingItsRedCommit(t *testing.T) {
+	const lane, red = "dev-red-4796a992ad-fix", "4796a992adf39a7d7b10f64c0cf646b7257e698c"
+	fetch := []string{"sprite", "exec", "-s", workerWorkspace, "--", "sh", "-c", fetchRedScript, "sh", remoteRoot, "7", remoteBase, red}
+	for name, tc := range map[string]struct{ compared, failed string }{
+		"a checkout five commits past it fetches it with its parent": {"ahead\t5\t" + red + "\n", ""},
+		"a checkout off its line refuses":                            {"diverged\t2\t" + strings.Repeat("9", 40) + "\n", "Sprite " + workerWorkspace + "'s checkout " + remoteBase + " does not contain red commit 4796a992ad, which lane " + lane + " fixes, since GitHub's compare reads diverged, " + idleWarning + "; cc-remote orca stop " + lane + " stopped that worker, so the lane can launch again"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.env[workerLandingRepo] = "Forge-AI/monorepo"
+			f.spriteAllocated(allocationOf(prepared(), object{"lane": lane}))
+			f.reply("gh api repos/Forge-AI/monorepo/compare/4796a992ad..."+remoteBase, workerReply{out: tc.compared})
+			f.reply("gh auth token", workerReply{out: macGitLogin}, workerReply{out: macGitLogin})
+			f.reply("sprite exec", slices.Repeat([]workerReply{{}}, 6)...)
+			_, failed, err := f.launch(lane, "opus", "high")
+			if err != nil || failed != tc.failed {
+				t.Fatalf("failed %q, err %v, want %q", failed, err, tc.failed)
+			}
+			fetched := slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Equal(call, fetch) })
+			started := slices.ContainsFunc(f.calls, func(call []string) bool { return slices.Contains(call, "worker-start") })
+			if fetched != (tc.failed == "") || started != fetched {
+				t.Fatalf("fetched %v, started %v: %v", fetched, started, f.calls)
+			}
+			if fetched && f.stdins[strings.Join(fetch, " ")] != macGitLogin {
+				t.Fatal(f.stdins)
+			}
+		})
 	}
 }
 
