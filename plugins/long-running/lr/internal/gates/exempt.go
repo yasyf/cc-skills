@@ -301,7 +301,7 @@ func LandsOnWord(facts map[string]string) (class, refused string) {
 func PortRefusals(facts map[string]string) []string {
 	var out []string
 	if facts[PortInteractsAttr] != PortCleanWord {
-		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, and no fidelity grade of %s stands in for a record silent on it, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord, PortGrade))
+		out = append(out, fmt.Sprintf("port: its head record does not read %s=%s, and no fidelity grade of %s or class %s stands in for a record silent on it, so it goes to the owner on one card and lands on his tap", PortInteractsAttr, PortCleanWord, PortGrade, OldTreePortClass))
 	}
 	if source := facts[PortSourceFact]; source != "" && source != portSourceMerged {
 		out = append(out, fmt.Sprintf("port: its source #%s is not a merged pull request, and no commit on trunk names it", facts[PortOfAttr]))
