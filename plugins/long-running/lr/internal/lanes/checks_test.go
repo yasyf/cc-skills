@@ -818,23 +818,30 @@ func TestADryRunThatFoundATargetUnchangedLeavesItsLandingsOwed(t *testing.T) {
 
 type spriteRun struct {
 	mu       sync.Mutex
-	version  string
 	statuses map[string]string
+	assigned map[string]string
 	fail     map[string]string
 	stopped  []string
 	sprites  []string
 	listFail string
+	reads    int
 }
 
 func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if c.Argv[0] == "orca" {
-		workers := make([]map[string]string, 0, len(r.statuses))
-		for dispatch, status := range r.statuses {
-			workers = append(workers, map[string]string{"dispatchId": dispatch, "dispatchStatus": status})
+		r.reads++
+		if !slices.Equal(c.Argv[:3], []string{"orca", "orchestration", "task-list"}) || !slices.Contains(c.Argv, "dispatched") {
+			return shell.Result{}, fmt.Errorf("unexpected orca call %v", c.Argv)
 		}
-		page, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"workers": workers, "page": map[string]string{}}})
+		tasks := []map[string]any{}
+		for dispatch, status := range r.statuses {
+			if status == "dispatched" {
+				tasks = append(tasks, map[string]any{"dispatch_id": dispatch, "status": status, "assignee_handle": r.assigned[dispatch]})
+			}
+		}
+		page, err := json.Marshal(map[string]any{"ok": true, "result": map[string]any{"tasks": tasks}})
 		return shell.Result{Stdout: string(page)}, err
 	}
 	if c.Argv[0] == "sprite" {
@@ -842,9 +849,6 @@ func (r *spriteRun) Run(_ context.Context, c shell.Command) (shell.Result, error
 			return shell.Result{Code: 1, Stderr: r.listFail}, &shell.ExitError{Argv: c.Argv, Code: 1, Stderr: r.listFail}
 		}
 		return shell.Result{Stdout: strings.Join(r.sprites, "\n") + "\n"}, nil
-	}
-	if c.Argv[1] == "version" {
-		return shell.Result{Stderr: r.version + "\n"}, nil
 	}
 	lane := c.Argv[3]
 	r.stopped = append(r.stopped, strings.Join(c.Argv, " "))
@@ -889,7 +893,7 @@ func stops(lanes ...string) []string {
 }
 
 func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing.T) {
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_done": "completed", "ctx_stood": "failed", "ctx_running": "dispatched", "ctx_live": "completed", "ctx_local": "completed"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_done": "completed", "ctx_stood": "failed", "ctx_running": "dispatched", "ctx_live": "completed", "ctx_local": "completed"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "done-settled", "sprite", store.LaneRetired, "done", "ctx_done")
 	c.lane(t, "stood-failed", "sprite", store.LaneRetired, "stand-down", "ctx_stood")
@@ -917,7 +921,7 @@ func TestAnEndedLanesSpriteIsStoppedOnceAndALiveOrUnsettledLanesIsNot(t *testing
 
 func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T) {
 	why := "cc-remote: suspending sprite stuck: its services stopped, but it still runs 2m0s later, so a session, request, or connection holds it"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"stuck"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"stuck"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
@@ -936,7 +940,7 @@ func TestASpriteStopThatKeepsFailingPostsOneBlockerAfterItsLastTry(t *testing.T)
 	equal(t, len(bus.posted), 1)
 	posted := bus.posted[0]
 	equal(t, []any{string(posted.Kind), posted.To, posted.ID}, []any{blockerKind, []string{metaDesk}, "sprite-stop:stuck"})
-	contains(t, posted.Text, "SPRITE-STOP-FAILED stuck: its dispatch ctx_stuck is completed")
+	contains(t, posted.Text, "SPRITE-STOP-FAILED stuck: its dispatch ctx_stuck is no longer open")
 	contains(t, posted.Text, why)
 	contains(t, posted.Text, "`sprite list` shows its Sprite stuck still there")
 }
@@ -949,7 +953,7 @@ func (c *SpriteStops) claimed(t *testing.T, lane, sprite, dispatch string) {
 
 func TestAFailedStopOfASpriteSpriteListNoLongerShowsClosesWithNoBlockerAndNoRetry(t *testing.T) {
 	why := "cc-remote: no Orca task is recorded for pool-gone"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_gone": "completed"}, fail: map[string]string{"gone": why}, sprites: []string{"gone", "pool-other"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_gone": "completed"}, fail: map[string]string{"gone": why}, sprites: []string{"gone", "pool-other"}}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "gone", "pool-gone", "ctx_gone")
 
@@ -965,7 +969,7 @@ func TestAFailedStopOfASpriteSpriteListNoLongerShowsClosesWithNoBlockerAndNoRetr
 
 func TestAFailedStopFindsAClaimedSpriteByItsLaunchReceiptNotItsLaneName(t *testing.T) {
 	why := "cc-remote: suspending sprite stuck: a connection holds it"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
@@ -982,7 +986,7 @@ func TestAFailedStopFindsAClaimedSpriteByItsLaunchReceiptNotItsLaneName(t *testi
 
 func TestAFailedStopWhenSpriteListAlsoFailsNeverClaimsTheSpriteIsGoneOrRunning(t *testing.T) {
 	why := "cc-remote: sprites api: 500"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_down": "completed"}, fail: map[string]string{"down": why}, listFail: "sprite: not logged in"}
+	run := &spriteRun{statuses: map[string]string{"ctx_down": "completed"}, fail: map[string]string{"down": why}, listFail: "sprite: not logged in"}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "down", "pool-down", "ctx_down")
 
@@ -1003,7 +1007,7 @@ func TestASpriteStopThatFailsOnceIsTriedAgainOnTheNextPassAndPostsNothing(t *tes
 		"cc-remote: suspending sprite flaky: its services stopped, but it still runs 2m0s later",
 		"cc-remote: suspending sprite flaky: sprites api answered 502 listing its services: bad gateway",
 	} {
-		run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": why}, sprites: []string{"flaky"}}
+		run := &spriteRun{statuses: map[string]string{"ctx_flaky": "completed"}, fail: map[string]string{"flaky": why}, sprites: []string{"flaky"}}
 		c, bus := spriteStops(t, run)
 		c.lane(t, "flaky", "sprite", store.LaneRetired, "done", "ctx_flaky")
 
@@ -1027,7 +1031,7 @@ func passes(t *testing.T, c *SpriteStops, from, count int) {
 
 func TestASpriteStopThatFailsOnA502OnEveryTryPostsOneBlockerToTheMetaDeskAndClosesItOnceItStops(t *testing.T) {
 	why := "cc-remote: suspending sprite pool-stuck: sprites api answered 502 listing its services: bad gateway"
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"pool-stuck"}}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
@@ -1057,7 +1061,7 @@ func TestASpriteStopFailingOn5xxOrATimeoutOutlastsTheTryLimitUnderOneBlocker(t *
 		"curl: (35) Recv failure: Operation timed out",
 		"cc-remote: context deadline exceeded",
 	} {
-		run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"stuck"}}
+		run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": why}, sprites: []string{"stuck"}}
 		c, bus := spriteStops(t, run)
 		c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 
@@ -1069,7 +1073,7 @@ func TestASpriteStopFailingOn5xxOrATimeoutOutlastsTheTryLimitUnderOneBlocker(t *
 }
 
 func TestARetriedStopWhoseSpriteIsGoneClosesItsBlocker(t *testing.T) {
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 502"}, sprites: []string{"pool-stuck"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 502"}, sprites: []string{"pool-stuck"}}
 	c, bus := spriteStops(t, run)
 	c.claimed(t, "stuck", "pool-stuck", "ctx_stuck")
 
@@ -1084,7 +1088,7 @@ func TestARetriedStopWhoseSpriteIsGoneClosesItsBlocker(t *testing.T) {
 }
 
 func TestLeavingAFailedStopEndsItsRetriesEvenWhenAStopInFlightFailsAfterward(t *testing.T) {
-	run := &spriteRun{version: "0.27.4", statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 503"}, sprites: []string{"stuck"}}
+	run := &spriteRun{statuses: map[string]string{"ctx_stuck": "completed"}, fail: map[string]string{"stuck": "sprites api answered 503"}, sprites: []string{"stuck"}}
 	c, bus := spriteStops(t, run)
 	c.lane(t, "stuck", "sprite", store.LaneRetired, "done", "ctx_stuck")
 	passes(t, c, 0, stopTries)
@@ -1113,23 +1117,46 @@ func TestLeavingALaneWithNoFailedStopIsRefused(t *testing.T) {
 	}
 }
 
-func TestACcRemoteOlderThanOrcaStopStopsNothingAndPostsNothingUntilItsPinReachesIt(t *testing.T) {
-	run := &spriteRun{version: "0.26.19", statuses: map[string]string{"ctx_done": "completed"}, fail: map[string]string{"done": "cc-remote: unknown flag: --config"}}
-	c, bus := spriteStops(t, run)
-	c.lane(t, "done", "sprite", store.LaneRetired, "done", "ctx_done")
+func TestARetiredLanesSpriteWhoseTerminalHoldsAnOpenDispatchIsNotStopped(t *testing.T) {
+	run := &spriteRun{statuses: map[string]string{"ctx_first": "completed", "ctx_follow": "dispatched"}, assigned: map[string]string{"ctx_follow": "term_busy"}}
+	c, _ := spriteStops(t, run)
+	c.lane(t, "busy", "sprite", store.LaneRetired, "done", "")
+	writeJSON(t, filepath.Join(c.Env.receipts(), "busy.json"), map[string]any{"result": map[string]any{"dispatchId": "ctx_first", "effects": []map[string]string{{"kind": "terminal", "role": "agent", "id": "term_busy"}}}})
 
-	if err := c.Check(context.Background(), t0); err != nil {
-		t.Fatal(err)
-	}
+	passes(t, c, 0, 1)
 	equal(t, run.stopped, []string(nil))
-	equal(t, len(bus.posted), 0)
 
-	run.version, run.fail = "0.27.4", nil
-	if err := c.Check(context.Background(), t0.Add(mins(10))); err != nil {
-		t.Fatal(err)
+	run.statuses["ctx_follow"] = "completed"
+	passes(t, c, 1, 1)
+	equal(t, run.stopped, stops("busy"))
+}
+
+func TestSpriteStopsReadTheRunOnceAPassWhateverItsHistory(t *testing.T) {
+	reads := func(history int) int {
+		run := &spriteRun{statuses: map[string]string{"ctx_new": "completed", "ctx_open": "dispatched"}}
+		c, _ := spriteStops(t, run)
+		for i := range history {
+			lane := fmt.Sprintf("old-%d", i)
+			run.statuses[fmt.Sprintf("ctx_old_%d", i)] = "completed"
+			if _, err := c.Store.WantLane(store.Lane{Name: lane, Brief: "/briefs/" + lane + ".md", Model: "opus", Effort: "xhigh", State: store.LaneDesired, Placement: "sprite"}, t0.Add(-time.Hour)); err != nil {
+				t.Fatal(err)
+			}
+			if err := c.Store.SetLaneState(lane, store.LaneRetired, t0.Add(-mins(30)), "done", ""); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := c.Store.StopSprite(lane, t0.Add(-mins(20))); err != nil {
+				t.Fatal(err)
+			}
+		}
+		c.lane(t, "new", "sprite", store.LaneRetired, "done", "ctx_new")
+		c.lane(t, "open", "sprite", store.LaneRetired, "done", "ctx_open")
+
+		passes(t, c, 0, 1)
+		equal(t, run.stopped, stops("new"))
+		return run.reads
 	}
-	equal(t, run.stopped, stops("done"))
-	equal(t, len(bus.posted), 0)
+	equal(t, reads(10_000), reads(100))
+	equal(t, reads(100), 1)
 }
 
 func TestAnAlertLaunchStartsItsEvidenceLaneAndItsSlackWriter(t *testing.T) {
