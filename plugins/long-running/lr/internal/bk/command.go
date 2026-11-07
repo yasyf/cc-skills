@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	claudedir "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 )
 
@@ -23,11 +24,15 @@ func Command(a *app.App) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			claude, err := claudedir.ConfigDir()
+			if err != nil {
+				return err
+			}
 			desk, err := NewDesk(cmd.Context(), a.Runner, settings, cfg.Drive, state, a.Now, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
-			return desk.Serve(cmd.Context())
+			return desk.Serve(cmd.Context(), claude)
 		},
 	})
 	return cmd

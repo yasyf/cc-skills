@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,8 @@ const (
 	refollowAfter = 10 * time.Second
 )
 
+var ErrReleased = errors.New("a newer lr is installed")
+
 type Reply struct {
 	Head, Body, URL string
 	Exit            int
@@ -43,14 +46,15 @@ type Reply struct {
 }
 
 type Desk struct {
-	Lane   string
-	Drive  string
-	Duty   string
-	Bodies string
-	Now    func() time.Time
-	Log    io.Writer
-	Read   func(context.Context, string) Reply
-	Apart  func(client.Record) bool
+	Lane     string
+	Drive    string
+	Duty     string
+	Bodies   string
+	Now      func() time.Time
+	Log      io.Writer
+	Read     func(context.Context, string) Reply
+	Apart    func(client.Record) bool
+	Released func() bool
 }
 
 func (d Desk) holdDuty(ctx context.Context) (release func()) {
@@ -85,12 +89,32 @@ func (d Desk) Serve(ctx context.Context) error {
 			return err
 		}
 		query = next
+		if d.Released != nil && d.Released() {
+			return ErrReleased
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(pollEvery):
 		}
 	}
+}
+
+func ServeInstalled(ctx context.Context, d Desk, claude string, exec func(string, []string, []string) error) error {
+	current := filepath.Join(claude, "long-running", "current")
+	started, err := filepath.EvalSymlinks(current)
+	if err != nil {
+		return err
+	}
+	d.Released = func() bool {
+		now, err := filepath.EvalSymlinks(current)
+		return err == nil && now != started
+	}
+	if err := d.Serve(ctx); !errors.Is(err, ErrReleased) {
+		return err
+	}
+	lr := filepath.Join(current, "bin", "lr")
+	return exec(lr, append([]string{lr}, os.Args[1:]...), os.Environ())
 }
 
 func (d Desk) Follow(ctx context.Context) {

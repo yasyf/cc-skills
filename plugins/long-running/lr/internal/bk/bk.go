@@ -16,6 +16,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kballard/go-shellquote"
@@ -105,8 +106,8 @@ func NewDesk(ctx context.Context, runner shell.Runner, settings Settings, drive,
 	}, nil
 }
 
-func (d *Desk) Serve(ctx context.Context) error {
-	return d.loop().Serve(ctx)
+func (d *Desk) Serve(ctx context.Context, claude string) error {
+	return askdesk.ServeInstalled(ctx, d.loop(), claude, syscall.Exec)
 }
 
 func (d *Desk) loop() askdesk.Desk {

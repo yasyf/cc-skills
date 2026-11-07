@@ -32,11 +32,15 @@ func Command(a *app.App) *cobra.Command {
 				if err != nil {
 					return err
 				}
+				claude, err := drive.ConfigDir()
+				if err != nil {
+					return err
+				}
 				desk, err := NewDesk(cmd.Context(), a.Runner, settings, cfg.Drive, state, a.Now, cmd.ErrOrStderr())
 				if err != nil {
 					return err
 				}
-				return desk.Serve(cmd.Context())
+				return desk.Serve(cmd.Context(), claude)
 			},
 		},
 		&cobra.Command{
