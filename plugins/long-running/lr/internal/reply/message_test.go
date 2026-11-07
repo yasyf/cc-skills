@@ -24,6 +24,11 @@ func TestAMessageCardDrawsOnlyADraftCheckPostPassesAndShowsItAsItGoesOut(t *test
 	if _, err := fanout(t, &shelltest.Fake{}).checkedMessage(ctx, r); err == nil || !strings.Contains(err.Error(), "DRAFT UNCHECKED") {
 		t.Fatalf("a draft check-post never read drew: %v", err)
 	}
+	crashed := &shelltest.Fake{}
+	crashed.Fail(1, "open -: no such file or directory", "cc-slack", "check-post")
+	if _, err := fanout(t, crashed).checkedMessage(ctx, r); err == nil || !strings.Contains(err.Error(), "DRAFT UNCHECKED") || !strings.Contains(err.Error(), "no such file") {
+		t.Fatalf("a check-post that exits 1 with no findings read as findings: %v", err)
+	}
 	unpicked := r
 	unpicked.Message = &Message{To: "U0ANUBHAV1", Text: text, Pick: "Ship it"}
 	if _, err := fanout(t, &shelltest.Fake{}).checkedMessage(ctx, unpicked); err == nil || !strings.Contains(err.Error(), "none of this card's picks") {
