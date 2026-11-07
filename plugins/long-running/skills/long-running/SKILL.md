@@ -238,9 +238,9 @@ names its concrete things: which fields and where, which chats or users, before 
 From every lane on every surface, a line saying something waits on his yes or no carries that card with its buttons; no card, no such line. Nothing asks him what a lane can read for itself: whether a card drew is read from the posted message's blocks and attachments through the Slack API, never from his glance, and his yes on a render is about how it should look, never whether it drew. [Terms](reference/communicator-brief.md).
 
 **R22.** A change does what its request names and nothing else: behavior the request does not name stays, and a lane that thinks it must go brings that as a pick and never removes it. Every brief quotes the owner's design verbatim with the entry point at `file:line`; the lane
-posts a `contract` before `READY-FOR-SHIP`; the design ships whole or holds, never split. A ruling
-that changes a data model, namespace layout or embedding model is a design order: first a one-pager
-with its open choices as specific cards, and building only after he has read it or said build.
+posts a `contract` before `READY-FOR-SHIP`; the design ships whole or holds, never split. A design order is
+a change to a data model, namespace layout or embedding model, or to how work coordinates across sessions, teams or machines, such as a lock, lease, gate or queue. No agent designs one alone: its first deliverable is a one-pager
+with its open choices as specific cards, and building waits until he has picked or said build. A lock guards one contended resource, such as one chat's database, for its critical section; no option takes a table-wide or global advisory lock.
 
 **R23.** Every finished agent is stopped the turn its completion arrives, and before any spawn;
 `lr gc` reclaims a settled lane's Orca workspace and terminal the same pass, and a new lane starts
