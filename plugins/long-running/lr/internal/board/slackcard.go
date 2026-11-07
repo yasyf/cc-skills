@@ -431,7 +431,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 					return fmt.Errorf("no live drive holds %s#%d", k.Repo, k.Number)
 				}
 				return withRows(c, live[at], []int{k.Number}, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
-					return Respond(s, repository, postHooks(c.Context(), live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
+					return Respond(s, repository, postHooks(c.Context(), cardAnswers{a.Runner, live[at].Checkout, c.ErrOrStderr()}, live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
 			}
 			if len(ask.Shown) > 0 {

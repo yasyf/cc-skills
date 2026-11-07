@@ -204,18 +204,26 @@ func explainPRs(c *cobra.Command, live Live, stored []store.ReviewRow, prs []str
 	return nil
 }
 
-func postHooks(ctx context.Context, busName, lane, repository string) Hooks {
+func postHooks(ctx context.Context, answers cardAnswers, busName, lane, repository string) Hooks {
 	posts := bus.Bus{Drive: busName, Lane: lane}
 	return Hooks{
 		Tap: func(tap TapRecord) error {
-			return posts.PostCardTap(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)})
+			if err := posts.PostCardTap(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}); err != nil {
+				return err
+			}
+			answers.record(ctx, repository, tap.PR, tap.Head, verdictApproved)
+			return nil
 		},
 		Refuse: func(tap TapRecord, reason string) error {
 			return posts.PostRefusal(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}, reason)
 		},
 		Hold: func(pr int, sha string) error {
 			_, err := client.Post(ctx, client.Draft{Drive: busName, Lane: byOwner, Kind: "hold", PRs: []string{fmt.Sprintf("%s#%d", repository, pr)}, Text: fmt.Sprintf("hold #%d at %s: the owner rejected this head on the board", pr, short(sha))})
-			return err
+			if err != nil {
+				return err
+			}
+			answers.record(ctx, repository, pr, sha, verdictHeld)
+			return nil
 		},
 		Note: func(to, note string) error {
 			_, err := client.Post(ctx, client.Draft{Drive: busName, Lane: lane, Kind: "note", To: []string{to}, Text: note})
