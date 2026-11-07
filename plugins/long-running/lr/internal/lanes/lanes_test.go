@@ -3259,9 +3259,8 @@ func TestTheHourlyTickNamesEachUndeliveredOwnerOrderToTheCommunicatorOnce(t *tes
 	at = at.Add(mins(60))
 	f.peers = []Row{who(lane2, true, at)}
 	tick(t, s, f, at)
-	equal(t, f.kinds(), []string{"blocker:" + OwnerRelay, "blocker:" + OwnerRelay})
+	equal(t, f.kinds(), []string{})
 
-	f.posts = nil
 	f.orders = append(f.orders, owner.Row{ID: "m90", Status: owner.Open})
 	at = at.Add(mins(60))
 	f.peers = []Row{who(lane2, true, at)}
@@ -3306,23 +3305,26 @@ func TestAnUnreadOpenWorkQueryLeavesTheHourlyTickRunning(t *testing.T) {
 	equal(t, len(f.posts), 0)
 }
 
-func TestAnOwnerOrderWithNoLiveLaneForTenMinutesEscalatesToTheRelayOnce(t *testing.T) {
+func TestOwnerOrdersWhoseLaneStoodDownTenMinutesAgoEscalateToTheRelayInOneBlockerOnce(t *testing.T) {
 	s := memory(t)
 	f := newFake(t, nil, nil)
-	f.orders = []owner.Row{{ID: "m1747", Text: "something can't sit idle for an hour", Status: owner.Open}, {ID: "m38", Status: owner.InProgress, Lane: "rich-reply-1"}}
+	f.orders = []owner.Row{
+		{ID: "m1747", Text: "something can't sit idle for an hour", Status: owner.Open, Lane: "item-93-presign-1"},
+		{ID: "m1748", Text: "unfurl the platy link", Status: owner.Open, Lane: "slack-render-1"},
+		{ID: "m2", Text: "a ruling no lane ever held", Status: owner.Open},
+		{ID: "m38", Status: owner.InProgress, Lane: "rich-reply-1"},
+	}
 
 	escalated := func() []Post {
-		return slices.DeleteFunc(slices.Clone(f.posts), func(p Post) bool { return !strings.HasPrefix(p.Text, "order:") })
+		return slices.DeleteFunc(slices.Clone(f.posts), func(p Post) bool { return !strings.HasPrefix(p.Text, "orders:") })
 	}
-	tick(t, s, f, t0)
-	tick(t, s, f, t0.Add(orphanSweep))
-	equal(t, len(escalated()), 0)
-	tick(t, s, f, t0.Add(2*orphanSweep))
-	tick(t, s, f, t0.Add(3*orphanSweep))
+	for sweep := range 6 {
+		tick(t, s, f, t0.Add(time.Duration(sweep)*orphanSweep))
+	}
 
 	posts := escalated()
-	if len(posts) != 1 || posts[0].Kind != "blocker" || !slices.Equal(posts[0].To, []string{OwnerRelay}) || !strings.HasPrefix(posts[0].Text, "order:m1747: his order has had no live lane for 10 minutes or more") {
-		t.Fatalf("escalations = %+v, want one blocker to %s for m1747", posts, OwnerRelay)
+	if len(posts) != 1 || posts[0].Kind != "blocker" || !slices.Equal(posts[0].To, []string{OwnerRelay}) || !strings.HasPrefix(posts[0].Text, "orders:m1747,m1748: 2 of his open orders lost their lane") || strings.Contains(posts[0].Text, "m2,") || strings.Contains(posts[0].Text, "m38") {
+		t.Fatalf("escalations = %+v, want one blocker to %s naming m1747 and m1748 alone", posts, OwnerRelay)
 	}
 }
 
