@@ -17,6 +17,7 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures" / "board_watch"
 SESSION = "board-1"
 ARRIVED = datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC)
+TAPPED = "Jan 1 7:04 PM PT"
 CONFIRMED = "download the update in the background, show the banner, and only restart when i click it"
 
 
@@ -485,8 +486,22 @@ def test_ten_taps_reach_owner_relay_as_one_summary_line_and_the_eleventh_waits_f
 
     assert shell.posted("--to") == ["root"] * 11
     assert (shell.posted("--to", "note"), shell.posted("--topic", "note")) == (["owner-relay"], ["tap-batch"])
-    assert shell.posted("--text", "note") == ["The owner made 10 taps on board board-1, each already with the coordinator: " + "; ".join([f"{QUESTION.removeprefix('Owner on board board-1, ')}: picked \u201cYes, read-only\u201d"] * 10)]
+    assert shell.posted("--text", "note") == ["The owner made 10 taps on board board-1, each already with the coordinator, at the time each names: " + "; ".join([f"{QUESTION.removeprefix('Owner on board board-1, ')}: picked \u201cYes, read-only\u201d ({TAPPED})"] * 10)]
     assert (tmp_path / "boards" / f"{SESSION}-taps.jsonl").read_text().count("\n") == 1
+
+
+def test_a_tap_batch_leaves_out_a_card_that_has_left_the_board_and_posts_nothing_when_all_have(tmp_path: Path) -> None:
+    class Withdrawn(RecordedShell):
+        def shown(self, session: str, block: str) -> dict | None:
+            return super().shown(session, block) | {"onBoard": False}
+
+    shell = Withdrawn()
+    shell.watch = lambda session: iter([TAP] * 10)
+    run(tmp_path, shell)
+
+    assert shell.posted("--to") == ["root"] * 10
+    assert shell.posted("--topic", "note") == []
+    assert (tmp_path / "boards" / f"{SESSION}-taps.jsonl").read_text() == ""
 
 
 def test_a_write_in_reaches_owner_relay_alone_resolves_nothing_and_opens_a_row(tmp_path: Path) -> None:
