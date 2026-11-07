@@ -44,7 +44,8 @@ var (
 	assigned     = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
 	joinedByte   = regexp.MustCompile(`[` + joined + `]`)
 	QuotedRows   = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
-	carriedRoots = []string{".local/state/lr-scratch", ".claude/scratch", ".vcache/scratch", ".claude/plans", "handoffs", ".claude/plugins/cache"}
+	sharedRoots  = []string{".local/state/lr-scratch", ".claude/scratch", ".vcache/scratch", ".claude/plans", "handoffs"}
+	carriedRoots = append(slices.Clip(sharedRoots), ".claude/plugins/cache")
 )
 
 type source struct {

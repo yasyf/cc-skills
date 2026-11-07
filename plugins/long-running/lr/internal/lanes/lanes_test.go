@@ -2759,7 +2759,7 @@ func TestASpriteDoneNamingAFileOnItsOwnDiskIsRefusedNamingTheDocFix(t *testing.T
 	contains(t, done("overdue-sweep-2", "table at ~/.vcache/scratch/overdue-sweep/unmet.md."), "read ~/.vcache/scratch/overdue-sweep/unmet.md once")
 
 	for lane, said := range map[string][]string{
-		"overdue-sweep-2": {"29 unmet. Unmet table with live lanes: ccn doc b50496a; merged yasyf/cc-skills#3713, https://github.com/yasyf/cc-skills/pull/3713, ran /codex", "brief=/Users/me/handoffs/plan.md"},
+		"overdue-sweep-2": {"29 unmet. Unmet table with live lanes: ccn doc b50496a; merged yasyf/cc-skills#3713, https://github.com/yasyf/cc-skills/pull/3713, ran /codex", "brief=/Users/me/handoffs/plan.md", "file at /home/sprite/drive/carried/Users/me/.claude/scratch/overdue-picks-h/root-posts.zsh, which carry-back copies"},
 		"mac-sweep-1":     {"29 unmet. Unmet table with live lanes: ~/.vcache/scratch/overdue-sweep/unmet.md"},
 		"never-1":         {"table at /tmp/unmet.md"},
 	} {

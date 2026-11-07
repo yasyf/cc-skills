@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/carry"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
@@ -19,6 +20,8 @@ const (
 	nodeChars    = 8
 	unreadShown  = 10
 )
+
+const offSprite = "put each file in cc-notes with `ccn doc add --body-file <path>` and cite the doc id, or attach it to the record with `--path <path>`."
 
 var diskPath = regexp.MustCompile("(?:^|[\\s\"'`(\\[=])((?:~|\\$HOME)/[^\\s\"'`)\\]]*|/[^\\s/\"'`)\\]]+/[^\\s\"'`)\\]]*)")
 
@@ -374,7 +377,7 @@ func DoneRefusal(s *store.Store, lane string, said []string, home string, states
 		return "", nil
 	}
 	if paths := spriteOnly(said, home); len(paths) > 0 {
-		return fmt.Sprintf("%s runs on a Sprite, so nobody on the Mac can read %s once the Sprite stops: put each file in cc-notes with `ccn doc add --body-file <path>` and cite the doc id, or attach it to the record with `--path <path>`.", lane, strings.Join(paths, ", ")), nil
+		return fmt.Sprintf("%s runs on a Sprite, so nobody on the Mac can read %s once the Sprite stops: %s", lane, strings.Join(paths, ", "), offSprite), nil
 	}
 	return "", nil
 }
@@ -383,7 +386,7 @@ func spriteOnly(said []string, home string) []string {
 	var paths []string
 	for _, words := range said {
 		for _, named := range diskPath.FindAllStringSubmatch(words, -1) {
-			if path := strings.TrimRight(named[1], ".,;:"); !strings.HasPrefix(path, home+"/") && !slices.Contains(paths, path) {
+			if path := strings.TrimRight(named[1], ".,;:"); !strings.HasPrefix(path, home+"/") && !strings.HasPrefix(path, carry.Box+"/") && !slices.Contains(paths, path) {
 				paths = append(paths, path)
 			}
 		}

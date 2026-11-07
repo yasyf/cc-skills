@@ -38,6 +38,7 @@ var StoreVerbs = []string{
 	"board reds",
 	"board rows",
 	"board waits",
+	"carry-back",
 	"choices",
 	"done-check",
 	"drive sub list",
