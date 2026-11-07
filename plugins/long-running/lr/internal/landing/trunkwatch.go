@@ -317,7 +317,8 @@ func (w *TrunkWatch) compare(ctx context.Context, history []trunkCommit, since, 
 	if err != nil {
 		return err
 	}
-	return w.fileRed(ctx, history[since], newest, fix, fmt.Sprintf("%s's %s fails %s on %s, a build the next one passed over; fix it", w.Trunk, w.Config.Check, strings.Join(fresh, ", "), newest))
+	failing, _ := w.cases(ctx, newest)
+	return w.fileRed(ctx, history[since], newest, fix, fmt.Sprintf("%s's %s fails %s on %s, a build the next one passed over; fix it", w.Trunk, w.Config.Check, strings.Join(fresh, ", "), newest), failing, w.culprit(ctx, history[since:until], failing))
 }
 
 func newFailures(newest, previous trunkBuild) []string {
@@ -616,24 +617,7 @@ func openFlakes(ctx context.Context, drive string) ([]client.Record, error) {
 }
 
 func (w *TrunkWatch) lastChange(ctx context.Context, test string) (path, pr string) {
-	if test == "" {
-		return "", ""
-	}
-	name := test
-	if at := strings.LastIndex(test, "::"); at >= 0 {
-		name = test[at+2:]
-	}
-	listed, err := w.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", w.Checkout, "grep", "-l", "-w", "-F", "-e", name}, Timeout: trunkReadLimit})
-	if err != nil {
-		return "", ""
-	}
-	for _, file := range strings.Fields(listed.Stdout) {
-		if !slices.Contains(dataFile, filepath.Ext(file)) {
-			path = file
-			break
-		}
-	}
-	if path == "" {
+	if path = w.testFile(ctx, test); path == "" {
 		return "", ""
 	}
 	subject, err := w.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", w.Checkout, "log", "-1", "--format=%s", "--", path}, Timeout: trunkReadLimit})
@@ -644,6 +628,26 @@ func (w *TrunkWatch) lastChange(ctx context.Context, test string) (path, pr stri
 		return path, found[1]
 	}
 	return path, ""
+}
+
+func (w *TrunkWatch) testFile(ctx context.Context, test string) string {
+	if test == "" {
+		return ""
+	}
+	name := test
+	if at := strings.LastIndex(test, "::"); at >= 0 {
+		name = test[at+2:]
+	}
+	listed, err := w.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", w.Checkout, "grep", "-l", "-w", "-F", "-e", name}, Timeout: trunkReadLimit})
+	if err != nil {
+		return ""
+	}
+	for _, file := range strings.Fields(listed.Stdout) {
+		if !slices.Contains(dataFile, filepath.Ext(file)) {
+			return file
+		}
+	}
+	return ""
 }
 
 func (w *TrunkWatch) flakeOwner(ctx context.Context, pr string) (string, error) {
@@ -824,7 +828,8 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 	var newest trunkContext
 	var tip trunkCommit
 	seen := false
-	for _, commit := range history {
+	firstAt, greenAt := 0, len(history)
+	for index, commit := range history {
 		status, found := commit.check(w.Config.Check)
 		if !found {
 			continue
@@ -833,9 +838,11 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 			newest, tip, seen = status, commit, true
 		}
 		if status.State == stateSuccess {
+			greenAt = index
 			break
 		}
 		run = append(run, commit)
+		firstAt = index
 	}
 	if !seen {
 		return nil
@@ -856,15 +863,14 @@ func (w *TrunkWatch) reportRed(ctx context.Context, history []trunkCommit) error
 	if len(jobs) > 0 {
 		failing = "fails " + strings.Join(jobs, ", ") + " on " + newest.TargetURL
 	}
-	origin := "first red at " + first.OID[:min(10, len(first.OID))]
-	if found := squashedPR.FindStringSubmatch(firstLine(first.Message)); found != nil {
-		origin += ", landed by #" + found[1]
-	}
+	cases, _ := w.cases(ctx, newest.TargetURL)
+	blamed := w.culprit(ctx, history[firstAt:greenAt], cases)
+	origin := "first red at " + first.OID[:min(10, len(first.OID))] + blamed.origin()
 	fix, err := w.namedFix(ctx, first.CommittedDate)
 	if err != nil {
 		return err
 	}
-	if err := w.fileRed(ctx, tip, newest.TargetURL, fix, fmt.Sprintf("%s's %s %s, %s; fix it", w.Trunk, w.Config.Check, failing, origin)); err != nil {
+	if err := w.fileRed(ctx, tip, newest.TargetURL, fix, fmt.Sprintf("%s's %s %s, %s; fix it", w.Trunk, w.Config.Check, failing, origin), cases, blamed); err != nil {
 		return err
 	}
 	w.filed = newest.TargetURL
@@ -914,9 +920,8 @@ type redIncident struct {
 	cases  []failingCase
 }
 
-func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, what string) error {
-	failing, read := w.cases(ctx, url)
-	if !read {
+func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, what string, failing []failingCase, blamed culprit) error {
+	if len(failing) == 0 {
 		return nil
 	}
 	open, err := w.settleReds(ctx, red.CommittedDate)
@@ -966,11 +971,14 @@ func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, wha
 		}
 	}
 	key := url + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(caseNames(fresh))))[:12]
-	to, err := w.landedBy(ctx, red)
+	to, err := w.landedBy(ctx, blamed.pr)
 	if err != nil {
 		return err
 	}
 	text := fmt.Sprintf("INCIDENT OPEN %s: %s fails %s. A later red build failing these cases joins %s; it closes when a PR named for it merges.", slug, url, caseNames(fresh), slug)
+	if blamed.flake {
+		text += " " + blamed.flakeLine(fix)
+	}
 	if _, err := client.Post(ctx, client.Draft{Drive: w.Drive, Lane: self, Kind: "incident", To: to, Topic: trunkTopic, ID: "dev-red-open:" + key, Force: true, Attrs: attrs, Text: text}); err != nil {
 		return err
 	}
@@ -978,17 +986,77 @@ func (w *TrunkWatch) fileRed(ctx context.Context, red trunkCommit, url, fix, wha
 	return err
 }
 
-func (w *TrunkWatch) landedBy(ctx context.Context, red trunkCommit) ([]string, error) {
+type culprit struct {
+	pr      string
+	flake   bool
+	reached []string
+}
+
+func (c culprit) origin() string {
+	switch {
+	case c.flake:
+		return ", a flake: no PR landed since the last green build changes " + strings.Join(c.reached, ", ")
+	case c.pr != "" && len(c.reached) > 0:
+		return ", landed by #" + c.pr + ", whose diff changes " + strings.Join(c.reached, ", ")
+	case c.pr != "":
+		return ", landed by #" + c.pr
+	}
+	return ""
+}
+
+func (c culprit) flakeLine(fix string) string {
+	if fix == "" {
+		return "It reads as a flake: no landed PR's diff changes " + strings.Join(c.reached, ", ") + ", so no PR caused it; name the fix PR with `cci post --topic dev-red --pr <n>`."
+	}
+	return "It reads as a flake: no landed PR's diff changes " + strings.Join(c.reached, ", ") + ", so no PR caused it; #" + fix + " lands its fix."
+}
+
+func (w *TrunkWatch) culprit(ctx context.Context, landed []trunkCommit, failing []failingCase) culprit {
+	var named culprit
+	if found := squashedPR.FindStringSubmatch(firstLine(landed[0].Message)); found != nil {
+		named.pr = found[1]
+	}
+	var dirs []string
+	for _, failed := range failing {
+		if path := w.testFile(ctx, failed.test); path != "" {
+			dirs = append(dirs, filepath.Dir(path))
+		}
+	}
+	slices.Sort(dirs)
+	dirs = slices.Compact(dirs)
+	if len(dirs) == 0 {
+		return named
+	}
+	reaches := func(file string) bool {
+		return slices.ContainsFunc(dirs, func(dir string) bool { return dir == "." || strings.HasPrefix(file, dir+"/") })
+	}
+	for _, commit := range landed {
+		shown, err := w.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", w.Checkout, "show", "--name-only", "--format=", commit.OID}, Timeout: trunkReadLimit})
+		if err != nil {
+			return named
+		}
+		if !slices.ContainsFunc(strings.Split(strings.TrimSpace(shown.Stdout), "\n"), reaches) {
+			continue
+		}
+		blamed := culprit{reached: dirs}
+		if found := squashedPR.FindStringSubmatch(firstLine(commit.Message)); found != nil {
+			blamed.pr = found[1]
+		}
+		return blamed
+	}
+	return culprit{flake: true, reached: dirs}
+}
+
+func (w *TrunkWatch) landedBy(ctx context.Context, pr string) ([]string, error) {
 	to := []string{rootLane, lanes.OwnerRelay}
-	found := squashedPR.FindStringSubmatch(firstLine(red.Message))
-	if found == nil {
+	if pr == "" {
 		return to, nil
 	}
 	rows, err := w.Store.PRs(w.Repo)
 	if err != nil {
 		return nil, err
 	}
-	at := slices.IndexFunc(rows, func(row store.PR) bool { return strconv.Itoa(row.Number) == found[1] && row.Lane != "" })
+	at := slices.IndexFunc(rows, func(row store.PR) bool { return strconv.Itoa(row.Number) == pr && row.Lane != "" })
 	if at < 0 {
 		return to, nil
 	}

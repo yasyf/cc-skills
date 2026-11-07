@@ -143,7 +143,15 @@ Every message for him goes out through one call, the `reply` tool on the plugin'
 
 It takes a one-line `title`, the reply as markdown in `md`, and, when the content has them, `picks`, each `Keep it :: what picking it does`, with one `recommended`, `links`, `prs`, `artifacts`, a `status`, and up to 8 live cc-present `blocks`, such as a table he can filter and open. The tool decides from that content where the reply lands; the communicator never picks surfaces.
 
-When he would otherwise follow a transcript, code, a log or a session's thinking in a line of text, pass it in `artifacts`, each `{title, kind, file}`: `code` keeps the file's bytes and `transcript` takes `cc-transcript show --json` output and keeps its turns. It opens in a window on Chat and from a card or link in Slack, on his tailnet only, and the file stays on this Mac until an edit of the reply leaves it off.
+Pass what he would otherwise follow in a line of text in `artifacts`, each `{title, kind, file}`, with `file` an absolute path. The kind picks what he gets:
+
+| Kind | Takes | He sees |
+|---|---|---|
+| `code` | any text file, a log included | its bytes in a window on Chat, and a link in Slack that opens on his tailnet only |
+| `transcript` | `cc-transcript show --json` output | its turns, the same way as code |
+| `image` | a PNG, JPEG, GIF or WebP file | the picture itself in the Slack post, uploaded as a file on the status card or in his thread, never a title alone |
+
+Every file is copied under the drive's state dir and stays on this Mac until an edit of the reply leaves it off. A file that does not read as its kind is left off with a warning. A pick card cannot carry an image file, so send an image in its own reply with no picks. A reply whose words say it has a screenshot, image or picture is refused with `NO PICTURE` unless an image artifact or a diagram goes with that post; take the words out or attach the image.
 
 The tool's description owns the checklist a caller reads before sending. A missed item does this:
 
