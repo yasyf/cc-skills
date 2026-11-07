@@ -95,6 +95,7 @@ func TestAnArtifactThatDoesNotReadIsLeftOffAndTheRestStillAttach(t *testing.T) {
 		"a transcript of prose":    {Title: "Prose", Kind: kindTranscript, File: sourceFile(t, "prose.txt", "not json\n")},
 		"a transcript of no turns": {Title: "Hooks", Kind: kindTranscript, File: sourceFile(t, "hooks.jsonl", `{"kind":"attachment"}`+"\n")},
 		"an empty file":            {Title: "Empty", Kind: kindCode, File: sourceFile(t, "empty.go", "\n")},
+		"an image of text":         {Title: "Shot", Kind: kindImage, File: sourceFile(t, "shot.png", "not a picture\n")},
 	}
 	for name, bad := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -243,5 +244,64 @@ func TestACardCarriesTheDiagramsPictureAheadOfTheArtifactsAndStoresNoImage(t *te
 	saved, _ := stored(t, f, "d1")
 	if len(saved.Artifacts) != 1 || saved.Artifacts[0] != artifact {
 		t.Fatalf("stored artifacts = %+v, want the artifact alone, for Chat's window", saved.Artifacts)
+	}
+}
+
+func TestAnImageArtifactGoesToSlackAsAFileOnTheCardAndInAThread(t *testing.T) {
+	for name, thread := range map[string]string{"a status card": "", "a thread reply": "1793635190.051179"} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			f := withDashboard(t, fanout(t, fake))
+			r, warning := attached(t, f, "r9", Artifact{Title: "The board after the fix", Kind: kindImage, File: sourceFile(t, "board.png", testPNG)})
+			if warning != "" || len(r.Artifacts) != 1 || r.Artifacts[0].Image == "" {
+				t.Fatalf("artifacts = %+v, warning = %q, want the image kept for upload", r.Artifacts, warning)
+			}
+			r.Thread = thread
+			f.Send(context.Background(), r)
+
+			posts := calls(fake, "cc-slack")
+			if len(posts) != 1 {
+				t.Fatalf("cc-slack calls = %+v, want one post", posts)
+			}
+			image := r.Artifacts[0].Image
+			if thread == "" {
+				card := postedCard(t, posts[0].Argv)
+				if len(card.Artifacts) != 1 || card.Artifacts[0].Image != image {
+					t.Fatalf("card artifacts = %+v, want the image file on the card for cc-slack to upload", card.Artifacts)
+				}
+			} else if flag(t, posts[0].Argv, "--file") != image {
+				t.Fatalf("thread post = %q, want the image as --file", posts[0].Argv)
+			}
+			if body, err := os.ReadFile(image); err != nil || string(body) != testPNG {
+				t.Fatalf("uploaded file = %q, %v, want the image's bytes", body, err)
+			}
+		})
+	}
+}
+
+func TestAReplyThatClaimsAPictureWithNoImageInThePostIsRefused(t *testing.T) {
+	image := Artifact{Title: "Board", Kind: kindImage, URL: artifactURL, Image: "/state/replies/r9/0"}
+	cases := map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"a screenshot and no image":       {Reply{Title: "Fixed", MD: "The screenshot shows the new bar."}, true},
+		"a picture below and no image":    {Reply{Title: "Fixed", MD: "See the picture below."}, true},
+		"a claim in a pick's words":       {Reply{Title: "Land?", MD: "Pick one.", Picks: []string{"Land"}, Words: map[string]string{"Land": "Screenshots attached."}}, true},
+		"an image on a pick card":         {Reply{Title: "Land?", MD: "Pick one.", Picks: []string{"Land"}, Artifacts: []Artifact{image}}, true},
+		"a screenshot with its image":     {Reply{Title: "Fixed", MD: "The screenshot shows the new bar.", Artifacts: []Artifact{image}}, false},
+		"a picture with its diagram":      {Reply{Title: "How", MD: "Here is the picture.", diagram: Artifact{Image: "/state/d1.png"}}, false},
+		"a container image is no picture": {Reply{Title: "Built", MD: "The image tag moved to v2 and the docker image pushed."}, false},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			err := c.reply.unshownPicture()
+			if refused := err != nil; refused != c.refused {
+				t.Fatalf("err = %v, want refused = %v", err, c.refused)
+			}
+			if err != nil && !strings.Contains(err.Error(), "nothing posted") {
+				t.Fatalf("err = %v, want it to say nothing posted", err)
+			}
+		})
 	}
 }

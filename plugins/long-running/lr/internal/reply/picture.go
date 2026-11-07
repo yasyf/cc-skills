@@ -3,9 +3,13 @@ package reply
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
@@ -16,6 +20,8 @@ const (
 	diagramKind = "diagram"
 	diagramLead = "Diagram: "
 )
+
+var claimsPicture = regexp.MustCompile(`(?i)\bscreen ?(?:shots?|grabs?)\b|\b(?:attached|below|above|here(?:'s| is| are)|see)\s+(?:the\s+|a\s+|an\s+|this\s+|these\s+|\d+\s+)?(?:images?|pictures?|photos?)\b|\b(?:images?|pictures?|photos?)\s+(?:attached|below|above)\b`)
 
 func (f Fanout) pictured(ctx context.Context, r Reply) (Reply, error) {
 	if len(r.Diagram) == 0 {
@@ -51,8 +57,24 @@ func (r Reply) cardArtifacts() []Artifact {
 }
 
 func (r Reply) pictureFlags() []string {
-	if r.diagram.Image == "" {
+	var flags []string
+	for _, a := range r.cardArtifacts() {
+		if a.Image != "" {
+			flags = append(flags, "--file", a.Image)
+		}
+	}
+	return flags
+}
+
+func (r Reply) unshownPicture() error {
+	imaged := slices.ContainsFunc(r.Artifacts, func(a Artifact) bool { return a.Image != "" })
+	if imaged && len(r.Picks) > 0 {
+		return errors.New("NO PICTURE: a pick card carries no image file, so nothing posted; send the image in its own reply with no picks")
+	}
+	said := strings.Join(slices.Concat([]string{r.Title, r.MD}, slices.Collect(maps.Values(r.Words))), "\n")
+	claim := claimsPicture.FindString(said)
+	if claim == "" || imaged || r.diagram.Image != "" {
 		return nil
 	}
-	return []string{"--file", r.diagram.Image}
+	return fmt.Errorf("NO PICTURE: the reply says %q, but no image file goes with this post, so nothing posted; attach the image as an artifact of kind image, or take the words out", claim)
 }

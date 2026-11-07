@@ -631,3 +631,73 @@ func TestARedDashboardBuildALaterBuildPassedOverOpensItsOwnIncidentAndFixLaneInO
 		t.Fatalf("openers = %+v, want the dashboard incident posted to owner-relay", openers)
 	}
 }
+
+func TestADevRedNamesThePRWhoseDiffReachesTheFailingPackageOrCallsItAFlake(t *testing.T) {
+	landed := func(oid, subject, state, url string) string {
+		status := `null`
+		if url != "" {
+			status = fmt.Sprintf(`{"contexts":[{"context":"buildkite/test","state":%q,"targetUrl":%q}]}`, state, url)
+		}
+		return fmt.Sprintf(`{"oid":%q,"committedDate":"2026-10-30T20:00:00Z","message":%q,"status":%s}`, oid, subject+"\n\nbody", status)
+	}
+	unchecked := "c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0"
+	history := trunkHistory(
+		landed(trunkOID, "docs: tidy (#48001)", "FAILURE", redBuild),
+		landed(unchecked, "upload: retry (#48003)", "", ""),
+		landed(olderOID, "sand: older (#47990)", "SUCCESS", greenBuild),
+	)
+	cases := map[string]struct {
+		reaches string
+		want    []string
+		refused []string
+	}{
+		"an earlier unbuilt PR changes the package": {
+			reaches: "go/upload/client.go\n",
+			want:    []string{"landed by #48003, whose diff changes go/upload"},
+			refused: []string{"#48001", "flake"},
+		},
+		"no landed PR changes the package": {
+			reaches: "docs/guide.md\n",
+			want:    []string{"a flake: no PR landed since the last green build changes go/upload", "It reads as a flake", "#48100 lands its fix"},
+			refused: []string{"landed by"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newTrunkWatch(t)
+			if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "fixer", Kind: "report", Topic: "dev-red", PRs: []string{"48100"}, Text: "the fix"}); err != nil {
+				t.Fatal(err)
+			}
+			f.pass(t, history, func(fake *shelltest.Fake) {
+				bkReply(fake, buildPath+"105354/jobs/job-1/log", `{"content":"`+uploadFailed+`"}`)
+				bkReply(fake, buildPath+"105354", failedRead)
+				bkReply(fake, buildPath+"105355", greenRead)
+				bkReply(fake, "/pipelines/test/builds?per_page=30", `[{"branch":"yasyf/x","state":"passed","jobs":[{"type":"script","step_key":"go-test"}]}]`)
+				fake.Reply("2026-10-30T19:00:00Z\n", "ccx", "vcs", "gh", "--max-age", "5m", "--", "pr", "view", "48100")
+				fake.Reply("go/upload/upload_test.go\n", "git", "-C", "/co", "grep")
+				fake.Reply("docs/readme.md\n", "git", "-C", "/co", "show", "--name-only", "--format=", trunkOID)
+				fake.Reply(tc.reaches, "git", "-C", "/co", "show", "--name-only", "--format=", unchecked)
+			})
+
+			incidents := trunkRecords(t, "incident")
+			said := make([]string, 0, len(incidents))
+			for _, record := range incidents {
+				said = append(said, record.Text)
+			}
+			text := strings.Join(said, "\n")
+			if len(incidents) != 2 {
+				t.Fatalf("incidents = %q, want the DEV-RED line and its INCIDENT OPEN", said)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(text, want) {
+					t.Fatalf("incidents = %q, want %q", said, want)
+				}
+			}
+			for _, refused := range tc.refused {
+				if strings.Contains(text, refused) {
+					t.Fatalf("incidents = %q, want no %q", said, refused)
+				}
+			}
+		})
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -20,11 +21,13 @@ const (
 	maxArtifacts   = 5
 	kindCode       = "code"
 	kindTranscript = "transcript"
+	kindImage      = "image"
 )
 
 var (
-	artifactKinds = []string{kindCode, kindTranscript}
+	artifactKinds = []string{kindCode, kindTranscript, kindImage}
 	transcriptWho = []string{"user", "assistant"}
+	imageTypes    = []string{"image/png", "image/jpeg", "image/gif", "image/webp"}
 )
 
 type Artifact struct {
@@ -44,6 +47,12 @@ func (a Artifact) wellFormed() bool {
 func (a Artifact) measured(body []byte) (string, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return "", errors.New("is empty")
+	}
+	if a.Kind == kindImage {
+		if !slices.Contains(imageTypes, http.DetectContentType(body)) {
+			return "", errors.New("is not a PNG, JPEG, GIF or WebP image")
+		}
+		return "", nil
 	}
 	if a.Kind == kindCode {
 		return counted(len(bytes.Split(bytes.TrimRight(body, "\n"), []byte("\n"))), "line"), nil
@@ -112,11 +121,15 @@ func (f Fanout) withArtifacts(ctx context.Context, r Reply) (Reply, string) {
 	}
 	for _, one := range found {
 		n := len(r.Artifacts)
-		if err := os.WriteFile(filepath.Join(dir, strconv.Itoa(n)), one.body, 0o600); err != nil {
+		copied := filepath.Join(dir, strconv.Itoa(n))
+		if err := os.WriteFile(copied, one.body, 0o600); err != nil {
 			warned = append(warned, fmt.Sprintf("artifact %q was left off: %v", one.artifact.Title, err))
 			continue
 		}
 		one.artifact.File = ""
+		if one.artifact.Kind == kindImage {
+			one.artifact.Image = copied
+		}
 		one.artifact.URL = fmt.Sprintf("%sartifact/%s/%d", base, r.ID, n)
 		r.Artifacts = append(r.Artifacts, one.artifact)
 	}
