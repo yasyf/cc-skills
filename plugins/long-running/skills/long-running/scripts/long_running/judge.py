@@ -19,6 +19,7 @@ import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import cache
 from pathlib import Path
 from typing import Literal, Protocol
 from zoneinfo import ZoneInfo
@@ -37,6 +38,7 @@ CALLS = Path("judge") / "calls.jsonl"
 CARDS = Path("judge") / "cards"
 CARD_SECONDS = 10
 CARD_CHARS = 4000
+PROMPTS_SECONDS = 240
 BOARD_PROOF = re.compile(r"proof:board:([0-9a-f]{16})\b")
 CARD_HEADING = re.compile(r"## card ([0-9a-f]{16})")
 RECORDS = 40
@@ -358,13 +360,20 @@ class Call:
 
 
 def captures(state: Path) -> dict[str, dict]:
-    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes."""
+    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes. A Sprite drive's folder holds no copy, so its captures come from the Mac's store desk."""
     path = state / "owner-prompts.jsonl"
-    if not path.exists():
-        return {}
-    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    text = path.read_text() if path.exists() else mac_prompts(state)
+    entries = [json.loads(line) for line in text.splitlines() if line.strip()]
     gone = {digest for entry in entries for digest in entry.get("supersedes", [])}
     return {entry["digest"]: entry for entry in entries if entry["digest"] not in gone}
+
+
+@cache
+def mac_prompts(state: Path) -> str:
+    from . import drive, ledger
+
+    entry = next((entry for entry in drive.drives() if entry.get("host") == "sprite" and Path(entry["state_dir"]) == state), None)
+    return command([str(ledger.LR), "owner", "prompts", "--drive", drive.cci_drive(entry)], timeout=PROMPTS_SECONDS) if entry else ""
 
 
 def said(row: dict, state: Path, env: Mapping[str, str] | None = None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> list[dict]:
