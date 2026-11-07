@@ -3,6 +3,7 @@ package askdesk
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -232,5 +233,28 @@ func TestARefusedAskIsAnsweredButStaysOpenForTheDesksLaneToServe(t *testing.T) {
 	asks, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AskKind}})
 	if err != nil || len(asks) != 1 || asks[0].Status != openStatus {
 		t.Fatalf("asks = %+v, %v: want the refused ask still open", asks, err)
+	}
+}
+
+func TestADeskAnswersWhatItHoldsThenEndsOnceANewerLrIsInstalled(t *testing.T) {
+	t.Setenv("CCI_HOME", t.TempDir())
+	ask, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "shared-open-speed-4", Kind: AskKind, Text: "bk retry test 119497 01a1b75b-cf2b-4f1e-9a52-6a1d2b3c4d5e", To: []string{"bk-desk"}, Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	installs := 0
+	desk := Desk{Lane: "bk-desk", Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: func(context.Context, string) Reply {
+		return Reply{Head: "retried"}
+	}, Released: func() bool {
+		installs++
+		return true
+	}}
+
+	if err := desk.Serve(context.Background()); !errors.Is(err, ErrReleased) || installs != 1 {
+		t.Fatalf("Serve ended with %v after %d install checks, want ErrReleased after one", err, installs)
+	}
+	answers, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{AnswerKind}})
+	if err != nil || len(answers) != 1 || answers[0].Re != ask.Seq {
+		t.Fatalf("answers = %+v, %v: want ask #%d answered before the desk ends", answers, err, ask.Seq)
 	}
 }
