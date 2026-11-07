@@ -783,6 +783,50 @@ func TestATapOnAPRWithNoRowIsRefused(t *testing.T) {
 	}
 }
 
+func TestATapRefusedForNoRowIsOrderedWhenItsRowAppearsAfterTheWindow(t *testing.T) {
+	h := unreadHarness(t)
+	drawReady(t, h.store, surfacePR+1, surfaceHead)
+	word := ownerRecord(t, "Owner on board b, merge-prs: 4242 approved at "+surfaceHead[:7], map[string]string{"event": "triage.decided", "block": "merge-prs", "row": "4242", "verdict": "approved", "head": surfaceHead[:7]})
+	writeOrders(t, h)
+	if written, refused := orders(t), refusals(t); len(written) != 0 || len(refused) != 1 || refused[0].Fields.Attrs["reason"] != gates.NoRow {
+		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
+	}
+
+	h.source.Now = func() time.Time { return word.At.Add(facts.OrderWindow + 5*time.Minute) }
+	writeOrders(t, h)
+	if written := orders(t); len(written) != 0 {
+		t.Fatalf("orders before the row = %+v", written)
+	}
+
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(*store.ReviewRow) {})
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) {
+		t.Fatalf("orders = %+v", written)
+	}
+	if told := blockers(t); len(told) != 1 {
+		t.Fatalf("blockers = %+v, want the one refusal told", told)
+	}
+}
+
+func TestAPendingTapIsDroppedOnceItsPRLands(t *testing.T) {
+	h := unreadHarness(t)
+	drawReady(t, h.store, surfacePR+1, surfaceHead)
+	word := ownerRecord(t, "Owner on board b, merge-prs: 4242 approved at "+surfaceHead[:7], map[string]string{"event": "triage.decided", "block": "merge-prs", "row": "4242", "verdict": "approved", "head": surfaceHead[:7]})
+	writeOrders(t, h)
+
+	h.source.Now = func() time.Time { return word.At.Add(facts.OrderWindow + 5*time.Minute) }
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(r *store.ReviewRow) { r.State = prrow.StateLanded })
+	writeOrders(t, h)
+	drawWaiting(t, h.store, surfacePR, surfaceHead, func(*store.ReviewRow) {})
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 0 {
+		t.Fatalf("orders = %+v, want none once the PR landed", written)
+	}
+}
+
 func TestATapBeforeTheFirstRowsAreFoldedWaitsAndIsOrderedOnceTheyAre(t *testing.T) {
 	h := unreadHarness(t)
 	record := ownerRecord(t, landOnCard, pickAttrs)

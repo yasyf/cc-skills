@@ -26,6 +26,7 @@ const (
 	OrderGrace  = time.Minute
 	OrderWindow = time.Hour
 	BuiltPick   = "built-pick"
+	tapPending  = "tap-pending"
 	tapRecord   = "lr.tap"
 	openState   = "OPEN"
 	fullSHA     = 40
@@ -34,6 +35,8 @@ const (
 var orderWatchers = []string{"meta-desk", "owner-relay"}
 
 var errHeadWait = errors.New(prrow.NoHeadYet)
+
+var errRefused = errors.New("refused for now")
 
 // WriteOrders turns each owner tap recorded on any surface into the one lr.tap record the landing pass and every desk read, or, on a row not ready at that head, one tap.refused naming why.
 func (s Source) WriteOrders(ctx context.Context) error {
@@ -46,6 +49,9 @@ func (s Source) WriteOrders(ctx context.Context) error {
 	}
 	now := s.Now()
 	if err := s.orderBuiltPicks(ctx, now); err != nil {
+		return err
+	}
+	if err := s.retryPendingTaps(ctx, now); err != nil {
 		return err
 	}
 	records, err := s.Bus.ReadOwner(ctx, since, now.Add(-OrderWindow))
@@ -74,10 +80,18 @@ func (s Source) WriteOrders(ctx context.Context) error {
 			if failed == nil {
 				continue
 			}
-			written = false
 			s.Log.Warn("an owner tap has no land order yet", "record", record.Name(), "pr", tap.PR, "err", failed)
-			settled = settled && age >= OrderWindow
+			refused := errors.Is(failed, errRefused)
+			parked := refused || age >= OrderWindow
+			settled = settled && parked
+			written = written && parked
+			if parked {
+				if err := s.parkTap(record, tap, now); err != nil {
+					return err
+				}
+			}
 			switch {
+			case refused:
 			case errors.Is(failed, errHeadWait), errors.Is(failed, prrow.ErrRowsNotFolded):
 				if age >= OrderWindow {
 					s.escalateOrder(ctx, record, tap, OrderWindow, failed)
@@ -139,7 +153,13 @@ func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
 			return err
 		}
 		if len(records) > 0 {
-			if failed := s.writeOrder(ctx, records[0], builtTap(records[0], s.Repo, row), now); failed != nil {
+			tap := builtTap(records[0], s.Repo, row)
+			switch failed := s.writeOrder(ctx, records[0], tap, now); {
+			case errors.Is(failed, errRefused):
+				if err := s.parkTap(records[0], tap, now); err != nil {
+					return err
+				}
+			case failed != nil:
 				s.Log.Warn("an owner pick of a built branch has no land order yet", "record", records[0].Name(), "pr", row.Number, "err", failed)
 				continue
 			}
@@ -149,6 +169,89 @@ func (s Source) orderBuiltPicks(ctx context.Context, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func (s Source) retryPendingTaps(ctx context.Context, now time.Time) error {
+	pending, err := s.Store.LatestFacts(s.Repo, tapPending)
+	if err != nil || len(pending) == 0 {
+		return err
+	}
+	rows, err := s.Store.ReviewRows(s.Repo)
+	if err != nil {
+		return err
+	}
+	byNumber := make(map[int]store.ReviewRow, len(rows))
+	for _, row := range rows {
+		byNumber[row.Number] = row
+	}
+	var changed []int64
+	due := map[int]bool{}
+	for number, value := range pending {
+		seq, mark, _ := strings.Cut(value, " ")
+		row, found := byNumber[number]
+		switch {
+		case found && (prrow.Terminal(row.State) || row.SupersededBy != prrow.None):
+			if err := s.Store.DeleteFact(s.Repo, number, "", tapPending); err != nil {
+				return err
+			}
+		case rowMark(row, found) != mark:
+			picked, err := strconv.ParseInt(seq, 10, 64)
+			if err != nil {
+				return fmt.Errorf("pending tap on #%d: %w", number, err)
+			}
+			changed = append(changed, picked)
+			due[number] = true
+		}
+	}
+	if len(changed) == 0 {
+		return nil
+	}
+	records, err := client.Among(ctx, s.Drive, changed)
+	if err != nil {
+		return err
+	}
+	for _, record := range records {
+		taps, err := s.ordersOf(record)
+		if err != nil {
+			return err
+		}
+		for _, tap := range taps {
+			if !due[tap.PR] {
+				continue
+			}
+			row, found := byNumber[tap.PR]
+			movedOn := tap.Head != "" && found && !strings.HasPrefix(row.Head, tap.Head) && !row.Tapped
+			if !movedOn {
+				if failed := s.writeOrder(ctx, record, tap, now); failed != nil {
+					s.Log.Warn("a pending owner tap still has no land order", "record", record.Name(), "pr", tap.PR, "err", failed)
+					if err := s.parkTap(record, tap, now); err != nil {
+						return err
+					}
+					continue
+				}
+			}
+			if err := s.Store.DeleteFact(s.Repo, tap.PR, "", tapPending); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s Source) parkTap(record client.Record, tap bus.Tap, now time.Time) error {
+	row, found, err := s.Store.ReviewRow(s.Repo, tap.PR)
+	if err != nil {
+		return err
+	}
+	_, err = s.Store.PutFact(s.Repo, tap.PR, "", tapPending, fmt.Sprintf("%d %s", record.Seq, rowMark(row, found)), now)
+	return err
+}
+
+func rowMark(row store.ReviewRow, found bool) string {
+	if !found {
+		return ""
+	}
+	return strings.Join([]string{row.Head, row.State, row.WaitsOn}, " ")
 }
 
 func openOn(rows []store.ReviewRow, branch string) (store.ReviewRow, bool) {
@@ -205,7 +308,7 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 			return err
 		}
 		s.escalate(ctx, record, fmt.Sprintf("tap-refused:%d:%d", record.Seq, tap.PR), []string{fmt.Sprintf("%s#%d", s.Repo, tap.PR)}, fmt.Sprintf("His approval %s of #%d%s was refused and lands nothing: %s. Tell him what stops it.", record.Name(), tap.PR, bus.At(tap.Head), refusal))
-		return nil
+		return fmt.Errorf("%w: %s", errRefused, refusal)
 	}
 	if moved, err := s.movedSinceRefusal(ctx, record, tap); err != nil || moved {
 		return err
@@ -239,7 +342,10 @@ func (s Source) movedSinceRefusal(ctx context.Context, word client.Record, tap b
 	if err != nil {
 		return false, err
 	}
-	return slices.ContainsFunc(refused, func(record client.Record) bool { return bus.RefusedHead(record) != tap.Head }), nil
+	return slices.ContainsFunc(refused, func(record client.Record) bool {
+		at := bus.RefusedHead(record)
+		return at == "" || !strings.HasPrefix(tap.Head, at)
+	}), nil
 }
 
 func (s Source) endTapHolds(ctx context.Context, tap bus.Tap, word client.Record) error {
