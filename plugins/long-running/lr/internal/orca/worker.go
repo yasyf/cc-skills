@@ -91,6 +91,7 @@ var (
 	briefTool          = regexp.MustCompile("(?m)(?:^|[\\s`(])(ccn|cc-notes|cci|lr|gh|ccx) [a-z]")
 	geminiRoute        = regexp.MustCompile(`(?m)^([ \t>]*(?:[-*+] |\d+\. )?).*\bgemini -m\b.*$`)
 	toolsMissingLine   = regexp.MustCompile(`(?m)^missing:(.*)$`)
+	heldLine           = regexp.MustCompile(`is already recorded under|already claimed warm workspace`)
 	spriteLimitLine    = regexp.MustCompile(`[^\n]*` + regexp.QuoteMeta(lanes.SpriteLimit) + `[^\n]*`)
 	spritePlatformLine = regexp.MustCompile(`[^\n]*(?:Storage not ready|failed to start sprite command|failed to upload files|HTTP (?:status )?5\d\d)[^\n]*`)
 	modelAliases       = map[string]string{"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "fable": "claude-fable-5-1"}
@@ -796,15 +797,12 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 	if mcp := w.Env("WORKER_MCP_CONFIG"); mcp != "" {
 		argv = append(argv, "--mcp-config", mcp)
 	}
-	progress := &lineWriter{line: func(line string) {
-		if stage := prepareStage(line); stage != "" {
-			w.stages.say(w.ctx, stage)
+	result, code := w.runPrepare(argv)
+	if code != 0 && heldLine.MatchString(result.Stderr) {
+		if err := w.releaseHeld(); err != nil {
+			return nil, err
 		}
-	}}
-	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: argv, Env: []string{"CC_REMOTE_CONFIG=" + w.config}, Stderr: progress})
-	code := 0
-	if err != nil {
-		code = max(result.Code, 1)
+		result, code = w.runPrepare(argv)
 	}
 	w.unattached = code == 0
 	for name, written := range map[string]string{"allocation.json": result.Stdout, "prepare.err": result.Stderr, "prepare.status": strconv.Itoa(code) + "\n"} {
@@ -845,6 +843,45 @@ func (w *workerLaunch) prepareSprite() (map[string]any, error) {
 		return nil, err
 	}
 	return allocation, nil
+}
+
+func (w *workerLaunch) runPrepare(argv []string) (shell.Result, int) {
+	progress := &lineWriter{line: func(line string) {
+		if stage := prepareStage(line); stage != "" {
+			w.stages.say(w.ctx, stage)
+		}
+	}}
+	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: argv, Env: []string{"CC_REMOTE_CONFIG=" + w.config}, Stderr: progress})
+	if err != nil {
+		return result, max(result.Code, 1)
+	}
+	return result, 0
+}
+
+func (w *workerLaunch) releaseHeld() error {
+	stdout, stderr, code := w.capture("orca", orchestration, "task-list", "--run", w.run, "--status", "dispatched", "--brief", "--json")
+	var listed struct {
+		OK     bool `json:"ok"`
+		Result struct {
+			Tasks []struct {
+				Title    string `json:"title"`
+				Dispatch string `json:"dispatch_id"`
+			} `json:"tasks"`
+		} `json:"result"`
+	}
+	if code != 0 || json.Unmarshal([]byte(stdout), &listed) != nil || !listed.OK {
+		return refuse("lane %s holds a machine from an earlier attempt, and orca task-list exited %d without a list (%s), so it was not released", w.lane, code, strings.TrimSpace(stderr))
+	}
+	for _, task := range listed.Result.Tasks {
+		if task.Title == w.lane {
+			return refuse("lane %s holds a machine, and its dispatch %s is still open, so nothing was prepared again", w.lane, task.Dispatch)
+		}
+	}
+	stopped, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{w.ccRemote, "orca", "stop", w.lane, "--provider", "sprites", "--profile", "agents"}, Env: []string{"CC_REMOTE_CONFIG=" + w.config}})
+	if err != nil {
+		return refuse("lane %s holds a machine no open dispatch uses, and cc-remote orca stop %s failed: %s", w.lane, w.lane, strings.TrimSpace(stopped.Stderr))
+	}
+	return nil
 }
 
 func (w *workerLaunch) copyCarried(workspace string) error {
