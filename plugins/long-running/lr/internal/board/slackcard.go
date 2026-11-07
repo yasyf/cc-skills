@@ -17,6 +17,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
@@ -98,10 +99,10 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	at := row.Head[:min(waitsSHA, len(row.Head))]
 	opening := ""
 	if source, port := strings.CutPrefix(row.Port, prrow.PortOf); port {
-		opening = "Port of #" + source + ": "
+		opening = cardtext.PortOpener + "#" + source + ": "
 	}
 	card := SlackCard{
-		Status: "info", Title: fmt.Sprintf("%s#%d at %s", opening, row.Number, at),
+		Status: "info", Title: fmt.Sprintf("#%d at %s", row.Number, at),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: row.Risk, Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
@@ -119,12 +120,13 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		card.Title, card.PRs[0].Blocks = lead+card.Title, said
 	}
 	if !OffersApproval(row) {
+		card.Title = opening + card.Title
 		return card
 	}
 	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove #%d at %s?", opening, row.Number, at)
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
 	if merges, err := store.Parse(row.MergesAt); err == nil {
-		card.Title, card.MergesAt = fmt.Sprintf("Approve #%d at %s? It merges itself at %s unless you tap Hold", row.Number, at, pacific(merges)), row.MergesAt
+		card.Title, card.MergesAt = fmt.Sprintf("%sApprove #%d at %s? It merges itself at %s unless you tap Hold", opening, row.Number, at, pacific(merges)), row.MergesAt
 	}
 	if !row.ReadyForTap {
 		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
@@ -153,7 +155,7 @@ func portLine(repo string, row store.ReviewRow) string {
 	if !port {
 		return ""
 	}
-	return fmt.Sprintf("Port of [#%s](https://github.com/%s/pull/%s)", source, repo, source)
+	return fmt.Sprintf("%s[#%s](https://github.com/%s/pull/%s)", cardtext.PortOpener, source, repo, source)
 }
 
 func portOpening(repo string, row store.ReviewRow) string {

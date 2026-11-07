@@ -31,6 +31,8 @@ func TestAPickReadsItsOwnPRAndItsOwnHeadsRepository(t *testing.T) {
 		{"a head on another repository", "Land #7? (c): picked “Land it”", "other/repo#7=abc1234", 0, "", false},
 		{"a port card's source in its title", "port of #50061: Viewer fit? (c): picked “Land it”", "", 0, "", false},
 		{"a port card naming its port", "port of #50061: Land #50460? (c): picked “Land it”", "", 50460, "", true},
+		{"a port card opening with its dev source", "Port, old tree to new: dev #50061: Approve #50460 at abc1234? (c): picked “Approve”", "", 50460, "", true},
+		{"a port card linking its dev source", "Port, old tree to new: dev [#50061](https://github.com/" + repo + "/pull/50061): Land #50460? (c): picked “Land it”", "", 50460, "", true},
 		{"two PRs its card asked about", "Land #7? (c): picked “Land it”", repo + "#7=abc1234," + repo + "#8=def5678", 0, "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {

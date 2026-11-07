@@ -287,7 +287,7 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 	}
 	repo, ports, err := board.Ports(f.Entry, numbers)
 	if err != nil {
-		return r, fmt.Sprintf("the PR ledger did not read, so no port this names opens the reply with port of #n: %v", err)
+		return r, fmt.Sprintf("the PR ledger did not read, so no port this names opens the reply with %s#n: %v", cardtext.PortOpener, err)
 	}
 	var opening []string
 	for n, found := range said {
@@ -295,8 +295,8 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 		if !port || !inRepo(repo, found) {
 			continue
 		}
-		line := fmt.Sprintf("port of [#%d](https://github.com/%s/pull/%d)", source, repo, source)
-		opens := regexp.MustCompile(fmt.Sprintf(`(?i)^\s*port of \[?#%d\b`, source))
+		line := fmt.Sprintf("%s[#%d](https://github.com/%s/pull/%d)", cardtext.PortOpener, source, repo, source)
+		opens := regexp.MustCompile(fmt.Sprintf(`(?i)^\s*%s\[?#%d\b`, regexp.QuoteMeta(cardtext.PortOpener), source))
 		if !slices.Contains(opening, line) && !opens.MatchString(r.Title) && !opens.MatchString(r.MD) {
 			opening = append(opening, line)
 		}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 )
 
 const (
@@ -49,7 +50,7 @@ var (
 	landLabel      = regexp.MustCompile(`(?i)^\W*(?:yes\W+)?(?:land|merge|approve|ship)\b`)
 	holdLabel      = regexp.MustCompile(`(?i)^\W*hold\b`)
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
-	portOpening    = regexp.MustCompile(`(?i)\bport of [\w./-]*#\d+`)
+	portOpening    = regexp.MustCompile(`(?i)\b(?:port of |` + regexp.QuoteMeta(cardtext.PortOpener) + `)\[?[\w./-]*#\d+`)
 	slackAsk       = regexp.MustCompile(`^slack[-:]`)
 )
 

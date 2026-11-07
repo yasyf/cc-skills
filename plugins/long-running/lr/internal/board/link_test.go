@@ -644,16 +644,44 @@ func TestACardAboutAPortOpensWithItAndLinksItsSourceWithNoCardForIt(t *testing.T
 	if err := json.Unmarshal(block, &card); err != nil {
 		t.Fatal(err)
 	}
-	if card.Title != "port of #49412: Keep the old encoder?" || card.ID != "card-keep-the-old-encoder" {
+	if card.Title != "Port, old tree to new: dev #49412: Keep the old encoder?" || card.ID != "card-keep-the-old-encoder" {
 		t.Fatalf("title %q, id %q", card.Title, card.ID)
 	}
-	if card.Children[0].Md != "**From:** port of [#49412](https://github.com/Forge-AI/monorepo/pull/49412)" {
+	if card.Children[0].Md != "**From:** Port, old tree to new: dev [#49412](https://github.com/Forge-AI/monorepo/pull/49412)" {
 		t.Fatalf("from = %q, want the source linked", card.Children[0].Md)
 	}
 	for _, child := range card.Children {
 		if child.Type == "pr" {
 			t.Fatalf("children %+v, want no PR card for the source, since a pick on it would land the source", card.Children)
 		}
+	}
+}
+
+func TestACardAboutOnePortTakesItsOpenerFromThePortRow(t *testing.T) {
+	ports := func(numbers []int) (map[int]int, error) {
+		found := map[int]int{}
+		if slices.Contains(numbers, 50254) {
+			found[50254] = 49412
+		}
+		return found, nil
+	}
+	for name, tc := range map[string]struct {
+		ask  Ask
+		want int
+	}{
+		"one port named":                  {Ask{Title: "Land #50254?"}, 49412},
+		"the port beside its source":      {Ask{Title: "Land #50254?", Background: "It ports #49412."}, 49412},
+		"one PR that is no port":          {Ask{Title: "Land #50333?"}, 0},
+		"a port beside another PR":        {Ask{Title: "Land #50254?", Background: "#50333 lands after it."}, 0},
+		"a port beside another repo's PR": {Ask{Title: "Land #50254?", Background: "yasyf/cc-skills#7 lands after it."}, 0},
+		"its port-of given":               {Ask{Title: "Land #50254?", PortOf: 1}, 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := tc.ask.withPortOf("Forge-AI/monorepo", ports)
+			if err != nil || got.PortOf != tc.want {
+				t.Fatalf("PortOf = %d, %v, want %d", got.PortOf, err, tc.want)
+			}
+		})
 	}
 }
 

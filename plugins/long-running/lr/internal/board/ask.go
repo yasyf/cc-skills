@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -83,17 +84,13 @@ func (a Ask) Block(repo string, existing func([]SlackPR) ([]SlackPR, error)) (js
 	options[0].Recommended, options[0].Build = true, build
 	background := linkedNumbers(strings.TrimSpace(a.Background), repo)
 	summary, more, _ := strings.Cut(background, "\n")
-	said := []string{linkedNumbers(a.Title, repo), background}
-	for _, option := range a.Options {
-		said = append(said, linkedNumbers(option, repo))
-	}
-	prs, err := existing(slices.DeleteFunc(namedPRs(said, repo), func(pr SlackPR) bool { return pr == SlackPR{repo, a.PortOf} }))
+	prs, err := existing(slices.DeleteFunc(namedPRs(a.said(repo), repo), func(pr SlackPR) bool { return pr == SlackPR{repo, a.PortOf} }))
 	if err != nil {
 		return nil, err
 	}
 	title, from := a.Title, cmp.Or(a.From, noPlanFrom)
 	if a.PortOf != 0 {
-		opening := fmt.Sprintf("port of #%d", a.PortOf)
+		opening := fmt.Sprintf("%s#%d", cardtext.PortOpener, a.PortOf)
 		title, from = opening+": "+a.Title, cmp.Or(a.From, linkedNumbers(opening, repo))
 	}
 	children := []map[string]any{{"id": slug + "-from", "type": "markdown", "md": "**From:** " + from}}
@@ -117,6 +114,38 @@ func (a Ask) Block(repo string, existing func([]SlackPR) ([]SlackPR, error)) (js
 		children = append(children, map[string]any{"id": fmt.Sprintf("%s-pr-%s-%d", slug, strings.ReplaceAll(pr.Repo, "/", "-"), pr.Number), "type": "pr", "repo": pr.Repo, "number": pr.Number})
 	}
 	return json.Marshal(map[string]any{"id": "card-" + slug, "type": "card", "title": title, "summary": strings.TrimSpace(summary), "children": children})
+}
+
+func (a Ask) said(repo string) []string {
+	said := make([]string, 0, 2+len(a.Options))
+	said = append(said, linkedNumbers(a.Title, repo), linkedNumbers(strings.TrimSpace(a.Background), repo))
+	for _, option := range a.Options {
+		said = append(said, linkedNumbers(option, repo))
+	}
+	return said
+}
+
+func (a Ask) withPortOf(repo string, ports func([]int) (map[int]int, error)) (Ask, error) {
+	named := namedPRs(a.said(repo), repo)
+	var numbers []int
+	for _, pr := range named {
+		if strings.EqualFold(pr.Repo, repo) {
+			numbers = append(numbers, pr.Number)
+		}
+	}
+	if a.PortOf != 0 || len(numbers) == 0 {
+		return a, nil
+	}
+	found, err := ports(numbers)
+	if err != nil {
+		return a, err
+	}
+	sources := slices.Collect(maps.Values(found))
+	about := slices.DeleteFunc(named, func(pr SlackPR) bool { return strings.EqualFold(pr.Repo, repo) && slices.Contains(sources, pr.Number) })
+	if len(about) == 1 && strings.EqualFold(about[0].Repo, repo) {
+		a.PortOf = found[about[0].Number]
+	}
+	return a, nil
 }
 
 func (a Ask) build() (map[string]any, error) {
@@ -296,7 +325,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 
 --by TIME records the clock a card promises him something by, such as a report by 6:40 PM, on the card's row with its lane. The lane cannot retire until a record carries delivered=card:<id>, and when the clock passes first, the lane and owner-relay hear once with what he waits on. A card naming a clock in its words without --by draws with a warning.
 
---diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "port of #N" and carries that PR. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "port of #N" itself; --diagram beside it adds its doc to that card above its choice. --withdraw ID takes your own card down when its question has gone away. --take-over SEQ redraws a card another lane owns, when record SEQ, posted by another lane, is addressed to yours and names the card's id: your lane owns the card from then on, his answer wakes it, and the board records whom it was taken from. The board writes as your lane's numbered name, so a card your lane owns under another of its names, its alias or a lane it succeeded, redraws without --take-over; with --for-ask, a card your lane owns passes to the asking lane.`,
+--diagram FILE puts one architecture doc (arch/v1) on the card, drawn live on his board and dashboard and as its picture on the card in Slack. --port-of N opens a card about a forward port with "Port, old tree to new: dev #N" and carries that PR; without it, a card about one PR whose ledger row is a port opens that way from the row. --card FILE|- takes a whole cc-present card as JSON in place of these flags, for one with diagrams or records, whose title opens with "Port, old tree to new: dev #N" itself; --diagram beside it adds its doc to that card above its choice. --withdraw ID takes your own card down when its question has gone away. --take-over SEQ redraws a card another lane owns, when record SEQ, posted by another lane, is addressed to yours and names the card's id: your lane owns the card from then on, his answer wakes it, and the board records whom it was taken from. The board writes as your lane's numbered name, so a card your lane owns under another of its names, its alias or a lane it succeeded, redraws without --take-over; with --for-ask, a card your lane owns passes to the asking lane.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			if lane == "" {
@@ -308,6 +337,12 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 			}
 			block, remove := json.RawMessage(nil), withdraw
 			if withdraw == "" {
+				if ask, err = ask.withPortOf(entry.Repo, func(numbers []int) (map[int]int, error) {
+					_, ports, err := Ports(entry, numbers)
+					return ports, err
+				}); err != nil {
+					fmt.Fprintf(c.ErrOrStderr(), "WARNING the PR ledger did not read, so a port this card names does not open it with %q: %v\n", cardtext.PortOpener+"#n", err)
+				}
 				if block, err = askedCard(c.InOrStdin(), ask, file, entry.Repo, realPRs(c.Context(), a.CCX, c.ErrOrStderr())); err != nil {
 					return err
 				}
@@ -340,7 +375,7 @@ The card goes over the bus to the board link on the Mac, which checks it and ans
 	flags.StringVar(&ask.Diagram, "diagram", "", "FILE, one architecture doc (arch/v1), drawn live on his board and dashboard and as its picture on the card in Slack")
 	flags.StringArrayVar(&ask.Shots, "shot", nil, "'PATH or https URL :: what it shows', a real screenshot, repeatable; a path is read on the board's Mac")
 	flags.StringVar(&ask.From, "from", "", "the plan step and date, his ruling id, or whose PR it ports; default "+noPlanFrom)
-	flags.IntVar(&ask.PortOf, "port-of", 0, "the old-tree PR this card's port copies: the card's title opens with port of #N")
+	flags.IntVar(&ask.PortOf, "port-of", 0, "the dev PR this card's port copies: the card's title opens with Port, old tree to new: dev #N; default the port row of the one PR the card names")
 	flags.StringVar(&ask.ID, "id", "", "the card's id after card-; default the title's first words")
 	flags.StringVar(&until, "until", KindAnswered, "the event after which his answer no longer matters: pr:N, release:STACK@ENV:COMMIT, record:SEQ, or at:TIME or a span such as at:3d for a real expiry; the sweep never takes an unanswered question down on a time alone, so a question with no such event keeps the default, answered")
 	flags.StringVar(&release, "release", "", "the release target his recommended option starts, such as sand-next: the supervisor's LANDED-NOT-LIVE row for that target becomes this card's row, sent to owner-relay with the card's link")
