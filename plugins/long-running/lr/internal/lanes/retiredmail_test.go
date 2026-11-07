@@ -270,6 +270,66 @@ func TestAssignmentUnreadNeverNamesAFixedLaneOrARecordAnsweredInTheSameTick(t *t
 	}
 }
 
+func TestAnAssignmentToOwnerRelayWhileItsNumberedSuccessorsAreRetiredRaisesNoNotice(t *testing.T) {
+	assignment := func(seq int64, at time.Time) Record {
+		return rec(seq, Root, "answer", at, "Relay the 11 PM pick to him.", OwnerRelay).withNum(fmt.Sprintf("#%d", seq))
+	}
+	relayed := func(seq int64, at time.Time) Record {
+		return rec(seq, OwnerRelay, "report", at, "Relayed.", Root)
+	}
+	for _, tt := range []struct {
+		name string
+		feed []Record
+	}{
+		{"owner-relay posts before root's assignment", []Record{relayed(3, t0.Add(mins(5))), assignment(4, t0.Add(mins(6)))}},
+		{"owner-relay posts after root's assignment", []Record{assignment(3, t0.Add(mins(5))), relayed(4, t0.Add(mins(6)))}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			s, f := finished(t)
+			for _, chain := range []struct{ name, predecessor, retiredBy string }{
+				{OwnerRelay, "", OwnerRelay + "-2"},
+				{OwnerRelay + "-2", OwnerRelay, OwnerRelay + "-3"},
+				{OwnerRelay + "-3", OwnerRelay + "-2", retiredStopped},
+			} {
+				if _, err := s.WantLane(store.Lane{Name: chain.name, State: store.LaneDesired, Predecessor: chain.predecessor}, t0); err != nil {
+					t.Fatal(err)
+				}
+				if err := s.SetLaneState(chain.name, store.LaneRetired, t0, chain.retiredBy, ""); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.feed = append(f.feed, tt.feed...)
+			tick(t, s, f, t0.Add(mins(6)))
+
+			equal(t, len(f.ofKind("blocker")), 0)
+			equal(t, row(t, s, OwnerRelay).State, store.LaneDesired)
+		})
+	}
+}
+
+func TestAnAssignmentForwardedToOwnerRelaysStoodDownChainRaisesNoNoticeWhileOwnerRelayIsLive(t *testing.T) {
+	s, f := finished(t)
+	if _, err := s.WantLane(store.Lane{Name: OwnerRelay, State: store.LaneDesired}, t0); err != nil {
+		t.Fatal(err)
+	}
+	for _, chain := range []struct{ name, predecessor, retiredBy string }{
+		{OwnerRelay + "-2", OwnerRelay, OwnerRelay + "-3"},
+		{OwnerRelay + "-3", OwnerRelay + "-2", retiredStopped},
+	} {
+		if _, err := s.WantLane(store.Lane{Name: chain.name, State: store.LaneDesired, Predecessor: chain.predecessor}, t0); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.SetLaneState(chain.name, store.LaneRetired, t0, chain.retiredBy, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.feed = append(f.feed, rec(3, Root, "answer", t0.Add(mins(5)), "Relay the 11 PM pick to him.", OwnerRelay, OwnerRelay+"-2", OwnerRelay+"-3").withNum("#3"))
+	f.peers = []Row{who(OwnerRelay, true, t0.Add(mins(5)))}
+	tick(t, s, f, t0.Add(mins(5)))
+
+	equal(t, len(f.ofKind("blocker")), 0)
+}
+
 func TestRootNamingARetiredLaneWhoseSuccessorIsLiveRoutesTheRecordToIt(t *testing.T) {
 	s, f := finished(t)
 	f.feed = append(f.feed, cardWake(3, lane2, "picked Combined", t0.Add(mins(5))))
