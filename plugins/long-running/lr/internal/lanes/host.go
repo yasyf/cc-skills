@@ -213,6 +213,20 @@ func hostProofs(s *store.Store, d Deps, lanes []store.Lane, found map[string]Pee
 	return proven
 }
 
+func LiveSprites(s *store.Store, receipts string) ([]string, error) {
+	live, err := s.Lanes(store.LaneDesired)
+	if err != nil {
+		return nil, err
+	}
+	var sprites []string
+	for _, lane := range live {
+		if lane.Placement == placedOnSprite {
+			sprites = append(sprites, spriteOf(receipts, lane.Name))
+		}
+	}
+	return sprites, nil
+}
+
 func orcaLostHost(lane store.Lane, probes map[string]store.Probe, now time.Time) string {
 	if gone, tracked := probes[hostGoneProbe(lane.Name)]; tracked && now.Sub(gone.Asked) >= hostGoneAfter {
 		return fmt.Sprintf("%s for %d min", orcaHostGone, int(now.Sub(gone.Asked).Minutes()))
