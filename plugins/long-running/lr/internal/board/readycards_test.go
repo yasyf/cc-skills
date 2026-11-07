@@ -28,7 +28,7 @@ const (
 func tapRow(number int) store.ReviewRow {
 	return store.ReviewRow{
 		Repo: readyRepo, Number: number, Title: fmt.Sprintf("sand: fix %d", number), Lane: fmt.Sprintf("lane-%d", number), Head: readyHead, ReadHead: readyHead,
-		ForUsers: "Chats load.", PlanRow: "Checked.", Risk: "Low.", ReadyForTap: true, State: prrow.StateOpen, WaitsOn: "Only your approval.",
+		ForUsers: "Chats load.", PlanRow: "Checked.", Risk: "- **Availability:** a slow chat.", ReadyForTap: true, State: prrow.StateOpen, WaitsOn: "Only your approval.",
 		Hold: prrow.None, SupersededBy: prrow.None,
 	}
 }
@@ -79,7 +79,7 @@ func TestARowTurningReadyDrawsOneCardAndASecondPassDrawsNothing(t *testing.T) {
 	if err := json.Unmarshal([]byte(f.shell.drawn["card-tap-50287-fa8217f"]), &card); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(card.Title, "Tap: #50287") || card.Children[0].Options[0].Label != approveLabel || card.Children[1].Head != readyHead {
+	if !strings.HasPrefix(card.Title, "Land #50287") || card.Children[0].Options[0].Label != approveLabel || card.Children[1].Head != readyHead {
 		t.Fatalf("card = %+v", card)
 	}
 	readyPass(t, f)
@@ -830,7 +830,7 @@ func TestAPassTellsTheLaneOncePerHeadWhenItsSummaryGivesNoUserSentence(t *testin
 	if len(told) != 1 || told[0].to != "lane-50831" || told[0].by != "supervisor" || !strings.Contains(told[0].text, "only plan text") {
 		t.Fatalf("told = %+v, want lane-50831 told once and nothing for the row GitHub has not read", told)
 	}
-	if change := Card(readyRepo, planOnly).PRs[0].Change; !strings.HasPrefix(change, "Not written yet: lane-50831") {
+	if change := Card(readyRepo, planOnly).PRs[0].Change; !strings.HasPrefix(change, "Not written yet: the lane that made this PR") {
 		t.Fatalf("What changes = %q, want it to say the lane owes one", change)
 	}
 	planOnly.Head, planOnly.ReadHead = nextHead, nextHead
@@ -872,7 +872,7 @@ func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	var tap struct{ Title, Summary string }
-	if err := json.Unmarshal(block, &tap); err != nil || !strings.HasPrefix(tap.Summary, source+". ") || tap.Title != "Port, old tree to new: dev #49144: Tap: #50888, sand: fix 50888" {
+	if err := json.Unmarshal(block, &tap); err != nil || !strings.HasPrefix(tap.Summary, source+". ") || tap.Title != "Port, old tree to new: dev #49144: Land #50888, fix 50888?" {
 		t.Fatalf("tap card title = %q, summary = %q, %v", tap.Title, tap.Summary, err)
 	}
 	list := ReadyCards{Cards: f.Cards, Repo: readyRepo}.listCard(context.Background(), listName(1), []store.ReviewRow{row})

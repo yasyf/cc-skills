@@ -10,9 +10,13 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-const changeOwed = "Not written yet: %s, the lane that made this PR, has been asked to say in its description what a user will see change."
+const (
+	changeOwed = "Not written yet: the lane that made this PR has been asked to say in its description what a user will see change."
+	riskOwed   = "Not written yet: the lane that made this PR has been asked to say in one plain sentence what could go wrong for a user."
+)
 
 var (
+	availability   = regexp.MustCompile(`(?im)^[ \t]*[-*][ \t]*\*\*availability:?\*\*:?[ \t]*`)
 	paragraphBreak = regexp.MustCompile(`\n\s*\n`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
@@ -24,7 +28,7 @@ var (
 // no plain sentence, that the row's lane owes one.
 func ChangeWords(row store.ReviewRow) string {
 	if ChangeFlaw(row.ForUsers) != "" {
-		return fmt.Sprintf(changeOwed, row.Lane)
+		return changeOwed
 	}
 	return userParagraphs(row.ForUsers)
 }
@@ -44,16 +48,54 @@ func ChangeFlaw(forUsers string) string {
 			return "its Summary says the same paragraph twice"
 		}
 	}
+	return unplainIn("Summary", said)
+}
+
+func RiskWords(row store.ReviewRow) string {
+	if row.Risk == "" {
+		return ""
+	}
+	if RiskFlaw(row.Risk) != "" {
+		return riskOwed
+	}
+	return riskSentence(row.Risk)
+}
+
+func RiskFlaw(risk string) string {
+	said := riskSentence(risk)
+	if said == "" {
+		return "its Risk profile has no Availability line saying what could go wrong for a user"
+	}
+	return unplainIn("Risk profile", said)
+}
+
+func riskSentence(risk string) string {
+	at := availability.FindStringIndex(risk)
+	if at == nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(risk[at[1]:], "\n")
+	first := strings.TrimSpace(sentenceEnd.Split(strings.TrimSpace(line), 2)[0])
+	if first == "" {
+		return ""
+	}
+	return strings.ToUpper(first[:1]) + first[1:] + "."
+}
+
+func unplainIn(name, said string) string {
 	if found := recordWords.FindString(said); found != "" {
-		return fmt.Sprintf("its Summary carries %q, a record a user never sees", found)
+		return fmt.Sprintf("its %s carries %q, a record a user never sees", name, found)
 	}
 	for _, word := range hexWord.FindAllString(said, -1) {
 		if strings.ContainsAny(word, "0123456789") && strings.ContainsAny(word, "abcdef") {
-			return fmt.Sprintf("its Summary carries the hash %s", word)
+			return fmt.Sprintf("its %s carries the hash %s", name, word)
 		}
 	}
 	if found := codeTerm.FindString(cardtext.Link.ReplaceAllString(said, " ")); found != "" {
-		return fmt.Sprintf("its Summary carries %s, a code term a user never sees", strings.TrimLeft(found, " \t\n("))
+		return fmt.Sprintf("its %s carries %s, a code term a user never sees", name, strings.TrimLeft(found, " \t\n("))
+	}
+	if word := cardtext.Unplain(said); word != "" {
+		return fmt.Sprintf("its %s carries %s", name, word)
 	}
 	return ""
 }

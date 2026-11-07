@@ -15,6 +15,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -24,11 +25,13 @@ import (
 )
 
 const (
-	FactCardDrawn  = "card_drawn"
-	staleDrawn     = "stale"
-	FactTapCard    = "tap_card"
-	Communicator   = communicator
-	factChangeTold = "change_told"
+	FactCardDrawn     = "card_drawn"
+	staleDrawn        = "stale"
+	FactTapCard       = "tap_card"
+	Communicator      = communicator
+	factChangeTold    = "change_told"
+	factRiskTold      = "risk_told"
+	factCardWordsTold = "card_words_told"
 
 	tapOrderKind    = "lr.tap"
 	tapAnswerWindow = time.Hour
@@ -305,17 +308,23 @@ func (c Cards) redrawPost(ctx context.Context, repo string, number int) (int, er
 // sentence its approval post shows as What changes when its Summary gives none.
 func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, facts map[int]map[string]string) error {
 	for _, row := range rows {
-		flaw := prrow.ChangeFlaw(row.ForUsers)
-		if flaw == "" || row.ReadHead == "" || row.State != prrow.StateOpen || row.Tapped || facts[row.Number][factChangeTold] != "" {
+		if row.ReadHead == "" || row.State != prrow.StateOpen || row.Tapped {
 			continue
 		}
 		at := row.Head[:min(waitsSHA, len(row.Head))]
-		text := fmt.Sprintf("#%d at %s: its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes, exit codes or code terms such as symbol names, paths and routes; the plan goes on a Plan: line outside the Summary. The post reads the new body.", row.Number, at, flaw)
-		if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("change-words:%s#%d", r.Repo, row.Number), text); err != nil {
-			return fmt.Errorf("#%d: %w", row.Number, err)
-		}
-		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factChangeTold, flaw, r.Cards.Now()); err != nil {
-			return err
+		for _, owed := range []struct{ fact, flaw, topic, text string }{
+			{factChangeTold, prrow.ChangeFlaw(row.ForUsers), "change-words", "its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes, exit codes or code terms such as symbol names, paths and routes; the plan goes on a Plan: line outside the Summary. The post reads the new body."},
+			{factRiskTold, prrow.RiskFlaw(row.Risk), "risk-words", "its approval post says only that you owe Risk, because %s. Open the Risk profile's **Availability:** line with one plain sentence on what could go wrong for a user, with no record ids, hashes, lane names, test names or code terms; the rest of the profile stays below it. The post reads the new body."},
+		} {
+			if owed.flaw == "" || facts[row.Number][owed.fact] != "" {
+				continue
+			}
+			if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("%s:%s#%d", owed.topic, r.Repo, row.Number), fmt.Sprintf("#%d at %s: "+owed.text, row.Number, at, owed.flaw)); err != nil {
+				return fmt.Errorf("#%d: %w", row.Number, err)
+			}
+			if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, owed.fact, owed.flaw, r.Cards.Now()); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -487,10 +496,15 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 		}
 	}
 	plan := NewAnswerWords(r.Cards.Runner, r.Cards.Checkout).Said(ctx, PlanWords(row))
+	row.Title = TestWords(ctx, r.Cards.Runner, r.Cards.CCX, r.Cards.Checkout, r.Repo, row.Number, row.Head, row.Title)
+	row.ForUsers = TestWords(ctx, r.Cards.Runner, r.Cards.CCX, r.Cards.Checkout, r.Repo, row.Number, row.Head, row.ForUsers)
 	row.PlanLine, row.PlanRow = plan, plan
 	block, err := TapCard(r.Repo, row)
 	if err != nil {
 		return err
+	}
+	if refusal := cardtext.PlainBlock(block); refusal != nil {
+		return r.tellCardWords(ctx, row, refusal)
 	}
 	pr := fmt.Sprintf("%s#%d", r.Repo, row.Number)
 	key := tapCardID(row)
@@ -501,6 +515,19 @@ func (r ReadyCards) draw(ctx context.Context, row store.ReviewRow, shown []tapCa
 		return err
 	}
 	return r.mark(row, tapCardDrawn)
+}
+
+func (r ReadyCards) tellCardWords(ctx context.Context, row store.ReviewRow, refusal error) error {
+	told, err := r.Cards.Store.Facts(r.Repo, row.Number, row.Head)
+	if err != nil || told[factCardWordsTold] != "" {
+		return err
+	}
+	text := fmt.Sprintf("#%d at %s: its tap card did not post, since %v. Fix the PR title or body so the card reads in plain words; it draws on the next pass.", row.Number, row.Head[:min(waitsSHA, len(row.Head))], refusal)
+	if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("card-words:%s#%d", r.Repo, row.Number), text); err != nil {
+		return fmt.Errorf("#%d: %w", row.Number, err)
+	}
+	_, err = r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factCardWordsTold, refusal.Error(), r.Cards.Now())
+	return err
 }
 
 func (r ReadyCards) mark(row store.ReviewRow, how string) error {
@@ -545,12 +572,11 @@ func tapCardID(row store.ReviewRow) string {
 
 func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	id := tapCardID(row)
-	url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number)
 	pr := Card(repo, row).PRs[0]
 	pr.Port, pr.Head = "", row.Head
 	return json.Marshal(map[string]any{
-		"id": id, "type": "card", "title": fmt.Sprintf("%sTap: #%d, %s", portTitleOpening(row), row.Number, row.Title),
-		"summary": portOpening(repo, row) + fmt.Sprintf("[#%d](%s) at %s is green, approved and graded, and waits only on your tap. %s", row.Number, url, row.Head[:min(waitsSHA, len(row.Head))], strings.Join(strings.Fields(prrow.ChangeWords(row)), " ")),
+		"id": id, "type": "card", "title": fmt.Sprintf("%sLand %s?", portTitleOpening(row), namedTitle(row.Number, row.Title)),
+		"summary": portOpening(repo, row) + strings.Join(strings.Fields(prrow.ChangeWords(row)), " ") + " It passed its checks and review and waits only on your tap.",
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
 				{"id": id + "-approve", "label": approveLabel, "recommended": true},

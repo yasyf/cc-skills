@@ -43,14 +43,14 @@ func ReservedCard(repo string, number int, head string, rows []ReservedRow, pr C
 	waits := MergeWaits(number, head)
 	var why strings.Builder
 	for _, row := range rows {
-		fmt.Fprintf(&why, "It touches your rule \"%s\" (%s). ", row.Sentence, row.Key)
+		fmt.Fprintf(&why, "It touches your rule \"%s\". ", row.Sentence)
 	}
 	words, known := reviewWords[pr.ReviewDecision]
 	if !known {
 		words = "none yet"
 	}
 	why.WriteString("Merge also allows it for this PR; Hold keeps it out of the queue.")
-	fmt.Fprintf(&why, "\n\n%s, by %s, +%d \u2212%d lines, review: %s.", pr.Title, pr.Author.Login, pr.Additions, pr.Deletions, words)
+	fmt.Fprintf(&why, "\n\nBy %s, +%d \u2212%d lines, review: %s.", pr.Author.Login, pr.Additions, pr.Deletions, words)
 	card, err := json.Marshal(map[string]any{
 		"id":    waits,
 		"type":  "card",

@@ -261,6 +261,7 @@ func (g *Gates) drawCard(ctx context.Context, f machine.Facts, rows []board.Rese
 	if err := json.Unmarshal([]byte(view), &pr); err != nil {
 		return fmt.Errorf("view of #%d: %w", f.Number, err)
 	}
+	pr.Title = board.TestWords(ctx, g.Runner, g.CCX, g.Checkout, f.Repo, f.Number, f.Head, pr.Title)
 	card, err := board.ReservedCard(f.Repo, f.Number, f.Head, rows, pr)
 	if err != nil {
 		return err

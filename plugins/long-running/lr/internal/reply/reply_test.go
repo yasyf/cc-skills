@@ -1097,11 +1097,11 @@ func TestAPRCardMissingALedgerFieldPostsAndWarnsInOneLine(t *testing.T) {
 
 func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
 	fake := scripted()
-	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\n## Risk profile\n\nLow: one retry loop.\n"}`, "gh", "pr", "view")
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\n## Risk profile\n\n- **Availability:** one retry loop.\n"}`, "gh", "pr", "view")
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true})
 	r, _, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
-	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].Title != "relay: fix the reconnect" || r.PRCards[0].Risk != "Low: one retry loop." {
+	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].Title != "relay: fix the reconnect" || r.PRCards[0].Risk != "One retry loop." {
 		t.Fatalf("cards = %+v, err %v; want the title and risk from the PR body", r.PRCards, err)
 	}
 }
@@ -1139,7 +1139,7 @@ func TestAMissingLineIsLeftOffThePRChild(t *testing.T) {
 func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
-	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "Low", WaitsOn: "Your tap", Title: "Relay fix"})
+	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanRow: "Nothing differed", Risk: "- **Availability:** chats may reconnect late.", WaitsOn: "Your tap", Title: "Relay fix"})
 	r, warning, _ := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
 	if warning != "" {
 		t.Fatalf("warning = %q on a PR with every line", warning)
@@ -1152,7 +1152,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Low") {
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:** Chats may reconnect late.") {
 		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
 	}
 }
