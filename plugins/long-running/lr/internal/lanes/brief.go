@@ -61,7 +61,7 @@ func parseBrief(text string) Brief {
 	if found := sliceStep.FindStringSubmatch(text); found != nil {
 		said.Step = found[1]
 	}
-	if found := standing.FindStringSubmatch(text); found != nil && !noDuty.MatchString(found[1]) {
+	if found := standing.FindStringSubmatch(text); found != nil && !noDuty.MatchString(found[1]) && !slices.Contains(oneShotRoles, said.Role) {
 		said.Standing = found[1]
 	}
 	if found := deliverable.FindStringSubmatch(text); found != nil {
