@@ -26,7 +26,7 @@ import (
 const (
 	Lane  = "bk-desk"
 	Duty  = "answers lanes' Buildkite reads over cci"
-	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, or bk api <path> [--fields <names>]"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>,, bk api <path> [--fields <names>], or the one write, bk retry <pipeline> <number> <job id>"
 
 	fresh       = time.Minute
 	readTimeout = 5 * time.Minute
@@ -159,6 +159,13 @@ func parse(text string) ([]string, string) {
 		return nil, "jobs takes <pipeline> <number>"
 	case "builds":
 		return parseBuilds(rest)
+	case "retry":
+		if len(rest) == 3 && jobID.MatchString(rest[2]) {
+			if _, err := strconv.Atoi(rest[1]); err == nil {
+				return append([]string{"retry"}, rest...), ""
+			}
+		}
+		return nil, "retry takes <pipeline> <number> <job id>"
 	case "annotations":
 		if len(rest) == 2 || len(rest) == 3 {
 			if _, err := strconv.Atoi(rest[1]); err == nil {
@@ -259,6 +266,20 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return *failure
 		}
 		return summary(said)
+	case "retry":
+		said, failure := d.run(ctx, "api", "-no-wait", "-X", "PUT", "/pipelines/"+args[1]+"/builds/"+args[2]+"/jobs/"+args[3]+"/retry")
+		if failure != nil {
+			return *failure
+		}
+		var retried struct {
+			ID     string `json:"id"`
+			State  string `json:"state"`
+			WebURL string `json:"web_url"`
+		}
+		if err := json.Unmarshal([]byte(said), &retried); err != nil {
+			return reply{head: "the retry's reply does not parse", body: err.Error()}
+		}
+		return reply{head: fmt.Sprintf("retried as job %s, %s", retried.ID, retried.State), url: retried.WebURL}
 	case "jobs":
 		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
 		if failure != nil {
