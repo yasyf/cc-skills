@@ -411,8 +411,8 @@ func TestASuccessorBriefRunsLaneStatusByPathAndStopsOnlyOnAPredecessorWithATurnR
 
 	text := f.briefs["conflicts-3"]
 	contains(t, text, "run `/plugin/bin/drive.py lane-status conflicts-2 --held`")
-	contains(t, text, "`cci who --drive "+testDrive+" --lane conflicts-2 --json --fields live,status,status_at`")
-	contains(t, text, "a live session whose status is not `idle`")
+	contains(t, text, "`cci who --drive "+testDrive+" --lane conflicts-2 --json --fields lane,live,status,status_at`")
+	contains(t, text, "a live session whose lane is `conflicts-2` and whose status is not `idle`")
 	contains(t, text, "An idle session or none writes nothing")
 	for _, gone := range []string{"lsof", "pids"} {
 		if strings.Contains(text, gone) {

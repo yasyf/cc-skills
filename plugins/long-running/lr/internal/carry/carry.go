@@ -278,6 +278,9 @@ func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 	if filepath.Clean(named.id) == filepath.Clean(c.Checkout) {
 		return "", nil
 	}
+	if rest, ok := strings.CutPrefix(named.id, filepath.Join(c.Home, installLink)+"/"); ok {
+		return path.Join(SpriteHome, installLink, rest), nil
+	}
 	if _, err := os.Lstat(named.id); named.variable && errors.Is(err, fs.ErrNotExist) {
 		return c.Box + named.id, nil
 	}

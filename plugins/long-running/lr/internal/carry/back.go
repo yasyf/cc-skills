@@ -11,7 +11,11 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
-const Box = "/home/sprite/drive/carried"
+const (
+	SpriteHome  = "/home/sprite"
+	Box         = SpriteHome + "/drive/carried"
+	installLink = ".claude/long-running/current"
+)
 
 var mirrored = regexp.MustCompile(regexp.QuoteMeta(Box) + `/[^` + pathStop + `]+`)
 
