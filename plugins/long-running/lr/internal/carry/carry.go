@@ -53,6 +53,10 @@ type source struct {
 	variable       bool
 }
 
+type needed struct{ error }
+
+func (n needed) Unwrap() error { return n.error }
+
 type record struct {
 	Lane string   `json:"lane"`
 	To   []string `json:"to"`
@@ -114,12 +118,20 @@ func Command(a *app.App) *cobra.Command {
 }
 
 func (c Carrier) Carry(ctx context.Context, brief string) (string, []string) {
+	rewritten, left, lacked := c.Stage(ctx, brief)
+	return rewritten, append(left, lacked...)
+}
+
+func (c Carrier) Stage(ctx context.Context, brief string) (rewritten string, left, lacked []string) {
 	rewritten, faults := c.rewrite(ctx, brief, map[source]string{})
-	left := make([]string, 0, len(faults))
 	for _, fault := range faults {
-		left = append(left, fault.Error())
+		if errors.As(fault, new(needed)) {
+			lacked = append(lacked, fault.Error())
+		} else {
+			left = append(left, fault.Error())
+		}
 	}
-	return rewritten, left
+	return rewritten, left, lacked
 }
 
 func (c Carrier) rewrite(ctx context.Context, brief string, copies map[source]string) (string, []error) {
@@ -291,7 +303,7 @@ func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 	shown, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", c.Repo, kind, "show", id}})
 	if err != nil {
-		return "", fmt.Errorf("`ccn %s show %s` failed: %w", kind, id, err)
+		return "", needed{fmt.Errorf("`ccn %s show %s` failed: %w", kind, id, err)}
 	}
 	name := path.Join(notesDir, kind+"-"+id+".md")
 	if err := write(filepath.Join(c.Into, name), []byte(shown.Stdout), 0o600); err != nil {
@@ -320,7 +332,7 @@ func (c Carrier) record(ctx context.Context, named source) (string, error) {
 		}
 		var cited record
 		if err := json.Unmarshal([]byte(strings.SplitN(header, "\n", 2)[0]), &cited); err != nil {
-			return "", fmt.Errorf("`cci show --json %s` printed no record: %w", named.id, err)
+			return "", needed{fmt.Errorf("`cci show --json %s` printed no record: %w", named.id, err)}
 		}
 		if !strings.EqualFold(cited.Lane, named.lane) && !slices.ContainsFunc(cited.To, func(to string) bool { return strings.EqualFold(to, named.lane) }) {
 			return "", nil
@@ -328,7 +340,7 @@ func (c Carrier) record(ctx context.Context, named source) (string, error) {
 	}
 	shown, err := c.show(ctx, named.id)
 	if err != nil {
-		return "", err
+		return "", needed{err}
 	}
 	name := path.Join(cciDir, "record-"+named.id+".md")
 	if err := write(filepath.Join(c.Into, name), []byte(shown), 0o600); err != nil {
@@ -369,11 +381,14 @@ func (c Carrier) file(name string) (string, error) {
 		entries = append(entries, walked)
 		return nil
 	})
+	if err == nil && size > maxBytes {
+		err = fmt.Errorf("%s holds %d MiB, over the %d MiB a launch carries", name, (size+1<<20-1)>>20, maxBytes>>20)
+	}
+	if err != nil && c.owns(resolved) {
+		return "", needed{err}
+	}
 	if err != nil {
 		return "", err
-	}
-	if size > maxBytes {
-		return "", fmt.Errorf("%s holds %d MiB, over the %d MiB a launch carries", name, (size+1<<20-1)>>20, maxBytes>>20)
 	}
 	for _, entry := range entries {
 		if err := copyEntry(entry, filepath.Join(c.Into, name, strings.TrimPrefix(entry, resolved))); err != nil {
@@ -384,6 +399,11 @@ func (c Carrier) file(name string) (string, error) {
 		return c.Box + name, fmt.Errorf("%s travels without %s, outside lane %s and neither files nor directories", name, strings.Join(skipped, ", "), c.Lane)
 	}
 	return c.Box + name, nil
+}
+
+func (c Carrier) owns(resolved string) bool {
+	drive, err := filepath.EvalSymlinks(c.Vars[DriveDir])
+	return err == nil && strings.HasPrefix(resolved+"/", drive+"/") || c.Lane != "" && slices.Contains(strings.Split(resolved, "/"), c.Lane)
 }
 
 func (c Carrier) carries(resolved string) bool {

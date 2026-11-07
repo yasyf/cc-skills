@@ -26,16 +26,17 @@ import (
 )
 
 const (
-	cpuBusyLimit  = 0.9
-	launchStall   = 60 * time.Second
-	spriteReceipt = "worker-start.json"
-	spritePrepare = "prepare.status"
-	spriteStop    = "stop.status"
-	spriteMade    = "allocation.json"
-	spriteDown    = "sprite-down"
-	laneEnv       = "CLAUDE_LONG_RUNNING_LANE"
-	placeOrca     = "orca"
-	placeSprite   = "sprite"
+	cpuBusyLimit   = 0.9
+	launchStall    = 60 * time.Second
+	spriteReceipt  = "worker-start.json"
+	spritePrepare  = "prepare.status"
+	spriteStop     = "stop.status"
+	spriteMade     = "allocation.json"
+	spriteDown     = "sprite-down"
+	spriteUnstaged = "carry-refused"
+	laneEnv        = "CLAUDE_LONG_RUNNING_LANE"
+	placeOrca      = "orca"
+	placeSprite    = "sprite"
 )
 
 var (
@@ -709,6 +710,9 @@ func baseDrift(attempt string) (key, differs string, err error) {
 
 func (d *Desk) unsettledSprite(ctx context.Context, container, lane string, action incident.Action, spec launchTarget, attempt string, exited bool, out string) error {
 	reason := clipRunes(collapsed(out[strings.LastIndex(out, "\n")+1:]), 300)
+	if unstaged, err := os.ReadFile(filepath.Join(attempt, spriteUnstaged)); err == nil {
+		return d.refuseLaunch(ctx, container, lane, action, "staging for a Sprite: "+strings.TrimSpace(string(unstaged)), "make each named path travel, under the cap and outside other lanes' scratch, or fix the cited entity, then post the go again under a new key")
+	}
 	raw, _ := os.ReadFile(filepath.Join(attempt, spriteDown))
 	canFallBack := d.Config.Launches != launchesSprite && !isFile(d.refusedLog(container, action.ActionID))
 	if key, down, _ := strings.Cut(string(raw), "\n"); key == action.ActionID && canFallBack {
