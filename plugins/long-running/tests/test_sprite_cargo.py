@@ -25,6 +25,10 @@ while args[0] != "--":
         env.update(pair.split("=", 1) for pair in args.pop(0).split(","))
     elif flag == "-s":
         args.pop(0)
+    elif flag == "--file":
+        source, upload = args.pop(0).split(":", 1)
+        with open(source, "rb") as given, open(upload, "wb") as kept:
+            kept.write(given.read())
 sys.exit(subprocess.run(args[1:], cwd=cwd, env=env).returncode)
 """
 
@@ -111,13 +115,15 @@ def test_idle_targets_and_trees_go_and_recent_or_own_ones_stay(tmp_path: Path) -
     assert f"removing {root / 'target-old'}, idle over 6 h" in result.stderr
 
 
-def test_idle_removal_runs_in_its_own_exec_with_no_stdin_before_the_upload(
+def test_idle_removal_runs_in_its_own_exec_before_an_upload_that_attaches_no_stdin(
     tmp_path: Path,
 ) -> None:
-    """signal-valkey-2 #264389: a large idle-target removal ran inside the upload's exec, outlived its session, and the run died with the exec session lost while stdin was attached."""
+    """signal-valkey-2 #264389: a large idle-target removal ran inside the upload's exec, outlived its session, and the run died with the exec session lost while stdin was attached. Nov 6 527373: the upload itself now rides --file, so no exec attaches stdin and a dropped one reconnects."""
     result, _ = run(tmp_path, "true")
 
     assert result.returncode == 0, result.stderr
     cleanup, upload, _ = [json.loads(line) for line in (tmp_path / "calls.jsonl").read_text().splitlines()]
     assert "--no-stdin" in cleanup and "rm -rf" in " ".join(cleanup)
-    assert "--no-stdin" not in upload and "rm -rf" not in " ".join(upload)
+    assert "--no-stdin" in upload and "rm -rf" not in " ".join(upload)
+    source, uploaded = upload[upload.index("--file") + 1].split(":", 1)
+    assert source == "/dev/stdin" and not Path(uploaded).exists()

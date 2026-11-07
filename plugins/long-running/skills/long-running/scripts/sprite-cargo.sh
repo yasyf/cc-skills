@@ -6,7 +6,9 @@ usage() {
 usage: sprite-cargo.sh <sprite> <lane> <repo> <ref> <command> <path>...
 
 Builds <ref> of the local checkout <repo> on the Sprite <sprite>. The <path>s of
-<ref> are archived, extracted into a fresh source tree on the Sprite, and
+<ref> are archived, uploaded to /tmp on the Sprite as a file the extracting exec
+reads and unlinks before it runs, so no exec attaches stdin and the Sprite CLI
+reconnects one whose connection drops, extracted into a fresh source tree, and
 <command>, one shell string, runs there through sh -c with CARGO_TARGET_DIR set to the lane's own
 target directory, <root>/target-<lane>. The source tree is removed when
 <command> exits, and the script exits with <command>'s status.
@@ -45,8 +47,9 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
     exec 9>&-
   done' sh "$root" "$target"
 
+upload=/tmp/lr-stdin-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 git -C "$repo" archive --format=tar "$ref" "$@" | gzip -1 |
-  sprite exec -s "$sprite" -- sh -c 'mkdir -p "$1" "$2" && touch "$1" && tar -xz -m -C "$2"' sh "$target" "$src"
+  sprite exec -s "$sprite" --no-stdin --file "/dev/stdin:$upload" -- sh -c 'exec <"$3" && rm -f "$3" && mkdir -p "$1" "$2" && touch "$1" && tar -xz -m -C "$2"' sh "$target" "$src" "$upload"
 
 sprite exec -s "$sprite" --no-stdin --dir "$src" --env "CARGO_TARGET_DIR=$target,CARGO_TERM_COLOR=never" -- \
   flock -s "$target.lock" flock -s "$src.lock" sh -c '(eval "$1"); status=$?; rm -rf "$2" "$2.lock"; exit $status' sh "$command" "$src"

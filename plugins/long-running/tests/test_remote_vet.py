@@ -20,6 +20,12 @@ if args[-1] == "/proc/loadavg":
     print(loads[sys.argv[3]])
     sys.exit(0)
 mac, sprite = os.environ["MAC_ROOT"], os.environ["SPRITE_ROOT"]
+assert args[:2] == ["--no-stdin", "--file"], args[:2]
+source, upload = args[2].split(":", 1)
+os.makedirs(os.path.dirname(sprite + upload), exist_ok=True)
+with open(source, "rb") as given, open(sprite + upload, "wb") as kept:
+    kept.write(given.read())
+args, mac = args[3:], (mac, upload)
 with open(os.environ["SPRITES_LOG"], "a") as log:
     log.write(sys.argv[3] + "\\n")
 sys.exit(subprocess.run([sprite + arg if arg.startswith(mac) else arg for arg in args[1:]]).returncode)

@@ -28,8 +28,12 @@ and <dir> goes once it is copied back.
 SPRITE_JOB_KEYS, a JSON object of environment names to the commands that print
 their values, such as {"GH_TOKEN": ["gh", "auth", "token"]}, is run here at
 start; each value reaches the job's process on the Sprite through a named pipe
-the job reads once and its environment only, never a stored file or an argument,
-written by a short exec's standard input. The job runs detached on the Sprite in a session of its own,
+the job reads once and its environment only, never a disk file or an argument,
+written by a short exec. No exec attaches standard input, so the Sprite CLI
+reconnects any exec whose connection drops: an exec that sends input uploads it
+as a file, to the Sprite's RAM disk /dev/shm for keys, tokens and records and to
+/tmp for the copies, and its command takes that file as standard input and
+unlinks it before it runs. The job runs detached on the Sprite in a session of its own,
 its output and exit status in .out and .status files beside <dir>'s directory on the local disk, so a job
 that loses <dir> still reports, and no exec stream outlives a short call, so a dropped one cannot lose a pass. Every 20
 seconds one short exec returns the output written since the last and whether the job runs, exited with
@@ -94,6 +98,11 @@ took() {
   echo "sprite-job: $1 took $((now - mark)) s" >&2
   mark=$now
 }
+fed() {
+  upload=$1/lr-stdin-$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
+  shift
+  sprite exec -s "$sprite" --no-stdin --file "/dev/stdin:$upload" -- sh -c 'exec <"$1" && rm -f "$1" && shift && exec "$@"' sh "$upload" "$@"
+}
 refresh_gh_token() {
   stamp=$state/gh-token-$sprite
   [ -z "$(find "$stamp" -mmin -4 2>/dev/null)" ] || return 0
@@ -105,7 +114,7 @@ if argv:
     print(subprocess.run(argv, capture_output=True, text=True).stdout.strip())')
   [ -n "$token" ] || return 0
   printf "protocol=https\nhost=github.com\nusername=x-access-token\npassword=%s\n\n" "$token" |
-    sprite exec -s "$sprite" -- git credential-cache --timeout=3900 store
+    fed /dev/shm git credential-cache --timeout=3900 store
 }
 plugin=$(cd "$here/../../.." && pwd)
 checkout=$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["checkout"])' "$dir/job.json")
@@ -132,7 +141,7 @@ print(seen.hexdigest())' "$1"
 ship() {
   sum=$(digest "$1")
   if [ "$(sprite exec -s "$sprite" --no-stdin -- sh -c 'mkdir -p "$(dirname "$1")"; [ ! -d "$1/" ] || cat "$1.digest" 2>/dev/null' sh "$1")" != "$sum" ]; then
-    tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | sprite exec -s "$sprite" -- flock "$1.lock" sh -c '
+    tar --no-xattrs --exclude=__pycache__ --exclude=.in_use --exclude=.orphaned_at -C "$1" -cz . | fed /tmp flock "$1.lock" sh -c '
       if [ -d "$1/" ] && [ "$(cat "$1.digest" 2>/dev/null)" = "$2" ]; then exec cat >/dev/null; fi
       if [ ! -e "$1.d" ]; then
         kept=/tmp/lr-ship/$(printf %s "$1" | sha256sum | cut -c1-16)
@@ -164,20 +173,20 @@ ship() {
 
 ship "$plugin"
 took "the plugin copy"
-tar --no-xattrs -C "$dir" -cz . | sprite exec -s "$sprite" -- sh -c '
+tar --no-xattrs -C "$dir" -cz . | fed /tmp sh -c '
   if [ ! -e "$1" ]; then
     mkdir -p "$(dirname "$1")" /tmp/lr-scratch && ln -sfn "$(mktemp -d /tmp/lr-scratch/XXXXXXXX)" "$1" || exit 1
   fi
   tar -xz -m -C "$1"' sh "$dir"
 took "the job copy"
 python3 -c 'import json, sys; entry = json.load(open(sys.argv[1])); entry["checkout"] = sys.argv[2]; print(json.dumps(entry))' "$registry" "$checkout" |
-  sprite exec -s "$sprite" -- sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1.$$" && mv "$1.$$" "$1"' sh "$registry"
+  fed /dev/shm sh -c 'mkdir -p "$(dirname "$1")" && cat >"$1.$$" && mv "$1.$$" "$1"' sh "$registry"
 python3 -c '
 import json, sys
 from pathlib import Path
 kept = Path(sys.argv[1])
 print(json.dumps({kept.name: {**json.loads(kept.read_text()), "repo": sys.argv[2], "snapshot": True}} if kept.is_file() else {}))' "$state/register-$program.json" "$checkout" |
-  sprite exec -s "$sprite" -- python3 -c '
+  fed /dev/shm python3 -c '
 import json, os, sys
 from pathlib import Path
 state = Path(sys.argv[1])
@@ -257,7 +266,7 @@ sprite exec -s "$sprite" --no-stdin -- sh -c '
   done
   exit 1' sh "$run" "$dir" "$job" "$checkout" "$plugin" || exit 1
 took "starting the job"
-{ [ -z "$keys" ] || printf "%s\n" "$keys"; } | sprite exec -s "$sprite" -- sh -c '
+{ [ -z "$keys" ] || printf "%s\n" "$keys"; } | fed /dev/shm sh -c '
   for _ in $(seq 600); do
     if [ -p "$1.keys" ]; then exec cat >"$1.keys"; fi
     sleep 0.2
@@ -271,7 +280,7 @@ ticks=0
 delta=$(mktemp)
 while [ -z "$status" ]; do
   if [ -z "$forwarded" ] && [ -e "$dir/cancelled" ]; then
-    sprite exec -s "$sprite" -- sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
+    fed /dev/shm sh -c 'cat >"$1/cancelled"; for run in "$1"/codex-*; do [ -e "$run" ] && codex-ask --cancel "$run"; done; true' sh "$dir" <"$dir/cancelled" || true
     forwarded=1
   fi
   if [ "$ticks" -eq 0 ]; then
