@@ -1303,7 +1303,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		return []Outcome{{Surface: "slack", Error: "the earlier reply did not read, so nothing was posted or edited: " + err.Error()}}
 	}
 	own := was.ownMessage(r)
-	if own.Ref != "" && r.Thread != "" && was.Reply.Thread == "" && r.Order != "" {
+	if own.Ref != "" && r.Thread != "" && r.Thread != stampOf(own.Ref) && was.Reply.Thread == "" && r.Order != "" {
 		place, err := owner.PlaceOf(f.Entry.StateDir, r.Order)
 		if err != nil {
 			return []Outcome{{Surface: "slack", Error: "the order's place did not read, so nothing was posted or edited: " + err.Error()}}
@@ -1408,8 +1408,8 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 		cards = append([]string{drawn.Ref}, cards...)
 	}
 	thread := r.Thread
-	if found := slackStamp.FindStringSubmatch(drawn.Ref); thread == "" && found != nil {
-		thread = found[1] + "." + found[2]
+	if thread == "" {
+		thread = stampOf(drawn.Ref)
 	}
 	was, err := f.delivered(r.ID)
 	if err != nil || was.Reply.ID != "" || thread == "" {
@@ -1600,4 +1600,12 @@ func receipt(r Reply, sent []Outcome) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func stampOf(permalink string) string {
+	found := slackStamp.FindStringSubmatch(permalink)
+	if found == nil {
+		return ""
+	}
+	return found[1] + "." + found[2]
 }
