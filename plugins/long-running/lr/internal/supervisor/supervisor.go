@@ -213,7 +213,7 @@ func runPass(ctx context.Context, s *store.Store, drive string, generation int64
 		logDropped(d.Log, out.Acts, acts, "its base is not trunk or an open PR of the drive")
 		if d.Admit != nil {
 			admitted := d.Admit(ctx, acts, snapshot)
-			logDropped(d.Log, acts, admitted, "a gate refused it or a PR below it")
+			logDropped(d.Log, acts, admitted, "a gate or dev-red incident refused it or a PR below it; the line before names which")
 			acts = admitted
 		}
 		gated := d.Clock()

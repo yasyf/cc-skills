@@ -167,6 +167,7 @@ func (g *Gates) heldRed(ctx context.Context, f machine.Facts, reds []redIncident
 	}
 	for _, red := range reds {
 		slug := red.opener.Fields.Attrs[redAttr]
+		g.Log.Info("a dev-red incident holds a head", "pr", f.Number, "head", f.Head, "incident", slug)
 		fix := "no fix PR is named yet"
 		if len(red.fixes) > 0 {
 			fix = "its fix is #" + strconv.Itoa(red.fixes[0].number)
