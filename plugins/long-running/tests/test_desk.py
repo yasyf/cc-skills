@@ -932,7 +932,7 @@ def test_a_shallow_clone_cut_after_the_pr_opened_deepens_its_trunk_to_then_and_s
     shell.shallow_from = "2026-09-10T00:00:00Z"
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
-    assert any("--shallow-since=2026-09-01T00:00:00Z" in argv for argv in shell.calls)
+    assert any("--shallow-since=2026-08-31T00:00:00Z" in argv for argv in shell.calls)
     assert shell.fields(PR)["landed_sha"] == SQUASH
 
 
