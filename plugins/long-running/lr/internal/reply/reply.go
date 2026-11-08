@@ -1448,7 +1448,7 @@ func (f Fanout) inThread(ctx context.Context, r Reply) []Outcome {
 }
 
 func (r Reply) tapFlags() []string {
-	if len(r.Picks) > 0 {
+	if slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
 		return nil
 	}
 	flags := make([]string, 0, 2*len(r.PRs))
