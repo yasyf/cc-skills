@@ -313,14 +313,14 @@ func TestAToolsCIBkRerunRunsAsThatToolParsesItWithTheWriteToken(t *testing.T) {
 	}
 }
 
-func TestACreateStartsATestBuildWithOnlyForgeCIFlagsAndTheWriteToken(t *testing.T) {
+func TestACreateStartsATestBuildOnALaneBranchPastBranchFiltersWithOnlyForgeCIFlagsAndTheWriteToken(t *testing.T) {
 	commit := "51c4ddcef70ab5834acfa9700b55e0c1d2e3f4a5"
 	runner := &fakeRunner{reply: shell.Result{Stdout: `{"number":119692,"state":"scheduled","web_url":"https://buildkite.com/forge/test/builds/119692"}`}}
 	desk, _ := newDesk(t, runner)
 
-	read := desk.read(context.Background(), "bk create test "+commit+" dev FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1 for root's at-scale proof")
+	read := desk.read(context.Background(), "bk create test "+commit+" dd-330850820-fix FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1 for root's at-scale proof")
 
-	body := `{"branch":"dev","commit":"` + commit + `","env":{"FORGE_CI_AT_SCALE":"1","FORGE_CI_COLD":"1"},"message":"requested through bk-desk: FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1"}`
+	body := `{"branch":"dd-330850820-fix","commit":"` + commit + `","env":{"FORGE_CI_AT_SCALE":"1","FORGE_CI_COLD":"1"},"ignore_pipeline_branch_filters":true,"message":"requested through bk-desk: FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1"}`
 	if got, want := runner.calls[0].Argv, []string{"tools/ci", "bk", "api", "-no-wait", "-X", "POST", "-d", body, "/pipelines/test/builds"}; !slices.Equal(got, want) {
 		t.Fatalf("ran %q, want %q", got, want)
 	}

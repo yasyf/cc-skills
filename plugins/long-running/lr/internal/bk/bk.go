@@ -257,7 +257,7 @@ func (d *Desk) create(ctx context.Context, pipeline, commit, branch string, flag
 		key, value, _ := strings.Cut(pair, "=")
 		env[key] = value
 	}
-	body, err := json.Marshal(map[string]any{"commit": commit, "branch": branch, "env": env, "message": "requested through bk-desk: " + strings.Join(flags, " ")})
+	body, err := json.Marshal(map[string]any{"commit": commit, "branch": branch, "env": env, "ignore_pipeline_branch_filters": true, "message": "requested through bk-desk: " + strings.Join(flags, " ")})
 	if err != nil {
 		return reply{head: "the build request does not encode", body: err.Error()}
 	}
