@@ -407,8 +407,8 @@ func TestTheCardReadsNothingButTheStoreAtOneAndManyPRs(t *testing.T) {
 			if err := json.Unmarshal([]byte(out.String()), &answer); err != nil {
 				t.Fatal(err)
 			}
-			if len(answer.Cards) != n || counted.calls != 0 {
-				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and none", len(answer.Cards), n, counted.calls, n)
+			if len(answer.Cards) != n || counted.calls != 1 {
+				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and the one ELI5 read", len(answer.Cards), n, counted.calls, n)
 			}
 		})
 	}
