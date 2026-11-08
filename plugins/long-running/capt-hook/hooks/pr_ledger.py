@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from functools import cache, partial
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, HookResult, Input, Or, Runs, Tool, Warn, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, FileFixture, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry, run_script, script
@@ -235,7 +235,7 @@ def body_text(path: str | None, cwd: Path | None) -> str | None:
     if not path or path == "-":
         return None
     try:
-        return Path(cwd or ".", path).expanduser().read_text()
+        return Path(cwd or ".", Path(path).expanduser()).read_text()
     except (OSError, ValueError):
         return None
 
@@ -358,6 +358,8 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: cc-notes task 5221024.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary\nChats load.\nPlan: step 3.'", env=LANE_ENV): Block(pattern="Availability"),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: owner:m1793.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n\nPlan: owner:m1854\n## Risk profile\n- **Availability:** a slow chat.\n")): Allow(),
+        Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n")): Block(pattern="Availability"),
         Input(command="ccx vcs ship --amend -m 'x: 🐛 z'", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary'  # ccx:raw", env=LANE_ENV): Allow(),
     },
@@ -366,8 +368,12 @@ def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
     calls = [call for call in evt.cmd.calls() if (call.name, *call.args)[:3] in BODY_WRITERS and any(flag_values(call.args, flag) for flag in (SHIP_BODY, *EDITED_BODY))]
     if not calls:
         return None
-    files = [body_text(path, call.cwd) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
-    body = "\n".join([*filter(None, files), evt.command.raw])
+    paths = [Path(call.cwd or ".", Path(path).expanduser()) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
+    try:
+        files = [path.read_text() for path in paths if path.is_file()]
+    except OSError:
+        return None
+    body = "\n".join([*files, evt.command.raw])
     missing = [line for line, pattern in CARD_LINES.items() if not pattern.search(body)]
     plan = PLAN_LINE.search(body)
     if not (plan and PLAN_NAMED.search(plan.group())):
