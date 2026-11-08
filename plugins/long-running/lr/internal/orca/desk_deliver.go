@@ -201,14 +201,15 @@ func (d *Desk) deliverRelays(ctx context.Context, container, lane string, relays
 
 func (d *Desk) postRelaysToSprite(ctx context.Context, container string, dispatch *laneDispatch, relays []incident.Action) error {
 	for _, action := range relays {
-		if err := d.postRelay(ctx, container, dispatch.Lane, action, "a Sprite lane does not read its Run mailbox"); err != nil {
-			return err
-		}
 		text, err := spriteWake(action)
 		if err != nil {
 			return err
 		}
-		if _, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, text); err != nil {
+		woke, err := d.wake(ctx, dispatch.Terminal, dispatch.Environment, text)
+		if err != nil || !woke {
+			return err
+		}
+		if err := d.postRelay(ctx, container, dispatch.Lane, action, "a Sprite lane does not read its Run mailbox"); err != nil {
 			return err
 		}
 	}
