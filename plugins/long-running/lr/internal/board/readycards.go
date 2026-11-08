@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"regexp"
 	"slices"
 	"strconv"
@@ -151,7 +152,16 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	numbers := make([]int, len(drawable))
+	for i, row := range drawable {
+		numbers[i] = row.Number
+	}
+	explained, err := prrow.ReadELI5(ctx, r.Cards.Runner, r.Cards.Checkout, r.Repo, numbers)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "tap cards draw each ELI5 from its PR body's Context, since the reviewer bot's could not be read: %v\n", err)
+	}
 	for _, row := range drawable {
+		row.ELI5 = explained[row.Number]
 		if err := r.draw(ctx, row, shown, known[tapCardID(row)]["withdrawn"]); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
@@ -574,7 +584,7 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	pr.Port, pr.Head = "", row.Head
 	return json.Marshal(map[string]any{
 		"id": id, "type": "card", "title": fmt.Sprintf("%sLand %s?", portTitleOpening(row), namedTitle(row.Number, row.Title)),
-		"summary": portOpening(repo, row) + strings.Join(strings.Fields(prrow.ChangeWords(row)), " ") + " It passed its checks and review and waits only on your tap.",
+		"summary": portOpening(repo, row) + "It passed its checks and review and waits only on your tap.",
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
 				{"id": id + "-approve", "label": approveLabel, "recommended": true},

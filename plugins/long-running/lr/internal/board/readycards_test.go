@@ -859,6 +859,26 @@ func TestAListRowShowsAPortRefusalWhole(t *testing.T) {
 	}
 }
 
+func TestATapCardSaysWhatChangesOnceAndCarriesTheBotsELI5(t *testing.T) {
+	row := tapRow(50888)
+	row.ForUsers, row.ELI5 = "Chats open with their agent.", "A chat used to get its agent later; now it has one from the start."
+	block, err := TapCard(readyRepo, row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tap struct {
+		Summary  string
+		Children []map[string]any
+	}
+	if err := json.Unmarshal(block, &tap); err != nil {
+		t.Fatal(err)
+	}
+	pr := tap.Children[len(tap.Children)-1]
+	if strings.Contains(tap.Summary, row.ForUsers) || pr["change"] != row.ForUsers || pr["eli5"] != row.ELI5 {
+		t.Fatalf("tap card = %s, want What changes only on its PR, beside the bot's ELI5", block)
+	}
+}
+
 func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
 	f := newLink(t)
 	row := tapRow(50888)
