@@ -13,6 +13,7 @@ import (
 const (
 	changeOwed = "Not written yet: the lane that made this PR has been asked to say in its description what a user will see change."
 	riskOwed   = "Not written yet: the lane that made this PR has been asked to say in one plain sentence what could go wrong for a user."
+	PlanForms  = "Plan: step <n>, Plan: owner:m<row> or Plan: cc-notes task <id>"
 )
 
 var (
@@ -59,6 +60,16 @@ func RiskWords(row store.ReviewRow) string {
 		return riskOwed
 	}
 	return strings.TrimSpace(row.Risk)
+}
+
+func PlanFlaw(line string) string {
+	if line == "" {
+		return "its PR body has no Plan: line; write " + PlanForms
+	}
+	if !planNamed.MatchString(line) {
+		return fmt.Sprintf("its Plan: line %q names no plan step, owner:m<row> row or cc-notes task; write %s", line, PlanForms)
+	}
+	return ""
 }
 
 func RiskFlaw(risk string) string {

@@ -1055,7 +1055,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
-		if prrow.ChangeFlaw(row.ForUsers) != "" || row.PlanLine == "" || row.Risk == "" {
+		if prrow.ChangeFlaw(row.ForUsers) != "" || prrow.PlanFlaw(row.PlanLine) != "" || row.Risk == "" {
 			row = f.fromGitHub(ctx, row, pr)
 		}
 		card, missing := prCardFrom(row, pr)
@@ -1080,8 +1080,8 @@ func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
 	if flaw := prrow.ChangeFlaw(row.ForUsers); flaw != "" {
 		missing = append(missing, "what it changes for a user: "+flaw)
 	}
-	if row.PlanLine == "" {
-		missing = append(missing, "the plan row: its PR body has no Plan: line naming the plan step or owner message it carries")
+	if flaw := prrow.PlanFlaw(row.PlanLine); flaw != "" {
+		missing = append(missing, "the plan row: "+flaw)
 	}
 	if flaw := prrow.RiskFlaw(row.Risk); flaw != "" {
 		missing = append(missing, "the risk: "+flaw)
@@ -1100,7 +1100,10 @@ func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) 
 	}
 	var body store.ReviewRow
 	prrow.ApplyBody(&body, read.Body)
-	row.Title, row.ForUsers, row.Risk, row.PlanLine = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Risk, body.Risk), cmp.Or(row.PlanLine, body.PlanLine)
+	row.Title, row.ForUsers, row.Risk = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Risk, body.Risk)
+	if prrow.PlanFlaw(row.PlanLine) != "" {
+		row.PlanLine, row.PlanRow = body.PlanLine, body.PlanLine
+	}
 	return row
 }
 
