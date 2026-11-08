@@ -22,13 +22,15 @@ var (
 	sentenceEnd = regexp.MustCompile(`[.!?] +[A-Z0-9"(\[*_]`)
 	listItem    = regexp.MustCompile(`^(?:[-*•>|] |#{1,6} |\d+[.)] |<)`)
 	slackHead   = regexp.MustCompile(`(?m)^#{1,6} +(.+?)\s*$`)
-	vagueLabels = []string{"card", "link", "here", "this", "post", "thread", "message"}
 )
+
+const postReach = 200
 
 type prNames struct {
 	repo   string
 	titles map[string]string
 	carded []string
+	posts  map[string]string
 }
 
 // withPRTitles reads the title of every PR the reply names, the drive's own
@@ -150,13 +152,65 @@ func (r Reply) repoNamed(name string) string {
 	return ""
 }
 
+func (f Fanout) withPostLines(ctx context.Context, r Reply) (Reply, string) {
+	var links []string
+	for _, found := range mention.FindAllStringSubmatch(cardtext.HiddenCite.ReplaceAllString(r.MD, " "), -1) {
+		if unfurled.MatchString(found[3]) {
+			links = appendNew(links, found[3])
+		}
+	}
+	for _, link := range r.Links {
+		if unfurled.MatchString(link.URL) {
+			links = appendNew(links, link.URL)
+		}
+	}
+	r.names.posts = map[string]string{}
+	var unread []string
+	for _, link := range links {
+		line, err := f.postLine(ctx, link)
+		if err != nil {
+			unread = append(unread, link+": "+err.Error())
+			continue
+		}
+		r.names.posts[link] = line
+	}
+	if len(unread) > 0 {
+		return r, "these Slack posts did not read, so each shows as its bare link instead of its current first line: " + strings.Join(unread, "; ")
+	}
+	return r, ""
+}
+
+func (f Fanout) postLine(ctx context.Context, link string) (string, error) {
+	done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "thread", "--url", link, "--limit", strconv.Itoa(postReach)}, Timeout: postTimeout})
+	if err != nil {
+		return "", err
+	}
+	type message struct {
+		TS   string `json:"ts"`
+		Text string `json:"text"`
+	}
+	var thread struct {
+		Messages []message `json:"messages"`
+	}
+	if err := json.Unmarshal([]byte(done.Stdout), &thread); err != nil {
+		return "", err
+	}
+	at := slices.IndexFunc(thread.Messages, func(posted message) bool { return posted.TS == stampOf(link) })
+	if at < 0 {
+		return "", fmt.Errorf("its post is not among the last %d of its thread", postReach)
+	}
+	line, _, _ := strings.Cut(thread.Messages[at].Text, "\n")
+	line, _, _ = strings.Cut(line, " · ")
+	return strings.Trim(strings.NewReplacer("[", "", "]", "").Replace(line), "*_ \t"), nil
+}
+
 // slackText is the body Slack shows: each PR once, as its title linked; each
-// permalink to a channel post, such as Platy's in #releases, bare on its own
-// line so Slack unfurls it; one sentence per line; and no first line that
-// repeats the title.
+// link where its author wrote it, a bare channel post such as Platy's in
+// #releases linked under its current first line; one sentence per line; and
+// no first line that repeats the title.
 func (r Reply) slackText(md string) string {
 	named := map[string]bool{}
-	var unfurl []string
+	var shared []string
 	lines := strings.Split(strings.TrimSpace(md), "\n")
 	if sameLine(lines[0], r.Title) {
 		lines = lines[1:]
@@ -169,11 +223,7 @@ func (r Reply) slackText(md string) string {
 			out = append(out, line)
 			continue
 		}
-		if url := strings.TrimSpace(line); unfurled.MatchString(url) {
-			unfurl = appendNew(unfurl, url)
-			continue
-		}
-		line = r.inSlack(r.namedOnce(line, named, &unfurl))
+		line = r.inSlack(r.namedOnce(line, named))
 		if line == "" && len(out) > 0 && out[len(out)-1] == "" {
 			continue
 		}
@@ -181,7 +231,7 @@ func (r Reply) slackText(md string) string {
 	}
 	for _, link := range r.Links {
 		if unfurled.MatchString(link.URL) {
-			unfurl = appendNew(unfurl, link.URL)
+			shared = appendNew(shared, r.postLink(link.URL))
 		}
 	}
 	var footer []string
@@ -194,7 +244,7 @@ func (r Reply) slackText(md string) string {
 		footer = append(footer, "- "+r.titled(pr))
 	}
 	body := strings.TrimSpace(strings.Join(out, "\n"))
-	for _, tail := range [][]string{footer, unfurl} {
+	for _, tail := range [][]string{footer, shared} {
 		if len(tail) > 0 {
 			body += "\n\n" + strings.Join(tail, "\n")
 		}
@@ -203,10 +253,8 @@ func (r Reply) slackText(md string) string {
 }
 
 // namedOnce names a PR's first mention in the line by its title linked and a
-// later one by its title alone, and moves a channel permalink off the line
-// onto unfurl; inline code stays as written.
-func (r Reply) namedOnce(line string, named map[string]bool, unfurl *[]string) string {
-	moved := false
+// later one by its title alone; inline code stays as written.
+func (r Reply) namedOnce(line string, named map[string]bool) string {
 	parts := strings.Split(line, "`")
 	for n := 0; n < len(parts); n += 2 {
 		parts[n] = mention.ReplaceAllStringFunc(parts[n], func(said string) string {
@@ -218,12 +266,8 @@ func (r Reply) namedOnce(line string, named map[string]bool, unfurl *[]string) s
 			if found[7] != "" && !strings.HasPrefix(said, "#") && !strings.HasPrefix(said, "PR") {
 				lead, said = said[:1], said[1:]
 			}
-			if link := cmp.Or(found[2], found[3]); unfurled.MatchString(link) {
-				*unfurl, moved = appendNew(*unfurl, link), true
-				if slices.Contains(vagueLabels, strings.ToLower(found[1])) {
-					return lead
-				}
-				return lead + found[1]
+			if r.names.posts[found[3]] != "" {
+				return lead + r.postLink(found[3])
 			}
 			url := r.mentionURL(found)
 			if url == "" {
@@ -245,7 +289,14 @@ func (r Reply) namedOnce(line string, named map[string]bool, unfurl *[]string) s
 			return lead + "[" + title + "](" + url + ")"
 		})
 	}
-	return tidy(strings.Join(parts, "`"), moved)
+	return strings.Join(parts, "`")
+}
+
+func (r Reply) postLink(url string) string {
+	if line := r.names.posts[url]; line != "" {
+		return "[" + line + "](" + url + ")"
+	}
+	return url
 }
 
 func (r Reply) titled(pr string) string {
@@ -265,28 +316,6 @@ func prose(line string) []string {
 		line = line[at[1]-1:]
 	}
 	return append(lines, line)
-}
-
-// tidy closes the gaps a link moved off the line leaves behind, down to a
-// lead-in such as "Platy card:" that now introduces nothing.
-func tidy(line string, moved bool) string {
-	if !moved {
-		return line
-	}
-	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
-	text := strings.TrimSpace(line)
-	for _, gap := range [][2]string{{"()", ""}, {"( )", ""}, {"  ", " "}, {" .", "."}, {" ,", ","}, {" ;", ";"}, {" :", ":"}, {" )", ")"}} {
-		for strings.Contains(text, gap[0]) {
-			text = strings.ReplaceAll(text, gap[0], gap[1])
-		}
-	}
-	if strings.HasSuffix(text, ":") {
-		text = strings.TrimSpace(text[:strings.LastIndex(text, ". ")+1])
-	}
-	if text == "" {
-		return ""
-	}
-	return indent + text
 }
 
 func sameLine(line, title string) bool {

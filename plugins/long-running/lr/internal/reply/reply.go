@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
@@ -161,6 +162,7 @@ type Reply struct {
 
 type Outcome struct {
 	Surface string `json:"surface"`
+	Card    string `json:"card,omitempty"`
 	Ref     string `json:"ref,omitempty"`
 	Error   string `json:"error,omitempty"`
 	Warning string `json:"warning,omitempty"`
@@ -241,7 +243,8 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 // withCardLinks links each open card the reply names as card:ID, longest id
 // first so no card's name is taken for a shorter one's; each surface resolves
 // the link when it draws, and inSlack resolves it to the Slack message.
-// The reply posts whatever it finds: the second result is one warning line when
+// A reply that asks for his tap and links no card is refused by nothingToTap;
+// any other posts whatever it finds: the second result is one warning line when
 // the board did not read, or empty.
 func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
@@ -329,11 +332,11 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 	return r, ""
 }
 
-func (f Fanout) nothingToTap(r Reply) error {
+func (f Fanout) nothingToTap(ctx context.Context, r Reply) error {
 	asks := slices.ContainsFunc(sentence.Split(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " "), -1), func(said string) bool {
 		return tapOrder.MatchString(said) || asksTap.MatchString(said) && !describes.MatchString(said)
 	})
-	if len(r.Picks) > 0 || !asks {
+	if len(r.Picks) > 0 || len(r.OpenCards) > 0 || !asks {
 		return nil
 	}
 	numbers := make([]int, len(r.PRs))
@@ -348,7 +351,36 @@ func (f Fanout) nothingToTap(r Reply) error {
 			return nil
 		}
 	}
-	return errors.New("NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks and no open PR he can approve, so he would get a message with nothing to tap and nothing went out; add the picks, name the open PR, or say what it waits on without asking him")
+	const refused = "NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks, no open PR he can approve and no open card, so he would get a message with nothing to tap and nothing went out; "
+	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
+	if err != nil {
+		return errors.New(refused + "his board did not read, so no open card was found to copy into this message: " + err.Error())
+	}
+	cards := slices.DeleteFunc(outcomes.OpenCards(), func(card board.OpenCard) bool {
+		return card.ID == cardPrefix+r.ID || linkedCard(r.MD, card) != r.MD
+	})
+	if len(cards) == 0 {
+		return errors.New(refused + "no card on his board is open, so give him the picks he answers in this reply")
+	}
+	nearest := slices.MaxFunc(cards, func(one, other board.OpenCard) int {
+		return cmp.Compare(sharedWords(one.Title, r.Title+" "+r.MD), sharedWords(other.Title, r.Title+" "+r.MD))
+	})
+	thread := cmp.Or(r.Thread, "<the ts this reply posts at>")
+	return fmt.Errorf("%sthe nearest open card is %q: name it in md by that title or by %s, and this reply copies it into its own thread, or copy it with `cc-slack card-copy --url %s --thread %s`", refused, nearest.Title, strings.TrimPrefix(nearest.ID, cardPrefix), nearest.URL, thread)
+}
+
+func sharedWords(title, said string) int {
+	split := func(text string) []string {
+		return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+	}
+	words := split(said)
+	shared := 0
+	for _, word := range split(title) {
+		if len(word) > 3 && slices.Contains(words, word) {
+			shared++
+		}
+	}
+	return shared
 }
 
 func (f Fanout) approvesTapped(r Reply) error {
@@ -613,6 +645,9 @@ func linkedCard(md string, card board.OpenCard) string {
 	}
 	linked := cardLink.FindAllStringIndex(md, -1)
 	id := regexp.QuoteMeta(card.ID)
+	if bare := strings.TrimPrefix(card.ID, cardPrefix); bare != card.ID && strings.ContainsAny(bare, "0123456789") {
+		id = "(?:" + id + "|" + regexp.QuoteMeta(bare) + ")"
+	}
 	words := strings.ReplaceAll(regexp.QuoteMeta(strings.TrimPrefix(card.ID, cardPrefix)), "-", `[ -]`)
 	for _, name := range []struct{ pattern, label string }{
 		{"`?" + `\b` + id + `\b` + "`?", card.Title},
@@ -1344,7 +1379,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if r.Thread != "" && drawn.Surface == "" {
 		return f.inThread(ctx, r)
 	}
-	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && r.Status == "" {
+	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && len(r.OpenCards) == 0 && r.Status == "" {
 		return nil
 	}
 	card, err := f.statusCard(r, r.MD, "")
@@ -1423,36 +1458,43 @@ func (r Reply) tapFlags() []string {
 
 func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	drawn := surface(sent, "slack")
-	cards := make([]string, 0, 1+len(r.OpenCards))
-	for _, card := range r.OpenCards {
-		cards = append(cards, card.URL)
-	}
-	if len(r.Picks) > 0 && r.Thread != "" && drawn.Ref != "" {
-		cards = append([]string{drawn.Ref}, cards...)
-	}
-	thread := r.Thread
-	if thread == "" {
-		thread = stampOf(drawn.Ref)
-	}
+	threaded := len(r.Picks) > 0 && r.Thread != "" && drawn.Ref != ""
 	was, err := f.delivered(r.ID)
-	if err != nil || was.Reply.ID != "" || thread == "" {
-		return nil
+	if err != nil && (threaded || len(r.OpenCards) > 0) {
+		return []Outcome{{Surface: cardCopySurface, Error: "the earlier reply did not read, so no card was copied: " + err.Error()}}
 	}
+	type copied struct{ id, url string }
+	var cards []copied
+	if threaded && was.Reply.ID == "" {
+		cards = append(cards, copied{cardPrefix + r.ID, drawn.Ref})
+	}
+	for _, card := range r.OpenCards {
+		if !strings.Contains(was.Reply.MD, "(card:"+card.ID+")") {
+			cards = append(cards, copied{card.ID, card.URL})
+		}
+	}
+	thread := cmp.Or(r.Thread, stampOf(drawn.Ref))
 	copies := make([]Outcome, 0, len(cards))
 	for _, card := range cards {
-		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card, "--thread", thread}, Timeout: postTimeout})
+		if thread == "" {
+			copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Error: "this reply reached no Slack message, so the card has no thread to go in; copy it with `cc-slack card-copy --url " + card.url + " --thread <ts>` once the reply posts"})
+			continue
+		}
+		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card.url, "--thread", thread}, Timeout: postTimeout})
 		if err != nil {
-			copies = append(copies, failed(cardCopySurface, err))
+			failure := failed(cardCopySurface, err)
+			failure.Card = card.id
+			copies = append(copies, failure)
 			continue
 		}
 		var posted struct {
 			Permalink string `json:"permalink"`
 		}
 		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, Outcome{Surface: cardCopySurface, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
+			copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
 			continue
 		}
-		copies = append(copies, Outcome{Surface: cardCopySurface, Ref: posted.Permalink})
+		copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Ref: posted.Permalink})
 	}
 	return copies
 }
@@ -1613,13 +1655,17 @@ func failed(surface string, err error) Outcome {
 func receipt(r Reply, sent []Outcome) string {
 	lines := []string{r.markdown(), "", "Reply " + r.ID + "; pass this id to edit it on every surface."}
 	for _, o := range sent {
+		name := o.Surface
+		if o.Card != "" {
+			name += " of " + o.Card
+		}
 		if o.Error != "" {
-			lines = append(lines, "- "+o.Surface+" FAILED: "+o.Error)
+			lines = append(lines, "- "+name+" FAILED: "+o.Error)
 			continue
 		}
-		lines = append(lines, "- "+o.Surface+": "+o.Ref)
+		lines = append(lines, "- "+name+": "+o.Ref)
 		if o.Warning != "" {
-			lines = append(lines, "- "+o.Surface+" posted with a warning, so never resend it: "+o.Warning)
+			lines = append(lines, "- "+name+" posted with a warning, so never resend it: "+o.Warning)
 		}
 	}
 	return strings.Join(lines, "\n")

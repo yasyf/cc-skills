@@ -85,7 +85,7 @@ func Tool(a *app.App) channel.Tool {
 			"A surface that fails is named in the result while the others still go; never resend for it unless its line says nothing went out, and then send it again with its id.\n" +
 			"Before sending:\n" +
 			"- Plain words, or it refuses: with picks, a title that is one question in one sentence; options of two sentences at most; a body that asks no second question, never opens by repeating the title, says no paragraph twice and puts counts in a table; no record id, plan step, lane name, hash, corpus row such as C211, build or job name, test function name or code term, so a test is named by what it checks.\n" +
-			"- Saying something waits on his yes, no, pick or tap? Pass it in picks or prs; with neither, any such word warns.\n" +
+			"- Saying something waits on his yes, no, pick or tap? Pass it in picks or prs, or name the open card it waits on by its title or its id, such as rmw64a1tv, and the reply copies that card into its own Slack thread; with none of them it refuses and names the nearest open card.\n" +
 			"- A release word? Say what users get and link its Platy #releases permalink, or it warns. A lane's name is no release word.\n" +
 			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
@@ -155,7 +155,11 @@ func Tool(a *app.App) channel.Tool {
 			if err := fanout.untappable(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
-			if err := fanout.nothingToTap(r); err != nil {
+			r, warning = fanout.withCardLinks(ctx, r)
+			if warning != "" {
+				warned = append(warned, warning)
+			}
+			if err := fanout.nothingToTap(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			if err := fanout.approvesTapped(r); err != nil {
@@ -197,11 +201,11 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.unshownPicture(); err != nil {
 				return "reply: " + err.Error(), true
 			}
-			r, warning = fanout.withCardLinks(ctx, r)
+			r, warning = fanout.withPRTitles(ctx, r)
 			if warning != "" {
 				warned = append(warned, warning)
 			}
-			r, warning = fanout.withPRTitles(ctx, r)
+			r, warning = fanout.withPostLines(ctx, r)
 			if warning != "" {
 				warned = append(warned, warning)
 			}

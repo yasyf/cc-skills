@@ -2407,12 +2407,137 @@ func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
 			ledgerRow(t, f, tc.row)
-			err := f.nothingToTap(tc.reply)
+			err := f.nothingToTap(context.Background(), tc.reply)
 			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NOTHING TO TAP") {
 				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
 			}
 		})
 	}
+}
+
+func TestAReplyAskingForHisTapThroughNoCardNamesTheNearestOpenCardToCopy(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	f := fanout(t, fake)
+	asks := Reply{ID: "r1", Title: "Where things stand", MD: "How long the window stays open waits on your answer.", Thread: "1793635190.051179"}
+	err := f.nothingToTap(context.Background(), asks)
+	want := "the nearest open card is \"How long is the window?\": name it in md by that title or by storage-eviction-window, and this reply copies it into its own thread, or copy it with `cc-slack card-copy --url https://brook.slack.com/archives/D0B6Z/p2 --thread 1793635190.051179`"
+	if err == nil || !strings.HasPrefix(err.Error(), "NOTHING TO TAP") || !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("refusal = %v, want it to end %q", err, want)
+	}
+	if strings.Contains(err.Error(), "without asking him") {
+		t.Fatalf("refusal %q offers dropping the ask as the way past it", err)
+	}
+	linked := asks
+	linked.OpenCards = []board.OpenCard{{ID: "card-storage-eviction-window", URL: "https://brook.slack.com/archives/D0B6Z/p2"}}
+	if err := f.nothingToTap(context.Background(), linked); err != nil {
+		t.Fatalf("a reply carrying an open card was refused: %v", err)
+	}
+	empty := &shelltest.Fake{}
+	empty.Reply(`{"doc":{}}`, "cc-present", "outcomes")
+	if err := fanout(t, empty).nothingToTap(context.Background(), asks); err == nil || !strings.Contains(err.Error(), "no card on his board is open") {
+		t.Fatalf("refusal = %v, want it to say no card is open", err)
+	}
+}
+
+const catchUpBoard = `{"doc":{"blocks":[` +
+	`{"id":"card-rmw64a1tv","type":"card","title":"Should the old chats move first?","slack":{"url":"https://brook.slack.com/archives/D0B6Z/p1794100000000001"},"children":[{"id":"move-pick","type":"choice"}]},` +
+	`{"id":"card-rmw5qjpbw","type":"card","title":"Keep the window at one day?","slack":{"url":"https://brook.slack.com/archives/D0B6Z/p1794100000000002"},"children":[{"id":"window-pick","type":"choice"}]}` +
+	`]},"interactions":{"choices":{}}}`
+
+func TestATaplessCatchUpNamingTwoOpenCardsCopiesBothIntoItsOwnThread(t *testing.T) {
+	const md = "Where things stand tonight.\n\n| card | state |\n|---|---|\n| rmw64a1tv | waits on your answer |\n| rmw5qjpbw | waits on your tap |"
+	for name, tc := range map[string]struct {
+		board   string
+		refused bool
+	}{
+		"both cards open":   {catchUpBoard, false},
+		"no card left open": {`{"doc":{}}`, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := &shelltest.Fake{}
+			fake.Reply(tc.board, "cc-present", "outcomes")
+			fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p1794100000000009"}`, "cc-slack", "card-copy")
+			scriptedOver(fake)
+			text, refused := callReply(t, fake, map[string]any{"title": "Two cards wait on you", "md": md, "unprompted": true})
+			if refused != tc.refused {
+				t.Fatalf("refused = %v, want %v: %s", refused, tc.refused, text)
+			}
+			var copied, posted []string
+			for _, call := range calls(fake, "cc-slack") {
+				switch call.Argv[1] {
+				case "card-copy":
+					copied = append(copied, flag(t, call.Argv, "--url")+" in "+flag(t, call.Argv, "--thread"))
+				case "dm-status":
+					posted = append(posted, call.Argv[1])
+				}
+			}
+			if tc.refused {
+				if !strings.Contains(text, "NOTHING TO TAP") || len(copied)+len(posted) != 0 {
+					t.Fatalf("a tapless catch-up reached Slack: %s, copies %q", text, copied)
+				}
+				return
+			}
+			want := []string{"https://brook.slack.com/archives/D0B6Z/p1794100000000001 in 1793635190.051179", "https://brook.slack.com/archives/D0B6Z/p1794100000000002 in 1793635190.051179"}
+			if slices.Sort(copied); !slices.Equal(copied, want) || len(posted) != 1 {
+				t.Fatalf("copies %q and posts %q, want each card copied under the one reply it was named in", copied, posted)
+			}
+			for _, card := range []string{"card copy of card-rmw64a1tv: ", "card copy of card-rmw5qjpbw: "} {
+				if !strings.Contains(text, card) {
+					t.Errorf("result lacks %q:\n%s", card, text)
+				}
+			}
+		})
+	}
+}
+
+func callReply(t *testing.T, fake *shelltest.Fake, arguments map[string]any) (string, bool) {
+	t.Helper()
+	config := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	t.Setenv(drive.Env, "d")
+	f := fanout(t, nil)
+	entry, err := json.Marshal(f.Entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(config, "long-running", "drives"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(config, "long-running", "drives", "d.json"), entry, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "reply", "arguments": arguments}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	server := Command(&app.App{Runner: fake, Now: func() time.Time { return sentAt }, Log: slog.New(slog.DiscardHandler)}, verbTree(nil))
+	server.SetArgs([]string{"serve"})
+	server.SetIn(strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n" + string(call) + "\n"))
+	server.SetOut(&out)
+	if err := server.ExecuteContext(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+		} `json:"result"`
+	}
+	for line := range strings.Lines(out.String()) {
+		if strings.Contains(line, `"id":2`) {
+			if err := json.Unmarshal([]byte(line), &result); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if len(result.Result.Content) != 1 {
+		t.Fatalf("tools/call = %s", out.String())
+	}
+	return result.Result.Content[0].Text, result.Result.IsError
 }
 
 func TestAnApproveCardOnAPRHeAlreadyTappedIsRefused(t *testing.T) {
