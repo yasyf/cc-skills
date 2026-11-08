@@ -8,12 +8,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/grading/grader"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
@@ -21,7 +21,6 @@ import (
 
 const (
 	wholeMark   = "-whole-"
-	wholeAsked  = "finder: whole"
 	bodyEdited  = "body edit"
 	wholeRead   = "over whole "
 	pendingDir  = "pending"
@@ -29,11 +28,6 @@ const (
 	kindRead    = "github"
 	cursorAsks  = "grading-whole-asks"
 	cursorBegun = int64(1)
-)
-
-var (
-	textPR      = regexp.MustCompile(`\b([\w.-]+/[\w.-]+)#(\d+)\b|(?:^|[^\w/])#(\d{4,})\b`)
-	regradeWord = regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(grader.FinderLane) + `:\s*re-?grade\b([^;.]*)`)
 )
 
 type wholeAsk struct {
@@ -46,54 +40,6 @@ type wholeAsk struct {
 func isWhole(worker string) bool {
 	ref := refOf(worker)
 	return ref.lane == grader.FinderLane && strings.Contains(ref.base, wholeMark)
-}
-
-func textPRs(text, repo string) []string {
-	var named, bare []string
-	for _, found := range textPR.FindAllStringSubmatch(text, -1) {
-		switch {
-		case found[3] != "":
-			bare = append(bare, found[3])
-		case strings.EqualFold(found[1], repo):
-			named = append(named, found[2])
-		}
-	}
-	if len(named) > 0 {
-		return unique(named)
-	}
-	return unique(bare)
-}
-
-func requested(r client.Record, repo string) []string {
-	if !slices.Contains(r.To, grader.FinderLane) {
-		return nil
-	}
-	switch string(r.Kind) {
-	case kindDecide, kindDefect:
-		if r.Lane != rootLane {
-			return nil
-		}
-		var prs []string
-		for _, order := range regradeWord.FindAllStringSubmatch(r.Text, -1) {
-			prs = append(prs, textPRs(order[1], repo)...)
-		}
-		return unique(prs)
-	case kindAsk:
-		if !strings.Contains(strings.ToLower(r.Text), wholeAsked) {
-			return nil
-		}
-		if len(r.Refs.PRs) == 0 {
-			return textPRs(r.Text, repo)
-		}
-		prs := make([]string, 0, len(r.Refs.PRs))
-		for _, named := range r.Refs.PRs {
-			if named.Repo == "" || strings.EqualFold(named.Repo, repo) {
-				prs = append(prs, strconv.Itoa(named.Number))
-			}
-		}
-		return prs
-	}
-	return nil
 }
 
 func edited(r client.Record, repo string) map[string]string {
@@ -142,7 +88,7 @@ func (p *JobPool) readAsks(ctx context.Context, snapshot map[int]machine.Facts) 
 			continue
 		}
 		key := strconv.FormatInt(r.Seq, 10)
-		for _, pr := range requested(r, p.repo()) {
+		for _, pr := range bus.WholeAsks(r, p.repo()) {
 			if err := p.queueWhole(wholeAsk{PR: pr, Lane: r.Lane, Key: key}); err != nil {
 				return err
 			}

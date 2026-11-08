@@ -653,6 +653,7 @@ func (s Source) ReadLateGrades(ctx context.Context, snapshot []machine.Facts) ([
 		}
 		finder, fidelity := machine.GradesOf(stored)
 		f.Finder, f.Fidelity = cmp.Or(f.Finder, finder), cmp.Or(f.Fidelity, fidelity)
+		f.WholeOwed = stored[machine.WholeFact] == machine.WholeOwed
 		finderOverride, fidelityOverride := machine.OverridesOf(stored)
 		f.FinderOverride, f.FidelityOverride = f.FinderOverride || finderOverride, f.FidelityOverride || fidelityOverride
 	}
@@ -1628,6 +1629,7 @@ func fromStored(f *machine.Facts, stored map[string]string, owner string) error 
 	f.Resubmitted = resubmitted
 	f.Eviction, f.EvictionOwn = stored[machine.EvictionFact], stored[machine.EvictionOwnFact] != ""
 	f.Finder, f.Fidelity = machine.GradesOf(stored)
+	f.WholeOwed = stored[machine.WholeFact] == machine.WholeOwed
 	f.Tap, f.Condition = machine.Tap(stored["tap"]), stored["condition"]
 	f.GradeStopped = stored[machine.GradeStoppedFact]
 	f.TapRefused = stored[bus.TapRefusedFact]
