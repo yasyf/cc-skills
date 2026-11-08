@@ -44,6 +44,7 @@ var schema = map[string]any{
 		"action":      map[string]any{"type": "string", "description": "With order, the one thing he must do, on one line. Omit it when he need do nothing."},
 		"by":          map[string]any{"type": "string", "description": "With order and status progress or info and no picks, the clock it is due by, such as 11:30 PM: the ledger row reads due by it. Omit it and the row reads responded."},
 		"routed":      map[string]any{"type": "integer", "description": "With order and status progress or info and no picks, the seq of the cci record that routed his ask, written to the ledger row."},
+		"update":      map[string]any{"type": "boolean", "description": "Send his return or scheduled update. The tool writes it from the PR ledger and his board: what landed since the last update, what is red, and every PR waiting on his tap and every open pick card, each with its Approve or its card attached. md, if given, opens it; title defaults to Where things stand. Every update goes through this, never hand-written."},
 		"unprompted":  map[string]any{"type": "boolean", "description": "True when this message answers nothing he asked. Every other reply names its row in order or its line in on, and the tool warns on one naming neither."},
 		"on":          map[string]any{"type": "string", "description": "The dashboard chat message this reply answers in its thread: the topic of his thread line, such as reply:<id> or line:m<n>. Omit it for a reply in the main conversation."},
 	},
@@ -85,7 +86,8 @@ func Tool(a *app.App) channel.Tool {
 			"A surface that fails is named in the result while the others still go; never resend for it unless its line says nothing went out, and then send it again with its id.\n" +
 			"Before sending:\n" +
 			"- Plain words, or it refuses: with picks, a title that is one question in one sentence; options of two sentences at most; a body that asks no second question, never opens by repeating the title, says no paragraph twice and puts counts in a table; no record id, plan step, lane name, hash, corpus row such as C211, build or job name, test function name or code term, so a test is named by what it checks.\n" +
-			"- Saying something waits on his yes, no, pick or tap? Pass it in picks or prs, or name the open card it waits on by its title or its id, such as rmw64a1tv, and the reply copies that card into its own Slack thread; with none of them it refuses and names the nearest open card.\n" +
+			"- Saying something waits on his yes, no, pick or tap? Name it, or pass it in picks or prs; a reply that names none of them carries every PR waiting on his tap and copies every open card into its own Slack thread, and one saying something waits when nothing does refuses.\n" +
+			"- An update on his return or on a clock? Send update true and the tool writes it.\n" +
 			"- A release word? Say what users get and link its Platy #releases permalink, or it warns. A lane's name is no release word.\n" +
 			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
@@ -116,6 +118,11 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil), Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py")}
+			if r.Update {
+				if r, err = fanout.withUpdate(ctx, r); err != nil {
+					return "reply: " + err.Error(), true
+				}
+			}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)
@@ -159,7 +166,7 @@ func Tool(a *app.App) channel.Tool {
 			if warning != "" {
 				warned = append(warned, warning)
 			}
-			if err := fanout.nothingToTap(ctx, r); err != nil {
+			if r, err = fanout.withEveryWait(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			if err := fanout.approvesTapped(r); err != nil {
@@ -203,6 +210,11 @@ func Tool(a *app.App) channel.Tool {
 				warned = append(warned, warning)
 			}
 			sent := receipt(r, fanout.Send(ctx, r))
+			if r.Update {
+				if err := fanout.updated(); err != nil {
+					warned = append(warned, "the update went out, and its time did not save, so the next one repeats what this one said: "+err.Error())
+				}
+			}
 			if len(warned) > 0 {
 				sent = "Warning, posted anyway: " + strings.Join(warned, "; ") + ".\n" + sent
 			}
