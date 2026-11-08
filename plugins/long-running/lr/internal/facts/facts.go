@@ -42,6 +42,8 @@ const (
 	readersFirstWhy  = "readers-first:"
 	breaksTold       = "breaks-told"
 	breaksReader     = "owner-relay"
+	liftChecker      = "release"
+	readersFirstID   = "readers-first/"
 	openHeadsQuery   = `query($owner: String!, $name: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(states: OPEN, first: 100, after: $endCursor) { nodes { number headRefOid } pageInfo { hasNextPage endCursor } } } }`
 	memberFields     = `number state title isDraft mergedBy { login } headRefOid headRefName baseRefName body author { login } labels(first: 50) { nodes { name } } commits(first: 100) { nodes { commit { oid } } } files(first: 100) { nodes { path } } mergeable mergeStateStatus reviewDecision tip: commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 100) { nodes { __typename ... on CheckRun { name status conclusion startedAt databaseId checkSuite { databaseId workflowRun { workflow { databaseId } } } } ... on StatusContext { context state } } } } } } } reviews(last: 50, states: [APPROVED, CHANGES_REQUESTED]) { nodes { state author { login } commit { oid } } }`
 )
@@ -1249,10 +1251,16 @@ func (s Source) decideBreaks(ctx context.Context, breaks []client.Record, answer
 		if told[key] != "" || len(waiting) == 0 {
 			continue
 		}
-		if _, err := client.Post(ctx, client.Draft{
+		draft := client.Draft{
 			Drive: s.Drive, Lane: bus.SweepLane, Kind: "decide", To: []string{breaksReader}, ID: "breaks-decide/" + key, PRs: refs, Re: record.Seq,
 			Text: fmt.Sprintf("For him: %s keeps %s out of the queue because landing it now breaks production: %s. Land it now, or wait? His land-it ends the hold at once.", record.Name(), strings.Join(waiting, ", "), bus.Breaks(record)),
-		}); err != nil {
+		}
+		if reader, readersFirst := strings.CutPrefix(record.ID, readersFirstID); readersFirst {
+			reader = reader[strings.LastIndex(reader, "/")+1:]
+			draft.Kind, draft.To, draft.ID = "ask", []string{liftChecker}, "lift-check/"+key
+			draft.Text = fmt.Sprintf("Lift check: %s keeps %s out of the queue until #%s is live on every client, his standing readers-first rule, so nobody asks him. Once a release carrying #%s is live everywhere, post a lift naming that release.", record.Name(), strings.Join(waiting, ", "), reader, reader)
+		}
+		if _, err := client.Post(ctx, draft); err != nil {
 			return err
 		}
 		if _, err := s.Store.PutFact(s.Repo, 0, key, breaksTold, record.Name(), s.Now()); err != nil {
@@ -1273,7 +1281,7 @@ func (s Source) holdReadersFirst(ctx context.Context, f machine.Facts, stored ma
 	}
 	for _, reader := range readers {
 		if _, err := client.Post(ctx, client.Draft{
-			Drive: s.Drive, Lane: bus.SweepLane, Kind: "hold", ID: fmt.Sprintf("readers-first/%d/%s", f.Number, reader), PRs: []string{strconv.Itoa(f.Number)},
+			Drive: s.Drive, Lane: bus.SweepLane, Kind: "hold", ID: fmt.Sprintf("%s%d/%s", readersFirstID, f.Number, reader), PRs: []string{strconv.Itoa(f.Number)},
 			Attrs: map[string]string{bus.BreaksAttr: fmt.Sprintf("#%d writes a format that a client still on a build without #%s cannot read", f.Number, reader)},
 			Text:  fmt.Sprintf("%s #%s not live on every client. His land-it ends this hold, and so does a lift naming the live release that carries #%s.", readersFirstWhy, reader, reader),
 		}); err != nil {

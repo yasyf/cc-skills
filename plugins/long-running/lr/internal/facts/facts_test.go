@@ -2209,8 +2209,15 @@ func TestAWriterNamingItsReaderIsHeldForTheCoordinatorAndNeverQueuedThoughTapped
 	if holds := readersFirstHolds(t); len(holds) != 1 || holds[0].ID != "readers-first/51547/51542" {
 		t.Fatalf("holds = %+v, want the one keyed hold however many passes read the body", holds)
 	}
-	if decides := breaksDecides(t); len(decides) != 1 || !strings.Contains(decides[0].Text, "#51547 writes a format") {
-		t.Fatalf("decides = %+v, want one decide for the writer and reader pair however many passes read it", decides)
+	if decides := breaksDecides(t); len(decides) != 0 {
+		t.Fatalf("decides = %+v, want no question for him: readers-first is his standing rule", decides)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"ask"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checks := slices.DeleteFunc(records, func(record client.Record) bool { return !slices.Contains(record.To, "release") }); len(checks) != 1 || !strings.Contains(checks[0].Text, "until #51542 is live on every client") {
+		t.Fatalf("lift checks = %+v, want one to release naming #51542 however many passes read it", checks)
 	}
 }
 
