@@ -1175,6 +1175,23 @@ func TestAPlanLineIsAnyFormALaneWritesItIn(t *testing.T) {
 	}
 }
 
+func TestAPlanLineNamesAPlanStepAnOwnerOrderOrATask(t *testing.T) {
+	for line, refused := range map[string]bool{
+		"Plan: step 3.":                  false,
+		"This carries plan step 1.":      false,
+		"Plan: owner:m1793.":             false,
+		"Plan: cc-notes task 5221024.":   false,
+		"Plan: the gate reads the body.": true,
+		"- **Plan:** carries the sweep.": true,
+		"Plan: rule/d7b507a.":            true,
+		"":                               true,
+	} {
+		if flaw := PlanFlaw(line); (flaw != "") != refused || refused && !strings.Contains(flaw, PlanForms) {
+			t.Errorf("PlanFlaw(%q) = %q, want refused %v naming the accepted forms", line, flaw, refused)
+		}
+	}
+}
+
 func TestTheBodyParserReadsEachField(t *testing.T) {
 	var row store.ReviewRow
 	ApplyBody(&row, "## Context\n\nWhy.\n\n## Summary\n\nFor a user.\n\n## Risk profile\n\nNone.\n\n## Design\n\nRow 12 of plan step 3 applies.\n\n## Changes\n\nThis goes live only after #1 is live.\n")

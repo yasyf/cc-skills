@@ -115,14 +115,16 @@ UNPOSTED = "#{number} has no fresh row in the landing store: {reason}. It stays 
 SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card from the body: write the body first and pass `--pr-body-file <path>`. `--no-pr` or `--no-push` opens nothing."
 CARD_LINES = {
     "## Summary": re.compile(r"^#{1,3}\s+Summary\s*$", re.MULTILINE | re.IGNORECASE),
-    "Plan: <the plan step, owner message, or cc-notes task it carries>": re.compile(
-        r"^[\s>*-]*plan:\s*\S|\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|owner:m\d+|cc-notes task\W+[0-9a-f]{8,})\b", re.MULTILINE | re.IGNORECASE
-    ),
     "## Risk profile": re.compile(r"^#{1,3}\s+Risk profile\s*$", re.MULTILINE | re.IGNORECASE),
     "- **Availability:** <what could go wrong for a user, in plain words>": re.compile(r"^[ \t]*[-*][ \t]*\*\*availability:?\*\*", re.MULTILINE | re.IGNORECASE),
 }
+PLAN_LINE = re.compile(
+    r"^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b.*)$", re.MULTILINE | re.IGNORECASE
+)
+PLAN_NAMED = re.compile(r"\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b", re.IGNORECASE)
+PLAN_FORMS = "Plan: step <n>, Plan: owner:m<row> or Plan: cc-notes task <id>"
 CARD_LINES_MISSING = (
-    "A drive PR's card draws from `## Summary`, a `Plan:` line and the `## Risk profile` `**Availability:**` line, and refuses without them."
+    "A drive PR's card draws from `## Summary`, a `Plan:` line naming a plan step, an `owner:m<row>` row or a cc-notes task, and the `## Risk profile` `**Availability:**` line, and refuses without them."
     " Add the lines below to the body, then run the command again."
 )
 SHIP_CLIPPED = "This ship's output was cut before its PR line, so the PR has no board row and no head record. Rerun `ccx vcs ship --no-commit --pr-body-file <body>` with no pipe."
@@ -351,6 +353,9 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
     skip_if=[Annotated("raw")],
     tests={
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n## Risk profile\n- **Data:** none.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Block(pattern="Plan:"),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: the gate reads the body.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Block(pattern="owner:m<row>"),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: step 3.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: cc-notes task 5221024.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary\nChats load.\nPlan: step 3.'", env=LANE_ENV): Block(pattern="Availability"),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: owner:m1793.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="ccx vcs ship --amend -m 'x: 🐛 z'", env=LANE_ENV): Allow(),
@@ -362,8 +367,11 @@ def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
     if not calls:
         return None
     files = [body_text(path, call.cwd) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
-    body = "\n".join([evt.command.raw, *filter(None, files)])
+    body = "\n".join([*filter(None, files), evt.command.raw])
     missing = [line for line, pattern in CARD_LINES.items() if not pattern.search(body)]
+    plan = PLAN_LINE.search(body)
+    if not (plan and PLAN_NAMED.search(plan.group())):
+        missing.append(PLAN_FORMS)
     return evt.block(CARD_LINES_MISSING + "\n```\n" + "\n".join(missing) + "\n```") if missing else None
 
 

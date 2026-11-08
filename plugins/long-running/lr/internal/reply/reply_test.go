@@ -1101,6 +1101,27 @@ func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
 	}
 }
 
+func TestAPRCardWhosePlanLineIsAMechanismSentenceIsRefusedUntilItsBodyNamesAPlanRow(t *testing.T) {
+	mechanism := carded
+	mechanism.PlanLine, mechanism.PlanRow, mechanism.Lane = "Plan: the gate reads the body.", "Plan: the gate reads the body.", "relay-1"
+	r := Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}}
+	fake := scripted()
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: the gate reads the body.\n"}`, "gh", "pr", "view")
+	f := fanout(t, fake)
+	ledgerRow(t, f, mechanism)
+	if _, err := f.withPRCards(context.Background(), r); err == nil || !strings.Contains(err.Error(), "lacks the plan row") || !strings.Contains(err.Error(), prrow.PlanForms) {
+		t.Fatalf("err = %v, want the card refused naming the accepted plan forms", err)
+	}
+	fixed := scripted()
+	fixed.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: owner:m1793.\n"}`, "gh", "pr", "view")
+	f = fanout(t, fixed)
+	ledgerRow(t, f, mechanism)
+	got, err := f.withPRCards(context.Background(), r)
+	if err != nil || len(got.PRCards) != 1 || got.PRCards[0].Plan != "Plan: owner:m1793." {
+		t.Fatalf("cards = %+v, err %v; want the plan row read from the fixed body", got.PRCards, err)
+	}
+}
+
 func TestAPRCardWithNothingInItsRowOrItsBodyIsRefused(t *testing.T) {
 	fake := scripted()
 	fake.Reply(`{"title":"relay: fix the reconnect","body":"Fixes the reconnect."}`, "gh", "pr", "view")
