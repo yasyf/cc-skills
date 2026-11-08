@@ -228,3 +228,37 @@ func TestAnIncidentLineIsNotFiredWhenItsFixLaneStoodDownOrRootWithdrewIt(t *test
 		})
 	}
 }
+
+func TestAnIncidentOnAMonitorWhoseFixLaneRetiredEarlierLaunchesAndOneRetiredAfterItsLineDoesNot(t *testing.T) {
+	w := newDeskWorld(t)
+	const lane = "api-500-fix"
+	w.register(store.Lane{Name: lane, Role: "lane"})
+	if err := w.desk.Registry.SetLaneState(lane, store.LaneRetired, w.now, "api-500-fix-2", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.lines()
+	w.now = w.now.Add(4 * 24 * time.Hour)
+	w.line("orca-desk: incident api-500 https://dd/1 :: errors")
+	w.lines()
+	w.desk.background.Wait()
+	if len(w.fired) != 1 || w.fired[0].Slug != "api-500" {
+		t.Fatalf("an incident whose fix lane retired days before its line was not launched: %v %v", w.fired, w.escalations())
+	}
+	w.noEscalation("WITHDRAWN ")
+
+	w.now = w.now.Add(time.Hour)
+	if err := w.desk.Registry.ReviveLane(lane, w.now); err != nil {
+		t.Fatal(err)
+	}
+	w.line("orca-desk: incident api-500 https://dd/1 :: errors again")
+	w.now = w.now.Add(time.Minute)
+	if err := w.desk.Registry.SetLaneState(lane, store.LaneRetired, w.now, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	w.lines()
+	w.desk.background.Wait()
+	if len(w.fired) != 1 {
+		t.Fatalf("an incident whose fix lane retired after its line was launched: %v", w.fired)
+	}
+	wantContains(t, w.wantEscalation("WITHDRAWN "), "its lane was retired after its incident line was posted")
+}
