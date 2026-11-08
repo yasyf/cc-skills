@@ -85,6 +85,7 @@ KEPT_REFUSALS = KEPT | {
     "owner_returns.owner_slack_waits_hold_the_stop": "the owner ordered the refusal: a turn that ends with his thread message unanswered or the watch down leaves him unanswered until he bumps the window, and a warning on Stop reaches nobody",
     "owner_returns.The communicator reads only a Slack messag": "the owner corrected the communicator's warned wide searches twice, so a warning did not stop them",
     "owner_slack_links.owner_slack_links_get_routed": STOP.format(what="a thread the owner linked would go unanswered"),
+    "pr_ledger.drive_pr_bodies_carry_card_lines": "the owner ordered the refusal (m1796, m1797): a body without its summary, plan line or risk draws a card that refuses, and a warning lands after the PR is open and its row is already thin",
     "pr_ledger.ships_that_open_a_pr_name_its_body": "the plan the owner picked (1cc85e1) makes this a failure: a PR opened with no body has an empty row, and a warning lands after the PR is open and its CI and review bots have started",
     "register_gates.hook_edit_guard": "trust: hook-file edits",
     "release_cards.release_leaves_out_what_his_open_cards_gate": "an apply cannot be recalled and sandsql cannot roll back, so a warning on the start lands after the stack ships (cci 386973)",

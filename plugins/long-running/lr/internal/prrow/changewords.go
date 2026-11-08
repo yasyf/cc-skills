@@ -58,7 +58,7 @@ func RiskWords(row store.ReviewRow) string {
 	if RiskFlaw(row.Risk) != "" {
 		return riskOwed
 	}
-	return riskSentence(row.Risk)
+	return strings.TrimSpace(row.Risk)
 }
 
 func RiskFlaw(risk string) string {

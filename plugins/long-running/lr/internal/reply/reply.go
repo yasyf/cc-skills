@@ -1023,13 +1023,13 @@ func (r Reply) bareExplainMore() error {
 	return nil
 }
 
-// withPRCards reads each PR the reply names from the drive's PR ledger, for
-// its card to carry. The reply posts whatever it finds: the second result is
-// one warning line naming what is missing, or empty. A PR he cannot approve,
-// on a reply with no picks, is only a mention.
-func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string, error) {
+// withPRCards reads each PR the reply names from the drive's PR ledger and
+// draws its card, refusing the whole reply when any card would miss what it
+// changes for a user, the plan row, the risk or what it waits on. A PR he
+// cannot approve, on a reply with no picks, is only a mention.
+func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 	if len(r.PRs) == 0 {
-		return r, "", nil
+		return r, nil
 	}
 	said := board.NewAnswerWords(f.Runner, f.Entry.Checkout)
 	numbers := make([]int, len(r.PRs))
@@ -1037,60 +1037,59 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, string, error)
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
 	repo, rows, read := board.Rows(f.Entry, numbers)
-	var short, unrowed, blank []string
+	var gaps []string
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool {
 			return row.Number == numbers[n] && strings.EqualFold(repo, pullURL.FindStringSubmatch(pr)[1])
 		})
 		if at < 0 {
-			if len(r.Picks) > 0 {
-				short = append(short, pr+" has no row in the PR ledger")
-				cards = append(cards, prCard{URL: pr})
-				continue
+			gap := pr + " has no row in the PR ledger"
+			if read != nil {
+				gap += fmt.Sprintf(" (the ledger did not read: %v)", read)
 			}
-			unrowed = append(unrowed, pr)
+			gaps = append(gaps, gap)
 			continue
 		}
 		row := rows[at]
 		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
-		if row.ForUsers == "" || row.Risk == "" || board.PlanWords(row) == "" {
+		if prrow.ChangeFlaw(row.ForUsers) != "" || row.PlanLine == "" || row.Risk == "" {
 			row = f.fromGitHub(ctx, row, pr)
 		}
-		if row.ForUsers == "" && row.Risk == "" && board.PlanWords(row) == "" {
-			blank = append(blank, pr)
-		}
-		card := prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), said.Said(ctx, board.PlanWords(row)), prrow.RiskWords(row), prrow.BlocksWords(row)}}
-		var missing []string
-		for _, field := range []struct{ said, name string }{{row.ForUsers, "what it changes for a user"}, {board.PlanWords(row), "the plan row"}, {row.Risk, "the risk"}} {
-			if field.said == "" {
-				missing = append(missing, field.name)
-			}
-		}
+		card, missing := prCardFrom(row, pr)
 		if len(missing) > 0 {
-			short = append(short, fmt.Sprintf("%s's ledger row and PR body lack %s", pr, strings.Join(missing, ", ")))
+			gaps = append(gaps, fmt.Sprintf("%s (lane %s) lacks %s", pr, cmp.Or(row.Lane, "unknown"), strings.Join(missing, "; ")))
+			continue
 		}
+		card.Plan = said.Said(ctx, card.Plan)
 		cards = append(cards, card)
 	}
-	if len(r.Picks) > 0 && len(blank) > 0 {
-		return r, "", fmt.Errorf("EMPTY PR CARD: %s has no Summary, plan line or Risk profile in its ledger row or its PR body, so its card would carry nothing and nothing went out; its lane writes them into the PR body, then this sends again", strings.Join(blank, ", "))
+	if len(gaps) > 0 {
+		return r, fmt.Errorf("PR CARD GAP: %s, so nothing went out; send each named lane its gap to write into the PR body's Summary, plan reference or Risk profile, then send this again", strings.Join(gaps, "; "))
 	}
-	if len(r.Picks) > 0 {
-		r.PRCards = cards
+	r.PRCards = cards
+	return r, nil
+}
+
+// prCardFrom is the one constructor of a PR card: every line drawn from the
+// row, or the names of the lines it cannot draw.
+func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
+	var missing []string
+	if flaw := prrow.ChangeFlaw(row.ForUsers); flaw != "" {
+		missing = append(missing, "what it changes for a user: "+flaw)
 	}
-	var warned []string
-	if len(unrowed) > 0 {
-		warned = append(warned, "no row in the PR ledger, so no Approve and he sees a link: "+strings.Join(unrowed, ", "))
+	if row.PlanLine == "" {
+		missing = append(missing, "the plan row: its PR body has no Plan: line naming the plan step or owner message it carries")
 	}
-	if len(short) > 0 {
-		warned = append(warned, strings.Join(short, "; ")+", so its lane fixes the PR body's Summary, plan reference or Risk profile, and this reply is edited once the row has them")
+	if flaw := prrow.RiskFlaw(row.Risk); flaw != "" {
+		missing = append(missing, "the risk: "+flaw)
 	}
-	if len(warned) > 0 && read != nil {
-		warned = append(warned, fmt.Sprintf("the PR ledger did not read: %v", read))
+	if prrow.BlocksWords(row) == "" {
+		missing = append(missing, "what it waits on: its ledger row names nothing")
 	}
-	return r, strings.Join(warned, "; "), nil
+	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.RiskWords(row), prrow.BlocksWords(row)}}, missing
 }
 
 func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {
