@@ -27,7 +27,7 @@ import (
 const (
 	Lane  = "bk-desk"
 	Duty  = "answers lanes' Buildkite reads over cci"
-	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>,, bk api <path> [--fields <names>], or the one write, bk retry <pipeline> <number> <job id>"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or the one write, bk retry <pipeline> <number> <job id>"
 
 	fresh       = time.Minute
 	readTimeout = 5 * time.Minute
@@ -49,7 +49,8 @@ var (
 	logEscapes    = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
 	htmlTags      = regexp.MustCompile(`<[^>]*>`)
 	parallelShard = regexp.MustCompile(`^[1-9][0-9]*/[1-9][0-9]*$`)
-	fixedArity    = map[string]int{"build": 2, "jobs": 2, "retry": 3}
+	fixedArity    = map[string]int{"build": 2, "jobs": 2, "failures": 2, "retry": 3}
+	failureLine   = regexp.MustCompile(failureMark + `|error TS\d+|✖|panicked`)
 	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
 )
@@ -176,6 +177,13 @@ func parse(text string) ([]string, string) {
 			}
 		}
 		return nil, "jobs takes <pipeline> <number>"
+	case "failures":
+		if len(rest) == 2 {
+			if _, err := strconv.Atoi(rest[1]); err == nil {
+				return append([]string{"failures"}, rest...), ""
+			}
+		}
+		return nil, "failures takes <pipeline> <number>"
 	case "builds":
 		return parseBuilds(rest)
 	case "retry":
@@ -305,6 +313,8 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return *failure
 		}
 		return everyJob(said)
+	case "failures":
+		return d.failures(ctx, args[1], args[2])
 	case "annotations":
 		return d.annotations(ctx, args[1], args[2], args[3:])
 	case "grep":
@@ -686,4 +696,31 @@ func matching(log string, pattern *regexp.Regexp) reply {
 		}
 	}
 	return reply{head: fmt.Sprintf("%d matching lines of a %d byte log", found, len(log)), body: askdesk.FirstBytes(lines.String(), replyLimit)}
+}
+
+func (d *Desk) failures(ctx context.Context, pipeline, number string) reply {
+	read, failure := d.build(ctx, pipeline, number)
+	if failure != nil {
+		return *failure
+	}
+	var body strings.Builder
+	failed := 0
+	for _, step := range read.Jobs {
+		if step.Type != "script" || step.State != jobFailed || step.Retried {
+			continue
+		}
+		failed++
+		fmt.Fprintf(&body, "failed job=%s %s%s\n", step.ID, step.Name, step.label())
+		log, failure := d.run(ctx, "log", pipeline, number, step.ID)
+		if failure != nil {
+			fmt.Fprintf(&body, "  %s\n", failure.head)
+			continue
+		}
+		for line := range strings.Lines(logEscapes.ReplaceAllString(log, "")) {
+			if failureLine.MatchString(line) {
+				body.WriteString("  " + strings.TrimLeft(line, " \t"))
+			}
+		}
+	}
+	return reply{head: fmt.Sprintf("%s, %d failed jobs", read.State, failed), body: askdesk.FirstBytes(body.String(), replyLimit), url: read.WebURL}
 }
