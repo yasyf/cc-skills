@@ -3,6 +3,7 @@ package grader
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -138,7 +139,7 @@ func (s *finderPassState) untouchedSince(graded, cited string) (bool, error) {
 	at := gradedAt.FindStringSubmatch(graded)
 	var paths []string
 	for _, found := range cite.FindAllStringSubmatch(cited, -1) {
-		if !slices.Contains(paths, found[1]) {
+		if !filepath.IsAbs(found[1]) && !slices.Contains(paths, found[1]) {
 			paths = append(paths, found[1])
 		}
 	}
