@@ -45,13 +45,19 @@ func readOrders(ctx context.Context, bus Bus, s *store.Store, drive, repo, state
 	for _, pr := range prs {
 		unlanded[pr.Number] = pr.State != machine.StateLanded && pr.State != machine.StateClosed
 	}
+	heard, err := s.Heard()
+	if err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
 	var carriers []owner.Lane
 	for _, row := range rows {
 		if len(row.Orders) > 0 {
-			carriers = append(carriers, owner.Lane{Name: row.Lane, Working: row.Live || slices.ContainsFunc(row.PRs, func(pr int) bool { return unlanded[pr] }), Orders: row.Orders})
+			moving := now.Sub(heard[row.Lane]) < staleSilence && (row.Live || slices.ContainsFunc(row.PRs, func(pr int) bool { return unlanded[pr] }))
+			carriers = append(carriers, owner.Lane{Name: row.Lane, Working: moving, Orders: row.Orders})
 		}
 	}
-	late := owner.PastDue(parsed, time.Now())
+	late := owner.PastDue(parsed, now)
 	open := append(late, slices.DeleteFunc(owner.Undelivered(parsed, carriers, proofs), func(order owner.Row) bool {
 		return slices.ContainsFunc(late, func(row owner.Row) bool { return row.ID == order.ID })
 	})...)

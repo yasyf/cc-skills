@@ -973,6 +973,23 @@ func TestByAndRoutedOffAQuietOrderReplyAreLeftOffWithAWarning(t *testing.T) {
 	}
 }
 
+func TestAReplyToAnOrderThatPromisesAClockMarksItsRowDueByThatClock(t *testing.T) {
+	for md, want := range map[string]string{
+		"The holistic update goes out by 9:45 PM.":  "9:45 PM",
+		"Links to you by 8:30am, once CI is green.": "8:30 AM",
+		"It will be live by 8 p.m.":                 "8:00 PM",
+		"CI is green on 4f1c2d0.":                   "",
+	} {
+		got, _ := Reply{ID: "a", Title: "Holistic update", MD: md, Status: info, Order: "m1749.1"}.mended()
+		if got.By != want {
+			t.Errorf("%q: by = %q, want %q", md, got.By, want)
+		}
+	}
+	if got, _ := (Reply{ID: "a", Title: "t", MD: "Due by 9:45 PM.", Status: info, Order: "m1", By: "10:00 PM"}).mended(); got.By != "10:00 PM" {
+		t.Fatalf("by = %q, want the clock the call named", got.By)
+	}
+}
+
 func TestLiveBlocksLandOnTheThreadAndTheirActionsPostToTalk(t *testing.T) {
 	fake := scripted()
 	f := fanout(t, fake)
@@ -2417,7 +2434,7 @@ func TestAReplyCarryingATagFragmentIsRefused(t *testing.T) {
 func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testing.T) {
 	ready := store.ReviewRow{ReadyForTap: true, State: prrow.StateOpen}
 	tapped := store.ReviewRow{ReadyForTap: true, Tapped: true, State: prrow.StateOpen}
-	const kept, attached, refused = "kept", "attached", "refused"
+	const kept, attached, refused, blocked = "kept", "attached", "refused", "blocked"
 	for name, tc := range map[string]struct {
 		row   store.ReviewRow
 		reply Reply
@@ -2426,7 +2443,8 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testi
 		"a fix waiting on his tap, with no prs":         {ready, Reply{Title: "Dashboard serve flake", MD: "#2196 is green and waits on your tap."}, attached},
 		"a list of PRs waiting on another card":         {ready, Reply{Title: "Six PRs wait only on your answer to a card already on your board", MD: "#2196 and five more."}, attached},
 		"a PR proven green, listed but tapped":          {tapped, Reply{Title: "Fork side-chat bug", MD: "#2196 is proven green and waits on your approval.", PRs: []string{landPR}}, refused},
-		"a count whose fixes wait on him, PR not ready": {store.ReviewRow{WaitsOn: "CI", State: prrow.StateOpen}, Reply{Title: "Brittleness, the count", MD: "Three fixes are ready for your approval.", PRs: []string{landPR}}, refused},
+		"a count whose fixes wait on him, PR not ready": {store.ReviewRow{WaitsOn: "CI", State: prrow.StateOpen}, Reply{Title: "Brittleness, the count", MD: "Three fixes are ready for your approval.", PRs: []string{landPR}}, blocked},
+		"an edit listing a PR whose grade blocks it":    {store.ReviewRow{WaitsOn: "a review grade needs a verdict", State: prrow.StateOpen}, Reply{ID: "rmw808igi", Title: "Memory save eval", MD: "#2196 waits on your approval.", PRs: []string{landPR}}, blocked},
 		"a title that opens with Tap":                   {ready, Reply{Title: "Tap: #2196, approval cards work again", MD: "It passed."}, attached},
 		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, kept},
 		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, kept},
@@ -2447,6 +2465,10 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testi
 			case tc.want == refused:
 				if err == nil || !strings.HasPrefix(err.Error(), "NOTHING WAITS") {
 					t.Fatalf("err = %v, want NOTHING WAITS", err)
+				}
+			case tc.want == blocked:
+				if err == nil || !strings.HasPrefix(err.Error(), "NO APPROVE") || !strings.Contains(err.Error(), "#2196: "+prrow.BlocksWords(tc.row)) {
+					t.Fatalf("err = %v, want NO APPROVE naming what #2196 waits on", err)
 				}
 			case err != nil:
 				t.Fatalf("err = %v, want it sent", err)
@@ -2497,7 +2519,7 @@ func TestAnUpdateCarriesWhatLandedWhatIsRedAndEveryWaitWithItsButtons(t *testing
 	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 2 || !got.Unprompted {
 		t.Fatalf("update = %+v, want its title, #2196's Approve and both open cards", got)
 	}
-	for _, want := range []string{"**Landed**\nNothing landed.", "**Red**\nNothing is red.", "**Waiting on you**\n- #2196", "How long is the window?: your pick"} {
+	for _, want := range []string{"**Landed**\nNothing landed.", "**Red**\nNothing is red.", "**Waiting on you**\n- #2196", "How long is the window?: your pick", "**Owed to you with nothing running**\nEvery order you gave"} {
 		if !strings.Contains(got.MD, want) {
 			t.Fatalf("md = %q, want %q", got.MD, want)
 		}
