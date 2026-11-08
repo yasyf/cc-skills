@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -102,9 +103,9 @@ type SlackPRCard struct {
 }
 
 func Card(repo string, row store.ReviewRow) SlackCard {
-	opening := portTitleOpening(row)
+	opening, lead := portTitleOpening(row), ""
 	card := SlackCard{
-		Status: "info", Title: namedTitle(row.Number, row.Title),
+		Status: "info",
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: prrow.ChangeWords(row), Plan: PlanWords(row), ELI5: prrow.ELI5Words(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
@@ -115,25 +116,36 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		card.Status = "done"
 	case prrow.StateSuperseded:
 		why := strings.TrimSuffix(row.SupersededBy, ".") + "."
-		lead, said := withdrawnLead, withdrawnLead+why
+		said := withdrawnLead + why
+		lead = withdrawnLead
 		if strings.HasPrefix(why, supersededLead) {
 			lead, said = supersededLead, why
 		}
-		card.Title, card.PRs[0].Blocks = lead+card.Title, said
+		card.PRs[0].Blocks = said
 	}
 	if !OffersApproval(row) {
-		card.Title, card.PRs[0].Head = opening+card.Title, ""
+		card.Title, card.PRs[0].Head = headed(row.Number, row.Title, func(named string) string { return opening + lead + named }), ""
 		return card
 	}
-	card.Status, card.Title = "needs_you", fmt.Sprintf("%sApprove %s?", opening, namedTitle(row.Number, row.Title))
+	card.Status, card.Title = "needs_you", headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%sApprove %s?", opening, named) })
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
 	if merges, err := store.Parse(row.MergesAt); err == nil {
-		card.Title, card.MergesAt = fmt.Sprintf("%sApprove %s before it merges itself at %s?", opening, namedTitle(row.Number, row.Title), pacific(merges)), row.MergesAt
+		card.Title = headed(row.Number, row.Title, func(named string) string {
+			return fmt.Sprintf("%sApprove %s before it merges itself at %s?", opening, named, pacific(merges))
+		})
+		card.MergesAt = row.MergesAt
 	}
 	if !row.ReadyForTap {
 		card.PRs[0].Blocks, card.PRs[0].Lands = "", prrow.LandsOnce(row)
 	}
 	return card
+}
+
+func headed(number int, title string, frame func(named string) string) string {
+	if framed := frame(namedTitle(number, title)); utf8.RuneCountInString(framed) <= slackTitleChars {
+		return framed
+	}
+	return frame(fmt.Sprintf("#%d", number))
 }
 
 func namedTitle(number int, title string) string {
@@ -224,6 +236,8 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 
 // PlanWords is the row's plan line and plan row said once, since a plan row
 // opens with the line it checked, or that its PR body names no plan step.
+const slackTitleChars = 140
+
 const planOwed = "Not written yet: its PR body names no plan step."
 
 func PlanWords(row store.ReviewRow) string {
@@ -495,13 +509,12 @@ func slackCardCommand(a *app.App) *cobra.Command {
 						if at < 0 {
 							continue
 						}
-						rows[at].ELI5 = explained[pr.Number]
-						card := Card(repository, rows[at])
-						card.PRs[0].Plan = words.Said(c.Context(), card.PRs[0].Plan)
 						plain := func(text string) string {
 							return TestWords(c.Context(), a.Runner, ccx.CLI{Runner: a.Runner}, entry.Checkout, repository, pr.Number, rows[at].Head, text)
 						}
-						card.Title, card.PRs[0].Title, card.PRs[0].Change = plain(card.Title), plain(card.PRs[0].Title), plain(card.PRs[0].Change)
+						rows[at].ELI5, rows[at].Title = explained[pr.Number], plain(rows[at].Title)
+						card := Card(repository, rows[at])
+						card.PRs[0].Plan, card.PRs[0].Change = words.Said(c.Context(), card.PRs[0].Plan), plain(card.PRs[0].Change)
 						cards = append(cards, SlackPRCard{pr, card})
 					}
 					return nil

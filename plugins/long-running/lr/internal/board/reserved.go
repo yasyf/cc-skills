@@ -54,7 +54,7 @@ func ReservedCard(repo string, number int, head string, rows []ReservedRow, pr C
 	card, err := json.Marshal(map[string]any{
 		"id":    waits,
 		"type":  "card",
-		"title": "Merge " + namedTitle(number, pr.Title) + "?",
+		"title": headed(number, pr.Title, func(named string) string { return "Merge " + named + "?" }),
 		"children": []map[string]any{
 			{"id": waits + "-context", "type": "markdown", "md": why.String()},
 			{"id": waits + "-pr", "type": "pr", "repo": repo, "number": number},

@@ -583,7 +583,7 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	pr := Card(repo, row).PRs[0]
 	pr.Port, pr.Head = "", row.Head
 	return json.Marshal(map[string]any{
-		"id": id, "type": "card", "title": fmt.Sprintf("%sLand %s?", portTitleOpening(row), namedTitle(row.Number, row.Title)),
+		"id": id, "type": "card", "title": headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%sLand %s?", portTitleOpening(row), named) }),
 		"summary": portOpening(repo, row) + "It passed its checks and review and waits only on your tap.",
 		"children": []map[string]any{
 			{"id": id + "-choice", "type": "choice", "options": []map[string]any{

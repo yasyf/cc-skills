@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
@@ -483,6 +484,24 @@ func TestAResolvedCardReadsAsThePRsTitleWithNoCommit(t *testing.T) {
 			}
 			if card.PRs[0].Head != "" {
 				t.Fatalf("PR head = %q, want none, since Slack prints a head it is sent", card.PRs[0].Head)
+			}
+		})
+	}
+}
+
+func TestACardTitleTooLongForSlackNamesThePRByNumberAndKeepsItsWordsOnThePRLine(t *testing.T) {
+	long := "dashboard: 🐛 " + strings.Repeat("the test that another Mac's chat opens read-only ", 4) + "waits for the bucket"
+	for name, change := range map[string]func(*store.ReviewRow){
+		"awaiting his tap": func(r *store.ReviewRow) { r.Title = long },
+		"landed":           func(r *store.ReviewRow) { r.Title, r.State, r.Tapped = long, prrow.StateLanded, true },
+	} {
+		t.Run(name, func(t *testing.T) {
+			card := Card(repo, readyRow(change))
+			if n := utf8.RuneCountInString(card.Title); n > slackTitleChars || !strings.Contains(card.Title, "#45583") || strings.Contains(card.Title, "bucket") {
+				t.Fatalf("title = %q (%d characters), want the number alone within %d", card.Title, n, slackTitleChars)
+			}
+			if card.PRs[0].Title != long {
+				t.Fatalf("PR line title = %q, want the whole title", card.PRs[0].Title)
 			}
 		})
 	}
