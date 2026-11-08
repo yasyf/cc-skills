@@ -35,6 +35,7 @@ const (
 	alertWindow  = time.Hour
 	alertJoin    = 24 * time.Hour
 	alertBurst   = time.Minute
+	alertAttr    = "alert"
 	alertRead    = 20
 	threadRead   = 200
 	fixLiveIdle  = 30 * time.Minute
@@ -209,7 +210,7 @@ func (a *Alerts) Check(ctx context.Context, now time.Time) error {
 		}
 	}()
 	a.isOpened, a.firing, a.changed = false, nil, nil
-	err := a.scan(ctx, now)
+	err := errors.Join(a.scan(ctx, now), a.closeUnopened(ctx))
 	for _, group := range bursts(a.changed) {
 		err = errors.Join(err, a.post(ctx, a.changedNote(group, now)))
 	}
@@ -495,9 +496,33 @@ func (a *Alerts) changedNote(group []firing, now time.Time) client.Draft {
 func unopened(f firing, failed error, now time.Time) client.Draft {
 	failure := []rune(failed.Error())
 	return client.Draft{
-		Lane: Self, Kind: blockerKind, ID: "alert-unopened:" + f.channel + ":" + f.message.TS, To: []string{Root}, URL: f.card.Permalink,
+		Lane: Self, Kind: blockerKind, ID: "alert-unopened:" + f.channel + ":" + f.message.TS, To: []string{Root}, URL: f.card.Permalink, Attrs: map[string]string{alertAttr: f.alert.slug},
 		Text: fmt.Sprintf("ALERT-UNOPENED %s: no incident record names %s %d min after it fired, and the supervisor's launch of %s-fix failed: %s | coordinator: launch its fix lane this turn with `lr incident run %s --fix-brief <file>`; alert message %s", f.headline, namedFor(f.alert, f.message), int(now.Sub(f.fired).Minutes()), f.alert.slug, string(failure[max(0, len(failure)-200):]), f.alert.slug, f.card.Permalink),
 	}
+}
+
+func (a *Alerts) closeUnopened(ctx context.Context) error {
+	blockers, err := a.Env.Bus.Open(ctx, a.Env.Config.Drive, blockerKind)
+	if err != nil {
+		return fmt.Errorf("%w: cci open blocker: %w", ErrUnread, err)
+	}
+	for _, blocker := range blockers {
+		slug := blocker.Fields.Attrs[alertAttr]
+		if blocker.Lane != Self || slug == "" {
+			continue
+		}
+		_, found, err := a.Store.Lane(slug + "-fix")
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
+		if err := a.post(ctx, client.Draft{Lane: Self, Kind: "answer", To: []string{Root}, Re: blocker.Seq, Resolves: blocker.Seq, Text: fmt.Sprintf("ALERT-OPENED %s-fix now owns the alert %s raised, so it is closed", slug, blocker.Name())}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (a *Alerts) post(ctx context.Context, draft client.Draft) error {

@@ -1305,3 +1305,32 @@ func TestAnAlertIsNamedByItsLinkSoHeNeverReadsABareNumber(t *testing.T) {
 		equal(t, namedFor(alert{name: "watch-executor-plat"}, slackMessage{Text: tc.text}), tc.want)
 	}
 }
+
+func TestAnUnopenedAlertBlockerClosesOnceItsFixLaneExists(t *testing.T) {
+	s := memory(t)
+	if _, err := s.WantLane(storeLane("sentry-7829647003-fix"), t0); err != nil {
+		t.Fatal(err)
+	}
+	var owned, unowned client.Record
+	for record, text := range map[*client.Record]string{
+		&owned:   fmt.Sprintf(`{"seq":4,"lane":%q,"kind":"blocker","text":"ALERT-UNOPENED old","fields":{"attrs":{"alert":"sentry-7829647003"}}}`, Self),
+		&unowned: fmt.Sprintf(`{"seq":5,"lane":%q,"kind":"blocker","text":"ALERT-UNOPENED new","fields":{"attrs":{"alert":"dd-338724738"}}}`, Self),
+	} {
+		if err := json.Unmarshal([]byte(text), record); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bus := &fakeBus{open: []client.Record{owned, unowned}}
+	env := Env{Bus: bus, Config: config.Config{Drive: testDrive}, MonitorLane: noMonitorLane, Runner: scripted(func([]string) (shell.Result, error) {
+		return shell.Result{Stdout: `{"messages":[]}`}, nil
+	})}
+	check := Alerts{Env: env, Store: s, Channels: []string{"C1"}, Log: slog.Default()}
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 1)
+	equal(t, []any{bus.posted[0].Resolves, bus.posted[0].To}, []any{int64(4), []string{Root}})
+	contains(t, bus.posted[0].Text, "ALERT-OPENED sentry-7829647003-fix now owns the alert")
+}
