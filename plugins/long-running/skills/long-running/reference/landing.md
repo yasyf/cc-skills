@@ -591,7 +591,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - The fix is due in two hours. Each pass, an open record with no live lane on it gets the next lane of the stem, handed over in a `note`.
 - A repeat failure of the same test or job attaches to the open record as a `note`. A resolver that names no merged PR reopens the record to the same owner. A merged PR closes that record only, never the class part of an owner order ([communicator-brief.md](communicator-brief.md#route-meta-orders)).
 - An open record past its due time, or with no live lane on it, becomes an ask in the program ledger, so it shows in the owner update and on the Your asks page.
-- Automatic retries stay, and a retry that turns the build green never closes the flake.
+- Automatic retries stay, and a retry that turns the build green never closes the flake. A test with an open `FLAKE` record that fails again is never retried past by hand: no `stack-enqueue --flake`, no `gh run rerun`, no release recut, no skip (owner m1810, Nov 6: "a test that fails releases repeatedly is low quality to fix at the root, never to retry past"). Its eviction goes to the flake lane for a structural de-flake under the three-fix rule, and the queue or cut runs again only on a head carrying that fix, or on root's explicit word.
 
 **Merges past their own red (`merge_own_red`).**
 - In every session, drive or not, the pack blocks `gh pr merge` (with or without `--admin`), `gh stack merge`, and `ccx vcs merge` when a finished failing check on a PR the merge lands is that PR's own: it fails a test the base passes, or, when its log names no test, it is green on the base.
