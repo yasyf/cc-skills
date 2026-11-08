@@ -1,6 +1,7 @@
 package board
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -222,10 +223,12 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 }
 
 // PlanWords is the row's plan line and plan row said once, since a plan row
-// opens with the line it checked.
+// opens with the line it checked, or that its PR body names no plan step.
+const planOwed = "Not written yet: its PR body names no plan step."
+
 func PlanWords(row store.ReviewRow) string {
 	if strings.HasPrefix(row.PlanRow, row.PlanLine) {
-		return row.PlanRow
+		return cmp.Or(row.PlanRow, planOwed)
 	}
 	return strings.TrimSpace(row.PlanLine + " " + row.PlanRow)
 }

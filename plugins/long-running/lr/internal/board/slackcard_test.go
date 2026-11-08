@@ -442,6 +442,7 @@ func TestPlanWordsSayASentenceTheLineAndRowShareOnce(t *testing.T) {
 		{"", "the plan's step", "the plan's step"},
 		{"the plan's step", "", "the plan's step"},
 		{"line 73", "the plan's step", "line 73 the plan's step"},
+		{"", "", planOwed},
 	} {
 		if got := PlanWords(store.ReviewRow{PlanLine: tc.line, PlanRow: tc.row}); got != tc.want {
 			t.Fatalf("PlanWords(%q, %q) = %q, want %q", tc.line, tc.row, got, tc.want)
