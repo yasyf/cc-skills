@@ -74,6 +74,18 @@ type Carrier struct {
 	Vars     map[string]string
 }
 
+func ThisNode(ctx context.Context, runner shell.Runner) (string, error) {
+	printed, err := runner.Run(ctx, shell.Command{Argv: []string{"cci", "node", "--json"}, Idempotent: true})
+	if err != nil {
+		return "", fmt.Errorf("`cci node --json` failed: %w", err)
+	}
+	var node struct{ ID string }
+	if err := json.Unmarshal([]byte(printed.Stdout), &node); err != nil || len(node.ID) < 8 {
+		return "", fmt.Errorf("`cci node --json` printed no node id: %q", printed.Stdout)
+	}
+	return node.ID[:8], nil
+}
+
 func DriveCheckout(driveDir string) string {
 	loaded, err := config.Load(filepath.Join(driveDir, "lr.json"), io.Discard)
 	if err != nil {
@@ -314,6 +326,13 @@ func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 
 func (c Carrier) show(ctx context.Context, id string, flags ...string) (string, error) {
 	argv := []string{"cci", "show"}
+	if !strings.Contains(id, "@") {
+		node, err := ThisNode(ctx, c.Runner)
+		if err != nil {
+			return "", err
+		}
+		id += "@" + node
+	}
 	if c.Drive != "" {
 		argv = append(argv, "--drive", c.Drive)
 	}

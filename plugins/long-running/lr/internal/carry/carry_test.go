@@ -17,6 +17,7 @@ const box = "/home/sprite/drive/carried"
 func carrier(t *testing.T) (Carrier, *shelltest.Fake) {
 	t.Helper()
 	fake := &shelltest.Fake{}
+	fake.Reply(`{"id":"144ffadb3d797d00"}`, "cci", "node", "--json")
 	return Carrier{Runner: fake, Home: t.TempDir(), Repo: "/drive/checkout", Into: t.TempDir(), Box: box}, fake
 }
 
@@ -538,12 +539,12 @@ const drive = "durable-agents-rebuild"
 func TestARecordTheBriefCitesIsCarriedFromTheMacInEveryFormBriefsUse(t *testing.T) {
 	c, fake := carrier(t)
 	c.Drive = drive
-	fake.Reply("@5:32 AM\n451308 note card-host\nthe first record\n", "cci", "show", "--drive", drive, "451308")
-	fake.Reply("451335 note card-host\nthe second record\n", "cci", "show", "--drive", drive, "451335")
+	fake.Reply("@5:32 AM\n451308 note card-host\nthe first record\n", "cci", "show", "--drive", drive, "451308@144ffadb")
+	fake.Reply("451335 note card-host\nthe second record\n", "cci", "show", "--drive", drive, "451335@144ffadb")
 	fake.Reply("487 note notes-store-v5\nan origin-tagged record\n", "cci", "show", "--drive", drive, "487@32fde6d5")
-	fake.Reply(`{"origin_seq":489273,"lane":"root","to":["owner-relay"]}`+"\n", "cci", "show", "--drive", drive, "--json", "489273")
-	fake.Reply("489273 report root\nthe record beside a lane\n", "cci", "show", "--drive", drive, "489273")
-	fake.Reply(`{"origin_seq":106361,"lane":"bk-desk","to":["root"]}`+"\n", "cci", "show", "--drive", drive, "--json", "106361")
+	fake.Reply(`{"origin_seq":489273,"lane":"root","to":["owner-relay"]}`+"\n", "cci", "show", "--drive", drive, "--json", "489273@144ffadb")
+	fake.Reply("489273 report root\nthe record beside a lane\n", "cci", "show", "--drive", drive, "489273@144ffadb")
+	fake.Reply(`{"origin_seq":106361,"lane":"bk-desk","to":["root"]}`+"\n", "cci", "show", "--drive", drive, "--json", "106361@144ffadb")
 	brief := "Read `cci show 451308`, record 451335 and #487@32fde6d5, then root's 489273 (PR #50456, build 106361).\n"
 
 	out := carried(t, c, brief)
@@ -561,10 +562,26 @@ func TestARecordTheBriefCitesIsCarriedFromTheMacInEveryFormBriefsUse(t *testing.
 	}
 }
 
+func TestABareRecordNumberIsTheStagingNodesRecordEvenOnceAnotherNodesRecordSharesIt(t *testing.T) {
+	c, fake := carrier(t)
+	c.Drive = drive
+	fake.Reply("420406 ask step7-primary-rss\nthe card ask\n", "cci", "show", "--drive", drive, "420406@144ffadb")
+	fake.Reply("487 note notes-store-v5\nan origin-tagged record\n", "cci", "show", "--drive", drive, "487@32fde6d5")
+
+	out, left := c.Carry(context.Background(), "Read `cci show 420406 --drive "+drive+"` and #487@32fde6d5.\n")
+
+	if want := "Read `" + box + "/cci/record-420406.md` and " + box + "/cci/record-487@32fde6d5.md.\n"; out != want || len(left) != 0 {
+		t.Fatalf("rewritten brief %q with warnings %q, want %q", out, left, want)
+	}
+	if got := landed(t, c, box+"/cci/record-420406.md"); got != "420406 ask step7-primary-rss\nthe card ask\n" {
+		t.Fatalf("record copy holds %q", got)
+	}
+}
+
 func TestSeveralRecordsOneShowNamesTravelTogetherAndItsFlagsDrop(t *testing.T) {
 	c, fake := carrier(t)
-	fake.Reply("first\n", "cci", "show", "451308")
-	fake.Reply("second\n", "cci", "show", "451335")
+	fake.Reply("first\n", "cci", "show", "451308@144ffadb")
+	fake.Reply("second\n", "cci", "show", "451335@144ffadb")
 
 	out := carried(t, c, "Run cci show --body --budget 100 451308 '#451335' to read them.\n")
 
@@ -583,7 +600,7 @@ func TestARecordTheMacCannotShowWarnsNamingItAndLeavesItsReferenceAlone(t *testi
 	if out != brief {
 		t.Fatalf("rewritten brief %q, want it unchanged", out)
 	}
-	if len(left) != 1 || !strings.Contains(left[0], "`cci show 451308` failed") || !strings.Contains(left[0], "no record has this number") {
+	if len(left) != 1 || !strings.Contains(left[0], "`cci show 451308@144ffadb` failed") || !strings.Contains(left[0], "no record has this number") {
 		t.Fatalf("warnings %q, want one naming the record", left)
 	}
 }
