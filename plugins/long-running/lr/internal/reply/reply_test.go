@@ -2062,9 +2062,9 @@ func TestAReplyAsksForItsPRsTapCardsUnlessAPickLandsThem(t *testing.T) {
 		reply Reply
 		want  []string
 	}{
-		"a status card":  {Reply{ID: "r1", Title: "t", MD: "m", Status: info, PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
-		"his thread":     {Reply{ID: "r1", Title: "t", MD: "m", Thread: "1793684147.131059", PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
-		"a link in text": {Reply{ID: "r1", Title: "t", MD: landPR + " is ready.", Status: info}, nil},
+		"a status card":           {Reply{ID: "r1", Title: "t", MD: "m", Status: info, PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
+		"his thread":              {Reply{ID: "r1", Title: "t", MD: "m", Thread: "1793684147.131059", PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
+		"a link in text":          {Reply{ID: "r1", Title: "t", MD: landPR + " is ready.", Status: info}, nil},
 		"picks that land nothing": {Reply{ID: "r1", Title: "t", MD: "m", Picks: []string{"Leave it as is", "Build it as its own change"}, Recommended: "Leave it as is", PRs: []string{landPR}}, []string{"--tap-pr", landPR}},
 	} {
 		t.Run(name, func(t *testing.T) {
