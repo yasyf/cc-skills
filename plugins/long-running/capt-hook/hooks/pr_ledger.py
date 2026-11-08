@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from functools import cache, partial
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, FileFixture, HookResult, Input, Or, Runs, Tool, Warn, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, FileFixture, HookResult, Input, Or, Runs, Tool, Warn, ast_grep, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry, run_script, script
@@ -362,6 +362,8 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
         Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n")): Block(pattern="Availability"),
         Input(command="ccx vcs ship --amend -m 'x: 🐛 z'", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary'  # ccx:raw", env=LANE_ENV): Allow(),
+        Input(command="python3 /gen.py > /new.md && gh pr edit 9 --body-file /new.md", env=LANE_ENV): Allow(),
+        Input(command="cat > /new.md <<'EOF'\n## Summary\nChats load.\nEOF\ngh pr edit 9 --body-file /new.md", env=LANE_ENV): Block(pattern="Availability"),
     },
 )
 def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
@@ -369,6 +371,8 @@ def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
     if not calls:
         return None
     paths = [Path(call.cwd or ".", Path(path).expanduser()) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
+    if any(not path.is_file() for path in paths) and not any(ast_grep.find_kinds(evt.command.raw, "bash", frozenset({"heredoc_body"}))):
+        return None
     try:
         files = [path.read_text() for path in paths if path.is_file()]
     except OSError:
