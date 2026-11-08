@@ -27,21 +27,23 @@ import (
 const (
 	Lane  = "bk-desk"
 	Duty  = "answers lanes' Buildkite reads over cci"
-	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or one of the two writes, bk retry <pipeline> <number> <job id> and tools/ci bk rerun <pipeline> <number|dev> --unit <unit> [--count <n>], which runs as tools/ci bk parses it"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or one of the three writes, bk retry <pipeline> <number> <job id>, bk create test <commit> <branch> [FORGE_CI_<FLAG>=<value>...], which starts a whole test build, and tools/ci bk rerun <pipeline> <number|dev> --unit <unit> [--count <n>], which runs as tools/ci bk parses it"
 
-	fresh       = time.Minute
-	readTimeout = 5 * time.Minute
-	tokenWait   = time.Minute
-	replyLimit  = 16 << 10
-	bodiesDir   = "bk-desk"
-	perPage     = 100
-	buildsUsage = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
-	logUsage    = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep '<regex>'] [--context <lines, 0 to 50>]"
-	jobFailed   = "failed"
-	failureMark = `--- FAIL|panic:|FAIL\s`
-	maxContext  = 50
-	apiUsage    = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq"
-	usage       = "name one read: " + Reads
+	fresh          = time.Minute
+	readTimeout    = 5 * time.Minute
+	tokenWait      = time.Minute
+	replyLimit     = 16 << 10
+	bodiesDir      = "bk-desk"
+	perPage        = 100
+	buildsUsage    = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
+	logUsage       = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep '<regex>'] [--context <lines, 0 to 50>]"
+	jobFailed      = "failed"
+	failureMark    = `--- FAIL|panic:|FAIL\s`
+	maxContext     = 50
+	createPipeline = "test"
+	createUsage    = "create takes test <full 40-character commit> <branch> [FORGE_CI_<FLAG>=<value>...]; it starts only test builds, and its env takes only FORGE_CI_ flags"
+	apiUsage       = "api reads one path with GET and answers its raw JSON, or with --fields <name,parent.child,...> one line per element; it takes no other flag such as -X, -d or --jq; to start a test build, ask bk create test <commit> <branch> [FORGE_CI_<FLAG>=<value>...]"
+	usage          = "name one read: " + Reads
 )
 
 var (
@@ -52,6 +54,9 @@ var (
 	fixedArity    = map[string]int{"build": 2, "jobs": 2, "failures": 2, "retry": 3}
 	failureLine   = regexp.MustCompile(failureMark + `|error TS\d+|✖|panicked`)
 	ciCommandEnd  = regexp.MustCompile("[\n`;]")
+	commitSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	ciFlag        = regexp.MustCompile(`^FORGE_CI_[A-Z0-9_]+=\S+$`)
+	envPair       = regexp.MustCompile(`^[A-Z][A-Z0-9_]*=`)
 	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
 )
@@ -163,6 +168,9 @@ func parse(text string) ([]string, string) {
 		}
 		return append([]string{match[1]}, rest...), ""
 	}
+	if match[1] == "create" {
+		return parseCreate(strings.Fields(match[2]))
+	}
 	if arity, fixed := fixedArity[match[1]]; fixed {
 		words := strings.Fields(match[2])
 		match[2] = strings.Join(words[:min(arity, len(words))], " ")
@@ -241,6 +249,45 @@ func parse(text string) ([]string, string) {
 		return []string{"api", rest[0], *fields}, ""
 	}
 	return nil, fmt.Sprintf("bk %s is no read; %s", match[1], usage)
+}
+
+func (d *Desk) create(ctx context.Context, pipeline, commit, branch string, flags []string) reply {
+	env := map[string]string{}
+	for _, pair := range flags {
+		key, value, _ := strings.Cut(pair, "=")
+		env[key] = value
+	}
+	body, err := json.Marshal(map[string]any{"commit": commit, "branch": branch, "env": env, "message": "requested through bk-desk: " + strings.Join(flags, " ")})
+	if err != nil {
+		return reply{head: "the build request does not encode", body: err.Error()}
+	}
+	said, failure := d.runAs(ctx, d.retryToken, "api", "-no-wait", "-X", "POST", "-d", string(body), "/pipelines/"+pipeline+"/builds")
+	if failure != nil {
+		return *failure
+	}
+	var created struct {
+		Number int    `json:"number"`
+		State  string `json:"state"`
+		WebURL string `json:"web_url"`
+	}
+	if err := json.Unmarshal([]byte(said), &created); err != nil {
+		return reply{head: "the build's reply does not parse", body: err.Error()}
+	}
+	return reply{head: fmt.Sprintf("started %s #%d, %s", pipeline, created.Number, created.State), url: created.WebURL}
+}
+
+func parseCreate(rest []string) ([]string, string) {
+	if len(rest) < 3 || rest[0] != createPipeline || !commitSHA.MatchString(rest[1]) || strings.HasPrefix(rest[2], "-") {
+		return nil, createUsage
+	}
+	flags := rest[3:]
+	if cut := slices.IndexFunc(flags, func(word string) bool { return !ciFlag.MatchString(word) }); cut >= 0 {
+		if envPair.MatchString(flags[cut]) {
+			return nil, createUsage
+		}
+		flags = flags[:cut]
+	}
+	return append([]string{"create", rest[0], rest[1], rest[2]}, flags...), ""
 }
 
 func parseLog(rest []string) ([]string, string) {
@@ -322,6 +369,8 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return reply{head: "the retry's reply does not parse", body: err.Error()}
 		}
 		return reply{head: fmt.Sprintf("retried as job %s, %s", retried.ID, retried.State), url: retried.WebURL}
+	case "create":
+		return d.create(ctx, args[1], args[2], args[3], args[4:])
 	case "jobs":
 		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
 		if failure != nil {
