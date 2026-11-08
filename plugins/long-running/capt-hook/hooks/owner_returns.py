@@ -9,7 +9,6 @@ from itertools import pairwise
 from collections.abc import Sequence
 from pathlib import Path
 
-from cc_transcript.models import UserEvent
 from spawnllm import Binary, BinaryAnswer, Refused
 
 from captain_hook import Allow, AssistantMessage, BaseHookEvent, Block, Event, FromSubagent, HookResult, Input, Or, T, Tool, Warn, WorkflowState, hook, on, workflow_state
@@ -19,7 +18,7 @@ from .compaction_handoff import bus_name, Communicator, COMMUNICATOR_LANE, commu
 from .owner_answers import read, RECORD_BYTES
 from .lane_slack_status import CC_SLACK, CLI, WRITE_TOOLS
 from .owner_slack_links import PERMALINK
-from .register_capture import CC_SLACK_CACHE, his_message, OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, queued_prompts, shipped_cc_slack, slack_dms
+from .register_capture import CC_SLACK_CACHE, his_message, OPERATOR, OWNER_WATCH, owner_messages_heard, owner_tap_threads, delivered_prompts, shipped_cc_slack, slack_dms
 from .register_gates import blocker, CAPTURES, cause
 from .root_context import CC_SLACK as CC_SLACK_CLI, OwnerPrompt, ReadsNewestSlackMessage, ReadsOneSlackMessage, runs_verb, SLACK_HISTORY, SLACK_THREAD_TOOLS, typed_words
 from .root_replies import owner_message, REPLY_WINDOW
@@ -246,6 +245,11 @@ def tap_in_directive(card: str) -> list:
 
 def watch_delivered(thread: str) -> list:
     return [*watch_queued(thread), T.assistant("Answering."), T.user(f"Stop hook feedback:\n{UNANSWERED}", isMeta=True)]
+
+
+def watch_woke(thread: str) -> list:
+    notified = watch_queued(thread)[1]["attachment"]["prompt"]
+    return [T.user("where are we", timestamp="2026-11-03T16:59:00Z"), T.assistant("Waiting."), T.user(notified, timestamp="2026-11-03T17:00:00Z"), T.assistant("Answering.")]
 
 
 def waiting(replies: str | tuple) -> Input:
@@ -576,7 +580,7 @@ def names(named: str, threads: set[str]) -> bool:
 
 
 def owner_threads(evt: BaseHookEvent) -> set[str]:
-    prompts = [*queued_prompts(evt.ctx.t.events), evt.user_prompt or ""]
+    prompts = [*delivered_prompts(evt.ctx.t.events), evt.user_prompt or ""]
     heard = owner_messages_heard(prompts)
     typed = [text for event in evt.ctx.t.events if (text := owner_message(event))]
     dms = {ts for message in heard if message["channel_id"].startswith("D") for ts in (message["thread_ts"], message["ts"])}
@@ -595,7 +599,7 @@ def captured_threads(evt: BaseHookEvent) -> set[str]:
 
 def relayed_threads(evt: BaseHookEvent) -> set[str]:
     events = evt.ctx.t.events
-    delivered = [*queued_prompts(events), *(event.text for event in events if isinstance(event, UserEvent) and event.text)]
+    delivered = delivered_prompts(events)
     read = [use.result.content for use in evt.ctx.t.tool_calls.items if use.result is not None and reads_cci(use.call)]
     return linked([found["tagged"] or found["listed"] for text in [*delivered, *read] for found in COMMS_REPORT.finditer(text)])
 
@@ -633,6 +637,7 @@ hook(  # capt-hook: no-escape the refusal names the lane verb that reads any oth
     transcript_events=REPLY_WINDOW,
     tests=communicator_tests({
         reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=6): Allow(),
+        reading(watch_woke(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts=OWED_REPLY["thread_ts"], limit=6): Allow(),
         reading(watch_delivered(OWED_REPLY["thread_ts"]), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Block(pattern=r"^The communicator reads only a Slack message or thread the owner linked or wrote in"),
         reading(tap_on_watch("1793600000.000001"), NONE_OWED, channel_id="D0B6Z", thread_ts="1793600000.000001", limit=6): Allow(),
         reading(tap_on_watch("1793600000.000001"), NONE_OWED, "Bash", command="cc-slack thread --url D0B6Z/p1793600000000001 --limit 6"): Allow(),

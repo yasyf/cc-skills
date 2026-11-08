@@ -237,8 +237,12 @@ def stamped(prompt: dict, seen: dict[str, datetime], ending: bool) -> dict:
     return prompt
 
 
-def queued_prompts(events: Iterable[object]) -> list[str]:
-    return [event.detail.prompt for event in events if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" and event.detail.prompt]
+def delivered_prompts(events: Iterable[object]) -> list[str]:
+    return [
+        text
+        for event in events
+        if (text := event.detail.prompt if isinstance(event, AttachmentEvent) and event.attachment_type == "queued_command" else event.text if isinstance(event, UserEvent) and not event.meta.is_meta and not event.meta.is_compact_summary else "")
+    ]
 
 
 def his_message(message: dict) -> bool:
@@ -283,7 +287,7 @@ def slack_dms(evt: BaseHookEvent, events: Iterable[object]) -> list[dict]:
             "channel": message["channel_id"],
             "cut": message.get("cut", False),
         }
-        for message in owner_messages_heard(queued_prompts(events))
+        for message in owner_messages_heard(delivered_prompts(events))
         if message["channel_id"].startswith("D")
     ]
 

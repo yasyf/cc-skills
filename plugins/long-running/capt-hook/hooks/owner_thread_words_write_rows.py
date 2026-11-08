@@ -13,7 +13,7 @@ from captain_hook.util import reqenv
 from .compaction_handoff import Bound, LR
 from .owner_facing import REPLY_WINDOW
 from .owner_messages_get_eyes import ACTIVE, delivered, HIS, tagged
-from .register_capture import CREDENTIAL, OPERATOR, owner_messages_heard, queued_prompts, REDACTED, whole_text
+from .register_capture import CREDENTIAL, OPERATOR, owner_messages_heard, delivered_prompts, REDACTED, whole_text
 from .register_gates import blocker, cause, READ_ERRORS
 from .register_injection import drive_args
 from .tests.register_fixtures import DRIVE_CONFIG
@@ -61,7 +61,7 @@ def directed(events: Iterable[object]) -> list[dict]:
 
 def words_heard(evt: BaseHookEvent) -> list[dict]:
     events = evt.ctx.t.events
-    return list({message["ts"]: message for message in [*directed(events), *owner_messages_heard([*queued_prompts(events), evt.user_prompt or ""])]}.values())
+    return list({message["ts"]: message for message in [*directed(events), *owner_messages_heard([*delivered_prompts(events), evt.user_prompt or ""])]}.values())
 
 
 def write_row(evt: BaseHookEvent, message: dict, which: list[str]) -> None:
