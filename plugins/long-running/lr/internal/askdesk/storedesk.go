@@ -45,6 +45,7 @@ var StoreVerbs = []string{
 	"facts whose",
 	"findings cited",
 	"grade queue",
+	"grade regrade",
 	"incident describe",
 	"incident list",
 	"incident status",
