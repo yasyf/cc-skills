@@ -246,7 +246,6 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 	for _, text := range []string{
 		"please read build 12",
 		"bk cancel test 12",
-		"bk rerun test --unit x",
 		"bk graphql mutation { buildCancel { id } }",
 		"bk api -X POST /pipelines/test/builds/12/cancel",
 		"bk api -d {} /pipelines/test/builds",
@@ -294,6 +293,23 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 				t.Fatalf("reply = %+v", read)
 			}
 		})
+	}
+}
+
+func TestAToolsCIBkRerunRunsAsThatToolParsesItWithTheWriteToken(t *testing.T) {
+	runner := &fakeRunner{reply: shell.Result{Stdout: "rerun build 119570 https://buildkite.com/forge/test/builds/119570\n"}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "Retry the failed nextest jobs of buildkite/test 119563 (known flake): tools/ci bk rerun test 119563 --unit sandsql-test")
+
+	if got, want := strings.Join(runner.calls[0].Argv, " "), "tools/ci bk rerun test 119563 --unit sandsql-test"; got != want {
+		t.Fatalf("ran %q, want %q", got, want)
+	}
+	if got := runner.calls[0].Env; !slices.Equal(got, []string{"BUILDKITE_TOKEN=" + writeScoped}) {
+		t.Fatalf("the rerun ran with env %q, want only the write token", got)
+	}
+	if read.refused || !strings.Contains(read.body, "119570") {
+		t.Fatalf("reply = %+v", read)
 	}
 }
 
