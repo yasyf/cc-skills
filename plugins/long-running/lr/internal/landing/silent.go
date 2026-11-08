@@ -3,6 +3,7 @@ package landing
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
@@ -20,8 +21,12 @@ const (
 	metaDesk       = "meta-desk"
 )
 
-func SayPassEnded(ctx context.Context, drive string, prs, enqueued int, took time.Duration) error {
-	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: PassKind, Text: fmt.Sprintf("a landing pass ended: %d PRs read, %d enqueued in %s", prs, enqueued, took.Round(time.Second))})
+func SayPassEnded(ctx context.Context, drive string, prs int, admissions []string, took time.Duration) error {
+	text := fmt.Sprintf("a landing pass ended: %d PRs read, %d enqueued in %s", prs, len(admissions), took.Round(time.Second))
+	if len(admissions) > 0 {
+		text += ": " + strings.Join(admissions, "; ")
+	}
+	_, err := client.Post(ctx, client.Draft{Drive: drive, Lane: self, Kind: PassKind, Text: text})
 	return err
 }
 
