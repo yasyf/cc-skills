@@ -71,6 +71,7 @@ type Carrier struct {
 	Box      string
 	Drive    string
 	Lane     string
+	Kept     string
 	Vars     map[string]string
 }
 
@@ -365,11 +366,21 @@ func (c Carrier) record(ctx context.Context, named source) (string, error) {
 			return "", nil
 		}
 	}
+	name := path.Join(cciDir, "record-"+named.id+".md")
+	kept := filepath.Join(c.Kept, path.Base(name))
 	shown, err := c.show(ctx, named.id)
 	if err != nil {
-		return "", needed{err}
+		saved, missing := os.ReadFile(kept)
+		if c.Kept == "" || missing != nil {
+			return "", needed{err}
+		}
+		shown = string(saved)
 	}
-	name := path.Join(cciDir, "record-"+named.id+".md")
+	if c.Kept != "" {
+		if err := write(kept, []byte(shown), 0o600); err != nil {
+			return "", err
+		}
+	}
 	if err := write(filepath.Join(c.Into, name), []byte(shown), 0o600); err != nil {
 		return "", err
 	}

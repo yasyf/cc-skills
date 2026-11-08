@@ -661,3 +661,29 @@ func TestRecordsInTheQuotedRegisterSliceAreNotCarried(t *testing.T) {
 		t.Fatalf("ran %v for records quoted from the register", calls)
 	}
 }
+
+func TestARecordCompactionFoldedSinceTheFirstLaunchTravelsFromTheCopyThatLaunchKept(t *testing.T) {
+	kept := t.TempDir()
+	brief := "Bug list: `cci show 422368 --drive " + drive + "`.\n"
+	first, fake := carrier(t)
+	first.Drive, first.Kept = drive, kept
+	fake.Reply("422368 state slack-bugs-2\nitems 28 and 29\n", "cci", "show", "--drive", drive, "422368@144ffadb")
+	if _, left := first.Carry(context.Background(), brief); len(left) != 0 {
+		t.Fatalf("first launch left %q", left)
+	}
+
+	relaunch, folded := carrier(t)
+	relaunch.Drive, relaunch.Kept = drive, kept
+	folded.Fail(1, "cci: show: no record #422368", "cci", "show", "--drive", drive, "422368@144ffadb")
+	folded.Fail(1, "cci: show: no record #9", "cci", "show", "--drive", drive, "9@144ffadb")
+
+	if _, left := relaunch.Carry(context.Background(), brief); len(left) != 0 {
+		t.Fatalf("relaunch left %q, want the kept copy carried", left)
+	}
+	if got := landed(t, relaunch, box+"/cci/record-422368.md"); got != "422368 state slack-bugs-2\nitems 28 and 29\n" {
+		t.Fatalf("relaunch carried %q", got)
+	}
+	if _, left := relaunch.Carry(context.Background(), "Read `cci show 9 --drive "+drive+"`.\n"); len(left) == 0 {
+		t.Fatal("a record no launch kept carried with no warning")
+	}
+}
