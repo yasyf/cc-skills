@@ -75,10 +75,14 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 		return nil, time.Time{}, err
 	}
 	next := NextStep(records, now)
-	open, err := client.Open(ctx, entry.Bus(), "ask")
+	owed, err := client.Open(ctx, entry.Bus(), askKind, "blocker")
 	if err != nil {
 		return nil, next, err
 	}
+	if err := wake(ctx, s, entry.Bus(), WakeRoot(records, owed, now), now); err != nil {
+		return nil, next, err
+	}
+	open := slices.DeleteFunc(owed, func(record client.Record) bool { return string(record.Kind) != askKind })
 	ledgers, err := ReadLedgers(ctx, s, entry, runner, now)
 	if err != nil {
 		return nil, next, err
@@ -94,6 +98,18 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 	}
 	paged, err := Meta(s, items, written, now, post)
 	return append(escalated, paged...), next, errors.Join(swept, err)
+}
+
+func wake(ctx context.Context, s *store.Store, bus string, due *RootWake, now time.Time) error {
+	if due == nil {
+		return nil
+	}
+	raised, err := s.Escalate(due.Subject, due.Line, root, now)
+	if err != nil || !raised {
+		return err
+	}
+	_, err = client.Post(ctx, client.Draft{Drive: bus, Lane: lanes.Self, Kind: "go", To: []string{wakeDesk}, Topic: due.Subject, Text: due.Line})
+	return err
 }
 
 type Stalls struct {
