@@ -123,6 +123,7 @@ type prCard struct {
 	Head   string `json:"head,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Review string `json:"review,omitempty"`
+	Tap    bool   `json:"tap,omitempty"`
 	Lines
 }
 
@@ -1064,6 +1065,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 			continue
 		}
 		card.Plan = said.Said(ctx, card.Plan)
+		card.Tap = board.OffersApproval(row)
 		cards = append(cards, card)
 	}
 	if len(gaps) > 0 {
@@ -1115,7 +1117,11 @@ func (r Reply) prChild(id, pr string) map[string]any {
 		return child
 	}
 	card := r.PRCards[at]
-	return board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks})
+	child = board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks})
+	if card.Tap && !slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
+		child["tap"] = true
+	}
+	return child
 }
 
 func (r Reply) markdown() string {

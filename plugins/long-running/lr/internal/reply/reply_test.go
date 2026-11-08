@@ -1167,7 +1167,28 @@ type ccPresentPR struct {
 	Plan    string          `json:"plan,omitempty"`
 	Risk    string          `json:"risk,omitempty"`
 	Blocker string          `json:"blocker,omitempty"`
+	Tap     bool            `json:"tap,omitempty"`
 	Row     json.RawMessage `json:"row,omitempty"`
+}
+
+func TestAPRChildAsksForItsApproveUnlessAPickLandsIt(t *testing.T) {
+	cards := []prCard{{URL: landPR, Title: "Relay fix", Tap: true, Lines: Lines{"Chats load", "Nothing differed", "Low", "Your tap"}}, {URL: "https://github.com/yasyf/cc-skills/pull/2197", Title: "Log read", Lines: Lines{"Logs read", "Nothing differed", "Low", "Checks"}}}
+	for name, tc := range map[string]struct {
+		picks []string
+		pr    string
+		tap   bool
+	}{
+		"a pick that lands nothing":  {[]string{"Leave it as is", "Build it as its own change"}, landPR, true},
+		"a PR he cannot approve yet": {[]string{"Leave it as is", "Build it as its own change"}, "https://github.com/yasyf/cc-skills/pull/2197", false},
+		"a pick that lands it":       {[]string{"Land it", "Hold"}, landPR, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			child := Reply{Picks: tc.picks, PRCards: cards}.prChild("r1", tc.pr)
+			if got := child["tap"] == true; got != tc.tap {
+				t.Errorf("tap = %v, want %v", got, tc.tap)
+			}
+		})
+	}
 }
 
 func TestAPRChildDecodesUnderCCPresentsFieldsAndCarriesNoLedgerRow(t *testing.T) {
