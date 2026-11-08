@@ -101,6 +101,11 @@ Do three things and report all three in the findings schema.
    `infra/rows/k8s/old-tree-reach.test.ts` and its snapshot. A head that changes it without
    both is a major, its defect starting "old-tree infra:", and a test that renders one
    cluster where the row differs per cluster asserts less than it claims.
+   The LLM loop resolver that builds a release's initial DAG stays (owner m1913):
+   `judge.Resolve` in `go/ci/internal/release/judge` and `dag.Resolve` in
+   `go/ci/internal/release/dag`, called from `resolver.Resolve`. A head that deletes
+   either, or lets `resolver.Resolve` build the DAG without calling them, is a major, its
+   defect starting "LLM resolver:".
    A major cites at least one `path:line` inside a hunk the diff adds or changes; a
    finding on lines the diff leaves as they were starts its defect with "census:".
 

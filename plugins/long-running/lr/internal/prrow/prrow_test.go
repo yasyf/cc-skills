@@ -2252,6 +2252,21 @@ func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T)
 	}
 }
 
+func TestAReleaseCardNamingALoopBreakerSaysTheLLMResolverStays(t *testing.T) {
+	const body = "## Context\n\nA release stalled when two stacks named each other.\n\n## Summary\n\n%s\n\nPlan: owner:m1913\n"
+	for name, tc := range map[string]struct{ summary, gap string }{
+		"#52709's card, the resolver unsaid": {"Releases no longer stall: the loop breaker is deleted.", "that the LLM resolver stays"},
+		"the resolver said to stay":          {"Releases no longer stall: the loop breaker is deleted, and the LLM resolver that builds the first plan stays.", ""},
+		"the resolver said to be kept":       {"Releases no longer stall. This keeps the LLM loop resolver and deletes the loop-breaker.", ""},
+		"no loop breaker":                    {"Releases no longer stall.", ""},
+	} {
+		gaps := strings.Join(BodyGaps(fmt.Sprintf(body, tc.summary)), "; ")
+		if tc.gap == "" && gaps != "" || !strings.Contains(gaps, tc.gap) {
+			t.Errorf("%s: gaps = %q, want %q", name, gaps, tc.gap)
+		}
+	}
+}
+
 func TestAPortCardSaysItIsAPortAndWhatTheNewTreeForcesWhenItAsks(t *testing.T) {
 	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\n%s\n\nPlan: bug list item 4 (slack-bugs)\n"
 	for name, tc := range map[string]struct{ summary, gap string }{
