@@ -34,6 +34,8 @@ const (
 	Communicator      = communicator
 	factChangeTold    = "change_told"
 	factCardWordsTold = "card_words_told"
+	factUncardedSeen  = "uncarded_seen"
+	factUncardedTold  = "uncarded_told"
 
 	tapOrderKind    = "lr.tap"
 	tapAnswerWindow = time.Hour
@@ -113,18 +115,30 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	due := []store.ReviewRow{}
+	due, waiting := []store.ReviewRow{}, []store.ReviewRow{}
 	for _, row := range rows {
-		if waitsOnHim(row) && row.State == prrow.StateOpen && prrow.WordsWait(row) == "" && facts[row.Number][FactTapCard] == "" && !followed[row.Number] {
+		if !waitsOnHim(row) || row.State != prrow.StateOpen || followed[row.Number] {
+			continue
+		}
+		if prrow.WordsWait(row) == "" && facts[row.Number][FactTapCard] == "" {
 			due = append(due, row)
 		}
+		if row.CI != prrow.CIRed && facts[row.Number][factUncardedTold] == "" {
+			waiting = append(waiting, row)
+		}
 	}
-	if len(due) == 0 {
+	if len(due) == 0 && len(waiting) == 0 {
 		return nil
 	}
 	shown, err := r.Cards.tapCards(ctx)
 	if err != nil {
 		return err
+	}
+	if err := r.blockUncarded(ctx, waiting, shown, facts); err != nil {
+		return err
+	}
+	if len(due) == 0 {
+		return nil
 	}
 	drawable := due[:0]
 	for _, row := range due {
@@ -166,6 +180,43 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		row.ELI5 = explained[row.Number]
 		if err := r.draw(ctx, row, shown, known[tapCardID(row)]["withdrawn"]); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
+		}
+	}
+	return nil
+}
+
+func (r ReadyCards) blockUncarded(ctx context.Context, waiting []store.ReviewRow, shown []tapCard, facts map[int]map[string]string) error {
+	var seen []store.ReviewRow
+	for _, row := range waiting {
+		if slices.ContainsFunc(shown, func(card tapCard) bool { return card.asksAt(row) }) {
+			continue
+		}
+		if facts[row.Number][factUncardedSeen] != "" {
+			seen = append(seen, row)
+			continue
+		}
+		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factUncardedSeen, "yes", r.Cards.Now()); err != nil {
+			return err
+		}
+	}
+	if len(seen) == 0 {
+		return nil
+	}
+	uncarded, err := r.stillAsked(ctx, seen, facts)
+	if err != nil {
+		return err
+	}
+	for _, row := range uncarded {
+		at := row.Head[:min(waitsSHA, len(row.Head))]
+		why := cmp.Or(prrow.WordsWait(row), facts[row.Number][FactTapCard], "no card drew")
+		if _, err := r.Cards.Post(ctx, client.Draft{
+			Drive: r.Cards.Bus, Lane: r.Lane, Kind: "blocker", ID: fmt.Sprintf("uncarded:%s#%d@%s", r.Repo, row.Number, row.Head), To: []string{row.Lane, communicator}, PRs: []string{fmt.Sprintf("%s#%d", r.Repo, row.Number)},
+			Text: fmt.Sprintf("UNCARDED #%d at %s waits on his tap with no card asking at this head (%s), so he has nothing to press. %s: give the PR the title and body its card needs; %s: draw its card at %s now.", row.Number, at, why, row.Lane, communicator, at),
+		}); err != nil {
+			return fmt.Errorf("#%d: %w", row.Number, err)
+		}
+		if _, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factUncardedTold, "yes", r.Cards.Now()); err != nil {
+			return err
 		}
 	}
 	return nil

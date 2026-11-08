@@ -155,6 +155,7 @@ func newLink(t *testing.T) *linkFixture {
 		Now:      func() time.Time { return cardsNow },
 		Withdraw: func(context.Context, string, string, string) error { return nil },
 		Report:   func(context.Context, string, []string, string, string) error { return nil },
+		Post:     client.Post,
 	}, shell: on, state: state, judge: judgedNo}
 }
 
