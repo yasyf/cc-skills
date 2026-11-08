@@ -375,6 +375,15 @@ func (s *Store) StandingTap(repo string, number int) (string, error) {
 	return head, err
 }
 
+func (s *Store) FactPostedAfter(repo string, number int, kind, after string) (string, error) {
+	var value string
+	err := s.db.QueryRow("SELECT value FROM facts WHERE repo = ? AND number = ? AND kind = ? AND posted > ? ORDER BY posted DESC, rowid DESC LIMIT 1", repo, number, kind, after).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
+}
+
 func (s *Store) StandingGo(repo string, number int) (string, error) {
 	var head string
 	err := s.db.QueryRow("SELECT head FROM facts WHERE repo = ? AND number = ? AND kind = 'exempt' ORDER BY posted DESC, rowid DESC LIMIT 1", repo, number).Scan(&head)

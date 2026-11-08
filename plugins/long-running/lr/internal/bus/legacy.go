@@ -21,19 +21,22 @@ const (
 	FlakeFixAttr      = "flake-fix"
 	ExemptClassAttr   = "exempt-class"
 
-	LegacyCursor = "legacy"
-	legacyWindow = 72 * time.Hour
-	rootLane     = "root"
-	SweepLane    = "supervisor"
-	AppealsLane  = "grader-appeals"
-	RunnerLane   = "desk-runner"
+	LegacyCursor  = "legacy"
+	legacyWindow  = 72 * time.Hour
+	rootLane      = "root"
+	ownerRelay    = "owner-relay"
+	ConflictsAttr = "conflicts"
+	ConflictFact  = "owner-conflict"
+	SweepLane     = "supervisor"
+	AppealsLane   = "grader-appeals"
+	RunnerLane    = "desk-runner"
 
 	GradeStoppedWhyAttr  = "grade-stopped"
 	GradeStoppedHeadAttr = "grade-stopped-head"
 )
 
 var (
-	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind, GoRefusedKind, StuckKind}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind, GoRefusedKind, StuckKind, ownerKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep", "fidelity-shard", "fidelity-shard-1"}
@@ -56,6 +59,7 @@ var (
 	goHead         = regexp.MustCompile(`(?i)#(\d+)\s+at\s+([0-9a-f]{7,40})\b`)
 	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
 	withdrawsNamed = regexp.MustCompile(`(?i)\bwithdraws?\b[^.;:\n#]*#(\d+)`)
+	prNumber       = regexp.MustCompile(`\d+`)
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
 	behaviorSays   = regexp.MustCompile(`^behavior: (same|changed) ([0-9a-f]{7,40}) since ([0-9a-f]{7,40})(?:: (.+))?`)
 )
@@ -100,6 +104,8 @@ func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	}
 	kind := string(record.Kind)
 	switch {
+	case kind == ownerKind && record.Lane == ownerRelay && record.Fields.Attrs[ConflictsAttr] != "":
+		return conflictFacts(record)
 	case kind == "withdraw" || kind == "correction" || kind == ownerKind:
 		return nil
 	case kind == "report":
@@ -180,6 +186,17 @@ func behaviorFacts(record client.Record, repo string) []Fact {
 	out := append(factsPerPR(record, repo, said[2], "behavior", said[1]), factsPerPR(record, repo, said[2], "behavior-since", said[3])...)
 	if said[4] != "" {
 		out = append(out, factsPerPR(record, repo, said[2], "what-changed", said[4])...)
+	}
+	return out
+}
+
+func conflictFacts(record client.Record) []Fact {
+	var out []Fact
+	for _, found := range prNumber.FindAllString(record.Fields.Attrs[ConflictsAttr], -1) {
+		number, err := strconv.Atoi(found)
+		if err == nil {
+			out = append(out, Fact{number, "", ConflictFact, record.Name()})
+		}
 	}
 	return out
 }

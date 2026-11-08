@@ -2974,3 +2974,41 @@ func TestAFinderOverrideAtAnOlderHeadLeavesTheNewHeadsMajorUncleared(t *testing.
 		t.Fatalf("the counted override at the head did not clear it: %+v %v", row, gates.Missing(row))
 	}
 }
+
+func TestHisTapOn50314NeverCarriesToANewHeadPastHisLaterConflictingDecisionOrAPickCardDrawnAfterIt(t *testing.T) {
+	const tapped, pushed = "430033555d0000000000000000000000000000ab", "bdd9404ae5642e617d65344d4c507a229bbf9f78"
+	tapAt := time.Date(2026, 11, 6, 23, 40, 0, 0, time.UTC)
+	said := time.Date(2026, 11, 7, 1, 23, 35, 0, time.UTC)
+	for name, tc := range map[string]struct {
+		message time.Time
+		card    time.Time
+		by      string
+		back    string
+	}{
+		"567547 at 5:23 PM, after his tap at 4300335": {message: said, back: "his decision #567547 after his tap conflicts with it, so only a tap at this head lands it"},
+		"pick card rmw5zfxw9 drawn after his tap":     {card: said, back: "pick card card-rmw5zfxw9 was drawn on it after his tap, so only a tap at this head lands it"},
+		"a message and a card from before his tap":    {message: tapAt.Add(-time.Hour), card: tapAt.Add(-time.Hour), by: gates.ByTap},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			putFact(t, s, 50314, tapped, "tap", "tapped", tapAt)
+			putFact(t, s, 50314, tapped, prrow.FactTapAt, store.Stamp(tapAt), tapAt)
+			on(t, s, recordedPR{number: 50314, head: tapped, login: "drive-bot", diff: ownDiff}).snapshot(t)
+			if !tc.message.IsZero() {
+				putFact(t, s, 50314, "", bus.ConflictFact, "#567547", tc.message)
+			}
+			if !tc.card.IsZero() {
+				thread := store.SlackThread{TS: fmt.Sprintf("%d.449649", tc.card.Unix()), Reply: "rmw5zfxw9", Card: "card-rmw5zfxw9", Options: []string{"int8", "binary"}, PRs: []int{50314}}
+				if err := s.PutSlackThread(thread); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			row := on(t, s, recordedPR{number: 50314, head: pushed, login: "drive-bot", diff: strings.Replace(ownDiff, `"a b"`, `"ab"`, 1)}).snapshot(t)[50314]
+
+			if row.TapFrom != tapped || row.CarriedBy != tc.by || row.Admitted() != (tc.by != "") || row.TapReturned != tc.back {
+				t.Fatalf("tap %q from %q by %q, returned %q: want by %q, returned %q", row.Tap, row.TapFrom, row.CarriedBy, row.TapReturned, tc.by, tc.back)
+			}
+		})
+	}
+}

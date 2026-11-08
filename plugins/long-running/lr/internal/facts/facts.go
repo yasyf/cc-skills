@@ -1451,7 +1451,12 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 			return err
 		}
 		f.TapFrom = tapped
-		f.CarriedBy, f.TapReturned = gates.CarriedBy(tapped, f.Head, atTap, stored, deltas)
+		if f.TapReturned, err = s.decidedSinceTap(f.Number, atTap[prrow.FactTapAt]); err != nil {
+			return err
+		}
+		if f.TapReturned == "" {
+			f.CarriedBy, f.TapReturned = gates.CarriedBy(tapped, f.Head, atTap, stored, deltas)
+		}
 		if f.CarriedBy != "" {
 			f.Tap = machine.TapTapped
 		}
@@ -1470,6 +1475,21 @@ func (s Source) carry(ctx context.Context, f *machine.Facts, stored map[string]s
 		return err
 	}
 	return s.carryOverrides(ctx, *f, stored, overrides)
+}
+
+func (s Source) decidedSinceTap(number int, tapAt string) (string, error) {
+	conflict, err := s.Store.FactPostedAfter(s.Repo, number, bus.ConflictFact, tapAt)
+	if err != nil {
+		return "", err
+	}
+	if conflict != "" {
+		return "his decision " + conflict + " after his tap conflicts with it, so only a tap at this head lands it", nil
+	}
+	card, err := s.Store.PickCardAfter(number, tapAt)
+	if err != nil || card == "" {
+		return "", err
+	}
+	return "pick card " + card + " was drawn on it after his tap, so only a tap at this head lands it", nil
 }
 
 func (s Source) carryShown(f machine.Facts, stored map[string]string, shown []store.HeadFact) error {
