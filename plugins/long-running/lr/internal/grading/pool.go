@@ -341,7 +341,7 @@ func (p *JobPool) answered(ctx context.Context, plan attemptPlan) error {
 	}
 	directory := filepath.Join(p.root, plan.settled)
 	if !exists(filepath.Join(directory, repostedFile)) {
-		err := grader.Repost(ctx, directory, client.Post, client.Resolve)
+		err := grader.Repost(ctx, directory, client.Post, resolve)
 		var down *client.BusDown
 		if errors.As(err, &down) {
 			p.Log.Warn("the store did not take a settled pass's records; the next pass tries again", "job", directory, "error", err)
@@ -503,12 +503,22 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 				return nil, err
 			}
 		}
-		if err := grader.Repost(ctx, directory, client.Post, client.Resolve); err != nil {
+		if err := grader.Repost(ctx, directory, client.Post, resolve); err != nil {
 			p.Log.Warn("a settled pass's records did not reach the store; it stays a worker and the next settle posts them again", "job", directory, "error", err)
 			live[name] = true
 		}
 	}
 	return live, nil
+}
+
+func resolve(ctx context.Context, drive, name string) (client.Reach, error) {
+	found, err := client.Resolve(ctx, drive, name)
+	if err != nil || found.Started || found.Lane != "" {
+		return found, err
+	}
+	generations, err := client.Generations(ctx, drive, found.Stem)
+	found.Down = len(generations) > 0
+	return found, err
 }
 
 func (p *JobPool) timedOut(lane, directory string) (bool, error) {
