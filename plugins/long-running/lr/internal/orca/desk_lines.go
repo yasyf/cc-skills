@@ -236,8 +236,8 @@ func (d *Desk) endedSince(ctx context.Context, lane string, posted time.Time) (s
 	if err != nil {
 		return "", err
 	}
-	if found && row.State == store.LaneRetired {
-		return "its lane is retired", nil
+	if found && row.State == store.LaneRetired && row.Since.After(posted) {
+		return "its lane was retired", nil
 	}
 	names, err := d.names(lane)
 	if err != nil {
