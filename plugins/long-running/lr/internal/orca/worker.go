@@ -208,7 +208,11 @@ func attemptOf(brief string) string {
 }
 
 func (w *workerLaunch) capture(argv ...string) (string, string, int) {
-	result, err := w.Runner.Run(w.ctx, shell.Command{Argv: argv})
+	return capture(w.ctx, w.Runner, argv...)
+}
+
+func capture(ctx context.Context, runner shell.Runner, argv ...string) (string, string, int) {
+	result, err := runner.Run(ctx, shell.Command{Argv: argv})
 	var exit *shell.ExitError
 	switch {
 	case err == nil:
@@ -1080,8 +1084,12 @@ func (w *workerLaunch) catchUp(workspace string) error {
 }
 
 func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
+	return joinRelayOn(w.ctx, w.Runner, w.Sleep, workspace, sponsor)
+}
+
+func joinRelayOn(ctx context.Context, runner shell.Runner, sleep func(time.Duration), workspace, sponsor string) (string, error) {
 	var log bytes.Buffer
-	status, errs, code := w.capture("cci", "relay", "status", "--json")
+	status, errs, code := capture(ctx, runner, "cci", "relay", "status", "--json")
 	log.WriteString(errs)
 	if code != 0 {
 		return log.String(), errors.New("cci relay status failed")
@@ -1104,7 +1112,7 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if mesh < 0 {
 		return log.String(), errors.New("no default mesh with routes")
 	}
-	node, errs, code := w.capture("cci", "node", "--json")
+	node, errs, code := capture(ctx, runner, "cci", "node", "--json")
 	log.WriteString(errs)
 	var owner struct {
 		PublicKey string `json:"public_key"`
@@ -1116,13 +1124,13 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 	if profile, ok := strings.CutPrefix(sponsor, sponsorProfile); ok {
 		read = []string{"aws", "ssm", "get-parameter", "--profile", profile, "--region", serviceKeyRegion, "--name", serviceKeyName, "--with-decryption", "--query", "Parameter.Value", "--output", "text"}
 	}
-	key, errs, code := w.capture(read...)
+	key, errs, code := capture(ctx, runner, read...)
 	log.WriteString(errs)
 	if code != 0 {
 		return log.String(), errors.New("the sponsor's service key did not read")
 	}
 	for tries := 1; ; tries++ {
-		joined, err := w.Runner.Run(w.ctx, shell.Command{
+		joined, err := runner.Run(ctx, shell.Command{
 			Argv:  []string{"sprite", "exec", "-s", workspace, "--", "sh", "-c", joinRelay, "sh", strings.Join(meshes[mesh].Routes, ","), meshes[mesh].URL, owner.PublicKey},
 			Stdin: key,
 		})
@@ -1134,7 +1142,7 @@ func (w *workerLaunch) join(workspace, sponsor string) (string, error) {
 			said := strings.TrimSpace(joined.Stdout + joined.Stderr)
 			return log.String(), fmt.Errorf("%d tries, the last saying %s", tries, said[strings.LastIndex(said, "\n")+1:])
 		}
-		w.Sleep(joinWaits[tries-1])
+		sleep(joinWaits[tries-1])
 	}
 }
 
