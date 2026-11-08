@@ -149,6 +149,8 @@ type Reply struct {
 	Alert       string           `json:"alert,omitempty"`
 	Unprompted  bool             `json:"unprompted,omitempty"`
 	Update      bool             `json:"update,omitempty"`
+	CardsOver   string           `json:"cards_over,omitempty"`
+	Cards       []string         `json:"cards,omitempty"`
 	report      *update.Report
 	Action      string     `json:"action,omitempty"`
 	By          string     `json:"by,omitempty"`
@@ -249,9 +251,6 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 // withCardLinks links each open card the reply names as card:ID, longest id
 // first so no card's name is taken for a shorter one's; each surface resolves
 // the link when it draws, and inSlack resolves it to the Slack message.
-// A reply that asks for his tap and links no card carries every wait from withEveryWait;
-// any other posts whatever it finds: the second result is one warning line when
-// the board did not read, or empty.
 func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
 	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
 	if err != nil {
@@ -373,9 +372,24 @@ func (f Fanout) withEveryWait(ctx context.Context, r Reply) (Reply, error) {
 	if len(u.Waiting) == 0 && len(u.Cards) == 0 {
 		return r, errors.New("NOTHING WAITS: this says something waits on him, and no PR waits on his tap and no card is open on his board, so nothing went out; say what it waits on instead")
 	}
-	r.PRs = append(r.PRs, u.URLs()[:min(len(u.Waiting), maxPRs-len(r.PRs))]...)
-	r.OpenCards = append(r.OpenCards, u.Cards...)
-	return r, nil
+	_, named := r.namedPRs()
+	urls := u.URLs()
+	var waiting []string
+	for n, row := range u.Waiting {
+		if slices.Contains(named, row.Number) {
+			r.PRs = append(r.PRs, urls[n])
+			continue
+		}
+		waiting = append(waiting, fmt.Sprintf("#%d", row.Number))
+	}
+	if len(r.PRs) > 0 {
+		r.PRs = r.PRs[:min(len(r.PRs), maxPRs)]
+		return r, nil
+	}
+	for _, card := range u.Cards {
+		waiting = append(waiting, card.ID)
+	}
+	return r, errors.New("NAME THE WAIT: this says something waits on him and names none of the PRs or cards that do, and a reply copies only what it names, so nothing went out; name the one it means by number or card id, or list it in prs: " + strings.Join(waiting, ", "))
 }
 
 func (f Fanout) waits(ctx context.Context) (board.Waits, error) {
@@ -395,11 +409,18 @@ func (f Fanout) withUpdate(ctx context.Context, r Reply) (Reply, error) {
 	if err != nil {
 		return r, fmt.Errorf("his update did not read from its sources, so nothing went out: %w", err)
 	}
+	picked, err := r.pickedCards(w.Cards, f.Now())
+	if err != nil {
+		return r, err
+	}
 	report := update.Render(in)
 	r.report = &report
 	r.Title, r.MD = cmp.Or(r.Title, updateTitle), strings.TrimSpace(r.MD+"\n\n"+update.Away(in))
+	r.Status = cmp.Or(r.Status, info)
 	r.PRs = append(r.PRs, w.URLs()[:min(len(w.Waiting), maxPRs-len(r.PRs))]...)
-	r.OpenCards = append(r.OpenCards, w.Cards...)
+	for _, card := range picked {
+		r.MD += fmt.Sprintf("\n- [%s](%s)", card.Title, card.URL)
+	}
 	r.Unprompted = r.Unprompted || r.Order == "" && r.On == ""
 	return r, nil
 }
@@ -1503,7 +1524,7 @@ func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outco
 		cards = append(cards, copied{cardPrefix + r.ID, drawn.Ref})
 	}
 	for _, card := range r.OpenCards {
-		if !strings.Contains(was.Reply.MD, "(card:"+card.ID+")") {
+		if !strings.Contains(was.Reply.MD, "(card:"+card.ID+")") && !slices.ContainsFunc(cards, func(c copied) bool { return c.id == card.ID }) {
 			cards = append(cards, copied{card.ID, card.URL})
 		}
 	}
@@ -1703,6 +1724,35 @@ func receipt(r Reply, sent []Outcome) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func (r Reply) pickedCards(open []board.OpenCard, now time.Time) ([]board.OpenCard, error) {
+	if r.CardsOver == "" && len(r.Cards) == 0 {
+		return nil, nil
+	}
+	over, err := time.ParseDuration(cmp.Or(r.CardsOver, "0s"))
+	if err != nil {
+		return nil, fmt.Errorf("cards_over %q is not a span such as 1h, so nothing went out: %w", r.CardsOver, err)
+	}
+	for _, id := range r.Cards {
+		if !slices.ContainsFunc(open, func(card board.OpenCard) bool { return card.ID == id }) {
+			return nil, fmt.Errorf("cards names %s, which is not open on his board, so nothing went out", id)
+		}
+	}
+	picked := slices.DeleteFunc(slices.Clone(open), func(card board.OpenCard) bool {
+		return !slices.Contains(r.Cards, card.ID) && (r.CardsOver == "" || now.Sub(postedAt(card.URL)) < over)
+	})
+	slices.SortStableFunc(picked, func(one, other board.OpenCard) int { return postedAt(one.URL).Compare(postedAt(other.URL)) })
+	return picked, nil
+}
+
+func postedAt(permalink string) time.Time {
+	found := slackStamp.FindStringSubmatch(permalink)
+	if found == nil {
+		return time.Time{}
+	}
+	seconds, _ := strconv.ParseInt(found[1], 10, 64)
+	return time.Unix(seconds, 0)
 }
 
 func stampOf(permalink string) string {
