@@ -396,3 +396,14 @@ func TestEveryListedFidelityLaneAndItsSuccessorWritesAGradeFact(t *testing.T) {
 		}
 	}
 }
+
+func TestOwnerRelaysConflictingDecisionIsAFactAtNoHeadForEachPRItConflictsWith(t *testing.T) {
+	said := legacyRecord(t, "owner", "owner-relay", `Owner 5:23 PM in the #50314 thread: "go find the smallest one". #50314 fundamentally changes; #52619 waits.`, []int{50314}, map[string]string{bus.ConflictsAttr: "#50314"})
+	if got, want := bus.LegacyFacts(said, repo, nil), []bus.Fact{{PR: 50314, Kind: bus.ConflictFact, Value: said.Name()}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("LegacyFacts = %+v, want %+v", got, want)
+	}
+	praise := legacyRecord(t, "owner", "owner-relay", `Owner 5:30 PM in the #50314 thread: "nice"`, []int{50314}, nil)
+	if got := bus.LegacyFacts(praise, repo, nil); got != nil {
+		t.Fatalf("LegacyFacts = %+v for a word that decides nothing, want none", got)
+	}
+}

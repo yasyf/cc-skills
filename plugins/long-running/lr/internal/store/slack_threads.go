@@ -94,3 +94,15 @@ func (s *Store) AlertThreadOf(alert string) (AlertThread, bool, error) {
 	}
 	return first, err == nil, err
 }
+
+func (s *Store) PickCardAfter(number int, after string) (string, error) {
+	var card string
+	err := s.db.QueryRow(`SELECT COALESCE(NULLIF(card, ''), reply) FROM slack_threads
+		WHERE options != '' AND CAST(ts AS REAL) > COALESCE(CAST(strftime('%s', ?) AS REAL), 0)
+		AND EXISTS (SELECT 1 FROM json_each(NULLIF(prs, '')) WHERE value = ?)
+		ORDER BY CAST(ts AS REAL) DESC LIMIT 1`, after, number).Scan(&card)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return card, err
+}
