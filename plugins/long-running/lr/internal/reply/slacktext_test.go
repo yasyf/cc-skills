@@ -8,49 +8,54 @@ import (
 	"testing"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
-	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
 const (
-	platy     = "https://brook.slack.com/archives/C0B75AL4XEW/p1794015824488459"
-	platyLine = "Release 13655 is live"
-	otherPost = "https://brook.slack.com/archives/C0B75AL4XEW/p1794015899000001"
-	otherPR   = "https://github.com/yasyf/cc-skills/pull/3779"
+	platy   = "https://brook.slack.com/archives/C0B75AL4XEW/p1794015824488459"
+	otherPR = "https://github.com/yasyf/cc-skills/pull/3779"
 )
 
+func card(link string) string {
+	return "[\u200b](" + link + ")"
+}
+
 func titled(r Reply) Reply {
-	r.names = prNames{repo: "yasyf/cc-skills", titles: map[string]string{landPR: "Relay fix", otherPR: "the supervisor serves a newer pack"}, carded: []string{landPR}, posts: map[string]string{platy: platyLine}}
+	r.names = prNames{repo: "yasyf/cc-skills", titles: map[string]string{landPR: "Relay fix", otherPR: "the supervisor serves a newer pack"}, carded: []string{landPR}}
 	return r
 }
 
-func TestTheSlackTextNamesEachPROnceByTitleAndKeepsEveryLinkWhereItWasWritten(t *testing.T) {
+func TestTheSlackTextNamesEachPROnceByTitleAndDrawsChannelLinksAsTheirCardAlone(t *testing.T) {
 	for name, tc := range map[string]struct {
 		reply Reply
 		want  string
 	}{
-		"a bare Platy link stays in its sentence under its current line": {
+		"a bare Platy link leaves the sentence": {
 			Reply{MD: "Release 13655 converged at 6:02 PM (" + platy + "). The stuck-restore alert recovered."},
-			"Release 13655 converged at 6:02 PM ([" + platyLine + "](" + platy + ")).\nThe stuck-restore alert recovered.",
+			"Release 13655 converged at 6:02 PM.\nThe stuck-restore alert recovered." + card(platy),
 		},
-		"a lead-in keeps the link it introduces": {
+		"a lead-in left introducing nothing goes": {
+			Reply{MD: "SandSQL boots from its saved index. Platy card: " + platy},
+			"SandSQL boots from its saved index." + card(platy),
+		},
+		"a lead-in ending its sentence drops its colon": {
 			Reply{MD: "Ria gets one reply with the release card: " + platy + "."},
-			"Ria gets one reply with the release card: [" + platyLine + "](" + platy + ").",
+			"Ria gets one reply with the release card." + card(platy),
 		},
-		"a bare link on its own line stays on that line": {
+		"a link on its own line leaves no line": {
 			Reply{MD: "It is live.\n" + platy + "\nMacs update tonight."},
-			"It is live.\n[" + platyLine + "](" + platy + ")\nMacs update tonight.",
+			"It is live.\nMacs update tonight." + card(platy),
 		},
-		"a post that did not read stays bare where it was written": {
-			Reply{MD: "See " + otherPost + " for the rest."},
-			"See " + otherPost + " for the rest.",
-		},
-		"a vague label stays as written": {
+		"a vague label goes with its link": {
 			Reply{MD: "13666 went live about 6:45 PM ([card](" + platy + ")): run search finds runs."},
-			"13666 went live about 6:45 PM ([card](" + platy + ")): run search finds runs.",
+			"13666 went live about 6:45 PM: run search finds runs." + card(platy),
 		},
 		"a worded label stays in the sentence": {
 			Reply{MD: "The fix is in [the alert thread](" + platy + ") now."},
-			"The fix is in [the alert thread](" + platy + ") now.",
+			"The fix is in the alert thread now." + card(platy),
+		},
+		"a table keeps its last row": {
+			Reply{MD: "Release card: " + platy + "\n\n| check | state |\n|---|---|\n| lr-go | green |"},
+			"| check | state |\n|---|---|\n| lr-go | green |\n" + card(platy),
 		},
 		"a DM card link keeps its label": {
 			Reply{MD: "Answer on [the card](" + permalink + ")."},
@@ -90,29 +95,13 @@ func TestTheSlackTextNamesEachPROnceByTitleAndKeepsEveryLinkWhereItWasWritten(t 
 	}
 }
 
-func TestAChannelLinkUnfurlsInTheBodyInsteadOfDrawingAButton(t *testing.T) {
+func TestAChannelLinkIsItsCardAloneInsteadOfAButtonOrALinkLine(t *testing.T) {
 	fake := scripted()
 	notebook := Link{Label: "Notebook", URL: "https://app.datadoghq.com/notebook/1"}
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r1", Title: "Release 13687 is live", MD: "It is live.", Status: done, Links: []Link{{Label: "Platy", URL: platy}, notebook}})
-	card := slack(t, calls(fake, "cc-slack")[0])
-	if card.Body != "It is live.\n\n"+platy || !slices.Equal(card.Links, []Link{notebook}) {
-		t.Fatalf("card = %+v, want the Platy link bare under the text and only the notebook a button", card)
-	}
-}
-
-func TestAChannelPostLinkReadsItsCurrentFirstLine(t *testing.T) {
-	fake := &shelltest.Fake{}
-	fake.Reply(`{"messages":[{"ts":"1794015824.488400","text":"an update"},{"ts":"1794015824.488459","text":"*:ambulance: Hotfix gleaming-saib is running · <@U05FTPXU8PP> via `+"`claude`"+`*\nStarted 8:16 PM"}]}`, "cc-slack", "thread", "--url", platy)
-	fake.Fail(1, "not in channel", "cc-slack", "thread", "--url", otherPost)
-	r, warning := fanout(t, fake).withPostLines(context.Background(), Reply{MD: "Hotfix card: " + platy + ". The other one: " + otherPost + "."})
-	if got := r.names.posts[platy]; got != ":ambulance: Hotfix gleaming-saib is running" {
-		t.Fatalf("post line = %q, want the card's first line without its byline", got)
-	}
-	if !strings.Contains(warning, otherPost) || !strings.Contains(warning, "not in channel") || r.names.posts[otherPost] != "" {
-		t.Fatalf("warning = %q, posts = %+v; want the unread post named and left bare", warning, r.names.posts)
-	}
-	if got := r.slackText(r.MD); got != "Hotfix card: [:ambulance: Hotfix gleaming-saib is running]("+platy+").\nThe other one: "+otherPost+"." {
-		t.Fatalf("slack text = %q", got)
+	posted := slack(t, calls(fake, "cc-slack")[0])
+	if posted.Body != "It is live."+card(platy) || !slices.Equal(posted.Links, []Link{notebook}) {
+		t.Fatalf("card = %+v, want the Platy post as its card alone and only the notebook a button", posted)
 	}
 }
 

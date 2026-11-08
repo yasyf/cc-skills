@@ -663,16 +663,16 @@ func linkedCard(md string, card board.OpenCard) string {
 	return md
 }
 
-// inSlack draws each card:ID link as the Slack message of the card, or as its
-// words alone when the reply links no open card by that id.
+// inSlack draws each card:ID link as its words alone, an open card's title when
+// it has none, since the card itself goes into the reply's thread as a copy.
 func (r Reply) inSlack(md string) string {
 	return cardLink.ReplaceAllStringFunc(md, func(link string) string {
 		found := cardLink.FindStringSubmatch(link)
 		at := slices.IndexFunc(r.OpenCards, func(card board.OpenCard) bool { return card.ID == found[2] })
-		if at < 0 {
+		if at < 0 || found[1] != "" {
 			return found[1]
 		}
-		return "[" + cmp.Or(found[1], r.OpenCards[at].Title) + "](" + r.OpenCards[at].URL + ")"
+		return r.OpenCards[at].Title
 	})
 }
 

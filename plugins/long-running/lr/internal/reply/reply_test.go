@@ -1426,7 +1426,7 @@ func TestAnOpenCardTheReplyNamesLinksByItsTypedKey(t *testing.T) {
 	}
 }
 
-func TestACardLinkIsTheSlackMessageOnlyInSlack(t *testing.T) {
+func TestACardLinkIsItsWordsInSlackWithTheCardCopiedUnderIt(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
 	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
@@ -1443,8 +1443,11 @@ func TestACardLinkIsTheSlackMessageOnlyInSlack(t *testing.T) {
 			card = call.Argv[3]
 		}
 	}
-	if !strings.Contains(card, "]("+cardMessage+")") || strings.Contains(card, "card:") {
-		t.Fatalf("Slack card = %s, want the card linked to its Slack message", card)
+	if !strings.Contains(card, "Waiting on "+evictionAsk+" now.") || strings.Contains(card, cardMessage) || strings.Contains(card, "card:") {
+		t.Fatalf("Slack card = %s, want the card's words with no link, since its copy goes under the reply", card)
+	}
+	if copied := surface(sent, "card copy"); copied.Card != "card-storage-eviction" || copied.Ref == "" {
+		t.Fatalf("card copy = %+v, want the named card copied", copied)
 	}
 	stored, err := os.ReadFile(surface(sent, "dashboard").Ref)
 	if err != nil {
@@ -1457,7 +1460,7 @@ func TestACardLinkIsTheSlackMessageOnlyInSlack(t *testing.T) {
 
 func TestAnUnknownCardLinkDrawsItsWordsInSlack(t *testing.T) {
 	r := Reply{OpenCards: []board.OpenCard{{ID: "card-a", Title: "Card A", URL: cardMessage}}}
-	if got := r.inSlack("[the gone one](card:card-b) and [](card:card-a)"); got != "the gone one and [Card A]("+cardMessage+")" {
+	if got := r.inSlack("[the gone one](card:card-b) and [](card:card-a)"); got != "the gone one and Card A" {
 		t.Fatalf("inSlack = %q", got)
 	}
 }
