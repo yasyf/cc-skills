@@ -151,7 +151,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", config)
 	t.Setenv(drive.Env, "d")
 	f := fanout(t, nil)
-	ledgerRow(t, f, store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load"})
+	ledgerRow(t, f, carded)
 	entry, err := json.Marshal(f.Entry)
 	if err != nil {
 		t.Fatal(err)
