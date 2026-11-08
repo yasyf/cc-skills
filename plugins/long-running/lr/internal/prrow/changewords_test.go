@@ -51,10 +51,10 @@ func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
 	}
 }
 
-func TestRiskWordsAreTheAvailabilityLineInOnePlainSentence(t *testing.T) {
-	profile := "- **Threat model:** no new surface. The change is inside `read_attached` in sandsql-server.\n- **Availability:** a wrong answer here is a stale or failed read of a forked chat. A parked base read by file has the guards #51308's dormant read has.\n- **Data:** reads only."
-	if got := RiskWords(store.ReviewRow{Risk: profile}); got != "A wrong answer here is a stale or failed read of a forked chat." {
-		t.Fatalf("risk = %q, want what could go wrong for a user in one sentence", got)
+func TestRiskWordsAreTheWholeProfileOnceItsAvailabilityLineIsPlain(t *testing.T) {
+	profile := "- **Threat model:** no new surface.\n- **Availability:** a wrong answer here is a stale or failed read of a forked chat. A parked base read by file has the guards #51308's dormant read has.\n- **Data:** reads only."
+	if got := RiskWords(store.ReviewRow{Risk: "\n" + profile + "\n"}); got != profile {
+		t.Fatalf("risk = %q, want the whole profile", got)
 	}
 	for name, risk := range map[string]string{
 		"no availability line": "Low: one retry loop.",

@@ -180,11 +180,8 @@ func Tool(a *app.App) channel.Tool {
 			if warning != "" {
 				warned = append(warned, warning)
 			}
-			if r, warning, err = fanout.withPRCards(ctx, r); err != nil {
+			if r, err = fanout.withPRCards(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
-			}
-			if warning != "" {
-				warned = append(warned, warning)
 			}
 			r, warning = r.untiedApprovals()
 			if warning != "" {

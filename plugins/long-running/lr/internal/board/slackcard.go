@@ -199,7 +199,11 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	} {
 		if line.said != "" {
 			child[line.key] = line.said
-			summary = append(summary, "**"+line.label+":** "+line.said)
+			sep := " "
+			if strings.HasPrefix(line.said, "- ") {
+				sep = "\n"
+			}
+			summary = append(summary, "**"+line.label+":**"+sep+line.said)
 		}
 	}
 	if row.Review != "" {
