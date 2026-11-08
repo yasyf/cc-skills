@@ -510,6 +510,7 @@ func (w *workerLaunch) carryBrief() error {
 	carrier := carry.Carrier{Runner: w.Runner, Home: w.Env("HOME"), Repo: notes, Checkout: w.driveCheckout, Into: filepath.Join(w.attempt, "carried"), Box: carriedBox, Lane: w.lane, Vars: map[string]string{carry.DriveDir: w.Env(workerDriveDir)}}
 	if entry := w.driveEntry(); entry != nil {
 		carrier.Drive = ccDrive(entry)
+		carrier.Kept = filepath.Join(entry.StateDir, "carried-records")
 	}
 	rewritten, left, lacked := carrier.Stage(w.ctx, string(raw))
 	if len(lacked) > 0 {
