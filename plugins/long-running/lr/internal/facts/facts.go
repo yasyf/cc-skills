@@ -1161,7 +1161,7 @@ func (s Source) holds(ctx context.Context) (map[int]hold, error) {
 	if err != nil {
 		return nil, err
 	}
-	his, err := HisRulings(ctx, s.Store, s.Repo, s.Runner, s.Checkout, bus.Rulings(records), s.Now())
+	his, err := HisRulings(ctx, s.Store, s.Drive, s.Repo, s.Runner, s.Checkout, bus.Rulings(records), s.Now())
 	if err != nil {
 		return nil, err
 	}

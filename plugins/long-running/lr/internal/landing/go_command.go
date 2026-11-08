@@ -138,7 +138,7 @@ func (g goGate) readHead(ctx context.Context, number int, head, body string, bef
 	if err != nil {
 		return headRead{}, fmt.Errorf("read what its holds resolve: %w", err)
 	}
-	his, err := facts.HisRulings(ctx, g.s, g.cfg.Repo, g.a.Runner, g.cfg.Checkout, bus.Rulings(records), g.a.Now())
+	his, err := facts.HisRulings(ctx, g.s, g.cfg.Drive, g.cfg.Repo, g.a.Runner, g.cfg.Checkout, bus.Rulings(records), g.a.Now())
 	if err != nil {
 		return headRead{}, err
 	}

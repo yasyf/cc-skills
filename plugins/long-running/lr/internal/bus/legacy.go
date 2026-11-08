@@ -556,6 +556,10 @@ const (
 	RulingAttr = "ruling"
 )
 
+func RelaysHisWords(record client.Record) bool {
+	return string(record.Kind) == ownerKind && record.Lane == ownerRelay
+}
+
 func HoldIsHis(record client.Record, his map[string]bool) bool {
 	return string(record.Kind) == "hold" && (record.Lane == OwnerBy || his[Ruling(record)])
 }
