@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -142,7 +141,7 @@ func spriteWithStoreDesk(t *testing.T, stdout, stderr string, exit int) *deskRun
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
-		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: io.Discard, Read: askdesk.StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, lane string) (string, string, int, error) {
+		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: testLog{t}, Read: askdesk.StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, lane string) (string, string, int, error) {
 			ran.argv, ran.lane = argv, lane
 			return stdout, stderr, exit, nil
 		})}.Follow(ctx)
@@ -219,4 +218,11 @@ func TestEveryStoreVerbNamesARunnableVerb(t *testing.T) {
 			t.Errorf("store verb %q reached %s, %v: the list names no runnable verb", verb, found.CommandPath(), err)
 		}
 	}
+}
+
+type testLog struct{ t *testing.T }
+
+func (l testLog) Write(said []byte) (int, error) {
+	l.t.Log(strings.TrimSpace(string(said)))
+	return len(said), nil
 }

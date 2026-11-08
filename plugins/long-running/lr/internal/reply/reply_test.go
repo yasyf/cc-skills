@@ -2458,6 +2458,7 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesOnlyTheWaitsItNames(t *testing.
 		"the refusal described, waiting on him":         {ready, Reply{Title: "Messages with nothing to tap are now refused before they post", MD: "Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts."}, kept},
 		"an ask beside a described refusal":             {ready, Reply{Title: "Refusal is live", MD: "A message with no button is refused now. #2196 is green and needs your tap."}, attached},
 		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, unnamed},
+		"an edit that names no wait":                    {ready, Reply{ID: "rmw89n4y9", Title: "Shard retries", MD: "It is green and waits on your tap."}, unnamed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())

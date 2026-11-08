@@ -2251,3 +2251,21 @@ func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T)
 		}
 	}
 }
+
+func TestAPortCardSaysItIsAPortAndWhatTheNewTreeForcesWhenItAsks(t *testing.T) {
+	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\n%s\n\nPlan: bug list item 4 (slack-bugs)\n"
+	for name, tc := range map[string]struct{ summary, gap string }{
+		"a port that says so":              {"Port of the reconnect fix: chats load right after a network drop.", ""},
+		"a port that does not say so":      {"Chats load right after a network drop.", "its Summary's first line does not say it is a port"},
+		"a port asking with no tree":       {"Port of the reconnect fix: chats load after a drop.\nKeep the old retry?", "what differs in the new tree"},
+		"a port asking with what it found": {"Port of the reconnect fix: chats load after a drop.\nThe new tree has no retry queue. Keep the old retry?", ""},
+	} {
+		var row store.ReviewRow
+		ApplyBody(&row, fmt.Sprintf(ready, tc.summary))
+		row.Port = PortOf + "49412"
+		gaps := strings.Join(CardGaps(row), "; ")
+		if tc.gap == "" && strings.Contains(gaps, "port") || tc.gap != "" && !strings.Contains(gaps, tc.gap) {
+			t.Errorf("%s: gaps = %q, want %q", name, gaps, tc.gap)
+		}
+	}
+}

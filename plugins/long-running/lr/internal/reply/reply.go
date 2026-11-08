@@ -1055,6 +1055,19 @@ func (r Reply) plain() error {
 	return cardtext.PlainCard(r.Title, r.MD, options)
 }
 
+func (f Fanout) unlabeled(r Reply) error {
+	if len(r.Picks) == 0 {
+		return nil
+	}
+	return cardtext.Unlabeled(r.Title, r.MD, true, func(numbers []int) (bool, error) {
+		_, ports, err := board.Ports(f.Entry, numbers)
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return len(ports) > 0, err
+	})
+}
+
 func (r Reply) strayMarkup() error {
 	if tag := strayTag.FindString(r.Title + "\n" + r.MD); tag != "" {
 		return fmt.Errorf("STRAY MARKUP: %q is a tag fragment, and Slack would show it to him raw, so nothing went out; read the title and md once for stray markup and resend without it", strings.TrimSpace(tag))

@@ -17,6 +17,8 @@ const (
 
 var (
 	paragraphBreak = regexp.MustCompile(`\n\s*\n`)
+	portWord       = regexp.MustCompile(`(?i)\bport`)
+	newTree        = regexp.MustCompile(`(?i)\bnew tree\b`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
@@ -38,6 +40,9 @@ func CardGaps(row store.ReviewRow) []string {
 	var gaps []string
 	if flaw := ChangeFlaw(row.ForUsers); flaw != "" {
 		gaps = append(gaps, "what it changes for a user: "+flaw)
+	}
+	if flaw := portFlaw(row); flaw != "" {
+		gaps = append(gaps, "that it is a port: "+flaw)
 	}
 	if flaw := PlanFlaw(row.PlanLine); flaw != "" {
 		gaps = append(gaps, "the plan row: "+flaw)
@@ -71,6 +76,20 @@ func ChangeFlaw(forUsers string) string {
 		}
 	}
 	return unplainIn("Summary", said)
+}
+
+func portFlaw(row store.ReviewRow) string {
+	if !strings.HasPrefix(row.Port, PortOf) {
+		return ""
+	}
+	lines := strings.SplitN(userParagraphs(row.ForUsers), "\n", 3)
+	if !portWord.MatchString(lines[0]) {
+		return fmt.Sprintf("it is a %s, and its Summary's first line does not say it is a port", row.Port)
+	}
+	if strings.Contains(row.ForUsers, "?") && (len(lines) < 2 || !newTree.MatchString(lines[1])) {
+		return "its Summary asks him something, and its second line does not say what differs in the new tree that forces the choice"
+	}
+	return ""
 }
 
 func PlanFlaw(line string) string {
