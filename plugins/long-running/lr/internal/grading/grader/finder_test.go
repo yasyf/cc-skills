@@ -1285,7 +1285,7 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 	} {
 		directory := finderJobDir(t, nil)
 		shell, repo := newFinderFake(t, replyOf())
-		shell.title, shell.body = fixTitle, body
+		shell.title, shell.body = fixTitle, body+"\n\nDeletes the #47001 patch it replaces."
 		registered(t, directory)
 		repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
 		mustFinder(t, directory, shell)
@@ -1295,15 +1295,28 @@ func TestASecondFixWhoseBodyNamesTheClassItRemovesOrTheCutoverDeletionStandsOk(t
 	}
 }
 
+func TestAClassFixThatDoesNotNameTheEarlierFixItReplacesPostsABlockingPointNamingIt(t *testing.T) {
+	directory := finderJobDir(t, nil)
+	shell, repo := newFinderFake(t, replyOf())
+	shell.title, shell.body = fixTitle, "## Design\n- Invariant: a claim carries a fence only while its transfer waits. Single owner: `Control.Transfer`."
+	registered(t, directory)
+	repo.landedLog = landedFiles("go/sand/internal/replica/follow.go")
+	mustFinder(t, directory, shell)
+	if !strings.HasPrefix(shell.posted[0]["--text"], "finder: major "+shaHead+" 1 open "+wholeRecord+": go/sand/internal/replica/follow.go:40 "+patchesLeft+". #47001 (") {
+		t.Errorf("posted %q", shell.posted[0]["--text"])
+	}
+}
+
 func TestACarriedSecondFixMajorIsReadAgainstTheBodyAsItStandsNow(t *testing.T) {
 	graded := "finder: major a269784 1 open over whole 4be7a52^..a269784: go/sand/internal/replica/follow.go:40 " + secondFix + ". #43100 (sand: 🐛 the replica follows) fixed go/sand/internal/replica/follow.go"
-	classLine := "## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position."
+	classLine := "## Summary\nThe class: a resubscribe that reads its position twice. This fix removes it, since one owner holds the position, and deletes the #43100 patch."
 	cleared := "finder: ok %s carried from #149302, whose one major, the second fix, the PR body now answers"
 	for name, c := range map[string]struct {
 		head, body, want, id string
 	}{
 		"a carry whose body names the class":     {"a269784", classLine, cleared, ""},
 		"a carry whose body names no class":      {"a269784", "## Summary\nThe replica resubscribes once.", "finder: major %s carried from #149302", ""},
+		"a carry whose class leaves its patch":   {"a269784", strings.TrimSuffix(classLine, ", and deletes the #43100 patch.") + ".", "finder: major %s carried from #149302", ""},
 		"a body edit at the head the major read": {shaHead[:7], classLine, cleared, ":after-149302"},
 	} {
 		t.Run(name, func(t *testing.T) {

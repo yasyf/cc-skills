@@ -36,6 +36,7 @@ const (
 	areaShown     = 3
 	secondFix     = "second fix in this area: the owner's rule needs a class fix, name the invariant and the single owner"
 	classFixOwed  = "a class fix in this area, naming the invariant and the single owner, since this port repeats an earlier fix"
+	patchesLeft   = "class fix that does not list the earlier fixes it replaces: the owner's rule needs a class fix to delete each patch it replaces, in this PR or the next, and to name each by PR in its body"
 	scopedStep    = "2. This head follows an earlier reviewed head, so it gets no row pass. Name an owner row\n" +
 		"   only when a hunk this pass reads breaks it, as one major finding whose defect starts\n" +
 		`   "row <key> missing:".`
@@ -58,6 +59,7 @@ var (
 	landedCommit = regexp.MustCompile(`^@([0-9a-f]{40})$`)
 	finderSays   = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
 	finderMajor  = regexp.MustCompile(`(?i)\b[1-9]\d* majors?\b`)
+	fixNamed     = regexp.MustCompile(`#(\d+) \(`)
 	finderClean  = regexp.MustCompile(`(?i)\bno (?:majors?|findings)\b|\b0 majors?\b|\bok\b`)
 )
 
@@ -447,7 +449,7 @@ func (s *finderPassState) carried(view pullRequest, earlier *Record, gone []stri
 		_, fixes, _ := strings.Cut(s.originOf(earlier).Text, secondFix)
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, stands as a follow-up owed after this port: %s%s", finderPass, short(head, 7), earlier.Seq, classFixOwed, fixes)
 	}
-	if grade == finderFail && s.onlySecondFix(earlier) && view.namesClassFix() {
+	if _, fixes, _ := strings.Cut(s.originOf(earlier).Text, secondFix); grade == finderFail && s.onlySecondFix(earlier) && view.namesClassFix() && view.namesEachFix(fixes) {
 		text = fmt.Sprintf("finder: %s %s carried from #%d, whose one major, the second fix, the PR body now answers", finderPass, short(head, 7), earlier.Seq)
 	}
 	if len(gone) > 0 {
@@ -799,7 +801,7 @@ func subset(inner, outer []string) bool {
 
 func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, error) {
 	mine := diff.area()
-	if !isFix(view.Title) || view.namesClassFix() || len(mine) == 0 {
+	if !isFix(view.Title) || len(mine) == 0 {
 		return nil, nil
 	}
 	landed, err := s.landedFixes()
@@ -812,6 +814,11 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 			earlier = append(earlier, fix)
 		}
 	}
+	defect := secondFix
+	if view.namesClassFix() {
+		earlier = slices.DeleteFunc(earlier, func(fix landedFix) bool { return view.names(fix.number) })
+		defect = patchesLeft
+	}
 	if len(earlier) == 0 {
 		return nil, nil
 	}
@@ -822,8 +829,7 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 		files := slices.Sorted(slices.Values(fix.files))
 		named = append(named, fmt.Sprintf("#%s (%s) fixed %s", fix.number, fix.title, strings.Join(files, ", ")))
 	}
-	defect := secondFix
-	if opensAsPort(view.Body) {
+	if defect == secondFix && opensAsPort(view.Body) {
 		defect = followUpWord + " " + classFixOwed
 	}
 	return &finding{Severity: finderFail, Cite: fmt.Sprintf("%s:%d", first.path, first.spans[0].start), Defect: defect + ". " + strings.Join(named, "; ")}, nil
@@ -831,6 +837,19 @@ func (s *finderPassState) secondFix(view pullRequest, diff touched) (*finding, e
 
 func (v pullRequest) namesClassFix() bool {
 	return classNamed.MatchString(v.Body + "\n" + v.rulingsComments())
+}
+
+func (v pullRequest) names(number string) bool {
+	return regexp.MustCompile(`#` + number + `\b`).MatchString(v.Body)
+}
+
+func (v pullRequest) namesEachFix(fixes string) bool {
+	for _, named := range fixNamed.FindAllStringSubmatch(fixes, -1) {
+		if !v.names(named[1]) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *finderPassState) onlySecondFix(from *Record) bool {
