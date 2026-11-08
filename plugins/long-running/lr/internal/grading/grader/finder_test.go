@@ -1745,3 +1745,22 @@ func TestAnAmendedHeadPastAnAcceptedMajorCarriesUnlessItChangesTheCitedLines(t *
 		})
 	}
 }
+
+func TestACarriedFindingCitingAScratchFileOutsideTheRepoDiffsOnlyItsRepoPaths(t *testing.T) {
+	rows := "/state/finder-desk/52612-0f40ff5a97e0/rows.md:11893"
+	graded := "finder: major " + shaOld + " 1 open over whole " + shaOldOwn[:7] + "^.." + shaOld[:7] + ": go/poll.go:9; " + rows + " polls instead of streaming"
+	prior := map[string]any{"seq": 149302, "lane": FinderLane, "head": "a269784", "text": graded}
+	extra := map[string]any{"history": []any{prior}, "accepted": map[string]any{"149302": 149310}}
+	directory, shell := amendedPastAGrade(t, prior, extra, replyOf(findingOf("major", "go/poll.go:9; "+rows, "polls instead of streaming")))
+	shell.judged = []any{regradeAnswer{solAnswer, "The amend changes the stream setup."}}
+	servesDiff(shell, shaOld, "go/poll.go", "")
+	read := shell.gitFn
+	shell.gitFn = func(argv []string) (string, error) {
+		if slices.Contains(argv, "diff") && slices.ContainsFunc(argv, filepath.IsAbs) {
+			return "", errors.New("exit status 128: fatal: Invalid path")
+		}
+		return read(argv)
+	}
+	mustFinder(t, directory, shell)
+	holdsAll(t, shell.posted[0]["--text"], "finder: ok "+shaHead, "accepted before, cited lines unchanged")
+}
