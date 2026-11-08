@@ -445,7 +445,10 @@ func fidelityCite(c Claim, r Read, exempt []string, word string) (string, string
 	for _, lane := range lanes {
 		grade := standing[lane]
 		if said, found := grade.record.Fields.Attrs[FidelityClassAttr]; found && lane == PipelineLane {
-			named = fmt.Sprintf(", and %s's grade %s names class %s", lane, grade.record.Name(), said)
+			named = fmt.Sprintf(", and %s's grade %s names class %s", lane, grade.record.Name(), said) + named
+		}
+		if typed := exemptPhrase(grade.record.Text, exempt); typed != "" && lane != PipelineLane {
+			named += fmt.Sprintf("; %s's grade %s types %s, but only %s's %s attr names a head's class, so his tap lands it", lane, grade.record.Name(), typed, PipelineLane, FidelityClassAttr)
 		}
 		if !grade.ok {
 			missing = append(missing, fmt.Sprintf("%s's newest grade %s is missing", lane, grade.record.Name()))
