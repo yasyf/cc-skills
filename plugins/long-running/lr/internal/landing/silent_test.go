@@ -30,7 +30,7 @@ func TestRootAndTheMetaDeskHearOnceWhenNoLandingPassEndsFor15MinutesAndOnceWhenO
 	}
 	passEnded := func() time.Time {
 		t.Helper()
-		if err := landing.SayPassEnded(ctx, "d", 166, 5, 9*time.Minute); err != nil {
+		if err := landing.SayPassEnded(ctx, "d", 166, []string{"#1 at 1111111 on his tap at this head"}, 9*time.Minute); err != nil {
 			t.Fatal(err)
 		}
 		return time.Now()

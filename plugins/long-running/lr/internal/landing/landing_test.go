@@ -489,3 +489,21 @@ func TestAnEnqueueTheQueueTookIsAnsweredEvenWhenTheStoreCannotRecordIt(t *testin
 		t.Fatalf("err = %v, enqueued = %+v, said = %+v", err, q.enqueued, done.Said)
 	}
 }
+
+func TestEachEnqueueNamesItsPRHeadAndTheTapOrGoThatAdmittedIt(t *testing.T) {
+	carried := facts(50343, func(f *machine.Facts) {
+		f.TapFrom, f.CarriedBy = "6d12b64c2a000000000000000000000000000000", "same-diff"
+	})
+	gone := facts(50357, func(f *machine.Facts) { f.Tap, f.Exempt = "", true })
+
+	done := act(t, newStore(t), &queue{}, &restacker{}, t0, facts(45583, nil), carried, gone)
+
+	want := []string{
+		"#45583 at " + head[:7] + " on his tap at this head",
+		"#50343 at " + head[:7] + " on his tap at 6d12b64, carried by same-diff",
+		"#50357 at " + head[:7] + " on a go",
+	}
+	if !slices.Equal(done.Admissions, want) {
+		t.Fatalf("admissions %q, want %q", done.Admissions, want)
+	}
+}

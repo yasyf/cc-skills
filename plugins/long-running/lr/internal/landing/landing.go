@@ -62,6 +62,7 @@ type Done struct {
 	Said        []Said
 	Enqueued    []Head
 	Resubmitted []Head
+	Admissions  []string
 	Dequeued    []int
 	Restacked   []Move
 	Conflicts   []int
@@ -176,6 +177,7 @@ func enqueue(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		return err
 	}
 	done.Enqueued = append(done.Enqueued, Head{f.Number, f.Head})
+	done.Admissions = append(done.Admissions, admission(f))
 	return nil
 }
 
@@ -216,6 +218,7 @@ func reenter(ctx context.Context, s *store.Store, queue Queue, f machine.Facts, 
 		}
 	}
 	done.Resubmitted = append(done.Resubmitted, Head{f.Number, f.Head})
+	done.Admissions = append(done.Admissions, admission(f))
 	return nil
 }
 
@@ -264,4 +267,15 @@ func restack(ctx context.Context, s *store.Store, restacker Restacker, f machine
 	}
 	done.Restacked = append(done.Restacked, Move{f.Number, f.Head, moved})
 	return nil
+}
+
+func admission(f machine.Facts) string {
+	at := fmt.Sprintf("#%d at %.7s", f.Number, f.Head)
+	switch {
+	case f.Tap == machine.TapTapped && f.TapFrom != "":
+		return fmt.Sprintf("%s on his tap at %.7s, carried by %s", at, f.TapFrom, f.CarriedBy)
+	case f.Tap == machine.TapTapped:
+		return at + " on his tap at this head"
+	}
+	return at + " on a go"
 }
