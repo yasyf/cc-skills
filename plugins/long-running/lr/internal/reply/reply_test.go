@@ -2414,63 +2414,100 @@ func TestAReplyCarryingATagFragmentIsRefused(t *testing.T) {
 	}
 }
 
-func TestAReplyAskingForHisTapWithNothingToTapIsRefused(t *testing.T) {
-	ready := store.ReviewRow{ReadyForTap: true}
+func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testing.T) {
+	ready := store.ReviewRow{ReadyForTap: true, State: prrow.StateOpen}
+	tapped := store.ReviewRow{ReadyForTap: true, Tapped: true, State: prrow.StateOpen}
+	const kept, attached, refused = "kept", "attached", "refused"
 	for name, tc := range map[string]struct {
-		row     store.ReviewRow
-		reply   Reply
-		refused bool
+		row   store.ReviewRow
+		reply Reply
+		want  string
 	}{
-		"a fix waiting on his tap, with no prs":         {ready, Reply{Title: "Dashboard serve flake", MD: "#2196 is green and waits on your tap."}, true},
-		"a list of PRs waiting on another card":         {ready, Reply{Title: "Six PRs wait only on your answer to a card already on your board", MD: "#2196 and five more."}, true},
-		"a PR proven green, listed but tapped":          {store.ReviewRow{ReadyForTap: true, Tapped: true}, Reply{Title: "Fork side-chat bug", MD: "#2196 is proven green and waits on your approval.", PRs: []string{landPR}}, true},
-		"a count whose fixes wait on him, PR not ready": {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "Brittleness, the count", MD: "Three fixes are ready for your approval.", PRs: []string{landPR}}, true},
-		"a title that opens with Tap":                   {ready, Reply{Title: "Tap: #2196, approval cards work again", MD: "It passed."}, true},
-		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, false},
-		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, false},
-		"his answer recorded":                           {ready, Reply{Title: "Port, old tree to new: dev #2196", MD: "Your pick is recorded, and the port state follows."}, false},
-		"a PR in CI listed in prs":                      {inCI, Reply{Title: "Stuck Working tab", MD: "#2196 is in CI and waits on your tap.", PRs: []string{landPR}}, false},
-		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, false},
-		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, false},
-		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, false},
-		"the refusal described, asking for approval":    {ready, Reply{Title: "Buttons on approval messages: the refusal is live in this session", MD: "Buttons on approval messages: the fix is live here, and I was wrong at 1:27 PM to say it had not reached this session. Since 1:10 PM a message from me that asks for your approval with no button is refused before it posts, and it ran on my 1:23, 1:24 and 1:28 PM cards."}, false},
-		"the refusal described, waiting on him":         {ready, Reply{Title: "Messages with nothing to tap are now refused before they post", MD: "The fix you asked for here is live in this session, and I was wrong at 1:27 PM to say it had not reached it. Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts. I just saw it refuse one of mine at 1:33 PM."}, false},
-		"an ask beside a described refusal":             {ready, Reply{Title: "Refusal is live", MD: "A message with no button is refused now. #2196 is green and needs your tap."}, true},
-		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, true},
+		"a fix waiting on his tap, with no prs":         {ready, Reply{Title: "Dashboard serve flake", MD: "#2196 is green and waits on your tap."}, attached},
+		"a list of PRs waiting on another card":         {ready, Reply{Title: "Six PRs wait only on your answer to a card already on your board", MD: "#2196 and five more."}, attached},
+		"a PR proven green, listed but tapped":          {tapped, Reply{Title: "Fork side-chat bug", MD: "#2196 is proven green and waits on your approval.", PRs: []string{landPR}}, refused},
+		"a count whose fixes wait on him, PR not ready": {store.ReviewRow{WaitsOn: "CI", State: prrow.StateOpen}, Reply{Title: "Brittleness, the count", MD: "Three fixes are ready for your approval.", PRs: []string{landPR}}, refused},
+		"a title that opens with Tap":                   {ready, Reply{Title: "Tap: #2196, approval cards work again", MD: "It passed."}, attached},
+		"a ready PR listed in prs":                      {ready, Reply{Title: "Tap: #2196", MD: "It passed.", PRs: []string{landPR}}, kept},
+		"a question with picks":                         {ready, Reply{Title: "Which fix?", MD: "Both wait on your answer.", Picks: []string{"A", "B"}}, kept},
+		"his answer recorded":                           {ready, Reply{Title: "Port, old tree to new: dev #2196", MD: "Your pick is recorded, and the port state follows."}, kept},
+		"a PR in CI listed in prs":                      {inCI, Reply{Title: "Stuck Working tab", MD: "#2196 is in CI and waits on your tap.", PRs: []string{landPR}}, kept},
+		"a PR in the queue on his approval":             {ready, Reply{Title: "#2196 is in the merge queue on your approval", MD: "It lands next."}, kept},
+		"a wait on something else, said plainly":        {store.ReviewRow{WaitsOn: "CI"}, Reply{Title: "#2196 waits on CI", MD: "It needs a green build first."}, kept},
+		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, kept},
+		"the refusal described, waiting on him":         {ready, Reply{Title: "Messages with nothing to tap are now refused before they post", MD: "Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts."}, kept},
+		"an ask beside a described refusal":             {ready, Reply{Title: "Refusal is live", MD: "A message with no button is refused now. #2196 is green and needs your tap."}, attached},
+		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, attached},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
 			ledgerRow(t, f, tc.row)
-			err := f.nothingToTap(context.Background(), tc.reply)
-			if tc.refused != (err != nil) || tc.refused && !strings.HasPrefix(err.Error(), "NOTHING TO TAP") {
-				t.Fatalf("refusal = %v, want refused %v", err, tc.refused)
+			got, err := f.withEveryWait(context.Background(), tc.reply)
+			switch {
+			case tc.want == refused:
+				if err == nil || !strings.HasPrefix(err.Error(), "NOTHING WAITS") {
+					t.Fatalf("err = %v, want NOTHING WAITS", err)
+				}
+			case err != nil:
+				t.Fatalf("err = %v, want it sent", err)
+			case tc.want == attached && !slices.Contains(got.PRs, landPR):
+				t.Fatalf("prs = %v, want #2196's Approve attached", got.PRs)
+			case tc.want == kept && !slices.Equal(got.PRs, tc.reply.PRs):
+				t.Fatalf("prs = %v, want them as sent", got.PRs)
 			}
 		})
 	}
 }
 
-func TestAReplyAskingForHisTapThroughNoCardNamesTheNearestOpenCardToCopy(t *testing.T) {
+func TestAReplyThatSaysAPickWaitsOnHimCopiesEveryOpenCard(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
 	f := fanout(t, fake)
+	ledgerRow(t, f, store.ReviewRow{State: prrow.StateLanded})
 	asks := Reply{ID: "r1", Title: "Where things stand", MD: "How long the window stays open waits on your answer.", Thread: "1793635190.051179"}
-	err := f.nothingToTap(context.Background(), asks)
-	want := "the nearest open card is \"How long is the window?\": name it in md by that title or by storage-eviction-window, and this reply copies it into its own thread, or copy it with `cc-slack card-copy --url https://brook.slack.com/archives/D0B6Z/p2 --thread 1793635190.051179`"
-	if err == nil || !strings.HasPrefix(err.Error(), "NOTHING TO TAP") || !strings.HasSuffix(err.Error(), want) {
-		t.Fatalf("refusal = %v, want it to end %q", err, want)
+	got, err := f.withEveryWait(context.Background(), asks)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if strings.Contains(err.Error(), "without asking him") {
-		t.Fatalf("refusal %q offers dropping the ask as the way past it", err)
+	ids := make([]string, len(got.OpenCards))
+	for n, card := range got.OpenCards {
+		ids[n] = card.ID
 	}
-	linked := asks
-	linked.OpenCards = []board.OpenCard{{ID: "card-storage-eviction-window", URL: "https://brook.slack.com/archives/D0B6Z/p2"}}
-	if err := f.nothingToTap(context.Background(), linked); err != nil {
-		t.Fatalf("a reply carrying an open card was refused: %v", err)
+	if slices.Sort(ids); !slices.Equal(ids, []string{"card-storage-eviction", "card-storage-eviction-window"}) {
+		t.Fatalf("cards = %v, want both open cards with a Slack message", ids)
 	}
 	empty := &shelltest.Fake{}
 	empty.Reply(`{"doc":{}}`, "cc-present", "outcomes")
-	if err := fanout(t, empty).nothingToTap(context.Background(), asks); err == nil || !strings.Contains(err.Error(), "no card on his board is open") {
-		t.Fatalf("refusal = %v, want it to say no card is open", err)
+	g := fanout(t, empty)
+	ledgerRow(t, g, store.ReviewRow{State: prrow.StateLanded})
+	if _, err := g.withEveryWait(context.Background(), asks); err == nil || !strings.HasPrefix(err.Error(), "NOTHING WAITS") {
+		t.Fatalf("err = %v, want NOTHING WAITS when nothing waits", err)
+	}
+}
+
+func TestAnUpdateCarriesWhatLandedWhatIsRedAndEveryWaitWithItsButtons(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
+	f := fanout(t, fake)
+	ledgerRow(t, f, store.ReviewRow{Title: "sand: 🐛 chats load after a network drop", ReadyForTap: true, State: prrow.StateOpen})
+	got, err := f.withUpdate(context.Background(), Reply{Update: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 2 || !got.Unprompted {
+		t.Fatalf("update = %+v, want its title, #2196's Approve and both open cards", got)
+	}
+	for _, want := range []string{"**Landed**\nNothing landed.", "**Red**\nNothing is red.", "**Waiting on you**\n- #2196", "How long is the window?: your pick"} {
+		if !strings.Contains(got.MD, want) {
+			t.Fatalf("md = %q, want %q", got.MD, want)
+		}
+	}
+	if err := f.updated(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(f.Entry.StateDir, updateFile))
+	if err != nil || strings.TrimSpace(string(raw)) != sentAt.UTC().Format(time.RFC3339) {
+		t.Fatalf("saved %q, %v, want the time this update went out", raw, err)
 	}
 }
 
@@ -2507,7 +2544,7 @@ func TestATaplessCatchUpNamingTwoOpenCardsCopiesBothIntoItsOwnThread(t *testing.
 				}
 			}
 			if tc.refused {
-				if !strings.Contains(text, "NOTHING TO TAP") || len(copied)+len(posted) != 0 {
+				if len(copied)+len(posted) != 0 {
 					t.Fatalf("a tapless catch-up reached Slack: %s, copies %q", text, copied)
 				}
 				return

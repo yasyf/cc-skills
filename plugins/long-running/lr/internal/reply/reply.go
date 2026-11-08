@@ -20,7 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
@@ -47,6 +46,9 @@ const (
 	pickSplit      = " :: "
 	maxLinks       = 5
 	maxPRs         = 10
+	updateFile     = "owner-update.at"
+	updateTitle    = "Where things stand"
+	updateLookback = 12 * time.Hour
 	maxBlocks      = 8
 	cardPrefix     = "card-"
 	withdrawn      = " withdrawn"
@@ -146,6 +148,7 @@ type Reply struct {
 	Order       string           `json:"order,omitempty"`
 	Alert       string           `json:"alert,omitempty"`
 	Unprompted  bool             `json:"unprompted,omitempty"`
+	Update      bool             `json:"update,omitempty"`
 	Action      string           `json:"action,omitempty"`
 	By          string           `json:"by,omitempty"`
 	Routed      int              `json:"routed,omitempty"`
@@ -244,7 +247,7 @@ func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
 // withCardLinks links each open card the reply names as card:ID, longest id
 // first so no card's name is taken for a shorter one's; each surface resolves
 // the link when it draws, and inSlack resolves it to the Slack message.
-// A reply that asks for his tap and links no card is refused by nothingToTap;
+// A reply that asks for his tap and links no card carries every wait from withEveryWait;
 // any other posts whatever it finds: the second result is one warning line when
 // the board did not read, or empty.
 func (f Fanout) withCardLinks(ctx context.Context, r Reply) (Reply, string) {
@@ -333,12 +336,12 @@ func (f Fanout) withPortOpening(r Reply) (Reply, string) {
 	return r, ""
 }
 
-func (f Fanout) nothingToTap(ctx context.Context, r Reply) error {
+func (f Fanout) withEveryWait(ctx context.Context, r Reply) (Reply, error) {
 	asks := slices.ContainsFunc(sentence.Split(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " "), -1), func(said string) bool {
 		return tapOrder.MatchString(said) || asksTap.MatchString(said) && !describes.MatchString(said)
 	})
 	if len(r.Picks) > 0 || len(r.OpenCards) > 0 || !asks {
-		return nil
+		return r, nil
 	}
 	numbers := make([]int, len(r.PRs))
 	for n, pr := range r.PRs {
@@ -349,39 +352,53 @@ func (f Fanout) nothingToTap(ctx context.Context, r Reply) error {
 		if err != nil || slices.ContainsFunc(rows, func(row store.ReviewRow) bool {
 			return slices.Contains(numbers, row.Number) && board.OffersApproval(row)
 		}) {
-			return nil
+			return r, nil
 		}
 	}
-	const refused = "NOTHING TO TAP: this asks him to tap, approve or answer, and it carries no picks, no open PR he can approve and no open card, so he would get a message with nothing to tap and nothing went out; "
-	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
+	u, err := f.waits(ctx, time.Time{})
 	if err != nil {
-		return errors.New(refused + "his board did not read, so no open card was found to copy into this message: " + err.Error())
+		return r, err
 	}
-	cards := slices.DeleteFunc(outcomes.OpenCards(), func(card board.OpenCard) bool {
-		return card.ID == cardPrefix+r.ID || linkedCard(r.MD, card) != r.MD
-	})
-	if len(cards) == 0 {
-		return errors.New(refused + "no card on his board is open, so give him the picks he answers in this reply")
+	if len(u.Waiting) == 0 && len(u.Cards) == 0 {
+		return r, errors.New("NOTHING WAITS: this says something waits on him, and no PR waits on his tap and no card is open on his board, so nothing went out; say what it waits on instead")
 	}
-	nearest := slices.MaxFunc(cards, func(one, other board.OpenCard) int {
-		return cmp.Compare(sharedWords(one.Title, r.Title+" "+r.MD), sharedWords(other.Title, r.Title+" "+r.MD))
-	})
-	thread := cmp.Or(r.Thread, "<the ts this reply posts at>")
-	return fmt.Errorf("%sthe nearest open card is %q: name it in md by that title or by %s, and this reply copies it into its own thread, or copy it with `cc-slack card-copy --url %s --thread %s`", refused, nearest.Title, strings.TrimPrefix(nearest.ID, cardPrefix), nearest.URL, thread)
+	r.PRs = append(r.PRs, u.URLs()[:min(len(u.Waiting), maxPRs-len(r.PRs))]...)
+	r.OpenCards = append(r.OpenCards, u.Cards...)
+	return r, nil
 }
 
-func sharedWords(title, said string) int {
-	split := func(text string) []string {
-		return strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsNumber(r) })
+func (f Fanout) waits(ctx context.Context, since time.Time) (board.Update, error) {
+	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
+	if err != nil {
+		return board.Update{}, fmt.Errorf("his board did not read, so the cards waiting on him are unknown and nothing went out: %w", err)
 	}
-	words := split(said)
-	shared := 0
-	for _, word := range split(title) {
-		if len(word) > 3 && slices.Contains(words, word) {
-			shared++
+	return board.OwnerUpdate(f.Entry, since, outcomes.OpenCards())
+}
+
+func (f Fanout) withUpdate(ctx context.Context, r Reply) (Reply, error) {
+	since := f.Now().Add(-updateLookback)
+	raw, err := os.ReadFile(filepath.Join(f.Entry.StateDir, updateFile))
+	switch {
+	case err == nil:
+		if since, err = time.Parse(time.RFC3339, strings.TrimSpace(string(raw))); err != nil {
+			return r, err
 		}
+	case !errors.Is(err, fs.ErrNotExist):
+		return r, err
 	}
-	return shared
+	u, err := f.waits(ctx, since)
+	if err != nil {
+		return r, err
+	}
+	r.Title, r.MD = cmp.Or(r.Title, updateTitle), strings.TrimSpace(r.MD+"\n\n"+u.Words())
+	r.PRs = append(r.PRs, u.URLs()[:min(len(u.Waiting), maxPRs-len(r.PRs))]...)
+	r.OpenCards = append(r.OpenCards, u.Cards...)
+	r.Unprompted = r.Unprompted || r.Order == "" && r.On == ""
+	return r, nil
+}
+
+func (f Fanout) updated() error {
+	return os.WriteFile(filepath.Join(f.Entry.StateDir, updateFile), []byte(f.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
 }
 
 func (f Fanout) approvesTapped(r Reply) error {
