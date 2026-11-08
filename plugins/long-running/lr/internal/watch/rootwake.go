@@ -38,7 +38,7 @@ func WakeRoot(records, open []client.Record, now time.Time) *RootWake {
 	}
 	answered := answeredByRoot(records)
 	owed := slices.DeleteFunc(slices.Clone(open), func(record client.Record) bool {
-		return answered[record.Seq] || slices.Contains(notLanes, record.Lane) || !slices.ContainsFunc(record.To, rootLane)
+		return answered[record.Seq] || slices.Contains(notLanes, record.Lane) || len(record.To) == 0 || !rootLane(strings.SplitN(record.To[0], "@", 2)[0])
 	})
 	if len(owed) == 0 {
 		return nil
