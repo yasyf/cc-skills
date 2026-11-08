@@ -113,7 +113,7 @@ type Build struct {
 type Lines struct {
 	Change string `json:"change,omitempty"`
 	Plan   string `json:"plan,omitempty"`
-	Risk   string `json:"risk,omitempty"`
+	ELI5   string `json:"eli5,omitempty"`
 	Blocks string `json:"blocks,omitempty"`
 }
 
@@ -701,7 +701,7 @@ func (f Fanout) aliased(r Reply) Reply {
 	}
 	r.PRCards = slices.Clone(r.PRCards)
 	for n, card := range r.PRCards {
-		r.PRCards[n].Lines = Lines{aliases.In(card.Change), aliases.In(card.Plan), aliases.In(card.Risk), aliases.In(card.Blocks)}
+		r.PRCards[n].Lines = Lines{aliases.In(card.Change), aliases.In(card.Plan), aliases.In(card.ELI5), aliases.In(card.Blocks)}
 	}
 	r.Blocks = slices.Clone(r.Blocks)
 	for n, block := range r.Blocks {
@@ -1026,7 +1026,7 @@ func (r Reply) bareExplainMore() error {
 
 // withPRCards reads each PR the reply names from the drive's PR ledger and
 // draws its card, refusing the whole reply when any card would miss what it
-// changes for a user, the plan row, the risk or what it waits on. A PR he
+// changes for a user, the plan row, its plain-words ELI5 or what it waits on. A PR he
 // cannot approve, on a reply with no picks, is only a mention.
 func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 	if len(r.PRs) == 0 {
@@ -1038,6 +1038,13 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
 	repo, rows, read := board.Rows(f.Entry, numbers)
+	explained, err := prrow.ReadELI5(ctx, f.Runner, f.Entry.Checkout, repo, numbers)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "PR cards draw each ELI5 from its PR body's Context, since the reviewer bot's could not be read: %v\n", err)
+	}
+	for n := range rows {
+		rows[n].ELI5 = explained[rows[n].Number]
+	}
 	var gaps []string
 	cards := make([]prCard, 0, len(r.PRs))
 	for n, pr := range r.PRs {
@@ -1056,7 +1063,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
-		if prrow.ChangeFlaw(row.ForUsers) != "" || prrow.PlanFlaw(row.PlanLine) != "" || row.Risk == "" {
+		if prrow.ChangeFlaw(row.ForUsers) != "" || prrow.PlanFlaw(row.PlanLine) != "" || prrow.ELI5Words(row) == "" {
 			row = f.fromGitHub(ctx, row, pr)
 		}
 		card, missing := prCardFrom(row, pr)
@@ -1069,7 +1076,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		cards = append(cards, card)
 	}
 	if len(gaps) > 0 {
-		return r, fmt.Errorf("PR CARD GAP: %s, so nothing went out; send each named lane its gap to write into the PR body's Summary, plan reference or Risk profile, then send this again", strings.Join(gaps, "; "))
+		return r, fmt.Errorf("PR CARD GAP: %s, so nothing went out; send each named lane its gap to write into the PR body's Summary, plan reference or Context, then send this again", strings.Join(gaps, "; "))
 	}
 	r.PRCards = cards
 	return r, nil
@@ -1085,13 +1092,13 @@ func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
 	if flaw := prrow.PlanFlaw(row.PlanLine); flaw != "" {
 		missing = append(missing, "the plan row: "+flaw)
 	}
-	if flaw := prrow.RiskFlaw(row.Risk); flaw != "" {
-		missing = append(missing, "the risk: "+flaw)
+	if prrow.ELI5Words(row) == "" {
+		missing = append(missing, "its plain-words ELI5: the reviewer bot has posted none and the body has no Context section")
 	}
 	if prrow.BlocksWords(row) == "" {
 		missing = append(missing, "what it waits on: its ledger row names nothing")
 	}
-	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.RiskWords(row), prrow.BlocksWords(row)}}, missing
+	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.ELI5Words(row), prrow.BlocksWords(row)}}, missing
 }
 
 func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {
@@ -1102,7 +1109,7 @@ func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) 
 	}
 	var body store.ReviewRow
 	prrow.ApplyBody(&body, read.Body)
-	row.Title, row.ForUsers, row.Risk = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Risk, body.Risk)
+	row.Title, row.ForUsers, row.Description = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Description, read.Body)
 	if prrow.PlanFlaw(row.PlanLine) != "" {
 		row.PlanLine, row.PlanRow = body.PlanLine, body.PlanLine
 	}
@@ -1117,7 +1124,7 @@ func (r Reply) prChild(id, pr string) map[string]any {
 		return child
 	}
 	card := r.PRCards[at]
-	child = board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, Risk: card.Risk, Blocks: card.Blocks})
+	child = board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, ELI5: card.ELI5, Blocks: card.Blocks})
 	if card.Tap && !slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
 		child["tap"] = true
 	}

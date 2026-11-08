@@ -34,7 +34,7 @@ func TestTheApproveCardIsTheLedgerRowWithApproveAndHold(t *testing.T) {
 		PRs: []SlackPRRow{{
 			URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
 			Review: "CI green; approved by poetic-svc; grade pass; mergeable clean",
-			Change: "chats load faster", Plan: "checked against the plan", Risk: "- **Availability:** one cache key", Blocks: "Only your approval.", Description: "## Context",
+			Change: "chats load faster", Plan: "checked against the plan", ELI5: "Chats were slow to open.", Blocks: "Only your approval.", Description: "## Context\n\nChats were slow to open.",
 		}},
 		Options: []string{"Approve", "Hold"}, Recommended: "Approve", Waits: MergeWaits(number, head),
 	}

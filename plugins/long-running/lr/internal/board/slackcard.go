@@ -56,7 +56,7 @@ type SlackPRRow struct {
 	Review string `json:"review,omitempty"`
 	Change string `json:"change"`
 	Plan   string `json:"plan"`
-	Risk   string `json:"risk"`
+	ELI5   string `json:"eli5"`
 	Blocks string `json:"blocks"`
 	Lands  string `json:"lands,omitempty"`
 	Port   string `json:"port,omitempty"`
@@ -106,7 +106,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info", Title: namedTitle(row.Number, row.Title),
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: prrow.ChangeWords(row), Plan: PlanWords(row), Risk: prrow.RiskWords(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: PlanWords(row), ELI5: prrow.ELI5Words(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	switch row.State {
@@ -195,7 +195,7 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 		summary = append(summary, "**"+row.Port+".**")
 	}
 	for _, line := range []struct{ key, label, said string }{
-		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"risk", "Risk", row.Risk}, {"blocker", "Blocks landing", row.Blocks},
+		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"eli5", "ELI5", row.ELI5}, {"blocker", "Blocks landing", row.Blocks},
 	} {
 		if line.said != "" {
 			child[line.key] = line.said
@@ -483,11 +483,16 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				}
 				words := NewAnswerWords(a.Runner, entry.Checkout)
 				if err := withRows(c, entry, numbers, ledgerRows, func(_ *store.Store, repository string, rows []store.ReviewRow) error {
+					explained, err := prrow.ReadELI5(c.Context(), a.Runner, entry.Checkout, repository, numbers)
+					if err != nil {
+						fmt.Fprintf(c.ErrOrStderr(), "PR cards draw each ELI5 from its PR body's Context, since the reviewer bot's could not be read: %v\n", err)
+					}
 					for _, pr := range held {
 						at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == pr.Number })
 						if at < 0 {
 							continue
 						}
+						rows[at].ELI5 = explained[pr.Number]
 						card := Card(repository, rows[at])
 						card.PRs[0].Plan = words.Said(c.Context(), card.PRs[0].Plan)
 						plain := func(text string) string {
