@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -136,3 +138,10 @@ def test_a_failed_read_posts_no_state_record_so_a_blind_watcher_goes_quiet(watch
         text=True,
     )
     assert not (watch.root / "cci.log").exists()
+
+
+def test_a_host_without_pup_prints_api_fail_instead_of_crashing(watch: Watch) -> None:
+    (watch.root / "bin" / "pup").unlink()
+    watch.env["PATH"] = f"{watch.root / 'bin'}:{Path(shutil.which('uv')).parent}:{Path(sys.executable).parent}:/usr/bin:/bin"
+    lines = watch.once(monitor(1, "Alert"))
+    assert len(lines) == 1 and lines[0].startswith("API-FAIL pup is not installed"), lines
