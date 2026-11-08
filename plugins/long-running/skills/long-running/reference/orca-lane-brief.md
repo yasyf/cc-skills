@@ -547,7 +547,9 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
 A change does what its request names and nothing else: behavior the request does not name stays, and a lane that thinks it must go brings that as a pick and never removes it.
 
 Escalate early, never improvise: scope surprise, an assumption the code refutes, an
-auth or approval gate, or two failed approaches. Ask with 2-4 options.
+auth or approval gate, or two failed approaches. Ask with 2-4 options. A third fix for one
+thing is never a patch: it makes the failure structurally impossible and deletes the
+earlier patches, naming them in the PR body.
 
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
 It posts one PR comment opening with `## Rulings` and one opening with `## Regression
