@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"testing"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 )
 
@@ -195,6 +196,38 @@ func TestAnotherLanesFifoOrDanglingLinkInTheDrivesScratchNeverStopsTheStagedLane
 	}
 	if left := leftBehind(t, c, "Scratch is "+drive+" here.\n"); !strings.Contains(left, drive+" holds "+own+", which is neither a file nor a directory") {
 		t.Fatalf("warning %q", left)
+	}
+}
+
+type unsynced struct {
+	*shelltest.Fake
+	synced bool
+}
+
+func (u *unsynced) Run(ctx context.Context, c shell.Command) (shell.Result, error) {
+	if slices.Equal(c.Argv[len(c.Argv)-1:], []string{"sync"}) {
+		u.synced = true
+	}
+	if !u.synced && slices.Contains(c.Argv, "show") {
+		return shell.Result{Code: 3}, &shell.ExitError{Argv: c.Argv, Code: 3, Stderr: "not-found"}
+	}
+	return u.Fake.Run(ctx, c)
+}
+
+func TestADocAnotherHostWroteIsCarriedAfterOneSyncInsteadOfRefusingTheLaunch(t *testing.T) {
+	c, fake := carrier(t)
+	runner := &unsynced{Fake: fake}
+	c.Runner = runner
+	fake.Reply("", "ccn", "-R", c.Repo, "sync")
+	fake.Reply("sharding-build-1 handoff\n", "ccn", "-R", c.Repo, "doc", "show", "d191cfba")
+
+	out, left, lacked := c.Stage(context.Background(), "Resume from `ccn doc show d191cfba`.\n")
+
+	if len(lacked) != 0 || len(left) != 0 || out != "Resume from `"+box+"/ccn/doc-d191cfba.md`.\n" {
+		t.Fatalf("staged %q, left %q, lacked %q", out, left, lacked)
+	}
+	if got := landed(t, c, box+"/ccn/doc-d191cfba.md"); got != "sharding-build-1 handoff\n" {
+		t.Fatalf("doc copy holds %q", got)
 	}
 }
 
