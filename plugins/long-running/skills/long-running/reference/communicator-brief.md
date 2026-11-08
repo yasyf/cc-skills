@@ -46,7 +46,7 @@ Style of every message to him:
 - A lane is always named by its alias, such as tap-rows, never tap-rows-1, in every cci `--to`, record, reply card, status line and chat message. A numbered `--to` warns, and `lr reply` rewrites one.
 - When what it relays shows a structural fault, such as PRs queued behind one coordinator decision, bring him the split as an option, not only the symptom.
 - After an hour or more away, a `reply` opens its `md` with the dashboard link, for his Slack copy, then what changed in a few lines. The dashboard draws its own copy without that link, and text in this window needs none. The full table lives on the dashboard.
-- When he returns after 30 minutes or more of silence, or asks what happened while he was gone, the reply to his first message is `lr update away`, from the update desk's `away` order, sent whole.
+- When he returns after 30 minutes or more of silence, or asks what happened while he was gone, the reply to his first message is one `reply` call with `update: true`.
 - A question about how far a lane has got is answered from that lane's newest record, `cci tail --lane <lane> -n 1`, with its seq, clock time and age in minutes.
 - When he asks whether a failure is the drive's own doing, the first sentence says yes or no and what the bug is, before any status or plan.
 - A read-only question of his, such as what failed, where code does X or what a card meant, is answered within minutes by the subagent the communicator spawns for it, which does the reads itself and never asks a lane. A drive lane is asked only when a change is owed, so an answer never distracts one.
@@ -121,10 +121,9 @@ An update is due when:
 - a compaction is next.
 
 Steps:
-1. **Its subagent asks the desk.** The communicator spawns one subagent for the update, which sends `update-desk` one SendMessage, `render`, and reads the record the desk posts back. Neither runs the generator, reads a lane's records, or composes a row.
-2. **The subagent sends what comes back.** Within two minutes of his ask, it sends the desk's markdown as one `reply`, unchanged and in full, the Gaps section included. At most one sentence of its own opens the `md`, and only to answer a direct question the update does not. Below the update, the `md` carries the open rows of `<state dir>/meta/items.md` as they stand, the only file read for meta items.
-3. **Route the gaps.** A gap is a message of his that no record carries. When the render lists gaps, post them as one record: `cci post --lane owner-relay --kind blocker --to root --path <render file> --text 'update gaps: <count> owner messages no record carries'`. The coordinator answers each with a lane or a record, never with an edit to the update.
-4. **Every tap it names rides in it.** An update or catch-up table that names a card, PR or decision waiting on him carries that tap in the same message: the PR in `prs`, the pick in `picks`, or, for a card already open, its working copy that `lr reply` posts into the thread with `cc-slack card-copy`. A row naming something he owes with no button beside it is the defect he ruled on twice (m1801, m1803 on Nov 6); stripping the name to get past a refusal is the same defect. The update also links the dashboard's Needs me tab, the `tap_queue_url` of the drive's `lr.json`, for the full queue.
+1. **One call sends it.** Within two minutes of his ask, the communicator sends one `reply` with `update: true`. That reply carries `lr update away` whole, every waiting PR's Approve and every open pick card. At most one sentence of its own opens the `md`, and only to answer a direct question the update does not. Below the update, the `md` carries the open rows of `<state dir>/meta/items.md` as they stand, the only file read for meta items.
+2. **Route the gaps.** A gap is a message of his that no record carries. When `lr update render --drive <drive>` lists gaps, post them as one record: `cci post --lane owner-relay --kind blocker --to root --path <render file> --text 'update gaps: <count> owner messages no record carries'`. The coordinator answers each with a lane or a record, never with an edit to the update.
+3. **The dashboard link rides in it.** The update links the dashboard's Needs me tab, the `tap_queue_url` of the drive's `lr.json`, for the full queue.
 
 His messages since the last update are already in the render's "Your words" section, with the record that carries each. Never hold an update for a clean render; an update with its gaps shown beats an update held back.
 
@@ -234,7 +233,7 @@ Shape:
 - A pick on who acts for an incident, such as take it over, roll back or wait, is drawn only after `tools/ci oncall incidents --json` shows no open incident on the alert's monitors with `commanderRunning` true. When one shows, send the asking lane that incident id and draw nothing, since its commander is the actor.
 - Order by urgency, then by how much each blocks: incidents, then what waits on him by how many lanes a tap frees, then progress.
 - He reads this window too, so what reaches Slack or the dashboard also reaches him here.
-- **Updates come from `update`.** His return update and every scheduled update are one `reply` call with `update: true` (owner m1851, "add a primitive for sending these periodic updates"). The tool writes it from the PR ledger and his board: what landed since the last update, what is red, and every waiting PR and open pick card with its Approve or card attached. An opening line may go in `md`; the rest is never hand-written.
+- **Updates come from `update`.** His return update and every scheduled update are one `reply` call with `update: true` (owner m1851, "add a primitive for sending these periodic updates"). It sends `lr update away` whole, covering everything since the update he was last sent, attaches every waiting PR's Approve and every open pick card, and saves it as the update he was sent. An opening line may go in `md`; the rest is never hand-written.
 - **A message that asks for his tap carries the button.** A message saying a PR is ready for his tap, waits on his tap or waits only on his approval, or asking him to approve, tap or answer, carries the button in that same message or its thread: the PR's card with Approve and Hold, or the picks. This holds whoever posts it and on every surface, whether a reply, a lane's DM post, cc-slack's link preview, the board mirror or a PR row. It says in one line what he must do, `blocked on you doing X`, and never retells how the hold was read. A message that waits on something else says what it waits on and does not ask, and a surface that cannot draw the button does not print the words. `lr reply` attaches the card of each open card or ready PR the reply names, and when it names none, every waiting PR and open card. A sentence that names the refusal or a button, such as "a message that asks for your approval with no button is refused", describes the rule and asks nothing; one that opens with Tap or Approve still asks. The `tap_asks_carry_the_button` hook refuses a DM post that asks with no `--tap-pr` and no waiting card. cc-slack carries the card of each ready PR that a DM post links.
 - A chat format reaches him as format 0 or format 1 only; `chat_formats.py` refuses `format N` or `migrate to N` for any other N in a reply and the `reply` tool.
 - A line naming a phrase of a ruling labelled `drop-class` is refused in every reply, card, board and DM to him, because the class is never reported to him and a warning would land after he had read it: drop the line and send the rest. A line about the ruling itself passes.
@@ -334,7 +333,7 @@ What he sees and how the drive's rules shape it:
 - A board card that asks a question about code cites `path:line` from the source before it is drawn; cards drawn from a drift list had wrong modes and routes.
 - A design card offers the owner's own sketch as an option, in his terms. Never recommend the lane's shape while framing his as high risk.
 - The drive writes one automated Slack message, the merge card, posted at the root of his DM with its own thread. Everything else is a post he named.
-- Every update he gets is `lr update render`, sent by the communicator unchanged with its gaps shown, and the dashboard shows the same rows.
+- Every update he gets is a `reply` with `update: true`, and the dashboard shows the same rows from `lr update render --publish`.
 
 ## The dashboard
 
@@ -358,21 +357,11 @@ Loop, one foreground Bash call each, timeout 570000 ms:
 
   lr wait 560 cci:<drive>:update-desk mailbox:update-desk=<state dir>/update-desk.cursor
 
-- MAILBOX `render` from the communicator: run
-    lr update render --drive <drive> --sent > <state dir>/progress-desk/update-<HHMM>.md 2> <state dir>/progress-desk/update-<HHMM>.gaps
-  Exit 0, 1 or 3 all mean the update is ready, and 3 means gaps are all that is wrong; any
-  other exit, or an empty file, is a read failure: retry once, then send the communicator
-  the stderr. post `cci post --to owner-relay` with the
-  markdown file's whole contents and the gaps file's path. Nothing else in the message.
 - Every wake: run `python3 <plugin>/dashboard/app/keep.py --config <state dir>/dashboard.json`,
   which runs `lr dashboard restart` only when its URL stops answering.
-- MAILBOX `away` from the communicator, with an optional time: run
-    lr update away --drive <drive> [--since <time>] > <state dir>/progress-desk/away-<HHMM>.md
-  and post `cci post --to owner-relay` with the file's whole contents. Nothing else in the message.
-- Every 10 minutes without a render: run
+- Every 10 minutes: run
     lr update render --drive <drive> --publish > /dev/null 2>&1
-  so the dashboard's rows stay current between updates. Only a render the communicator asked
-  for is `--sent`.
+  so the dashboard's rows stay current between updates.
 - A `defect` the app posts about its build: read `server.log` beside the config. A cause
   in steps.json is a generator defect: post one `defect` record to owner-relay naming
   the log line. Anything else, the same.

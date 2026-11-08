@@ -19,7 +19,7 @@ Contents:
 ## When one goes out
 
 - When he asks for status in any words, within two minutes.
-- When he returns after 30 minutes or more of silence, as the reply to his first message: `lr update away`, described [below](#the-away-update).
+- When he returns after 30 minutes or more of silence, as the reply to his first message: a `reply` with `update: true`, which sends `lr update away`, described [below](#the-away-update), with every wait's buttons.
 - At a milestone: a plan step lands or goes live, a release goes live or fails, an incident opens or closes.
 - Before every compaction, inside the progress record ([compaction.md](compaction.md)).
 - Never on a clock and never to Slack.

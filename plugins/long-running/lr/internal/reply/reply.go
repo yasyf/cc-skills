@@ -32,6 +32,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/update"
 )
 
 const (
@@ -46,9 +47,7 @@ const (
 	pickSplit      = " :: "
 	maxLinks       = 5
 	maxPRs         = 10
-	updateFile     = "owner-update.at"
 	updateTitle    = "Where things stand"
-	updateLookback = 12 * time.Hour
 	maxBlocks      = 8
 	cardPrefix     = "card-"
 	withdrawn      = " withdrawn"
@@ -150,10 +149,11 @@ type Reply struct {
 	Alert       string           `json:"alert,omitempty"`
 	Unprompted  bool             `json:"unprompted,omitempty"`
 	Update      bool             `json:"update,omitempty"`
-	Action      string           `json:"action,omitempty"`
-	By          string           `json:"by,omitempty"`
-	Routed      int              `json:"routed,omitempty"`
-	Artifacts   []Artifact       `json:"artifacts,omitempty"`
+	report      *update.Report
+	Action      string     `json:"action,omitempty"`
+	By          string     `json:"by,omitempty"`
+	Routed      int        `json:"routed,omitempty"`
+	Artifacts   []Artifact `json:"artifacts,omitempty"`
 
 	Blocks  []json.RawMessage `json:"blocks,omitempty"`
 	Diagram json.RawMessage   `json:"diagram,omitempty"`
@@ -196,6 +196,7 @@ type Fanout struct {
 	Shoot   func(ctx context.Context, dashboard string, diagram json.RawMessage, png string) error
 	Cards   board.Cards
 	Rulings string
+	Update  func(ctx context.Context) (update.Inputs, error)
 }
 
 func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
@@ -365,7 +366,7 @@ func (f Fanout) withEveryWait(ctx context.Context, r Reply) (Reply, error) {
 			return r, errors.New("NO APPROVE: this says something waits on him, and its card draws no Approve, so nothing went out; say what it waits on instead: " + strings.Join(blocked, "; "))
 		}
 	}
-	u, err := f.waits(ctx, time.Time{})
+	u, err := f.waits(ctx)
 	if err != nil {
 		return r, err
 	}
@@ -377,50 +378,34 @@ func (f Fanout) withEveryWait(ctx context.Context, r Reply) (Reply, error) {
 	return r, nil
 }
 
-func (f Fanout) waits(ctx context.Context, since time.Time) (board.Update, error) {
+func (f Fanout) waits(ctx context.Context) (board.Waits, error) {
 	outcomes, err := board.ReadOutcomes(ctx, f.Runner, f.Entry.Root())
 	if err != nil {
-		return board.Update{}, fmt.Errorf("his board did not read, so the cards waiting on him are unknown and nothing went out: %w", err)
+		return board.Waits{}, fmt.Errorf("his board did not read, so the cards waiting on him are unknown and nothing went out: %w", err)
 	}
-	return board.OwnerUpdate(f.Entry, since, outcomes.OpenCards())
+	return board.WaitsOnHim(f.Entry, outcomes.OpenCards())
 }
 
 func (f Fanout) withUpdate(ctx context.Context, r Reply) (Reply, error) {
-	since := f.Now().Add(-updateLookback)
-	raw, err := os.ReadFile(filepath.Join(f.Entry.StateDir, updateFile))
-	switch {
-	case err == nil:
-		if since, err = time.Parse(time.RFC3339, strings.TrimSpace(string(raw))); err != nil {
-			return r, err
-		}
-	case !errors.Is(err, fs.ErrNotExist):
-		return r, err
-	}
-	u, err := f.waits(ctx, since)
+	w, err := f.waits(ctx)
 	if err != nil {
 		return r, err
 	}
-	s, err := store.Open(f.Entry.Store())
+	in, err := f.Update(ctx)
 	if err != nil {
-		return r, err
+		return r, fmt.Errorf("his update did not read from its sources, so nothing went out: %w", err)
 	}
-	defer func() { _ = s.Close() }()
-	owed, err := lanes.OpenOrders(ctx, lanes.CCI{}, s, f.Entry.Bus(), f.Entry.Repo, f.Entry.StateDir)
-	if err != nil {
-		return r, fmt.Errorf("his orders did not read, so what is owed to him is unknown and nothing went out: %w", err)
-	}
-	for _, order := range owed {
-		u.Owed = append(u.Owed, order.Line())
-	}
-	r.Title, r.MD = cmp.Or(r.Title, updateTitle), strings.TrimSpace(r.MD+"\n\n"+u.Words())
-	r.PRs = append(r.PRs, u.URLs()[:min(len(u.Waiting), maxPRs-len(r.PRs))]...)
-	r.OpenCards = append(r.OpenCards, u.Cards...)
+	report := update.Render(in)
+	r.report = &report
+	r.Title, r.MD = cmp.Or(r.Title, updateTitle), strings.TrimSpace(r.MD+"\n\n"+update.Away(in))
+	r.PRs = append(r.PRs, w.URLs()[:min(len(w.Waiting), maxPRs-len(r.PRs))]...)
+	r.OpenCards = append(r.OpenCards, w.Cards...)
 	r.Unprompted = r.Unprompted || r.Order == "" && r.On == ""
 	return r, nil
 }
 
-func (f Fanout) updated() error {
-	return os.WriteFile(filepath.Join(f.Entry.StateDir, updateFile), []byte(f.Now().UTC().Format(time.RFC3339)+"\n"), 0o600)
+func (f Fanout) updated(r Reply) error {
+	return r.report.Publish(f.Entry.StateDir, true)
 }
 
 func (f Fanout) approvesTapped(r Reply) error {
