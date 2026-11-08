@@ -108,7 +108,11 @@ func (LiveCCI) Follow(ctx context.Context, w client.Watch, emit func(client.Reco
 func StoreRuns(config string, run Run) func(context.Context, string) Reply {
 	return func(ctx context.Context, text string) Reply {
 		var asked Asked
-		if json.Unmarshal([]byte(text), &asked) != nil || !slices.Contains(StoreVerbs, asked.Verb) {
+		if err := json.Unmarshal([]byte(text), &asked); err != nil {
+			why := fmt.Sprintf("the ask is not JSON (%v); run the lr verb on the Sprite, which encodes the ask itself, instead of writing it by hand", err)
+			return Reply{Head: failedRead + why, Body: why}
+		}
+		if !slices.Contains(StoreVerbs, asked.Verb) {
 			why := "the store desk runs only lr " + strings.Join(StoreVerbs, ", lr ") + `, each asked as {"verb": ..., "args": [...]}`
 			if strings.Contains(strings.ToLower(text), "card") {
 				why += cardPaths

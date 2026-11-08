@@ -54,6 +54,19 @@ func TestTheStoreDeskRunsOwnerPromptsSoASpriteLaneReadsTheMacsCaptures(t *testin
 	}
 }
 
+func TestAHandWrittenAskThatIsNotJSONIsRefusedAsNotJSONNotAsAnUnservedVerb(t *testing.T) {
+	read := StoreRuns("/mac/lr.json", func(context.Context, []string, string) (string, string, int, error) {
+		t.Fatal("the desk ran an ask that does not parse")
+		return "", "", 0, nil
+	})
+
+	answer := read(context.Background(), `{"verb":"request","args":["--step=owner:m1891 "Owner's words"","--","owner","run-journal-reads"],"lane":"root-2"}`)
+
+	if !strings.Contains(answer.Head, "the ask is not JSON") || strings.Contains(answer.Head, "runs only") {
+		t.Fatalf("answered %q, want a not-JSON refusal that lists no verbs", answer.Head)
+	}
+}
+
 func TestANumberedLaneReadsTheStoreDesksAnswerAddressedToIt(t *testing.T) {
 	t.Setenv("CCI_HOME", t.TempDir())
 	registry := `{"brief":"brief.md","notice_to":"root"}` + "\n"
