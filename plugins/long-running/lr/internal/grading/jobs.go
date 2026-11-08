@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,9 +42,13 @@ const (
 	itemAttr      = "item"
 	openState     = "OPEN"
 	recordsDir    = "records"
+	tasksRefs     = "refs/cc-notes/tasks/"
 )
 
-var errNoOutput = errors.New("it printed nothing")
+var (
+	errNoOutput = errors.New("it printed nothing")
+	citedTask   = regexp.MustCompile(`(?i)\btask\W+([0-9a-f]{7,40})\b`)
+)
 
 type job struct {
 	spec    any
@@ -362,7 +367,7 @@ func (p *JobPool) fidelityJob(ctx context.Context, d desk, facts machine.Facts, 
 		return job{}, err
 	}
 	findings, unreadFindings := p.openFindings(ctx, pr)
-	owed, unreadOwed := p.owedDeletions(ctx)
+	owed, unreadOwed := p.owedDeletions(ctx, live.Body)
 	gos, err := client.Tail(ctx, client.Query{Drive: p.drive, Kinds: []string{kindGo}, PR: pull})
 	if err != nil {
 		return job{}, err
@@ -450,15 +455,12 @@ func (p *JobPool) findingRows(ctx context.Context, named, pr string) ([]grader.F
 	return rows, nil
 }
 
-func (p *JobPool) owedDeletions(ctx context.Context) ([]string, []string) {
-	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "task", "list", "--all-branches", "--json", "--label", deletions.Label}, Timeout: readTimeout})
-	var tasks []struct {
-		ID       string `json:"id"`
-		Title    string `json:"title"`
-		Assignee string `json:"assignee"`
-	}
-	if err == nil {
-		err = json.Unmarshal([]byte(result.Stdout), &tasks)
+func (p *JobPool) owedDeletions(ctx context.Context, body string) ([]string, []string) {
+	tasks, err := p.owedTasks(ctx)
+	if err == nil && citesUnlisted(body, tasks) {
+		if _, err = p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "sync", "--prefix", tasksRefs}, Timeout: readTimeout}); err == nil {
+			tasks, err = p.owedTasks(ctx)
+		}
 	}
 	if err != nil {
 		return nil, []string{fmt.Sprintf("the open owed-deletion tasks: %v", err)}
@@ -468,6 +470,30 @@ func (p *JobPool) owedDeletions(ctx context.Context) ([]string, []string) {
 		lines = append(lines, fmt.Sprintf("- task %s, owner %s: %s", task.ID[:min(docChars, len(task.ID))], cmp.Or(task.Assignee, "nobody"), task.Title))
 	}
 	return lines, nil
+}
+
+type owedTask struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Assignee string `json:"assignee"`
+}
+
+func (p *JobPool) owedTasks(ctx context.Context) ([]owedTask, error) {
+	result, err := p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "task", "list", "--all-branches", "--json", "--label", deletions.Label}, Timeout: readTimeout})
+	if err != nil {
+		return nil, err
+	}
+	var tasks []owedTask
+	return tasks, json.Unmarshal([]byte(result.Stdout), &tasks)
+}
+
+func citesUnlisted(body string, tasks []owedTask) bool {
+	for _, cited := range citedTask.FindAllStringSubmatch(body, -1) {
+		if !slices.ContainsFunc(tasks, func(task owedTask) bool { return strings.HasPrefix(task.ID, cited[1]) }) {
+			return true
+		}
+	}
+	return false
 }
 
 func (p *JobPool) contract(ctx context.Context, lane, repo, pr string) (string, error) {

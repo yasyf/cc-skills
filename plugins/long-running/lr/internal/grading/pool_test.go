@@ -56,6 +56,7 @@ type poolShell struct {
 	docError   error
 	findings   string
 	tasks      string
+	synced     string
 	calls      [][]string
 	spawns     []spawned
 	ages       map[string]int
@@ -137,6 +138,10 @@ func (f *poolShell) notes(argv []string) (shell.Result, error) {
 	}
 	if argv[0] == "answer" && argv[1] == "list" && argv[2] == "--label" {
 		return shell.Result{Stdout: cmp.Or(f.labelled[argv[3]], "[]")}, nil
+	}
+	if argv[0] == "sync" {
+		f.tasks = f.synced
+		return shell.Result{}, nil
 	}
 	if argv[0] == "task" && f.tasks != "" {
 		return shell.Result{Stdout: f.tasks}, nil
@@ -550,6 +555,38 @@ func TestASourceTheCoordinatorCouldNotReadGoesInTheJobAsUnread(t *testing.T) {
 
 			spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
 			sameStrings(t, spec.Unread, []string{c.named})
+		})
+	}
+}
+
+func TestAFidelityJobSyncsTheTaskRefsOnceWhenItsBodyCitesAnOwedDeletionThisCloneLacks(t *testing.T) {
+	syncs := func(f *poolFixture) int {
+		return len(slices.DeleteFunc(slices.Clone(f.shell.calls), func(call []string) bool {
+			return len(call) < 3 || !slices.Equal(call[len(call)-3:], []string{"sync", "--prefix", tasksRefs})
+		}))
+	}
+	listed := `[{"id":"2aaebce6","title":"Delete the drift hold","assignee":""}]`
+	for name, c := range map[string]struct {
+		body  string
+		syncs int
+		owed  []string
+	}{
+		"a cited task another clone wrote": {"Plan: owner:m1. Deferred to task 1e7867b.", 1, []string{"- task 2aaebce, owner nobody: Delete the drift hold", "- task 1e7867b, owner release-simplify: Delete the second loop breaker"}},
+		"a cited task this clone lists":    {"Deferred to task 2aaebce.", 0, []string{"- task 2aaebce, owner nobody: Delete the drift hold"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newPool(t, map[string]any{"fidelity": map[string]any{}})
+			f.shell.view = fmt.Sprintf(`{"title":"a change","body":%q,"headRefName":"lane-7"}`, c.body)
+			f.shell.tasks = listed
+			f.shell.synced = `[{"id":"2aaebce6","title":"Delete the drift hold","assignee":""},{"id":"1e7867b9","title":"Delete the second loop breaker","assignee":"release-simplify"}]`
+
+			f.started(t, GraderFidelity)
+
+			spec := readJob[grader.FidelityJob](t, filepath.Join(f.pool.root, grader.FidelityLane, jobDir))
+			sameStrings(t, spec.OwedDeletions, c.owed)
+			if got := syncs(f); got != c.syncs {
+				t.Fatalf("%d task syncs, want %d", got, c.syncs)
+			}
 		})
 	}
 }
