@@ -326,6 +326,7 @@ SHAPE = re.compile(
     re.IGNORECASE,
 )
 DELETE_OP = re.compile(r"delete|remove|unlink|\brm\b", re.IGNORECASE)
+GENERATION = re.compile(r"-\d+$")
 CHECK_PR_ORDER = ("RULINGS-UNCITED", "RESERVED-NO-ANSWER", "TEST-REMOVED", "SHAPE-UNTESTED", "FINDER-MAJOR", "MECHANISM-BANNED", "NAME-HIT", "LANE-DECIDED", "STORE-UNCOUNTED", "CONTRACT-MISSING", "TESTS-CORPUS")
 STATEFUL_STORE = re.compile(r"\b(?:valkey|redis|elasticache|memorydb|dynamodb|PersistentVolumeClaim|volumeClaimTemplates|litestream|DROP\s+TABLE|delete-?bucket)\b", re.IGNORECASE)
 RECORDS_BEFORE_AFTER = re.compile(r"^(?=.*\bbefore\b)(?=.*\bafter\b).*\d", re.IGNORECASE | re.MULTILINE)
@@ -2094,6 +2095,10 @@ def successors(loaded: Register, key: str) -> list[str]:
     return [current for later in listed(fields.get("superseded_by")) for current in successors(loaded, later)]
 
 
+def lane_alias(lane: str) -> str:
+    return GENERATION.sub("", lane)
+
+
 def fidelity_lanes(loaded: Register) -> set[str]:
     if not (runner := loaded.state / "runner.json").exists():
         return set()
@@ -2102,11 +2107,11 @@ def fidelity_lanes(loaded: Register) -> set[str]:
 
 
 def unaccepted(loaded: Register, lane: str, reviews: list[dict]) -> str | None:
-    desks = fidelity_lanes(loaded)
+    desks = {lane_alias(desk) for desk in fidelity_lanes(loaded)}
     said = [
         (record, found)
         for record in reviews
-        if record.get("kind") in READBACK_KINDS and record.get("lane") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text))
+        if record.get("kind") in READBACK_KINDS and lane_alias(record.get("lane") or "") in desks and (found := READBACK_GRADE.match(text := record.get("text") or "") or READBACK_SAID.match(text))
     ]
     same = names_of_lane(loaded.shell, lane, [found["lane"] for _, found in said])
     graded = [(record, found) for record, found in said if found["lane"] in same or grades.succeeds(lane, found["lane"])]

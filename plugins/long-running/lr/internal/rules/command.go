@@ -79,7 +79,7 @@ func Command(a *app.App) *cobra.Command {
 			}
 			return nil
 		},
-	}, settleCommand(opened), checkPRCommand(a))
+	}, settleCommand(opened), checkPRCommand(a), sliceCommand(a))
 	return rules
 }
 
@@ -91,27 +91,14 @@ func checkPRCommand(a *app.App) *cobra.Command {
 		Short: "Run rulings.py check-pr on a PR head against the drive's register, print its lines and exit as it exits; a Sprite, which has no rulings.py, asks the Mac's store desk to run it",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			cfg, err := a.Config()
-			if err != nil {
-				return err
-			}
-			claude, err := drive.ConfigDir()
-			if err != nil {
-				return err
-			}
-			argv := []string{filepath.Join(claude, "long-running", "current", "bin", "rulings.py"), "check-pr", "--repo", cfg.Checkout, "--drive", cfg.Drive, "--pr", pull, "--head", head}
+			argv := []string{"check-pr", "--pr", pull, "--head", head}
 			if base != "" {
 				argv = append(argv, "--base", base)
 			}
 			if incident {
 				argv = append(argv, "--incident")
 			}
-			_, err = a.Runner.Run(cmd.Context(), shell.Command{Argv: argv, Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr()})
-			var exit *shell.ExitError
-			if errors.As(err, &exit) {
-				return &wait.ExitError{Code: exit.Code}
-			}
-			return err
+			return runRulings(cmd, a, argv)
 		},
 	}
 	check.Flags().StringVar(&pull, "pr", "", "OWNER/NAME#N: the PR whose head to check")
@@ -124,6 +111,35 @@ func checkPRCommand(a *app.App) *cobra.Command {
 		}
 	}
 	return check
+}
+
+func sliceCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{
+		Use:                "slice [rulings.py slice flags]",
+		Short:              "Run rulings.py slice against the drive's register with the flags given, print the rows it prints and exit as it exits; a Sprite asks the Mac's store desk to run it",
+		DisableFlagParsing: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRulings(cmd, a, append([]string{"slice"}, args...))
+		},
+	}
+}
+
+func runRulings(cmd *cobra.Command, a *app.App, args []string) error {
+	cfg, err := a.Config()
+	if err != nil {
+		return err
+	}
+	claude, err := drive.ConfigDir()
+	if err != nil {
+		return err
+	}
+	argv := append([]string{filepath.Join(claude, "long-running", "current", "bin", "rulings.py"), args[0], "--repo", cfg.Checkout, "--drive", cfg.Drive}, args[1:]...)
+	_, err = a.Runner.Run(cmd.Context(), shell.Command{Argv: argv, Stdout: cmd.OutOrStdout(), Stderr: cmd.ErrOrStderr()})
+	var exit *shell.ExitError
+	if errors.As(err, &exit) {
+		return &wait.ExitError{Code: exit.Code}
+	}
+	return err
 }
 
 func settleCommand(opened func() (*store.Store, error)) *cobra.Command {

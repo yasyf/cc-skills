@@ -59,6 +59,7 @@ var StoreVerbs = []string{
 	"route",
 	"rules check-pr",
 	"rules settle",
+	"rules slice",
 	"sprites",
 	"supervisor status",
 	"tasks reconcile",

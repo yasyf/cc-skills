@@ -18,8 +18,9 @@ var (
 
 func Unlabeled(title, body string, asks bool, ports func([]int) (bool, error)) error {
 	shown := HiddenCite.ReplaceAllString(title+"\n"+body, " ")
-	var numbers []int
-	for _, found := range namedPR.FindAllStringSubmatch(shown, -1) {
+	named := namedPR.FindAllStringSubmatch(shown, -1)
+	numbers := make([]int, 0, len(named))
+	for _, found := range named {
 		number, _ := strconv.Atoi(found[1] + found[2])
 		numbers = append(numbers, number)
 	}
