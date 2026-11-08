@@ -640,6 +640,10 @@ func (out *folded) ownsNoOpenPR(s *store.Store, name string, fresh bool, at time
 	if err == nil && len(one.prs) == 0 {
 		return true
 	}
+	if err == nil {
+		out.unfinished = append(out.unfinished, name)
+		return false
+	}
 	hold(s, name, one.owes(), at)
 	out.owing = append(out.owing, one)
 	return false

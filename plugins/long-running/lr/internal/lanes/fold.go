@@ -69,6 +69,7 @@ type folded struct {
 	refused    []refusal
 	revived    []revival
 	unassigned []unassigned
+	unfinished []string
 	deps       Deps
 }
 

@@ -2116,16 +2116,16 @@ func TestALaunchersRecordTakingAPRRetiresOnlyALaunchThatNeverPosted(t *testing.T
 	equal(t, []any{downs[0].To, downs[0].Successor, downs[0].PRs, downs[0].Text}, []any{[]string{"never-up"}, lane2, []int{121}, "never-up stood down for conflicts-2."})
 }
 
-func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsOnlyWhileItsBriefKeepsItsStandingLine(t *testing.T) {
+func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsWhileItIsStandingOrOwnsAnOpenPR(t *testing.T) {
 	const duty, heir = "Standing: refresh the owner's board every pass\n", "board-refresher-7"
 	for name, tc := range map[string]struct {
 		spawnedWith, finishedWith string
 		launches                  []string
 		retiredBy, owner          string
 	}{
-		"a standing lane relaunches":                                {duty, duty, []string{heir}, heir, heir},
-		"a one-shot lane owning an open PR is held":                 {"", "", nil, "", refresher},
-		"a lane whose Standing line was deleted is held for its PR": {duty, "", nil, "", refresher},
+		"a standing lane relaunches":                                              {duty, duty, []string{heir}, heir, heir},
+		"a one-shot lane owning an open PR relaunches to finish it":               {"", "", []string{heir}, heir, heir},
+		"a lane whose Standing line was deleted relaunches to finish its open PR": {duty, "", []string{heir}, heir, heir},
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
@@ -2150,24 +2150,33 @@ func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsOnlyWhileItsBriefKee
 	}
 }
 
-func TestAOneShotLaneWhoseOrcaWorkerFinishedIsHeldWhileItOwnsAnOpenPRAndRetiresOnceItCloses(t *testing.T) {
-	s := memory(t)
-	f := adopted(t, s, writeBrief(t), "", 52503, 52514)
-	f.states = map[int]string{52503: Waiting, 52514: Closed}
-	f.feed = append(f.feed, ask(2, "done", lane2, t0, nil, runner, nil))
+func TestAOneShotLaneWhoseOrcaWorkerFinishedWhileItOwnsAnOpenPRIsRelaunchedThatTickAndOneWithNoneOpenRetires(t *testing.T) {
+	cases := map[string]struct {
+		open      string
+		launches  int
+		retiredBy string
+	}{
+		"owns an open PR": {open: Waiting, launches: 1},
+		"owns none open":  {open: Closed, retiredBy: "done"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "", 52503, 52514)
+			f.states = map[int]string{52503: c.open, 52514: Closed}
+			f.feed = append(f.feed, ask(2, "done", lane2, t0, nil, runner, nil))
 
-	tick(t, s, f, t0.Add(mins(1)))
+			tick(t, s, f, t0.Add(mins(1)))
 
-	equal(t, []any{row(t, s, lane2).State, row(t, s, lane2).RetiredBy}, []any{store.LaneHeld, ""})
-	defects := f.ofKind("defect")
-	equal(t, len(defects), 1)
-	contains(t, defects[0].Text, "its Orca worker finished while it owns 1 open PRs: #52503")
-
-	f.states[52503] = Closed
-	f.feed = append(f.feed, ask(3, "done", lane2, t0.Add(mins(2)), nil, runner, nil))
-	tick(t, s, f, t0.Add(mins(3)))
-
-	equal(t, row(t, s, lane2).RetiredBy, "done")
+			equal(t, []any{len(f.launches), len(f.ofKind("defect"))}, []any{c.launches, 0})
+			if c.retiredBy != "" {
+				equal(t, row(t, s, lane2).RetiredBy, c.retiredBy)
+			}
+			if c.launches == 1 {
+				equal(t, row(t, s, lane2).State, store.LaneRetired)
+			}
+		})
+	}
 }
 
 func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
