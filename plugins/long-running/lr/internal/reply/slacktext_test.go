@@ -15,31 +15,47 @@ const (
 	otherPR = "https://github.com/yasyf/cc-skills/pull/3779"
 )
 
+func card(link string) string {
+	return "[\u200b](" + link + ")"
+}
+
 func titled(r Reply) Reply {
 	r.names = prNames{repo: "yasyf/cc-skills", titles: map[string]string{landPR: "Relay fix", otherPR: "the supervisor serves a newer pack"}, carded: []string{landPR}}
 	return r
 }
 
-func TestTheSlackTextNamesEachPROnceByTitleAndUnfurlsChannelLinks(t *testing.T) {
+func TestTheSlackTextNamesEachPROnceByTitleAndDrawsChannelLinksAsTheirCardAlone(t *testing.T) {
 	for name, tc := range map[string]struct {
 		reply Reply
 		want  string
 	}{
 		"a bare Platy link leaves the sentence": {
 			Reply{MD: "Release 13655 converged at 6:02 PM (" + platy + "). The stuck-restore alert recovered."},
-			"Release 13655 converged at 6:02 PM.\nThe stuck-restore alert recovered.\n\n" + platy,
+			"Release 13655 converged at 6:02 PM.\nThe stuck-restore alert recovered." + card(platy),
 		},
 		"a lead-in left introducing nothing goes": {
 			Reply{MD: "SandSQL boots from its saved index. Platy card: " + platy},
-			"SandSQL boots from its saved index.\n\n" + platy,
+			"SandSQL boots from its saved index." + card(platy),
+		},
+		"a lead-in ending its sentence drops its colon": {
+			Reply{MD: "Ria gets one reply with the release card: " + platy + "."},
+			"Ria gets one reply with the release card." + card(platy),
+		},
+		"a link on its own line leaves no line": {
+			Reply{MD: "It is live.\n" + platy + "\nMacs update tonight."},
+			"It is live.\nMacs update tonight." + card(platy),
 		},
 		"a vague label goes with its link": {
 			Reply{MD: "13666 went live about 6:45 PM ([card](" + platy + ")): run search finds runs."},
-			"13666 went live about 6:45 PM: run search finds runs.\n\n" + platy,
+			"13666 went live about 6:45 PM: run search finds runs." + card(platy),
 		},
 		"a worded label stays in the sentence": {
 			Reply{MD: "The fix is in [the alert thread](" + platy + ") now."},
-			"The fix is in the alert thread now.\n\n" + platy,
+			"The fix is in the alert thread now." + card(platy),
+		},
+		"a table keeps its last row": {
+			Reply{MD: "Release card: " + platy + "\n\n| check | state |\n|---|---|\n| lr-go | green |"},
+			"| check | state |\n|---|---|\n| lr-go | green |\n" + card(platy),
 		},
 		"a DM card link keeps its label": {
 			Reply{MD: "Answer on [the card](" + permalink + ")."},
@@ -79,13 +95,13 @@ func TestTheSlackTextNamesEachPROnceByTitleAndUnfurlsChannelLinks(t *testing.T) 
 	}
 }
 
-func TestAChannelLinkUnfurlsInTheBodyInsteadOfDrawingAButton(t *testing.T) {
+func TestAChannelLinkIsItsCardAloneInsteadOfAButtonOrALinkLine(t *testing.T) {
 	fake := scripted()
 	notebook := Link{Label: "Notebook", URL: "https://app.datadoghq.com/notebook/1"}
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r1", Title: "Release 13687 is live", MD: "It is live.", Status: done, Links: []Link{{Label: "Platy", URL: platy}, notebook}})
-	card := slack(t, calls(fake, "cc-slack")[0])
-	if card.Body != "It is live.\n\n"+platy || !slices.Equal(card.Links, []Link{notebook}) {
-		t.Fatalf("card = %+v, want the Platy link bare under the text and only the notebook a button", card)
+	posted := slack(t, calls(fake, "cc-slack")[0])
+	if posted.Body != "It is live."+card(platy) || !slices.Equal(posted.Links, []Link{notebook}) {
+		t.Fatalf("card = %+v, want the Platy post as its card alone and only the notebook a button", posted)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 )
 
 var (
+	unseen      = "\u200b"
 	unfurled    = regexp.MustCompile(`^https://[\w-]+\.slack\.com/archives/[CG][A-Z0-9]+/p\d{16}(?:\?\S*)?$`)
 	mention     = regexp.MustCompile(`<https?://[^\s|>]+(?:\|[^>\n]*)?>|\[([^\]\n]+)\]\((https?://[^\s)]+)\)|(https?://[^\s)>\]]*[^\s)>\].,;:!?])|\b(?:([\w.-]+)/)?([\w.-]+)#(\d+)\b|(?:^|[^\w/#&-])(?:PRs? )?#(\d+)\b`)
 	numberLabel = regexp.MustCompile(`(?i)^(?:[\w.-]+/)?[\w.-]* ?(?:PR )?#?\d+$`)
@@ -151,9 +152,9 @@ func (r Reply) repoNamed(name string) string {
 }
 
 // slackText is the body Slack shows: each PR once, as its title linked; each
-// permalink to a channel post, such as Platy's in #releases, bare on its own
-// line so Slack unfurls it; one sentence per line; and no first line that
-// repeats the title.
+// channel post it links, such as Platy's in #releases, out of the text and
+// drawn as Slack's unfurled card alone; one sentence per line; and no first
+// line that repeats the title.
 func (r Reply) slackText(md string) string {
 	named := map[string]bool{}
 	var unfurl []string
@@ -194,12 +195,17 @@ func (r Reply) slackText(md string) string {
 		footer = append(footer, "- "+r.titled(pr))
 	}
 	body := strings.TrimSpace(strings.Join(out, "\n"))
-	for _, tail := range [][]string{footer, unfurl} {
-		if len(tail) > 0 {
-			body += "\n\n" + strings.Join(tail, "\n")
-		}
+	if len(footer) > 0 {
+		body = strings.TrimSpace(body) + "\n\n" + strings.Join(footer, "\n")
 	}
-	return strings.TrimSpace(body)
+	body = strings.TrimSpace(body)
+	if last := body[strings.LastIndex(body, "\n")+1:]; len(unfurl) > 0 && (strings.HasPrefix(last, "|") || strings.HasPrefix(last, "```")) {
+		body += "\n"
+	}
+	for _, link := range unfurl {
+		body += "[" + unseen + "](" + link + ")"
+	}
+	return body
 }
 
 // namedOnce names a PR's first mention in the line by its title linked and a
@@ -275,7 +281,7 @@ func tidy(line string, moved bool) string {
 	}
 	indent := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
 	text := strings.TrimSpace(line)
-	for _, gap := range [][2]string{{"()", ""}, {"( )", ""}, {"  ", " "}, {" .", "."}, {" ,", ","}, {" ;", ";"}, {" :", ":"}, {" )", ")"}} {
+	for _, gap := range [][2]string{{"()", ""}, {"( )", ""}, {"  ", " "}, {" .", "."}, {" ,", ","}, {" ;", ";"}, {" :", ":"}, {" )", ")"}, {":.", "."}, {":,", ","}, {":;", ";"}} {
 		for strings.Contains(text, gap[0]) {
 			text = strings.ReplaceAll(text, gap[0], gap[1])
 		}
