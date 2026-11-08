@@ -313,6 +313,33 @@ func TestAToolsCIBkRerunRunsAsThatToolParsesItWithTheWriteToken(t *testing.T) {
 	}
 }
 
+func TestACreateStartsATestBuildWithOnlyForgeCIFlagsAndTheWriteToken(t *testing.T) {
+	commit := "51c4ddcef70ab5834acfa9700b55e0c1d2e3f4a5"
+	runner := &fakeRunner{reply: shell.Result{Stdout: `{"number":119692,"state":"scheduled","web_url":"https://buildkite.com/forge/test/builds/119692"}`}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk create test "+commit+" dev FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1 for root's at-scale proof")
+
+	body := `{"branch":"dev","commit":"` + commit + `","env":{"FORGE_CI_AT_SCALE":"1","FORGE_CI_COLD":"1"},"message":"requested through bk-desk: FORGE_CI_COLD=1 FORGE_CI_AT_SCALE=1"}`
+	if got, want := runner.calls[0].Argv, []string{"tools/ci", "bk", "api", "-no-wait", "-X", "POST", "-d", body, "/pipelines/test/builds"}; !slices.Equal(got, want) {
+		t.Fatalf("ran %q, want %q", got, want)
+	}
+	if got := runner.calls[0].Env; !slices.Equal(got, []string{"BUILDKITE_TOKEN=" + writeScoped}) {
+		t.Fatalf("the create ran with env %q, want only the write token", got)
+	}
+	if read.refused || !strings.HasSuffix(read.head, "started test #119692, scheduled") || read.url != "https://buildkite.com/forge/test/builds/119692" {
+		t.Fatalf("reply = %+v", read)
+	}
+	for _, refused := range []string{"bk create deploy " + commit + " dev", "bk create test 51c4ddc dev", "bk create test " + commit + " dev BUILDKITE_TOKEN=x"} {
+		if read := desk.read(context.Background(), refused); !read.refused {
+			t.Fatalf("%q was not refused: %+v", refused, read)
+		}
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("a refused create ran %d commands", len(runner.calls)-1)
+	}
+}
+
 func TestARetryPutsTheNamedJobsRetryAndAnswersTheNewJob(t *testing.T) {
 	runner := &fakeRunner{reply: shell.Result{Stdout: `{"id":"0190aaaa-bbbb-cccc-dddd-eeeeffff0000","state":"scheduled","web_url":"https://buildkite.com/forge/test/builds/12#0190aaaa"}`}}
 	desk, _ := newDesk(t, runner)
