@@ -170,7 +170,16 @@ func (t Trunk) call(ctx context.Context, args ...string) (string, error) {
 	}
 	defer lock.Close()
 	tip := t.Refs + "queue/" + t.Branch
-	if _, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/" + t.Branch + ":" + tip}, Timeout: readTimeout}); err != nil {
+	shallow, err := t.Runner.Run(ctx, shell.Command{Argv: []string{"git", "-C", t.Checkout, "rev-parse", "--is-shallow-repository"}, Timeout: gitLimit})
+	if err != nil {
+		return "", err
+	}
+	fetch := []string{"git", "-C", t.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap="}
+	timeout := readTimeout
+	if strings.TrimSpace(shallow.Stdout) == "true" {
+		fetch, timeout = append(fetch, "--unshallow"), passTimeout
+	}
+	if _, err := t.Runner.Run(ctx, shell.Command{Argv: append(fetch, "origin", "+refs/heads/"+t.Branch+":"+tip), Timeout: timeout}); err != nil {
 		return "", err
 	}
 	place := []string{"git", "-C", t.Worktree, "checkout", "-q", "--force", "--detach", tip}
