@@ -777,6 +777,43 @@ func TestADrawnCardFollowsItsRowAndTheRowTurningReadyDrawsNoSecondPost(t *testin
 	}
 }
 
+func TestAPostSlackRefusedToRedrawIsAskedForNoMoreAndItsLaneIsToldOnce(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	f.shell.redrawing = 1
+	var told []laneReport
+	f.Cards.Report = func(_ context.Context, by string, to []string, topic, text string) error {
+		told = append(told, laneReport{by, strings.Join(to, ","), topic, text})
+		return nil
+	}
+	pending := tapRow(52452)
+	pending.ReadyForTap, pending.CI = false, prrow.CIPending
+	drawnAt(t, f, pending)
+	ready := tapRow(52452)
+	putRows(t, f, ready)
+	if err := MarkRefused(f.Cards.Store, readyRepo, []store.ReviewRow{ready}, []SlackRefused{{SlackPR{readyRepo, 52452}, "card needs a title of 1 to 140 characters"}}, f.Cards.Now()); err != nil {
+		t.Fatal(err)
+	}
+	readyPass(t, f)
+	readyPass(t, f)
+	f.run(t)
+	if calls := redrawCalls(f); len(calls) != 0 {
+		t.Fatalf("redraws = %v, want none while the row draws the card Slack refused", calls)
+	}
+	if calls := askCalls(f); len(calls) != 0 {
+		t.Fatalf("asks = %v, want no second post", calls)
+	}
+	if len(told) != 1 || told[0].to != "lane-52452" || !strings.Contains(told[0].text, "card needs a title of 1 to 140 characters") {
+		t.Fatalf("told = %+v, want lane-52452 told the refusal once", told)
+	}
+	ready.Head, ready.ReadHead = nextHead, nextHead
+	putRows(t, f, ready)
+	readyPass(t, f)
+	if calls := redrawCalls(f); len(calls) != 1 {
+		t.Fatalf("redraws = %v, want the post redrawn once the row draws differently", calls)
+	}
+}
+
 func TestARowWhosePostIsGoneDrawsItsOwnCard(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)

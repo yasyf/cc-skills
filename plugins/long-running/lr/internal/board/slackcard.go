@@ -76,6 +76,11 @@ type SlackShown struct {
 	Waits string `json:"waits"`
 }
 
+type SlackRefused struct {
+	SlackPR
+	Reason string `json:"reason"`
+}
+
 type SlackUnheard struct {
 	Card      string `json:"card"`
 	Label     string `json:"label"`
@@ -86,9 +91,10 @@ type SlackUnheard struct {
 }
 
 type slackAsk struct {
-	PRs     []SlackPR    `json:"prs"`
-	Numbers []int        `json:"numbers"`
-	Shown   []SlackShown `json:"shown"`
+	PRs     []SlackPR      `json:"prs"`
+	Numbers []int          `json:"numbers"`
+	Shown   []SlackShown   `json:"shown"`
+	Refused []SlackRefused `json:"refused"`
 	Answer  *struct {
 		SlackPR
 		Waits string `json:"waits"`
@@ -405,6 +411,20 @@ func MarkShown(s *store.Store, repo string, rows []store.ReviewRow, shown []Slac
 	return nil
 }
 
+func MarkRefused(s *store.Store, repo string, rows []store.ReviewRow, refused []SlackRefused, at time.Time) error {
+	for _, card := range refused {
+		found := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == card.Number })
+		if found < 0 {
+			continue
+		}
+		row := rows[found]
+		if _, err := s.PutFact(repo, card.Number, row.Head, FactCardRefused, drawnSignature(Card(repo, row))+" "+card.Reason, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func markShownAtCardHead(s *store.Store, repo string, card SlackShown, at time.Time) error {
 	named := mergeCard.FindStringSubmatch(card.Waits)
 	if named == nil || named[1] != strconv.Itoa(card.Number) {
@@ -429,7 +449,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 	var lane string
 	cmd := &cobra.Command{
 		Use:   "card",
-		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]}, {\"shown\": [...]}, {\"answer\": {...}} or {\"unheard\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, record a card that now stands, or apply his Approve or Hold",
+		Short: "Read {\"prs\": [...]}, {\"numbers\": [...]}, {\"shown\": [...]}, {\"refused\": [...]}, {\"answer\": {...}} or {\"unheard\": {...}} on stdin: print the card of each PR with a ledger row, its Approve and Hold only while it waits on the owner, every drive PR holding each number, record a card that now stands or one Slack refused to redraw, or apply his Approve or Hold",
 		Args:  cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			var ask slackAsk
@@ -454,6 +474,24 @@ func slackCardCommand(a *app.App) *cobra.Command {
 				return withRows(c, live[at], []int{k.Number}, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
 					return Respond(s, repository, postHooks(c.Context(), cardAnswers{a.Runner, live[at].Checkout, c.ErrOrStderr()}, live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
+			}
+			if len(ask.Refused) > 0 {
+				for _, entry := range live {
+					refused := slices.DeleteFunc(slices.Clone(ask.Refused), func(card SlackRefused) bool { return !strings.EqualFold(card.Repo, entry.Repo) })
+					if len(refused) == 0 {
+						continue
+					}
+					numbers := make([]int, len(refused))
+					for i, card := range refused {
+						numbers[i] = card.Number
+					}
+					if err := withRows(c, entry, numbers, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
+						return MarkRefused(s, repository, rows, refused, a.Now())
+					}); err != nil {
+						return err
+					}
+				}
+				return json.NewEncoder(c.OutOrStdout()).Encode(map[string]int{"refused": len(ask.Refused)})
 			}
 			if len(ask.Shown) > 0 {
 				for _, entry := range live {
