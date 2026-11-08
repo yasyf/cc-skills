@@ -1764,3 +1764,9 @@ func TestACarriedFindingCitingAScratchFileOutsideTheRepoDiffsOnlyItsRepoPaths(t 
 	mustFinder(t, directory, shell)
 	holdsAll(t, shell.posted[0]["--text"], "finder: ok "+shaHead, "accepted before, cited lines unchanged")
 }
+
+func TestASweptLineThatCapitalizesRowsCheckedStillCountsItsRows(t *testing.T) {
+	if gaps := finderShortfalls([]string{"design/oct21", "prompt/1106-172304"}, finderReply{Swept: reasons + "Rows checked: 2"}); len(gaps) != 0 {
+		t.Fatalf("52625's second reply ended `Rows checked: 1340` over 1340 rows and was read as %q", gaps)
+	}
+}

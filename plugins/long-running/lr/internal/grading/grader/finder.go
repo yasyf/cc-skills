@@ -52,8 +52,8 @@ var (
 	fixGlyphs    = []string{"🐛", "🚑", "🩹"}
 	carriedFrom  = regexp.MustCompile(`\bcarried from #(\d+)`)
 	citedFile    = regexp.MustCompile(`([\w.@+-]+(?:/[\w.@+-]+)*\.\w+):\d+`)
-	counted      = regexp.MustCompile(`\brows checked:\s*(\d+)`)
-	lists        = regexp.MustCompile(`\b(rows met|rows checked|n/a|pending|tests):`)
+	counted      = regexp.MustCompile(`(?i)\brows checked:\s*(\d+)`)
+	lists        = regexp.MustCompile(`(?i)\b(rows met|rows checked|n/a|pending|tests):`)
 	classNamed   = regexp.MustCompile(`(?im)^.*\bclass\b.*\b(?:remov\w*|impossible|eliminat\w*|cannot recur|can no longer)\b|\bdeleted at cutover\b|\binvariant\b.*\b(?:single|one|sole) owner\b|\b(?:single|one|sole) owner of\b`)
 	landedCommit = regexp.MustCompile(`^@([0-9a-f]{40})$`)
 	finderSays   = regexp.MustCompile(`(?i)\bfinder(?:\s*\[\d+\])?:?\s+(ok|lgtm|major|issues)\b`)
@@ -278,6 +278,9 @@ func (s *finderPassState) grade() (FinderOutcome, error) {
 		return FinderOutcome{}, err
 	}
 	question := s.prompt(view, base, own, last, pairs, changed, rowsPath, planned, diff)
+	if len(keys) > 0 {
+		question += fmt.Sprintf("\nThe rows file holds %d rows across its sections. Give every one a verdict and end `swept` with `rows checked: %d`.\n", len(keys), len(keys))
+	}
 	questionPath := filepath.Join(s.dir, "question-1.md")
 	if err := os.WriteFile(questionPath, []byte(question), 0o600); err != nil {
 		return FinderOutcome{}, err
