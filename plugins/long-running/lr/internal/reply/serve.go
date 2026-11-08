@@ -183,6 +183,9 @@ func Tool(a *app.App) channel.Tool {
 			if err := fanout.approvesTapped(r); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if err := fanout.unlabeled(r); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			if err := r.unreadAsk(); err != nil {
 				return "reply: " + err.Error(), true
 			}

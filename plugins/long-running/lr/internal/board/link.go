@@ -20,6 +20,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -239,6 +240,9 @@ func (l Link) draw(ctx context.Context, cards Cards, lane string, card cardBody)
 		}
 		if len(tapped) > 0 {
 			return "", linkRefusal{fmt.Sprintf("refused: he already tapped %s, and his tap counts once for a PR, so no card asks him to Approve it again; only a push its head record marks --attr delta=fundamental returns it to him, and the runner draws that card", strings.Join(tapped, ", "))}
+		}
+		if refused := cardtext.UnlabeledBlock(card.Block, cards.portIn(l.Repo)); refused != nil {
+			return "", linkRefusal{refused.Error()}
 		}
 		var refused error
 		if refused, unchecked = cards.Check(ctx, l.Judge, card.Block, card.Replaces...); refused != nil {
@@ -528,4 +532,16 @@ func (l Link) tappedAsked(cards Cards, block json.RawMessage) ([]string, error) 
 		}
 	}
 	return tapped, nil
+}
+
+func (c Cards) portIn(repo string) func([]int) (bool, error) {
+	return func(numbers []int) (bool, error) {
+		for _, number := range numbers {
+			facts, err := c.Store.PRFacts(repo, number)
+			if err != nil || facts[gates.PortOfAttr] != "" {
+				return err == nil, err
+			}
+		}
+		return false, nil
+	}
 }

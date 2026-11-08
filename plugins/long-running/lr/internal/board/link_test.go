@@ -19,6 +19,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx/ccxtest"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ledger/ledgertest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -1021,5 +1022,27 @@ func TestAHandDrawnApproveCardForAPRHeTappedIsRefusedAndAnUntappedOneIsNotRefuse
 				t.Fatalf("awaitLink err = %v, want refused = %v", err, tapped)
 			}
 		})
+	}
+}
+
+func TestAPickCardAboutAPortThatDoesNotSaySoIsRefusedBeforeItDraws(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	if _, err := f.Cards.Store.PutFact(readyRepo, 51734, "f2e8b90d8788c83bf5a33ccd82b4f6a12c5a3f97", gates.PortOfAttr, "48100", cardsNow); err != nil {
+		t.Fatal(err)
+	}
+	draw(t, "owed-1", `{"id":"card-react-helpers","type":"card","title":"Carry both helpers to the browser for #51734?","children":[{"id":"pick","type":"choice","options":[{"id":"a","label":"Carry both"},{"id":"b","label":"Hold"}]}]}`)
+	f.run(t)
+
+	defects := addressedTo(t, linkRefusalKind, "pr-desk")
+	if len(defects) != 1 || !strings.Contains(defects[0].Text, "is about a port and does not say so") {
+		t.Fatalf("defects %+v, want one refusing the unlabeled port card", defects)
+	}
+	drawn, err := f.Cards.Drawn(context.Background(), []string{"card-react-helpers"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, marked := drawn["card-react-helpers"]; marked {
+		t.Fatal("the unlabeled port card was drawn")
 	}
 }
