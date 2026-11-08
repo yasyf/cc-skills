@@ -174,6 +174,10 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 	defer signal.Stop(signals)
 	deadline := time.NewTimer(time.Duration(w.Seconds) * time.Second)
 	defer deadline.Stop()
+	until := w.Now().Add(time.Duration(w.Seconds) * time.Second)
+	w.beat(ctx, until)
+	beats := time.NewTicker(beatEvery)
+	defer beats.Stop()
 	due := func(source) bool { return true }
 	var retry <-chan time.Time
 	retryAfter := reconnect
@@ -204,6 +208,9 @@ func (w *waiter) run(ctx context.Context) (int, error) {
 		case <-retry:
 			retry = nil
 			due = followed
+		case <-beats.C:
+			w.beat(ctx, until)
+			due = func(source) bool { return false }
 		case event := <-watcher.Events:
 			names := drain(watcher.Events, event.Name)
 			due = func(s source) bool { return slices.ContainsFunc(names, s.heard) }

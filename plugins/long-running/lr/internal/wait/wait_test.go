@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -37,6 +38,7 @@ type run struct {
 
 func start(t *testing.T, o Options) *run {
 	t.Helper()
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	r := &run{done: make(chan struct{})}
 	o.Stdout, o.Stderr = &r.out, &r.errs
 	if o.Runner == nil {
@@ -402,12 +404,12 @@ func TestACciSourceFollowsTheDaemonStreamAndReadsThroughCciTail(t *testing.T) {
 		t.Fatalf("got %d %q %s", r.code, r.out.String(), r.errs.String())
 	}
 	calls := runner.seen()
-	if len(calls) != 2 {
-		t.Fatalf("cci tail ran %d times", len(calls))
+	if len(calls) != 3 {
+		t.Fatalf("cci ran %d times", len(calls))
 	}
 	want := []string{"cci", "tail", "--drive", "dar", "--cursor", "landing-desk-wake", "--seed", "landing-desk", "--to", "landing-desk", "--mail"}
-	if strings.Join(calls[1].Argv, " ") != strings.Join(want, " ") {
-		t.Fatalf("got %q", calls[1].Argv)
+	if strings.Join(calls[2].Argv, " ") != strings.Join(want, " ") {
+		t.Fatalf("got %q", calls[2].Argv)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -758,5 +760,29 @@ func TestAMalformedSourceIsAUsageError(t *testing.T) {
 	r = start(t, Options{Seconds: 1, Sources: []string{"relative.md=" + filepath.Join(t.TempDir(), "c")}}).wait(t)
 	if r.code != CodeUsage || !strings.Contains(r.errs.String(), "not an absolute path") {
 		t.Fatalf("got %d %q", r.code, r.errs.String())
+	}
+}
+
+func TestAWaitOnALanesRecordsPostsItsWaitingStateOnceAHalfHour(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	runner := &tailRunner{}
+	at := ninePM()
+	w := &waiter{Options: Options{Runner: runner, Stderr: io.Discard, Now: func() time.Time { return at }}, sources: []source{cciSource{drive: "dar", lane: "owed-takeover-6", to: "owed-takeover-6"}, cciSource{drive: "dar", lane: "owed-takeover-6", to: "owed-takeover"}}}
+	until := at.Add(time.Hour)
+	posts := func() int { return len(runner.seen()) }
+	w.beat(context.Background(), until)
+	want := "cci post --drive dar --lane owed-takeover-6 --kind state --topic wait:owed-takeover-6 --text WAITING until " + until.In(pacific).Format("3:04 PM") + " on records to owed-takeover-6"
+	if calls := runner.seen(); len(calls) != 1 || strings.Join(calls[0].Argv, " ") != want {
+		t.Fatalf("got %v", calls)
+	}
+	at = at.Add(beatEvery - time.Minute)
+	w.beat(context.Background(), until)
+	if posts() != 1 {
+		t.Fatalf("a re-arm inside half an hour posted again")
+	}
+	at = at.Add(time.Minute)
+	w.beat(context.Background(), until)
+	if posts() != 2 {
+		t.Fatalf("a re-arm half an hour on did not post")
 	}
 }
