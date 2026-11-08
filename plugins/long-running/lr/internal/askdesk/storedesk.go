@@ -107,17 +107,18 @@ func (LiveCCI) Follow(ctx context.Context, w client.Watch, emit func(client.Reco
 
 func StoreRuns(config string, run Run) func(context.Context, string) Reply {
 	return func(ctx context.Context, text string) Reply {
-		var asked Asked
-		if err := json.Unmarshal([]byte(text), &asked); err != nil {
-			why := fmt.Sprintf("the ask is not JSON (%v); run the lr verb on the Sprite, which encodes the ask itself, instead of writing it by hand", err)
-			return Reply{Head: failedRead + why, Body: why}
-		}
-		if !slices.Contains(StoreVerbs, asked.Verb) {
-			why := "the store desk runs only lr " + strings.Join(StoreVerbs, ", lr ") + `, each asked as {"verb": ..., "args": [...]}`
+		refuse := func(why string) Reply {
 			if strings.Contains(strings.ToLower(text), "card") {
 				why += cardPaths
 			}
 			return Reply{Head: failedRead + why, Body: why}
+		}
+		var asked Asked
+		if err := json.Unmarshal([]byte(text), &asked); err != nil {
+			return refuse(fmt.Sprintf("the ask is not JSON (%v); run the lr verb on the Sprite, which encodes the ask itself, instead of writing it by hand", err))
+		}
+		if !slices.Contains(StoreVerbs, asked.Verb) {
+			return refuse("the store desk runs only lr " + strings.Join(StoreVerbs, ", lr ") + `, each asked as {"verb": ..., "args": [...]}`)
 		}
 		argv := slices.Concat(strings.Fields(asked.Verb), []string{"--config", config}, asked.Args)
 		stdout, stderr, exit, err := run(ctx, argv, asked.Lane)
