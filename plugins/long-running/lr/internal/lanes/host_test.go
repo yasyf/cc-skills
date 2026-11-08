@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +202,43 @@ func TestALaneHeardNeverWhoseSpriteWentColdIsReportedLostAndRelaunchedFromItsBri
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{"build-desk", "meta-desk-3"})
 	equal(t, reports[0].Text, "LANE-LOST conflicts-2: it "+why+", and its dispatch never settled; relaunched as conflicts-3 from its brief.")
+}
+
+func TestALostSpriteLaneWithNoPRAndNoWorkInADayIsHeldForRootInsteadOfRelaunched(t *testing.T) {
+	cases := map[string]struct {
+		owned    []int
+		idle     time.Duration
+		launches int
+	}{
+		"no PR and no work in a day": {idle: 30 * time.Hour},
+		"owns a PR":                  {owned: []int{46001}, idle: 30 * time.Hour, launches: 1},
+		"worked an hour ago":         {idle: time.Hour, launches: 1},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := onSprite(t, s, c.owned...)
+			f.carried = map[string]Carried{lane2: {Commit: "aec1e7f97f1d00", At: t0.Add(-c.idle)}}
+			f.peers = nil
+			coldOnSprite(t, s, f, lane2, HostEmpty)
+
+			tick(t, s, f, t0)
+
+			equal(t, len(f.launches), c.launches)
+			if c.launches > 0 {
+				return
+			}
+			equal(t, row(t, s, lane2).State, store.LaneHeld)
+			var toRoot []string
+			for _, p := range f.ofKind("blocker") {
+				if slices.Equal(p.To, []string{Root}) {
+					toRoot = append(toRoot, p.Text)
+				}
+			}
+			equal(t, len(toRoot), 1)
+			contains(t, toRoot[0], "owns no PR and its last record or carried work is from")
+		})
+	}
 }
 
 func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *testing.T) {
