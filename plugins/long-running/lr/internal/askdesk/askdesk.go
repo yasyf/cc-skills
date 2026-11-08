@@ -60,7 +60,7 @@ type Desk struct {
 func (d Desk) holdDuty(ctx context.Context) (release func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	released := make(chan struct{})
-	claim := client.Draft{Drive: d.Drive, Lane: d.Lane, Kind: claimKind, Text: d.Lane + " serves: " + d.Duty, Attrs: map[string]string{StandingAttr: d.Duty}}
+	claim := d.claim()
 	go func() {
 		defer close(released)
 		for {
@@ -132,6 +132,10 @@ func (d Desk) Follow(ctx context.Context) {
 	wg.Wait()
 }
 
+func (d Desk) claim() client.Draft {
+	return client.Draft{Drive: d.Drive, Lane: d.Lane, Kind: claimKind, Text: d.Lane + " serves: " + d.Duty, Attrs: map[string]string{StandingAttr: d.Duty}}
+}
+
 func (d Desk) keepFollowing(ctx context.Context, takes func(client.Record) bool) {
 	for ctx.Err() == nil {
 		err := d.follow(ctx, takes)
@@ -147,11 +151,15 @@ func (d Desk) keepFollowing(ctx context.Context, takes func(client.Record) bool)
 }
 
 func (d Desk) follow(ctx context.Context, takes func(client.Record) bool) error {
+	claimed, err := client.Post(ctx, d.claim())
+	if err != nil {
+		return err
+	}
 	caught, err := d.pass(ctx, client.Query{Drive: d.Drive, Since: d.Now().Add(-CatchUp), Kinds: []string{AskKind}}, takes)
 	if err != nil {
 		return err
 	}
-	return client.Follow(ctx, client.Watch{Drive: d.Drive, Reader: d.Lane, After: caught.After}, func(ask client.Record) error {
+	return client.Follow(ctx, client.Watch{Drive: d.Drive, Reader: d.Lane, After: max(caught.After, claimed.Seq)}, func(ask client.Record) error {
 		if string(ask.Kind) != AskKind || !slices.Contains(ask.To, d.Lane) || !takes(ask) {
 			return nil
 		}

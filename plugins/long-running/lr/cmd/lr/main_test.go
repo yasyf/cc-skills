@@ -141,7 +141,7 @@ func spriteWithStoreDesk(t *testing.T, stdout, stderr string, exit int) *deskRun
 	ctx, cancel := context.WithCancel(context.Background())
 	stopped := make(chan struct{})
 	go func() {
-		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Bodies: t.TempDir(), Now: time.Now, Log: testLog{t}, Read: askdesk.StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, lane string) (string, string, int, error) {
+		askdesk.Desk{Lane: askdesk.StoreDesk, Drive: "d", Duty: askdesk.StoreDuty, Bodies: t.TempDir(), Now: time.Now, Log: testLog{t}, Read: askdesk.StoreRuns("/mac/lr.json", func(_ context.Context, argv []string, lane string) (string, string, int, error) {
 			ran.argv, ran.lane = argv, lane
 			return stdout, stderr, exit, nil
 		})}.Follow(ctx)
