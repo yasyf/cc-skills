@@ -12,7 +12,7 @@ import (
 
 const (
 	changeOwed = "Not written yet: the lane that made this PR has been asked to say in its description what a user will see change."
-	PlanForms  = "Plan: step <n>, Plan: owner:m<row> or Plan: cc-notes task <id>"
+	PlanForms  = "Plan: step <n>, Plan: owner:m<row>, Plan: cc-notes task <id> or Plan: bug list item <n>"
 )
 
 var (
@@ -30,6 +30,29 @@ func ChangeWords(row store.ReviewRow) string {
 		return changeOwed
 	}
 	return userParagraphs(row.ForUsers)
+}
+
+// CardGaps names each line a PR card cannot draw from the row: what it changes
+// for a user, its plan row and its plain-words ELI5.
+func CardGaps(row store.ReviewRow) []string {
+	var gaps []string
+	if flaw := ChangeFlaw(row.ForUsers); flaw != "" {
+		gaps = append(gaps, "what it changes for a user: "+flaw)
+	}
+	if flaw := PlanFlaw(row.PlanLine); flaw != "" {
+		gaps = append(gaps, "the plan row: "+flaw)
+	}
+	if ELI5Words(row) == "" {
+		gaps = append(gaps, "its plain-words ELI5: the reviewer bot has posted none and the body has no Context section")
+	}
+	return gaps
+}
+
+// BodyGaps is CardGaps for a PR body before it reaches the ledger.
+func BodyGaps(body string) []string {
+	var row store.ReviewRow
+	ApplyBody(&row, body)
+	return CardGaps(row)
 }
 
 // ChangeFlaw names why a Summary cannot stand as What changes, empty when it can.
@@ -55,7 +78,7 @@ func PlanFlaw(line string) string {
 		return "its PR body has no Plan: line; write " + PlanForms
 	}
 	if !planNamed.MatchString(line) {
-		return fmt.Sprintf("its Plan: line %q names no plan step, owner:m<row> row or cc-notes task; write %s", line, PlanForms)
+		return fmt.Sprintf("its Plan: line %q names no plan step, owner:m<row> row, cc-notes task or bug list item; write %s", line, PlanForms)
 	}
 	return ""
 }

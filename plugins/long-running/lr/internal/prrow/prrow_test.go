@@ -2234,3 +2234,20 @@ func TestARowsPortStateReadsItsHeadRecordThenItsBodysPortLine(t *testing.T) {
 		})
 	}
 }
+
+func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T) {
+	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\nChats load right after a network drop.\n\nPlan: bug list item 4 (slack-bugs)\n"
+	if gaps := BodyGaps(ready); len(gaps) != 0 {
+		t.Fatalf("gaps = %q, want none", gaps)
+	}
+	for name, tc := range map[string]struct{ body, gap string }{
+		"no Plan: line":        {strings.Replace(ready, "Plan: bug list item 4 (slack-bugs)\n", "", 1), "the plan row: its PR body has no Plan: line"},
+		"a code term":          {strings.Replace(ready, "Chats load right", "`reconnect()` runs right", 1), "what it changes for a user: its Summary carries"},
+		"no Context":           {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
+		"an unnamed plan form": {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
+	} {
+		if gaps := strings.Join(BodyGaps(tc.body), "; "); !strings.Contains(gaps, tc.gap) {
+			t.Errorf("%s: gaps = %q, want %q", name, gaps, tc.gap)
+		}
+	}
+}

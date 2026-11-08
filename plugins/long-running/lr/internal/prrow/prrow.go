@@ -70,7 +70,7 @@ var (
 	holdLeadIn  = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
 	sentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
 	planLine    = regexp.MustCompile(`(?im)^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b.*)$`)
-	planNamed   = regexp.MustCompile(`(?i)\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b`)
+	planNamed   = regexp.MustCompile(`(?i)\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,}|bug list item \d+)\b`)
 	itemList    = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
 	itemNumber  = regexp.MustCompile(`\d+`)
 )
