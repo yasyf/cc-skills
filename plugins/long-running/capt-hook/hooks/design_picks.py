@@ -17,6 +17,7 @@ from .vet_before_push import branch_diff, in_lane
 PICK = re.compile(r"\bowner:m\d+(?:\.\d+)?\b|\b(?:ccn|answer)[: ][0-9a-f]{7,}\b")
 PLACEMENT = re.compile(r"\b(?:volumeclaim|persistentvolume|pvc|storageclass|reclaim|retention|evict)\w*", re.IGNORECASE)
 ROWS = "infra/rows/"
+VENDORED_CRDS = re.compile(r"^infra/rows/[^/]+/files/chart-crds/")
 CARDS_SECONDS = 30
 REFUSAL = (
     "This PR waits for the owner's pick, since only the incident fix and its headroom ship ahead of his design: {found}."
@@ -34,6 +35,7 @@ SPRITE_JOURNAL = {command: said for command, said in JOURNAL.items() if command 
 ROWS_PVC = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n-  storage: '5Gi', reclaimPolicy: 'Retain',\n+  storage: '5Gi', reclaimPolicy: 'Delete',\n"}
 ROWS_SCRATCH = REPO | {"git diff": "diff --git a/infra/rows/llm-gateway.ts b/infra/rows/llm-gateway.ts\n+  volumes: [{ name: 'tmp', emptyDir: {} }],\n+  volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }],\n"}
 ROWS_CLAIM = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n+  volumeClaimTemplates: [{ metadata: { name: 'data' } }],\n"}
+ROWS_CRD = REPO | {"git diff": "diff --git a/infra/rows/k8s/files/chart-crds/envoy-gateway/1.9.1.yaml b/infra/rows/k8s/files/chart-crds/envoy-gateway/1.9.1.yaml\n+                  retention:\n+                    description: Retention defines how long to keep evicted entries.\n"}
 ROWS_LABEL = REPO | {"git diff": "diff --git a/infra/rows/executor/template.ts b/infra/rows/executor/template.ts\n+  labels: { team: 'plat' },\n"}
 ELSEWHERE = REPO | {"git diff": "diff --git a/api/src/a.ts b/api/src/a.ts\n+export const a = 1\n"}
 SHIP_IT = "ccx vcs ship -m 'cloudrunner: 🐛 evict finished journals'"
@@ -82,6 +84,7 @@ def design_cards(evt: BaseHookEvent) -> dict[str, list[str]]:
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_CLAIM | {CARDS: "{}"}): Block(pattern=r"`infra/rows/executor/template\.ts` changes where data lives or how long it is kept"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_SCRATCH | {CARDS: "{}"}): Allow(),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_LABEL | {CARDS: "{}"}): Allow(),
+        Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ROWS_CRD | {CARDS: "{}"}): Allow(),
         Input(cwd="/w", command=DRY_SHIP.format(body=FIXTURES / "design-picks" / "picked.md"), env=LANE_ENV, commands=FLEETS): Allow(),
         Input(cwd="/w", command=DRY_SHIP.format(body=FIXTURES / "owner-quotes" / "log-line.md"), env=LANE_ENV, commands=FLEETS): Block(pattern=r"`infra/rows/sandsql/fleets\.ts` changes where data lives or how long it is kept"),
         Input(cwd="/w", command=SHIP_IT, env=LANE_ENV, commands=ELSEWHERE | {CARDS: (1, "cc-present down")}): Warn(pattern=r"^Warning, nothing was refused: `board cards` exited 1: cc-present down"),
@@ -96,7 +99,7 @@ def ships_wait_for_his_design_pick(evt: BaseHookEvent) -> HookResult | None:
         return evt.context(UNREAD.format(why=diffed))
     if not (files := touched(diffed[1])):
         return None
-    found = [f"`{path}` changes where data lives or how long it is kept" for path, lines in files.items() if path.startswith(ROWS) and any(PLACEMENT.search(line) for line in lines)]
+    found = [f"`{path}` changes where data lives or how long it is kept" for path, lines in files.items() if path.startswith(ROWS) and not VENDORED_CRDS.match(path) and any(PLACEMENT.search(line) for line in lines)]
     try:
         cards = design_cards(evt)
     except (Unread, ValueError) as failed:
