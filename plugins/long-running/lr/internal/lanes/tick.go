@@ -331,6 +331,10 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 		retireSilent(s, d, lane, "is an idle teammate on "+peer.Row.Roster+" with no turn running", now, out)
 		return
 	}
+	if verdict.Kind == Ok && lane.State == store.LaneDesired && lane.Page == nil && peer != nil && peer.Live && lane.Name != Root && !isStanding(lane) && (!holdsNothing(lane) || lane.Waiting != 0) && (lane.Last == "handoff" || !settledLane(lane)) && now.Sub(newer(peer.Seen, lane.Heard)) >= PageAnswer {
+		stalled(s, d, lane, *peer, found, taken, now, out)
+		return
+	}
 	switch verdict.Kind {
 	case CameUp:
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
@@ -416,6 +420,23 @@ func died(s *store.Store, d Deps, lane store.Lane, peer *Peer, found map[string]
 	}
 	if silent >= d.RetireAfter {
 		retireSilent(s, d, lane, verdict.Why, now, out)
+	}
+}
+
+func stalled(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[string]Peer, taken map[string]bool, now time.Time, out *Outcome) {
+	if transcript := d.Transcript(peer.Row); transcript != "" {
+		if tasks, err := livetasks.Read(transcript, now); err == nil && len(tasks) > 0 {
+			return
+		}
+	}
+	quiet := int(now.Sub(newer(peer.Seen, lane.Heard)).Minutes())
+	if lane.Last == "handoff" {
+		relaunch(s, d, lane, found, fmt.Sprintf("wrote its handoff at %s and has made no tool call in the %d min since", pacific(lane.Heard), quiet), "", taken, now, out)
+		return
+	}
+	text := fmt.Sprintf("SILENT %s is live in Orca but has made no tool call in %d min and runs no wait, holding %s; relaunch it from its handoff or brief %s, or stand it down", lane.Name, quiet, or(numberList(lane.PRs), "no PR"), lane.Brief)
+	if must(s.Escalate(fmt.Sprintf("silent:%s:%d", lane.Name, must(s.NewestSeq(lane.Name))), "silent", Root, now)) {
+		do(d.Post(Post{Kind: "blocker", To: []string{Root}, LaneRef: lane.Name, Text: text}))
 	}
 }
 

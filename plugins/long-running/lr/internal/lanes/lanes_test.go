@@ -3433,3 +3433,57 @@ func TestAnInstallDeskRelaunchesOnTheMacWhateverItsBriefSays(t *testing.T) {
 	equal(t, f.launches, []string{"install-desk-3"})
 	contains(t, f.briefs["install-desk-3"], "\nccx: place=local why=mac-build\n")
 }
+
+func TestALiveLaneSilentPastItsHandoffIsRelaunchedFromIt(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52619)
+	f.feed = append(f.feed, rec(2, lane2, "handoff", t0, "wrote its handoff before compacting", Root).withRefs(Refs{CCN: "b68692a"}))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	quiet := tick(t, s, f, t0.Add(PageAnswer-mins(1)))
+	replaced := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, len(quiet.Relaunched), 0)
+	equal(t, replaced.Relaunched[0].Old, lane2)
+	contains(t, replaced.Relaunched[0].Why, "has made no tool call in the 30 min since")
+	equal(t, f.launches, []string{"conflicts-3"})
+}
+
+func TestALiveLaneSilentWithNoWaitRunningIsPostedToRootOnce(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52619)
+	f.feed = append(f.feed, rec(2, lane2, "ask", t0, "which vector width?", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	tick(t, s, f, t0.Add(PageAnswer-mins(1)))
+	tick(t, s, f, t0.Add(PageAnswer))
+	tick(t, s, f, t0.Add(PageAnswer+mins(5)))
+
+	var silent []Post
+	for _, blocker := range f.ofKind("blocker") {
+		if strings.HasPrefix(blocker.Text, "SILENT ") {
+			silent = append(silent, blocker)
+		}
+	}
+	equal(t, len(silent), 1)
+	equal(t, silent[0].To, []string{Root})
+	contains(t, silent[0].Text, "SILENT "+lane2+" is live in Orca but has made no tool call in 30 min")
+	equal(t, len(f.launches), 0)
+}
+
+func TestALiveLaneSilentWithAMonitorArmedIsLeftWaiting(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52619)
+	f.feed = append(f.feed, rec(2, lane2, "handoff", t0, "wrote its handoff before compacting", Root).withRefs(Refs{CCN: "b68692a"}))
+	f.peers = []Row{who(lane2, true, t0)}
+	transcript := filepath.Join(t.TempDir(), "lane.jsonl")
+	armed := fmt.Sprintf(`{"type":"assistant","session_id":"p","timestamp":%q,"message":{"content":[{"type":"tool_use","id":"m1","name":"Monitor","input":{"command":"cci watch --reader %s","description":"records","timeout_ms":1800000}}]}}`, t0.Add(mins(20)).Format(time.RFC3339), lane2)
+	if err := os.WriteFile(transcript, []byte(armed+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f.deps.Transcript = func(Row) string { return transcript }
+
+	out := tick(t, s, f, t0.Add(PageAnswer+mins(10)))
+
+	equal(t, len(out.Relaunched)+len(f.launches), 0)
+}
