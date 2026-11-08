@@ -46,15 +46,15 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 		t.Fatalf("said = %q", said)
 	}
 	calls := fake.Calls()
-	if len(calls) != 4 {
+	if len(calls) != 5 {
 		t.Fatalf("calls = %+v", calls)
 	}
 	wantFetch := []string{"git", "-C", queue.Checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "origin", "+refs/heads/dev:refs/lr/landing/queue/dev"}
 	wantAdd := []string{"git", "-C", queue.Checkout, "worktree", "add", "-q", "--force", "--detach", queue.Worktree, "refs/lr/landing/queue/dev"}
-	if !slices.Equal(calls[0].Argv, wantFetch) || !slices.Equal(calls[1].Argv, wantAdd) {
-		t.Fatalf("git calls = %+v, want trunk fetched into the queue's own ref, which no other fetch in the checkout writes, and the queue's own worktree made at that ref", calls[:2])
+	if !slices.Equal(calls[1].Argv, wantFetch) || !slices.Equal(calls[2].Argv, wantAdd) {
+		t.Fatalf("git calls = %+v, want trunk fetched into the queue's own ref, which no other fetch in the checkout writes, and the queue's own worktree made at that ref", calls[:3])
 	}
-	call := calls[3]
+	call := calls[4]
 	if !slices.Equal(call.Argv, []string{script, "45583"}) || call.Dir != queue.Worktree {
 		t.Fatalf("queue call = %+v", call)
 	}
@@ -63,6 +63,24 @@ func TestEnqueueRunsTheQueueScriptAtFreshTrunkWithTheKeyInItsEnvironmentOnly(t *
 	}
 	if strings.Contains(strings.Join(call.Argv, " "), queueKey) || strings.Contains(said, queueKey) {
 		t.Fatal("the key left the environment")
+	}
+}
+
+func TestAShallowLandingCheckoutIsUnshallowedBeforeTheQueueRuns(t *testing.T) {
+	fake := &shelltest.Fake{}
+	state := t.TempDir()
+	checkout, worktree := filepath.Join(state, "lr-landing"), filepath.Join(state, landing.QueueWorktree)
+	fake.Reply("true\n", "git", "-C", checkout, "rev-parse", "--is-shallow-repository")
+	fake.Reply("", "git")
+	fake.Reply("#7 QUEUED\n", worktree+"/s")
+
+	if _, err := (landing.Trunk{Runner: fake, Checkout: checkout, Worktree: worktree, Refs: landingRefs, Branch: "dev", Script: "s"}).Enqueue(context.Background(), 7, head); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"git", "-C", checkout, "fetch", "-q", "--no-tags", "--no-write-fetch-head", "--refmap=", "--unshallow", "origin", "+refs/heads/dev:refs/lr/landing/queue/dev"}
+	if got := fake.Calls()[1].Argv; !slices.Equal(got, want) {
+		t.Fatalf("fetch = %v, want %v", got, want)
 	}
 }
 
@@ -245,7 +263,7 @@ func TestNoKeyCommandRunsTheScriptWithTheInheritedEnvironment(t *testing.T) {
 	}
 
 	calls := fake.Calls()
-	if said != "exit 0: #7 QUEUED" || len(calls) != 3 || calls[2].Env != nil {
+	if said != "exit 0: #7 QUEUED" || len(calls) != 4 || calls[3].Env != nil {
 		t.Fatalf("said = %q, calls = %+v", said, calls)
 	}
 }
@@ -279,8 +297,8 @@ func TestTheQueueTouchesItsWorktreeOnlyOnceNoOtherQueueCallHoldsIt(t *testing.T)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if calls := fake.Calls(); len(calls) != 4 {
-		t.Fatalf("calls = %+v, want the fetch, checkout, key and script once the tree was free", calls)
+	if calls := fake.Calls(); len(calls) != 5 {
+		t.Fatalf("calls = %+v, want the shallow read, fetch, checkout, key and script once the tree was free", calls)
 	}
 }
 
