@@ -631,6 +631,23 @@ func TestJobsListsPassedJobsTooSoAPassCanBeProven(t *testing.T) {
 	}
 }
 
+func TestFailuresNamesEachFailedJobWithItsErrorLines(t *testing.T) {
+	build := `{"number":12,"state":"failed","jobs":[{"id":"job-1","type":"script","name":"go tests","state":"passed"},{"id":"job-2","type":"script","name":"lint","state":"failed"},{"id":"job-3","type":"script","name":"tsc","state":"failed","retried":true}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/test/builds/12": build, "job-2": "ok\n\x1b[31m  src/a.ts(3,1): error TS2322: no\n--- FAIL: TestX (0.01s)\nok\n"}}
+	desk, _ := newDesk(t, runner)
+	ask(t, "bk failures test 12 — which job's tests failed")
+
+	firstPass(t, desk)
+
+	found := answers(t)
+	if len(found) != 1 || !strings.Contains(found[0].Text, "failed, 1 failed jobs") {
+		t.Fatalf("answers = %+v", found)
+	}
+	if body := bodyOf(t, found[0]); body != "failed job=job-2 lint\n  src/a.ts(3,1): error TS2322: no\n  --- FAIL: TestX (0.01s)\n" {
+		t.Fatalf("body = %q", body)
+	}
+}
+
 func TestAnOrganizationPathIsRefusedWithTheReadToSendInstead(t *testing.T) {
 	desk, _ := newDesk(t, &fakeRunner{})
 
