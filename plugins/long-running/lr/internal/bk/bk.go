@@ -27,7 +27,7 @@ import (
 const (
 	Lane  = "bk-desk"
 	Duty  = "answers lanes' Buildkite reads over cci"
-	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or the one write, bk retry <pipeline> <number> <job id>"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or one of the two writes, bk retry <pipeline> <number> <job id> and tools/ci bk rerun <pipeline> <number|dev> --unit <unit> [--count <n>], which runs as tools/ci bk parses it"
 
 	fresh       = time.Minute
 	readTimeout = 5 * time.Minute
@@ -51,6 +51,7 @@ var (
 	parallelShard = regexp.MustCompile(`^[1-9][0-9]*/[1-9][0-9]*$`)
 	fixedArity    = map[string]int{"build": 2, "jobs": 2, "failures": 2, "retry": 3}
 	failureLine   = regexp.MustCompile(failureMark + `|error TS\d+|✖|panicked`)
+	ciCommandEnd  = regexp.MustCompile("[\n`;]")
 	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
 )
@@ -153,6 +154,14 @@ func parse(text string) ([]string, string) {
 	match := request.FindStringSubmatch(text)
 	if match == nil {
 		return nil, usage
+	}
+	if match[1] == "rerun" {
+		command, _, _ := strings.Cut(match[2], ciCommandEnd.FindString(match[2]+"\n"))
+		rest, err := shellquote.Split(command)
+		if err != nil {
+			return nil, fmt.Sprintf("the command does not split into shell words: %v", err)
+		}
+		return append([]string{match[1]}, rest...), ""
 	}
 	if arity, fixed := fixedArity[match[1]]; fixed {
 		words := strings.Fields(match[2])
@@ -293,6 +302,12 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 			return *failure
 		}
 		return summary(said)
+	case "rerun":
+		said, failure := d.runAs(ctx, d.retryToken, args...)
+		if failure != nil {
+			return *failure
+		}
+		return reply{head: "ran", body: askdesk.LastBytes(strings.TrimSpace(said), replyLimit)}
 	case "retry":
 		said, failure := d.runAs(ctx, d.retryToken, "api", "-no-wait", "-X", "PUT", "/pipelines/"+args[1]+"/builds/"+args[2]+"/jobs/"+args[3]+"/retry")
 		if failure != nil {
