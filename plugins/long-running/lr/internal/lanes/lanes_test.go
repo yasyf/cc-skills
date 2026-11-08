@@ -2184,6 +2184,36 @@ func TestAOneShotLaneWhoseOrcaWorkerFinishedOwningAnOpenPROrRightAfterItsAskIsRe
 	}
 }
 
+func TestAOneShotLaneQuietForADayWithNoPRIsHeldForRootInsteadOfRelaunched(t *testing.T) {
+	cases := map[string]struct {
+		owned    []int
+		quiet    time.Duration
+		launches int
+		held     bool
+	}{
+		"quiet a day with no PR":   {quiet: 30 * time.Hour, held: true},
+		"quiet a day owning a PR":  {owned: []int{46001}, quiet: 30 * time.Hour, launches: 1},
+		"quiet an hour with no PR": {quiet: time.Hour, launches: 1},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f := adopted(t, s, writeBrief(t), "", c.owned...)
+			f.feed = append(f.feed, rec(2, lane2, "state", t0.Add(-c.quiet), "measuring", Root))
+			f.peers = []Row{who(lane2, false, t0.Add(-c.quiet))}
+
+			tick(t, s, f, t0)
+
+			equal(t, len(f.launches), c.launches)
+			if c.held {
+				equal(t, row(t, s, lane2).State, store.LaneHeld)
+				equal(t, f.kinds(), []string{"blocker:" + Root})
+				contains(t, f.posts[0].Text, "owns no PR")
+			}
+		})
+	}
+}
+
 func TestALaneWhoseOrcaWorkerSucceededByItsOutcomeLineIsRetired(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "")
