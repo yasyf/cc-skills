@@ -1676,6 +1676,39 @@ func TestSettleKeepsARunningJobAndPostsASettledJobsRecordsAgain(t *testing.T) {
 	}
 }
 
+func TestASettledPassWhoseRecordNamesARetiredLaneAliasPostsItToRootAndFreesItsSlot(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	name := f.started(t, GraderFinder)
+	post(t, client.Draft{Lane: "smoke-fix-3", Kind: "report", To: []string{"root"}, Text: "working"})
+	post(t, client.Draft{Lane: "root", Kind: "stand-down", To: []string{"smoke-fix-3"}, Text: "smoke-fix-3 stands down"})
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	writeResult(t, directory, `{"verdict":"ok"}`, f.now)
+	argv, err := json.Marshal([]string{"cci", "post", "--drive", testDrive, "--lane", grader.FinderLane, "--kind", kindReview, "--pr", pull, "--id", "finder:alias", "--to", "smoke-fix,lane-7", "--text", "finder: ok " + head[:7], "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, grader.PostsFile), append(argv, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	live, err := f.pool.Settle(context.Background(), []string{name})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if live[name] {
+		t.Fatalf("live = %v", live)
+	}
+	records, err := client.Tail(context.Background(), client.Query{Drive: testDrive, Kinds: []string{kindReview}, PR: pull})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || !slices.Equal(records[0].To, []string{"root", "lane-7"}) {
+		t.Fatalf("records = %+v, want one to root and lane-7", records)
+	}
+}
+
 func TestASettledPassWhoseRecordsTheStoreRefusesStaysAWorkerUntilTheyPost(t *testing.T) {
 	f := newPool(t, map[string]any{"finder": map[string]any{}})
 	name := f.started(t, GraderFinder)
