@@ -114,7 +114,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info",
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: prrow.ChangeWords(row), Plan: PlanWords(row), ELI5: prrow.ELI5Words(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	switch row.State {
@@ -245,6 +245,13 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 const slackTitleChars = 140
 
 const planOwed = "Not written yet: its PR body names no plan step."
+
+func planDeparture(row store.ReviewRow) string {
+	if !prrow.DepartsFromPlan(row) {
+		return ""
+	}
+	return PlanWords(row)
+}
 
 func PlanWords(row store.ReviewRow) string {
 	if strings.HasPrefix(row.PlanRow, row.PlanLine) {

@@ -353,6 +353,10 @@ func planRow(line string, fidelity machine.Fidelity, overridden string) string {
 	return strings.TrimSpace(line + " " + said)
 }
 
+func DepartsFromPlan(row store.ReviewRow) bool {
+	return strings.HasSuffix(row.PlanRow, planOverridden)
+}
+
 func Exempted(row store.ReviewRow, facts map[string]string) bool {
 	return gates.TaplessClass(facts["exempt"]) && row.AwaitsTap == ""
 }

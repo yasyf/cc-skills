@@ -878,6 +878,18 @@ func TestAPassTellsTheLaneOncePerHeadWhenItsSummaryGivesNoUserSentence(t *testin
 	}
 }
 
+func TestAPRCardSaysAgainstThePlanOnlyWhenItDepartsFromThePlan(t *testing.T) {
+	row := tapRow(50831)
+	row.PlanLine, row.PlanRow = "Plan: stop this red job.", "Plan: stop this red job. Checked against the plan by the fidelity review at this version."
+	if got := Card(readyRepo, row).PRs[0].Plan; got != "" {
+		t.Fatalf("Against the plan = %q on a PR the plan check passed, want none", got)
+	}
+	row.PlanRow = "Plan: stop this red job. The fidelity review's finding was overridden at this version, so the plan check did not pass it."
+	if got := Card(readyRepo, row).PRs[0].Plan; got != row.PlanRow {
+		t.Fatalf("Against the plan = %q on a PR whose plan check was overridden, want %q", got, row.PlanRow)
+	}
+}
+
 func TestAgainstThePlanSaysThePlanLineOnce(t *testing.T) {
 	row := tapRow(50831)
 	row.PlanLine, row.PlanRow = "Plan: stop this red job.", "Plan: stop this red job. Checked against the plan by the fidelity review at this version."
