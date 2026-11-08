@@ -77,6 +77,7 @@ jobs:
         run: uvx --isolated 'capt-hook>=12.74.0' pack test plugins/codex
       - uses: golangci/golangci-lint-action@v9
         with:
+          install-mode: goinstall
           version: latest
           working-directory: plugins/codex
 
@@ -96,6 +97,7 @@ jobs:
         run: cd plugins/codex && go build -o /dev/null ./ && go vet ./... && go test -race -v ./...
       - uses: golangci/golangci-lint-action@v9
         with:
+          install-mode: goinstall
           version: latest
           working-directory: plugins/codex
       - name: release build (goreleaser)
