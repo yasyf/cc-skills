@@ -115,6 +115,13 @@ func TestTheChatVersionRowReadsTheReleaseCarryingItAndItsLiveTime(t *testing.T) 
 			want:   "landed; release 12404 cut it and failed, so no release carries it now",
 		},
 		{
+			name:   "the only release that cut it was canceled after deploying elsewhere",
+			live:   jsonList(behindAPI, behindDesktop),
+			status: jsonList(chatVersionCut("partial"), settledCut),
+			now:    whereNow,
+			want:   "landed; release 12404 cut it and ended before deploying it everywhere, so no release carries it now",
+		},
+		{
 			name:   "a release that leaves out a target the commit touches names it",
 			live:   jsonList(behindAPI, behindDesktop),
 			status: jsonList(strings.Replace(chatVersionCut("running"), `"components":["api","desktop"]`, `"components":["api"]`, 1), settledCut),

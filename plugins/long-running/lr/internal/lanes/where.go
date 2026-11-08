@@ -28,6 +28,7 @@ const (
 	releaseHeld      = "held"
 	releaseConverged = "converged"
 	releaseFailed    = "failed"
+	releasePartial   = "partial"
 	waitingShown     = 3
 )
 
@@ -332,7 +333,7 @@ func (r *ReleaseRead) nextCut(ctx context.Context, view ReleaseView, sha string,
 	var settled, failed *Cut
 	for i := len(view.Cuts) - 1; i >= 0; i-- {
 		cut := &view.Cuts[i]
-		if cut.Mode == dryRunMode || !slices.Contains([]string{releaseRunning, releaseQueued, releaseHeld, releaseConverged, releaseFailed}, cut.Status) {
+		if cut.Mode == dryRunMode || !slices.Contains([]string{releaseRunning, releaseQueued, releaseHeld, releaseConverged, releaseFailed, releasePartial}, cut.Status) {
 			continue
 		}
 		if !slices.ContainsFunc(cut.Components, func(component string) bool { return slices.Contains(touched, component) }) {
@@ -344,7 +345,7 @@ func (r *ReleaseRead) nextCut(ctx context.Context, view ReleaseView, sha string,
 		}
 		switch {
 		case !held:
-		case cut.Status == releaseFailed:
+		case cut.Status == releaseFailed || cut.Status == releasePartial:
 			failed = cut
 		case cut.Status != releaseConverged:
 			return cut, failed, nil
@@ -397,6 +398,8 @@ func (w Where) Line() string {
 		return "unknown: " + w.Unknown[0]
 	case len(w.Targets) == 0:
 		return "touches no release target"
+	case w.Release == nil && w.Failed != nil && w.Failed.Status == releasePartial:
+		return fmt.Sprintf("landed; release %s cut it and ended before deploying it everywhere, so no release carries it now", w.Failed.Number)
 	case w.Release == nil && w.Failed != nil:
 		return fmt.Sprintf("landed; release %s cut it and failed, so no release carries it now", w.Failed.Number)
 	case w.Release == nil:
