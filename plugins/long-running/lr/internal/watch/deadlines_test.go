@@ -99,7 +99,7 @@ func TestADesignOrPlanToRootIsAnOpenAskThatReachesRootAfterThirtyMinutesUntilRoo
 	sweep := func(now time.Time, answers ...client.Record) []pass.Escalated {
 		t.Helper()
 		seen := append(slices.Clone(records), answers...)
-		escalated, err := Sweep(s, seen, Proposals(seen), nil, now, r.post)
+		escalated, err := Sweep(s, seen, RootQuestions(seen), nil, now, r.post)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -393,5 +393,42 @@ func TestAPortDeskThatStopsWalkingTellsRootOnceUntilItEndsOrWalksAgain(t *testin
 	}
 	if got := PortCensusWaits([]client.Record{{Seq: 4, Lane: "lane-a", Kind: "state", At: walked, Text: "port-census"}}, walked.Add(time.Hour*20)); len(got) != 0 {
 		t.Fatalf("a drive with no port census waits: %+v", got)
+	}
+}
+
+func TestAReportOrAnswerToRootThatEndsInOptionsIsOpenUntilRootRepliesToIt(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	posted := at(t, "2026-11-08T21:00:00Z")
+	records := []client.Record{
+		{Seq: 501, Lane: "install-desk-8", Kind: "answer", At: posted, To: []string{"root"}, Text: "pool Sprites run codex 0.159.2. Options: (a) drain the pool, (b) install by hand, (c) leave it."},
+		{Seq: 502, Lane: "lane-b", Kind: "report", At: posted, To: []string{"root"}, Text: "#52714 is green and approved. Say if it should wait for his tap."},
+		{Seq: 503, Lane: "lane-c", Kind: "report", At: posted, To: []string{"root"}, Text: "landed #52672 at 8deab42, his pick from this morning."},
+		{Seq: 504, Lane: "lane-d", Kind: "report", At: posted, To: []string{"finder-desk"}, Text: "Which head should I grade?"},
+	}
+	sweep := func(now time.Time, answers ...client.Record) []pass.Escalated {
+		t.Helper()
+		seen := append(slices.Clone(records), answers...)
+		escalated, err := Sweep(s, seen, RootQuestions(seen), nil, now, r.post)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return escalated
+	}
+
+	late := sweep(posted.Add(15 * time.Minute))
+	subjects := make([]string, 0, len(late))
+	for _, escalated := range late {
+		subjects = append(subjects, escalated.Subject)
+	}
+	slices.Sort(subjects)
+	if !slices.Equal(subjects, []string{"ask#501", "ask#502"}) {
+		t.Fatalf("escalated %q, want the two records to root that end in options", subjects)
+	}
+	sweep(posted.Add(41*time.Minute), client.Record{Seq: 600, Lane: "root", Kind: "decide", At: posted.Add(40 * time.Minute), Re: 501})
+	if open, err := s.OpenItems(AskNamespace, 501); err != nil || len(open) != 0 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+	if open, err := s.OpenItems(AskNamespace, 502); err != nil || len(open) == 0 {
+		t.Fatalf("502 open = %+v, %v, want it open until root replies", open, err)
 	}
 }

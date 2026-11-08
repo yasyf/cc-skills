@@ -32,6 +32,7 @@ const (
 	repeatWindow = 2 * time.Hour
 	repeatCount  = 3
 	askWindow    = 24 * time.Hour
+	optionsTail  = 400
 	quoteChars   = 160
 
 	portCensusQuiet = 6 * time.Hour
@@ -54,10 +55,11 @@ var (
 		return zone
 	}()
 
-	waitsOnPR = regexp.MustCompile(`(?i)\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b`)
-	landedPR  = regexp.MustCompile(`^LANDED\s+#(\d+)\b`)
-	notLanes  = []string{root, "main", "team-lead", "stall-watch", "desk-runner"}
-	deskLane  = regexp.MustCompile(`^(?:.+-)?desk(?:-\d{1,2})?$`)
+	waitsOnPR     = regexp.MustCompile(`(?i)\b(?:waits?\s+(?:only\s+)?on|blocked\s+on)\s+#(\d+)|\bwhen\s+#(\d+)\s+lands\b`)
+	landedPR      = regexp.MustCompile(`^LANDED\s+#(\d+)\b`)
+	offersOptions = regexp.MustCompile(`(?i)\bpick\b[^.]*[:?]|\boptions?\s*:|\(a\)[\s\S]*\(b\)|\bwhich\b[^.?]*\?|\bsay if\b`)
+	notLanes      = []string{root, "main", "team-lead", "stall-watch", "desk-runner"}
+	deskLane      = regexp.MustCompile(`^(?:.+-)?desk(?:-\d{1,2})?$`)
 )
 
 func oneLine(text string) string {
@@ -108,8 +110,17 @@ func OpenAsks(asks, records []client.Record, now time.Time) []Wait {
 	return waits
 }
 
-func Proposals(records []client.Record) []client.Record {
-	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return !slices.Contains(proposalKinds, string(record.Kind)) })
+func RootQuestions(records []client.Record) []client.Record {
+	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool {
+		return !slices.Contains(proposalKinds, string(record.Kind)) && (record.Kind == askKind || record.Kind == "blocker" || !offersOptions.MatchString(tail(record.Text)))
+	})
+}
+
+func tail(text string) string {
+	if len(text) <= optionsTail {
+		return text
+	}
+	return text[len(text)-optionsTail:]
 }
 
 func LandedPRs(records []client.Record) map[string]client.Record {

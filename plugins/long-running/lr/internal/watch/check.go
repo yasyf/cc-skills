@@ -79,7 +79,7 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 	if err != nil {
 		return nil, next, err
 	}
-	owed = append(owed, Proposals(records)...)
+	owed = append(owed, RootQuestions(records)...)
 	if err := wake(ctx, s, entry.Bus(), WakeRoot(records, owed, now), now); err != nil {
 		return nil, next, err
 	}
