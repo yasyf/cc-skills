@@ -18,6 +18,7 @@ type Update struct {
 	Red     []store.ReviewRow
 	Waiting []store.ReviewRow
 	Cards   []OpenCard
+	Owed    []string
 }
 
 func OwnerUpdate(entry drive.Entry, since time.Time, cards []OpenCard) (Update, error) {
@@ -91,5 +92,6 @@ func (u Update) Words() string {
 		section("Landed", "Nothing landed.", landed),
 		section("Red", "Nothing is red.", red),
 		section("Waiting on you", "Nothing waits on you.", waiting),
+		section("Owed to you with nothing running", "Every order you gave is delivered or has a lane working on it.", u.Owed),
 	}, "\n\n")
 }

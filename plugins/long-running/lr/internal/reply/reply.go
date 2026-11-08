@@ -77,27 +77,28 @@ const (
 )
 
 var (
-	statuses   = []string{info, progress, needsYou, incident, done}
-	types      = []string{typeExplanation, typeUpdate, typeForYou, typeQuestion, incident, done}
-	orderRow   = regexp.MustCompile(`^m\d+(?:\.\d+)?$`)
-	replyID    = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
-	pullURL    = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
-	slackSent  = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
-	mdLink     = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
-	cardLink   = regexp.MustCompile(`\[([^\]\n]*)\]\(card:([^\s)]+)\)`)
-	notebook   = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
-	slackStamp = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
-	laneRole   = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
-	sentence   = regexp.MustCompile(`[.!?](?:\s+|$)|\n`)
-	tapOrder   = regexp.MustCompile(`(?i)^\s*(?:tap|approve)\b`)
-	asksTap    = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
-	describes  = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
-	notLanding = regexp.MustCompile(`(?i)\b(?:is|was|got|been|now|stays?|PR|it) closed\b|#\d+,? (?:is |was )?closed\b|\bclos(?:e|es|ed|ing) (?:#\d+|it\b|this\b|unlanded|unmerged|without)|\bunlanded\b|\bwithdr(?:aw|awn|ew|awing)\b|\b(?:not|never|won't|will not|does not|doesn't) land(?:s|ing)?\b|\babandon(?:ed|ing)?\b`)
-	namedPR    = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
-	repoName   = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
-	namedBlock = regexp.MustCompile(`block "([^"]+)"`)
-	strayTag   = regexp.MustCompile(`</?[a-zA-Z][\w-]*(?:[\s/>]|$)`)
-	notBranch  = regexp.MustCompile(`^$|^[-/.]|[/.]$|^@$|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|/\.|\.lock(?:/|$)`)
+	statuses      = []string{info, progress, needsYou, incident, done}
+	types         = []string{typeExplanation, typeUpdate, typeForYou, typeQuestion, incident, done}
+	orderRow      = regexp.MustCompile(`^m\d+(?:\.\d+)?$`)
+	replyID       = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
+	promisedClock = regexp.MustCompile(`(?i)\bby (\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\b`)
+	pullURL       = regexp.MustCompile(`^https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)$`)
+	slackSent     = regexp.MustCompile(`(?m)^sent: \S+ ts=\d{10}\.\d{6} (\S+)`)
+	mdLink        = regexp.MustCompile(`\[([^\]\n]+)\]\((https?://[^\s)]+)\)`)
+	cardLink      = regexp.MustCompile(`\[([^\]\n]*)\]\(card:([^\s)]+)\)`)
+	notebook      = regexp.MustCompile(`https://[\w.-]*datadoghq\.com/notebook/\d+`)
+	slackStamp    = regexp.MustCompile(`/p(\d{10})(\d{6})(?:\?|$)`)
+	laneRole      = regexp.MustCompile(`-(?:fix|evidence|comms)$`)
+	sentence      = regexp.MustCompile(`[.!?](?:\s+|$)|\n`)
+	tapOrder      = regexp.MustCompile(`(?i)^\s*(?:tap|approve)\b`)
+	asksTap       = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
+	describes     = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
+	notLanding    = regexp.MustCompile(`(?i)\b(?:is|was|got|been|now|stays?|PR|it) closed\b|#\d+,? (?:is |was )?closed\b|\bclos(?:e|es|ed|ing) (?:#\d+|it\b|this\b|unlanded|unmerged|without)|\bunlanded\b|\bwithdr(?:aw|awn|ew|awing)\b|\b(?:not|never|won't|will not|does not|doesn't) land(?:s|ing)?\b|\babandon(?:ed|ing)?\b`)
+	namedPR       = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)
+	repoName      = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
+	namedBlock    = regexp.MustCompile(`block "([^"]+)"`)
+	strayTag      = regexp.MustCompile(`</?[a-zA-Z][\w-]*(?:[\s/>]|$)`)
+	notBranch     = regexp.MustCompile(`^$|^[-/.]|[/.]$|^@$|[\x00-\x20\x7f~^:?*\[\\]|\.\.|@\{|//|/\.|\.lock(?:/|$)`)
 )
 
 type Link struct {
@@ -354,6 +355,15 @@ func (f Fanout) withEveryWait(ctx context.Context, r Reply) (Reply, error) {
 		}) {
 			return r, nil
 		}
+		var blocked []string
+		for _, row := range rows {
+			if slices.Contains(numbers, row.Number) && !row.Tapped && !prrow.Terminal(row.State) {
+				blocked = append(blocked, fmt.Sprintf("#%d: %s", row.Number, prrow.BlocksWords(row)))
+			}
+		}
+		if len(blocked) > 0 {
+			return r, errors.New("NO APPROVE: this says something waits on him, and its card draws no Approve, so nothing went out; say what it waits on instead: " + strings.Join(blocked, "; "))
+		}
 	}
 	u, err := f.waits(ctx, time.Time{})
 	if err != nil {
@@ -389,6 +399,18 @@ func (f Fanout) withUpdate(ctx context.Context, r Reply) (Reply, error) {
 	u, err := f.waits(ctx, since)
 	if err != nil {
 		return r, err
+	}
+	s, err := store.Open(f.Entry.Store())
+	if err != nil {
+		return r, err
+	}
+	defer func() { _ = s.Close() }()
+	owed, err := lanes.OpenOrders(ctx, lanes.CCI{}, s, f.Entry.Bus(), f.Entry.Repo, f.Entry.StateDir)
+	if err != nil {
+		return r, fmt.Errorf("his orders did not read, so what is owed to him is unknown and nothing went out: %w", err)
+	}
+	for _, order := range owed {
+		u.Owed = append(u.Owed, order.Line())
 	}
 	r.Title, r.MD = cmp.Or(r.Title, updateTitle), strings.TrimSpace(r.MD+"\n\n"+u.Words())
 	r.PRs = append(r.PRs, u.URLs()[:min(len(u.Waiting), maxPRs-len(r.PRs))]...)
@@ -860,6 +882,10 @@ func (r Reply) mended() (Reply, []string) {
 	if (r.By != "" || r.Routed != 0) && !r.writesRow() {
 		warn("by and routed mark his ledger row only from a progress or info reply to an order with no picks, so they were left off")
 		r.By, r.Routed = "", 0
+	}
+	if promised := promisedClock.FindStringSubmatch(r.Title + "\n" + r.MD); r.writesRow() && r.By == "" && promised != nil {
+		r.By = fmt.Sprintf("%s:%s %s", promised[1], cmp.Or(promised[2], "00"), strings.ToUpper(promised[3])+"M")
+		warn("this promises %s, so his row reads due by it and the clock watcher holds it until the deliverable is sent", r.By)
 	}
 	if !replyID.MatchString(r.ID) {
 		if r.ID != "" {

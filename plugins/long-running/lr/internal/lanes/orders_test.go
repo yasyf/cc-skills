@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
@@ -37,6 +38,9 @@ func ownerLedger(t *testing.T, rows int) string {
 func carrier(t *testing.T, s *store.Store, name, orders string, state store.LaneState, prs ...int) {
 	t.Helper()
 	laneSaying(t, s, name, "Assigned orders: "+orders, state, prs...)
+	if err := s.LaneHeard(name, time.Now(), "report", 0); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func laneSaying(t *testing.T, s *store.Store, name, lines string, state store.LaneState, prs ...int) {
@@ -57,6 +61,23 @@ func laneSaying(t *testing.T, s *store.Store, name, lines string, state store.La
 	if err := s.SetLanePRs(name, prs); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestALiveLaneSilentForTwoHoursLeavesItsOrderOwedWithNothingRunning(t *testing.T) {
+	s := memory(t)
+	state := ownerLedger(t, 2)
+	carrier(t, s, "talking-1", "owner:m1", store.LaneDesired)
+	laneSaying(t, s, "silent-1", "Assigned orders: owner:m2", store.LaneDesired)
+	if err := s.LaneHeard("silent-1", time.Now().Add(-staleSilence-time.Minute), "report", 0); err != nil {
+		t.Fatal(err)
+	}
+
+	orders, err := OpenOrders(context.Background(), &fakeBus{}, s, testDrive, ordersRepo, state)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, owner.Tokens(orders), "owner:m2")
 }
 
 func TestTheSupervisorsOwnReportIsNoClaimOnTheRowsItNames(t *testing.T) {
