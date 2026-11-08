@@ -27,6 +27,7 @@ const (
 	portEndedAttr  = "ended"
 
 	askWithin    = 15 * time.Minute
+	designWithin = 30 * time.Minute
 	waitWithin   = 10 * time.Minute
 	repeatWindow = 2 * time.Hour
 	repeatCount  = 3
@@ -38,6 +39,8 @@ const (
 
 var (
 	Window = askWindow
+
+	proposalKinds = []string{"design", "plan"}
 
 	Kinds = []string{"decide", "decision", "go", "state", "report", "landed", "opened", "head", "answer", "note"}
 
@@ -93,12 +96,20 @@ func OpenAsks(asks, records []client.Record, now time.Time) []Wait {
 		if !slices.ContainsFunc(ask.To, rootLane) {
 			continue
 		}
+		within := askWithin
+		if slices.Contains(proposalKinds, string(ask.Kind)) {
+			within = designWithin
+		}
 		waits = append(waits, Wait{
-			Kind: askKind, Repo: AskNamespace, Number: int(ask.Seq), Mover: machine.MoverRoot, Since: ask.At, Within: askWithin, To: root,
-			Cause: fmt.Sprintf("ask overdue: %s from %s is open and unanswered: %s", ask.Name(), ask.Lane, clip(ask.Text)),
+			Kind: askKind, Repo: AskNamespace, Number: int(ask.Seq), Mover: machine.MoverRoot, Since: ask.At, Within: within, To: root,
+			Cause: fmt.Sprintf("%s overdue: %s from %s is open and unanswered: %s", ask.Kind, ask.Name(), ask.Lane, clip(ask.Text)),
 		})
 	}
 	return waits
+}
+
+func Proposals(records []client.Record) []client.Record {
+	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool { return !slices.Contains(proposalKinds, string(record.Kind)) })
 }
 
 func LandedPRs(records []client.Record) map[string]client.Record {

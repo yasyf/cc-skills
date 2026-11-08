@@ -79,10 +79,11 @@ func Check(ctx context.Context, s *store.Store, entry drive.Entry, runner shell.
 	if err != nil {
 		return nil, next, err
 	}
+	owed = append(owed, Proposals(records)...)
 	if err := wake(ctx, s, entry.Bus(), WakeRoot(records, owed, now), now); err != nil {
 		return nil, next, err
 	}
-	open := slices.DeleteFunc(owed, func(record client.Record) bool { return string(record.Kind) != askKind })
+	open := slices.DeleteFunc(owed, func(record client.Record) bool { return string(record.Kind) == "blocker" })
 	ledgers, err := ReadLedgers(ctx, s, entry, runner, now)
 	if err != nil {
 		return nil, next, err
