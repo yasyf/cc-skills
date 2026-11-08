@@ -537,9 +537,12 @@ Landing desk (PR rows in cc-notes, lane messages in cci, shared by every checkou
   only that push asks him again. `reference/landing.md`, tap carry, has the rule. A port of an old-tree PR adds `--attr port-of=<old PR> --attr port-interacts=no|yes`
   to every head record, one record per port. Its PR body opens with the line `port of #<n>`, and every card and reply about it opens its title with `Port, old tree to new: dev #<n>`. A writer half of a readers-first pair, yours or a port's, carries `Readers-First: #<reader PR>` on its own body line from its first ship, so the landing pass holds it until the coordinator names the live release that carries the reader; `reference/landing.md` D21 has the rule. A port lands faithful to that PR, and a fix past it is a follow-up PR on top; `reference/landing.md`, Old-tree forward port, has the rule. A fix for a flaking test adds `--attr flake-fix=<the test that flaked>` to every head record whose patch changed: it lands with no tap when every changed file is test or fixture code and no added line names a timeout, and without the attr a tap rule naming its paths sends it to the owner; `reference/landing.md`, Test-flake fixes, has the rule. The supervisor's finder reads that head and posts its `finder:` record to you; fix or rebut each major before you call
   a PR done. On a drive whose runner has no finder, run one finder pass yourself.
-  A `## Body addendum` that answers a second-fix major by naming the class the fix
-  removes posts one `head` record at the unchanged sha, `--head <pr>=<sha>`, with the
-  note `body edit`: the finder reads the body again against that head's major, with no
+  A class fix deletes the earlier patches it replaces, in its own PR or the next one, and
+  its body and card name each by PR (owner m1838, m1839: "you have to remove / clean up
+  the 3+ hacks you did before"); the finder holds a class fix whose body leaves out an
+  earlier fix in its area. A `## Body addendum` that answers a second-fix major by naming
+  the class the fix removes and each earlier fix it replaces posts one `head` record at
+  the unchanged sha, `--head <pr>=<sha>`, with the note `body edit`: the finder reads the body again against that head's major, with no
   new codex pass, and posts `finder: ok` when the second fix was its one major. A port names no
   class: a body that opens `port of #<n>` draws no second-fix major, and the class fix is a
   follow-up its `finder: ok` lists.
