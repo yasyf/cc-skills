@@ -41,7 +41,11 @@ func AnswerBlock(waits string) string {
 
 func ReservedCard(repo string, number int, head string, rows []ReservedRow, pr CardPR) (string, error) {
 	waits := MergeWaits(number, head)
+	title := headed(number, pr.Title, func(named string) string { return "Merge " + named + "?" })
 	var why strings.Builder
+	if words := PlainTitle(pr.Title); words != "" && !strings.Contains(title, words) {
+		fmt.Fprintf(&why, "#%d: %s.\n\n", number, strings.TrimSuffix(words, "."))
+	}
 	for _, row := range rows {
 		fmt.Fprintf(&why, "It touches your rule \"%s\". ", row.Sentence)
 	}
@@ -54,7 +58,7 @@ func ReservedCard(repo string, number int, head string, rows []ReservedRow, pr C
 	card, err := json.Marshal(map[string]any{
 		"id":    waits,
 		"type":  "card",
-		"title": headed(number, pr.Title, func(named string) string { return "Merge " + named + "?" }),
+		"title": title,
 		"children": []map[string]any{
 			{"id": waits + "-context", "type": "markdown", "md": why.String()},
 			{"id": waits + "-pr", "type": "pr", "repo": repo, "number": number},
