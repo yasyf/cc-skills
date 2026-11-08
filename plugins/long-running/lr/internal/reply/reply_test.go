@@ -1069,7 +1069,7 @@ func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
 	}
 }
 
-var carded = store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Risk: "- **Availability:** chats may reconnect late.", WaitsOn: "Your tap", Title: "Relay fix"}
+var carded = store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.", WaitsOn: "Your tap", Title: "Relay fix"}
 
 func TestAPRCardMissingALineRefusesTheReplyAndNamesItsLane(t *testing.T) {
 	for name, r := range map[string]Reply{
@@ -1080,7 +1080,7 @@ func TestAPRCardMissingALineRefusesTheReplyAndNamesItsLane(t *testing.T) {
 			f := fanout(t, scripted())
 			ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", WaitsOn: "Your tap", Lane: "relay-1"})
 			got, err := f.withPRCards(context.Background(), r)
-			if err == nil || !strings.HasPrefix(err.Error(), "PR CARD GAP: "+landPR+" (lane relay-1) lacks the plan row") || !strings.Contains(err.Error(), "the risk") || strings.Contains(err.Error(), "what it changes") {
+			if err == nil || !strings.HasPrefix(err.Error(), "PR CARD GAP: "+landPR+" (lane relay-1) lacks the plan row") || !strings.Contains(err.Error(), "its plain-words ELI5") || strings.Contains(err.Error(), "what it changes") {
 				t.Fatalf("err = %v, want the reply refused naming the lane and its two missing lines", err)
 			}
 			if got.PRCards != nil {
@@ -1092,12 +1092,23 @@ func TestAPRCardMissingALineRefusesTheReplyAndNamesItsLane(t *testing.T) {
 
 func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
 	fake := scripted()
-	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\nPlan: step 3.\n\n## Risk profile\n\n- **Availability:** one retry loop.\n"}`, "gh", "pr", "view")
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\nPlan: step 3.\n\n## Context\n\nA dropped network left chats offline.\n"}`, "gh", "pr", "view")
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, WaitsOn: "Your tap"})
 	r, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
-	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].Title != "relay: fix the reconnect" || r.PRCards[0].Risk != "- **Availability:** one retry loop." || r.PRCards[0].Plan != "Plan: step 3." {
-		t.Fatalf("cards = %+v, err %v; want the title, plan and risk from the PR body", r.PRCards, err)
+	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].Title != "relay: fix the reconnect" || r.PRCards[0].ELI5 != "A dropped network left chats offline." || r.PRCards[0].Plan != "Plan: step 3." {
+		t.Fatalf("cards = %+v, err %v; want the title, plan and ELI5 from the PR body", r.PRCards, err)
+	}
+}
+
+func TestAPRCardDrawsTheReviewerBotsELI5OverItsBodysContext(t *testing.T) {
+	fake := scripted()
+	fake.Reply(`{"data":{"repository":{"pr2196":{"comments":{"nodes":[{"body":"<!-- pr-reviewer bot companion -->\n### ELI5\n\nChats come back by themselves after the network drops.\n\n### Files"}]}}}}}`, "gh", "api", "graphql")
+	f := fanout(t, fake)
+	ledgerRow(t, f, carded)
+	r, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
+	if err != nil || len(r.PRCards) != 1 || r.PRCards[0].ELI5 != "Chats come back by themselves after the network drops." {
+		t.Fatalf("cards = %+v, err %v; want the bot's ELI5", r.PRCards, err)
 	}
 }
 
@@ -1149,7 +1160,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**Risk:**\n- **Availability:** chats may reconnect late.") || pr["plan"] != "Plan: step 3." {
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**ELI5:** Chats reconnected late after a network drop.") || pr["plan"] != "Plan: step 3." {
 		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
 	}
 }
@@ -1165,7 +1176,7 @@ type ccPresentPR struct {
 	Head    string          `json:"head,omitempty"`
 	Change  string          `json:"change,omitempty"`
 	Plan    string          `json:"plan,omitempty"`
-	Risk    string          `json:"risk,omitempty"`
+	ELI5    string          `json:"eli5,omitempty"`
 	Blocker string          `json:"blocker,omitempty"`
 	Tap     bool            `json:"tap,omitempty"`
 	Row     json.RawMessage `json:"row,omitempty"`
@@ -1217,7 +1228,7 @@ func TestAnOrderNamesARowOrASubRow(t *testing.T) {
 	}
 }
 
-var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Risk: "- **Availability:** chats may reconnect late.", State: prrow.StateOpen, Hold: prrow.None, SupersededBy: prrow.None, CI: prrow.CIPending, WaitsOn: "CI is running or not read yet at this head"}
+var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.", State: prrow.StateOpen, Hold: prrow.None, SupersededBy: prrow.None, CI: prrow.CIPending, WaitsOn: "CI is running or not read yet at this head"}
 
 func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}

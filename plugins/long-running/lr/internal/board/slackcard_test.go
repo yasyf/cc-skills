@@ -34,7 +34,7 @@ func TestTheApproveCardIsTheLedgerRowWithApproveAndHold(t *testing.T) {
 		PRs: []SlackPRRow{{
 			URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
 			Review: "CI green; approved by poetic-svc; grade pass; mergeable clean",
-			Change: "chats load faster", Plan: "checked against the plan", Risk: "- **Availability:** one cache key", Blocks: "Only your approval.", Description: "## Context",
+			Change: "chats load faster", Plan: "checked against the plan", ELI5: "Chats were slow to open.", Blocks: "Only your approval.", Description: "## Context\n\nChats were slow to open.",
 		}},
 		Options: []string{"Approve", "Hold"}, Recommended: "Approve", Waits: MergeWaits(number, head),
 	}
@@ -407,8 +407,8 @@ func TestTheCardReadsNothingButTheStoreAtOneAndManyPRs(t *testing.T) {
 			if err := json.Unmarshal([]byte(out.String()), &answer); err != nil {
 				t.Fatal(err)
 			}
-			if len(answer.Cards) != n || counted.calls != 0 {
-				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and none", len(answer.Cards), n, counted.calls, n)
+			if len(answer.Cards) != n || counted.calls != 1 {
+				t.Fatalf("%d cards for %d PRs with %d commands run, want %d and the one ELI5 read", len(answer.Cards), n, counted.calls, n)
 			}
 		})
 	}

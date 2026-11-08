@@ -50,22 +50,3 @@ func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
 		})
 	}
 }
-
-func TestRiskWordsAreTheWholeProfileOnceItsAvailabilityLineIsPlain(t *testing.T) {
-	profile := "- **Threat model:** no new surface.\n- **Availability:** a wrong answer here is a stale or failed read of a forked chat. A parked base read by file has the guards #51308's dormant read has.\n- **Data:** reads only."
-	if got := RiskWords(store.ReviewRow{Risk: "\n" + profile + "\n"}); got != profile {
-		t.Fatalf("risk = %q, want the whole profile", got)
-	}
-	for name, risk := range map[string]string{
-		"no availability line": "Low: one retry loop.",
-		"a code term":          "- **Availability:** `read_attached` may fail.",
-		"a hash":               "- **Availability:** reads at b51dd19 may be stale.",
-	} {
-		if got := RiskWords(store.ReviewRow{Risk: risk}); got != riskOwed {
-			t.Errorf("%s: risk = %q, want it owed", name, got)
-		}
-	}
-	if got := RiskWords(store.ReviewRow{}); got != "" {
-		t.Fatalf("no risk profile drew %q, want nothing", got)
-	}
-}

@@ -28,7 +28,7 @@ const (
 func tapRow(number int) store.ReviewRow {
 	return store.ReviewRow{
 		Repo: readyRepo, Number: number, Title: fmt.Sprintf("sand: fix %d", number), Lane: fmt.Sprintf("lane-%d", number), Head: readyHead, ReadHead: readyHead,
-		ForUsers: "Chats load.", PlanRow: "Checked.", Risk: "- **Availability:** a slow chat.", ReadyForTap: true, State: prrow.StateOpen, WaitsOn: "Only your approval.",
+		ForUsers: "Chats load.", PlanRow: "Checked.", ReadyForTap: true, State: prrow.StateOpen, WaitsOn: "Only your approval.",
 		Hold: prrow.None, SupersededBy: prrow.None,
 	}
 }

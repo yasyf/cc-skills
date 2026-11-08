@@ -30,7 +30,6 @@ const (
 	FactTapCard       = "tap_card"
 	Communicator      = communicator
 	factChangeTold    = "change_told"
-	factRiskTold      = "risk_told"
 	factCardWordsTold = "card_words_told"
 
 	tapOrderKind    = "lr.tap"
@@ -314,7 +313,6 @@ func (r ReadyCards) tellChangeOwed(ctx context.Context, rows []store.ReviewRow, 
 		at := row.Head[:min(waitsSHA, len(row.Head))]
 		for _, owed := range []struct{ fact, flaw, topic, text string }{
 			{factChangeTold, prrow.ChangeFlaw(row.ForUsers), "change-words", "its approval post says only that you owe What changes, because %s. Open the PR body's Summary with one plain sentence on what a user sees change, with no plan text, record ids, hashes, exit codes or code terms such as symbol names, paths and routes; the plan goes on a Plan: line outside the Summary. The post reads the new body."},
-			{factRiskTold, prrow.RiskFlaw(row.Risk), "risk-words", "its approval post says only that you owe Risk, because %s. Open the Risk profile's **Availability:** line with one plain sentence on what could go wrong for a user, with no record ids, hashes, lane names, test names or code terms; the rest of the profile stays below it. The post reads the new body."},
 		} {
 			if owed.flaw == "" || facts[row.Number][owed.fact] != "" {
 				continue

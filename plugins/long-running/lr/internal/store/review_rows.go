@@ -33,6 +33,7 @@ type ReviewRow struct {
 	PlanRow       string `json:"plan_row"`
 	Risk          string `json:"risk"`
 	Description   string `json:"description"`
+	ELI5          string `json:"eli5,omitempty"`
 	UnsafeWait    string `json:"unsafe_wait"`
 	CI            string `json:"ci"`
 	Approvers     string `json:"approvers"`
