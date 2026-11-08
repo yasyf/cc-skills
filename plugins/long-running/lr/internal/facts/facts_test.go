@@ -900,6 +900,28 @@ func TestAHoldCitingHisAnswerHoldsAsHisAndOneCitingAnyOtherNoteGatesNothing(t *t
 	}
 }
 
+func TestAHoldCitingHisRelayedWordsHoldsAsHisAndOneCitingAnotherLanesRecordGatesNothing(t *testing.T) {
+	h := newHarness(t, []recordedPR{{number: 51172, head: head, login: "drive-bot"}, {number: 50314, head: head2, login: "drive-bot"}},
+		status(51172), status(50314, func(r *statusRow) { r.Head = head2 }))
+	relayed, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "owner-relay", Kind: "owner", Text: "verbatim: 'retry the failed tests, never the shard'"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: "root", Kind: "note", Text: "retry only failed tests"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.runner.Fail(3, "no such answer", "ccn", "-R", landingConfig.Checkout, "answer", "show", strconv.FormatInt(other.Seq, 10))
+	rulingHold(t, "root", "HOLD #51172 under his words", repo+"#51172", strconv.FormatInt(relayed.Seq, 10))
+	rulingHold(t, "root", "hold #50314: retry change", repo+"#50314", strconv.FormatInt(other.Seq, 10))
+
+	by := h.snapshot(t)
+
+	if by[51172].Hold != machine.MoverOwner || by[50314].Hold != "" {
+		t.Fatalf("holds #51172 %q, #50314 %q; want owner-relay's record to hold as his and root's note to gate nothing", by[51172].Hold, by[50314].Hold)
+	}
+}
+
 func rulingHold(t *testing.T, lane, text, pr, ruling string) {
 	t.Helper()
 	if _, err := client.Post(context.Background(), client.Draft{Drive: "d", Lane: lane, Kind: "hold", Text: text, PRs: []string{pr}, Attrs: map[string]string{bus.RulingAttr: ruling}}); err != nil {
