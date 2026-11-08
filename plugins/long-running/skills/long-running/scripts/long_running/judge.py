@@ -360,7 +360,7 @@ class Call:
 
 
 def captures(state: Path) -> dict[str, dict]:
-    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes. A Sprite drive's folder holds no copy, so its captures come from the Mac's store desk."""
+    """The owner's captured prompts and board taps in the drive's state folder, by digest, without the ones a later capture supersedes. A Sprite drive's folder holds no copy, so its captures come from the Mac's store desk, kept in `owner-prompts.mac.jsonl` so each read fetches only the captures after the last one it holds."""
     path = state / "owner-prompts.jsonl"
     text = path.read_text() if path.exists() else mac_prompts(state)
     entries = [json.loads(line) for line in text.splitlines() if line.strip()]
@@ -373,7 +373,15 @@ def mac_prompts(state: Path) -> str:
     from . import drive, ledger
 
     entry = next((entry for entry in drive.drives() if entry.get("host") == "sprite" and Path(entry["state_dir"]) == state), None)
-    return command([str(ledger.LR), "owner", "prompts", "--drive", drive.cci_drive(entry)], timeout=PROMPTS_SECONDS) if entry else ""
+    if not entry:
+        return ""
+    copy = state / "owner-prompts.mac.jsonl"
+    held = copy.read_text() if copy.exists() else ""
+    last = [json.loads(line)["digest"] for line in held.splitlines() if line.strip()][-1:]
+    newer = command([str(ledger.LR), "owner", "prompts", "--drive", drive.cci_drive(entry), *(["--since", *last] if last else [])], timeout=PROMPTS_SECONDS)
+    with copy.open("a") as out:
+        out.write(newer)
+    return held + newer
 
 
 def said(row: dict, state: Path, env: Mapping[str, str] | None = None, *, run: Run | None = None, checkpoint: Callable[[], None] = lambda: None) -> list[dict]:
