@@ -8,7 +8,7 @@ from captain_hook import Allow, BaseHookEvent, Block, Event, FromSubagent, HookR
 from .cci_mcp_posts import POST_TOOL
 from .compaction_handoff import bus_name, Communicator, communicator_tests, CompactionState, drive_entry
 from .meta_records import posts
-from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, queued_prompts
+from .register_capture import OPERATOR, OWNER_WATCH, owner_messages_heard, delivered_prompts
 from .tests.register_fixtures import DRIVE_CONFIG
 
 WHO_TIMEOUT_SECONDS = 10
@@ -39,7 +39,7 @@ def watched_reply(owner: dict) -> list:
 
 
 def foreign_replies(evt: BaseHookEvent) -> list[dict]:
-    found = [message for message in owner_messages_heard(queued_prompts(evt.ctx.turn.events)) if message.get("thread_owner")]
+    found = [message for message in owner_messages_heard(delivered_prompts(evt.ctx.turn.events)) if message.get("thread_owner")]
     entry = drive_entry(evt)
     return [message for message in found if entry and not on_drive(bus_name(entry), message["thread_owner"]["session"])]
 

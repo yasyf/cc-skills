@@ -6,7 +6,7 @@ from captain_hook import Allow, BaseHookEvent, Event, FromSubagent, Input, T, on
 
 from .compaction_handoff import Bound, CompactionState
 from .owner_returns import cc_slack, SHIPPED_CC_SLACK
-from .register_capture import OPERATOR, owner_slack_messages, queued_prompts
+from .register_capture import OPERATOR, owner_slack_messages, delivered_prompts
 from .tests.register_fixtures import DRIVE_CONFIG
 
 EYES = "eyes"
@@ -36,6 +36,6 @@ def delivered(payload: dict) -> list:
     },
 )
 def owner_messages_get_eyes(evt: BaseHookEvent) -> None:
-    for message in owner_slack_messages([*queued_prompts(evt.ctx.turn.events), evt.user_prompt or ""]):
+    for message in owner_slack_messages([*delivered_prompts(evt.ctx.turn.events), evt.user_prompt or ""]):
         if evt.ctx.s.once(message["ts"], scope=SEEN):
             cc_slack(evt, "react", "--channel", message["channel_id"], "--ts", message["ts"], "--name", EYES)
