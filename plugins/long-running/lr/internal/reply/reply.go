@@ -1128,16 +1128,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 // prCardFrom is the one constructor of a PR card: every line drawn from the
 // row, or the names of the lines it cannot draw.
 func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
-	var missing []string
-	if flaw := prrow.ChangeFlaw(row.ForUsers); flaw != "" {
-		missing = append(missing, "what it changes for a user: "+flaw)
-	}
-	if flaw := prrow.PlanFlaw(row.PlanLine); flaw != "" {
-		missing = append(missing, "the plan row: "+flaw)
-	}
-	if prrow.ELI5Words(row) == "" {
-		missing = append(missing, "its plain-words ELI5: the reviewer bot has posted none and the body has no Context section")
-	}
+	missing := prrow.CardGaps(row)
 	if prrow.BlocksWords(row) == "" {
 		missing = append(missing, "what it waits on: its ledger row names nothing")
 	}
