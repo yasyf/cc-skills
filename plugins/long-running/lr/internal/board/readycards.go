@@ -27,6 +27,8 @@ import (
 
 const (
 	FactCardDrawn     = "card_drawn"
+	FactCardRefused   = "card_refused"
+	factRefusalTold   = "card_refusal_told"
 	staleDrawn        = "stale"
 	FactTapCard       = "tap_card"
 	Communicator      = communicator
@@ -274,14 +276,30 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 	if err != nil {
 		return nil, err
 	}
+	refused, err := r.Cards.Store.LatestFacts(r.Repo, FactCardRefused)
+	if err != nil {
+		return nil, err
+	}
+	told, err := r.Cards.Store.LatestFacts(r.Repo, factRefusalTold)
+	if err != nil {
+		return nil, err
+	}
 	followed := make(map[int]bool, len(drawn))
 	for _, row := range rows {
 		was := drawn[row.Number]
 		if was == "" {
 			continue
 		}
-		if was == drawnSignature(Card(r.Repo, row)) {
+		now := drawnSignature(Card(r.Repo, row))
+		if was == now {
 			followed[row.Number] = true
+			continue
+		}
+		if signature, why, _ := strings.Cut(refused[row.Number], " "); signature == now {
+			followed[row.Number] = true
+			if err := r.tellRefused(ctx, row, now, why, told[row.Number]); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		redrawing, err := r.Cards.redrawPost(ctx, r.Repo, row.Number)
@@ -297,6 +315,19 @@ func (r ReadyCards) followDrawn(ctx context.Context, rows []store.ReviewRow) (ma
 		}
 	}
 	return followed, nil
+}
+
+func (r ReadyCards) tellRefused(ctx context.Context, row store.ReviewRow, signature, why, told string) error {
+	if told == signature {
+		return nil
+	}
+	at := row.Head[:min(waitsSHA, len(row.Head))]
+	text := fmt.Sprintf("#%d at %s: Slack refused to redraw its approval post (%s), so the post still shows its earlier words and nothing asks again until the row draws differently. Fix what the refusal names on the PR, such as its title or body, and the next pass redraws it.", row.Number, at, why)
+	if err := r.Cards.Report(ctx, r.Lane, []string{row.Lane}, fmt.Sprintf("card-refused:%s#%d", r.Repo, row.Number), text); err != nil {
+		return fmt.Errorf("#%d: %w", row.Number, err)
+	}
+	_, err := r.Cards.Store.PutFact(r.Repo, row.Number, row.Head, factRefusalTold, signature, r.Cards.Now())
+	return err
 }
 
 func (c Cards) redrawPost(ctx context.Context, repo string, number int) (int, error) {
