@@ -43,6 +43,7 @@ PUBLISHED = re.compile(r"\bpublished (?P<head>[0-9a-f]{7,40})\b")
 RECORD_TIMEOUT_SECONDS = 15
 SHIP = ("ccx", "vcs", "ship")
 SHIP_BODY = "--pr-body-file"
+BODY_WRITERS = frozenset({SHIP, ("gh", "pr", "edit"), ("gh", "pr", "create")})
 SHIP_OPENS_NOTHING = frozenset({"--no-pr", "--no-push", "--dry-run", "--help", "-h"})
 SHIP_NEW_PR = ("--new-branch", "--create", "--new-pr")
 SHIP_AMENDS = "--amend"
@@ -112,6 +113,18 @@ UNSETTLED = (
 LANDED = f"{sys.executable} {script('drive.py')} landed"
 UNPOSTED = "#{number} has no fresh row in the landing store: {reason}. It stays out of Waiting on you until `ccx vcs ship --no-commit --pr-body-file <body>` posts it."
 SHIP_NEEDS_BODY = "This ship opens a PR, and a drive PR's row takes its card from the body: write the body first and pass `--pr-body-file <path>`. `--no-pr` or `--no-push` opens nothing."
+CARD_LINES = {
+    "## Summary": re.compile(r"^#{1,3}\s+Summary\s*$", re.MULTILINE | re.IGNORECASE),
+    "Plan: <the plan step, owner message, or cc-notes task it carries>": re.compile(
+        r"^[\s>*-]*plan:\s*\S|\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|owner:m\d+|cc-notes task\W+[0-9a-f]{8,})\b", re.MULTILINE | re.IGNORECASE
+    ),
+    "## Risk profile": re.compile(r"^#{1,3}\s+Risk profile\s*$", re.MULTILINE | re.IGNORECASE),
+    "- **Availability:** <what could go wrong for a user, in plain words>": re.compile(r"^[ \t]*[-*][ \t]*\*\*availability:?\*\*", re.MULTILINE | re.IGNORECASE),
+}
+CARD_LINES_MISSING = (
+    "A drive PR's card draws from `## Summary`, a `Plan:` line and the `## Risk profile` `**Availability:**` line, and refuses without them."
+    " Add the lines below to the body, then run the command again."
+)
 SHIP_CLIPPED = "This ship's output was cut before its PR line, so the PR has no board row and no head record. Rerun `ccx vcs ship --no-commit --pr-body-file <body>` with no pipe."
 DETACHED_LOG = Path.home() / ".cache" / "ccn-ledger" / "detached-drive.log"
 LANE_ENV = {"CLAUDE_LONG_RUNNING_DRIVE": "d", "CLAUDE_LONG_RUNNING_LANE": "lane-a"}
@@ -330,6 +343,28 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
     if any(opens_a_pr(call) for call in ship_calls(evt)):
         return evt.block(SHIP_NEEDS_BODY)
     return None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Tool("Bash"), Or(Runs(*SHIP), Runs("gh", "pr", "edit"), Runs("gh", "pr", "create"))],
+    skip_if=[Annotated("raw")],
+    tests={
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n## Risk profile\n- **Data:** none.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Block(pattern="Plan:"),
+        Input(command="gh pr edit 9 --body '## Summary\nChats load.\nPlan: step 3.'", env=LANE_ENV): Block(pattern="Availability"),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: owner:m1793.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
+        Input(command="ccx vcs ship --amend -m 'x: 🐛 z'", env=LANE_ENV): Allow(),
+        Input(command="gh pr edit 9 --body '## Summary'  # ccx:raw", env=LANE_ENV): Allow(),
+    },
+)
+def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
+    calls = [call for call in evt.cmd.calls() if (call.name, *call.args)[:3] in BODY_WRITERS and any(flag_values(call.args, flag) for flag in (SHIP_BODY, *EDITED_BODY))]
+    if not calls:
+        return None
+    files = [body_text(path, call.cwd) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
+    body = "\n".join([evt.command.raw, *filter(None, files)])
+    missing = [line for line, pattern in CARD_LINES.items() if not pattern.search(body)]
+    return evt.block(CARD_LINES_MISSING + "\n```\n" + "\n".join(missing) + "\n```") if missing else None
 
 
 @on(
