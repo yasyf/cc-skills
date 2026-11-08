@@ -2521,7 +2521,7 @@ func TestAnUpdateSendsTheAwayUpdateWithEveryWaitsButtonsAndSavesItAsSent(t *test
 	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 2 || !got.Unprompted {
 		t.Fatalf("update = %+v, want its title, #2196's Approve and both open cards", got)
 	}
-	if !strings.Contains(got.MD, update.Away(update.Inputs{Now: sentAt})) {
+	if !strings.Contains(got.MD, strings.TrimSpace(update.Away(update.Inputs{Now: sentAt}))) {
 		t.Fatalf("md = %q, want the away update whole", got.MD)
 	}
 	if err := f.updated(got); err != nil {
