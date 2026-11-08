@@ -190,9 +190,9 @@ func Tick(s *store.Store, d Deps, now time.Time, generation int64) (out Outcome,
 	for name := range found {
 		taken[name] = true
 	}
-	for _, name := range said.unfinished {
-		lane, _ := laneOf(s, name)
-		relaunch(s, d, lane, found, fmt.Sprintf("its Orca worker finished while it owns open PRs %s, so its heir finishes them", numberList(must(s.Owners())[name])), "", taken, now, &out)
+	for _, one := range said.unfinished {
+		lane, _ := laneOf(s, one.lane)
+		relaunch(s, d, lane, found, one.why, "", taken, now, &out)
 	}
 	desired := must(s.Lanes(live...))
 	proven := proofs(s, d, desired, found, now)

@@ -630,9 +630,16 @@ func (out *folded) owesNothing(s *store.Store, name string, fresh bool, at time.
 	return !owes
 }
 
-func (out *folded) ownsNoOpenPR(s *store.Store, name string, fresh bool, at time.Time) bool {
+func (out *folded) leftNothingOpen(s *store.Store, name string, fresh bool, at time.Time) bool {
+	if fresh {
+		return true
+	}
+	if lane, _ := laneOf(s, name); lane.Last == "ask" {
+		out.unfinished = append(out.unfinished, unfinished{name, "its Orca worker finished right after its own ask, so its heir waits for the answer"})
+		return false
+	}
 	owned := must(s.Owners())[name]
-	if fresh || len(owned) == 0 {
+	if len(owned) == 0 {
 		return true
 	}
 	states, err := out.deps.PRStates(owned)
@@ -641,7 +648,7 @@ func (out *folded) ownsNoOpenPR(s *store.Store, name string, fresh bool, at time
 		return true
 	}
 	if err == nil {
-		out.unfinished = append(out.unfinished, name)
+		out.unfinished = append(out.unfinished, unfinished{name, fmt.Sprintf("its Orca worker finished while it owns open PRs %s, so its heir finishes them", numberList(one.prs))})
 		return false
 	}
 	hold(s, name, one.owes(), at)

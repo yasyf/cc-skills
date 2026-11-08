@@ -2150,21 +2150,26 @@ func TestAnOrcaWorkerThatFinishedRelaunchesItsLaneWithItsPRsWhileItIsStandingOrO
 	}
 }
 
-func TestAOneShotLaneWhoseOrcaWorkerFinishedWhileItOwnsAnOpenPRIsRelaunchedThatTickAndOneWithNoneOpenRetires(t *testing.T) {
+func TestAOneShotLaneWhoseOrcaWorkerFinishedOwningAnOpenPROrRightAfterItsAskIsRelaunchedThatTickAndOtherwiseRetires(t *testing.T) {
 	cases := map[string]struct {
 		open      string
+		asked     bool
 		launches  int
 		retiredBy string
 	}{
-		"owns an open PR": {open: Waiting, launches: 1},
-		"owns none open":  {open: Closed, retiredBy: "done"},
+		"owns an open PR":  {open: Waiting, launches: 1},
+		"owns none open":   {open: Closed, retiredBy: "done"},
+		"ended on its ask": {open: Closed, asked: true, launches: 1},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			s := memory(t)
 			f := adopted(t, s, writeBrief(t), "", 52503, 52514)
 			f.states = map[int]string{52503: c.open, 52514: Closed}
-			f.feed = append(f.feed, ask(2, "done", lane2, t0, nil, runner, nil))
+			if c.asked {
+				f.feed = append(f.feed, rec(2, lane2, "ask", t0, "Fork: land #52503 alone or with #52514?", Root))
+			}
+			f.feed = append(f.feed, ask(3, "done", lane2, t0, nil, runner, nil))
 
 			tick(t, s, f, t0.Add(mins(1)))
 
