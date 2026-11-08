@@ -184,7 +184,11 @@ any read: `cci subscribe --drive <drive> --reader meta`.
   `captain-hook:authoring-hooks`, ships and installs it, and keep working on what it does not
   block. Nobody runs a refused thing through a wrapper, `cc-sudo` or a script meanwhile. A hook
   that blocks nothing is one `cci post --kind note --to meta-desk`.
-- Proper fundamental fixes, no hacks. Tooling logic goes in the `lr` Go module as an
+- Proper fundamental fixes, no hacks. Before a fix, list the earlier PRs on the same symptom
+  (`gh pr list --state merged --search <its words>`). On the third fix for one thing, stop
+  patching: the PR makes the failure structurally impossible, deletes every earlier patch
+  for it, and its body names each one it removed (owner 598522, Nov 6). An owner who asks
+  for the same thing twice gets that fix in the tooling, never a one-off. Tooling logic goes in the `lr` Go module as an
   `lr <noun> <verb>` (R14); a Python script is touched only to delete what your verb
   replaces or to call it.
 - No credential, token or key in any file, record or brief.
