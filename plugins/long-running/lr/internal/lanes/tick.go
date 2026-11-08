@@ -670,7 +670,7 @@ func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[strin
 		transcript = d.Transcript(peer.Row)
 	}
 	do(os.WriteFile(path, []byte(must(coordinatorBrief(old, why, d, transcript))), 0o600))
-	if err := launchOrRetry(d, Root, old.Model, old.Effort, path); err != nil {
+	if err := launchOrRetry(d, Root, old.Model, old.Effort, path, fmt.Sprintf("%s%s:%d", launchKey, Root, now.Unix())); err != nil {
 		hold(s, Root, why, now)
 		escalate(s, d, "lane:"+Root, fmt.Sprintf("held, not relaunched: its launch was refused twice, last with %s; it %s; brief %s", err, why, path), now)
 		out.Held = append(out.Held, Root)
@@ -814,7 +814,7 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 	work := carriedWork(d, old, now)
 	path := writeSuccessorBrief(d, old, found, name, why, partial, work)
 	cost := successorCost(old)
-	if err := launchOrRetry(d, name, cost.Model, cost.Effort, path); err != nil {
+	if err := launchOrRetry(d, name, cost.Model, cost.Effort, path, launchKey+name); err != nil {
 		hold(s, old.Name, why, now)
 		escalateTo(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: its relaunch as %s was refused twice, last with %s; it %s; brief %s", name, err, why, path), must(MetaDesk(s)), now)
 		out.Held = append(out.Held, old.Name)
@@ -853,7 +853,7 @@ func launchOwedHeirs(s *store.Store, d Deps, found map[string]Peer, now time.Tim
 		old, _ := laneOf(s, heir.Predecessor)
 		err := fmt.Errorf("its predecessor's brief %s is gone", old.Brief)
 		if briefExists(old.Brief) {
-			err = launchOrRetry(d, name, heir.Model, heir.Effort, writeSuccessorBrief(d, old, found, name, heir.Reason, "", carriedWork(d, old, now)))
+			err = launchOrRetry(d, name, heir.Model, heir.Effort, writeSuccessorBrief(d, old, found, name, heir.Reason, "", carriedWork(d, old, now)), launchKey+name)
 		}
 		do(s.Unprobe(key))
 		if err == nil {
@@ -929,8 +929,7 @@ func launchRevived(s *store.Store, d Deps, one revival, found map[string]Peer, n
 	return ""
 }
 
-func launchOrRetry(d Deps, name, model, effort, brief string) error {
-	key := launchKey + name
+func launchOrRetry(d Deps, name, model, effort, brief, key string) error {
 	if err := d.Launch(name, model, effort, brief, key); err == nil {
 		return nil
 	}
@@ -951,7 +950,7 @@ func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out
 	}
 	if _, again := must(s.Probes())[retried]; !again {
 		do(s.Probe(retried, now))
-		if d.Launch(lane.Name, lane.Model, lane.Effort, path, launchKey+lane.Name+":retry") == nil {
+		if d.Launch(lane.Name, lane.Model, lane.Effort, path, fmt.Sprintf("%s%s:retry:%d", launchKey, lane.Name, lane.Since.Unix())) == nil {
 			return
 		}
 	}

@@ -2933,6 +2933,7 @@ func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(
 	out := tick(t, s, f, t0)
 
 	equal(t, f.launches, []string{Root})
+	equal(t, f.keys, []string{fmt.Sprintf("supervisor-launch:root:%d", t0.Unix())})
 	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped, quiet for 20 min"}})
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
 	equal(t, row(t, s, Root).State, store.LaneLaunching)
