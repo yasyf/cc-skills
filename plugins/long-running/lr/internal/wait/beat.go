@@ -12,7 +12,10 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 )
 
-const beatEvery = 30 * time.Minute
+const (
+	BeatTopic = "wait:"
+	beatEvery = 30 * time.Minute
+)
 
 func (w *waiter) beat(ctx context.Context, until time.Time) {
 	for _, s := range w.sources {
@@ -38,7 +41,7 @@ func (w *waiter) beatFor(ctx context.Context, s cciSource, until time.Time) erro
 		return nil
 	}
 	text := fmt.Sprintf("WAITING until %s on records to %s", until.In(pacific).Format("3:04 PM"), s.lane)
-	argv := []string{"cci", "post", "--drive", s.drive, "--lane", s.lane, "--kind", "state", "--topic", "wait:" + s.lane, "--text", text}
+	argv := []string{"cci", "post", "--drive", s.drive, "--lane", s.lane, "--kind", "state", "--topic", BeatTopic + s.lane, "--text", text}
 	if _, err := w.Runner.Run(ctx, shell.Command{Argv: argv, Timeout: readTimeout}); err != nil {
 		return err
 	}

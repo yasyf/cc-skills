@@ -12,6 +12,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
 
 const (
@@ -55,7 +56,7 @@ func Unplanned(records []client.Record, now time.Time) []Wait {
 			continue
 		}
 		deadline := deadlineOf(record, restatedClocks(records, record))
-		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(kindsOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || planned(record) || replies.settled(record.Seq) {
+		if deadline == "" || slices.Contains(record.To, "owner") || record.Kind == "escalation" || slices.Contains(kindsOwingNoPlan, string(record.Kind)) || record.Status == "closed" || now.Sub(record.At) > planWindow || slices.Contains(machineLanes, record.Lane) || strings.HasPrefix(record.Topic, wait.BeatTopic) || planned(record) || replies.settled(record.Seq) {
 			continue
 		}
 		waits = append(waits, Wait{
