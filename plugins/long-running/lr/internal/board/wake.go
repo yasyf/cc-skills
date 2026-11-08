@@ -26,6 +26,7 @@ const (
 	wakeKind       = "decide"
 	askKind        = "ask"
 	claimKind      = "claim"
+	standDownKind  = "stand-down"
 	lateKind       = "report"
 	wakeTopic      = lanes.CardWakeTopic
 	lateTopic      = "card-wake-late:"
@@ -80,11 +81,18 @@ func (w Waker) Wake(ctx context.Context, a CardAnswer) error {
 		if err != nil || routed {
 			return err
 		}
-		return w.needsLane(ctx, a)
+		return w.needsLane(ctx, a, "No lane asked for this card")
 	}
 	asker, err = lanes.Holder(w.Cards.Store, "", asker)
 	if err != nil {
 		return err
+	}
+	gone, err := w.stoodDown(ctx, asker)
+	if err != nil {
+		return err
+	}
+	if gone {
+		return w.needsLane(ctx, a, asker+", which asked for it, stood down with no lane after it")
 	}
 	lane, _, err := w.Cards.Store.Lane(asker)
 	if err != nil {
@@ -163,10 +171,15 @@ func namesAny(names ...string) *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:^|[^\w-])#?(?:` + strings.Join(quoted, "|") + `)(?:[^\w-]|$)`)
 }
 
-func (w Waker) needsLane(ctx context.Context, a CardAnswer) error {
+func (w Waker) stoodDown(ctx context.Context, lane string) (bool, error) {
+	records, err := w.Tail(ctx, client.Query{Drive: w.Cards.Bus, Lanes: []string{lane}, Since: w.Cards.Now().Add(-askWindow)})
+	return len(records) > 0 && records[len(records)-1].Kind == standDownKind, err
+}
+
+func (w Waker) needsLane(ctx context.Context, a CardAnswer, why string) error {
 	_, err := w.Post(ctx, client.Draft{
 		Drive: w.Cards.Bus, Lane: w.Lane, Kind: askKind, ID: needsLaneTopic + a.Key, Topic: needsLaneTopic + a.Card, To: []string{communicator}, Re: a.OwnerSeq, Force: true,
-		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. No lane asked for this card, so route his answer, or launch a lane whose brief carries it.", a.Card, w.Cards.Session, a.Said),
+		Text:  fmt.Sprintf("NEEDS-LANE %s on board %s: the owner answered: %s. %s, so route his answer, or launch a lane whose brief carries it.", a.Card, w.Cards.Session, a.Said, why),
 		Attrs: map[string]string{"session": w.Cards.Session, "card": a.Card, "block": a.Block},
 	})
 	return err

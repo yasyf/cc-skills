@@ -567,3 +567,37 @@ func TestAnUnheardAnswerGoesToTheDriveWhoseLaneAskedForTheCard(t *testing.T) {
 		t.Fatalf("quiet posts = %+v, asking posts = %+v, want only the drive that asked told", quiet.posts, asking.posts)
 	}
 }
+
+func TestHisPickOnACardWhoseLaneStoodDownWithNoHeirGoesToTheCommunicator(t *testing.T) {
+	f := newWaker(t)
+	f.drawnFor(t, "card-chat", "share-open-next-1")
+	f.bus = []client.Record{
+		{Seq: 1, Lane: "share-open-next-1", Kind: "report", Text: "opened #52100", At: cardsNow.Add(-3 * time.Hour)},
+		{Seq: 2, Lane: "share-open-next-1", Kind: standDownKind, Text: "standing down", At: cardsNow.Add(-2 * time.Hour)},
+	}
+
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{communicator}) || !strings.Contains(f.posts[0].Text, "share-open-next-1, which asked for it, stood down") {
+		t.Fatalf("posts = %+v, want one NEEDS-LANE to %s naming the lane that stood down", f.posts, communicator)
+	}
+}
+
+func TestALaneThatPostedAfterItsStandDownStillGetsTheWake(t *testing.T) {
+	f := newWaker(t)
+	f.drawnFor(t, "card-chat", "share-open-next-1")
+	f.bus = []client.Record{
+		{Seq: 1, Lane: "share-open-next-1", Kind: standDownKind, Text: "standing down", At: cardsNow.Add(-3 * time.Hour)},
+		{Seq: 2, Lane: "share-open-next-1", Kind: "report", Text: "back on #52100", At: cardsNow.Add(-time.Hour)},
+	}
+
+	if err := f.Wake(context.Background(), pick); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(f.posts) != 1 || !slices.Equal(f.posts[0].To, []string{"share-open-next-1"}) || f.posts[0].Kind != wakeKind {
+		t.Fatalf("posts = %+v, want the wake to the lane", f.posts)
+	}
+}
