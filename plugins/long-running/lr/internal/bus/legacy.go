@@ -36,7 +36,7 @@ const (
 )
 
 var (
-	legacyKinds    = []string{"review", "go", "decide", "decision", "withdraw", "correction", "report", TapRefusedKind, GoRefusedKind, StuckKind, ownerKind}
+	legacyKinds    = []string{"review", "go", "decide", "decision", "ask", "defect", "withdraw", "correction", "report", TapRefusedKind, GoRefusedKind, StuckKind, ownerKind}
 	goKinds        = []string{"go", "decide", "decision"}
 	finderDesk     = []string{"finder-desk"}
 	fidelityLanes  = []string{"fidelity-pipeline", "fidelity-desk", "fidelity-sweep", "fidelity-shard", "fidelity-shard-1"}
@@ -100,6 +100,10 @@ func carriedClaimFacts(record client.Record, repo string) []Fact {
 }
 
 func LegacyFacts(record client.Record, repo string, goLanes []string) []Fact {
+	return append(legacyFacts(record, repo, goLanes), wholeFacts(record, repo)...)
+}
+
+func legacyFacts(record client.Record, repo string, goLanes []string) []Fact {
 	if CarriedClaim(record) {
 		return carriedClaimFacts(record, repo)
 	}

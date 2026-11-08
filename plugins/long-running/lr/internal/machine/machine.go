@@ -110,6 +110,8 @@ const (
 
 const (
 	GradeStoppedFact  = "grade-stopped"
+	WholeFact         = "finder-whole"
+	WholeOwed         = "owed"
 	FidelityWaitsFact = "fidelity-waits"
 	EvictionFact      = "eviction"
 	EvictionOwnFact   = "eviction-own"
@@ -194,6 +196,7 @@ type Facts struct {
 	FinderOverride   bool
 	FidelityOverride bool
 	FinderVoid       int64
+	WholeOwed        bool
 	FidelityVoid     int64
 	Tap              Tap
 	TapFrom          string
@@ -223,7 +226,7 @@ func (f Facts) Green() bool {
 }
 
 func (f Facts) Graded() bool {
-	return f.Finder != "" && f.Fidelity != ""
+	return f.Finder != "" && f.Fidelity != "" && !f.WholeOwed
 }
 
 func (f Facts) Cleared() bool {

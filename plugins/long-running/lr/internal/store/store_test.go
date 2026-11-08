@@ -246,6 +246,32 @@ func TestFactsArePerHead(t *testing.T) {
 	}
 }
 
+func TestAnOwedWholePassStandsAtEveryHeadOfItsPRUntilAWholeReadPaysIt(t *testing.T) {
+	s := memory(t)
+	row := ReviewRow{Repo: repo, Number: 45745, Head: head}
+	ok(t, s.PutReviewRows([]ReviewRow{row}))
+	read := func() string {
+		t.Helper()
+		atHead := must[map[string]string](t)(s.Facts(repo, 45745, head))[machine.WholeFact]
+		if atRow := must[map[int]map[string]string](t)(s.FactsAtRowHeads(repo, []ReviewRow{row}))[45745][machine.WholeFact]; atRow != atHead {
+			t.Fatalf("the row reads %q where the head reads %q", atRow, atHead)
+		}
+		return atHead
+	}
+
+	must[bool](t)(s.PutFact(repo, 45745, "", machine.WholeFact, machine.WholeOwed, t0))
+	if got := read(); got != machine.WholeOwed {
+		t.Fatalf("after the ask: %q", got)
+	}
+	must[bool](t)(s.PutFact(repo, 45745, "", machine.WholeFact, "read", t0.Add(time.Minute)))
+	if got := read(); got != "read" {
+		t.Fatalf("after the whole read: %q", got)
+	}
+	if got := must[map[string]string](t)(s.Facts(repo, 45746, head)); len(got) != 0 {
+		t.Fatalf("another PR reads %v", got)
+	}
+}
+
 func TestFullHeadExpandsAShortShaItsFactsHoldAndLeavesAnUnknownOne(t *testing.T) {
 	s := memory(t)
 	must[bool](t)(s.PutFact(repo, 46000, head, "diff", "h1", t0))
@@ -513,7 +539,7 @@ func TestTheRowHeadFactsReadLooksUpEachRowsFactsByItsNumber(t *testing.T) {
 	for number := range 50 {
 		must[bool](t)(s.PutFact(repo, number, head, "finder", "clear", t0))
 	}
-	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+rowHeadFacts, repo, `[{"number": 7, "head": "`+head+`"}]`)
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN "+rowHeadFacts, repo, `[{"number": 7, "head": "`+head+`"}]`, machine.WholeFact)
 	ok(t, err)
 	defer rows.Close()
 	var plan []string

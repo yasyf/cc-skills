@@ -504,8 +504,22 @@ func (p *JobPool) Settle(ctx context.Context, workers []string) (map[string]bool
 			}
 		}
 		if err := grader.Repost(ctx, directory, client.Post, resolve); err != nil {
-			p.Log.Warn("a settled pass's records did not reach the store; it stays a worker and the next settle posts them again", "job", directory, "error", err)
-			live[name] = true
+			quiet, seenErr := p.quietPast(ref.lane, directory)
+			if seenErr != nil {
+				return nil, seenErr
+			}
+			if quiet == 0 {
+				p.Log.Warn("a settled pass's records did not reach the store; it stays a worker and the next settle posts them again", "job", directory, "error", err)
+				live[name] = true
+				continue
+			}
+			why := fmt.Sprintf("its records did not post in %d min: %v", int(quiet.Minutes()), err)
+			if err := writeAtomic(filepath.Join(directory, grader.ResultFile), map[string]string{"error": why}); err != nil {
+				return nil, err
+			}
+			if err := p.tellReclaimed(ctx, name, why); err != nil {
+				return nil, err
+			}
 		}
 	}
 	return live, nil
@@ -536,6 +550,22 @@ func (p *JobPool) timedOut(lane, directory string) (bool, error) {
 	}
 	why := fmt.Sprintf("no result %d min after it started", int(running.Minutes()))
 	return true, writeAtomic(filepath.Join(directory, grader.ResultFile), map[string]string{"error": why})
+}
+
+func (p *JobPool) quietPast(lane, directory string) (time.Duration, error) {
+	d, on := p.desks[graderOf(lane)]
+	if !on {
+		return 0, nil
+	}
+	seen, err := lastSeen(directory)
+	if err != nil {
+		return 0, err
+	}
+	quiet := p.Now().Sub(seen)
+	if quiet < time.Duration(d.spec.TimeoutMinutes)*time.Minute {
+		return 0, nil
+	}
+	return quiet, nil
 }
 
 func graderOf(lane string) string {

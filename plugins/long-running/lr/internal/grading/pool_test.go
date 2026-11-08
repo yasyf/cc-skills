@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"maps"
 	"os"
@@ -1235,6 +1236,41 @@ func TestAJobThatSettledStartsNoSecondPass(t *testing.T) {
 
 	if _, err := f.dispatch(t, GraderFinder); !errors.Is(err, ErrAnswered) {
 		t.Fatalf("err = %v, want ErrAnswered", err)
+	}
+}
+
+func TestASettledPassWhoseRecordsNeverPostFreesItsSlotOnceQuietPastTheTimeoutAndSaysSo(t *testing.T) {
+	f := newPool(t, map[string]any{"finder": map[string]any{}})
+	name := f.started(t, GraderFinder)
+	f.shell.exitAll()
+	directory := f.finderDir(jobDir)
+	writeResult(t, directory, `{"verdict":"ok"}`, f.now)
+	if err := os.WriteFile(filepath.Join(directory, grader.PostsFile), []byte("not an argv\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{pidFile, logFile, progressFile} {
+		if err := os.Chtimes(filepath.Join(directory, file), f.now, f.now); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			t.Fatal(err)
+		}
+	}
+
+	f.now = f.now.Add(10 * time.Minute)
+	live, err := f.pool.Settle(context.Background(), []string{name})
+	if err != nil || !live[name] {
+		t.Fatalf("live = %v, %v, want the pass kept while its repost can still land", live, err)
+	}
+
+	f.now = f.now.Add(time.Duration(defaultTimeoutMinutes) * time.Minute)
+	live, err = f.pool.Settle(context.Background(), []string{name})
+	if err != nil || live[name] {
+		t.Fatalf("live = %v, %v, want the slot freed", live, err)
+	}
+	defects := recordsOf(t, kindDefect)
+	if len(defects) != 1 || !strings.HasPrefix(defects[0].Text, "RECLAIMED "+name) {
+		t.Fatalf("defects = %+v, want one reclaim report", defects)
+	}
+	if data, err := os.ReadFile(filepath.Join(directory, grader.ResultFile)); err != nil || !strings.Contains(string(data), `"error"`) {
+		t.Fatalf("result = %s, %v, want a failure so the next attempt grades again", data, err)
 	}
 }
 

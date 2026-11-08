@@ -313,3 +313,9 @@ func (p *JobPool) beat(ctx context.Context, sprite string, names []string) error
 	}
 	return p.stamp(beatsDir, sprite)
 }
+
+func (p *JobPool) tellReclaimed(ctx context.Context, name, why string) error {
+	subject := "reclaimed:" + name
+	text := fmt.Sprintf("RECLAIMED %s: its pass settled but %s, so its slot is freed and its next attempt grades again", name, why)
+	return p.notice(ctx, client.Draft{Lane: runnerLane, Kind: kindDefect, Text: text, To: []string{rootLane}, Topic: subject, ID: subject})
+}
