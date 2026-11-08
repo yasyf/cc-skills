@@ -569,6 +569,7 @@ def test_the_lane_of_the_head_needs_a_desks_newest_grade_ok_for_its_current_slic
 
     assert check(capsys, CheckShell(rows)) == (0, [])
     assert check(capsys, CheckShell(rows, reviews=ok_after)) == (0, [])
+    assert check(capsys, CheckShell(rows, reviews=[graded(stamp, lane="fidelity-desk-32")])) == (0, [])
     assert check(capsys, CheckShell(rows, reviews=[])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
     assert check(capsys, CheckShell(rows, reviews=[graded(stamp, lane="lane-b")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
     assert check(capsys, CheckShell(rows, reviews=[dict(graded(stamp), text=f"readback: ok lane-b {stamp}")])) == (1, ["CONTRACT-MISSING lane-a: no fidelity desk has graded a read-back"])
