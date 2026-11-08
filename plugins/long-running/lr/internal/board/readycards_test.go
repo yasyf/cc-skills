@@ -952,3 +952,33 @@ func TestEveryApprovalPostOnAPortOpensWithItsSource(t *testing.T) {
 		t.Fatalf("pr child summary = %q", child["summary"])
 	}
 }
+
+func TestARowWaitingOnHisTapWithNoCardAtItsHeadBlocksItsLaneAndOwnerRelayOnce(t *testing.T) {
+	liveDrive(t)
+	f := newLink(t)
+	unread, carded := tapRow(52666), tapRow(52667)
+	unread.ReadHead = nextHead
+	putRows(t, f, unread, carded)
+
+	readyPass(t, f)
+	f.run(t)
+	if got := uncardedBlockers(t); len(got) != 0 {
+		t.Fatalf("blockers after one pass = %+v, want none until a whole pass passes uncarded", got)
+	}
+	readyPass(t, f)
+	readyPass(t, f)
+
+	got := uncardedBlockers(t)
+	if len(got) != 1 || !slices.Equal(got[0].To, []string{"lane-52666", communicator}) || !strings.HasPrefix(got[0].Text, "UNCARDED #52666 at fa8217f") {
+		t.Fatalf("blockers = %+v, want one to lane-52666 and owner-relay naming #52666 and none for the carded row", got)
+	}
+}
+
+func uncardedBlockers(t *testing.T) []client.Record {
+	t.Helper()
+	records, err := client.Tail(context.Background(), client.Query{Drive: linkDrive, Kinds: []string{"blocker"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return slices.DeleteFunc(records, func(record client.Record) bool { return !strings.HasPrefix(record.Text, "UNCARDED ") })
+}
