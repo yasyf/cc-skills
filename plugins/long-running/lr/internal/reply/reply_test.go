@@ -1109,6 +1109,33 @@ func TestAPRCardMissingALineRefusesTheReplyAndNamesItsLane(t *testing.T) {
 	}
 }
 
+func TestAReplyListingAPRHeldOrClosedOutsideHisTapIsRefusedUnlessItSaysItIsNotLanding(t *testing.T) {
+	held, closed, waiting := carded, carded, carded
+	held.Hold = "his Hold on card-tap-2196 (m1828)"
+	closed.State = prrow.StateClosed
+	waiting.Hold, waiting.AwaitsTap = "the lane's hold", "his tap"
+	for name, tc := range map[string]struct {
+		row   store.ReviewRow
+		reply Reply
+		want  string
+	}{
+		"#52598 in a list waiting on him": {held, Reply{ID: "r1", Title: "Waiting on you", MD: "Green and approved, waiting only on you: #2196.", Status: "needs_you"}, "HELD-RELIST: #2196 is held: his Hold"},
+		"a held PR in prs":                {held, Reply{ID: "r1", Title: "The relay fix", MD: "Checks passed.", Status: "info", PRs: []string{landPR}}, "HELD-RELIST: #2196 is held"},
+		"a closed PR in prs":              {closed, Reply{ID: "r1", Title: "The relay fix", MD: "Checks passed.", Status: "info", PRs: []string{landPR}}, "HELD-RELIST: #2196 is closed"},
+		"told it is closed":               {closed, Reply{ID: "r1", Title: "The relay fix", MD: "#2196 is closed.", Status: "info", PRs: []string{landPR}}, ""},
+		"a hold that waits on his tap":    {waiting, Reply{ID: "r1", Title: "The relay fix", MD: "Checks passed.", Status: "info", PRs: []string{landPR}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := fanout(t, scripted())
+			ledgerRow(t, f, tc.row)
+			_, err := f.withPRCards(context.Background(), tc.reply)
+			if tc.want == "" && err != nil && strings.Contains(err.Error(), "HELD-RELIST") || tc.want != "" && (err == nil || !strings.HasPrefix(err.Error(), tc.want)) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
 	fake := scripted()
 	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\nPlan: step 3.\n\n## Context\n\nA dropped network left chats offline.\n"}`, "gh", "pr", "view")

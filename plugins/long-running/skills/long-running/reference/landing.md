@@ -542,6 +542,7 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - An untapped head under a hold that gates still waits on his 12-hour clock and posts nothing.
 - A lane whose stack sits on a held PR reads why with `lr board waits --pr <n>` and leaves release to the coordinator.
 - A PR he sends back to its lane for rework gets his hold in the same turn and leaves the watch list that turn. Removing the merge label or converting it to a draft is not enough, because Graphite can still land a PR it has already enqueued.
+- His words, 2:52 PM Nov 8 (m1921, 625534): "And when we decide to fucning close something close it". A decision to close closes the PR with `gh pr close` in that turn: no hold first, no rework, no relisting. A PR he holds or that is closed never returns to a card, list or update he reads without his word. `lr reply` refuses `HELD-RELIST` for a reply that lists one, or asks his tap on one, unless it tells him the PR is not landing. On Nov 8 #52598 came back in a 1:22 PM list after his 3:08 AM hold.
 - Re-read every open hold at each lane retirement, each tap on a held PR and each checkpoint: a hold naming a lane to post its lift outlives that lane. Read a hold's own lift condition before lifting it, and verify live state before opening a hold from an old note.
 
 **Priority PRs.**

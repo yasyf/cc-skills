@@ -293,9 +293,17 @@ func (r Reply) namedPRs() ([][]string, []int) {
 }
 
 func (r Reply) saidNotLanding() []int {
+	return r.namedWhere(notLanding)
+}
+
+func (r Reply) askedTapFor() []int {
+	return r.namedWhere(asksTap)
+}
+
+func (r Reply) namedWhere(says *regexp.Regexp) []int {
 	var numbers []int
 	for _, said := range sentence.Split(cardtext.HiddenCite.ReplaceAllString(r.Title+"\n"+r.MD, " "), -1) {
-		if !notLanding.MatchString(said) {
+		if !says.MatchString(said) {
 			continue
 		}
 		for _, found := range namedPR.FindAllStringSubmatch(said, -1) {
@@ -543,7 +551,7 @@ func (f Fanout) withNamedPRs(r Reply) (Reply, string) {
 		at := slices.IndexFunc(rows, func(row store.ReviewRow) bool { return row.Number == numbers[n] })
 		url := fmt.Sprintf("https://github.com/%s/pull/%d", repo, numbers[n])
 		switch {
-		case at < 0 || !inRepo(repo, found) || !board.OffersApproval(rows[at]) || slices.Contains(closed, numbers[n]):
+		case at < 0 || !inRepo(repo, found) || !board.OffersApproval(rows[at]) || slices.Contains(closed, numbers[n]) || relisted(rows[at]) != "":
 		case slices.ContainsFunc(r.PRs, func(pr string) bool { return strings.EqualFold(pr, url) }):
 		case len(r.PRs) >= maxPRs:
 			if !slices.Contains(over, url) {
@@ -1089,9 +1097,13 @@ func (r Reply) bareExplainMore() error {
 // withPRCards reads each PR the reply names from the drive's PR ledger and
 // draws its card, refusing the whole reply when any card would miss what it
 // changes for a user, the plan row, its plain-words ELI5 or what it waits on. A PR he
-// cannot approve, on a reply with no picks, is only a mention.
+// cannot approve, on a reply with no picks, is only a mention. A reply that
+// lists, or asks his tap on, a PR that is closed or held by a hold that does
+// not wait on his tap is refused whole, unless it tells him that PR is not
+// landing.
 func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
-	if len(r.PRs) == 0 {
+	asked := r.askedTapFor()
+	if len(r.PRs) == 0 && len(asked) == 0 {
 		return r, nil
 	}
 	said := board.NewAnswerWords(f.Runner, f.Entry.Checkout)
@@ -1099,7 +1111,20 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 	for n, pr := range r.PRs {
 		numbers[n], _ = strconv.Atoi(pullURL.FindStringSubmatch(pr)[2])
 	}
-	repo, rows, read := board.Rows(f.Entry, numbers)
+	repo, rows, read := board.Rows(f.Entry, append(slices.Clone(numbers), asked...))
+	told := r.saidNotLanding()
+	var returned []string
+	for _, row := range rows {
+		if why := relisted(row); why != "" && (slices.Contains(numbers, row.Number) || slices.Contains(asked, row.Number)) && !slices.Contains(told, row.Number) {
+			returned = append(returned, fmt.Sprintf("#%d %s", row.Number, why))
+		}
+	}
+	if len(returned) > 0 {
+		return r, fmt.Errorf("HELD-RELIST: %s; a held or closed PR never returns to his card or list without his word, so drop it from prs and the text, then send this again", strings.Join(returned, "; "))
+	}
+	if len(r.PRs) == 0 {
+		return r, nil
+	}
 	explained, err := prrow.ReadELI5(ctx, f.Runner, f.Entry.Checkout, repo, numbers)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "PR cards draw each ELI5 from its PR body's Context, since the reviewer bot's could not be read: %v\n", err)
@@ -1142,6 +1167,16 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 	}
 	r.PRCards = cards
 	return r, nil
+}
+
+func relisted(row store.ReviewRow) string {
+	switch {
+	case row.State == prrow.StateClosed:
+		return "is closed"
+	case row.Hold != "" && row.Hold != prrow.None && row.AwaitsTap == "":
+		return "is held: " + row.Hold
+	}
+	return ""
 }
 
 // prCardFrom is the one constructor of a PR card: every line drawn from the
