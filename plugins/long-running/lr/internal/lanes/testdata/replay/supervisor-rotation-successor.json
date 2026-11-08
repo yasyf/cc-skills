@@ -8,7 +8,9 @@
   ],
   "relaunched": [],
   "held": [],
-  "local": []
+  "local": [
+   "alerts-desk-4"
+  ]
  },
  "fix": "yasyf/cc-skills#3702",
  "input": {

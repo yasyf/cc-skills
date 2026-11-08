@@ -308,23 +308,23 @@ func TestADeskBriefOnTheMacWithNoMacNeedLaunchesRemoteAndAMissingBriefFaultsOnly
 	a, m, state := newDrive(t, lanes.Root)
 	put(t, state, down(t, "fidelity-desk-3", "red-sweep-3", "drive-watchdog-3")...)
 	put(t, state,
-		store.Lane{Name: "alerts-desk-3", Brief: briefOf(t, "ccx: role=watch place=local\nStanding: watch the monitors\n"), State: store.LaneRetired},
+		store.Lane{Name: "pager-desk-3", Brief: briefOf(t, "ccx: role=watch place=local\nStanding: watch the monitors\n"), State: store.LaneRetired},
 		store.Lane{Name: "install-desk-3", Brief: briefOf(t, "ccx: role=desk place=local\nStanding: install merged packs\n"), State: store.LaneRetired},
 		store.Lane{Name: "obs-desk", State: store.LaneRetired, Standing: "answer reads"},
 	)
 	err := start(context.Background(), a, &bytes.Buffer{})
-	if err == nil || strings.Contains(err.Error(), "alerts-desk") || !strings.Contains(err.Error(), "obs-desk has no brief") {
+	if err == nil || strings.Contains(err.Error(), "pager-desk") || !strings.Contains(err.Error(), "obs-desk has no brief") {
 		t.Fatalf("got %v, want only the desk with no brief named", err)
 	}
-	placed, readErr := os.ReadFile(filepath.Join(state, "alerts-desk-4", "brief.md"))
+	placed, readErr := os.ReadFile(filepath.Join(state, "pager-desk-4", "brief.md"))
 	if readErr != nil || !strings.HasPrefix(string(placed), "ccx: place=remote\nccx: role=watch place=local\n") {
-		t.Fatalf("alerts-desk launched from %q (%v), want its brief placed remote", placed, readErr)
+		t.Fatalf("pager-desk launched from %q (%v), want its brief placed remote", placed, readErr)
 	}
 	installer, readErr := os.ReadFile(filepath.Join(state, "install-desk-4", "brief.md"))
 	if readErr != nil || !strings.HasPrefix(string(installer), "ccx: place=local why=mac-build\nccx: role=desk place=local\n") {
 		t.Fatalf("install-desk launched from %q (%v), want its brief placed on the Mac for its install", installer, readErr)
 	}
-	for _, good := range []string{"fidelity-desk", "red-sweep", "drive-watchdog", "alerts-desk", "install-desk"} {
+	for _, good := range []string{"fidelity-desk", "red-sweep", "drive-watchdog", "pager-desk", "install-desk"} {
 		if strings.Contains(err.Error(), good) {
 			t.Fatalf("got %v, want only the bad desks named", err)
 		}

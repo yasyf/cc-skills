@@ -7,6 +7,7 @@ import datetime
 import fnmatch
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -61,6 +62,10 @@ def transition(before: str | None, after: str) -> bool:
 
 
 def poll(args: argparse.Namespace, failing: bool) -> bool:
+    if shutil.which("pup") is None:
+        if not failing:
+            print(f"{utc()} API-FAIL pup is not installed on this host, so no monitor is read", flush=True)
+        return True
     result = subprocess.run(
         ["pup", "--no-agent", "--read-only", "monitors", "list", "--limit", "1000", "--output", "json"],
         capture_output=True,
