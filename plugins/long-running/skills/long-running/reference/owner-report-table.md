@@ -89,7 +89,7 @@ Under the table, one line names each live lane no row holds, so a gap shows the 
 
 One row per entry of the drive entry's `pinned_rows`, on every update, with **nobody** when no lane holds it. Each entry is a `name`, a `delivers` line, the `words` that pick its lanes by name, step or deliverable, and the `prs` it delivers, set with `lr update pin <name> --pr <n> --word <word> --delivers <text>`, never by hand. For durable-agents-rebuild the pinned rows are devbox speed and bug hunting, and the next build.
 
-A row with `prs` reads from the release ledger, one read per render through the code `lr where` uses, for drive-lane PRs only. It reads `in release <n>, live at <time>`, `release <n> running, ETA <time>`, `release <n> queued` or `held`, `landed; release <n> cut it and failed, so no release carries it now`, `landed, no release has cut it yet`, or `still open`; a release that leaves out a target the change touches adds `; it leaves out <targets>`. If the read fails, the row reads as it does with no `prs` and the failure is logged.
+A row with `prs` reads from the release ledger, one read per render through the code `lr where` uses, for drive-lane PRs only. It reads `in release <n>, live at <time>`, `release <n> running, ETA <time>`, `release <n> queued` or `held`, `landed; release <n> cut it and failed, so no release carries it now`, `landed; release <n> cut it and ended before deploying it everywhere, so no release carries it now` when it was canceled or stopped part way, `landed, no release has cut it yet`, or `still open`; a release that leaves out a target the change touches adds `; it leaves out <targets>`. If the read fails, the row reads as it does with no `prs` and the failure is logged.
 
 ## Detail where it matters
 
