@@ -157,6 +157,9 @@ func preflight(ctx context.Context, checks Checks, configPath, version string, o
 	if fault := checks.TargetFault(ctx, version, configPath); fault != "" {
 		faults = append(faults, fault)
 	}
+	if fault := checks.RegistryFault(version); fault != "" {
+		faults = append(faults, fault)
+	}
 	return faults
 }
 

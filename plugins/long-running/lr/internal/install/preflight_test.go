@@ -261,13 +261,46 @@ func TestATargetBinaryThatRefusesCarriesItsOwnWords(t *testing.T) {
 func TestInstallPreflightDoesNotReadOrReplayDriveHistory(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply("", "/i/1.2.3/bin/lr", "install", "check")
-	faults := preflight(context.Background(), Checks{Runner: fake, Installs: "/i"}, "/state/lr.json", "1.2.3", options{ciRedOK: "owner requested immediate installation"})
+	faults := preflight(context.Background(), Checks{Runner: fake, Installs: "/i", Claude: registry(t, "1.2.3")}, "/state/lr.json", "1.2.3", options{ciRedOK: "owner requested immediate installation"})
 	if len(faults) != 0 {
 		t.Fatal(faults)
 	}
 	calls := fake.Calls()
 	if len(calls) != 1 || !slices.Equal(calls[0].Argv, []string{"/i/1.2.3/bin/lr", "install", "check", "--config", "/state/lr.json"}) {
 		t.Fatalf("preflight commands: %+v", calls)
+	}
+}
+
+func registry(t *testing.T, version string) string {
+	t.Helper()
+	claude := t.TempDir()
+	written := `{"version":2,"plugins":{"long-running@skills":[{"scope":"user","installPath":"` + filepath.Join(claude, "plugins/cache/skills/long-running", version) + `","version":"` + version + `"}]}}`
+	if err := os.MkdirAll(filepath.Join(claude, "plugins"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(claude, "plugins", "installed_plugins.json"), []byte(written), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return claude
+}
+
+func TestAnInstallRefusesWhileClaudeCodeLoadsAnOlderPacksHooks(t *testing.T) {
+	cases := map[string]struct {
+		registered string
+		refused    bool
+	}{
+		"older pack registered": {registered: "0.7.1946", refused: true},
+		"same pack registered":  {registered: "0.7.2032"},
+		"newer pack registered": {registered: "0.7.2040"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			fault := Checks{Claude: registry(t, c.registered)}.RegistryFault("0.7.2032")
+
+			if c.refused != (fault != "") || c.refused && !strings.Contains(fault, "`claude plugin update long-running@skills`") {
+				t.Fatalf("fault %q", fault)
+			}
+		})
 	}
 }
 
