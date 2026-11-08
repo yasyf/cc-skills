@@ -238,7 +238,7 @@ update, never from memory>.
 | Landed, not live (`lr asks`) | A landed PR whose release target has shipped nothing in an hour | One `blocker` per target with the exact release line |
 | Stalls (item deadlines, `lr watch`) | Work that stopped moving, read from the registry; a record naming a deadline with no plan behind it | Only a stall whose owner is the coordinator; a planless deadline pages `owner-relay` |
 | The owner's taps (`board_watch.py`) | Every tap, pick and write-in as an `owner` record; the runner lands on it | A pick with no lane at 30 minutes, as an `ask` |
-| The owner update and the dashboard (`lr update render --sent`, run by `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
+| The owner update and the dashboard (`reply` with `update: true`, and `lr update render --publish` run by `update-desk`) | Every plan step, workstream, live lane under its step, open ask, pick, incident and release today, PR with a go owed or hold; every row with who is on it or **nobody**, what blocks it, what unblocks it and by when, what went wrong; unowned work first; exit 1 naming anything missing | The rendered update, which the communicator relays and the dashboard shows |
 | The handoff (`lr handoff generate`, `lr lanes handoff` before a compaction) | The pre-compaction doc with the lane registry and the rendered update | Nothing but the coordinator's own narrative |
 
 ## Desks and lanes the coordinator starts

@@ -18,6 +18,8 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/board"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/update"
 )
 
 var schema = map[string]any{
@@ -117,7 +119,14 @@ func Tool(a *app.App) channel.Tool {
 			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil), Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py")}
+			fanout := Fanout{Runner: a.Runner, Entry: entry, Now: a.Now, Log: a.Log, Judge: board.PackJudge(a.Runner), Shoot: arch.Draw, Cards: board.CardsOf(a, entry, entry.Root(), nil), Rulings: filepath.Join(claude, "long-running", "current", "bin", "rulings.py"), Update: func(ctx context.Context) (update.Inputs, error) {
+				s, err := store.Open(entry.Store())
+				if err != nil {
+					return update.Inputs{}, err
+				}
+				defer func() { _ = s.Close() }()
+				return update.Collect(ctx, update.Wire(a, entry, s), entry.Bus(), a.Now())
+			}}
 			if r.Update {
 				if r, err = fanout.withUpdate(ctx, r); err != nil {
 					return "reply: " + err.Error(), true
@@ -211,7 +220,7 @@ func Tool(a *app.App) channel.Tool {
 			}
 			sent := receipt(r, fanout.Send(ctx, r))
 			if r.Update {
-				if err := fanout.updated(); err != nil {
+				if err := fanout.updated(r); err != nil {
 					warned = append(warned, "the update went out, and its time did not save, so the next one repeats what this one said: "+err.Error())
 				}
 			}

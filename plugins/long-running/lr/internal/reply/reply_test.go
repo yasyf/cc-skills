@@ -28,6 +28,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/talkboard"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/update"
 )
 
 const (
@@ -2507,10 +2508,11 @@ func TestAReplyThatSaysAPickWaitsOnHimCopiesEveryOpenCard(t *testing.T) {
 	}
 }
 
-func TestAnUpdateCarriesWhatLandedWhatIsRedAndEveryWaitWithItsButtons(t *testing.T) {
+func TestAnUpdateSendsTheAwayUpdateWithEveryWaitsButtonsAndSavesItAsSent(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
 	f := fanout(t, fake)
+	f.Update = func(context.Context) (update.Inputs, error) { return update.Inputs{Now: sentAt}, nil }
 	ledgerRow(t, f, store.ReviewRow{Title: "sand: 🐛 chats load after a network drop", ReadyForTap: true, State: prrow.StateOpen})
 	got, err := f.withUpdate(context.Background(), Reply{Update: true})
 	if err != nil {
@@ -2519,17 +2521,14 @@ func TestAnUpdateCarriesWhatLandedWhatIsRedAndEveryWaitWithItsButtons(t *testing
 	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 2 || !got.Unprompted {
 		t.Fatalf("update = %+v, want its title, #2196's Approve and both open cards", got)
 	}
-	for _, want := range []string{"**Landed**\nNothing landed.", "**Red**\nNothing is red.", "**Waiting on you**\n- #2196", "How long is the window?: your pick", "**Owed to you with nothing running**\nEvery order you gave"} {
-		if !strings.Contains(got.MD, want) {
-			t.Fatalf("md = %q, want %q", got.MD, want)
-		}
+	if !strings.Contains(got.MD, update.Away(update.Inputs{Now: sentAt})) {
+		t.Fatalf("md = %q, want the away update whole", got.MD)
 	}
-	if err := f.updated(); err != nil {
+	if err := f.updated(got); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(f.Entry.StateDir, updateFile))
-	if err != nil || strings.TrimSpace(string(raw)) != sentAt.UTC().Format(time.RFC3339) {
-		t.Fatalf("saved %q, %v, want the time this update went out", raw, err)
+	if sent, err := update.ReadSnapshot(f.Entry.StateDir); err != nil || !sent.At.Equal(sentAt) {
+		t.Fatalf("snapshot = %+v, %v, want this update saved as the one he was sent", sent, err)
 	}
 }
 
