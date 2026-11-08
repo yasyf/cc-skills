@@ -154,6 +154,7 @@ var (
 	fixedLanes   = []string{Root, OwnerRelay, Self}
 	settled      = []string{"handoff", "done", "stand-down", "stopped"}
 	unprovenEnds = []string{retiredStopped, retiredWorkerDone, retiredSilent, kindLanded}
+	awaitsAnswer = []string{"ask", "design", "plan"}
 	endsAlone    = []string{"done", retiredStopped, retiredWorkerDone, kindLanded}
 	laneEnds     = []string{"done", "stopped", "fix-live"}
 	shipped      = []string{"release", "applied", "fix-live"}
@@ -634,8 +635,8 @@ func (out *folded) leftNothingOpen(s *store.Store, name string, fresh bool, at t
 	if fresh {
 		return true
 	}
-	if lane, _ := laneOf(s, name); lane.Last == "ask" {
-		out.unfinished = append(out.unfinished, unfinished{name, "its Orca worker finished right after its own ask, so its heir waits for the answer"})
+	if lane, _ := laneOf(s, name); slices.Contains(awaitsAnswer, lane.Last) {
+		out.unfinished = append(out.unfinished, unfinished{name, fmt.Sprintf("its Orca worker finished right after its own %s, so its heir waits for the answer", lane.Last)})
 		return false
 	}
 	owned := must(s.Owners())[name]

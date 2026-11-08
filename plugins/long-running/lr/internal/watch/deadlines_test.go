@@ -88,6 +88,39 @@ func TestAnOpenAskToRootReachesRootAfterFifteenMinutesOnceAndClosesWhenAnswered(
 	}
 }
 
+func TestADesignOrPlanToRootIsAnOpenAskThatReachesRootAfterThirtyMinutesUntilRootRepliesToIt(t *testing.T) {
+	s, r := memory(t), &recorder{}
+	posted := at(t, "2026-11-08T15:58:00Z")
+	records := []client.Record{
+		{Seq: 311, Lane: "writehold-split-1", Kind: "design", At: posted, To: []string{"root"}, Text: "writehold-split plan: split reads from writes"},
+		{Seq: 312, Lane: "lane-b", Kind: "plan", At: posted, To: []string{"finder-desk"}, Text: "not root's"},
+		{Seq: 313, Lane: "lane-c", Kind: "state", At: posted, To: []string{"root"}, Text: "restacking"},
+	}
+	sweep := func(now time.Time, answers ...client.Record) []pass.Escalated {
+		t.Helper()
+		seen := append(slices.Clone(records), answers...)
+		escalated, err := Sweep(s, seen, Proposals(seen), nil, now, r.post)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return escalated
+	}
+
+	if got := sweep(posted.Add(29 * time.Minute)); len(got) != 0 {
+		t.Fatalf("early: %+v", got)
+	}
+	late := sweep(posted.Add(30 * time.Minute))
+	want(t, len(late), 1)
+	want(t, late[0].Subject, "ask#311")
+	if !strings.HasPrefix(late[0].Cause, "design overdue: #311 from writehold-split-1") {
+		t.Fatalf("cause %q", late[0].Cause)
+	}
+	sweep(posted.Add(41*time.Minute), client.Record{Seq: 400, Lane: "root", Kind: "decide", At: posted.Add(40 * time.Minute), Re: 311})
+	if open, err := s.OpenItems(AskNamespace, 311); err != nil || len(open) != 0 {
+		t.Fatalf("open = %+v, %v", open, err)
+	}
+}
+
 func TestAWorkThatWaitedOnALandedPRGoesToItsOwnLaneNeverRoot(t *testing.T) {
 	said := at(t, "2026-11-03T02:00:00Z")
 	waited := client.Record{Seq: 10, Lane: "lane-a", Kind: "state", At: said, Text: "the port waits on #48721"}
