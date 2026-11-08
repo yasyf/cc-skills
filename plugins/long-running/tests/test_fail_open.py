@@ -72,6 +72,7 @@ KEPT_REFUSALS = KEPT | {
     "merge_own_red.merge_never_lands_past_its_own_red": "a merge cannot be recalled",
     "go_posts_parse.go_posts_parse": "the meta desk ordered the refusal: the landing pass reads no go worded any other way and says nothing, so a warned post leaves its PR unlanded, as #51409 sat 90 minutes (cci 547882)",
     "holds_name_what_breaks.holds_name_what_breaks": "a warned hold still posts and gates nothing, so its PR is enqueued past it, as root's #52586 hold was (cci 605030)",
+    "port_heads_say_interaction.port_heads_say_whether_they_interact": "a warned head record still posts silent, and landing then holds the port for a tap and root re-rules it, as #52628 and #51495 waited (cci 16270)",
     "own_checkout_rebases.lanes_never_replay_commits_in_their_own_checkout": "a warning lets the replay run, and once it stops mid-conflict the markers in `.claude/hooks` switch off every guard in that tree, the merge guards included (cci 604603)",
     "override_decides_parse.override_decides_parse": "the meta desk ordered the refusal: the supervisor skips an override worded any other way with no record, so a warned post leaves its PR waiting on a count that never comes, as four did (cci 536838)",
     "owner_answers.owner_notes_get_answers": STOP.format(what="the owner's note would wait"),
