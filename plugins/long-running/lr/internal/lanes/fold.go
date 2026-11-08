@@ -681,7 +681,7 @@ func readMoved(s *store.Store, r Record) []int {
 	state, ci := r.Attr("state"), r.Attr("ci")
 	var moved []int
 	for _, n := range r.PRs() {
-		if must(s.PutFact(r.Attr("repo"), n, "", gateReadFact, strings.Join([]string{state, ci, r.Attr("head")}, " "), r.At)) && (state != prrow.StateOpen || ci == prrow.CIRed || ci == prrow.CIGreen) {
+		if must(s.PutFact(r.Attr("repo"), n, "", gateReadFact, strings.Join([]string{state, ci, r.Attr("head")}, " "), r.At)) && (state != prrow.StateOpen || ci == prrow.CIRed) {
 			moved = append(moved, n)
 		}
 	}

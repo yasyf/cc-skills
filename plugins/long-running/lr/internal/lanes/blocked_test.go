@@ -43,7 +43,7 @@ func passesOver(t *testing.T, s *store.Store, f *fake, from time.Time, span time
 	}
 }
 
-func TestALaneBlockedOnAnotherDrivePRDrawsNoClockWakeAndOneWakeWhenThatPRChanges(t *testing.T) {
+func TestALaneBlockedOnAnotherDrivePRDrawsNoWakeWhileItStaysOpenAndGreenAndOneWhenItLandsGoesRedOrCloses(t *testing.T) {
 	changed := t0.Add(150 * time.Minute)
 	cases := map[string]struct {
 		change Record
@@ -72,7 +72,7 @@ func TestALaneBlockedOnAnotherDrivePRDrawsNoClockWakeAndOneWakeWhenThatPRChanges
 			passesOver(t, s, f, t0, 2*time.Hour, lane2)
 			equal(t, row(t, s, lane2).Awaits, "pr:49305 pr:51849")
 
-			f.feed = append(f.feed, gitHubRead(4, t0.Add(2*time.Hour), prrow.StateOpen, prrow.CIGreen, blockingHead))
+			f.feed = append(f.feed, gitHubRead(4, t0.Add(2*time.Hour), prrow.StateOpen, prrow.CIGreen, pushedHead))
 			passesOver(t, s, f, t0.Add(2*time.Hour), 30*time.Minute, lane2)
 			equal(t, len(f.wakes), 0)
 
