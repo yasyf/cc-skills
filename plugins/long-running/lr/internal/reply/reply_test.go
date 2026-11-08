@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2432,10 +2433,10 @@ func TestAReplyCarryingATagFragmentIsRefused(t *testing.T) {
 	}
 }
 
-func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testing.T) {
+func TestAReplyThatSaysSomethingWaitsOnHimCarriesOnlyTheWaitsItNames(t *testing.T) {
 	ready := store.ReviewRow{ReadyForTap: true, State: prrow.StateOpen}
 	tapped := store.ReviewRow{ReadyForTap: true, Tapped: true, State: prrow.StateOpen}
-	const kept, attached, refused, blocked = "kept", "attached", "refused", "blocked"
+	const kept, attached, refused, blocked, unnamed = "kept", "attached", "refused", "blocked", "unnamed"
 	for name, tc := range map[string]struct {
 		row   store.ReviewRow
 		reply Reply
@@ -2456,7 +2457,7 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testi
 		"a hidden cite that reads as an ask":            {ready, Reply{Title: "Fix is live", MD: "It is live. <!-- waits on your tap -->"}, kept},
 		"the refusal described, waiting on him":         {ready, Reply{Title: "Messages with nothing to tap are now refused before they post", MD: "Since 1:10 PM a message that reads as waiting on you and carries no button is refused before it posts."}, kept},
 		"an ask beside a described refusal":             {ready, Reply{Title: "Refusal is live", MD: "A message with no button is refused now. #2196 is green and needs your tap."}, attached},
-		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, attached},
+		"an order to tap a button elsewhere":            {ready, Reply{Title: "Fork side-chat bug", MD: "It passed. Tap the button on the card above."}, unnamed},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := fanout(t, scripted())
@@ -2466,6 +2467,10 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testi
 			case tc.want == refused:
 				if err == nil || !strings.HasPrefix(err.Error(), "NOTHING WAITS") {
 					t.Fatalf("err = %v, want NOTHING WAITS", err)
+				}
+			case tc.want == unnamed:
+				if err == nil || !strings.HasPrefix(err.Error(), "NAME THE WAIT") || !strings.HasSuffix(err.Error(), ": #2196") {
+					t.Fatalf("err = %v, want NAME THE WAIT listing #2196", err)
 				}
 			case tc.want == blocked:
 				if err == nil || !strings.HasPrefix(err.Error(), "NO APPROVE") || !strings.Contains(err.Error(), "#2196: "+prrow.BlocksWords(tc.row)) {
@@ -2482,22 +2487,18 @@ func TestAReplyThatSaysSomethingWaitsOnHimCarriesEveryWaitItDoesNotName(t *testi
 	}
 }
 
-func TestAReplyThatSaysAPickWaitsOnHimCopiesEveryOpenCard(t *testing.T) {
+func TestAReplyThatSaysAPickWaitsOnHimCopiesNoCardItDoesNotName(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{State: prrow.StateLanded})
 	asks := Reply{ID: "r1", Title: "Where things stand", MD: "How long the window stays open waits on your answer.", Thread: "1793635190.051179"}
 	got, err := f.withEveryWait(context.Background(), asks)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil || !strings.HasPrefix(err.Error(), "NAME THE WAIT") || !strings.Contains(err.Error(), "card-storage-eviction-window") {
+		t.Fatalf("err = %v, want NAME THE WAIT listing the open cards", err)
 	}
-	ids := make([]string, len(got.OpenCards))
-	for n, card := range got.OpenCards {
-		ids[n] = card.ID
-	}
-	if slices.Sort(ids); !slices.Equal(ids, []string{"card-storage-eviction", "card-storage-eviction-window"}) {
-		t.Fatalf("cards = %v, want both open cards with a Slack message", ids)
+	if len(got.OpenCards) != 0 {
+		t.Fatalf("cards = %v, want none copied", got.OpenCards)
 	}
 	empty := &shelltest.Fake{}
 	empty.Reply(`{"doc":{}}`, "cc-present", "outcomes")
@@ -2508,7 +2509,7 @@ func TestAReplyThatSaysAPickWaitsOnHimCopiesEveryOpenCard(t *testing.T) {
 	}
 }
 
-func TestAnUpdateSendsTheAwayUpdateWithEveryWaitsButtonsAndSavesItAsSent(t *testing.T) {
+func TestAnUpdateSendsTheAwayUpdateWithItsApprovesAndSavesItAsSent(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(boardWith("{}"), "cc-present", "outcomes")
 	f := fanout(t, fake)
@@ -2518,8 +2519,8 @@ func TestAnUpdateSendsTheAwayUpdateWithEveryWaitsButtonsAndSavesItAsSent(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 2 || !got.Unprompted {
-		t.Fatalf("update = %+v, want its title, #2196's Approve and both open cards", got)
+	if got.Title != updateTitle || !slices.Equal(got.PRs, []string{landPR}) || len(got.OpenCards) != 0 || !got.Unprompted {
+		t.Fatalf("update = %+v, want its title, #2196's Approve and no card copied", got)
 	}
 	if !strings.Contains(got.MD, strings.TrimSpace(update.Away(update.Inputs{Now: sentAt}))) {
 		t.Fatalf("md = %q, want the away update whole", got.MD)
@@ -2529,6 +2530,59 @@ func TestAnUpdateSendsTheAwayUpdateWithEveryWaitsButtonsAndSavesItAsSent(t *test
 	}
 	if sent, err := update.ReadSnapshot(f.Entry.StateDir); err != nil || !sent.At.Equal(sentAt) {
 		t.Fatalf("snapshot = %+v, %v, want this update saved as the one he was sent", sent, err)
+	}
+}
+
+func TestAnUpdateOverOneOrAHundredCardsIsOneSlackPostLinkingTheSelectedCardsOldestFirst(t *testing.T) {
+	for _, n := range []int{1, 100} {
+		t.Run(strconv.Itoa(n), func(t *testing.T) {
+			blocks := make([]string, n+1)
+			for i := range n {
+				blocks[i] = fmt.Sprintf(`{"id":"card-old-%03d","type":"card","title":"Old ask %d","slack":{"url":"https://brook.slack.com/archives/D0B6Z/p%d000001"},"children":[{"id":"pick-%d","type":"choice"}]}`, i, i, sentAt.Add(-time.Duration(n+1-i)*time.Hour).Unix(), i)
+			}
+			blocks[n] = fmt.Sprintf(`{"id":"card-new","type":"card","title":"New ask","slack":{"url":"https://brook.slack.com/archives/D0B6Z/p%d000001"},"children":[{"id":"pick-new","type":"choice"}]}`, sentAt.Add(-time.Minute).Unix())
+			fake := &shelltest.Fake{}
+			fake.Reply(`{"doc":{"blocks":[`+strings.Join(blocks, ",")+`]},"interactions":{"choices":{}}}`, "cc-present", "outcomes")
+			scriptedOver(fake)
+			f := fanout(t, fake)
+			ledgerRow(t, f, store.ReviewRow{State: prrow.StateLanded})
+			f.Update = func(context.Context) (update.Inputs, error) { return update.Inputs{Now: sentAt}, nil }
+			r, err := f.withUpdate(context.Background(), Reply{ID: "u1", Update: true, CardsOver: "1h"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(r.MD, "New ask") || strings.Count(r.MD, "](https://brook.slack.com/") != n || !strings.Contains(r.MD, "Old ask 0") || strings.Index(r.MD, "Old ask 0") > strings.Index(r.MD, fmt.Sprintf("Old ask %d", n-1)) {
+				t.Fatalf("md = %q, want a link to each of the %d cards over an hour old, oldest first, and none to the new one", r.MD, n)
+			}
+			var posts, copies int
+			for _, o := range f.Send(context.Background(), r) {
+				if o.Surface == "slack" && o.Ref != "" {
+					posts++
+				}
+			}
+			for _, call := range calls(fake, "cc-slack") {
+				if call.Argv[1] == "card-copy" {
+					copies++
+				}
+			}
+			if posts != 1 || copies != 0 {
+				t.Fatalf("slack posts = %d and card copies = %d, want one post and no copies", posts, copies)
+			}
+		})
+	}
+	f := fanout(t, nil)
+	if _, err := (Reply{Cards: []string{"card-gone"}}).pickedCards(nil, f.Now()); err == nil {
+		t.Fatal("a named card not open on his board was linked, want a refusal")
+	}
+}
+
+func TestACardNamedTwiceInOneReplyIsCopiedOnce(t *testing.T) {
+	fake := &shelltest.Fake{}
+	fake.Reply(`{"permalink":"https://brook.slack.com/archives/D0B6Z/p3"}`, "cc-slack", "card-copy")
+	f := fanout(t, fake)
+	card := board.OpenCard{ID: "card-today", URL: "https://brook.slack.com/archives/D0B6Z/p1794100000000001"}
+	if copies := f.cardCopies(context.Background(), Reply{ID: "r9", Thread: "1793635190.051179", OpenCards: []board.OpenCard{card, card}}, nil); len(copies) != 1 || copies[0].Card != card.ID {
+		t.Fatalf("copies = %+v, want card-today copied once", copies)
 	}
 }
 
