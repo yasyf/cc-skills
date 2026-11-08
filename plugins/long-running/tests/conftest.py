@@ -20,7 +20,6 @@ import zlib
 from collections.abc import Iterator
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import timedelta
 from pathlib import Path
 from urllib.parse import unquote_plus
 
@@ -455,7 +454,7 @@ class FakeShell(ledger.Shell):
                 raise subprocess.CalledProcessError(1, argv, stderr=self.fetch_fails)
             deepened = next((arg.removeprefix("--shallow-since=") for arg in argv if arg.startswith("--shallow-since=")), "")
             if deepened and not self.deepen_stuck:
-                self.shallow_from = (ledger.parse_iso(deepened) - timedelta(seconds=1)).isoformat()
+                self.shallow_from = deepened
             ref = argv[-1].lstrip("+").split(":")[0]
             if ref in self.deleted_refs and not ref.startswith("refs/"):
                 raise subprocess.CalledProcessError(128, argv, stderr=f"fatal: remote error: upload-pack: not our ref {ref}")

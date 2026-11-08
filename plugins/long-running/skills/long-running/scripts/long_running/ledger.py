@@ -2247,7 +2247,8 @@ def sync_trunk(shell: Shell, checkout: Path, trunk: str) -> bool:
 def deepen_trunk_to(shell: Shell, checkout: Path, trunk: str, since: str) -> None:
     if trunk_holds(shell, checkout, trunk, since):
         return
-    fetch(shell, checkout, f"--shallow-since={since}", f"+refs/heads/{trunk}:{BASE_REFS}{trunk}")
+    before = (parse_iso(since) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    fetch(shell, checkout, f"--shallow-since={before}", f"+refs/heads/{trunk}:{BASE_REFS}{trunk}")
     if not trunk_holds(shell, checkout, trunk, since):
         raise CheckoutUnusable(REFUSAL["shallow"].format(checkout=checkout, since=since))
 
