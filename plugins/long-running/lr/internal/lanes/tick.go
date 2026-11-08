@@ -782,6 +782,12 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		return ""
 	}
 	old.PRs = ours(s, d, old.PRs)
+	if last := lastWorked(d, old); len(old.PRs) == 0 && !isStanding(old) && !last.IsZero() && now.Sub(last) > abandonedAfter {
+		hold(s, old.Name, why, now)
+		escalateTo(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: it owns no PR and its last record or carried work is from %s, over %d hours ago; relaunch it from %s if its work is still wanted, or withdraw it with `orca-desk: withdraw %s`; it %s", pacific(last), int(abandonedAfter.Hours()), old.Brief, old.Name, why), Root, now)
+		out.Held = append(out.Held, old.Name)
+		return ""
+	}
 	name := SuccessorName(old.Name, taken)
 	taken[name] = true
 	work := carriedWork(d, old, now)
@@ -982,6 +988,19 @@ func handLaunchedSuccessor(d Deps, old store.Lane, found map[string]Peer, why st
 		return fmt.Sprintf("a brief you write, since its brief %s is gone", old.Brief)
 	}
 	return writeSuccessorBrief(d, old, found, SuccessorName(old.Name, taken), why, "", carriedWork(d, old, now))
+}
+
+const abandonedAfter = 24 * time.Hour
+
+func lastWorked(d Deps, lane store.Lane) time.Time {
+	if lane.Placement != placedOnSprite {
+		return lane.Heard
+	}
+	carried, err := d.Carried(lane.Name)
+	if err != nil || carried.At.Before(lane.Heard) {
+		return lane.Heard
+	}
+	return carried.At
 }
 
 func carriedWork(d Deps, lane store.Lane, now time.Time) string {
