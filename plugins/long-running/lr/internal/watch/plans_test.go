@@ -57,6 +57,17 @@ func TestADeadlineWithNoPlanPagesItsOwnLaneOnceNamingTheRecordDeadlineAndLane(t 
 	want(t, len(second), 0)
 }
 
+func TestALaneWaitBeatNamesItsOwnWakeClockAndOwesNoPlan(t *testing.T) {
+	said := at(t, "2026-11-08T18:40:00Z")
+	beat := client.Record{Seq: 615528, Lane: "alerts-desk-6", Kind: "state", Topic: "wait:alerts-desk-6", At: said, Text: "WAITING until 10:46 AM on records to alerts-desk-6"}
+	promise := client.Record{Seq: 615529, Lane: "alerts-desk-6", Kind: "state", At: said, Text: "the alert fix lands by 10:46 AM"}
+
+	waits := Unplanned([]client.Record{beat, promise}, said)
+
+	want(t, len(waits), 1)
+	want(t, waits[0].Number, 615529)
+}
+
 func TestADeadlineCarryingAnOwnerAndATimedStepEachIsSilent(t *testing.T) {
 	said := at(t, "2026-11-03T10:00:00Z")
 	cases := []struct {
