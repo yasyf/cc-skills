@@ -3,7 +3,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from captain_hook import Allow, And, Annotated, BaseHookEvent, Event, HookResult, Input, Or, Runs, Tool, Warn, on
+from captain_hook import Allow, And, Annotated, BaseHookEvent, Block, Event, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .cci_mcp_posts import POST_TOOL
@@ -23,6 +23,10 @@ LEFT_ON_SPRITE = "overdue-picks-h-1 runs on a Sprite and the Mac did not get /ho
 REPORTED = "22 picks judged; wrote root-posts.zsh (on this Sprite at /home/sprite/drive/carried/Users/me/.claude/scratch/overdue-picks-h/)"
 NOT_DONE = "Warning, nothing was blocked: {refusal}"
 LANE_ENV = DRIVE_CONFIG | {"CLAUDE_LONG_RUNNING_LANE": "conflicts-2"}
+GIT_TIMEOUT_SECONDS = 15
+OPEN_PR = 'select(.state == "OPEN") | .headRefName'
+UNCOMMITTED = "Done ends this lane with uncommitted edits on `{branch}`, whose PR is open, and nobody resumes its worktree. Commit and push them with `ccx vcs ship --amend`, then post done."
+EDITED = {"git status --porcelain --untracked-files=no": " M go/relay.go\n", "gh pr view --json state,headRefName": "item-93-presign\n"}
 
 
 def record_checks(evt: BaseHookEvent) -> list[list[str]]:
@@ -66,3 +70,28 @@ def records_pass_lr_record_checks(evt: BaseHookEvent) -> HookResult | None:
         if refusal := subprocess.run(argv, capture_output=True, text=True, timeout=DONE_CHECK_TIMEOUT_SECONDS, env=dict(reqenv.env_map()), check=True).stdout.strip():
             return evt.context(NOT_DONE.format(refusal=refusal))
     return None
+
+
+@on(
+    Event.PreToolUse,
+    only_if=[Bound(), Or(Tool(POST_TOOL), And(Tool("Bash"), Runs("cci", "post")))],
+    skip_if=[Annotated("raw")],
+    tests={
+        Input(command="cci post --lane item-93-presign-2 --kind done --to root --text 'ready for his Approve'", env=DRIVE_CONFIG, commands=EDITED): Block(pattern=r"uncommitted edits on `item-93-presign`, whose PR is open"),
+        Input(tool=POST_TOOL, tool_input={"lane": "item-93-presign-2", "kind": "done", "to": ["root"], "text": "ready"}, env=DRIVE_CONFIG, commands=EDITED): Block(),
+        Input(command="cci post --lane item-93-presign-2 --kind done --to root --text 'ready'", env=DRIVE_CONFIG, commands=EDITED | {"git status --porcelain --untracked-files=no": ""}): Allow(),
+        Input(command="cci post --lane item-93-presign-2 --kind done --to root --text 'ready'", env=DRIVE_CONFIG, commands=EDITED | {"gh pr view --json state,headRefName": (1, "no pull requests found for branch")}): Allow(),
+        Input(command="cci post --lane item-93-presign-2 --kind blocked --pr 52650 --to root --text 'waits on his tap'", env=DRIVE_CONFIG, commands=EDITED): Allow(),
+        Input(command="cci post --lane item-93-presign-2 --kind done --to root --text 'ready'  # ccx:raw", env=DRIVE_CONFIG, commands=EDITED): Allow(),
+    },
+)
+def done_leaves_no_uncommitted_pr_work(evt: BaseHookEvent) -> HookResult | None:
+    if not any("done" in post.kind.split(",") for post in post_records(evt)):
+        return None
+    dirty = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"], cwd=evt.cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+    if dirty.returncode or not dirty.stdout.strip():
+        return None
+    pr = subprocess.run(["gh", "pr", "view", "--json", "state,headRefName", "--jq", OPEN_PR], cwd=evt.cwd, capture_output=True, text=True, timeout=GIT_TIMEOUT_SECONDS)
+    if pr.returncode or not pr.stdout.strip():
+        return None
+    return evt.block(UNCOMMITTED.format(branch=pr.stdout.strip()))
