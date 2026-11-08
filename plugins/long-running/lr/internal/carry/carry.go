@@ -313,7 +313,15 @@ func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 }
 
 func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
-	shown, err := c.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", c.Repo, kind, "show", id}})
+	show := shell.Command{Argv: []string{"ccn", "-R", c.Repo, kind, "show", id}}
+	shown, err := c.Runner.Run(ctx, show)
+	if err != nil {
+		if _, unsynced := c.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", c.Repo, "sync"}}); unsynced != nil {
+			err = errors.Join(err, unsynced)
+		} else {
+			shown, err = c.Runner.Run(ctx, show)
+		}
+	}
 	if err != nil {
 		return "", needed{fmt.Errorf("`ccn %s show %s` failed: %w", kind, id, err)}
 	}
