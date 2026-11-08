@@ -4600,6 +4600,30 @@ func TestARootAnswerToASpriteLanesOrcaQuestionWakesItWithTheWholeAnswer(t *testi
 	wantContains(t, typed, whole)
 }
 
+func TestARelayToABusySpriteLaneStaysOwedUntilItsTerminalTakesTheWake(t *testing.T) {
+	w := newDeskWorld(t)
+	w.live(testLane, testDispatch, testTerminal)
+	w.onSprite(testLane, "env_sprite")
+	w.busyScreen = true
+	w.sentRelay("R2", "")
+	w.step(w.desk.deliver)
+	relayed := func() int {
+		return len(slices.DeleteFunc(slices.Clone(w.posts), func(post client.Draft) bool { return post.Text != "go" }))
+	}
+	if typed := w.typed(); len(typed) != 0 || relayed() != 0 {
+		t.Fatal(typed, w.posts)
+	}
+	w.busyScreen = false
+	w.step(w.desk.deliver)
+	w.step(w.desk.deliver)
+	if typed := w.typed(); len(typed) != 1 || flag(typed[0], "--text") != "R2: read your cci records now" {
+		t.Fatal(typed)
+	}
+	if relayed() != 1 {
+		t.Fatal(w.posts)
+	}
+}
+
 func TestAHandPathWakeOverTheSendLimitIsCutAndKeepsItsSeq(t *testing.T) {
 	w := newDeskWorld(t)
 	w.live(testLane, testDispatch, testTerminal)
