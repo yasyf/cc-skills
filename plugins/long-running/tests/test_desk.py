@@ -924,16 +924,29 @@ def test_a_shallow_clone_holding_the_trunk_since_the_pr_opened_settles_its_landi
     assert shell.fields(PR)["landed_sha"] == SQUASH
 
 
-def test_a_shallow_clone_cut_after_the_pr_opened_refuses_and_writes_nothing(capsys, tmp_path):
+def test_a_shallow_clone_cut_after_the_pr_opened_deepens_its_trunk_to_then_and_settles(tmp_path):
+    shell = desk_shell(**MERGED)
+    shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
+    shell.pr_files[PR] = ["infra/ci/src/buildkite-api.ts"]
+    shell.trunk_log = [f"{SQUASH} 2026-09-17T03:04:05+02:00 ci: 🐛 retry buildkite reads (#{PR})"]
+    shell.shallow_from = "2026-09-10T00:00:00Z"
+
+    assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 0
+    assert any("--shallow-since=2026-09-01T00:00:00Z" in argv for argv in shell.calls)
+    assert shell.fields(PR)["landed_sha"] == SQUASH
+
+
+def test_a_shallow_clone_a_deepen_cannot_reach_back_refuses_and_writes_nothing(capsys, tmp_path):
     shell = desk_shell(**MERGED)
     shell.stores[LEDGER]["rows"].append({"key": PR, "fields": {"head": HEAD, "lane": LANE}})
     shell.pr_files[PR] = ["infra/rows/lightning.ts"]
     shell.shallow_from = "2026-09-10T00:00:00Z"
+    shell.deepen_stuck = True
 
     assert run(shell, "landed", "--repo", REPO, "--ledger", LEDGER, "--checkout", str(tmp_path)) == 1
     err = capsys.readouterr().err
     assert err.startswith("checkout refused, wrote nothing:")
-    assert "begins after 2026-09-01T00:00:00Z" in err
+    assert "still begins after 2026-09-01T00:00:00Z" in err
     assert shell.fields(PR).get("state") is None
 
 
