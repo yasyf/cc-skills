@@ -534,7 +534,7 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	var probe, sprite, worker string
+	var probe, worker string
 	var probeOnly bool
 	var skip []string
 	roll := &cobra.Command{
@@ -554,14 +554,11 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			if err := aheadOfMac(claude, filepath.Join(state, "runner.json"), os.Getenv("BINRUN_PLUGIN_ROOT")); err != nil {
 				return refusalExit(cmd, err)
 			}
-			if sprite != "" || worker != "" {
-				if probe != "" || probeOnly || len(skip) > 0 || (sprite != "" && worker != "") {
-					return errors.New("--sprite and --worker each install on the one Sprite they name, so they take no --probe, --probe-only, --skip or each other")
+			if worker != "" {
+				if probe != "" || probeOnly || len(skip) > 0 {
+					return errors.New("--worker installs on the one Sprite it names, so it takes no --probe, --probe-only or --skip")
 				}
-				if worker != "" {
-					return refusalExit(cmd, RollWorkerPins(cmd.Context(), a.Runner, s, filepath.Join(state, "runner.json"), worker, a.Now, cmd.OutOrStdout()))
-				}
-				return refusalExit(cmd, RollHostPins(cmd.Context(), a.Runner, s, filepath.Join(state, "runner.json"), sprite, "the Sprite", a.Now, cmd.OutOrStdout()))
+				return refusalExit(cmd, RollWorkerPins(cmd.Context(), a.Runner, s, filepath.Join(state, "runner.json"), worker, a.Now, cmd.OutOrStdout()))
 			}
 			env, err := runnerEnv(filepath.Join(state, "runner.json"))
 			if err != nil {
@@ -596,7 +593,6 @@ func SpritesCommand(a *app.App) *cobra.Command {
 	}
 	roll.Flags().StringVar(&probe, "probe", "", "the Sprite to install on first; default the first by name")
 	roll.Flags().BoolVar(&probeOnly, "probe-only", false, "install on the --probe Sprite and stop, so a person can check it before the rest")
-	roll.Flags().StringVar(&sprite, "sprite", "", "install the desk host's pins on this one Sprite alone, such as a standby host that is neither runner.json's host.sprite nor a live worker's box")
 	roll.Flags().StringVar(&worker, "worker", "", "install the worker pins, the long-running pack included, on this one Sprite alone, such as a pool Sprite whose lane neither the Run nor the lane registry names")
 	roll.Flags().StringSliceVar(&skip, "skip", nil, "a Sprite the roll leaves alone and names, never counting it a failure; repeat or comma-separate for more")
 	pin := &cobra.Command{
@@ -653,6 +649,28 @@ func SpritesCommand(a *app.App) *cobra.Command {
 			return refusalExit(cmd, maker.Make(cmd.Context(), filepath.Join(state, "runner.json"), args))
 		},
 	}
-	cmd.AddCommand(roll, pin, hold, grader)
+	host := &cobra.Command{
+		Use:   "host NAME",
+		Short: "Set the named Sprite up as a landing or desk host: install the desk host's pins, lay out its state dir with the drive's lr.json, runner.json and bk.json, the gh wrapper, run.sh, AWS profiles and desk-creds service, clone its checkout, join it to the cci relay and seed its records; a rerun changes only what differs, and nothing starts lr-landing",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			s, cfg, state, err := opened()
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			entry, err := drive.Named(cfg.Drive)
+			if err != nil {
+				return err
+			}
+			home, err := os.UserHomeDir()
+			if err != nil {
+				return err
+			}
+			maker := HostMaker{Runner: a.Runner, Store: s, State: state, Config: a.ConfigPath, CCIDrive: ccDrive(&entry), MacHome: home, Tmp: "/tmp", VarTmp: "/var/tmp", Sleep: time.Sleep, Now: a.Now, Out: cmd.OutOrStdout()}
+			return refusalExit(cmd, maker.Make(cmd.Context(), args[0]))
+		},
+	}
+	cmd.AddCommand(roll, pin, hold, grader, host)
 	return cmd
 }
