@@ -161,7 +161,7 @@ func (b Bus) PostHoldEnded(ctx context.Context, repo string, pr int, held client
 		ID:       fmt.Sprintf("hold-ended/%s", cmp.Or(held.ID, held.Name())),
 		PRs:      []string{fmt.Sprintf("%s#%d", repo, pr)},
 		Resolves: held.Seq,
-		To:       []string{held.Lane},
+		To:       slices.DeleteFunc([]string{held.Lane}, func(lane string) bool { return lane == b.Lane }),
 		Text:     fmt.Sprintf("his tap on #%d ends hold %s", pr, held.Name()),
 	})
 	return err
