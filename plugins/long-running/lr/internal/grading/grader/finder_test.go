@@ -108,7 +108,7 @@ func newFinderFake(t *testing.T, replies ...any) (*fakeShell, *finderRepo) {
 	}
 	repo := &finderRepo{
 		own:      map[string][]string{shaBase + ".." + shaHead: {shaOwn}},
-		resolved: map[string]string{},
+		resolved: map[string]string{shaMerge + "^": shaBase},
 		ranges:   map[string]string{},
 		shows:    shows,
 		trunk:    shaBase,
@@ -1055,6 +1055,17 @@ func TestAMergedPRWhoseBaseBranchTheRemoteDeletedStillGetsItsPassOverTheTrunk(t 
 	repo.baseGone = true
 	mustFinder(t, directory, shell)
 	equal(t, FinderGrade(shell.posted[0]["--text"]), finderPass)
+}
+
+func TestASquashMergedPRGradesItsChangeAgainstTheTrunkItLandedOn(t *testing.T) {
+	directory := finderJobDir(t, map[string]any{"full": true})
+	shell, repo := newFinderFake(t, replyOf(findingOf("minor", "a.go:1", "minor")))
+	shell.state = "MERGED"
+	repo.resolved[shaMerge+"^"] = shaStale
+	repo.own = map[string][]string{shaStale + ".." + shaHead: {shaOwn}}
+	mustFinder(t, directory, shell)
+	equal(t, FinderGrade(shell.posted[0]["--text"]), finderPass)
+	holdsAll(t, shell.posted[0]["--text"], "over whole ")
 }
 
 func TestAClosedPRRunsNoFinderAndPostsNothing(t *testing.T) {

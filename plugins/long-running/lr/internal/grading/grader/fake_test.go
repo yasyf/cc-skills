@@ -31,6 +31,7 @@ const (
 	shaOldOwn   = "f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d"
 	shaNewer    = "5be7c0de5be7c0de5be7c0de5be7c0de5be7c0de"
 	shaMoved    = "8a6c4e2f0b9d7a5c3e1f8b6d4a2c0e9f7b5d3a1c"
+	shaMerge    = "9d8c7b6a5f4e3d2c1b0a9f8e7d6c5b4a3f2e1d0c"
 	binDir      = "/plugin/bin"
 	rulingsPath = binDir + "/rulings.py"
 )
@@ -193,6 +194,7 @@ func (f *fakeShell) view(argv []string) (string, error) {
 		"baseRefName": "dev",
 		"baseRefOid":  shaStale,
 		"headRefOid":  head,
+		"mergeCommit": map[string]string{"oid": shaMerge},
 		"body":        f.body,
 		"comments":    comments,
 		"author":      map[string]string{"login": "yasyf"},

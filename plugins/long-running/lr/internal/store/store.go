@@ -446,7 +446,7 @@ type querier interface {
 }
 
 func factsAt(db querier, repo string, number int, head string) (map[string]string, error) {
-	rows, err := db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3) ORDER BY posted, kind LIKE 'override-%', length(head)", repo, number, head)
+	rows, err := db.Query("SELECT kind, value FROM facts WHERE repo = ?1 AND number = ?2 AND (kind = ?4 OR length(head) >= 7 AND (substr(?3, 1, length(head)) = head OR length(?3) >= 7 AND substr(head, 1, length(?3)) = ?3)) ORDER BY posted, kind LIKE 'override-%', length(head)", repo, number, head, machine.WholeFact)
 	found, err := collect(rows, err, func(rows *sql.Rows) ([2]string, error) {
 		var pair [2]string
 		err := rows.Scan(&pair[0], &pair[1])

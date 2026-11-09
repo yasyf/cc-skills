@@ -115,13 +115,16 @@ type comment struct {
 }
 
 type pullRequest struct {
-	State       string    `json:"state"`
-	Title       string    `json:"title"`
-	BaseRefName string    `json:"baseRefName"`
-	HeadRefOid  string    `json:"headRefOid"`
-	Body        string    `json:"body"`
-	Comments    []comment `json:"comments"`
-	Author      struct {
+	State       string `json:"state"`
+	Title       string `json:"title"`
+	BaseRefName string `json:"baseRefName"`
+	HeadRefOid  string `json:"headRefOid"`
+	MergeCommit struct {
+		Oid string `json:"oid"`
+	} `json:"mergeCommit"`
+	Body     string    `json:"body"`
+	Comments []comment `json:"comments"`
+	Author   struct {
 		Login string `json:"login"`
 	} `json:"author"`
 }
@@ -231,7 +234,7 @@ func (p *pass) rateLimited(attempt func(retry int) (string, error)) (string, err
 }
 
 func (p *pass) viewPR() (pullRequest, error) {
-	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", p.job.PR, "--repo", p.job.Repo, "--json", "state,title,baseRefName,headRefOid,body,comments,author"}
+	argv := []string{"ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view", p.job.PR, "--repo", p.job.Repo, "--json", "state,title,baseRefName,headRefOid,mergeCommit,body,comments,author"}
 	out, err := p.retried(func() (string, error) { return p.run(argv, "", readTimeout) }, anyFailure)
 	if err != nil {
 		return pullRequest{}, err
@@ -311,6 +314,12 @@ func (p *pass) checkedOut(view pullRequest) (string, string, error) {
 	}
 	if err := p.fetch(p.job.Head, base, trunk); err != nil {
 		return "", "", err
+	}
+	if view.State == "MERGED" {
+		if base, err = p.resolve(view.MergeCommit.Oid + "^"); err != nil {
+			return "", "", err
+		}
+		trunk = base
 	}
 	parent, err := p.parent(base, trunk)
 	return parent, trunk, err

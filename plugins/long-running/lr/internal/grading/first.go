@@ -8,6 +8,7 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-inbox/client"
@@ -130,6 +131,42 @@ func firstCommand(a *app.App) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(c.OutOrStdout(), "#%d goes first for %d hours: the next pool pass grades its head, or regrades a grade there that does not clear\n", number, hours)
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&driveName, "drive", os.Getenv("LR_DRIVE"), "the drive's bus name")
+	cmd.Flags().StringVar(&asker, "lane", "", "the lane asking, which the record names; default: the lane this session is bound to, or root for the drive's root")
+	return cmd
+}
+
+func wholeCommand(a *app.App) *cobra.Command {
+	var driveName, asker string
+	cmd := &cobra.Command{
+		Use:   "whole N...",
+		Short: "Owe each PR one whole-diff finder pass at its live head: the pool starts it on its next pass, the ready gate refuses the PR until a finder record reads over its whole diff, and no delta or carry pays it",
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(c *cobra.Command, args []string) error {
+			named := make([]string, 0, len(args))
+			for _, arg := range args {
+				number, err := strconv.Atoi(strings.TrimPrefix(arg, "#"))
+				if err != nil {
+					return fmt.Errorf("%q is not a PR number", arg)
+				}
+				named = append(named, "#"+strconv.Itoa(number))
+			}
+			entry, err := drive.Named(driveName)
+			if err != nil {
+				return err
+			}
+			writer, err := firstAsker(c.Context(), a.Runner, asker)
+			if err != nil {
+				return err
+			}
+			draft := client.Draft{Drive: entry.Bus(), Lane: writer, Kind: kindAsk, To: []string{grader.FinderLane}, Text: bus.WholeAsked + " " + strings.Join(named, " ")}
+			if _, err := client.Post(c.Context(), draft); err != nil {
+				return err
+			}
+			fmt.Fprintf(c.OutOrStdout(), "%s each owe a whole-diff finder pass: the next pool pass starts it, and the ready gate holds each until it posts\n", strings.Join(named, ", "))
 			return nil
 		},
 	}

@@ -986,7 +986,7 @@ func stateOf(row store.ReviewRow, facts map[string]string) string {
 func gradeOf(facts map[string]string) (string, string) {
 	finder, fidelity := machine.GradesOf(facts)
 	overrideFinder, overrideFidelity := machine.OverridesOf(facts)
-	graded := machine.Facts{Finder: finder, Fidelity: fidelity, FinderOverride: overrideFinder, FidelityOverride: overrideFidelity}
+	graded := machine.Facts{Finder: finder, Fidelity: fidelity, FinderOverride: overrideFinder, FidelityOverride: overrideFidelity, WholeOwed: facts[machine.WholeFact] == machine.WholeOwed}
 	switch {
 	case !graded.Graded():
 		return GradePending, None

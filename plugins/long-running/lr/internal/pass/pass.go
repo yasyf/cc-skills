@@ -575,7 +575,11 @@ func escalateUngraded(s *store.Store, snapshot []machine.Facts, now time.Time, p
 
 func tellUngraded(s *store.Store, f machine.Facts, waited time.Duration, now time.Time, post Post, route Route, owner Owner, out *Outcome) error {
 	subject := itemSubject(f.Repo, f.Number, f.Head)
-	detail := ": no " + strings.Join(grading.Missing(f), " or ") + " grade"
+	missing := grading.Missing(f)
+	if f.WholeOwed {
+		missing = append(missing, "whole-diff finder")
+	}
+	detail := ": no " + strings.Join(missing, " or ") + " grade"
 	switch {
 	case waited >= ungradedRoot && !f.Approved:
 		return escalate(s, subject, fmt.Sprintf("green and ungraded for %d minutes", int(ungradedRoot.Minutes())), detail, root, now, post, out)
