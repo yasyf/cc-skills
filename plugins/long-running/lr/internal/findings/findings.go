@@ -426,7 +426,8 @@ func (b Book) tapped(picks map[int64]string, records []client.Record) ([]int64, 
 		if !slices.ContainsFunc(taps, func(tap bus.Tap) bool {
 			row, known := byNumber[tap.PR]
 			movedOn := tap.Head != "" && !strings.HasPrefix(row.Head, tap.Head) && row.HeadAt >= at[seq]
-			return !known || !(row.Tapped && row.TappedAt >= at[seq] || row.State == prrow.StateLanded || movedOn)
+			settled := known && (row.Tapped && row.TappedAt >= at[seq] || row.State == prrow.StateLanded || movedOn)
+			return !settled
 		}) {
 			carried = append(carried, seq)
 		}
