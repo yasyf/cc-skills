@@ -2088,11 +2088,11 @@ func TestAHeldLaneThatPostsAgainIsLiveAndAPRRootOpenedForItIsTheLanes(t *testing
 	f.posts = nil
 	f.states = map[int]string{47353: NeedsWork}
 	f.feed = append(f.feed,
-		rec(3, Root, "opened", t0.Add(mins(28)), "root opened #Forge-AI/monorepo#47353").withRefs(prs(47353)),
-		rec(4, "ssql-sleep-truncation", "head", t0.Add(mins(28)), "HEAD #47353 at 3c97d53", Root).withRefs(prs(47353)),
+		rec(3, Root, "opened", t0.Add(mins(54)), "root opened #Forge-AI/monorepo#47353").withRefs(prs(47353)),
+		rec(4, "ssql-sleep-truncation", "head", t0.Add(mins(54)), "HEAD #47353 at 3c97d53", Root).withRefs(prs(47353)),
 	)
 
-	tick(t, s, f, t0.Add(mins(29)))
+	tick(t, s, f, t0.Add(mins(55)))
 
 	equal(t, row(t, s, "ssql-sleep-truncation").State, store.LaneDesired)
 	equal(t, owners(t, s, 47353), map[int]string{47353: "ssql-sleep-truncation"})
