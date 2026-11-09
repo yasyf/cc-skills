@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Rewrite, Tool, Warn, on
+from captain_hook import Allow, BaseHookEvent, Block, Call, CommandSchema, Event, HookResult, Input, Operand, Option, Rewrite, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .board_text_gate import calls
@@ -31,7 +31,7 @@ JUDGE = script_module("long_running/judge")
 NAMES_PR = re.compile(r"(?i)(?<![\w/&])#\d{2,}\b|/pull/\d+|\bPR \d+\b")
 UNNAMED = 'Name the feature: a card\'s title and first sentence say what it is about, and this one opens with "{opener}". Edit the reply to name it.'
 BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, CI, description and four lines: edit the reply to add the PR's url to `prs`."
-UNANSWERED = "Warning, nothing was blocked: a post to the owner names the concrete things it changes and answers the first question he will ask. Edit this reply with its `id` to answer the question below, or open a line with `Unproven:` for a fact nobody has yet."
+UNANSWERED = "A post to the owner names the concrete things it changes and answers the first question he will ask, so nothing posted. Answer the question below in the text and send again, or open a line with `Unproven:` for a fact nobody has yet."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 RECORD_NUMBER = re.compile(r"(?is)(<!--.*?-->|\[[^\]]*\]\([^)]*\)|https?://\S+|\bSentry\s+#?\d+\b)|\s*\(#?(\d{6,})\)|\s*(?<![\w/.:=-])#?(\d{6,})\b(?!\.\d)")
 RECORDS_MOVED = "Warning, nothing was blocked: {numbers} moved out of what he reads into a hidden cite, since a cci record number has no page. If one is a real count, edit this reply with its `id`."
@@ -285,23 +285,23 @@ def reply(title: str, md: str, **fields: object) -> Input:
     return Input(tool=REPLY, tool_input={"title": title, "md": md} | fields.pop("given", {}), env=HOOK_ENV, **fields)
 
 
-@on(
+@on(  # capt-hook: no-escape the owner ordered every post to him to answer his first question, and the fix the message names is the only way through
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Big chats", VAGUE_POST, commands=HOLDS): Warn(pattern=r"^Warning, nothing was blocked: a post to the owner names the concrete things[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
-        Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
-        Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Warn(),
+        reply("Big chats", VAGUE_POST, commands=HOLDS): Block(pattern=r"^A post to the owner names the concrete things[\s\S]*It adds one new setting[\s\S]*Which fields, on which table"),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Add the setting?", "body": VAGUE_POST}}, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        Input(command=ASK, env=HOOK_ENV, commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        Input(command=f"lr ask-owner --card {board('clean-card.json')} --until at:3d", env=HOOK_ENV, commands=HOLDS): Block(),
         Input(command="lr ask-owner --withdraw card-add-the-setting --lane first-question", env=HOOK_ENV, commands=HOLDS): Allow(),
-        Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
-        Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
-        Input(command=f"cc-present ask {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Warn(),
-        reply("Added fields", "Added a few fields.", commands=HOLDS): Warn(),
+        Input(command=f"cc-present update-block {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
+        Input(command=f"CARD_NO_CODE=1 zsh draw.zsh --new-question 'not settled' {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
+        Input(command=f"cc-present ask {board('clean-card.json')}", env=HOOK_ENV, commands=HOLDS): Block(),
+        reply("Added fields", "Added a few fields.", commands=HOLDS): Block(),
         reply(CONCRETE["title"], CONCRETE["md"], commands=judged()): Allow(),
         reply("Landed", LANDED, commands=HOLDS): Allow(),
-        reply("Big chats", VAGUE_POST, commands=sonnet_says("unsure")): Warn(pattern=r"It adds one new setting[\s\S]*Which fields"),
-        reply("Big chats", VAGUE_POST, commands=sonnet_says("yes", evidence="words no record carries")): Warn(pattern=r"Which fields"),
+        reply("Big chats", VAGUE_POST, commands=sonnet_says("unsure")): Block(pattern=r"It adds one new setting[\s\S]*Which fields"),
+        reply("Big chats", VAGUE_POST, commands=sonnet_says("yes", evidence="words no record carries")): Block(pattern=r"Which fields"),
         reply("Nightly build", STATUS, commands=sonnet_says("unsure")): Allow(),
         reply("Big chats", VAGUE_POST, commands=sonnet_says("no")): Allow(),
         reply("Big chats", VAGUE_POST, commands={"uv run --no-project --quiet": (1, "overloaded")}): Allow(),
@@ -312,9 +312,9 @@ def reply(title: str, md: str, **fields: object) -> Input:
         reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}, commands=judged()): Allow(),
         reply("Why", "It dropped because both chats shared a replica. <!-- cci #384714 -->", commands=judged()): Allow(),
         Input(tool=REPLY, tool_input={"title": "Big chats", "md": VAGUE_POST}, commands=HOLDS): Allow(),
-        reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Warn(pattern=r"first question: Which fields"),
-        reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Warn(pattern=r"first question: Which fields"),
-        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS): Warn(pattern=r"first question: Which fields"),
+        reply("Landed", f"Live as [the relay fix]({LAND_PR}).", commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Landed", f"Live as <{LAND_PR}|the relay fix>.", commands=HOLDS): Block(pattern=r"first question: Which fields"),
+        reply("Bugs", f"{VAGUE_POST} With the answer.", given={"order": "m1"}, commands=HOLDS): Block(pattern=r"first question: Which fields"),
         reply("Delete prompt", THIRD_PARTY, commands=judged()): Allow(),
     },
 )
@@ -330,7 +330,7 @@ def posts_answer_his_first_question(evt: BaseHookEvent) -> HookResult | None:
     verdict = judge_call(JUDGE, "first-question", WHOLE_POST, whole_post(evt, posted), backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
     if verdict is None or not (verdict.flagged or verdict.verdict == "unsure" and describes_change(text)):
         return evt.context(reads.warning("posts_answer_his_first_question")) if reads.failures else None
-    return evt.context(fenced(UNANSWERED, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"]))
+    return evt.block(fenced(UNANSWERED, [f'sentence: "{verdict.artifact_phrase}"', f"first question: {verdict.sentence}"]))
 
 
 def asking_card(evt: BaseHookEvent, reads: Reads) -> dict | None:

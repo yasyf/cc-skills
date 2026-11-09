@@ -93,7 +93,7 @@ func Tool(a *app.App) channel.Tool {
 			"- Saying something waits on his yes, no, pick or tap? Name it, or pass it in picks or prs; a reply carries only the waits it names, refuses NAME THE WAIT listing what waits when it names none, and refuses NOTHING WAITS when nothing does.\n" +
 			"- An update on his return or on a clock? Send update true and the tool writes it.\n" +
 			"- A release word? Say what users get and link its Platy #releases permalink, or it warns. A lane's name is no release word.\n" +
-			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply posts with a warning naming the question; edit it with its id.\n" +
+			"- Describing a change? Name the concrete things and answer his first question, or open a line with Unproven: for a fact nobody has yet. A flagged reply is refused naming the question; answer it and send again.\n" +
 			"- A cci record number in md moves to a hidden cite by itself; write Sentry and other ids as links, a notebook as [title](url).\n" +
 			"- by and routed need order, no picks and status progress or info.\n" +
 			"- Picks drawn from a lane's ask or record? Pass its seq in ask, so a correction to it reaches you before he taps.\n" +
