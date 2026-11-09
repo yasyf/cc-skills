@@ -61,9 +61,11 @@ def command(binary: str, *path: str) -> tuple[frozenset[str], bool, frozenset[st
 
 
 @cache
-def hidden(binary: str, *path: str) -> bool:
+def unlisted(binary: str, *path: str) -> bool:
     shown = subprocess.run([binary, *path, "--help"], capture_output=True, text=True, timeout=120)
-    return shown.returncode == 0 and f"{Path(binary).name} {' '.join(path)}" in dict(SECTION.findall(shown.stdout)).get("Usage", "")
+    sections = dict(SECTION.findall(shown.stdout))
+    usage = f"{Path(binary).name} {' '.join(path)}" in sections.get("Usage", "")
+    return shown.returncode == 0 and (usage or path[-1] in sections.get("Aliases", "").replace(",", " ").split())
 
 
 @cache
@@ -76,7 +78,7 @@ def missing(words: tuple[str, ...], binary: str = str(LR)) -> str | None:
     path: tuple[str, ...] = ()
     for word in (word for word in words if not word.startswith("--")):
         subcommands, runnable, _ = command(binary, *path)
-        if word not in subcommands and not hidden(binary, *path, word):
+        if word not in subcommands and not unlisted(binary, *path, word):
             if path and runnable:
                 break
             return " ".join((*path, word))
