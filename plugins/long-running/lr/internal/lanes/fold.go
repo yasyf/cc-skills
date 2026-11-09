@@ -41,6 +41,11 @@ type refusal struct {
 
 type unfinished struct{ lane, why string }
 
+type proseEnding struct {
+	record Record
+	lanes  []string
+}
+
 type revival struct {
 	lane, by string
 	seq      int64
@@ -67,6 +72,7 @@ type folded struct {
 	kept       []stoodDown
 	handed     []handed
 	untyped    []Record
+	prose      []proseEnding
 	unheard    []string
 	refused    []refusal
 	revived    []revival
@@ -129,7 +135,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredWorkerDone, at)
 		}
-	case verb == "done" && known && Stem(r.Lane) == Root && dutyOf(row) != "":
+	case (verb == "done" || verb == "stand-down" && r.Attr("successor") == "") && known && Stem(r.Lane) == Root && dutyOf(row) != "":
 		if row.State == store.LaneRetired || out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredDutyEnded, at)
 			do(s.SetLaneStanding(name, ""))
@@ -992,6 +998,11 @@ func foldRegistry(s *store.Store, r Record, row store.Lane, known, fresh bool, a
 	if (isRoot || name == mainLane) && kind == kindRequest && r.Addressed()[Self] && !request && r.Attr("verb") != "" && !fresh {
 		out.untyped = append(out.untyped, r)
 	}
+	if isRoot && kind == kindRequest && r.Addressed()[Self] && r.Attr("verb") == "" && !fresh {
+		if lanes := dutiesEndedInProse(s, text); len(lanes) > 0 {
+			out.prose = append(out.prose, proseEnding{r, lanes})
+		}
+	}
 	if request {
 		grant(s, r, fresh, at, out)
 		return
@@ -1184,6 +1195,29 @@ func settleOwner(s *store.Store, owner string, at time.Time) {
 		return
 	}
 	do(s.LaneHeard(owner, at, kindLanded, 0))
+}
+
+func dutiesEndedInProse(s *store.Store, text string) []string {
+	heads := map[string]bool{}
+	for _, lane := range must(s.AllLanes()) {
+		if head, ok := newest(s, lane.Name); ok && dutyOf(head) != "" {
+			heads[head.Name] = true
+		}
+	}
+	ended := map[string]bool{}
+	for _, clause := range proseClause.Split(text, -1) {
+		if !endingWord.MatchString(clause) {
+			continue
+		}
+		for _, word := range laneWord.FindAllString(clause, -1) {
+			for head := range heads {
+				if Stem(word) == Stem(head) {
+					ended[head] = true
+				}
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(ended))
 }
 
 func foldRootStandDown(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {

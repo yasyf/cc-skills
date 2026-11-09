@@ -174,6 +174,8 @@ var (
 	launchStage   = regexp.MustCompile(`^STAGE R\d+(?:@\w+)? ([\w.-]+): `)
 	standDownList = regexp.MustCompile(`(?i)\bstand[ -]?down\s+([^.(;:\n]+)`)
 	laneWord      = regexp.MustCompile(`[\w.-]+`)
+	proseClause   = regexp.MustCompile(`[;\n]|\.(?:\s|$)`)
+	endingWord    = regexp.MustCompile(`(?i)\b(?:end|ends|ended|done|retired?|stand[ -]?down|stood down|never (?:respawn|relaunch))\b`)
 	laneAssigned  = regexp.MustCompile(`\blane=([\w.-]*\w)`)
 	card          = regexp.MustCompile(`\bcard-[\w.-]*\w`)
 	parked        = regexp.MustCompile(`\bPARKED ([\w.-]+):`)
