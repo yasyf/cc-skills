@@ -204,11 +204,11 @@ func explainPRs(c *cobra.Command, live Live, stored []store.ReviewRow, prs []str
 	return nil
 }
 
-func postHooks(ctx context.Context, answers cardAnswers, busName, lane, repository string) Hooks {
+func postHooks(ctx context.Context, answers cardAnswers, busName, lane, repository string, press bus.Press) Hooks {
 	posts := bus.Bus{Drive: busName, Lane: lane}
 	return Hooks{
 		Tap: func(tap TapRecord) error {
-			if err := posts.PostCardTap(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}); err != nil {
+			if err := posts.PostCardTap(ctx, repository, bus.Tap{PR: tap.PR, Head: tap.Head, By: tap.By, Value: string(tap.Value)}, press); err != nil {
 				return err
 			}
 			answers.record(ctx, repository, tap.PR, tap.Head, verdictApproved)

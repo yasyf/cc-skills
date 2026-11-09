@@ -419,7 +419,7 @@ func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T
 	t.Setenv("CCI_HOME", t.TempDir())
 	ctx := context.Background()
 
-	if err := postHooks(ctx, cardAnswers{&shelltest.Fake{}, "/co", io.Discard}, "d", "pr-cards", repo).Tap(TapRecord{number, head, byOwner, machine.TapTapped}); err != nil {
+	if err := postHooks(ctx, cardAnswers{&shelltest.Fake{}, "/co", io.Discard}, "d", "pr-cards", repo, bus.Press{ActionTS: "1794185793.900100", Source: "pressed the button"}).Tap(TapRecord{number, head, byOwner, machine.TapTapped}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -427,8 +427,8 @@ func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(written) != 1 {
-		t.Fatalf("records = %+v", written)
+	if len(written) != 1 || written[0].Fields.Attrs["action_ts"] != "1794185793.900100" || written[0].Fields.Attrs["source"] != "pressed the button" || !strings.Contains(written[0].Text, "pressed the button") {
+		t.Fatalf("records = %+v, want his press's Slack action and source on the record", written)
 	}
 	if taps := bus.OrdersOf(written[0], repo); len(taps) != 1 || taps[0].PR != number || taps[0].Head != head || taps[0].Value != string(machine.TapTapped) {
 		t.Fatalf("orders = %+v", taps)
