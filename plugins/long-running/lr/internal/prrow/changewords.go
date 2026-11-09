@@ -25,7 +25,6 @@ var (
 	resolverStays  = regexp.MustCompile(`(?i)\bLLM\b[^.\n]*\bresolver\b[^.\n]*\b(?:stays|remains|is kept|keeps)\b|\bkeeps?\b[^.\n]*\bLLM\b[^.\n]*\bresolver\b`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
-	shownImage     = regexp.MustCompile(`(?i)!\[[^\]]*\]\(|https?://\S+\.(?:png|jpe?g|gif|webp|mp4|mov)\b`)
 	archFence      = regexp.MustCompile("(?s)```arch[ \t]*\n(.*?)\n[ \t]*```")
 	addsFunction   = regexp.MustCompile(`(?i)\b(?:adds?|new)\b[^.\n]{0,40}\b(?:builtins?|functions?)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
@@ -91,7 +90,7 @@ func ShowMeDiagram(row store.ReviewRow) json.RawMessage {
 const archExample = "```arch\n" + `{"arch":1,"name":"inbox","title":"Where an answer goes","nodes":[{"id":"sub","kind":"service","name":"subagent","role":"writes its answer"},{"id":"row","kind":"store","name":"inbox row","role":"one per answer","medium":"disk"}],"edges":[{"from":"sub","to":"row"}]}` + "\n```"
 
 func showMeFlaw(row store.ReviewRow) string {
-	const drawn = "link a screenshot or gif, or carry a fenced arch block (arch/v1) that lr reply draws as the card's picture, such as " + archExample
+	const drawn = "show him the change: a fenced arch block (arch/v1) the card draws as its picture, such as " + archExample + ", a screenshot or gif when the change is visual, or a sentence when that reads best"
 	shown := ShowMe(row)
 	if shown == "" {
 		return "its PR body has no Show me section; " + drawn
@@ -100,8 +99,6 @@ func showMeFlaw(row store.ReviewRow) string {
 		if problems := arch.Problems(doc); len(problems) > 0 {
 			return "its Show me arch block does not draw: " + strings.Join(problems, "; ") + "; a block that draws: " + archExample
 		}
-	} else if !shownImage.MatchString(shown) {
-		return "its Show me section is words alone, and he reads a picture; " + drawn
 	}
 	if addsFunction.MatchString(row.ForUsers+"\n"+section(row.Description, "Changes")) && !strings.Contains(shown, "```") {
 		return "it adds a function, and its Show me section has no real Sand API call and its result in a code block"
