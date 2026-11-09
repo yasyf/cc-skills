@@ -2774,8 +2774,9 @@ func TestAPickCardWhoseQuestionAnOpenCardAlreadyAsksIsRefused(t *testing.T) {
 		"Route every model call  through the gateway?": true,
 		"Search chats on Turbopuffer?":                 false,
 	} {
-		fake := scripted()
+		fake := &shelltest.Fake{}
 		fake.Reply(open, "cc-present", "outcomes")
+		scriptedOver(fake)
 		_, err := fanout(t, fake).askedAlready(context.Background(), Reply{ID: "r9", Title: title, Picks: []string{"Yes", "No"}})
 		if (err != nil) != refused || refused && !strings.Contains(err.Error(), "card-doc-llm-gateway") {
 			t.Errorf("%q: err = %v, want refused %v naming the open card", title, err, refused)
