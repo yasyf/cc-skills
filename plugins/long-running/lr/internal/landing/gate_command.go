@@ -153,9 +153,9 @@ func (g *Gates) refusalLines(ctx context.Context, f machine.Facts) []string {
 	}
 	var lines []string
 	if kept[rulingsClear] == "" {
-		rows, _, err := g.reservedRows(ctx, f)
+		rows, err := g.readReserved(ctx, f)
 		if err != nil {
-			g.Log.Warn("the rulings gate did not read, so it passes this head this pass", "pr", f.Number, "err", err)
+			lines = append(lines, fmt.Sprintf("#%d %s RULINGS-UNREAD `rulings.py check-pr --reserved-only` did not read for %s: %v", f.Number, shortHead(f.Head), rulingsRetry, err))
 		}
 		for _, row := range rows {
 			lines = append(lines, fmt.Sprintf("#%d %s RESERVED %s: %s", f.Number, shortHead(f.Head), row.Key, row.Sentence))

@@ -34,6 +34,8 @@ import (
 const (
 	checkPRLimit   = 180 * time.Second
 	checkPRReread  = 5 * time.Minute
+	rulingsRetry   = time.Minute
+	rulingsEvery   = 5 * time.Second
 	gitLimit       = time.Minute
 	rulingsClear   = "rulings-clear"
 	buildClear     = "build-clear"
@@ -66,6 +68,7 @@ type Gates struct {
 	Build    BuildFailures
 	Token    bkread.Token
 	Now      func() time.Time
+	Sleep    func(time.Duration)
 	Log      *slog.Logger
 	GoAnswer func(ctx context.Context, f machine.Facts) ([]string, error)
 	Stderr   io.Writer
@@ -97,7 +100,7 @@ func NewGates(a *app.App, s *store.Store, cfg config.Config, runnerPath string) 
 			inputs, err := readGateInputs(ctx, cfg.Drive, a.Now())
 			return inputs.Session, err
 		},
-		Build: landing.Build, Token: bkread.Token{Command: landing.TokenCommand}, Now: a.Now, Log: a.Log,
+		Build: landing.Build, Token: bkread.Token{Command: landing.TokenCommand}, Now: a.Now, Sleep: time.Sleep, Log: a.Log,
 	}, nil
 }
 
@@ -231,12 +234,16 @@ func (g *Gates) reserved(ctx context.Context, f machine.Facts) (gates.Verdict, e
 		return gates.Verdict{Held: true}, nil
 	}
 	delete(g.held, f.Head)
-	rows, unread, err := g.reservedRows(ctx, f)
+	rows, err := g.readReserved(ctx, f)
 	if err == nil && len(rows) > 0 && g.authorize(ctx, f, rows) {
-		rows, unread, err = g.reservedRows(ctx, f)
+		rows, err = g.readReserved(ctx, f)
 	}
-	if err != nil || len(rows) == 0 {
-		return gates.Verdict{Reread: unread}, err
+	if err != nil {
+		g.tell(ctx, f, "blocker", "rulings:"+strconv.Itoa(f.Number)+":"+f.Head, fmt.Sprintf("RULINGS-UNREAD #%d at %s stays out of the queue: `rulings.py check-pr --reserved-only` did not read for %s (%v), so no reserved row is ruled out; the gate reads it again next pass.", f.Number, shortHead(f.Head), rulingsRetry, err))
+		return gates.Verdict{Held: true}, nil
+	}
+	if len(rows) == 0 {
+		return gates.Verdict{}, nil
 	}
 	if g.held == nil {
 		g.held = map[string]time.Time{}
@@ -245,19 +252,33 @@ func (g *Gates) reserved(ctx context.Context, f machine.Facts) (gates.Verdict, e
 	return g.ask(ctx, f, rows), nil
 }
 
-func (g *Gates) reservedRows(ctx context.Context, f machine.Facts) (rows []board.ReservedRow, unread bool, err error) {
+func (g *Gates) readReserved(ctx context.Context, f machine.Facts) ([]board.ReservedRow, error) {
+	deadline := g.Now().Add(rulingsRetry)
+	for {
+		rows, err := g.reservedRows(ctx, f)
+		if err == nil || !g.Now().Before(deadline) {
+			return rows, err
+		}
+		g.Sleep(rulingsEvery)
+	}
+}
+
+func (g *Gates) reservedRows(ctx context.Context, f machine.Facts) ([]board.ReservedRow, error) {
 	out, err := checkPR(ctx, g.Runner, g.Rulings, g.Checkout, g.Drive, f, "--reserved-only")
 	if err != nil {
-		return nil, true, err
+		return nil, err
 	}
+	var rows []board.ReservedRow
 	for _, line := range strings.Split(out, "\n") {
-		unread = unread || strings.HasPrefix(line, unreadPrefix)
+		if strings.HasPrefix(line, unreadPrefix) {
+			return nil, errors.New(line)
+		}
 		if row, found := strings.CutPrefix(line, reservedPrefix); found {
 			key, sentence, _ := strings.Cut(row, "\t")
 			rows = append(rows, board.ReservedRow{Key: key, Sentence: sentence})
 		}
 	}
-	return rows, unread, nil
+	return rows, nil
 }
 
 func checkPR(ctx context.Context, runner shell.Runner, rulings, checkout, drive string, f machine.Facts, scope string) (string, error) {
