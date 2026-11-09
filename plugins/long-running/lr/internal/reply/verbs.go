@@ -32,6 +32,7 @@ var verbs = []verb{
 	{tool: "explain", path: []string{"explain"}, args: []arg{{"topic", "The page's topic, a few words."}}},
 	{tool: "ask_lane", path: []string{"ask-lane"}, args: []arg{{"question", "The question the search lane answers."}}},
 	{tool: "asks", path: []string{"asks"}},
+	{tool: "search_plan", path: []string{"search-plan"}, args: []arg{{"question", "What you need the plan to settle, in a few words."}}},
 }
 
 func VerbTools(commands func() *cobra.Command) []channel.Tool {

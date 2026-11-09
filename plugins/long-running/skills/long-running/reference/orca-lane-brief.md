@@ -554,6 +554,8 @@ auth or approval gate, or two failed approaches. Ask with 2-4 options. A third f
 thing is never a patch: it makes the failure structurally impossible and deletes the
 earlier patches, naming them in the PR body.
 
+The plan is at `/home/sprite/drive/plan.md`; search it with `lr search-plan <question>` (the `search_plan` MCP tool) before deciding anything the brief leaves open, and ask root with `cci post --kind ask` when it does not settle the question.
+
 Finish: a lane with a PR finishes only once its squash `(#N)` is on the base branch.
 It posts one PR comment opening with `## Rulings` and one opening with `## Regression
 tests`, which lists each test id and links one CI run where that test failed against

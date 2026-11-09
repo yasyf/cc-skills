@@ -49,7 +49,7 @@ func verbTree(ran *[]string) func() *cobra.Command {
 		_ = explain.MarkFlagRequired("from")
 		ask := &cobra.Command{Use: "ask-lane", Short: "Launch a search lane", Args: cobra.ExactArgs(1), RunE: run}
 		ask.Flags().Bool("mac", false, "on the Mac")
-		root.AddCommand(owner, explain, ask, &cobra.Command{Use: "asks", Short: "Every open ask", Args: cobra.NoArgs, RunE: run})
+		root.AddCommand(owner, explain, ask, &cobra.Command{Use: "asks", Short: "Every open ask", Args: cobra.NoArgs, RunE: run}, &cobra.Command{Use: "search-plan", Short: "Search the plan", Args: cobra.ExactArgs(1), RunE: run})
 		return root
 	}
 }
@@ -135,7 +135,7 @@ func listed(t *testing.T) []string {
 func TestASessionInNoDriveYetListsEveryToolInItsFirstListing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(drive.Env, "")
-	want := []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks"}
+	want := []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks", "search_plan"}
 	if names := listed(t); !slices.Equal(names, want) {
 		t.Fatalf("a session in no drive lists %v, want %v", names, want)
 	}
