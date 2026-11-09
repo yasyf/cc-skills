@@ -138,11 +138,12 @@ func (g goGate) readHead(ctx context.Context, number int, head, body string, bef
 	if err != nil {
 		return headRead{}, fmt.Errorf("read what its holds resolve: %w", err)
 	}
-	his, err := facts.HisRulings(ctx, g.s, g.cfg.Drive, g.cfg.Repo, g.a.Runner, g.cfg.Checkout, bus.Rulings(records), g.a.Now())
+	claim := gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}
+	his, err := facts.HisRulings(ctx, g.s, g.cfg.Drive, g.cfg.Repo, g.a.Runner, g.cfg.Checkout, slices.Concat(bus.Rulings(records), gates.DesignAskedAt(claim, records)), g.a.Now())
 	if err != nil {
 		return headRead{}, err
 	}
-	r := headRead{claim: gates.Claim{Repo: g.cfg.Repo, PR: number, Head: head}, records: records}
+	r := headRead{claim: claim, records: records}
 	r.read = gates.Read{Lifts: lifts, Rulings: his, Records: records, GoLanes: g.inputs.GoLanes, Exempt: g.inputs.Exempt, TapRules: g.inputs.TapRules, Cards: g.inputs.Cards, Body: body}
 	r.port, r.claimed = gates.PortAt(r.claim, r.read)
 	if r.claimed {

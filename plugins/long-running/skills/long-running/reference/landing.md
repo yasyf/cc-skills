@@ -457,6 +457,14 @@ A PR whose whole change fixes a test flake needs no tap. The owner gave that as 
 - **Everything else stays.** CI, approval, finder, fidelity's `ok`, holds and open cards apply. A fix that touches product code lands on his tap.
 - **The row.** Same as a clean port: `ready_for_tap` false, saying it lands on his standing word, until the gate posts its go or refuses, and a refused row returns to him with the reason.
 
+### Design-asked fixes
+
+His tap is owed only for a design decision he was not asked (m2073). A PR whose every design decision he already answered, on a card or as a recorded answer, lands on root's go.
+
+- **What proves it.** The lane posts a `head` record at the full head sha with `--attr design-asked=<id>,<id>`, naming the cci seq or cc-notes answer id that asked each design decision, and its text reads `design-asked #<n> at <sha>: <ids>`. A design decision nobody asked him stays on his tap: the lane posts `design-unasked #<n>: <the decision>` instead and the card stays. The supervisor carries the claim across a patch-identical restack.
+- **What the gate checks at the head.** Each cited id reads as his words, through the same read his rulings take (`facts.HisRulings`). One that is not refuses the go and names it. `landing.tap_rules` rows still apply. The go reads `[exempt: design-asked]`.
+- **Everything else stays.** CI, approval, finder, fidelity's `ok`, holds and open cards apply. An incident fix whose shape was decided without asking him stays on his tap.
+
 ### Exempt go gate
 
 - The landing pass runs this gate itself, as lane `supervisor`, over every open head that is green, approved and graded with no go, hold or tap; no desk has to be alive for a clean head to get its go. It runs right after the pass reads its facts and before it classifies, gates and enqueues, so a head it posts a go for enters the queue in that same pass.

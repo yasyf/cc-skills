@@ -537,6 +537,38 @@ func TestAFlakeFixLandsWithNoTapOnlyWhenItsWholeChangeIsTestCodeWithNoTimeoutBum
 	}
 }
 
+func TestADesignAskedPRLandsOnAGoOnlyWhenEveryCitedAnswerIsHis(t *testing.T) {
+	product := "api/src/modules/runs/drain.ts"
+	cases := map[string]struct {
+		attrs string
+		files []string
+		his   map[string]bool
+		want  string
+	}{
+		"every cited answer is his":       {`,"design-asked":"647612,647613"`, []string{product}, map[string]bool{"647612": true, "647613": true}, ""},
+		"one cited record is not his":     {`,"design-asked":"647612,647700"`, []string{product}, map[string]bool{"647612": true, "647700": false}, "design-asked: 647700 is not his answer"},
+		"no claim leaves it on his tap":   {"", []string{product}, nil, "fidelity: no ok grade"},
+		"a tap-rule path still needs him": {`,"design-asked":"647612"`, []string{"go/sand/next/internal/vm/run.go"}, map[string]bool{"647612": true}, "tap rule rule/82317b0 names go/sand/next/internal/vm/run.go"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			records := graded(t, "reads right")
+			if c.attrs != "" {
+				records = append(records, headRecord(t, portHead, c.attrs))
+			}
+			read := Read{Records: records, Exempt: driveClasses, TapRules: driveTaps, Files: c.files, Rulings: c.his}
+			text, _, refusals := ExemptGo(Claim{Repo: monorepo, PR: portPR, Head: portHead}, read)
+			if c.want != "" {
+				refusedWith(t, text, refusals, c.want)
+				return
+			}
+			if len(refusals) > 0 || !strings.Contains(text, "[exempt: design-asked]") {
+				t.Fatalf("got go %q and refusals %q, want a design-asked go", text, refusals)
+			}
+		})
+	}
+}
+
 func TestOnlyALanesNewestGradeVouchesForAFlakeFixHelper(t *testing.T) {
 	const helper = "go/sand/next/internal/callcount/callcount.go"
 	patch := "+uncounted"
