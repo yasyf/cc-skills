@@ -289,8 +289,10 @@ func unansweredTaps(ctx context.Context, drive, repo string, now time.Time) (map
 	}
 	tapped := map[int]bool{}
 	for _, record := range records {
-		if tap, ordered := bus.OrderOf(record, repo); ordered && tap.Value == string(machine.TapTapped) {
-			tapped[tap.PR] = true
+		for _, tap := range bus.OrdersOf(record, repo) {
+			if tap.Value == string(machine.TapTapped) {
+				tapped[tap.PR] = true
+			}
 		}
 		if string(record.Kind) == ownerKind {
 			continue

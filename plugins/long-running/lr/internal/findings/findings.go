@@ -395,14 +395,14 @@ func (b Book) Cited(ctx context.Context, picks map[int64]string) ([]int64, error
 }
 
 func (b Book) tapped(picks map[int64]string, records []client.Record) ([]int64, error) {
-	orders := map[int64]bus.Tap{}
+	orders := map[int64][]bus.Tap{}
 	at := map[int64]string{}
 	for _, record := range records {
 		if _, asked := picks[record.Seq]; !asked {
 			continue
 		}
-		if tap, named := bus.OrderOf(record, b.Entry.Repo); named && tap.Value == string(machine.TapTapped) {
-			orders[record.Seq], at[record.Seq] = tap, store.Stamp(record.At)
+		if taps := bus.OrdersOf(record, b.Entry.Repo); len(taps) > 0 && taps[0].Value == string(machine.TapTapped) {
+			orders[record.Seq], at[record.Seq] = taps, store.Stamp(record.At)
 		}
 	}
 	if len(orders) == 0 {
@@ -422,10 +422,12 @@ func (b Book) tapped(picks map[int64]string, records []client.Record) ([]int64, 
 		byNumber[row.Number] = row
 	}
 	var carried []int64
-	for seq, tap := range orders {
-		row, known := byNumber[tap.PR]
-		movedOn := tap.Head != "" && !strings.HasPrefix(row.Head, tap.Head) && row.HeadAt >= at[seq]
-		if known && (row.Tapped && row.TappedAt >= at[seq] || row.State == prrow.StateLanded || movedOn) {
+	for seq, taps := range orders {
+		if !slices.ContainsFunc(taps, func(tap bus.Tap) bool {
+			row, known := byNumber[tap.PR]
+			movedOn := tap.Head != "" && !strings.HasPrefix(row.Head, tap.Head) && row.HeadAt >= at[seq]
+			return !known || !(row.Tapped && row.TappedAt >= at[seq] || row.State == prrow.StateLanded || movedOn)
+		}) {
 			carried = append(carried, seq)
 		}
 	}
