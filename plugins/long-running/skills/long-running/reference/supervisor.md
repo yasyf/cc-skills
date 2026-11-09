@@ -179,7 +179,7 @@ A teammate the roster lists whose turn has ended reads idle.
 1. The supervisor posts one relay through the Orca desk asking the lane to post its state. A parked lane wakes on it, and a Sprite lane receives it as cci mail.
 2. Any record within 15 minutes ends it with no blocker and no relaunch. Orca reading the lane live ends it the same way, and a lane Orca reads live is never asked. A lane that later goes quiet again is asked again.
 3. No record in 15 minutes is the proof, and the lane takes the dead path above: a lane holding a PR relaunches from its brief and handoff, and one holding nothing retires.
-4. A lane the supervisor already relaunched, or whose brief is gone, is held instead. Its one blocker names what failed and goes to its desk, or to the drive's meta desk when it has none; root gets it only when the drive has no meta desk.
+4. A lane the supervisor already relaunched, whose brief is gone, whose brief's `ccx: lane=` names another lane, or whose every PR another lane now holds or has landed, is held instead. Its one blocker names what failed and goes to its desk, or to the drive's meta desk when it has none; root gets it only when the drive has no meta desk.
 
 A coordinator reading unverifiable, and a lane with no process row, are held with that one blocker and get no relay.
 

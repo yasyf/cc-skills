@@ -832,7 +832,20 @@ func launchHeir(s *store.Store, d Deps, old store.Lane, found map[string]Peer, w
 		out.Held = append(out.Held, old.Name)
 		return ""
 	}
+	if brief := must(BriefOf(old.Brief)); brief.Lane != "" && Stem(brief.Lane) != Stem(old.Name) {
+		hold(s, old.Name, why, now)
+		escalate(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: its brief %s is lane %s's, not %s's; relaunch it from its own brief by hand, or stand it down; it %s", old.Brief, brief.Lane, old.Name, why), now)
+		out.Held = append(out.Held, old.Name)
+		return ""
+	}
+	held := old.PRs
 	old.PRs = ours(s, d, old.PRs)
+	if len(held) > 0 && len(old.PRs) == 0 && !isStanding(old) {
+		hold(s, old.Name, why, now)
+		escalate(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: another lane holds or has landed every PR it had (%s); it %s", numberList(held), why), now)
+		out.Held = append(out.Held, old.Name)
+		return ""
+	}
 	if last := lastWorked(d, old); len(old.PRs) == 0 && !isStanding(old) && !last.IsZero() && now.Sub(last) > abandonedAfter {
 		hold(s, old.Name, why, now)
 		escalateTo(s, d, "lane:"+old.Name, fmt.Sprintf("held, not relaunched: it owns no PR and its last record or carried work is from %s, over %d hours ago; relaunch it from %s if its work is still wanted, or withdraw it with `orca-desk: withdraw %s`; it %s", pacific(last), int(abandonedAfter.Hours()), old.Brief, old.Name, why), Root, now)
