@@ -299,7 +299,7 @@ func Overrides(record client.Record) []Override {
 }
 
 func CountedOverrides(record client.Record) []Override {
-	if string(record.Kind) != "decide" || record.Lane != rootLane && record.Lane != SweepLane {
+	if string(record.Kind) != "decide" || client.Stem(record.Lane) != rootLane && record.Lane != SweepLane {
 		return nil
 	}
 	return Overrides(record)
@@ -325,7 +325,7 @@ func overridesIn(text string) []Override {
 }
 
 func voidFacts(record client.Record) []Fact {
-	if string(record.Kind) != "decide" || record.Lane != rootLane && record.Lane != SweepLane {
+	if string(record.Kind) != "decide" || client.Stem(record.Lane) != rootLane && record.Lane != SweepLane {
 		return nil
 	}
 	text := FullText(record)

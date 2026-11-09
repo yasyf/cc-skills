@@ -129,7 +129,7 @@ func grant(s *store.Store, r Record, fresh bool, at time.Time, out *folded) {
 		if row.State != store.LaneRetired && out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredWorkerDone, at)
 		}
-	case verb == "done" && known && r.Lane == Root && dutyOf(row) != "":
+	case verb == "done" && known && Stem(r.Lane) == Root && dutyOf(row) != "":
 		if row.State == store.LaneRetired || out.owesNothing(s, name, fresh, at) {
 			out.retireHolding(s, name, retiredDutyEnded, at)
 			do(s.SetLaneStanding(name, ""))
@@ -692,7 +692,7 @@ func readMoved(s *store.Store, r Record) []int {
 }
 
 func endedBy(r Record) []string {
-	if r.Lane == Root && r.Kind == "fix-live" {
+	if Stem(r.Lane) == Root && r.Kind == "fix-live" {
 		return r.To
 	}
 	return []string{r.Lane}
@@ -837,7 +837,7 @@ func foldCardTaker(s *store.Store, r Record, addressed map[string]bool) {
 		return
 	}
 	taker := ""
-	if r.Lane == Root {
+	if Stem(r.Lane) == Root {
 		named := maps.Clone(addressed)
 		for _, word := range laneWord.FindAllString(r.Text, -1) {
 			named[word] = true
@@ -864,7 +864,7 @@ func foldToRetired(s *store.Store, r Record, addressed map[string]bool, at time.
 	if isRequest(r) || !answer && !asksOfALane(r) {
 		return nil
 	}
-	assigns := r.Lane == Root || r.Lane == Self
+	assigns := Stem(r.Lane) == Root || r.Lane == Self
 	named := maps.Clone(addressed)
 	if assigns {
 		for _, pair := range laneAssigned.FindAllStringSubmatch(r.Text, -1) {

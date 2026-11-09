@@ -361,7 +361,7 @@ func (r *ReleaseOwed) started(record client.Record, owed *owedRelease, number in
 	if !owed.Incident || kind != releaseKind {
 		return targets || r.names(record, number)
 	}
-	if record.Lane == rootLane && r.names(record, number) {
+	if client.Stem(record.Lane) == rootLane && r.names(record, number) {
 		return true
 	}
 	if len(record.Refs.Builds) == 0 {
@@ -371,7 +371,7 @@ func (r *ReleaseOwed) started(record client.Record, owed *owedRelease, number in
 }
 
 func (r *ReleaseOwed) owned(record client.Record, owed *owedRelease, number int) bool {
-	if record.Lane == self || record.Lane == deskRunnerLane || record.Lane == rootLane || !slices.ContainsFunc(record.To, r.holds) {
+	if record.Lane == self || record.Lane == deskRunnerLane || client.Stem(record.Lane) == rootLane || !slices.ContainsFunc(record.To, r.holds) {
 		return false
 	}
 	named := slices.Clone(record.Refs.Targets)
@@ -383,7 +383,7 @@ func (r *ReleaseOwed) owned(record client.Record, owed *owedRelease, number int)
 }
 
 func acknowledges(record client.Record, owed *owedRelease, closing map[int64]bool) bool {
-	if record.Lane != rootLane {
+	if client.Stem(record.Lane) != rootLane {
 		return false
 	}
 	if closing[record.Resolves] || (!owed.Incident && closing[record.Re]) {
@@ -499,7 +499,7 @@ func (r *ReleaseOwed) held(ctx context.Context, landing owedLanding) error {
 	for _, hold := range holds {
 		key := strconv.FormatInt(hold.Seq, 10)
 		_, told := owed.Held[key]
-		if told || hold.Lane != rootLane || hold.At.Before(owed.Landed) || (!r.names(hold, pr.Number) && !slices.ContainsFunc(hold.To, r.holds)) {
+		if told || client.Stem(hold.Lane) != rootLane || hold.At.Before(owed.Landed) || (!r.names(hold, pr.Number) && !slices.ContainsFunc(hold.To, r.holds)) {
 			continue
 		}
 		posted, err := client.Post(ctx, client.Draft{
