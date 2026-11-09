@@ -5082,6 +5082,24 @@ func TestAStandingDesksNamedPRsNeverMakeItADuplicateButAnotherLanesBriefStillIs(
 	}
 }
 
+func TestASecondLiveLaneUnderOneAliasIsADuplicateEvenForAReadBrief(t *testing.T) {
+	w := newDeskWorld(t)
+	w.holding("board-refresher-1", "dev")
+	for lane, held := range map[string]bool{
+		"board-refresher-2": true,
+		"board-refresher":   true,
+		"board-painter-1":   false,
+	} {
+		found, err := w.desk.duplicateHolder(context.Background(), lane, testBrief+"ccx: role=read\nRefreshes the board.\n")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (found != "") != held {
+			t.Fatalf("%s: holder %q, want held=%v", lane, found, held)
+		}
+	}
+}
+
 func TestASearchLaneNamingAPRIsNoDuplicateButAFixLaneNamingItStillIs(t *testing.T) {
 	w := newDeskWorld(t)
 	const holder = "dd-331844288-fix"
