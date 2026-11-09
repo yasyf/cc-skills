@@ -114,10 +114,7 @@ type SlackPRCard struct {
 }
 
 func Card(repo string, row store.ReviewRow) SlackCard {
-	opening, lead, approve := portTitleOpening(row), "", "Approve"
-	if opening == "" {
-		opening, approve = cardtext.ChangeKind(row.Title)+": ", "approve"
-	}
+	opening, lead := portTitleOpening(row), ""
 	card := SlackCard{
 		Status: "info",
 		PRs: []SlackPRRow{{
@@ -140,6 +137,10 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 	if !OffersApproval(row) {
 		card.Title, card.PRs[0].Head = headed(row.Number, row.Title, func(named string) string { return opening + lead + named }), ""
 		return card
+	}
+	approve := "Approve"
+	if opening == "" {
+		opening, approve = cardtext.ChangeKind(row.Title)+": ", "approve"
 	}
 	card.Status, card.Title = "needs_you", headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%s%s %s?", opening, approve, named) })
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
