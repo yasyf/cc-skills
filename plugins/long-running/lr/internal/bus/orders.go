@@ -53,6 +53,10 @@ var (
 	namedPR        = regexp.MustCompile(`([\w./-]*)#(\d+)\b`)
 	portOpening    = regexp.MustCompile(`(?i)\b(?:port of |` + regexp.QuoteMeta(cardtext.PortOpener) + `)\[?[\w./-]*#\d+`)
 	slackAsk       = regexp.MustCompile(`^slack[-:]`)
+	threadCard     = regexp.MustCompile(`^merge:(\d+):([0-9a-fA-F]{7,40})$`)
+	threadWords    = regexp.MustCompile(`^Owner's words in the Slack thread of [^:]+:[^:]+:[^:]+: (.*)$`)
+	holdWords      = regexp.MustCompile(`(?i)\b(?:hold|close|reject(?:ed)?|not approved|don'?t (?:land|merge|ship)|do not (?:land|merge|ship))\b`)
+	tapWords       = regexp.MustCompile(`(?i)\b(?:approved?|land it|merge it|ship it)\b`)
 )
 
 func (b Bus) ReadOwner(ctx context.Context, since int64, floor time.Time) ([]client.Record, error) {
@@ -176,6 +180,9 @@ func OrdersOf(record client.Record, repo string) []Tap {
 		}
 		return []Tap{{PR: row, Head: strings.ToLower(attrs["head"]), By: OwnerBy, Value: value}}
 	}
+	if tap, said := threadTap(attrs["card"], record.Text); said {
+		return []Tap{tap}
+	}
 	value := cardValue(attrs, record.Text)
 	if value == "" {
 		return nil
@@ -185,6 +192,42 @@ func OrdersOf(record client.Record, repo string) []Tap {
 		taps = append(taps, Tap{PR: shown.PR, Head: shown.Head, By: OwnerBy, Value: value})
 	}
 	return taps
+}
+
+// SaidInCardThread says the record carries his words from a PR card's Slack thread, which withdraw the card's tap when they hold and tap it when they approve.
+func SaidInCardThread(record client.Record) bool {
+	_, said := threadTap(record.Fields.Attrs["card"], record.Text)
+	return string(record.Kind) == ownerKind && said
+}
+
+func threadTap(card, text string) (Tap, bool) {
+	shown, words := threadCard.FindStringSubmatch(card), threadWords.FindStringSubmatch(text)
+	if shown == nil || words == nil {
+		return Tap{}, false
+	}
+	number, _ := strconv.Atoi(shown[1])
+	tap := Tap{PR: number, Head: strings.ToLower(shown[2]), By: OwnerBy}
+	switch {
+	case holdWords.MatchString(words[1]):
+		tap.Value = heldValue
+	case tapWords.MatchString(words[1]):
+		tap.Value = tappedValue
+	default:
+		return Tap{}, false
+	}
+	return tap, true
+}
+
+// PostWordHold holds the PR at the head his card showed until his next tap, keyed by his words so a second pass writes nothing.
+func (b Bus) PostWordHold(ctx context.Context, repo string, tap Tap, from client.Record) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: "hold",
+		ID:    fmt.Sprintf("word-hold/%s/%d", cmp.Or(from.ID, from.Name()), tap.PR),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, tap.PR)},
+		Attrs: map[string]string{holdUntilAttr: holdUntilTap, refusedHead: tap.Head},
+		Text:  fmt.Sprintf("hold #%d%s until he taps again: his words in its card's thread (%s) withdraw his tap", tap.PR, At(tap.Head), from.Name()),
+	})
+	return err
 }
 
 // UnreadPick says a pick was recorded with option ids and no label, so no one can tell a land pick from any other. A Slack permission card asks whether to post, so its pick never lands a PR.

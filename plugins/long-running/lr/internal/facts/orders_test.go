@@ -1125,3 +1125,26 @@ func TestHisUntilTapHoldThatArrivesAfterTheSnapshotStillStopsItsPass(t *testing.
 		t.Fatalf("facts = %+v, want the new hold", snapshot[0])
 	}
 }
+
+func TestHisHoldWordsInACardsThreadWithdrawTheTapAndHoldThePRUntilHisNextTap(t *testing.T) {
+	h := surfaceHarness(t)
+	card := "merge:4242:abc1234"
+	ownerRecord(t, "Owner's words in the Slack thread of "+card+": Not approved, close this", map[string]string{"card": card, "row": "m1946"})
+
+	writeOrders(t, h)
+	writeOrders(t, h)
+
+	if written := orders(t); len(written) != 1 {
+		t.Fatalf("orders = %+v", written)
+	}
+	if open := openHoldSeqs(t); len(open) != 1 {
+		t.Fatalf("open holds = %v, want his words' hold", open)
+	}
+
+	tapAt(t, surfaceHead)
+	writeOrders(t, h)
+
+	if open := openHoldSeqs(t); len(open) != 0 {
+		t.Fatalf("his next tap left holds open: %v", open)
+	}
+}
