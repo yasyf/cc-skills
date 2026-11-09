@@ -52,6 +52,28 @@ func TestAnApproveOnACardShowingTwoPRsOrdersEachAtTheHeadItShowed(t *testing.T) 
 	}
 }
 
+func TestHisWordsInAPRCardsThreadWithdrawOrTapTheCardAtTheHeadItShowed(t *testing.T) {
+	for words, want := range map[string]string{
+		"Not approved, close this, we don't want the manual version": "withdrawn",
+		"hold this until the fork explains itself":                   "withdrawn",
+		"Approved":                  "tapped",
+		"looks good, land it":       "tapped",
+		"why is this fork skipped?": "",
+	} {
+		record := legacyRecord(t, "owner", "owner-relay", "Owner's words in the Slack thread of merge:52678:527C74B: "+words, nil, map[string]string{"card": "merge:52678:527C74B", "row": "m1946"})
+		got := bus.OrdersOf(record, repo)
+		if want == "" {
+			if len(got) > 0 || bus.SaidInCardThread(record) {
+				t.Errorf("%q ordered %+v, want nothing", words, got)
+			}
+			continue
+		}
+		if len(got) != 1 || got[0].PR != 52678 || got[0].Head != "527c74b" || got[0].Value != want || !bus.SaidInCardThread(record) {
+			t.Errorf("%q = %+v, want #52678 at 527c74b %s", words, got, want)
+		}
+	}
+}
+
 func TestALabelLessPickEscalatesUnlessItIsASlackPermissionAnswer(t *testing.T) {
 	for block, want := range map[string]bool{
 		"merge:50129:655dbb7-answer":      true,

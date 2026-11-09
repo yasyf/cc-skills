@@ -217,6 +217,9 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 	if !order.At.Before(now) {
 		s.Log.Info("an owner tap became a land order", "record", record.Name(), "pr", tap.PR, "head", tap.Head, "order", order.Seq)
 	}
+	if tap.Value == string(machine.TapWithdrawn) && bus.SaidInCardThread(record) {
+		return orders.PostWordHold(ctx, s.Repo, tap, record)
+	}
 	return s.endTapHolds(ctx, tap, record)
 }
 
