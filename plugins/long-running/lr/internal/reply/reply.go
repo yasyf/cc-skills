@@ -53,6 +53,8 @@ const (
 	withdrawn      = " withdrawn"
 	alreadyGone    = "no block "
 	pickLink       = "Pick on the card"
+	cardAtRoot     = "The card is at your DM root"
+	threadLink     = "slack link"
 	needsYou       = "needs_you"
 	progress       = "progress"
 	info           = "info"
@@ -1514,7 +1516,7 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 		if err != nil {
 			return []Outcome{{Surface: "slack", Error: "the order's place did not read, so nothing was posted or edited: " + err.Error()}}
 		}
-		if place == r.Thread {
+		if place == r.Thread && len(r.tapFlags()) == 0 {
 			return f.movedToThread(ctx, r, own)
 		}
 	}
@@ -1524,7 +1526,10 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if surface(was.Surfaces, "slack").Ref != "" || len(r.Picks) > 0 && drawn.Ref == "" {
 		return nil
 	}
-	if r.Thread != "" && drawn.Surface == "" {
+	if len(r.Picks) > 0 {
+		return f.linkedInThread(ctx, r, drawn.Ref)
+	}
+	if r.Thread != "" && drawn.Surface == "" && len(r.tapFlags()) == 0 {
 		return f.inThread(ctx, r)
 	}
 	if drawn.Surface != "" || len(r.Links) == 0 && len(r.PRs) == 0 && len(r.Artifacts) == 0 && len(r.OpenCards) == 0 && r.Status == "" {
@@ -1534,7 +1539,20 @@ func (f Fanout) slack(ctx context.Context, r Reply, sent []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "slack", Error: err.Error()}}
 	}
-	return f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
+	posted := f.dmStatus(ctx, append([]string{"--card", card}, r.tapFlags()...)...)
+	if posted[0].Error != "" {
+		return posted
+	}
+	return append(posted, f.linkedInThread(ctx, r, posted[0].Ref)...)
+}
+
+func (f Fanout) linkedInThread(ctx context.Context, r Reply, card string) []Outcome {
+	if r.Thread == "" {
+		return nil
+	}
+	linked := f.dmStatus(ctx, "--thread", r.Thread, "*"+r.Title+"*\n<"+card+"|"+cardAtRoot+">")[0]
+	linked.Surface = threadLink
+	return []Outcome{linked}
 }
 
 func (f Fanout) movedToThread(ctx context.Context, r Reply, root Outcome) []Outcome {
