@@ -422,7 +422,7 @@ func TestAGoRootWithdrewInADecideKillsEveryGoAtThatHeadAndTheSweepsCopy(t *testi
 	if live := bus.LiveGos(records, nil); len(live) != 1 || live[0].Seq != otherGo.Seq {
 		t.Fatalf("LiveGos = %+v, want only the go at the other PR", live)
 	}
-	if live := bus.LiveGos(append(records, freshGo), nil); len(live) != 2 || live[1].Seq != freshGo.Seq {
+	if live := bus.LiveGos([]client.Record{rootGo, withdrawal, sweepGo, otherGo, freshGo}, nil); len(live) != 2 || live[1].Seq != freshGo.Seq {
 		t.Fatalf("LiveGos = %+v, want root's new go after its withdrawal to stand", live)
 	}
 }
