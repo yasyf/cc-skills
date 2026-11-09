@@ -360,7 +360,7 @@ cci post --kind ask --to bk-desk "bk build <pipeline> <number>"
 | Read | Answer body |
 |---|---|
 | `bk build <pipeline> <number>` | The build's state, branch, commit and URL, then one line per job not passed with its state, exit status and job id |
-| `bk jobs <pipeline> <number>` | One line per script job, passed ones included, with its state, job id and name, and `N/M` after the name for a job of a parallel step |
+| `bk jobs <pipeline> <number> [<N/M>] [--state <state>] [--step <regex>]` | One line per script job, passed ones included, with its state, job id and name, and `N/M` after the name for a job of a parallel step. `--state` keeps the jobs in that state and `--step` the jobs whose name or step key matches a regex with no spaces. A list over 16 KiB answers in windows: the answer names its window and the read for the next, such as `bk jobs release 13917 2/4` |
 | `bk failures <pipeline> <number>` | Each failed script job of the build, its retried ones left out, with its job id and name, and under it the log lines that read as a failure: `--- FAIL`, `FAIL`, `panic:`, `panicked`, `error TS<n>` and `✖`. Words after the number are a note. |
 | `bk builds <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]` | Newest first, one line per build: its number, state, branch, commit and the first line of its message, up to 16 KiB, so a 100-build page fits. The desk reads every page itself and the answer's line says when older builds did not fit |
 | `bk annotations <pipeline> <number> [<context>]` | Each annotation's style and context, then its text with the HTML removed, up to 16 KiB; one too long to fit is named with the context that reads it alone |

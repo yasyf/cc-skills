@@ -27,7 +27,7 @@ import (
 const (
 	Lane  = "bk-desk"
 	Duty  = "answers lanes' Buildkite reads over cci"
-	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number>, bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or one of the three writes, bk retry <pipeline> <number> <job id>, bk create test <commit> <branch> [FORGE_CI_<FLAG>=<value>...], which starts a whole test build, and tools/ci bk rerun <pipeline> <number|dev> --unit <unit> [--count <n>], which runs as tools/ci bk parses it"
+	Reads = "bk build <pipeline> <number>, bk jobs <pipeline> <number> [<N/M>] [--state <state>] [--step <regex>], bk failures <pipeline> <number>, bk builds <pipeline> [--branch <glob>] [--since <date>], bk annotations <pipeline> <number> [<context>], bk log <pipeline> <number> <job id or step key> [<N/M>] [--grep '<regex>'] [--context <n>], bk grep <pipeline> <number> <job id or step key> <regex>, bk api <path> [--fields <names>], or one of the three writes, bk retry <pipeline> <number> <job id>, bk create test <commit> <branch> [FORGE_CI_<FLAG>=<value>...], which starts a whole test build, and tools/ci bk rerun <pipeline> <number|dev> --unit <unit> [--count <n>], which runs as tools/ci bk parses it"
 
 	fresh          = time.Minute
 	readTimeout    = 5 * time.Minute
@@ -36,6 +36,7 @@ const (
 	bodiesDir      = "bk-desk"
 	perPage        = 100
 	buildsUsage    = "builds takes <pipeline> [--branch <glob>] [--since <date or RFC3339 time, UTC>]"
+	jobsUsage      = "jobs takes <pipeline> <number> [<window N/M>] [--state <job state>] [--step <regex on the job name or step key>]"
 	logUsage       = "log takes <pipeline> <number> <job id, or step key and its N/M for a parallel step> [--grep '<regex>'] [--context <lines, 0 to 50>]"
 	jobFailed      = "failed"
 	failureMark    = `--- FAIL|panic:|FAIL\s`
@@ -51,7 +52,7 @@ var (
 	logEscapes    = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]|\x1b_bk;t=\d+\x07`)
 	htmlTags      = regexp.MustCompile(`<[^>]*>`)
 	parallelShard = regexp.MustCompile(`^[1-9][0-9]*/[1-9][0-9]*$`)
-	fixedArity    = map[string]int{"build": 2, "jobs": 2, "failures": 2, "retry": 3}
+	fixedArity    = map[string]int{"build": 2, "failures": 2, "retry": 3}
 	failureLine   = regexp.MustCompile(failureMark + `|error TS\d+|✖|panicked`)
 	ciCommandEnd  = regexp.MustCompile("[\n`;]")
 	commitSHA     = regexp.MustCompile(`^[0-9a-f]{40}$`)
@@ -172,6 +173,9 @@ func parse(text string) ([]string, string) {
 	if match[1] == "create" {
 		return parseCreate(strings.Fields(match[2]))
 	}
+	if match[1] == "jobs" {
+		return parseJobs(strings.Fields(match[2]))
+	}
 	if arity, fixed := fixedArity[match[1]]; fixed {
 		words := strings.Fields(match[2])
 		match[2] = strings.Join(words[:min(arity, len(words))], " ")
@@ -188,13 +192,6 @@ func parse(text string) ([]string, string) {
 			}
 		}
 		return nil, "build takes <pipeline> <number>"
-	case "jobs":
-		if len(rest) == 2 {
-			if _, err := strconv.Atoi(rest[1]); err == nil {
-				return append([]string{"jobs"}, rest...), ""
-			}
-		}
-		return nil, "jobs takes <pipeline> <number>"
 	case "failures":
 		if len(rest) == 2 {
 			if _, err := strconv.Atoi(rest[1]); err == nil {
@@ -312,6 +309,31 @@ func parseLog(rest []string) ([]string, string) {
 	return []string{"log", rest[0], rest[1], rest[2], *pattern, strconv.Itoa(*width), shard}, ""
 }
 
+func parseJobs(words []string) ([]string, string) {
+	if len(words) < 2 || strings.HasPrefix(words[0], "-") {
+		return nil, jobsUsage
+	}
+	if _, err := strconv.Atoi(words[1]); err != nil {
+		return nil, jobsUsage
+	}
+	window, rest := "1", words[2:]
+	if len(rest) > 0 && parallelShard.MatchString(rest[0]) {
+		window, _, _ = strings.Cut(rest[0], "/")
+		rest = rest[1:]
+	}
+	filters := map[string]string{"--state": "", "--step": ""}
+	for len(rest) > 1 {
+		if _, known := filters[rest[0]]; !known {
+			break
+		}
+		filters[rest[0]], rest = rest[1], rest[2:]
+	}
+	if _, err := regexp.Compile(filters["--step"]); err != nil {
+		return nil, fmt.Sprintf("jobs' --step regex does not compile: %v", err)
+	}
+	return []string{"jobs", words[0], words[1], window, filters["--state"], filters["--step"]}, ""
+}
+
 func parseBuilds(rest []string) ([]string, string) {
 	if len(rest) == 0 || strings.HasPrefix(rest[0], "-") {
 		return nil, buildsUsage
@@ -373,11 +395,12 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 	case "create":
 		return d.create(ctx, args[1], args[2], args[3], args[4:])
 	case "jobs":
-		said, failure := d.run(ctx, "api", "-no-wait", "/pipelines/"+args[1]+"/builds/"+args[2])
+		read, failure := d.build(ctx, args[1], args[2])
 		if failure != nil {
 			return *failure
 		}
-		return everyJob(said)
+		window, _ := strconv.Atoi(args[3])
+		return everyJob(read, args[1], window, args[4], regexp.MustCompile(args[5]))
 	case "failures":
 		return d.failures(ctx, args[1], args[2])
 	case "annotations":
@@ -712,20 +735,45 @@ func summary(said string) reply {
 	}
 }
 
-func everyJob(said string) reply {
-	var read build
-	if err := json.Unmarshal([]byte(said), &read); err != nil {
-		return reply{head: "the build did not parse", body: askdesk.FirstBytes(said, replyLimit)}
-	}
-	var lines strings.Builder
-	scripts := 0
-	for _, step := range read.Jobs {
-		if step.Type == "script" {
-			scripts++
-			fmt.Fprintf(&lines, "%s job=%s %s%s\n", step.State, step.ID, step.Name, step.label())
+func everyJob(read build, pipeline string, window int, state string, step *regexp.Regexp) reply {
+	windows := []strings.Builder{{}}
+	scripts, listed := 0, 0
+	for _, each := range read.Jobs {
+		if each.Type != "script" {
+			continue
 		}
+		scripts++
+		if state != "" && each.State != state || !step.MatchString(each.Name) && !step.MatchString(each.StepKey) {
+			continue
+		}
+		listed++
+		line := fmt.Sprintf("%s job=%s %s%s\n", each.State, each.ID, each.Name, each.label())
+		if windows[len(windows)-1].Len()+len(line) > replyLimit {
+			windows = append(windows, strings.Builder{})
+		}
+		windows[len(windows)-1].WriteString(line)
 	}
-	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: askdesk.FirstBytes(lines.String(), replyLimit), url: read.WebURL}
+	head := fmt.Sprintf("%s, %d jobs", read.State, scripts)
+	if listed < scripts {
+		head += fmt.Sprintf(", %d matching", listed)
+	}
+	if window > len(windows) {
+		return reply{head: fmt.Sprintf("%s in %d windows, so there is no window %d", head, len(windows), window), url: read.WebURL}
+	}
+	if len(windows) > 1 {
+		head += fmt.Sprintf(", window %d of %d", window, len(windows))
+	}
+	if window < len(windows) {
+		next := fmt.Sprintf("bk jobs %s %d %d/%d", pipeline, read.Number, window+1, len(windows))
+		if state != "" {
+			next += " --state " + state
+		}
+		if step.String() != "" {
+			next += " --step " + step.String()
+		}
+		head += "; " + next + " reads the next"
+	}
+	return reply{head: head, body: windows[window-1].String(), url: read.WebURL}
 }
 
 func unfinished(r reply, state string) reply {
