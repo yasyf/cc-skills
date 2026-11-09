@@ -33,7 +33,7 @@ class DriveActive:
 
 class MessagesItsOwnTeammate:
     def check(self, evt: BaseHookEvent) -> bool:
-        return evt.ctx.t.tool_calls.named("Agent").where_input(name=evt.input.raw.get("to")).any()
+        return evt.ctx.t.tool_calls.named("Agent").where_input(name=re.compile(rf"^{re.escape(evt.input.raw['to'])}$")).any()
 
 
 def route(lane: str, to: str, state: str = RETIRED, standing: str = "", meta: bool = False) -> dict:
@@ -68,6 +68,8 @@ def mentions_stand_down(message: object) -> bool:
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="desk", prompt="read x"))]): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk"), transcript=[T.assistant(T.tool("Agent", name="desk", prompt="read x"))]): Allow(),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="desk-reader", prompt="read x"))]): Rewrite(None, to="desk-3"),
+        Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="old-desk", prompt="read x"))]): Rewrite(None, to="desk-3"),
+        Input(tool="SendMessage", tool_input={"to": "desk.3", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk.3", "desk-3", "desired"), transcript=[T.assistant(T.tool("Agent", name="desk-3", prompt="read x"))]): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "restack-desk")): Rewrite(None, to="restack-desk"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "status?"}, env=DRIVE_CONFIG, commands=route("desk", "desk-3", "desired")): Rewrite(None, to="desk-3"),
         Input(tool="SendMessage", tool_input={"to": "desk", "message": "done: #12 merged"}, agent_id="a1b2c3", env=DRIVE_CONFIG, commands=route("desk", "desk-3")): Rewrite(None, to="desk-3"),
