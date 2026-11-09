@@ -62,7 +62,7 @@ addressed to the coordinator, rule, route, spawn lanes, go and hold PRs, run inc
 incident checklist, keep the task list, write the progress docs, keep the register.
 You hold lanes, gos, holds, incidents, the task list, progress docs and the register.
 You own drive work only. A meta change, tooling build or defect belongs to the communicator's meta
-lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). The one exception is a hook that blocks you: launch its fix lane yourself and keep working on what it does not block ([SKILL.md](../SKILL.md#hooks-and-refusals)); a lane a hook blocks launches its own. Report any other tooling defect that
+lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). The one exception is a hook that blocks you: launch its fix lane yourself and keep working on what it does not block ([SKILL.md](../SKILL.md#hooks-and-refusals)); a lane a hook blocks launches its own. That lane's brief, and any tooling brief you write, ends at a `landed` record to install-desk: install-desk does every plugin and binary install, so a brief that orders an install, or a lane that runs one, is a defect, most of all during an open incident. Report any other tooling defect that
 you hit as `cci post --lane root --drive <drive> --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
@@ -172,7 +172,7 @@ ask, PR and card, with `--open '<item>; <item>'`, or says `--open none`. An `own
 too. Run without it, the verb posts nothing and prints the records you have not read with
 the command to run again. A request posts under the lane bound to your session, and is
 refused when none is bound unless `--by <lane>` names one. A decide saying a lane retired or is done, that one
-lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing.
+lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing, and a duty lane such as board-refresher that a decide ends in prose is relaunched by the supervisor on its next pass; end a duty with `lr request done <lane>`.
 Address a lane by its stem, the name without a trailing `-<n>`, such as `--to board-refresher`:
 cci delivers it to the stem's newest live lane, so no record has to track a lane's number.
 
