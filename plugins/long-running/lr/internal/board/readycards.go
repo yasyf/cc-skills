@@ -27,6 +27,7 @@ import (
 )
 
 const (
+	laneGapWait       = 30 * time.Minute
 	FactCardDrawn     = "card_drawn"
 	FactCardRefused   = "card_refused"
 	factRefusalTold   = "card_refusal_told"
@@ -118,7 +119,7 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 	}
 	due, waiting := []store.ReviewRow{}, []store.ReviewRow{}
 	for _, row := range rows {
-		if !waitsOnHim(row) || row.State != prrow.StateOpen || followed[row.Number] {
+		if !waitsOnHim(row) && !r.heldByItsLane(row) || row.State != prrow.StateOpen || followed[row.Number] {
 			continue
 		}
 		if prrow.WordsWait(row) == "" && facts[row.Number][FactTapCard] == "" {
@@ -659,6 +660,11 @@ func (c Cards) freeTapRow(card string) error {
 	return nil
 }
 
+func (r ReadyCards) heldByItsLane(row store.ReviewRow) bool {
+	moved, err := store.Parse(row.MovedAt)
+	return err == nil && r.Cards.Now().Sub(moved) >= laneGapWait && len(prrow.LaneGaps(row)) > 0
+}
+
 func tapCardID(row store.ReviewRow) string {
 	return gates.TapCardPrefix(row.Number) + row.Head[:min(waitsSHA, len(row.Head))]
 }
@@ -677,9 +683,14 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	if doc := prrow.ShowMeDiagram(row); doc != nil {
 		children = slices.Insert(children, 0, map[string]any{"id": id + "-diagram", "type": arch.Block, "doc": doc})
 	}
+	title, summary := "%sLand %s?", portOpening(repo, row)+"It passed its checks and review and waits only on your tap."
+	if gaps := prrow.LaneGaps(row); len(gaps) > 0 {
+		title = "%sLand %s past what its review found?"
+		summary = portOpening(repo, row) + "It is green and approved, and its lane has not answered this for half an hour: " + strings.Join(gaps, " ") + " Approve lands it past these; Hold leaves it with its lane."
+	}
 	return json.Marshal(map[string]any{
-		"id": id, "type": "card", "title": headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%sLand %s?", portTitleOpening(row), named) }),
-		"summary":  portOpening(repo, row) + "It passed its checks and review and waits only on your tap.",
+		"id": id, "type": "card", "title": headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf(title, portTitleOpening(row), named) }),
+		"summary":  summary,
 		"children": children,
 	})
 }

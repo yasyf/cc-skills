@@ -60,19 +60,22 @@ const (
 	planChecked    = "Checked against the plan by the fidelity review at this version."
 	planOverridden = "The fidelity review's finding was overridden at this version, so the plan check did not pass it."
 	PortLands      = "Nothing from you: a clean old-tree port lands on your standing word that ports need no tap, and its go comes next."
+	PlanUnnamed    = "No plan row names this PR."
+	gradeFailed    = "The drive's review of this version failed."
 	FlakeLands     = "Nothing from you: a test-flake fix lands on your standing word that flake fixes need no tap, and its go comes next."
 )
 
 var (
-	heading     = regexp.MustCompile(`(?m)^#{1,3}\s+(.+?)\s*$`)
-	holdLane    = regexp.MustCompile(`^[a-z][\w-]*:`)
-	holdNoise   = regexp.MustCompile(`(?i)\s*\((?:record #\d+|replaces [^)]*|[0-9a-f]{7,40}|\d{5,}(?:@[0-9a-f]+)?)\)`)
-	holdLeadIn  = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
-	sentenceEnd = regexp.MustCompile(`[.!?](?:\s|$)`)
-	planLine    = regexp.MustCompile(`(?im)^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b.*)$`)
-	planNamed   = regexp.MustCompile(`(?i)\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,}|bug list item \d+)\b`)
-	itemList    = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
-	itemNumber  = regexp.MustCompile(`\d+`)
+	heading      = regexp.MustCompile(`(?m)^#{1,3}\s+(.+?)\s*$`)
+	holdLane     = regexp.MustCompile(`^[a-z][\w-]*:`)
+	holdNoise    = regexp.MustCompile(`(?i)\s*\((?:record #\d+|replaces [^)]*|[0-9a-f]{7,40}|\d{5,}(?:@[0-9a-f]+)?)\)`)
+	holdLeadIn   = regexp.MustCompile(`(?i)^(?:\d{1,2}:\d{2} [AP]M )?(?:[\w-]+ holds?|hold(?: on)?) (?:#?\d+|this PR|PR \d+)(?: widened)?[ :,]*`)
+	sentenceEnd  = regexp.MustCompile(`[.!?](?:\s|$)`)
+	planLine     = regexp.MustCompile(`(?im)^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b.*)$`)
+	planNamed    = regexp.MustCompile(`(?i)\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,}|bug list item \d+)\b`)
+	itemList     = regexp.MustCompile(`(?i)\bitems? \d+(?:(?:, and |, | and )\d+)*\b`)
+	itemNumber   = regexp.MustCompile(`\d+`)
+	findingNoise = regexp.MustCompile(`!?\[[^\]]*\]\([^)]*\)|\S*[/:.]\S*\d\S*|\b[0-9a-f]{7,40}\b|\b(?:finder|fidelity):\s*\w+|\b\d+ open over whole\b`)
 )
 
 func Terminal(state string) bool {
@@ -137,6 +140,43 @@ func transition(s *store.Store, repo string, number int, head string, facts map[
 }
 
 var ErrRowsNotFolded = errors.New("the landing store holds no review row yet, so no approval can be judged until the first fold")
+
+// LaneGaps names, in plain words, what holds an open row that is green,
+// approved and mergeable when only its lane can clear it: a failed drive grade
+// or a missing plan row. It is nil when anything else is unmet or nothing is.
+func LaneGaps(row store.ReviewRow) []string {
+	if row.State != StateOpen || row.Tapped || firstUnmet(row) == "" {
+		return nil
+	}
+	cleared, gaps := row, []string(nil)
+	if row.Grade != GradePass && row.Grade != GradePending {
+		cleared.Grade = GradePass
+		found := findingSentences(row.GradeFindings)
+		if len(found) == 0 {
+			found = []string{gradeFailed}
+		}
+		gaps = append(gaps, found...)
+	}
+	if row.PlanRow == "" {
+		cleared.PlanRow = PlanUnnamed
+		gaps = append(gaps, PlanUnnamed)
+	}
+	if len(gaps) == 0 || firstUnmet(cleared) != "" {
+		return nil
+	}
+	return gaps
+}
+
+func findingSentences(findings string) []string {
+	var said []string
+	for part := range strings.SplitSeq(findings, "; ") {
+		text := strings.Trim(strings.Join(strings.Fields(findingNoise.ReplaceAllString(part, " ")), " "), ":;,. …")
+		if len(strings.Fields(text)) >= 4 {
+			said = append(said, text+".")
+		}
+	}
+	return said
+}
 
 func firstUnmet(row store.ReviewRow) string {
 	return unmet(row, true)
@@ -248,7 +288,7 @@ func unmet(row store.ReviewRow, checks bool) string {
 		return gates.UnsafeOnDev(row.UnsafeWait)
 	case checks && row.ForUsers == "":
 		return "its PR body has no Summary"
-	case checks && row.PlanRow == "":
+	case checks && row.PlanRow == "" && !row.Tapped:
 		return `its PR body names no plan: open a line with "Plan:", or name plan step N, owner:m<row> or a cc-notes task id`
 	case checks && row.Risk == "":
 		return "its PR body has no Risk profile"

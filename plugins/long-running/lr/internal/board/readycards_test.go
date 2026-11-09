@@ -12,6 +12,7 @@ import (
 
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
@@ -1005,5 +1006,21 @@ func TestATapCardCarriesItsPRBodysArchBlockForTheLinkLaneToDraw(t *testing.T) {
 	}
 	if plain, err := TapCard(readyRepo, tapRow(52228)); err != nil || strings.Contains(string(plain), "lr.arch") {
 		t.Fatalf("a body with no arch block drew %s, %v", plain, err)
+	}
+}
+
+func TestAGapCardQuotesWhatItsLaneLeftOpenInPlainWords(t *testing.T) {
+	row := tapRow(52504)
+	row.CI, row.Approvers, row.Mergeable, row.Grade, row.PlanRow, row.Risk = prrow.CIGreen, "forge-pr-reviewer", "clean", "fail", "", "low"
+	row.GradeFindings = "finder: major 867546b37e021f19e78f388535eb383f3c945144 5 open over whole 867546b^..867546b: infra/lib/s3tables.ts:83-92; The account-wide settings resource omits read-only admins and trusted resource owners"
+	block, err := TapCard(readyRepo, row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(block), "past what its review found?") || !strings.Contains(string(block), "omits read-only admins") || !strings.Contains(string(block), prrow.PlanUnnamed) {
+		t.Fatalf("card = %s, want the gap title and each gap", block)
+	}
+	if err := cardtext.PlainBlock(block); err != nil {
+		t.Fatalf("the gap card is refused for its words: %v", err)
 	}
 }
