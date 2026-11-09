@@ -510,7 +510,7 @@ roles. Never use Fable as a general fallback or set `fallbackModel`.
 | --- | --- | --- |
 | `opus` | `claude-opus-5-5` | Root orchestrators and the Claude implementation default |
 | `sonnet` | `claude-sonnet-5-5` | Explicitly selected Claude worker |
-| `fable` | `claude-fable-5-1` | Exceptional: explicit local, most sensitive implementation only |
+| `fable` | `claude-fable-5-2` | Exceptional: explicit local, most sensitive implementation only |
 | `gpt-6.1-sol` | `gpt-6.1-sol` | Codex review, diagnosis, sweeps and shell-heavy lanes on the standard tier; incident lanes add the fast tier |
 
 On the remote route, full `claude-*` and `gpt-*` model IDs pass through unchanged

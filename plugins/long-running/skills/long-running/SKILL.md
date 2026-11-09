@@ -6,7 +6,10 @@ description: Run a long drive as two Claude Code sessions. The communicator is t
 # Long-running drives
 
 A drive is two sessions and the background agents one of them starts. His ruling, Nov 9 7:46 AM:
-"We like the coordinator / communicator split".
+"We like the coordinator / communicator split". Both sessions run Fable 5.2, `claude-fable-5-2`,
+and nothing else in the drive runs Fable: builders, readers, codex lanes and every other job keep
+the model their agent names. His ruling, Nov 9 1:32 PM: "Our coordinator and communicator lanes
+should switch to fable 5.2, released today (still no other lanes should be fable)".
 
 - **The communicator** is the only session he talks to. It picks up and acks each of his messages
   within seconds, hands the work to the coordinator, and writes every message he sees. It never
@@ -37,7 +40,9 @@ the coordinator.
 Each session runs these steps for its role. A restart, a resume and a compaction land here too; the
 `SessionStart` hook prints the role's block after a compaction.
 
-1. `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
+1. A new session starts as `claude --model claude-fable-5-2`; a live one on another model switches
+   with `/model claude-fable-5-2` at an idle prompt.
+   `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
    creates the drive or binds that role to this session, and prints the role's block. His DM is the
    communicator's. Each alert channel the drive reads is a `--watch`, kept in the drive across
    restarts and held by the coordinator; a later `--watch` adds one.
