@@ -35,7 +35,7 @@ def job(**overrides: object) -> dict:
 
 @pytest.fixture
 def demo(state_root: Path) -> str:
-    data = state.new_drive("demo", "session-under-test", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "session-under-test", "/work", "D123")
     data["orders"]["o1"] = order()
     data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
     data["prs"][KEY] = cli.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title"}
@@ -247,13 +247,17 @@ def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
         data["owner"] = {"heard": state.stamp(T0), "away": True}
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
         data["orders"]["o2"] = order(jobs=[], updated=state.stamp(T0 - timedelta(minutes=5)))
+    serve(monkeypatch, {})
+    watching = watcher(demo)
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
-    assert cli.main(["heard", "--drive", demo]) == 0
+    assert cli.main(["heard", "--drive", demo, "--thread", "1794.2"]) == 0
     said = capsys.readouterr().out.strip()
     assert said.startswith("CATCH-UP since ") and said.endswith(": o1")
     assert state.load(demo)["owner"] == {"heard": state.stamp(T0 + timedelta(minutes=95)), "away": False}
-    assert cli.main(["heard", "--drive", demo]) == 0
+    assert watch.run_pass(watching, T0) == ["EVENT catch-up thread=1794.2 orders=o1"]
+    assert cli.main(["heard", "--drive", demo, "--thread", "1794.3"]) == 0
     assert capsys.readouterr().out.strip() == "heard"
+    assert watch.run_pass(watching, T0) == []
 
 
 def test_lines_are_capped_at_three_hundred_chars(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -277,6 +281,17 @@ def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[
     state.pid_path(demo).write_text(f"{os.getpid()}\n")
     assert watch.main(demo) == 0
     assert capsys.readouterr().out == ""
+
+
+def test_only_the_coordinator_runs_the_watch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    assert watch.main(demo) == 0
+    assert capsys.readouterr().out == ""
+    assert not state.pid_path(demo).exists()
 
 
 def test_no_drive_exits_quietly(state_root: Path, capsys: pytest.CaptureFixture[str]) -> None:

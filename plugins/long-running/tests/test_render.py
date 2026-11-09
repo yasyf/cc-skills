@@ -27,7 +27,7 @@ def order(
 
 
 def sample() -> dict:
-    drive = state.new_drive("demo", "s1", "/work", "D123")
+    drive = state.new_drive("demo", "coordinator", "s1", "/work", "D123")
     drive["orders"] = {
         "o1": order(
             "Ship the drive rewrite and install it", due=state.stamp(state.now() + timedelta(hours=1)), jobs=["j1"]
@@ -73,47 +73,61 @@ def sample() -> dict:
     return drive
 
 
-def test_context_lists_open_orders_jobs_prs_rules_and_monitor() -> None:
-    text = render.context(sample())
-    assert "drive demo" in text
+def test_coordinator_context_lists_open_orders_jobs_prs_rules_and_monitor() -> None:
+    text = render.context(sample(), "coordinator")
+    assert text.startswith("You are the coordinator of drive demo: ")
+    assert "The communicator: not started." in text.splitlines()[0]
+    assert "cci subscribe --reader root --cursor coordinator" in text
     assert "o1 working due " in text
     assert "o3 open" in text
     assert "o2" not in text
     assert "j1 builder running agent agent-7: rewrite long-running" in text
     assert "yasyf/cc-skills#9 open, checks pass, review none, wants tap" in text
-    for rule in render.DRIVER_RULES:
+    for rule in render.COORDINATOR_RULES:
         assert rule in text
     assert text.endswith(render.MONITOR_LINE)
 
 
-def test_context_names_his_dm_and_every_watched_channel() -> None:
+def test_communicator_context_lists_orders_without_jobs_and_arms_no_watch() -> None:
+    drive = sample()
+    drive["roles"]["communicator"] = {"session": "s2", "cwd": "/work", "started": "2026-11-09T08:00:00-08:00"}
+    text = render.context(drive, "communicator")
+    assert text.startswith("You are the communicator of drive demo: you talk to him. The coordinator: session s1.")
+    assert "cci subscribe --reader communicator --cursor communicator" in text
+    assert "- o1 working due " in text
+    assert "j1" not in text
+    for rule in render.COMMUNICATOR_RULES:
+        assert rule in text
+    assert render.MONITOR_LINE not in text
+
+
+def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> None:
     drive = sample()
     drive["slack"]["watch"] = ["C0B75AL4XEW", "C0822AHFY3G"]
-    lines = render.context(drive).splitlines()
-    assert lines[1] == "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G"
+    assert render.context(drive, "communicator").splitlines()[1] == "Hold with slack_watch: his DM D123"
+    assert render.context(drive, "coordinator").splitlines()[1] == "Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G"
 
 
-def test_watch_line_reads_a_drive_saved_before_watch_existed() -> None:
+def test_hold_line_reads_a_drive_saved_before_watch_existed() -> None:
     drive = sample()
     del drive["slack"]["watch"]
-    assert render.watch_line(drive) == "Hold with slack_watch: his DM D123"
+    assert render.hold_line(drive, "coordinator") == "Hold no Slack channel."
 
 
-def test_watch_line_says_when_no_dm_is_set() -> None:
-    drive = state.new_drive("empty", None, "/work", None)
-    drive["slack"]["watch"] = ["C0822AHFY3G"]
-    assert render.watch_line(drive) == "Hold with slack_watch: no DM set, C0822AHFY3G"
+def test_hold_line_says_when_no_dm_is_set() -> None:
+    drive = state.new_drive("empty", "coordinator", None, "/work", None)
+    assert render.hold_line(drive, "communicator") == "Hold with slack_watch: no DM set"
 
 
 def test_context_cuts_words_to_120() -> None:
-    line = next(line for line in render.context(sample()).splitlines() if line.startswith("- o3"))
+    line = next(line for line in render.context(sample(), "coordinator").splitlines() if line.startswith("- o3"))
     assert len(line.split(": ", 1)[1]) == 120
     assert line.endswith("…")
 
 
 def test_context_with_no_open_orders_says_none() -> None:
-    drive = state.new_drive("empty", None, "/work", None)
-    assert "Open orders (0):\n- none" in render.context(drive)
+    drive = state.new_drive("empty", "coordinator", None, "/work", None)
+    assert "Open orders (0):\n- none" in render.context(drive, "communicator")
 
 
 def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
@@ -125,7 +139,7 @@ def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     drive["prs"]["yasyf/cc-skills#11"] = drive["prs"]["yasyf/cc-skills#9"] | {
         "url": "https://github.com/yasyf/cc-skills/pull/11"
     }
-    lines = render.context(drive).splitlines()
+    lines = render.context(drive, "coordinator").splitlines()
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",
@@ -136,7 +150,11 @@ def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
 
 def test_status_text_counts_open_orders() -> None:
     text = render.status_text(sample(), "live")
-    assert text.splitlines()[:2] == ["demo: 2 open of 3 orders; PR fields live", "Hold with slack_watch: his DM D123"]
+    assert text.splitlines()[:3] == [
+        "demo: 2 open of 3 orders; PR fields live",
+        "communicator: not started; Hold with slack_watch: his DM D123",
+        "coordinator: session s1; Hold no Slack channel.",
+    ]
     assert "o1 working" in text
     assert "o2" not in text
 
@@ -144,6 +162,7 @@ def test_status_text_counts_open_orders() -> None:
 def test_status_data_keeps_only_open_work() -> None:
     data = render.status_data(sample(), "stored")
     assert data["pr_fields"] == "stored"
+    assert set(data["roles"]) == {"coordinator"}
     assert set(data["orders"]) == {"o1", "o3"}
     assert set(data["jobs"]) == {"j1"}
     assert set(data["prs"]) == {"yasyf/cc-skills#9"}
@@ -163,7 +182,7 @@ def test_rollup_card_orders_by_due_then_created() -> None:
 
 
 def test_rollup_card_caps_facts_at_ten() -> None:
-    drive = state.new_drive("busy", None, "/work", None)
+    drive = state.new_drive("busy", "coordinator", None, "/work", None)
     drive["orders"] = {f"o{n}": order(f"order {n}", created=f"2026-11-09T08:{n:02d}:00-08:00") for n in range(1, 15)}
     card = render.rollup_card(drive)
     assert card["title"] == "14 open: busy"

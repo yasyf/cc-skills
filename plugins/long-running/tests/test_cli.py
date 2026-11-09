@@ -14,35 +14,68 @@ Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 
 
-def test_start_creates_the_drive_and_prints_context(run: Run, tmp_path: Path) -> None:
-    code, out = run("start", "demo", "--channel", "D123")
+def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path: Path) -> None:
+    code, out = run("start", "demo", "--role", "communicator", "--channel", "D123")
     assert code == 0
-    assert "You are the driver of drive demo." in out
+    assert out.startswith("You are the communicator of drive demo: you talk to him. The coordinator: not started.")
     data = state.load("demo")
-    assert data["driver"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
-    assert data["driver"]["cwd"] == str(tmp_path)
+    assert data["roles"] == {
+        "communicator": {
+            "session": os.environ["CLAUDE_CODE_SESSION_ID"],
+            "cwd": str(tmp_path),
+            "started": data["roles"]["communicator"]["started"],
+        }
+    }
     assert data["slack"] == {"channel": "D123", "status_card": None, "watch": []}
 
 
-def test_start_again_rebinds_the_session_and_keeps_orders(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_start_needs_a_role(run: Run) -> None:
+    with pytest.raises(SystemExit):
+        run("start", "demo")
+
+
+def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "keep me")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    assert run("start", "demo", "--role", "communicator")[0] == 0
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
-    code, _ = run("start", "demo")
+    code, _ = run("start", "demo", "--role", "coordinator")
     data = state.load("demo")
     assert code == 0
-    assert data["driver"]["session"] == "after-restart"
+    assert data["roles"]["communicator"]["session"] == "communicator-session"
+    assert data["roles"]["coordinator"]["session"] == "after-restart"
     assert data["slack"]["channel"] == "D123"
     assert data["orders"]["o1"]["text"] == "keep me"
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    assert run("order", "add", "from the communicator") == (0, "o2")
+
+
+def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: str) -> None:
+    with state.locked("demo"):
+        saved = json.loads(state.state_path("demo").read_text())
+        saved["driver"] = saved.pop("roles")["coordinator"]
+        state.state_path("demo").write_text(json.dumps(saved))
+    data = state.load("demo")
+    assert "driver" not in data
+    assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
+    assert run("start", "demo", "--role", "communicator")[0] == 0
+    saved = json.loads(state.state_path("demo").read_text())
+    assert "driver" not in saved
+    assert set(saved["roles"]) == {"communicator", "coordinator"}
 
 
 def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
-    code, out = run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW")
+    code, out = run(
+        "start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW"
+    )
     assert code == 0
-    assert "Hold with slack_watch: his DM D123, C0B75AL4XEW" in out
+    assert "Hold with slack_watch: C0B75AL4XEW" in out
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
-    run("start", "demo")
+    run("start", "demo", "--role", "coordinator")
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
-    run("start", "demo", "--watch", "C0822AHFY3G", "--watch", "C0B75AL4XEW")
+    run("start", "demo", "--role", "coordinator", "--watch", "C0822AHFY3G", "--watch", "C0B75AL4XEW")
     data = state.load("demo")
     assert data["slack"]["channel"] == "D123"
     assert data["slack"]["watch"] == ["C0B75AL4XEW", "C0822AHFY3G"]
@@ -51,21 +84,32 @@ def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
 def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: str) -> None:
     with state.edit("demo") as data:
         del data["slack"]["watch"]
-    assert run("start", "demo", "--watch", "C0822AHFY3G")[0] == 0
+    assert run("start", "demo", "--role", "coordinator", "--watch", "C0822AHFY3G")[0] == 0
     assert state.load("demo")["slack"]["watch"] == ["C0822AHFY3G"]
 
 
-def test_status_and_context_print_every_held_channel(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "fetch", lambda keys: {})
-    run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
-    held = "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G"
+    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
     code, out = run("status")
     assert code == 0
-    assert out.splitlines()[1] == held
+    assert out.splitlines()[1:3] == [
+        "communicator: not started; Hold with slack_watch: his DM D123",
+        f"coordinator: session {session}; Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G",
+    ]
     code, out = run("status", "--json")
     assert json.loads(out)["slack"] == {"channel": "D123", "watch": ["C0B75AL4XEW", "C0822AHFY3G"]}
     code, out = run("context")
-    assert held in out.splitlines()
+    assert "Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G" in out.splitlines()
+    code, out = run("context", "--role", "communicator")
+    assert "Hold with slack_watch: his DM D123" in out.splitlines()
+
+
+def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "a-stranger")
+    monkeypatch.setenv("LONG_RUNNING_DRIVE", "demo")
+    assert run("context")[0] == 2
 
 
 def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,21 +117,22 @@ def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: 
 
     def rival_starts_while_this_one_waits(name: str):
         monkeypatch.setattr(state, "locked", unpatched)
-        rival = state.new_drive(name, "rival-session", "/rival", "D999")
+        rival = state.new_drive(name, "communicator", "rival-session", "/rival", "D999")
         rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": []}
         state.create(rival)
         return unpatched(name)
 
     monkeypatch.setattr(state, "locked", rival_starts_while_this_one_waits)
-    assert run("start", "demo")[0] == 0
+    assert run("start", "demo", "--role", "coordinator")[0] == 0
     data = state.load("demo")
     assert data["orders"]["o1"]["text"] == "the rival's order"
-    assert data["driver"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
+    assert data["roles"]["communicator"]["session"] == "rival-session"
+    assert data["roles"]["coordinator"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
     assert data["slack"]["channel"] == "D999"
 
 
 def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
-    code, _ = run("start", "../escape")
+    code, _ = run("start", "../escape", "--role", "coordinator")
     assert code == 2
 
 
@@ -334,7 +379,7 @@ def test_context_and_rollup(run: Run, with_pr: str) -> None:
 
 
 def test_drive_flag_picks_among_several(run: Run, demo: str) -> None:
-    run("start", "other")
+    run("start", "other", "--role", "coordinator")
     run("order", "add", "for other", "--drive", "other")
     assert state.load("other")["orders"]["o1"]["text"] == "for other"
     assert state.load("demo")["orders"] == {}

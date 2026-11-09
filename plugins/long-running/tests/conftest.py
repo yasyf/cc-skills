@@ -28,5 +28,5 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
 
 @pytest.fixture
 def demo(run: Callable[..., tuple[int, str]]) -> str:
-    run("start", "demo", "--channel", "D123")
+    run("start", "demo", "--role", "coordinator", "--channel", "D123")
     return "demo"

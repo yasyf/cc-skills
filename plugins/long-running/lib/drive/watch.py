@@ -86,7 +86,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | None:
-    """Record one message from a remote lane on its job; the event line it wakes the driver with, if any."""
+    """Record one message from a remote lane on its job; the event line it wakes the coordinator with, if any."""
     kind = message["type"]
     if kind == "heartbeat":
         return None
@@ -238,6 +238,8 @@ def main(drive_name: str | None = None) -> int:
     try:
         name = state.resolve(drive_name)
     except DriveError:
+        return 0
+    if state.session_role(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != "coordinator":
         return 0
     if not claim(name):
         return 0

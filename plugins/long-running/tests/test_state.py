@@ -20,9 +20,9 @@ def test_root_prefers_explicit_then_xdg_then_home(monkeypatch: pytest.MonkeyPatc
 
 
 def make(name: str, session: str | None = None, started: str | None = None) -> None:
-    data = state.new_drive(name, session, "/work", None)
+    data = state.new_drive(name, "coordinator", session, "/work", None)
     if started:
-        data["driver"]["started"] = started
+        data["roles"]["coordinator"]["started"] = started
     state.create(data)
 
 
@@ -76,6 +76,10 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     make("other", "someone-else")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
     assert state.resolve() == "new"
+    with state.edit("other") as data:
+        data["roles"]["communicator"] = {"session": "me", "cwd": "/work", "started": "2026-11-09T11:00:00-08:00"}
+    assert state.resolve() == "other"
+    assert state.session_role(state.load("other"), "me") == "communicator"
 
 
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -238,7 +238,7 @@ def resolve_key(ref: str | None, repo: str, selected: str | None, cwd: str) -> s
 def judged_by(key: str) -> dict | None:
     """The drive's entry for a PR, from the newest-started drive that knows it."""
     known = [
-        (state.parse_time(data["driver"]["started"]), pr)
+        (state.parse_time(state.last_started(data)), pr)
         for data in map(state.load, state.names())
         for stored, pr in data["prs"].items()
         if stored.lower() == key.lower()

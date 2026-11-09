@@ -438,7 +438,7 @@ def home_drive() -> str:
     except state.DriveError:
         if not (drives := state.names()):
             raise
-        return max(drives, key=lambda name: state.load(name)["driver"]["started"])
+        return max(drives, key=lambda name: state.last_started(state.load(name)))
 
 
 def unheard(ask: dict) -> dict:

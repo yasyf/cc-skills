@@ -1,7 +1,8 @@
 # Land a change
 
 A builder owns its PR from the first push to the proof that the change is live, lands it the way its
-repository says below, and returns `DONE <proof>`. The driver draws his PR card from the PR itself.
+repository says below, and returns `DONE <proof>`. The communicator draws his PR card from the PR
+itself.
 
 ## Every PR
 
