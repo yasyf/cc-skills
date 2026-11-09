@@ -44,6 +44,7 @@ PARKS = "AskUserQuestion parks the session, so a warning lands too late (answer 
 STOP = "a warning on Stop reaches nobody, and {what}"
 KEPT_REFUSALS = KEPT | {
     "lane_done_guard.done_leaves_no_uncommitted_pr_work": "root ordered the refusal (421797): done retires the lane and nobody resumes its worktree, so uncommitted edits on an open PR are lost the moment the record posts, and a warning lands after they are gone",
+    "owner_cards_name_their_subject.posts_answer_his_first_question": "the owner ordered the refusal (m2021): a post that leaves his first question unanswered reaches him the moment it goes out, so a warning lands after he has read it and asked",
     "answer_search_first.no_card_asks_what_is_settled": "the owner ordered the refusal (m414, m415, m425, m433, m453): a card that re-asks what his answer settles, repeats a card on his board asks him to grade a reading or explains itself with only a link reaches him the moment it is drawn, so a warning lands after he has read it",
     "blocking_asks.drive_roots_never_park_on_asks": PARKS,
     "capacity_fixes_name_the_reclaim.applies_name_the_next_writer": "the owner ordered the refusal: a hand apply on an incident names the next writer of its field, and a capacity fix-live waits until that writer agrees, since the next launch undoes an apply nobody checked",
