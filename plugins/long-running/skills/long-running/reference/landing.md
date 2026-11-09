@@ -41,6 +41,11 @@ No tap: by his standing rule a `yasyf/*` PR merges without asking, green gate of
    release that contains the merge, updates the plugin and prints the installed version. A tool this Mac
    runs: follow its repository's release flow, install the release that contains the merge, read the
    installed version back. Never patch an installed copy by hand: the next release overwrites it.
+   A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
+   release. Build the merge sha into your scratch directory with
+   `go build -o ~/.vcache/scratch/<lane>/<binary> <main>`, taking `<main>` from the build its
+   `.goreleaser.yaml` names; cc-transcript builds with `cargo build --release`. Rerun the case against
+   that binary. The release reaches the plugin on its own.
 
 ## Forge-AI/monorepo
 
@@ -92,8 +97,9 @@ or merge. He merges those himself. A change that belongs there comes back as `AS
 
 ## After merge
 
-Merged is not live. Before `DONE`, prove it: a plugin or tool's installed version contains the merge; a
-monorepo change's release is live on the targets it touches, shown by its card in #releases. Start a
+Merged is not live. Before `DONE`, prove it. A plugin or tool's installed version contains the merge, or
+a compiled tool's local build of the merge sha reruns the case, as step 3 for yasyf/* repositories says.
+A monorepo change's release is live on the targets it touches, shown by its card in #releases. Start a
 regular release (`tools/ci release start`) only when his order covers releasing; otherwise, it rides the
 next one and the job returns `WAITING release`. Then rerun the reporter's exact case on the live build.
 
