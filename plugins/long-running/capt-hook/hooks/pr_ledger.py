@@ -122,10 +122,10 @@ CARD_LINES = {
 PLAN_LINE = re.compile(
     r"^(?:[\s>*-]*plan:.*|.*\b(?:plan (?:step|row|\d)|rule/[0-9a-f]{6,}|appendix|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b.*)$", re.MULTILINE | re.IGNORECASE
 )
-PLAN_NAMED = re.compile(r"\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,})\b", re.IGNORECASE)
-PLAN_FORMS = "Plan: step <n>, Plan: owner:m<row> or Plan: cc-notes task <id>"
+PLAN_NAMED = re.compile(r"\b(?:step \d+|owner:m\d+|cc-notes task\W+[0-9a-f]{7,}|bug list item \d+)\b", re.IGNORECASE)
+PLAN_FORMS = "Plan: step <n>, Plan: owner:m<row>, Plan: cc-notes task <id> or Plan: bug list item <n>"
 CARD_LINES_MISSING = (
-    "A drive PR's card draws from `## Summary`, a `Plan:` line naming a plan step, an `owner:m<row>` row or a cc-notes task, and the `## Risk profile` `**Availability:**` line, and refuses without them."
+    "A drive PR's card draws from `## Summary`, a `Plan:` line naming a plan step, an `owner:m<row>` row, a cc-notes task or a bug list item, and the `## Risk profile` `**Availability:**` line, and refuses without them."
     " Add the lines below to the body, then run the command again."
 )
 SHIP_CLIPPED = "This ship's output was cut before its PR line, so the PR has no board row and no head record. Rerun `ccx vcs ship --no-commit --pr-body-file <body>` with no pipe."
@@ -374,6 +374,7 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: the gate reads the body.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Block(pattern="owner:m<row>"),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: step 3.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: cc-notes task 5221024.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: bug list item 4 (slack-bugs)\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary\nChats load.\nPlan: step 3.'", env=LANE_ENV): Block(pattern="Availability"),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load.\n\nPlan: owner:m1793.\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="ccx vcs ship -m 'x: ✨ y' --pr-body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n\nPlan: owner:m1854\n## Risk profile\n- **Availability:** a slow chat.\n")): Allow(),
