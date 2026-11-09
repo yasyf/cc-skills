@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from drive import github, state
+from drive import github, orca, state
 from drive.render import cut, when
 from drive.state import DriveError
 
@@ -14,6 +14,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=10)
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
+LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
 
 
@@ -24,6 +25,7 @@ class Watcher:
     ticked_at: datetime
     read_at: datetime | None = None
     failure_said: datetime | None = None
+    mail_failure_said: datetime | None = None
 
 
 def ids(pr: dict) -> str:
@@ -65,6 +67,54 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             title = cut(pr["title"], 120)
             lines.extend(f'PR {key} "{title}": {change} {ids(pr)}' for change in changes)
     return lines
+
+
+def first_line(text: str) -> str:
+    return next((line.strip() for line in text.splitlines() if line.strip()), "")
+
+
+def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | None:
+    """Record one message from a remote lane on its job; the event line it wakes the driver with, if any."""
+    kind = message["type"]
+    if kind == "heartbeat":
+        return None
+    body = message["body"] or ""
+    job["updated"] = state.stamp(moment)
+    if kind == "escalation":
+        last = first_line(body.split("Last output:")[-1])
+        return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
+    job["said"] = first_line(body) or message["subject"]
+    if kind == "status":
+        return None
+    job["report"] = body
+    if kind == "question":
+        job["ask"] = message["id"]
+        job["state"] = "waiting"
+    return f"JOB {job_id} {job['order']} {job['said']}"
+
+
+def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    data = state.load(watcher.name)
+    lanes = {
+        f"dispatch:{job['dispatch']}": job_id
+        for job_id, job in data["jobs"].items()
+        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES
+    }
+    if not lanes:
+        return []
+    try:
+        messages = orca.mail(data["orca_run"])
+    except orca.OrcaError as error:
+        if watcher.mail_failure_said and moment - watcher.mail_failure_said < FAILURE_EVERY:
+            return []
+        watcher.mail_failure_said = moment
+        return [f"WATCH lane mail read failed: {error}"]
+    lines = []
+    with state.edit(watcher.name) as data:
+        for message in messages:
+            if job_id := lanes.get(message["from_handle"]):
+                lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+    return [line for line in lines if line]
 
 
 def event_line(event: dict, prs: dict) -> str:
@@ -133,6 +183,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
         lines += github_lines(watcher, moment)
+        lines += lane_lines(watcher, moment)
     lines += event_lines(watcher)
     lines += due_lines(watcher, moment)
     if moment - watcher.ticked_at >= TICK_EVERY:

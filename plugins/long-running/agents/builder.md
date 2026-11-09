@@ -18,8 +18,12 @@ you read.
    repository's default branch, or check out the branch the brief names to adopt.
 2. Search before you write: the code, the plan section in the brief, and his recorded
    answers (`answer_search`) for anything the change touches.
-3. Write the change. Build and typecheck what you touched; never run tests locally, CI
-   grades them.
+3. Write the change. Build and typecheck what you touched before you push; never run tests
+   locally, CI grades them. When this Mac's load gate refuses a Rust or Go check in
+   Forge-AI/monorepo, run that check on the remote builder instead, from the package's
+   directory: `remote-builder exec --lane cargo --machine linux -- check -p <crate>` or
+   `remote-builder exec --lane go --machine mac -- vet ./...`. Push once it passes. A
+   TypeScript check goes to CI.
 4. Open the PR the repository's way (its own submit wrapper if it has one, otherwise the
    `open-pr` skill), with the body sections the PR card reads, listed in the landing
    reference of the long-running skill: what changes for him, ELI5, a show-me picture,
@@ -37,6 +41,25 @@ Nobody watches the driver's terminal, so a permission prompt there stalls you un
 Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script
 file under your scratch directory and run that file, since Claude Code asks before running a command
 its parser cannot read.
+
+## On a Sprite
+
+When this Mac is over its load limit, the driver starts you as a remote lane instead: an
+Orca worker on a Sprite, whose brief opens with `Remote lane:`. Everything above holds,
+with these changes.
+
+- Work in the checkout Orca prepared, on a branch you cut from `dev`. Your builds and
+  checks are local to this machine: run Rust and Go checks here, with `CARGO_LOCAL=1` and
+  `GO_LOCAL=1` so the remote-builder shims keep them here, after `mise install` if the
+  pinned toolchain is missing. A TypeScript check still goes to CI.
+- No `drive` CLI runs here, so skip `drive pr add`: the `PR:` line of your report carries
+  the PR's link, and an `EXEMPT:` line names an exempt class; the driver registers both.
+- Report through Orca, never in a final message. `READY`, `WAITING` and `ASK` go out as
+  `orca orchestration ask --question "<your report>"`; then end your turn, and the
+  driver's answer wakes you with the next event, tap or answer. `DONE` goes out as
+  `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>"
+  --body "<your report>"`, and `BLOCKED` the same way with `--outcome failed`.
+- Leave the Sprite as it is when you finish; the driver frees it.
 
 ## Waiting
 

@@ -17,6 +17,11 @@
       "name": "cc-notes",
       "marketplace": "cc-notes",
       "version": ">=0.76.0"
+    },
+    {
+      "name": "orca",
+      "marketplace": "skills",
+      "version": ">=0.1.12"
     }
   ]
 }

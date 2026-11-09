@@ -1,0 +1,143 @@
+import json
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+from drive.state import DriveError
+
+LAUNCHER = "orca-worker-launch.sh"
+RECLAIMER = "orca-reclaim.py"
+MODEL = "claude-opus-5-5"
+EFFORT = "xhigh"
+LANE_LIMIT = 55
+NOT_LANE = re.compile(r"[^a-z0-9-]+")
+PLUGIN = Path(__file__).resolve().parents[2]
+BUILDER = PLUGIN / "agents" / "builder.md"
+LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
+LAUNCH_SECONDS = 1800
+CALL_SECONDS = 60
+
+
+class OrcaError(DriveError):
+    pass
+
+
+def call(*args: str) -> dict:
+    """One `orca orchestration` call: its result, or OrcaError carrying Orca's own reason."""
+    try:
+        done = subprocess.run(
+            ["orca", "orchestration", *args, "--full", "--json"],
+            capture_output=True,
+            text=True,
+            timeout=CALL_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise OrcaError(f"orca orchestration {args[0]}: {error}") from None
+    try:
+        reply = json.loads(done.stdout)
+    except json.JSONDecodeError:
+        said = " ".join((done.stderr or done.stdout).split()) or f"exited {done.returncode}"
+        raise OrcaError(f"orca orchestration {args[0]}: {said}") from None
+    if not reply.get("ok"):
+        error = reply.get("error") or {}
+        raise OrcaError(f"orca orchestration {args[0]}: {error.get('code')}: {error.get('message')}")
+    return reply["result"]
+
+
+def bound_run(stored: str | None, objective: str) -> str:
+    """The drive's Run, bound to this terminal: created on first use, rebound when the driver moved."""
+    if not stored:
+        return call("run-create", "--objective", objective)["run"]["id"]
+    if (call("run-current")["run"] or {}).get("id") != stored:
+        call("run-use", "--id", stored)
+    return stored
+
+
+def lane_name(drive: str, job_id: str) -> str:
+    return NOT_LANE.sub("-", f"{drive}-{job_id}".lower()).strip("-")[-LANE_LIMIT:].lstrip("-")
+
+
+def builder_body() -> str:
+    _, _, body = BUILDER.read_text().split("---", 2)
+    return body.strip()
+
+
+def vm_brief(drive: str, job_id: str, brief: str) -> str:
+    """What a remote builder reads on a Sprite, which has no copy of this plugin: its role, landing rules, brief."""
+    return (
+        f"Remote lane: drive {drive}, job {job_id}. You are the long-running builder below, running as an Orca "
+        'worker on a Sprite, so its "On a Sprite" section applies.\n\n'
+        f"{builder_body()}\n\n"
+        f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n\n"
+        f"# Brief\n\n{brief.strip()}\n"
+    )
+
+
+def tool(name: str) -> str:
+    path = shutil.which(name)
+    if not path:
+        raise OrcaError(f"{name} is not on PATH; install the orca plugin (orca@skills)")
+    return path
+
+
+def launch(lane: str, brief: Path, checkout: Path, run: str) -> dict:
+    """Start one remote builder through the orca plugin's launcher; its success line, with the prepared server."""
+    try:
+        done = subprocess.run(
+            [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
+            cwd=checkout,
+            env={**os.environ, "WORKER_RUN": run},
+            capture_output=True,
+            text=True,
+            timeout=LAUNCH_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        attempt = brief.with_suffix(".worker")
+        raise OrcaError(f"{LAUNCHER} ran past {LAUNCH_SECONDS} s; its attempt is in {attempt}") from None
+    lines = done.stdout.strip().splitlines()
+    if done.returncode or not lines:
+        said = done.stderr.strip().splitlines()
+        reason = said[-1] if said else "no output"
+        attempt = brief.with_suffix(".worker")
+        if (attempt / "worker-start.status").exists():
+            raise OrcaError(
+                f"{LAUNCHER} exited {done.returncode} after worker-start ran, so the lane may be live: {reason}; "
+                f"read {attempt}/worker-start.json before starting it anywhere else"
+            )
+        raise OrcaError(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}; attempt in {attempt}")
+    receipt = json.loads(lines[-1])
+    prepared = json.loads((brief.with_suffix(".worker") / "prepared.json").read_text())
+    return {**receipt, "environment": prepared["environment"]}
+
+
+def reclaim(run: str, dispatch: str, checkout: Path) -> str:
+    done = subprocess.run(
+        [tool(RECLAIMER), "--run", run, "--done", dispatch],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        timeout=LAUNCH_SECONDS,
+        check=False,
+    )
+    if done.returncode:
+        said = done.stderr.strip().splitlines()
+        raise OrcaError(f"{RECLAIMER} exited {done.returncode}: {said[-1] if said else 'no output'}")
+    return done.stdout.strip()
+
+
+def mail(run: str) -> list[dict]:
+    """Take the Run's unread mail: the driver's watch is its one consumer."""
+    return call("check", "--run", run)["messages"]
+
+
+def answer(job: dict, text: str) -> str:
+    """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
+    if job.get("ask"):
+        call("reply", "--id", job["ask"], "--body", text)
+        return f"answered its question {job['ask']}"
+    call("send", "--to", f"dispatch:{job['dispatch']}", "--subject", "From the driver", "--body", text)
+    return f"sent to dispatch {job['dispatch']}"

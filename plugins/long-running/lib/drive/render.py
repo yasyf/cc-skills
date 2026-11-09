@@ -6,6 +6,7 @@ DRIVER_RULES = (
     "One job per deliverable: every change or question goes to one background job that owns it end to end.",
     "Never block: every order goes to a job, past-due ones too; your own calls are reads of drive, cci and one gh call.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
+    "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
     "Every message by messages.md: each line, question card and PR card follows reference/messages.md.",
     "A promise is --due: a time you promise him is recorded with drive order set <id> --due.",
 )
@@ -49,8 +50,11 @@ def pr_line(key: str, pr: dict) -> str:
 
 
 def job_line(job_id: str, job: dict) -> str:
-    agent = f" agent {job['agent']}" if job.get("agent") else ""
-    return f"{job_id} {job['kind']} {job['state']}{agent}: {cut(job['goal'], 100)}"
+    if job.get("where") == "remote":
+        handle = f" remote dispatch {job['dispatch']}" if job.get("dispatch") else " remote, not started"
+    else:
+        handle = f" agent {job['agent']}" if job.get("agent") else ""
+    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}"
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:

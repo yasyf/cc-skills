@@ -432,7 +432,10 @@ scope, requested branch/tag policy, constraints and owner rulings, verification,
 output paths, and the source-return contract below. Do not paste a local-only
 lane brief unchanged when it assumes local paths, local stack metadata, or
 worker PR shipping. Remote workers return source; the root integrates and ships
-it.
+it. The one exception is a long-running drive's remote builder, which
+`drive job launch` starts with a brief that makes it the owner of its PR: it
+ships from the VM through the repository's own tooling and reports through
+`ask` and `worker_done`.
 
 Prepare copies the complete brief unchanged outside the checkout and records
 its absolute VM path, SHA-256, and byte count. The launcher sends only a pointer
