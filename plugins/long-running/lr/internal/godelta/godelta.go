@@ -101,7 +101,7 @@ func Command(a *app.App) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&base, "base", "origin/dev", "diff against the merge base of HEAD and this ref")
+	cmd.Flags().StringVar(&base, "base", "origin/HEAD", "diff against the merge base of HEAD and this ref, by default the remote's default branch")
 	return cmd
 }
 
