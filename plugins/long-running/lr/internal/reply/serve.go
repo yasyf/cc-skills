@@ -50,20 +50,21 @@ var schema = map[string]any{
 		"cards":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "With update, link these open cards by id, oldest first."},
 		"update":      map[string]any{"type": "boolean", "description": "Send his return or scheduled update. The tool writes it from the PR ledger and his board: what landed since the last update, what is red, and every PR waiting on his tap with its Approve, and a link to each open card cards_over or cards selects. No card is copied into his thread. md, if given, opens it; title defaults to Where things stand. Every update goes through this, never hand-written."},
 		"unprompted":  map[string]any{"type": "boolean", "description": "True when this message answers nothing he asked. Every other reply names its row in order or its line in on, and the tool warns on one naming neither."},
+		"take_over":   map[string]any{"type": "boolean", "description": "Write a card another lane drew, as that lane's successor: the card moves to your lane. A card whose lane is retired is taken over without it."},
 		"on":          map[string]any{"type": "string", "description": "The dashboard chat message this reply answers in its thread: the topic of his thread line, such as reply:<id> or line:m<n>. Omit it for a reply in the main conversation."},
 	},
 	"required": []string{"title", "md"},
 }
 
 func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
-	reply := &cobra.Command{Use: "reply", Short: "The communicator's one write to the owner"}
+	say := &cobra.Command{Use: "say", Aliases: []string{"reply"}, Short: "The one write to the owner: every card, reply, table and incident line any lane sends him"}
 	var resumed bool
 	serve := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the reply tool and the owner ledger, explain, ask-lane and asks verbs over MCP on stdio; a frame that arrives after a newer lr is installed moves the server to it on the same stdio",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			tools := append([]channel.Tool{Tool(a)}, VerbTools(commands)...)
+			tools := append(Tools(a), VerbTools(commands)...)
 			stdin, err := newHandoff(cmd.Context(), a.Runner, a.Log, cmd.InOrStdin())
 			if err != nil {
 				return err
@@ -72,18 +73,26 @@ func Command(a *app.App, commands func() *cobra.Command) *cobra.Command {
 			if err := server.Serve(cmd.Context(), stdin, cmd.OutOrStdout()); err != nil || stdin.moved == "" {
 				return err
 			}
-			return syscall.Exec(stdin.moved, []string{stdin.moved, "reply", "serve", "--resumed"}, os.Environ())
+			return syscall.Exec(stdin.moved, []string{stdin.moved, "say", "serve", "--resumed"}, os.Environ())
 		},
 	}
 	serve.Flags().BoolVar(&resumed, "resumed", false, "take over a session an older lr already initialized on this stdio")
-	reply.AddCommand(serve)
-	return reply
+	say.AddCommand(serve)
+	return say
+}
+
+func Tools(a *app.App) []channel.Tool {
+	say := Tool(a)
+	reply := say
+	reply.Name = "reply"
+	reply.Description = "The same tool as say, under the name sessions started before say knew it by. " + say.Description
+	return []channel.Tool{say, reply}
 }
 
 func Tool(a *app.App) channel.Tool {
 	return channel.Tool{
-		Name: "reply",
-		Description: "Send the owner one reply. It always reaches this window as the returned markdown, a cci record and the dashboard's store; " +
+		Name: "say",
+		Description: "Send the owner one message: the only way any lane writes to his DM, his card threads, his board or Talk. Load the owner-message skill for its templates. Every rule below refuses, and nothing posts until the message meets it. It always reaches this window as the returned markdown, a cci record and the dashboard's store; " +
 			"a reply with picks also becomes one card on his board that cc-present posts to his Slack DM with a button per pick, " +
 			"and one with links, PRs, artifacts or a status becomes a card at his Slack DM root. A progress reply to an order writes his ledger row, which his dashboard shows under the ask, and posts nothing to Slack. One answering his Slack thread reply posts there as text instead, and one whose row has no recorded place refuses until thread names it. An incident line naming its alert posts under that alert's first post by itself, in Slack and on Chat.A reply carrying an earlier id edits the Slack message it already posted and posts a new one only when it has none. " +
 			"A tap comes back to this session. " +
@@ -112,6 +121,9 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.plain(); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if err := r.unpickable(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			r, warned := r.mended()
 			entry, err := drive.Session()
 			if err != nil {
@@ -134,6 +146,9 @@ func Tool(a *app.App) channel.Tool {
 					return "reply: " + err.Error(), true
 				}
 			}
+			if err := r.alertless(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			r, warning := fanout.underAlert(r)
 			if warning != "" {
 				warned = append(warned, warning)
@@ -144,7 +159,7 @@ func Tool(a *app.App) channel.Tool {
 			}
 			r = r.led()
 			if r.Order == "" && r.On == "" && !r.Unprompted {
-				warned = append(warned, "this names no order, so Chat lists it by time; pass his row in order, or set unprompted if he asked nothing")
+				return "reply: ORDERLESS: this names no order, so nothing posted; pass his row in order, or set unprompted if he asked nothing", true
 			}
 			if r.MD == "" {
 				return "reply: md carries the reply itself", true
@@ -159,10 +174,16 @@ func Tool(a *app.App) channel.Tool {
 				r.ID = "r" + strconv.FormatInt(a.Now().UnixMilli(), 36)
 			}
 			r, warning = fanout.withBugFixes(ctx, r)
+			if refused(warning, untyingFixLead, unlistedFixLead) {
+				return "reply: " + refusal(warning), true
+			}
 			if warning != "" {
 				warned = append(warned, warning)
 			}
 			r, warning = fanout.withNamedPRs(r)
+			if refused(warning, overPRsLead) {
+				return "reply: " + refusal(warning), true
+			}
 			if warning != "" {
 				warned = append(warned, warning)
 			}
@@ -203,11 +224,12 @@ func Tool(a *app.App) channel.Tool {
 				return "reply: " + err.Error(), true
 			}
 			if warning := fanout.tapWarning(r); warning != "" {
+				if !strings.HasPrefix(warning, ledgerUnread) {
+					return "reply: " + refusal(warning), true
+				}
 				warned = append(warned, warning)
 			}
-			if warning := fanout.rulingsWarning(ctx, r); warning != "" {
-				warned = append(warned, warning)
-			}
+			noted := fanout.rulingsWarning(ctx, r)
 			r, warning = fanout.withPortOpening(r)
 			if warning != "" {
 				warned = append(warned, warning)
@@ -215,12 +237,14 @@ func Tool(a *app.App) channel.Tool {
 			if r, err = fanout.withPRCards(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if r, err = fanout.onePostPerPR(ctx, r); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			if r, err = fanout.pictured(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
-			r, warning = r.untiedApprovals()
-			if warning != "" {
-				warned = append(warned, warning)
+			if _, warning = r.untiedApprovals(); warning != "" {
+				return "reply: " + refusal(warning), true
 			}
 			r, warning = fanout.withArtifacts(ctx, r)
 			if warning != "" {
@@ -241,6 +265,9 @@ func Tool(a *app.App) channel.Tool {
 			}
 			if len(warned) > 0 {
 				sent = "Warning, posted anyway: " + strings.Join(warned, "; ") + ".\n" + sent
+			}
+			if noted != "" {
+				sent = "Note: " + noted + ".\n" + sent
 			}
 			return sent, false
 		},

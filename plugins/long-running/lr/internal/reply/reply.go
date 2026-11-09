@@ -71,9 +71,12 @@ const (
 	untiedPick = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
 
 	namesBugKind    = "names-bug"
-	cardCopySurface = "card copy"
 	movedRoot       = "slack root"
 	resendOnce      = "; nothing went out on this surface, so once the tool is back send this reply again with its id, which posts it once"
+	ledgerUnread    = "the PR ledger did not read"
+	untyingFixLead  = "this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: "
+	unlistedFixLead = "this names a bug whose fix PRs are not on the card, and a PR joins a card only when you list it in prs with words that say what it does: "
+	overPRsLead     = "this names more PRs than the"
 )
 
 var (
@@ -169,6 +172,9 @@ type Reply struct {
 
 	Words map[string]string `json:"words,omitempty"`
 
+	TakeOver bool `json:"take_over,omitempty"`
+
+	live    []string
 	diagram Artifact
 	names   prNames
 }
@@ -216,10 +222,10 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 		seen.Words[pick] = cardtext.HiddenCite.ReplaceAllString(said, "")
 	}
 	told := seen.diagramNoted().artifactsLinked()
-	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+	steps := []step{{f.board, told}, {f.thread, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	switch {
 	case r.quiet():
-		steps = []step{{f.board, told}, {f.slack, told}, {f.cardCopies, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
+		steps = []step{{f.board, told}, {f.slack, told}, {f.record, r}, {f.dashboard, seen}, {f.ledger, r}}
 	case !r.writesRow():
 		steps = steps[:len(steps)-1]
 	}
@@ -514,7 +520,7 @@ func (f Fanout) tapWarning(r Reply) string {
 	}
 	repo, rows, err := board.Rows(f.Entry, numbers)
 	if err != nil {
-		return fmt.Sprintf("the PR ledger did not read, so no PR this names was checked for a tap he owes: %v", err)
+		return fmt.Sprintf("%s, so no PR this names was checked for a tap he owes: %v", ledgerUnread, err)
 	}
 	var missing, tapped, standing, exempt []string
 	for n, found := range said {
@@ -582,7 +588,7 @@ func (f Fanout) withNamedPRs(r Reply) (Reply, string) {
 		}
 	}
 	if len(over) > 0 {
-		return r, fmt.Sprintf("this names more PRs than the %d a reply carries, so these draw no Approve: %s", maxPRs, strings.Join(over, ", "))
+		return r, fmt.Sprintf("%s %d a reply carries, so these draw no Approve: %s", overPRsLead, maxPRs, strings.Join(over, ", "))
 	}
 	return r, ""
 }
@@ -656,8 +662,8 @@ func (f Fanout) withBugFixes(ctx context.Context, r Reply) (Reply, string) {
 		lead  string
 		found []string
 	}{
-		{"this names a bug whose fix PR waits on his tap, and its card beside an approving pick would tie that pick to no one PR, so send the fix in its own reply with it in prs: ", untying},
-		{"this names a bug whose fix PRs are not on the card, and a PR joins a card only when you list it in prs with words that say what it does: ", unlisted},
+		{untyingFixLead, untying},
+		{unlistedFixLead, unlisted},
 		{"this may name a bug these PRs fix; if it does, edit the reply with them in prs: ", unsure},
 		{"the judge did not read, so a bug this names in words may lack its fix PR's tap card: ", unjudged},
 	} {
@@ -737,16 +743,14 @@ func linkedCard(md string, card board.OpenCard) string {
 	return md
 }
 
-// inSlack draws each card:ID link as its words alone, an open card's title when
-// it has none, since the card itself goes into the reply's thread as a copy.
 func (r Reply) inSlack(md string) string {
 	return cardLink.ReplaceAllStringFunc(md, func(link string) string {
 		found := cardLink.FindStringSubmatch(link)
 		at := slices.IndexFunc(r.OpenCards, func(card board.OpenCard) bool { return card.ID == found[2] })
-		if at < 0 || found[1] != "" {
+		if at < 0 {
 			return found[1]
 		}
-		return r.OpenCards[at].Title
+		return "[" + cmp.Or(found[1], r.OpenCards[at].Title) + "](" + r.OpenCards[at].URL + ")"
 	})
 }
 
@@ -1063,7 +1067,6 @@ func firstLine(md string) string {
 	return strings.TrimSpace(line)
 }
 
-// askedAlready refuses a pick card whose question an open card on his board already asks, since board-refresher alone draws a lane's question and he answers each once.
 func (f Fanout) askedAlready(ctx context.Context, r Reply) (string, error) {
 	if len(r.Picks) == 0 {
 		return "", nil
@@ -1073,7 +1076,7 @@ func (f Fanout) askedAlready(ctx context.Context, r Reply) (string, error) {
 		return fmt.Sprintf("his board was not read for a card asking the same, so this card may ask him twice: %v", err), nil
 	}
 	if ask, asked := board.AskedAlready(open, cardPrefix+r.ID, r.Title); asked {
-		return "", fmt.Errorf("ASKED ALREADY: card %s already asks him %q, so nothing posted; he answers each question once, so tell the asking lane that card's id and leave the drawing to board-refresher", ask.ID, strings.TrimSpace(ask.Title))
+		return "", fmt.Errorf("ASKED ALREADY: card %s already asks him %q, so nothing posted; he answers each question once, so edit that card with its id instead of asking again", ask.ID, strings.TrimSpace(ask.Title))
 	}
 	return "", nil
 }
@@ -1346,12 +1349,7 @@ func (f Fanout) board(ctx context.Context, r Reply, _ []Outcome) []Outcome {
 	if err != nil {
 		return []Outcome{{Surface: "board", Error: err.Error()}}
 	}
-	done, err := f.Runner.Run(ctx, shell.Command{
-		Argv:    []string{"cc-present", "update-block", "-", "--session", f.Entry.Root(), "--round", "current"},
-		Stdin:   string(block),
-		Dir:     f.Entry.Checkout,
-		Timeout: postTimeout,
-	})
+	done, err := f.drawCard(ctx, r, string(block))
 	if err != nil {
 		return []Outcome{failed("board", err), {Surface: "slack", Ref: f.postedRef(r.ID), Error: "the board card did not post, so cc-present sent no Slack card"}}
 	}
@@ -1605,52 +1603,11 @@ func (r Reply) tapFlags() []string {
 	}
 	flags := make([]string, 0, 2*len(r.PRs))
 	for _, pr := range r.PRs {
-		flags = append(flags, "--tap-pr", pr)
+		if !slices.Contains(r.live, pr) {
+			flags = append(flags, "--tap-pr", pr)
+		}
 	}
 	return flags
-}
-
-func (f Fanout) cardCopies(ctx context.Context, r Reply, sent []Outcome) []Outcome {
-	drawn := surface(sent, "slack")
-	threaded := len(r.Picks) > 0 && r.Thread != "" && drawn.Ref != ""
-	was, err := f.delivered(r.ID)
-	if err != nil && (threaded || len(r.OpenCards) > 0) {
-		return []Outcome{{Surface: cardCopySurface, Error: "the earlier reply did not read, so no card was copied: " + err.Error()}}
-	}
-	type copied struct{ id, url string }
-	var cards []copied
-	if threaded && was.Reply.ID == "" {
-		cards = append(cards, copied{cardPrefix + r.ID, drawn.Ref})
-	}
-	for _, card := range r.OpenCards {
-		if !strings.Contains(was.Reply.MD, "(card:"+card.ID+")") && !slices.ContainsFunc(cards, func(c copied) bool { return c.id == card.ID }) {
-			cards = append(cards, copied{card.ID, card.URL})
-		}
-	}
-	thread := cmp.Or(r.Thread, stampOf(drawn.Ref))
-	copies := make([]Outcome, 0, len(cards))
-	for _, card := range cards {
-		if thread == "" {
-			copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Error: "this reply reached no Slack message, so the card has no thread to go in; copy it with `cc-slack card-copy --url " + card.url + " --thread <ts>` once the reply posts"})
-			continue
-		}
-		done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "card-copy", "--url", card.url, "--thread", thread}, Timeout: postTimeout})
-		if err != nil {
-			failure := failed(cardCopySurface, err)
-			failure.Card = card.id
-			copies = append(copies, failure)
-			continue
-		}
-		var posted struct {
-			Permalink string `json:"permalink"`
-		}
-		if err := json.Unmarshal([]byte(done.Stdout), &posted); err != nil || posted.Permalink == "" {
-			copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Error: "cc-slack card-copy named no posted message: " + strings.TrimSpace(done.Stdout)})
-			continue
-		}
-		copies = append(copies, Outcome{Surface: cardCopySurface, Card: card.id, Ref: posted.Permalink})
-	}
-	return copies
 }
 
 func (f Fanout) statusCard(r Reply, body, replaces string) (string, error) {
@@ -1800,7 +1757,7 @@ func failed(surface string, err error) Outcome {
 	if errors.As(err, &exit) {
 		return Outcome{Surface: surface, Error: fmt.Sprintf("%s %s exited %d: %s", exit.Argv[0], exit.Argv[1], exit.Code, strings.TrimSpace(exit.Stderr))}
 	}
-	if errors.Is(err, exec.ErrNotFound) && surface != cardCopySurface {
+	if errors.Is(err, exec.ErrNotFound) {
 		return Outcome{Surface: surface, Error: err.Error() + resendOnce}
 	}
 	return Outcome{Surface: surface, Error: err.Error()}

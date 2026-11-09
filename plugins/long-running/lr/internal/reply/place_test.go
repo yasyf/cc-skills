@@ -51,7 +51,12 @@ func throughTheTool(t *testing.T, entry drive.Entry, fake *shelltest.Fake, field
 	if err := os.WriteFile(filepath.Join(config, "long-running", "drives", "d.json"), encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fields["title"], fields["md"] = "The answer", "The body."
+	if fields["title"] == nil {
+		fields["title"] = "The answer"
+	}
+	if fields["md"] == nil {
+		fields["md"] = "The body."
+	}
 	args, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)
@@ -205,14 +210,14 @@ func TestAnIncidentLineThreadsUnderItsAlertsFirstPost(t *testing.T) {
 	}
 }
 
-func TestAnIncidentLineWithNoAlertPostsAndSaysWhatToAdd(t *testing.T) {
+func TestAnIncidentLineWithNoAlertIsRefusedAndSaysWhatToAdd(t *testing.T) {
 	f, fake := fanout(t, nil), scripted()
 	text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"status": incident, "unprompted": true})
-	if failed || !strings.Contains(text, "names no alert") || !strings.Contains(text, "pass alert") {
-		t.Fatalf("reply = %q, failed %v; want it posted with a warning naming alert", text, failed)
+	if !failed || !strings.Contains(text, "ALERTLESS") || !strings.Contains(text, "pass alert") {
+		t.Fatalf("reply = %q, failed %v; want it refused naming alert", text, failed)
 	}
-	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
-		t.Fatalf("cc-slack calls = %+v, want one post", posted)
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want nothing posted", posted)
 	}
 }
 
