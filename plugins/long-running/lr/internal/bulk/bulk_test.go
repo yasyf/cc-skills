@@ -44,7 +44,7 @@ type fakeBus struct {
 func (b *fakeBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
 	b.posts = append(b.posts, d)
 	seq := int64(len(b.posts) * 10)
-	return client.Record{Seq: seq, Num: fmt.Sprintf("#%d", seq), Lane: d.Lane, Text: d.Text}, nil
+	return client.Record{Seq: seq, Num: fmt.Sprintf("#%d", seq), Lane: d.Lane, Text: d.Text, At: testNow}, nil
 }
 
 func (b *fakeBus) Tail(_ context.Context, q client.Query) ([]client.Record, error) {
