@@ -149,3 +149,28 @@ func TestSparseAddRestoresTheLaneDirectoriesAHandMadeConeLeftOut(t *testing.T) {
 		t.Fatal("a directory outside the lane set was checked out")
 	}
 }
+
+func TestWidenLaneDirsChecksOutTheIncludedToolchainALaneConeLeftOut(t *testing.T) {
+	repo := sparseRepo(t, map[string]string{
+		"docs/a.md":                  "a\n",
+		"remote-builder/shims/rb-go": "go\n",
+		"infra/rows/r.json":          "{}\n",
+	})
+	include := exec.Command("git", "config", "--add", "ccx.sparseInclude", "remote-builder")
+	include.Dir = repo
+	if out, err := include.CombinedOutput(); err != nil {
+		t.Fatalf("git config: %v: %s", err, out)
+	}
+	for _, want := range []string{"remote-builder", ""} {
+		added, err := WidenLaneDirs(t.Context(), shell.Exec{}, repo)
+		if err != nil || strings.Join(added, " ") != want {
+			t.Fatalf("added %q, err %v; want %q", added, err, want)
+		}
+	}
+	if !exists(filepath.Join(repo, "remote-builder", "shims", "rb-go")) {
+		t.Fatal("the included toolchain is not checked out")
+	}
+	if exists(filepath.Join(repo, "infra", "rows")) {
+		t.Fatal("a directory outside the lane set was checked out")
+	}
+}

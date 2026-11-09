@@ -19,6 +19,7 @@ import (
 	"golang.org/x/tools/go/packages"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/wait"
 )
@@ -66,6 +67,13 @@ func Command(a *app.App) *cobra.Command {
 			top, err := git(ctx, a.Runner, "", "rev-parse", "--show-toplevel")
 			if err != nil {
 				return err
+			}
+			widened, err := orca.WidenLaneDirs(ctx, a.Runner, top)
+			if err != nil {
+				return err
+			}
+			if len(widened) > 0 {
+				fmt.Fprintf(c.ErrOrStderr(), "go-delta: checked out the lane directories %s, which the repo's go toolchain runs through\n", strings.Join(widened, " "))
 			}
 			fork, err := git(ctx, a.Runner, top, "merge-base", "HEAD", base)
 			if err != nil {
