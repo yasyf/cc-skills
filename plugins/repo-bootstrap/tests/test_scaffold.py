@@ -593,6 +593,7 @@ def _codex_env(stub_bin, tmpdir, **extra):
         "PATH": f"{stub_bin}:{os.environ['PATH']}",
         "TMPDIR": str(tmpdir),
         "CODEX_ASK_RUNS_DIR": str(tmpdir),
+        "CODEX_API_KEY": "sk-dummy",
     }
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.update(extra)
