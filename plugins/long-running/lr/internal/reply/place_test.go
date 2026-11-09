@@ -205,14 +205,14 @@ func TestAnIncidentLineThreadsUnderItsAlertsFirstPost(t *testing.T) {
 	}
 }
 
-func TestAnIncidentLineWithNoAlertPostsAndSaysWhatToAdd(t *testing.T) {
+func TestAnIncidentLineWithNoAlertIsRefusedAndSaysWhatToAdd(t *testing.T) {
 	f, fake := fanout(t, nil), scripted()
 	text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"status": incident, "unprompted": true})
-	if failed || !strings.Contains(text, "names no alert") || !strings.Contains(text, "pass alert") {
-		t.Fatalf("reply = %q, failed %v; want it posted with a warning naming alert", text, failed)
+	if !failed || !strings.Contains(text, "ALERTLESS") || !strings.Contains(text, "pass alert") {
+		t.Fatalf("reply = %q, failed %v; want it refused naming alert", text, failed)
 	}
-	if posted := calls(fake, "cc-slack"); len(posted) != 1 {
-		t.Fatalf("cc-slack calls = %+v, want one post", posted)
+	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
+		t.Fatalf("cc-slack calls = %+v, want nothing posted", posted)
 	}
 }
 

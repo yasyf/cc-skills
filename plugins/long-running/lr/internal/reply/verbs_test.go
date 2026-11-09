@@ -135,7 +135,7 @@ func listed(t *testing.T) []string {
 func TestASessionInNoDriveYetListsEveryToolInItsFirstListing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(drive.Env, "")
-	want := []string{"reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks", "search_plan"}
+	want := []string{"say", "reply", "owner_add", "owner_mark", "owner_rule", "explain", "ask_lane", "asks", "search_plan"}
 	if names := listed(t); !slices.Equal(names, want) {
 		t.Fatalf("a session in no drive lists %v, want %v", names, want)
 	}
