@@ -7,6 +7,9 @@ FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeCommit { oid } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
 )
+PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
+CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail", "PENDING": "pending", "EXPECTED": "pending"}
+REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 
 
 class GithubError(Exception):
@@ -15,7 +18,7 @@ class GithubError(Exception):
 
 def run(cmd: list[str]) -> str:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GithubError(str(error)) from None
     if result.returncode:
@@ -57,6 +60,17 @@ def flatten(node: dict) -> dict:
     }
 
 
+def live(read: dict) -> dict:
+    """The drive's stored fields (state, checks, review, head, title) of one fetched PR."""
+    return {
+        "state": PR_STATES[read["state"]],
+        "checks": CHECKS.get(read["checks"], "none"),
+        "review": REVIEWS.get(read["reviewDecision"], "none"),
+        "head": read["headRefOid"],
+        "title": read["title"],
+    }
+
+
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     repos = sorted({repo_of(key) for key in keys})
     alias = {repo: f"r{index}" for index, repo in enumerate(repos)}
@@ -74,5 +88,10 @@ def fetch(keys: list[str]) -> dict[str, dict]:
     found = {}
     for start in range(0, len(keys), BATCH):
         chunk = keys[start : start + BATCH]
-        found.update(parse(json.loads(run(["gh", "api", "graphql", "-f", f"query={query(chunk)}"])), chunk))
+        reply = run(["gh", "api", "graphql", "-f", f"query={query(chunk)}"])
+        try:
+            payload = json.loads(reply)
+        except ValueError as error:
+            raise GithubError(f"unreadable GraphQL reply: {error}") from None
+        found.update(parse(payload, chunk))
     return found

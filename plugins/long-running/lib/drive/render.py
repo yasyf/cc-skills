@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from drive.state import now, open_orders, parse_time
+from drive.state import now, open_orders, parse_time, pr_key, pr_url
 
 DRIVER_RULES = (
     "One job per deliverable: every change or question goes to one background job that owns it end to end.",
@@ -53,12 +53,17 @@ def job_line(job_id: str, job: dict) -> str:
     return f"{job_id} {job['kind']} {job['state']}{agent}: {cut(job['goal'], 100)}"
 
 
+def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
+    keys = dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)])
+    return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
+
+
 def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
     lines = [f"- {order_line(order_id, order, limit)}"]
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job)}")
-        lines.extend(f"    - {pr_line(key, pr)}" for key, pr in job_prs(drive, job_id).items())
+        lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
     return lines
 
 
@@ -76,20 +81,21 @@ def context(drive: dict) -> str:
     return "\n".join(lines)
 
 
-def status_data(drive: dict) -> dict:
+def status_data(drive: dict, pr_fields: str) -> dict:
     orders = open_orders(drive)
     job_ids = [job_id for order in orders.values() for job_id in order["jobs"]]
     return {
         "name": drive["name"],
+        "pr_fields": pr_fields,
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},
     }
 
 
-def status_text(drive: dict) -> str:
+def status_text(drive: dict, pr_fields: str) -> str:
     orders = open_orders(drive)
-    lines = [f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders"]
+    lines = [f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}"]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))
     return "\n".join(lines)

@@ -15,15 +15,25 @@ class InstallError(Exception):
     pass
 
 
-def run(cmd: list[str]) -> str:
-    done = subprocess.run(cmd, check=False, capture_output=True, text=True)
-    if done.returncode != 0:
-        raise InstallError(f"{' '.join(cmd)} exited {done.returncode}: {done.stderr.strip()}")
-    return done.stdout
+def clock() -> float:
+    return time.monotonic()
 
 
 def sleep(seconds: float) -> None:
     time.sleep(seconds)
+
+
+def run(cmd: list[str], deadline: float) -> str:
+    left = deadline - clock()
+    if left <= 0:
+        raise InstallError(f"no time left to run {' '.join(cmd)}")
+    try:
+        done = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=left)
+    except subprocess.TimeoutExpired:
+        raise InstallError(f"{' '.join(cmd)} ran past the deadline ({left:.0f}s left when it started)") from None
+    if done.returncode != 0:
+        raise InstallError(f"{' '.join(cmd)} exited {done.returncode}: {done.stderr.strip()}")
+    return done.stdout
 
 
 def config_dir() -> Path:
@@ -42,8 +52,11 @@ def marketplace_repo(marketplace: str) -> str:
     raise InstallError(f"marketplace {marketplace} has no GitHub repo ({source.get('source')}); pass --repo")
 
 
-def named_ref(repo: str, plugin: str) -> str | None:
-    raw = run(["gh", "api", f"repos/{repo}/contents/.claude-plugin/marketplace.json", "-H", "Accept: application/vnd.github.raw"])
+def named_ref(repo: str, plugin: str, deadline: float) -> str | None:
+    raw = run(
+        ["gh", "api", f"repos/{repo}/contents/.claude-plugin/marketplace.json", "-H", "Accept: application/vnd.github.raw"],
+        deadline,
+    )
     entry = next((entry for entry in json.loads(raw)["plugins"] if entry["name"] == plugin), None)
     if entry is None:
         raise InstallError(f"{repo} marketplace names no plugin {plugin}")
@@ -51,27 +64,26 @@ def named_ref(repo: str, plugin: str) -> str | None:
     return source.get("ref") if isinstance(source, dict) else None
 
 
-def contains(repo: str, ref: str, sha: str) -> bool:
-    return run(["gh", "api", f"repos/{repo}/compare/{sha}...{ref}", "--jq", ".status"]).strip() in CONTAINS
+def contains(repo: str, ref: str, sha: str, deadline: float) -> bool:
+    return run(["gh", "api", f"repos/{repo}/compare/{sha}...{ref}", "--jq", ".status"], deadline).strip() in CONTAINS
 
 
-def await_release(repo: str, plugin: str, sha: str, timeout: int) -> str:
-    waited = 0
+def await_release(repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> str:
     last = "none read"
     failure = ""
     while True:
         try:
-            ref = named_ref(repo, plugin)
+            ref = named_ref(repo, plugin, deadline)
             last = ref or "none named"
             failure = ""
-            if ref and contains(repo, ref, sha):
+            if ref and contains(repo, ref, sha, deadline):
                 return ref
         except InstallError as error:
             failure = f" (last read failed: {error})"
-        if waited + POLL_SECONDS > timeout:
+        left = deadline - clock()
+        if left <= 0:
             raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release containing {sha[:12]}; last ref {last}{failure}")
-        sleep(POLL_SECONDS)
-        waited += POLL_SECONDS
+        sleep(min(POLL_SECONDS, left))
 
 
 def installed_version(key: str) -> str:
@@ -83,11 +95,12 @@ def installed_version(key: str) -> str:
 
 
 def install(key: str, sha: str | None, repo: str | None, timeout: int) -> str:
+    deadline = clock() + timeout
     plugin, _, marketplace = key.partition("@")
     if sha:
-        await_release(repo or marketplace_repo(marketplace), plugin, sha, timeout)
-    run(["claude", "plugin", "marketplace", "update", marketplace])
-    run(["claude", "plugin", "update", key])
+        await_release(repo or marketplace_repo(marketplace), plugin, sha, deadline, timeout)
+    run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
+    run(["claude", "plugin", "update", key], deadline)
     return installed_version(key)
 
 

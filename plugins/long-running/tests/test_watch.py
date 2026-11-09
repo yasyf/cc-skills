@@ -183,6 +183,16 @@ def test_lines_are_capped_at_three_hundred_chars(demo: str, monkeypatch: pytest.
     assert len(watch.run_pass(watching, T0)[0]) == 300
 
 
+def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    state.append_event(demo, "unheard", question="first line\nsecond\r\nthird\rfourth\n\n" + "x" * 300)
+    [line] = watch.run_pass(watching, T0)
+    assert line.startswith("EVENT unheard question=first line second third fourth xxx")
+    assert len(line) == 300
+    assert "\n" not in line and "\r" not in line
+
+
 def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     state.pid_path(demo).write_text(f"{os.getpid()}\n")
     assert watch.main(demo) == 0

@@ -44,15 +44,15 @@ restack his own in-flight branches. A PR lands only when all of these hold at it
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
 - he tapped Approve on its card, or it is an exempt class.
 
-**Exempt classes land with no tap.** Record one with `drive pr set <url> --exempt "<class>"`; the landing
-guard reads it. **Pure port**: a `Port:` PR that does what its old-tree PR does, line for line, with that
+**Exempt classes land with no tap.** Record one with `drive pr set <url> --exempt "<class>"` and clear it
+with `--no-exempt`; the landing guard reads it. **Pure port**: a `Port:` PR that does what its old-tree PR does, line for line, with that
 PR's tests, and nothing more. **Test-only**: only test and fixture files. **CI-only**: only CI
 configuration and CI tooling. **Flake fix**: the whole change fixes one named flaking test, in test or
 fixture code, and adds no timeout. Anything else waits for his tap.
 
 **His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle.
 Only a push that changes what he approved ends it: `drive pr set <url> --fundamental "<what changed>"`
-clears the tap and puts the PR back on his card with that line. Two PRs that carry out one decision of
+clears the tap and any exemption, and puts the PR back on his card with that line. Two PRs that carry out one decision of
 his get one card: fold one into the other first.
 
 **Enqueue** into the Trunk merge queue with the repository's script, naming every PR that may land:

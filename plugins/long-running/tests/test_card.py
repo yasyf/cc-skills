@@ -199,6 +199,12 @@ def test_a_risk_section_saying_none_is_omitted() -> None:
     assert card.render(pr_json(body=body), entry())["prs"][0]["risk"] == ""
 
 
+@pytest.mark.parametrize("words", ["None", "none.", "No departure", "no departure.", "N/A", "n/a."])
+def test_an_against_the_plan_section_saying_none_is_omitted(words: str) -> None:
+    body = f"## Summary\nAdds a flag.\n\n## Against the plan\n{words}\n"
+    assert card.render(pr_json(body=body), entry())["prs"][0]["plan"] == ""
+
+
 def test_long_sections_cut_at_a_sentence_end() -> None:
     sentence = "Each retry waits twice as long as the one before it. "
     body = "## Summary\n" + sentence * 10

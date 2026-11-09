@@ -153,3 +153,170 @@ def test_guard_allows_malformed_input(
     drive_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], stdin: str
 ) -> None:
     assert hook_output(landing_guard, monkeypatch, capsys, stdin) == ""
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh -R Forge-AI/monorepo pr merge 42 --squash",
+        "gh --repo Forge-AI/monorepo pr merge 42",
+        "gh --repo=Forge-AI/monorepo pr merge 42",
+        "gh pr -R Forge-AI/monorepo merge 42",
+        "gh pr merge 42 -RForge-AI/monorepo",
+        "gh pr merge 42 -sR Forge-AI/monorepo",
+        "gh pr merge 42 -R Forge-AI/monorepo -s=TRUE -d=1",
+        "gh pr merge 42 --repo=Forge-AI/monorepo",
+        "gh pr merge -b 'body text' 42 -R Forge-AI/monorepo",
+        f"env GH_TOKEN=x gh pr merge {PR}",
+        f"env -i -u HOME GH_TOKEN=x /usr/local/bin/gh pr merge {PR}",
+        f"VAR=x gh pr merge {PR}",
+        f"command gh pr merge {PR}",
+        "command -- gh pr merge 42 -R Forge-AI/monorepo",
+        "exec -a landing gh pr merge 42 -R Forge-AI/monorepo",
+        "nice -n 5 time -p nohup gh pr merge 42 -R Forge-AI/monorepo",
+        "GH_REPO=Forge-AI/monorepo gh pr merge 42 --squash",
+        "env GH_REPO=Forge-AI/monorepo gh pr merge 42",
+        "export GH_REPO=Forge-AI/monorepo && gh pr merge 42",
+        f"if gh pr merge {PR} --squash; then echo landed; fi",
+        "bash -lc 'gh pr merge 42 -R Forge-AI/monorepo'",
+        "gh pr edit 42 -R Forge-AI/monorepo -m June --add-label=ready,merge",
+        "ci trunk submit '#42'",
+    ],
+)
+def test_guard_sees_a_landing_however_it_is_phrased(drive_pr: str, no_calls: list[list[str]], command: str) -> None:
+    assert landing_guard.deny_reason(bash(command)).startswith(f"{drive_pr}: no tap from him yet")
+
+
+@pytest.mark.parametrize("flag", ["--admin", "--admin=true", "--admin=1", "--admin=T", "--admin=TRUE"])
+def test_guard_denies_admin_however_it_is_spelled(drive_pr: str, no_calls: list[list[str]], flag: str) -> None:
+    approve(drive_pr)
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash {flag}")) == landing_guard.ADMIN_REASON
+
+
+def test_guard_reads_admin_false_as_no_admin(drive_pr: str, no_calls: list[list[str]]) -> None:
+    approve(drive_pr)
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --admin=false")) is None
+
+
+SIBLINGS = ("https://github.com/Forge-AI/monorepo/pull/41", "https://github.com/Forge-AI/monorepo/pull/43")
+
+
+@pytest.fixture
+def stack(drive_pr: str, run: Run) -> None:
+    for url in SIBLINGS:
+        run("pr", "add", url, "--job", "j1", "--tap")
+    approve("Forge-AI/monorepo#41")
+    approve(drive_pr)
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "stack-enqueue 41 42 43",
+        "cd /elsewhere && .agents/skills/submit-pr/scripts/stack-enqueue --watch 41 42 43",
+        "ci trunk submit 41 '#42' 43 --priority high",
+    ],
+)
+def test_guard_checks_every_pr_a_queue_submit_names(stack: None, no_calls: list[list[str]], command: str) -> None:
+    assert landing_guard.deny_reason(bash(command)).startswith("Forge-AI/monorepo#43: no tap from him yet")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "stack-enqueue 41 42",
+        "stack-enqueue --check 41 42 43",
+        "stack-enqueue --status 43",
+        "gh pr merge 43 -R Forge-AI/monorepo --disable-auto",
+    ],
+)
+def test_guard_allows_tapped_queues_reads_and_cancelled_auto_merge(
+    stack: None, no_calls: list[list[str]], command: str
+) -> None:
+    assert landing_guard.deny_reason(bash(command)) is None
+
+
+def test_guard_still_denies_when_disable_auto_is_false(drive_pr: str, no_calls: list[list[str]]) -> None:
+    assert landing_guard.deny_reason(bash("gh pr merge 42 -R Forge-AI/monorepo --auto --disable-auto=false")) is not None
+
+
+@pytest.mark.parametrize(
+    "command", ["GH_REPO=Forge-AI/monorepo gh pr merge --squash", "ccx vcs merge --match-head-commit abc --repo Forge-AI/monorepo"]
+)
+def test_guard_looks_up_a_merge_naming_no_pr_in_the_selected_repo(
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    calls: list[list[str]] = []
+
+    def answer(args: list[str], cwd: str) -> str:
+        calls.append(args)
+        if args[:2] == ["git", "branch"]:
+            return "fix-branch"
+        return PR if "-R" in args else "https://github.com/yasyf/cc-skills/pull/42"
+
+    monkeypatch.setattr(landing_guard, "run", answer)
+    assert landing_guard.deny_reason(bash(command)) is not None
+    assert calls == [
+        ["git", "branch", "--show-current"],
+        ["gh", "pr", "view", "fix-branch", "-R", "Forge-AI/monorepo", "--json", "url", "-q", ".url"],
+    ]
+
+
+def test_guard_looks_up_a_merge_naming_no_pr_or_repo_in_the_checkout(
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+
+    def answer(args: list[str], cwd: str) -> str:
+        calls.append(args)
+        return ORIGIN if args[0] == "git" else PR
+
+    monkeypatch.setattr(landing_guard, "run", answer)
+    assert landing_guard.deny_reason(bash("gh pr merge --squash")) is not None
+    assert calls == [["git", "remote", "get-url", "origin"], ["gh", "pr", "view", "--json", "url", "-q", ".url"]]
+
+
+def started_at(name: str, moment: str) -> None:
+    with state.edit(name) as data:
+        data["driver"]["started"] = moment
+
+
+def test_guard_judges_a_shared_pr_by_the_newest_drive_that_knows_it(
+    drive_pr: str, run: Run, no_calls: list[list[str]]
+) -> None:
+    approve(drive_pr)
+    run("start", "later")
+    run("order", "add", "land it again", "--drive", "later")
+    run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", "later")
+    run("pr", "add", PR, "--job", "j1", "--tap", "--drive", "later")
+    run("start", "unrelated")
+    started_at("demo", "2026-11-09T08:00:00-05:00")
+    started_at("later", "2026-11-09T09:00:00-05:00")
+    started_at("unrelated", "2026-11-09T12:00:00-05:00")
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")).startswith(f"{drive_pr}: no tap from him yet")
+    started_at("demo", "2026-11-09T07:30:00-08:00")
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")) is None
+
+
+def test_guard_reads_gh_repo_from_the_session_environment(
+    drive_pr: str, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GH_REPO", "Forge-AI/monorepo")
+    assert landing_guard.deny_reason(bash("gh pr merge 42 --admin")) == landing_guard.ADMIN_REASON
+
+
+def test_gh_repo_does_not_select_the_repo_for_ccx(drive_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    origin_is(monkeypatch, "https://github.com/yasyf/cc-skills.git")
+    assert landing_guard.deny_reason(bash("GH_REPO=Forge-AI/monorepo ccx vcs merge 42 --admin")) is None
+
+
+@pytest.mark.parametrize("command", ["env -C /work/monorepo gh pr merge 42", "env --chdir=monorepo gh pr merge 42"])
+def test_guard_reads_the_origin_where_env_runs_the_command(
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    def answer(args: list[str], cwd: str) -> str:
+        assert args == ["git", "remote", "get-url", "origin"]
+        return ORIGIN if cwd == "/work/monorepo" else "https://github.com/yasyf/cc-skills.git"
+
+    monkeypatch.setattr(landing_guard, "run", answer)
+    assert landing_guard.deny_reason(bash(command)) is not None

@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-from drive import render, state
+from drive import github, render, state
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -37,14 +37,11 @@ def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if not state.exists(args.name):
-        state.create(state.new_drive(args.name, session, os.getcwd(), args.channel))
-    else:
-        with state.edit(args.name) as data:
-            data["driver"] = {"session": session, "cwd": os.getcwd(), "started": state.stamp()}
-            if args.channel:
-                data["slack"]["channel"] = args.channel
-    data = state.load(args.name)
+    fresh = state.new_drive(args.name, session, os.getcwd(), args.channel)
+    with state.edit_or_create(args.name, fresh) as data:
+        data["driver"] = fresh["driver"]
+        if args.channel:
+            data["slack"]["channel"] = args.channel
     return emit(args, render.context(data), data)
 
 
@@ -122,10 +119,11 @@ def job_add(args: argparse.Namespace) -> int:
 def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     changes = {"agent": args.agent, "state": args.state, "said": args.said}
+    urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
-        job["prs"].extend(url for url in args.pr if url not in job["prs"])
+        job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
 
@@ -170,11 +168,14 @@ def pr_set(args: argparse.Namespace) -> int:
         pr = find(data["prs"], key, "drive PR")
         if args.tap is not None:
             pr["wants_tap"] = args.tap
-        if args.exempt:
-            pr["exempt"] = args.exempt
         if args.fundamental:
             pr["fundamental"] = args.fundamental
             pr["tap"] = None
+            pr["exempt"] = None
+        if args.exempt:
+            pr["exempt"] = args.exempt
+        if args.no_exempt:
+            pr["exempt"] = None
         if args.tapped:
             pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
             pr["fundamental"] = None
@@ -205,9 +206,23 @@ def pr_tapped(args: argparse.Namespace) -> int:
     return 0 if may_land else 1
 
 
+def overlay_live(data: dict) -> str:
+    """Read the drive's open PRs from GitHub into data, never saved; say whether the PR fields are live or stored."""
+    keys = state.open_pr_keys(data)
+    try:
+        reads = github.fetch(keys) if keys else {}
+    except github.GithubError as error:
+        return f"stored (GitHub read failed: {error})"
+    for key, read in reads.items():
+        data["prs"][key].update(github.live(read))
+    missing = [key for key in keys if key not in reads]
+    return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
+
+
 def status(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
-    return emit(args, render.status_text(data), render.status_data(data))
+    pr_fields = overlay_live(data)
+    return emit(args, render.status_text(data, pr_fields), render.status_data(data, pr_fields))
 
 
 def context(args: argparse.Namespace) -> int:
@@ -313,8 +328,10 @@ def parser() -> argparse.ArgumentParser:
     verb = pr.add_parser("set", parents=both)
     verb.add_argument("url")
     verb.add_argument("--tap", action=argparse.BooleanOptionalAction)
-    verb.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
-    verb.add_argument("--fundamental")
+    exemption = verb.add_mutually_exclusive_group()
+    exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
+    exemption.add_argument("--no-exempt", action="store_true", help="clear the exemption")
+    verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
     verb.add_argument("--tap-source", default="recorded", help="where that tap came from")
     verb.set_defaults(run=pr_set)

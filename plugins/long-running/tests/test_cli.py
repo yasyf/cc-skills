@@ -8,7 +8,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from drive import state
+from drive import github, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -33,6 +33,24 @@ def test_start_again_rebinds_the_session_and_keeps_orders(run: Run, demo: str, m
     assert data["driver"]["session"] == "after-restart"
     assert data["slack"]["channel"] == "D123"
     assert data["orders"]["o1"]["text"] == "keep me"
+
+
+def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    unpatched = state.locked
+
+    def rival_starts_while_this_one_waits(name: str):
+        monkeypatch.setattr(state, "locked", unpatched)
+        rival = state.new_drive(name, "rival-session", "/rival", "D999")
+        rival["orders"]["o1"] = {"text": "the rival's order", "state": "open", "due": None, "jobs": []}
+        state.create(rival)
+        return unpatched(name)
+
+    monkeypatch.setattr(state, "locked", rival_starts_while_this_one_waits)
+    assert run("start", "demo")[0] == 0
+    data = state.load("demo")
+    assert data["orders"]["o1"]["text"] == "the rival's order"
+    assert data["driver"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
+    assert data["slack"]["channel"] == "D999"
 
 
 def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
@@ -113,6 +131,14 @@ def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
     assert job["prs"] == [PR]
 
 
+def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> None:
+    run("order", "add", "words")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build")
+    run("job", "set", "j1", "--pr", PR + "/files", "--pr", PR)
+    assert state.load("demo")["jobs"]["j1"]["prs"] == [PR]
+    assert run("job", "set", "j1", "--pr", "https://example.com/not-a-pr")[0] == 2
+
+
 @pytest.fixture
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "land it")
@@ -170,6 +196,22 @@ def test_pr_set_fundamental_clears_the_tap(run: Run, with_pr: str) -> None:
     assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap since it changed: now deletes the old table")
 
 
+def test_pr_set_fundamental_clears_an_exemption(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--exempt", "test-only")
+    run("pr", "set", PR, "--fundamental", "now migrates the users table")
+    assert state.load("demo")["prs"][with_pr]["exempt"] is None
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap since it changed: now migrates the users table")
+
+
+def test_pr_set_no_exempt_clears_the_exemption(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--exempt", "pure port")
+    assert run("pr", "set", PR, "--no-exempt")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["exempt"] is None
+    assert run("pr", "tapped", PR)[0] == 1
+    with pytest.raises(SystemExit):
+        run("pr", "set", PR, "--exempt", "pure port", "--no-exempt")
+
+
 def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: test-only")
@@ -196,13 +238,56 @@ def test_pr_tapped_json(run: Run, with_pr: str) -> None:
     assert json.loads(out) == {"key": with_pr, "may_land": False, "why": "no tap from him yet"}
 
 
-def test_status_reads_state_only(run: Run, with_pr: str) -> None:
+LIVE = {
+    "state": "OPEN",
+    "isDraft": False,
+    "headRefOid": "fff0000",
+    "mergeCommit": None,
+    "checks": "SUCCESS",
+    "reviewDecision": "APPROVED",
+    "title": "Fix: the live title",
+}
+
+
+def test_status_overlays_live_pr_fields_without_saving_them(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+    monkeypatch.setattr(github, "fetch", lambda keys: calls.append(keys) or {with_pr: LIVE})
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#7"] = data["prs"][with_pr] | {"state": "merged"}
+    stored = state.state_path("demo").read_text()
     code, out = run("status")
     assert code == 0
-    assert out.splitlines()[0] == "demo: 1 open of 1 orders"
-    assert "Forge-AI/monorepo#42 open, checks pending" in out
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders; PR fields live"
+    assert "Forge-AI/monorepo#42 open, checks pass, review approved" in out
     code, out = run("status", "--json")
-    assert set(json.loads(out)["prs"]) == {with_pr}
+    payload = json.loads(out)
+    assert payload["pr_fields"] == "live"
+    assert (payload["prs"][with_pr]["head"], payload["prs"][with_pr]["title"]) == ("fff0000", "Fix: the live title")
+    assert calls == [[with_pr], [with_pr]]
+    assert state.state_path("demo").read_text() == stored
+
+
+def test_status_names_the_prs_github_did_not_return(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    code, out = run("status")
+    assert code == 0
+    first = "demo: 1 open of 1 orders; PR fields live; stored for Forge-AI/monorepo#42, which GitHub did not return"
+    assert out.splitlines()[0] == first
+
+
+def test_status_renders_stored_fields_when_github_fails(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(keys: list[str]) -> dict:
+        raise github.GithubError("HTTP 502")
+
+    monkeypatch.setattr(github, "fetch", broken)
+    code, out = run("status")
+    assert code == 0
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders; PR fields stored (GitHub read failed: HTTP 502)"
+    assert "Forge-AI/monorepo#42 open, checks pending, review none" in out
 
 
 def test_context_and_rollup(run: Run, with_pr: str) -> None:

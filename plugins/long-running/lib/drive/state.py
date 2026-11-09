@@ -146,6 +146,15 @@ def edit(name: str) -> Iterator[dict]:
         save(name, data)
 
 
+@contextmanager
+def edit_or_create(name: str, fresh: dict) -> Iterator[dict]:
+    """Like edit, but start from fresh when the drive does not exist yet; the lock covers the check too."""
+    with locked(name):
+        data = load(name) if exists(name) else fresh
+        yield data
+        save(name, data)
+
+
 def create(data: dict) -> None:
     with locked(data["name"]):
         save(data["name"], data)
@@ -212,3 +221,7 @@ def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
 
 def open_orders(data: dict) -> dict[str, dict]:
     return {key: order for key, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES}
+
+
+def open_pr_keys(data: dict) -> list[str]:
+    return [key for key, pr in data["prs"].items() if pr["state"] == "open"]
