@@ -58,6 +58,17 @@ func Promote(claude, target string) error {
 	if named := Installed(claude); named != "" && slices.Compare(versionKey(named), versionKey(version)) >= 0 {
 		return nil
 	}
+	return point(claude, target)
+}
+
+func Restore(claude, target string) error {
+	if !wholeVersion.MatchString(filepath.Base(target)) {
+		return fmt.Errorf("%s is no version directory", target)
+	}
+	return point(claude, target)
+}
+
+func point(claude, target string) error {
 	path := link(claude)
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
