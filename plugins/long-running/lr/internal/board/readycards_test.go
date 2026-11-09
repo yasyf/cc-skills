@@ -648,7 +648,7 @@ func redRow(row store.ReviewRow) store.ReviewRow {
 	return row
 }
 
-func TestARedHeadTakesItsTapCardDownAndTurningGreenDrawsItAgain(t *testing.T) {
+func TestARedHeadKeepsItsTapCardUpAndTurningGreenAsksNothingNew(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
 	row := tapRow(50485)
@@ -658,21 +658,18 @@ func TestARedHeadTakesItsTapCardDownAndTurningGreenDrawsItAgain(t *testing.T) {
 	putRows(t, f, redRow(row))
 	readyPass(t, f)
 	f.run(t)
-	if _, onBoard := f.shell.drawn[tapCardID(row)]; onBoard {
-		t.Fatal("a red PR's tap card stayed on the board")
+	if _, onBoard := f.shell.drawn[tapCardID(row)]; !onBoard {
+		t.Fatal("a red PR's tap card came down; he approves while its CI is fixed")
 	}
 	putRows(t, f, row)
 	readyPass(t, f)
 	f.run(t)
-	if calls := askCalls(f); len(calls) != 2 {
-		t.Fatalf("asks = %v, want the first draw and one once green", calls)
-	}
-	if _, onBoard := f.shell.drawn[tapCardID(row)]; !onBoard {
-		t.Fatalf("drawn = %v, want the card back", f.shell.drawn)
+	if calls := askCalls(f); len(calls) != 1 {
+		t.Fatalf("asks = %v, want only the first draw", calls)
 	}
 }
 
-func TestARedNewHeadTakesTheOldHeadsCardDownAndDrawsNone(t *testing.T) {
+func TestARedNewHeadKeepsTheOldHeadsCardUp(t *testing.T) {
 	liveDrive(t)
 	f := newLink(t)
 	row := tapRow(49059)
@@ -684,16 +681,15 @@ func TestARedNewHeadTakesTheOldHeadsCardDownAndDrawsNone(t *testing.T) {
 	putRows(t, f, pushed)
 	readyPass(t, f)
 	f.run(t)
-	if len(f.shell.drawn) != 0 {
-		t.Fatalf("drawn = %v, want no card for a red head", f.shell.drawn)
+	if _, onBoard := f.shell.drawn[tapCardID(row)]; !onBoard {
+		t.Fatalf("drawn = %v, want the card still up while CI is fixed", f.shell.drawn)
 	}
-	readyPass(t, f)
 	if calls := askCalls(f); len(calls) != 1 {
 		t.Fatalf("asks = %v, want only the first draw", calls)
 	}
 }
 
-func TestOneRedRowAmongReadyRowsReadsTheBoardOnceAtOneRowOrMany(t *testing.T) {
+func TestOneRedRowAmongReadyRowsWritesNothingToTheBoardAtOneRowOrMany(t *testing.T) {
 	for _, n := range []int{1, scaletest.N()} {
 		t.Run(fmt.Sprint(n), func(t *testing.T) {
 			liveDrive(t)
@@ -712,8 +708,8 @@ func TestOneRedRowAmongReadyRowsReadsTheBoardOnceAtOneRowOrMany(t *testing.T) {
 			before := len(f.shell.seen())
 			readyPass(t, f)
 			calls := slices.DeleteFunc(f.shell.seen()[before:], func(call string) bool { return !strings.HasPrefix(call, "cc-present ") })
-			if len(calls) != 1 || !strings.HasPrefix(calls[0], "cc-present remove-block "+tapCardID(rows[0])) {
-				t.Fatalf("board writes = %v, want one removal", calls)
+			if len(calls) != 0 {
+				t.Fatalf("board writes = %v, want none", calls)
 			}
 		})
 	}
