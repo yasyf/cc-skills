@@ -112,16 +112,15 @@ func TestHisApprovalStandsBehindAPendingCheckAndOnlyTheRowsStandingRefusesIt(t *
 	}
 }
 
-func TestAnApprovalThroughAMissingBodyLineWaitsForItAndNeedsNoNewTap(t *testing.T) {
+func TestHisApprovalStandsInForAMissingPlanRow(t *testing.T) {
 	row := readyRow()
-	row.PlanRow, row.Tapped = "", true
-	row = Decide(row)
-	if row.ReadyForTap || !strings.Contains(row.WaitsOn, "names no plan") || LandsOnce(row) != "its PR body names its plan" {
-		t.Fatalf("row = %+v, lands once %q, want it waiting on the plan line", row, LandsOnce(row))
+	row.PlanRow = ""
+	if row = Decide(row); row.ReadyForTap || !strings.Contains(row.WaitsOn, "names no plan") {
+		t.Fatalf("row = %+v, want an untapped row waiting on the plan line", row)
 	}
-	row.PlanRow = "plan step 3"
+	row.Tapped = true
 	if row = Decide(row); !row.ReadyForTap || row.WaitsOn != tappedWaits {
-		t.Fatalf("row = %+v, want it ready and tapped once the body names a plan", row)
+		t.Fatalf("row = %+v, want his approval to land it without a plan row", row)
 	}
 }
 
