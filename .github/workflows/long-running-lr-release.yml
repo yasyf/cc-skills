@@ -27,6 +27,9 @@ jobs:
   build:
     runs-on: macos-latest
     timeout-minutes: 30
+    outputs:
+      version: ${{ env.VERSION }}
+      tag: ${{ env.TAG }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v6
@@ -76,6 +79,9 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      TAG: ${{ needs.build.outputs.tag }}
     steps:
       - uses: actions/checkout@v7
         with:
