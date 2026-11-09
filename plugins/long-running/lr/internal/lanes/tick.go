@@ -696,7 +696,7 @@ func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (st
 	}
 	return strings.Join([]string{
 		"Replaces: " + Root,
-		"ccx: place=local",
+		"ccx: place=local why=mac-state",
 		fmt.Sprintf("You are %s, this drive's coordinator, in a new session. The lane supervisor launched you from your brief because the last coordinator session %s.", Root, why),
 		handoffStart(old, d, transcript),
 		"",
