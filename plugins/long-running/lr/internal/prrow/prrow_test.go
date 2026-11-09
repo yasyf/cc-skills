@@ -2297,3 +2297,30 @@ func TestAPortCardSaysItIsAPortAndWhatTheNewTreeForcesWhenItAsks(t *testing.T) {
 		}
 	}
 }
+
+const findings52504 = "finder: major 867546b37e021f19e78f388535eb383f3c945144 5 open over whole 867546b^..867546b: infra/lib/s3tables.ts:83-92; [Pulumi DataLakeSettings docs](https://www.pulumi.com/registry/packages/aws/api-docs/lakeformation/datalakesettings/) The account-wide DataLakeSettings resource omits read-only admins, trusted resource owners and external filtering allowlists; fidelity: missing 867546b37e021f19e78f388535eb383f3c945144 plan:81,AGENTS.md:144 plan names no lakeFormationAdmins row field, added at infra/lib/s3tables.ts:21"
+
+func TestAGreenApprovedRowHeldOnlyByItsLaneNamesEachGapInPlainWords(t *testing.T) {
+	held := readyRow()
+	held.Grade, held.GradeFindings, held.PlanRow = "fail", findings52504, ""
+	gaps := LaneGaps(held)
+	if len(gaps) != 3 || !strings.HasPrefix(gaps[0], "The account-wide DataLakeSettings resource omits") || !strings.HasPrefix(gaps[1], "plan names no lakeFormationAdmins row field") || gaps[2] != PlanUnnamed {
+		t.Fatalf("gaps = %q, want the finder's sentence, the fidelity sentence and the missing plan row", gaps)
+	}
+	if strings.Contains(strings.Join(gaps, " "), "867546b") {
+		t.Fatalf("gaps = %q carry a hash", gaps)
+	}
+	red := held
+	red.CI = CIRed
+	if gaps := LaneGaps(red); gaps != nil {
+		t.Fatalf("a red row's gaps = %q, want none, since CI is not its lane's gap alone", gaps)
+	}
+	if gaps := LaneGaps(readyRow()); gaps != nil {
+		t.Fatalf("a ready row's gaps = %q, want none", gaps)
+	}
+	tapped := held
+	tapped.Grade, tapped.Tapped = GradePass, true
+	if row := Decide(tapped); !row.ReadyForTap {
+		t.Fatalf("a tapped row with no plan row = %+v, want his tap to stand in for the plan row", row)
+	}
+}
