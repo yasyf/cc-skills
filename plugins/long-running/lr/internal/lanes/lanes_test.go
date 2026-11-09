@@ -95,6 +95,7 @@ type fake struct {
 	posts       []Post
 	launches    []string
 	keys        []string
+	starts      []string
 	costs       map[string]Cost
 	briefs      map[string]string
 	withdrawn   []string
@@ -152,6 +153,7 @@ func newFake(t *testing.T, records []Record, peers []Row) *fake {
 			f.briefs[name] = string(text)
 			return err
 		},
+		Start:    func(name, _, _, _ string) error { f.starts = append(f.starts, name); return nil },
 		Withdraw: func(name string) error { f.withdrawn = append(f.withdrawn, name); return nil },
 		Wake: func(name string, _ Row, page map[string]any) (bool, error) {
 			f.wakes = append(f.wakes, name)
@@ -2910,6 +2912,44 @@ func coordinator(t *testing.T, s *store.Store, brief string) *fake {
 	tick(t, s, f, t0.Add(-time.Hour))
 	f.posts = nil
 	return f
+}
+
+func TestARelaunchedCoordinatorCountsAsRelaunchedOnlyOnceCciWhoShowsItLive(t *testing.T) {
+	s := memory(t)
+	f := coordinator(t, s, writeBrief(t))
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+	tick(t, s, f, t0)
+	contains(t, f.posts[0].Text, "RELAUNCH ORDERED for the coordinator")
+	f.posts = nil
+
+	f.peers = []Row{who(Root, true, t0.Add(mins(3)))}
+	tick(t, s, f, t0.Add(mins(4)))
+
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
+	contains(t, f.posts[0].Text, "RELAUNCHED the coordinator: root is live in cci who")
+	equal(t, row(t, s, Root).State, store.LaneDesired)
+}
+
+func TestACoordinatorThatNeverComesUpIsRelaunchedUnderAFreshKeyThenStartedDirectly(t *testing.T) {
+	s := memory(t)
+	f := coordinator(t, s, writeBrief(t))
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+	tick(t, s, f, t0)
+	f.posts = nil
+
+	retried := t0.Add(launchWindow + time.Minute)
+	tick(t, s, f, retried)
+
+	equal(t, f.keys, []string{fmt.Sprintf("supervisor-launch:root:%d", t0.Unix()), fmt.Sprintf("supervisor-launch:root:try:%d", retried.Unix())})
+	equal(t, row(t, s, Root).State, store.LaneLaunching)
+	equal(t, len(f.starts), 0)
+
+	tick(t, s, f, retried.Add(launchWindow+time.Minute))
+
+	equal(t, f.starts, []string{Root})
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
+	contains(t, f.posts[0].Text, "root did not start: twice it was not live 25 minutes after its launch through the orca runner, so the supervisor started it directly with `lr launch start`")
+	equal(t, row(t, s, Root).State, store.LaneLaunching)
 }
 
 func TestANumberedCoordinatorThatPostsWorkerDoneRelaunchesAsRoot(t *testing.T) {

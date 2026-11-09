@@ -955,6 +955,9 @@ func (e Env) Deps(ctx context.Context) (Deps, error) {
 		Launch: func(name, model, effort, brief, key string) error {
 			return attach(filepath.Join(briefs, name+".launch.log"), lr, "launch", "lane", name, model, effort, brief, "--drive", e.Config.Drive, "--lane", Self, "--timeout-seconds", "0", "--now", "--id", key)
 		},
+		Start: func(name, model, effort, brief string) error {
+			return attach(filepath.Join(briefs, name+".launch.log"), lr, "launch", "start", name, model, effort, brief)
+		},
 		Withdraw: func(name string) error {
 			return detach(filepath.Join(briefs, name+".launch.log"), lr, "launch", "withdraw", name, "--drive", e.Config.Drive, "--lane", Self)
 		},

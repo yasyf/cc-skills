@@ -18,7 +18,7 @@ type stageBus struct {
 
 func (b *stageBus) Post(_ context.Context, d client.Draft) (client.Record, error) {
 	b.drafts = append(b.drafts, d)
-	return client.Record{}, nil
+	return client.Record{At: time.Now()}, nil
 }
 
 const prepareLog = `time=2026-11-04T18:02:46.025-08:00 level=INFO msg="claimed a warm workspace" lane=a-1 workspace=pool-dead ref=dev
