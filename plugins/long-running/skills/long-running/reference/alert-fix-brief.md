@@ -250,13 +250,9 @@ Do:
      A monitor you add pages no one unless the owner approved that page: land it
      notify-only, and the coordinator puts "page on this?" to him later as a card.
      Once GitHub's required checks are green and the PR is approved, post READY
-     with the exact head. An incident fix lands by plain squash, never the queue:
-     the supervisor's incident squash merges it in the pass its head is approved
-     and green. When `ccx vcs pr status <n>` still reads it open five minutes after
-     READY, land it yourself with `gh pr merge <n> --squash --match-head-commit <head>`,
-     or `gh stack merge <n> --yes --squash` when GitHub answers that a stack member
-     must use the asynchronous merge API; a ready fix never waits on a pass that
-     is not running. Never run stack-enqueue. Accept each reviewer-bot
+     with the exact head and send his tap card through owner-relay. landing-desk
+     lands it on his tap; only a test-only or CI-only path class lands without
+     one. Never run `gh pr merge`, `gh stack merge` or stack-enqueue yourself. Accept each reviewer-bot
      finding with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "incident: <why the fix is still right>"`
      and push nothing for it, since a push restarts CI; push only for a finding
      that says the fix itself is wrong, ending the push with `# fix-is-wrong: <slug>`. Never rebase or push a
