@@ -59,6 +59,7 @@ type SlackPRRow struct {
 	Change string `json:"change"`
 	Plan   string `json:"plan"`
 	ELI5   string `json:"eli5"`
+	ShowMe string `json:"show_me"`
 	Blocks string `json:"blocks"`
 	Lands  string `json:"lands,omitempty"`
 	Port   string `json:"port,omitempty"`
@@ -114,7 +115,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info",
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMe(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	switch row.State {
@@ -214,7 +215,7 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 		summary = append(summary, "**"+row.Port+".**")
 	}
 	for _, line := range []struct{ key, label, said string }{
-		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"eli5", "ELI5", row.ELI5}, {"blocker", "Blocks landing", row.Blocks},
+		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"eli5", "ELI5", row.ELI5}, {"show_me", "Show me", row.ShowMe}, {"blocker", "Blocks landing", row.Blocks},
 	} {
 		if line.said != "" {
 			child[line.key] = line.said

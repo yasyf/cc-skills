@@ -2236,15 +2236,18 @@ func TestARowsPortStateReadsItsHeadRecordThenItsBodysPortLine(t *testing.T) {
 }
 
 func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T) {
-	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\nChats load right after a network drop.\n\nPlan: bug list item 4 (slack-bugs)\n"
+	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\nChats load right after a network drop.\n\nPlan: bug list item 4 (slack-bugs)\n\n## Show me\n\nBefore: a chat spins for a minute after the drop. After: it loads at once.\n"
 	if gaps := BodyGaps(ready); len(gaps) != 0 {
 		t.Fatalf("gaps = %q, want none", gaps)
 	}
 	for name, tc := range map[string]struct{ body, gap string }{
-		"no Plan: line":        {strings.Replace(ready, "Plan: bug list item 4 (slack-bugs)\n", "", 1), "the plan row: its PR body has no Plan: line"},
-		"a code term":          {strings.Replace(ready, "Chats load right", "`reconnect()` runs right", 1), "what it changes for a user: its Summary carries"},
-		"no Context":           {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
-		"an unnamed plan form": {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
+		"no Plan: line":           {strings.Replace(ready, "Plan: bug list item 4 (slack-bugs)\n", "", 1), "the plan row: its PR body has no Plan: line"},
+		"a code term":             {strings.Replace(ready, "Chats load right", "`reconnect()` runs right", 1), "what it changes for a user: its Summary carries"},
+		"no Context":              {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
+		"an unnamed plan form":    {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
+		"no Show me":              {strings.Split(ready, "## Show me")[0], "its show-me: its PR body has no Show me section"},
+		"a Show me of words":      {strings.Replace(ready, "Before: a chat spins for a minute after the drop. After: it loads at once.", "It works now.", 1), "holds no screenshot, gif, code block, or before and after"},
+		"a new function, no call": {strings.Replace(ready, "Chats load right after a network drop.", "Chats load right after a network drop, and a new function presigns uploads.", 1), "it adds a function, and its Show me section has no real Sand API call"},
 	} {
 		if gaps := strings.Join(BodyGaps(tc.body), "; "); !strings.Contains(gaps, tc.gap) {
 			t.Errorf("%s: gaps = %q, want %q", name, gaps, tc.gap)
@@ -2253,7 +2256,7 @@ func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T)
 }
 
 func TestAReleaseCardNamingALoopBreakerSaysTheLLMResolverStays(t *testing.T) {
-	const body = "## Context\n\nA release stalled when two stacks named each other.\n\n## Summary\n\n%s\n\nPlan: owner:m1913\n"
+	const body = "## Context\n\nA release stalled when two stacks named each other.\n\n## Summary\n\n%s\n\nPlan: owner:m1913\n\n## Show me\n\n![the release page](https://example.com/release.png)\n"
 	for name, tc := range map[string]struct{ summary, gap string }{
 		"#52709's card, the resolver unsaid": {"Releases no longer stall: the loop breaker is deleted.", "that the LLM resolver stays"},
 		"the resolver said to stay":          {"Releases no longer stall: the loop breaker is deleted, and the LLM resolver that builds the first plan stays.", ""},
