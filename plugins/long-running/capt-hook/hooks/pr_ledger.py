@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from functools import cache, partial
 from pathlib import Path
 
-from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, FileFixture, HookResult, Input, Or, Runs, Tool, Warn, ast_grep, on
+from captain_hook import Allow, Annotated, BaseHookEvent, Block, Call, Event, FileFixture, HookResult, Input, Or, Runs, Tool, Warn, on
 from captain_hook.util import reqenv
 
 from .compaction_handoff import Bound, drive_entry, run_script, script
@@ -365,17 +365,25 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
         Input(command="python3 /gen.py > /new.md && gh pr edit 9 --body-file /new.md", env=LANE_ENV): Allow(),
         Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load, and the plan row shows only on a departure.\n\nPlan: owner:m1932\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="cat > /new.md <<'EOF'\n## Summary\nChats load.\nEOF\ngh pr edit 9 --body-file /new.md", env=LANE_ENV): Block(pattern="Availability"),
+        Input(command="f=/s/9.md; gh pr view 9 --json body -q .body > $f.old; python3 - \"$f\" <<'EOF'\nimport sys\nopen(sys.argv[1], 'w').write(open(sys.argv[1] + '.old').read())\nEOF\ngh pr edit 9 --body-file $f", env=LANE_ENV): Allow(),
+        Input(command="python3 /gen.py ~/b.md && gh pr edit 9 --body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n")): Allow(),
+        Input(command="PR=/s/ship-pr\ncat > \"$PR/title.txt\" <<'EOF'\nx: ✨ y\nEOF\ncp /s/body.md \"$PR/body.md\"\nccx vcs ship --no-watch --pr-title-file \"$PR/title.txt\" --pr-body-file \"$PR/body.md\"", env=LANE_ENV): Allow(),
+        Input(command="cat > /s/title.txt <<'EOF'\nx: ✨ y\nEOF\nccx vcs ship --pr-title-file /s/title.txt --pr-body-file ~/b.md", env=LANE_ENV, file=FileFixture(home=True, name="b.md", content="## Summary\nChats load.\n")): Block(pattern="Availability"),
     },
 )
 def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
     calls = [call for call in evt.cmd.calls() if (call.name, *call.args)[:3] in BODY_WRITERS and any(flag_values(call.args, flag) for flag in (SHIP_BODY, *EDITED_BODY))]
     if not calls:
         return None
-    paths = [Path(call.cwd or ".", Path(path).expanduser()) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for path in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
-    if any(not path.is_file() for path in paths) and not any(ast_grep.find_kinds(evt.command.raw, "bash", frozenset({"heredoc_body"}))):
+    named = [(value, Path(call.cwd or ".", Path(value).expanduser())) for call in calls for flag in (SHIP_BODY, "--body-file", "-F") for value in (value.rpartition("=")[2] for value in flag_values(call.args, flag))]
+    writers = [call for call in evt.cmd.calls() if call not in calls and any(writes(call, value) for value, _ in named)]
+    if any(call.name != "cat" or call.args for call in writers):
+        return None
+    paths = [path for value, path in named if not any(writes(call, value) for call in writers)]
+    if any(not path.is_file() for path in paths):
         return None
     try:
-        files = [path.read_text() for path in paths if path.is_file()]
+        files = [path.read_text() for path in paths]
     except OSError:
         return None
     body = "\n".join([*files, evt.command.raw])
@@ -408,6 +416,10 @@ def record_edited_bodies(evt: BaseHookEvent) -> HookResult | None:
         except (Unposted, ValueError, KeyError) as failure:
             failed.append(UNPOSTED.format(number=pr.number, reason=failure))
     return evt.context("\n".join(failed)) if failed else None
+
+
+def writes(call: Call, path: str) -> bool:
+    return path in call.args or any(redirect.target.strip("\"'") == path for redirect in call.redirects)
 
 
 def flag_values(args: tuple[str, ...], name: str) -> list[str]:
