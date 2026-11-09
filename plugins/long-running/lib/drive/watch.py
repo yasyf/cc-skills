@@ -105,13 +105,25 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def owes_line(order: dict, moment: datetime) -> bool:
-    last = order["last_line"] or order["created"]
-    return order["state"] in OWING_STATES and moment - state.parse_time(last) >= TICK_EVERY
+def changed_since(order: dict, jobs: dict, last: datetime) -> bool:
+    stamps = [order["updated"], *(jobs[job_id]["updated"] for job_id in order["jobs"])]
+    return any(state.parse_time(stamp) > last for stamp in stamps)
+
+
+def due_soon(order: dict, moment: datetime) -> bool:
+    return bool(order["due"]) and moment <= state.parse_time(order["due"]) < moment + TICK_EVERY
+
+
+def owes_line(order: dict, jobs: dict, moment: datetime) -> bool:
+    last = state.parse_time(order["last_line"] or order["created"])
+    if order["state"] not in OWING_STATES or moment - last < TICK_EVERY:
+        return False
+    return changed_since(order, jobs, last) or due_soon(order, moment)
 
 
 def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    owing = [key for key, order in state.load(watcher.name)["orders"].items() if owes_line(order, moment)]
+    data = state.load(watcher.name)
+    owing = [key for key, order in data["orders"].items() if owes_line(order, data["jobs"], moment)]
     return [f"TICK {' '.join(owing)}"] if owing else []
 
 

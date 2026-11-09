@@ -28,11 +28,16 @@ def order(**overrides: object) -> dict:
     return {**base, **overrides}
 
 
+def job(**overrides: object) -> dict:
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "updated": state.stamp(T0)}
+    return {**base, **overrides}
+
+
 @pytest.fixture
 def demo(state_root: Path) -> str:
     data = state.new_drive("demo", "session-under-test", "/work", "D123")
     data["orders"]["o1"] = order()
-    data["jobs"]["j1"] = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [state.pr_url(KEY)]}
+    data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
     data["prs"][KEY] = cli.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title"}
     state.create(data)
     return "demo"
@@ -164,15 +169,20 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
     assert watch.run_pass(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
 
 
-def test_tick_names_working_orders_without_a_recent_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        data["orders"]["o2"] = order(state="waiting", last_line=None)
-        data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=5)))
-        data["orders"]["o4"] = order(state="open")
+        data["orders"]["o2"] = order(state="waiting", last_line=None, updated=state.stamp(T0 + timedelta(minutes=2)))
+        data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=5)), jobs=["j3"])
+        data["jobs"]["j3"] = job(order="o3", updated=state.stamp(T0 + timedelta(minutes=6)))
+        data["orders"]["o4"] = order(state="open", updated=state.stamp(T0 + timedelta(minutes=2)))
+        data["orders"]["o5"] = order(jobs=["j5"], due=state.stamp(T0 + timedelta(minutes=15)))
+        data["jobs"]["j5"] = job(order="o5")
+        data["orders"]["o6"] = order(jobs=["j6"])
+        data["jobs"]["j6"] = job(order="o6", updated=state.stamp(T0 + timedelta(minutes=3)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["TICK o1 o2"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["TICK o2 o5 o6"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
 
 
