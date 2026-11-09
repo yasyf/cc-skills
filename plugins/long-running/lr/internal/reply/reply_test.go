@@ -765,7 +765,7 @@ func TestAHiddenCiteStaysOnTheRecordAndOffEverySurfaceHeReads(t *testing.T) {
 func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
 	fake := scripted()
 	long := strings.Repeat("a", 2000) + "\n\n" + strings.Repeat("b", 2000)
-	r := Reply{ID: "r6", Title: "The relay lane is half done", MD: long, PRs: []string{landPR}, Links: []Link{{Label: "One-pager", URL: "https://studio.example.ts.net/one-pagers/relay/"}}, Thread: "1793684147.131059"}
+	r := Reply{ID: "r6", Title: "The relay lane is half done", MD: long, Links: []Link{{Label: "One-pager", URL: "https://studio.example.ts.net/one-pagers/relay/"}}, Thread: "1793684147.131059"}
 
 	sent := fanout(t, fake).Send(context.Background(), r)
 
@@ -773,9 +773,9 @@ func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
 	if len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != r.Thread || slices.Contains(posted[0].Argv, "--card") {
 		t.Fatalf("cc-slack calls = %+v, want one text post under thread %s", posted, r.Thread)
 	}
-	want := "*The relay lane is half done*\n" + long + "\n\n- " + landPR + "\n<https://studio.example.ts.net/one-pagers/relay/|One-pager>"
+	want := "*The relay lane is half done*\n" + long + "\n<https://studio.example.ts.net/one-pagers/relay/|One-pager>"
 	if text := posted[0].Argv[len(posted[0].Argv)-1]; text != want {
-		t.Fatalf("thread text = %q, want the title, the whole reply, its PR and its link", text)
+		t.Fatalf("thread text = %q, want the title, the whole reply and its link", text)
 	}
 	if surface(sent, "slack") != (Outcome{Surface: "slack", Ref: permalink}) {
 		t.Fatalf("outcomes = %+v, want the thread reply's permalink", sent)
@@ -1627,14 +1627,31 @@ func TestAProgressReplyInHisThreadAnswersThereAndKeepsTheLedgerRow(t *testing.T)
 	}
 }
 
-func TestAPickCardAnsweringHisThreadPostsOnceAndCopiesNothing(t *testing.T) {
-	fake := scripted()
-	sent := fanout(t, fake).Send(context.Background(), Reply{ID: "r9", Title: "Land the relay fix?", MD: "Its checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: "1793684147.131059"})
-	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
-		t.Fatalf("cc-slack calls = %+v, want the card's one post from cc-present and no copy", posted)
-	}
-	if surface(sent, "slack").Ref != permalink || surface(sent, "card copy").Surface != "" || surface(sent, "slack thread").Surface != "" {
-		t.Fatalf("outcomes = %+v, want the card alone", sent)
+func TestACardAnsweringHisThreadPostsAtHisDMRootAndLinksItInTheThread(t *testing.T) {
+	const thread = "1793684147.131059"
+	for name, reply := range map[string]Reply{
+		"a pick card": {ID: "r9", Title: "Land the relay fix?", MD: "Its checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", Thread: thread},
+		"a tap card":  {ID: "r8", Title: "Relay fix", MD: "Its checks passed.", Thread: thread, PRs: []string{landPR}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			fake := scripted()
+			sent := fanout(t, fake).Send(context.Background(), reply)
+			var linked []shell.Command
+			for _, call := range calls(fake, "cc-slack") {
+				if slices.Contains(call.Argv, "--thread") {
+					linked = append(linked, call)
+				}
+			}
+			if len(linked) != 1 || flag(t, linked[0].Argv, "--thread") != thread || slices.Contains(linked[0].Argv, "--tap-pr") || slices.Contains(linked[0].Argv, "--card") {
+				t.Fatalf("thread posts = %+v, want one plain line in his thread and the card at his DM root", linked)
+			}
+			if text := linked[0].Argv[len(linked[0].Argv)-1]; text != "*"+reply.Title+"*\n<"+permalink+"|"+cardAtRoot+">" {
+				t.Fatalf("thread line = %q, want a link to the card at his DM root", text)
+			}
+			if surface(sent, "slack").Ref != permalink || surface(sent, threadLink).Ref == "" || surface(sent, "card copy").Surface != "" {
+				t.Fatalf("outcomes = %+v, want the root card and its one thread link", sent)
+			}
+		})
 	}
 }
 
@@ -1811,8 +1828,8 @@ func TestAPickReplyInHisThreadEditsOnlyItsCardAcrossEdits(t *testing.T) {
 	ask.MD = "Checks passed again."
 	sent := f.Send(context.Background(), ask)
 
-	if posted := calls(fake, "cc-slack"); len(posted) != 0 {
-		t.Fatalf("cc-slack calls = %+v, want no copy of the card and no thread post", posted)
+	if posted := calls(fake, "cc-slack"); len(posted) != 1 || flag(t, posted[0].Argv, "--thread") != hisThread {
+		t.Fatalf("cc-slack calls = %+v, want one link in his thread on the first send and no copy of the card", posted)
 	}
 	if surface(sent, "slack").Ref != cardCopy || surface(sent, "slack thread").Surface != "" {
 		t.Fatalf("outcomes = %+v, want the card alone", sent)
@@ -1820,7 +1837,7 @@ func TestAPickReplyInHisThreadEditsOnlyItsCardAcrossEdits(t *testing.T) {
 
 	f.Send(context.Background(), Reply{ID: "r6", Title: "Landed", MD: "It merged.", Thread: hisThread})
 	posted := calls(fake, "cc-slack")
-	if len(posted) != 1 || slack(t, posted[0]).Replaces != cardCopy {
+	if len(posted) != 2 || slack(t, posted[1]).Replaces != cardCopy {
 		t.Fatalf("cc-slack calls = %+v, want the card edited and nothing posted", posted)
 	}
 }
