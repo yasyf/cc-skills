@@ -55,6 +55,10 @@ def cursor_path(name: str) -> Path:
     return drive_dir(name) / "watch.cursor"
 
 
+def cards_path(name: str) -> Path:
+    return drive_dir(name) / "cards.json"
+
+
 def names() -> list[str]:
     base = root()
     if not base.is_dir():

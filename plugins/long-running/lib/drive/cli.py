@@ -338,18 +338,21 @@ def context(args: argparse.Namespace) -> int:
 def view_command(args: argparse.Namespace) -> int:
     from drive import page, view
 
-    model = view.read(state.resolve(args.drive), state.now())
+    name = state.resolve(args.drive)
+    view.refresh_cards(name)
+    model = view.read(name, state.now())
     return emit(args, page.render(model), model)
 
 
 def dashboard_command(args: argparse.Namespace) -> int:
-    from drive import dashboard
+    from drive import dashboard, view
 
     name = state.resolve(args.drive)
     port = args.port or dashboard.port_of(name)
     if args.serve:
         dashboard.serve(name, port)
         return 0
+    view.refresh_cards(name)
     print(dashboard.start(name, port))
     return 0
 

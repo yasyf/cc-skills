@@ -174,3 +174,60 @@ def test_a_failed_draw_is_said_at_most_every_ten_minutes_and_retried(demo: str, 
     assert watch.run_pass(watching, T0) == ["WATCH status page draw failed: missing_scope"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["WATCH status page draw failed: missing_scope"]
+
+
+def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
+    data = drive_of(
+        {"o1": order("ship the page\nwith its tests", ["j1", "j2"]), "o2": order("old news", ["j3"], state="done", updated=state.stamp(T0 - timedelta(days=2)))},
+        {"j1": job("o1", "running", "drawing it", updated=-50), "j2": job("o1", "waiting", updated=-5), "j3": job("o2", "running")},
+        [pr(1, "o1", checks="fail"), pr(2, "o1", state="merged")],
+    )
+    model = view.board(data, found(), "live", [], T0)
+    assert model["progress"] == {"prs": 2, "merged": 1, "open": 1, "red": 1, "running": 2}
+    assert [(entry["id"], entry["state"]) for entry in model["work"]] == [("j1", "running"), ("j2", "waiting")]
+    entry = next(entry for group in model["status"] for entry in group["features"])
+    assert (entry["id"], entry["text"]) == ("o1", "ship the page\nwith its tests")
+    assert [job_entry["id"] for job_entry in entry["jobs"]] == ["j1", "j2"]
+
+
+def test_history_lists_the_last_day_newest_first_with_his_taps_by_title() -> None:
+    data = drive_of(
+        {
+            "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
+            "o2": order("from yesterday", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting"),
+        },
+        {"j1": job("o1", "failed", "CI red (m12)", updated=-20)},
+        [pr(1, "o1", state="merged", updated=at(-15))],
+    )
+    events = [
+        {"kind": "tap", "at": at(-5), "repo": "yasyf/cc-skills", "number": 1, "label": "Approve"},
+        {"kind": "shown", "at": at(-4), "repo": "yasyf/cc-skills", "number": 1, "waits": ""},
+        {"kind": "refused", "at": at(-3), "repo": "yasyf/cc-skills", "number": 9, "reason": "its body lacks a section"},
+    ]
+    history = view.board(data, found(), "live", events, T0)["history"]
+    assert [(entry["kind"], entry["text"], entry["detail"]) for entry in history] == [
+        ("refused", "https://github.com/yasyf/cc-skills/pull/9", "its body lacks a section"),
+        ("tap", "change 1", "Approve"),
+        ("live", "ship the page", "installed 1.0.21"),
+        ("merged", "change 1", ""),
+        ("failed", "g", "CI red"),
+        ("order", "ship the page", ""),
+    ]
+
+
+def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert view.stored_cards(demo) == (view.NO_CARDS, view.UNREAD)
+    listed = found([question("Release now?", -20)])
+    monkeypatch.setattr(view, "cards", lambda name: listed)
+    view.refresh_cards(demo)
+    written = state.cards_path(demo).stat().st_mtime_ns
+    view.refresh_cards(demo)
+    assert state.cards_path(demo).stat().st_mtime_ns == written
+    assert view.stored_cards(demo) == (listed, "live")
+
+    def refused(name: str) -> dict:
+        raise view.CardsError("not signed in")
+
+    monkeypatch.setattr(view, "cards", refused)
+    view.refresh_cards(demo)
+    assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")

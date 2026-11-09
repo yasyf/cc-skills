@@ -30,7 +30,7 @@ should switch to fable 5.2, released today (still no other lanes should be fable
 | Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close, `EVENT catch-up …` when he is back. |
 | Record | A cci record on the drive between the two sessions, by [Between the two sessions](#between-the-two-sessions). |
 | Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
-| Status | One model of where the drive stands, `drive view`: what waits on him, highest priority first (his open question cards, PRs ready for his tap, promised times that passed), then each feature by state (blocked, running, waiting, merged, live, not started). `drive dashboard` serves it as two screens, Your queue and Status, and `drive watch` draws it as the drive's canvas tab in his DM. |
+| Status | One model of where the drive stands, `drive view`: what waits on him, highest priority first (his open question cards, PRs ready for his tap, promised times that passed), then each feature by state (blocked, running, waiting, merged, live, not started). `drive dashboard` serves it as four screens, Your queue, Status (overall progress, each feature's PR bar and its own page with his words, jobs and PRs), Work (every running or waiting job, flagged when quiet 45 minutes) and History (the last day), pushed to the page on each change to the drive's files, and `drive watch` draws it as the drive's canvas tab in his DM and stores his open cards in the drive's `cards.json` every minute. |
 
 The drive's state lives in one file, written only by the `drive` CLI on your PATH and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
@@ -64,8 +64,8 @@ Each session runs these steps for its role. A restart, a resume and a compaction
    a fresh one only when something needs it: a `running` job now, a `waiting` job when its next
    event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line. The
    disk is the record: never re-derive state from memory.
-6. The coordinator runs `drive dashboard`, which starts the drive's dashboard, or finds it running,
-   and prints its link.
+6. The coordinator runs `drive dashboard`, which starts the drive's dashboard, finds it running, or
+   replaces one an earlier install started, and prints its link.
 
 A drive saved by the earlier one-session driver reads as that session coordinating;
 [reference/migration.md](reference/migration.md#from-one-driver-to-two-sessions) moves it to two.
