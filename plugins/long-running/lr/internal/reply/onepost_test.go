@@ -118,3 +118,32 @@ func TestACardWhoseLaneIsGoneIsRefusedWithoutATakeOverWhenTheLaneIsNotRetired(t 
 		t.Fatalf("board = %+v, want the refusal kept when the owning lane is not retired", drawn)
 	}
 }
+
+func TestATakeOverWithdrawsACardAnotherLaneDrewAsTheCallersLane(t *testing.T) {
+	t.Setenv(laneEnv, "owner-relay")
+	fake := scripted()
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r9", Title: "Land?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land"})
+	f.Send(context.Background(), Reply{ID: "r9", Title: "Closed", MD: "It closed.", Status: "done", TakeOver: true})
+	var argv []string
+	for _, call := range fake.Calls() {
+		if call.Argv[0] == "cc-present" && call.Argv[1] == "remove-block" {
+			argv = call.Argv
+		}
+	}
+	if !slices.Contains(argv, "--take-over") || flag(t, argv, "--lane") != "owner-relay" {
+		t.Fatalf("remove-block = %q, want it taken over as owner-relay", argv)
+	}
+}
+
+func TestAWithdrawalOfACardWhoseLaneIsNotRetiredKeepsTheRefusal(t *testing.T) {
+	t.Setenv(laneEnv, "owner-relay")
+	fake := scripted()
+	fake.Fail(1, `cc-present: refusing to write card "card-r9": lane board-refresher-20 owns it`, "cc-present", "remove-block")
+	f := fanout(t, fake)
+	f.Send(context.Background(), Reply{ID: "r9", Title: "Land?", MD: "m", Picks: []string{"Land", "Hold"}, Recommended: "Land"})
+	sent := f.Send(context.Background(), Reply{ID: "r9", Title: "Closed", MD: "It closed.", Status: "done"})
+	if drawn := surface(sent, "board"); !strings.Contains(drawn.Error, "owns it") {
+		t.Fatalf("board = %+v, want the refusal kept when the owning lane is not retired", drawn)
+	}
+}

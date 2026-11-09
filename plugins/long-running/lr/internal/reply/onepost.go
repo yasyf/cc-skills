@@ -145,7 +145,10 @@ type cardChild struct {
 }
 
 func (f Fanout) drawCard(ctx context.Context, r Reply, block string) (shell.Result, error) {
-	argv := []string{"cc-present", "update-block", "-", "--session", f.Entry.Root(), "--round", "current"}
+	return f.writeCard(ctx, r, []string{"cc-present", "update-block", "-", "--session", f.Entry.Root(), "--round", "current"}, block)
+}
+
+func (f Fanout) writeCard(ctx context.Context, r Reply, argv []string, stdin string) (shell.Result, error) {
 	lane := os.Getenv(laneEnv)
 	if r.TakeOver {
 		if lane == "" {
@@ -153,10 +156,10 @@ func (f Fanout) drawCard(ctx context.Context, r Reply, block string) (shell.Resu
 		}
 		argv = append(argv, "--take-over", "--lane", lane)
 	}
-	draw := func(argv []string) (shell.Result, error) {
-		return f.Runner.Run(ctx, shell.Command{Argv: argv, Stdin: block, Dir: f.Entry.Checkout, Timeout: postTimeout})
+	write := func(argv []string) (shell.Result, error) {
+		return f.Runner.Run(ctx, shell.Command{Argv: argv, Stdin: stdin, Dir: f.Entry.Checkout, Timeout: postTimeout})
 	}
-	done, err := draw(argv)
+	done, err := write(argv)
 	var exit *shell.ExitError
 	if err == nil || r.TakeOver || lane == "" || !errors.As(err, &exit) {
 		return done, err
@@ -165,7 +168,7 @@ func (f Fanout) drawCard(ctx context.Context, r Reply, block string) (shell.Resu
 	if owner == nil || !f.retired(owner[1]) {
 		return done, err
 	}
-	return draw(append(argv, "--take-over", "--lane", lane))
+	return write(append(argv, "--take-over", "--lane", lane))
 }
 
 func (f Fanout) retired(lane string) bool {

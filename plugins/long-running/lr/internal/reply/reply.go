@@ -1393,11 +1393,7 @@ func (f Fanout) withdraw(ctx context.Context, r Reply) []Outcome {
 	}
 	copied := Outcome{Surface: "slack", Ref: surface(was.Surfaces, "slack").Ref}
 	if drawn.Ref != id+withdrawn {
-		if _, err := f.Runner.Run(ctx, shell.Command{
-			Argv:    []string{"cc-present", "remove-block", id, "--session", f.Entry.Root(), "--reason", "edited: " + r.Title},
-			Dir:     f.Entry.Checkout,
-			Timeout: postTimeout,
-		}); err != nil && !leftTheBoard(err) {
+		if _, err := f.writeCard(ctx, r, []string{"cc-present", "remove-block", id, "--session", f.Entry.Root(), "--reason", "edited: " + r.Title}, ""); err != nil && !leftTheBoard(err) {
 			copied.Error = id + " is still on the board, so its Slack card keeps its buttons"
 			return []Outcome{failed("board", err), copied}
 		}
