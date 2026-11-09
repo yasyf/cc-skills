@@ -282,6 +282,11 @@ class PreAllocationTest(LaunchTest):
                 launch.sprite()
                 self.assert_refused(launch, launch.run(model=model), f"{model_id} is Fable, which runs only on the explicit local route, WORKER_LOCAL=1; nothing was prepared, and nothing launched locally instead", [])
 
+    def test_a_design_lanes_brief_refuses_the_sprite_route(self):
+        self.launch.brief.write_text(BRIEF + "\nDraw: every visual deliverable, such as a page layout, is drawn by gpt-6.1-sol through codex.\n")
+        self.launch.sprite()
+        self.assert_refused(self.launch, self.launch.run(), f"{self.launch.brief} is a design lane's brief, and its codex design pass needs the ChatGPT login only this Mac has, since a Sprite carries an API key that mounts no image tools; launch it with WORKER_LOCAL=1; nothing was prepared", [])
+
     def test_a_local_base_branch_refuses_the_sprite_route(self):
         self.launch.sprite()
         self.assert_refused(self.launch, self.launch.run(WORKER_BASE_BRANCH="origin/dev"), "WORKER_BASE_BRANCH picks a local worktree's base; a Sprite checks out WORKER_REF, a branch or tag, or the cc-remote config's ref; nothing was prepared", [])
