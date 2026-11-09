@@ -16,7 +16,7 @@
     {
       "name": "cc-inbox",
       "marketplace": "cc-inbox",
-      "version": ">=0.54.3"
+      "version": ">=0.54.10"
     },
     {
       "name": "orca",

@@ -78,7 +78,7 @@ const (
 	writeDriveEntry   = `umask 077; common=$(git -C "$1" rev-parse --path-format=absolute --git-common-dir) && config=${CLAUDE_CONFIG_DIR:-$HOME/.claude} && mkdir -p "$config/long-running/drives" "$config/scratch/$2" && touch "$config/scratch/$2/` + lanes.StoreFile + drive.OnMac + `" "$config/scratch/$2/runner.json` + drive.OnMac + `" && jq --arg common "$common" --arg state "$config/scratch/$2" '.git_common_dir = $common | .state_dir = $state' > "$config/long-running/drives/$2.json.new" && mv "$config/long-running/drives/$2.json.new" "$config/long-running/drives/$2.json"`
 	writeDriveConfig  = `umask 077; state=${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scratch/$1 && mkdir -p "$state" && cat > "$state/lr.json.new" && mv "$state/lr.json.new" "$state/lr.json"`
 	seedStore         = `cci relay export --drive "$1" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-seed.gz" -- sh -c 'sprite-env services create store-seed --cmd sh --args "-c,$HOME/.local/bin/cci relay seed --drive $1 < /tmp/store-seed.gz; rm /tmp/store-seed.gz; sprite-env services delete store-seed" --no-stream' sh "$1"; rm -f "$3"`
-	catchUpStore      = `cci relay export --drive "$1" --since "$4" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-catch-up.gz" -- sh -c '$HOME/.local/bin/cci relay seed --drive "$1" < /tmp/store-catch-up.gz; seeded=$?; rm -f /tmp/store-catch-up.gz; exit $seeded' sh "$1"; caught=$?; rm -f "$3"; exit $caught`
+	catchUpStore      = `cci relay export --drive "$1" --since "$4" --lane "$5" > "$3" && sprite exec -s "$2" --no-stdin --file "$3:/tmp/store-catch-up.gz" -- sh -c '$HOME/.local/bin/cci relay seed --drive "$1" < /tmp/store-catch-up.gz; seeded=$?; rm -f /tmp/store-catch-up.gz; exit $seeded' sh "$1"; caught=$?; rm -f "$3"; exit $caught`
 	joinRelay         = `CCI_SERVICE_KEY=$(cat); export CCI_SERVICE_KEY; ~/.local/bin/cci relay join --instance --drive "$1" --url "$2" --ttl 24h --owner "$3" && sprite-env services create cci --cmd "$HOME/.local/bin/cci" --args supervise --no-stream`
 )
 
@@ -1075,11 +1075,11 @@ func (w *workerLaunch) catchUp(workspace string) error {
 	if drive == "" {
 		return nil
 	}
-	caught, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sh", "-c", catchUpStore, "sh", drive, workspace, filepath.Join(w.attempt, catchUpCopy), w.begun.UTC().Format(time.RFC3339Nano)}, Timeout: catchUpTimeout})
+	caught, err := w.Runner.Run(w.ctx, shell.Command{Argv: []string{"sh", "-c", catchUpStore, "sh", drive, workspace, filepath.Join(w.attempt, catchUpCopy), w.begun.UTC().Format(time.RFC3339Nano), w.lane}, Timeout: catchUpTimeout})
 	said := caught.Stdout + caught.Stderr
 	if err != nil {
 		said += err.Error() + "\n"
-		fmt.Fprintf(w.Stderr, "warning: Sprite %s holds none of the drive %s records the Mac took after lane %s's launch began, so mail posted to it before its relay join is missing there; %s keeps the output\n", workspace, drive, w.lane, filepath.Join(w.attempt, catchUpReceipt))
+		fmt.Fprintf(w.Stderr, "warning: Sprite %s holds none of the drive %s records the Mac took after lane %s's launch began, nor its predecessors' records, so mail posted to it before its relay join and its predecessors' work are missing there; %s keeps the output\n", workspace, drive, w.lane, filepath.Join(w.attempt, catchUpReceipt))
 	}
 	return w.receipt(catchUpReceipt, said)
 }
