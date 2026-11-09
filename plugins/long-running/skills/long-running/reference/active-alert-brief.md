@@ -393,7 +393,7 @@ Authority: implement the fix and open its PR through <submit skill>.
   is a released-build proof on his Personal team on a test Mac that root granted
   a lane by name, never an incident fix. A signed-in check runs as a test user on
   staging or on a pass box as the service account; a proof that needs his
-  identity is a pick to him through `lr ask-owner`, and a scratch proof with no
+  identity is a pick to him through `lr say`, and a scratch proof with no
   named identity means a test identity or no write. `lr codex-guard check`
   refuses the Orca browser shape on a production host and Iris launched on a
   test Mac signed in as him without that grant; this line binds every other route.

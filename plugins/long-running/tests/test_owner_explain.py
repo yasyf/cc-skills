@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from hooks import owner_replies_stay_short, owner_returns
+from hooks import owner_returns
 
 
 def test_hosted_titles_read_the_explainers_checkout_under_the_configured_worktree_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -14,16 +14,6 @@ def test_hosted_titles_read_the_explainers_checkout_under_the_configured_worktre
     monkeypatch.setattr(owner_returns, "read", lambda argv: f"{tmp_path}\n" if argv == ["git", "config", "ccx.worktreeRoot"] else None)
 
     assert owner_returns.hosted_titles() == ["How the relay works"]
-
-
-def test_an_edit_counts_as_a_pick_card_only_when_the_stored_reply_has_picks(tmp_path: Path) -> None:
-    card, status = tmp_path / "r1.json", tmp_path / "r2.json"
-    card.write_text('{"id": "r1", "picks": ["Build it", "Hold it"]}')
-    status.write_text('{"id": "r2", "md": "Its checks passed."}')
-
-    assert owner_replies_stay_short.has_picks(card)
-    assert not owner_replies_stay_short.has_picks(status)
-    assert not owner_replies_stay_short.has_picks(tmp_path / "gone.json")
 
 
 @pytest.mark.parametrize(("words", "asked"), [

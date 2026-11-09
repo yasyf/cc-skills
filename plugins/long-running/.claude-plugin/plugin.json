@@ -33,7 +33,7 @@
     "lr": {
       "command": "${CLAUDE_PLUGIN_ROOT}/bin/lr",
       "args": [
-        "reply",
+        "say",
         "serve"
       ],
       "alwaysLoad": true
