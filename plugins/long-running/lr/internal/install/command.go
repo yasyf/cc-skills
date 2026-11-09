@@ -31,25 +31,32 @@ const (
 var shimLine = regexp.MustCompile(`(?m)^\s*(\S+)\)\s+exec "\$ROOT/bin/lr" (.+) "\$@"`)
 
 type options struct {
-	ciRedOK string
+	ciRedOK  string
+	carrying string
 }
 
 func Command(a *app.App) *cobra.Command {
 	var opts options
 	cmd := &cobra.Command{
-		Use:   "install VERSION",
+		Use:   "install [VERSION]",
 		Short: "Refuse before the swap, move the install link, wait for the supervisor's lease, and tell " + installDesk + " which drive launchd desks still run a process from before the install",
-		Args:  cobra.ExactArgs(1),
+		Args: func(_ *cobra.Command, args []string) error {
+			if (len(args) == 1) == (opts.carrying != "") {
+				return errors.New("name a VERSION or --carrying, exactly one")
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
-			generation, stale, err := install(cmd.Context(), a, args[0], opts)
+			version, generation, stale, err := install(cmd.Context(), a, strings.Join(args, ""), opts)
 			if err != nil {
 				return err
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "lr install: %s serves on generation %d\n%s\n", args[0], generation, stale)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "lr install: %s serves on generation %d\n%s\n", version, generation, stale)
 			return err
 		},
 	}
 	cmd.Flags().StringVar(&opts.ciRedOK, "ci-red-ok", "", "why this version must run though main's CI has not passed on it")
+	cmd.Flags().StringVar(&opts.carrying, "carrying", "", "wait up to an hour for the first pack tag that carries this commit, update the plugin to it, and install that version")
 	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
 		Short: "Refuse when this binary could not run this drive: its config, its credentials and every shim's verb",
@@ -75,34 +82,42 @@ func Installs(claude string) (string, error) {
 	return filepath.Dir(resolved), nil
 }
 
-func install(ctx context.Context, a *app.App, version string, opts options) (int64, string, error) {
+func install(ctx context.Context, a *app.App, version string, opts options) (string, int64, string, error) {
 	cfg, state, err := lanes.Loaded(a)
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	claude, err := drive.ConfigDir()
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	dir, err := Installs(claude)
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	s, err := store.Open(filepath.Join(state, lanes.StoreFile))
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	defer func() { _ = s.Close() }()
 	checks := Checks{Runner: a.Runner, CCX: a.CCX, Installs: dir, Claude: claude, Now: a.Now}
+	if opts.carrying != "" {
+		if version, err = checks.Carrying(ctx, opts.carrying, time.Sleep); err != nil {
+			return "", 0, "", err
+		}
+		if err := checks.UpdatePlugin(ctx); err != nil {
+			return "", 0, "", err
+		}
+	}
 	if _, err := os.Stat(checks.dir(version)); err != nil {
 		if err := checks.Fetch(ctx, version); err != nil {
-			return 0, "", err
+			return "", 0, "", err
 		}
 	}
 	post := bus.Bus{Drive: cfg.Drive, Lane: lane}
 	configPath, err := filepath.Abs(a.ConfigPath)
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	generation, err := Run(ctx, s, cfg.Drive, version, Steps{
 		Preflight: func(ctx context.Context) []string {
@@ -117,7 +132,7 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 		Sleep: time.Sleep,
 	})
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	if err := orca.MoveSpritePins(ctx, s, claude, filepath.Join(state, "runner.json"), a.Stderr); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		a.Log.Warn("the Sprite pins did not all move", "error", err)
@@ -127,21 +142,21 @@ func install(ctx context.Context, a *app.App, version string, opts options) (int
 	}
 	_, moved, err := InstalledSince(claude)
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	stale, err := staleDesks(ctx, a.Runner, home, cfg.Drive, version, moved)
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	text := staleText(version, moved, stale)
 	if err := tellInstallDesk(ctx, post, text); err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
-	return generation, text, nil
+	return version, generation, text, nil
 }
 
 func preflight(ctx context.Context, checks Checks, configPath, version string, opts options) []string {
