@@ -1079,7 +1079,7 @@ func (r Reply) choiceWithoutPicks() error {
 	if len(r.Picks) > 0 || len(optionLine.FindAllString(text, -1)) < 2 && !choiceAsk.MatchString(text) {
 		return nil
 	}
-	return errors.New("A CHOICE NEEDS BUTTONS: this puts a choice to him as text, so nothing went out; give each option as a picks entry, its label then" + pickSplit + "what it does, so he answers with one tap")
+	return errors.New("CHOICE NEEDS BUTTONS: this puts a choice to him as text, so nothing went out; give each option as a picks entry, its label then" + pickSplit + "what it does, so he answers with one tap")
 }
 
 func (r Reply) plain() error {
