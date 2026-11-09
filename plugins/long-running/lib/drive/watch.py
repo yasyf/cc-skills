@@ -4,8 +4,9 @@ import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from drive import github, orca, page, state, view
+from drive import github, orca, page, reads, state, view
 from drive.render import cut, when
 from drive.state import DriveError
 
@@ -121,12 +122,28 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     except orca.OrcaError as error:
         return read_failed(watcher, "lane mail", error, moment)
     watcher.failures.pop("lane mail", None)
-    lines = []
+    lines, reads_asked = [], []
     with state.edit(watcher.name) as data:
         for message in messages:
-            if job_id := lanes.get(message["from_handle"]):
-                lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+            job_id = lanes.get(message["from_handle"])
+            if not job_id:
+                continue
+            if message["type"] == "question" and (question := reads.request(message["body"] or "")):
+                reads_asked.append((job_id, message["id"], question))
+                continue
+            lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+    checkout = Path(data["roles"]["coordinator"]["cwd"])
+    lines += [answer_read(job_id, message_id, question, checkout) for job_id, message_id, question in reads_asked]
     return [line for line in lines if line]
+
+
+def answer_read(job_id: str, message_id: str, question: str, checkout: Path) -> str | None:
+    """Answer a remote lane's `LOG` or `READ` question here, since a Sprite holds no CI credentials or drive records."""
+    try:
+        orca.call("reply", "--id", message_id, "--body", reads.answer(question, checkout))
+    except orca.OrcaError as error:
+        return f"WATCH read answer to {job_id} failed: {error}; its lane asks again when its wait ends"
+    return None
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:

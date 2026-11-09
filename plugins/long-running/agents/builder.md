@@ -54,6 +54,17 @@ with these changes.
   checks are local to this machine: run Rust and Go checks here, with `CARGO_LOCAL=1` and
   `GO_LOCAL=1` so the remote-builder shims keep them here, after `mise install` if the
   pinned toolchain is missing. A TypeScript check still goes to CI.
+- This Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
+  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing here. Read through the
+  coordinator's Mac instead, with one blocking question that prints the answer within about a
+  minute: `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`. This is a read,
+  not a report: keep working.
+  - `LOG <url>`, where `<url>` is the failing check's Buildkite build or job URL, or its GitHub
+    Actions job URL: the failing jobs' own command output, its last 12,000 characters split
+    across them; a job URL reads that one job.
+  - `READ <command>`, one of `cci show|grep|find|digest|state` with `--drive <the brief's drive>`,
+    `ccn search|show|relevant`, `ccn answer|note|doc search|show` or `ccn answer list`: its output,
+    its first 12,000 characters. Use it for his recorded words and the records a brief or PR cites.
 - No `drive` CLI runs here, so skip `drive pr add`: the `PR:` line of your report carries
   the PR's link, and an `EXEMPT:` line names an exempt class; the coordinator registers both.
 - Report through Orca, never in a final message. `READY`, `WAITING` and `ASK` go out as
