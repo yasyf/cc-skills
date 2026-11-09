@@ -59,6 +59,7 @@ var (
 	envPair       = regexp.MustCompile(`^[A-Z][A-Z0-9_]*=`)
 	jobID         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	unlistedJob   = []string{"passed", "skipped", "broken", "not_run"}
+	unfinishedJob = []string{"scheduled", "assigned", "accepted", "running", "waiting", "limited", "canceling", "timing_out"}
 )
 
 type Settings struct {
@@ -402,7 +403,14 @@ func (d *Desk) fetch(ctx context.Context, args []string) reply {
 		}
 		width, _ := strconv.Atoi(args[5])
 		if pattern != "" {
-			if found := around(log, regexp.MustCompile(pattern), width); found.body != "" || args[4] != "" {
+			found := around(log, regexp.MustCompile(pattern), width)
+			if found.body == "" && args[4] != "" {
+				if state == "" {
+					state = d.jobState(ctx, args[1], args[2], args[3])
+				}
+				return unfinished(found, state)
+			}
+			if found.body != "" || args[4] != "" {
 				return found
 			}
 		}
@@ -718,6 +726,13 @@ func everyJob(said string) reply {
 		}
 	}
 	return reply{head: fmt.Sprintf("%s, %d jobs", read.State, scripts), body: askdesk.FirstBytes(lines.String(), replyLimit), url: read.WebURL}
+}
+
+func unfinished(r reply, state string) reply {
+	if slices.Contains(unfinishedJob, state) {
+		r.head = fmt.Sprintf("the job is %s, so this reads its log so far; ask again once it finishes: %s", state, r.head)
+	}
+	return r
 }
 
 func around(log string, pattern *regexp.Regexp, width int) reply {
