@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive from one Claude Code session, the driver. The owner talks to it in Slack and the terminal; every order becomes a background agent that ships one deliverable end to end (code, PR, CI, merge, install, check); one watcher turns CI, merges, his PR-card taps, promised times and a 10-minute tick into events; every message he gets is short, plain and written by the driver. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive from one Claude Code session, the driver. The owner talks to it in Slack and the terminal; every order becomes a background agent that ships one deliverable end to end (code, PR, CI, merge, install, check); one watcher turns CI, merges, his PR-card taps, promised times and a 30-minute tick into events; the driver acks each of his messages at once and batches everything else into summaries, held while he is away and caught up when he writes. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -15,8 +15,8 @@ never blocks, so it is always free to answer him.
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its jobs, its proof. `drive order …` |
 | Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only), `codex:codex-wrapper` (review, diagnosis, incidents). A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
-| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` when an order has news since its last line or its promised time is close. |
-| Message | A line in his thread, a question card at his DM root, or a PR card that cc-slack draws from the PR. Nothing else. [reference/messages.md](reference/messages.md) |
+| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close. |
+| Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
 
 State lives in one file per drive, written only by the `drive` CLI on your PATH. His rulings
 live in cc-notes answers. Other sessions reach the drive through cci.
@@ -46,20 +46,20 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 
 | Input | Do, in this turn |
 |---|---|
-| A message from him | First call: `slack_pickup` on it, so he sees eyes and a working line. Then classify it: order, question, ruling, answer, or chatter, and do that row. Reply in the thread he wrote in; a terminal message gets its reply in Slack too. |
-| An order | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>`. Give it to a background job now, in the order he stated them. Every order goes to a job: a past-due one, a one-line one and a session close too. Your own calls for it are reads of `drive`, `cci` and one `gh` call; a loop, an `orca` call, a build or anything else runs in the job. Reply within the minute: a bold line restating the order, one sentence on what happens, and when he hears next, set with `--due`. |
+| A message from him | First two calls: `slack_pickup` on it, then a one-line ack in the thread he wrote in, restating what he asked and what happens next. No other call comes before the ack. Then `drive heard`, with `--away` when he says he is going to sleep or stepping away; when it prints `CATCH-UP`, post the one catch-up summary [reference/messages.md](reference/messages.md) describes, for the orders it lists. Then classify the message and do its row below. Anything past one read of `drive`, `cci` or `gh` runs in a background job started for this message, which reports back for your closing line. A terminal message gets its ack in Slack too. |
+| An order | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>`, then give it to a background job now, in the order he stated them. Every order goes to a job: a past-due one, a one-line one and a session close too. Set `--due` for when he hears next; the ack already told him. |
 | A question | If `drive status`, one `gh` read or one transcript read answers it, answer in his thread now. Otherwise start a reader job and answer when it returns. Never make him wait on work he did not ask about. |
-| A ruling on how things should work | `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`. Apply it this turn to every live job it touches (`SendMessage`) and every open card. If it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed. Reply in one line: what changes and when it is live. |
-| An answer or tap on a question card | `answer_add` with the card's question and his pick. Resume the job waiting on it with `SendMessage`. Reply only if something changes for him. |
-| Chatter ("ok", "thanks", "nice") | React `+1`. No reply. |
+| A ruling on how things should work | `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`. A reader job started for this message finds every live job and open card the ruling touches; send each touched job the ruling with `SendMessage` when it returns. If it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed. |
+| An answer or tap on a question card | `answer_add` with the card's question and his pick. Resume the job waiting on it with `SendMessage`. When he answers in the card's thread in his own words instead of tapping, call `slack_card_answer(waits=<the card's waits>, url=<the card's permalink>, label=<his words>, other=true, via=<his message's permalink>)` in the same turn: the card collapses to his answer and the asking job hears it as a tap. Reply only if something changes for him. |
+| Chatter ("ok", "thanks", "nice") | React `+1`. No ack line, no reply. |
 | A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
 | An alert he sent, or one the drive's own release caused | [reference/incidents.md](reference/incidents.md), before anything else. Any other alert in a held channel gets nothing: no line, no job. |
 
 | Job result | Do |
 |---|---|
-| `DONE <proof>` | `drive order set <o> --state done --proof <proof>` once its last job is done; a remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. Line in his thread: what changed for him, with the proof link. |
-| `READY <pr url>` | `drive pr set <url> --tap`, then `slack_dm_status(tap_prs=[url], text=<line>, thread_ts=<his thread>)`. cc-slack draws the PR card at his DM root from the PR itself, and the line in his thread links it. |
+| `DONE <proof>` | `drive order set <o> --state done --proof <proof>` once its last job is done; a remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. It goes into the next summary of his thread, or his catch-up when he is away: what changed for him, with the proof link. |
+| `READY <pr url>...` | `drive pr set <url> --tap` for each URL, then one `slack_dm_status(tap_prs=[<every url, bottom first>], text=<line>, thread_ts=<his thread>)`. cc-slack draws one card at his DM root for the stack the URLs form, from the PRs themselves, and the line in his thread links it. His Approve on it lands exactly those PRs, bottom first; a PR added to the stack later comes back as its own `READY` and gets its own card. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`. Nothing to him. The watch wakes you. |
 | `ASK <question>` | A question card (it waits on him, so `waits` and `recommended` are set); a link line in his thread. Resume the job when he answers. |
 | `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. |
@@ -69,10 +69,10 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | `PR … checks failed`, `changes requested`, `new head` | Resume the PR's job with the event line. |
 | `PR … merged` | Resume the PR's job to install and prove it live, or mark the order done when nothing is left to install. |
 | `PR … closed` | Resume the job; if he closed it, the order's work on it ends. |
-| `TAP Approve …` | Resume the PR's job: land it. |
+| `TAP Approve …` | Resume the PR's job: land it. A stack card's Approve arrives as one `TAP Approve` per PR, bottom first; resume the job once with all of them. |
 | `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
-| `DUE o<n> …` | Read the order's job transcripts first, then a line in his thread: what is late, why, and the new time, set with `--due`. Never call a job silent, stuck or done without reading its transcript. |
-| `TICK o<n> …` | The watch lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One line per listed order, in its thread (his main thread when it has none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined`. An order with nothing new gets no line. |
+| `DUE o<n> …` | Read the order's job transcripts first, then a line in his thread: what is late, why, and the new time, set with `--due`. While he is away it waits for his catch-up instead. Never call a job silent, stuck or done without reading its transcript. |
+| `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One summary per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each. An order with nothing new gets no line. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then draw it again with `tap_prs`. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his answer to that card. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
@@ -138,6 +138,9 @@ Drive: <name>, order <o>, job <j>
   monorepo builder starts remote, by his Nov 2 rule "Workers that are refused and enqueues
   should instead spill to being started remotely automatically"; any other builder waits as
   `open`, oldest due first.
+- **A stack is at most four PRs.** His card for a stack lists every PR with its own lines and picture,
+  so a fifth makes it too long to read on his phone. A change that needs more is split into separate
+  stacks that each land on their own, or folded into fewer PRs.
 
 ## Ask him
 
@@ -158,6 +161,9 @@ CI fixes, cleanups, tool fixes.
 Every message follows [reference/messages.md](reference/messages.md). The short form:
 
 - Lead with what changed for him, in his words, never with how the machinery got there.
+- Ack each of his messages at once; everything else is a summary at most every 30 minutes per
+  thread, grouped by feature. While he is away only cards post, and his next message gets one
+  catch-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
@@ -179,8 +185,11 @@ symptom is a class fix whose PR deletes the earlier patches.
 - Never do an order's work yourself, a past-due order's included: every order goes to a
   background job. Your own shell calls are reads of `drive`, `cci` and one `gh` call, beside
   the transcript reads, `cc-slack check-post` and the remote-lane `drive job` verbs this skill
-  names. A loop, any other `orca` call, a build, a close, and anything else runs in a
-  background job, so your turn never blocks.
+  names. A loop, any other `orca` call, a build, a close, a thread read, a draft, and anything
+  else runs in a background job, so your turn never blocks.
+- Never put work between his message and its ack: `slack_pickup`, then the ack, then the rest.
+- Never post a line per event: events feed the next summary, and nothing but cards posts while
+  he is away.
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
 - Never hold, freeze, or reorder work he did not hold, freeze, or reorder.

@@ -11,7 +11,7 @@ from drive.state import DriveError
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
 FAILURE_EVERY = timedelta(minutes=10)
-TICK_EVERY = timedelta(minutes=10)
+TICK_EVERY = timedelta(minutes=30)
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -166,19 +166,25 @@ def due_soon(order: dict, moment: datetime) -> bool:
 
 def owes_line(order: dict, jobs: dict, moment: datetime) -> bool:
     last = state.parse_time(order["last_line"] or order["created"])
-    if order["state"] not in OWING_STATES or moment - last < TICK_EVERY:
+    if moment - last < TICK_EVERY:
+        return False
+    if order["state"] == "done":
+        return changed_since(order, jobs, max(last, moment - TICK_EVERY))
+    if order["state"] not in OWING_STATES:
         return False
     return changed_since(order, jobs, last) or due_soon(order, moment)
 
 
 def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
+    if state.owner_away(data, moment):
+        return []
     owing = [key for key, order in data["orders"].items() if owes_line(order, data["jobs"], moment)]
     return [f"TICK {' '.join(owing)}"] if owing else []
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: GitHub every 60 s, new events, passed due times, a tick every 10 minutes."""
+    """One loop of the watch: GitHub every 60 s, new events, passed due times, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment

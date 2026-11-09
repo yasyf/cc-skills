@@ -285,6 +285,25 @@ def pr_tapped(args: argparse.Namespace) -> int:
     return 0 if may_land else 1
 
 
+def heard(args: argparse.Namespace) -> int:
+    from drive import watch
+
+    name = state.resolve(args.drive)
+    moment = state.now()
+    with state.edit(name) as data:
+        back = state.owner_away(data, moment)
+        since = (data.get("owner") or {}).get("heard")
+        data["owner"] = {"heard": state.stamp(moment), "away": args.away}
+        news = []
+        if back and since:
+            for key, order in data["orders"].items():
+                last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
+                if watch.changed_since(order, data["jobs"], last):
+                    news.append(key)
+    line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
+    return emit(args, line, {"away": args.away, "back": back, "since": since, "catch_up": news})
+
+
 def overlay_live(data: dict) -> str:
     """Read the drive's open PRs from GitHub into data, never saved; say whether the PR fields are live or stored."""
     keys = state.open_pr_keys(data)
@@ -434,6 +453,10 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_tapped)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
+    verb = verbs.add_parser("heard", parents=both, help="he wrote: record it, and list the orders his catch-up covers")
+    verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
+    verb.set_defaults(run=heard)
+
     verbs.add_parser("status", parents=both).set_defaults(run=status)
     verbs.add_parser("context", parents=[drive_opt]).set_defaults(run=context)
     verbs.add_parser("rollup", parents=[drive_opt]).set_defaults(run=rollup)

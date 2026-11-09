@@ -173,17 +173,44 @@ def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monke
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(state="waiting", last_line=None, updated=state.stamp(T0 + timedelta(minutes=2)))
-        data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=5)), jobs=["j3"])
-        data["jobs"]["j3"] = job(order="o3", updated=state.stamp(T0 + timedelta(minutes=6)))
+        data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=15)), jobs=["j3"])
+        data["jobs"]["j3"] = job(order="o3", updated=state.stamp(T0 + timedelta(minutes=16)))
         data["orders"]["o4"] = order(state="open", updated=state.stamp(T0 + timedelta(minutes=2)))
-        data["orders"]["o5"] = order(jobs=["j5"], due=state.stamp(T0 + timedelta(minutes=15)))
+        data["orders"]["o5"] = order(jobs=["j5"], due=state.stamp(T0 + timedelta(minutes=45)))
         data["jobs"]["j5"] = job(order="o5")
         data["orders"]["o6"] = order(jobs=["j6"])
         data["jobs"]["j6"] = job(order="o6", updated=state.stamp(T0 + timedelta(minutes=3)))
+        data["orders"]["o7"] = order(state="done", jobs=[], last_line=None, updated=state.stamp(T0 + timedelta(minutes=8)))
+        data["orders"]["o8"] = order(state="done", jobs=[], last_line=None, updated=state.stamp(T0 - timedelta(hours=3)))
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["TICK o2 o5 o6"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ["TICK o2 o5 o6 o7"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+
+
+@pytest.mark.parametrize("owner", [{"heard": state.stamp(T0), "away": True}, {"heard": state.stamp(T0 - timedelta(minutes=40)), "away": False}])
+def test_no_tick_while_he_is_away(demo: str, monkeypatch: pytest.MonkeyPatch, owner: dict) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["owner"] = owner
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=30)) == []
+
+
+def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
+        data["orders"]["o2"] = order(jobs=[], updated=state.stamp(T0 - timedelta(minutes=5)))
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
+    assert cli.main(["heard", "--drive", demo]) == 0
+    said = capsys.readouterr().out.strip()
+    assert said.startswith("CATCH-UP since ") and said.endswith(": o1")
+    assert state.load(demo)["owner"] == {"heard": state.stamp(T0 + timedelta(minutes=95)), "away": False}
+    assert cli.main(["heard", "--drive", demo]) == 0
+    assert capsys.readouterr().out.strip() == "heard"
 
 
 def test_lines_are_capped_at_three_hundred_chars(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

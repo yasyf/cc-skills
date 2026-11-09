@@ -7,17 +7,26 @@ repository says below, and returns `DONE <proof>`. The driver draws his PR card 
 
 - One PR is one feature-sized unit; review fixes and follow-ups amend it (`ccx vcs ship --amend`). Open a
   second PR only when another job waits on part of the work or a review asks for the split.
+- A stack is at most four PRs, since his card shows every PR of a stack with its own lines and picture.
+  A change that needs more is split into stacks that land on their own, or folded into fewer PRs.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A repository
   whose title check demands `fix:` or `feat:` keeps it; the card reads either.
-- Body sections, in this order. His card is drawn from them: fix the body, never the card.
+- Body sections, in this order. His card is drawn from them: fix the body, never the card. Each is
+  plain words for him: no record ids (cc-notes, cci, job or order ids), hashes, file paths or code
+  identifiers; a sentence carrying a record id is dropped from his card.
   - `## What changes for you`: what a user sees change, in one short paragraph.
-  - `## ELI5`: the change explained to someone who has never seen the code.
-  - `## Show me`: a screenshot, still or diagram, uploaded so its markdown image link opens for him.
-  - `## Risk`: only when the risk is real: what could break, who it hits, and how you would see it.
+  - `## ELI5`: the change explained to someone who has never seen the code. It leads his card.
+  - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
+    plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take.
+  - `## Show me`: one picture of the change. For a mechanism, a before-and-after diagram as a fenced
+    `arch` block (arch/v1 JSON) or `dot` block, which his card draws as an image; for a UI change, a
+    screenshot or gif linked as a markdown image; for a new function, the real Sand call and its result
+    in a code block. At most one short sentence of caption: the card shows the picture, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything it does past it.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
-  tap. Return `READY <url>` when only his tap is left, `WAITING <what>` while CI or a queue runs.
+  tap. Return `READY <url>` when only his tap is left, naming every PR of a stack bottom first
+  (`READY <url> <url> …`) so he gets one card for it, and `WAITING <what>` while CI or a queue runs.
 
 ## yasyf/* repositories
 

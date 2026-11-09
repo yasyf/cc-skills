@@ -4,16 +4,21 @@ import sys
 import unicodedata
 from typing import TextIO
 
-from drive import state
+from drive import picture, state
 from drive.github import GithubError, run
 from drive.render import cut
 
-FIELDS = "title,body,state,isDraft,headRefOid,statusCheckRollup,reviewDecision,url"
+FIELDS = "title,body,comments,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,url"
 TAP_LABELS = ("Approve", "Hold")
 TITLE_CHARS = 140
 FIELD_CHARS = 400
+CAPTION_CHARS = 160
+CODE_CHARS = 900
 DESCRIPTION_CHARS = 2800
 KINDS = ("Fix", "New", "Cleanup", "Port")
+STACK_KINDS = ("New", "Fix", "Port", "Cleanup")
+HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
+PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -24,13 +29,27 @@ PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 
 KIND_WORD = re.compile(rf"({'|'.join(KINDS)}):\s*", re.IGNORECASE)
 CONVENTIONAL = re.compile(r"([a-z]+)(?:\([^)]*\))?!?:\s*")
-HEADING = re.compile(r"^#{1,2}[ \t]+(.+?)[ \t#]*$", re.MULTILINE)
+HEADING = re.compile(r"#{1,2}[ \t]+(.+?)[ \t#]*")
+ELI5_HEADING = re.compile(r"^#{2,3}[ \t]+ELI5[ \t]*$", re.MULTILINE | re.IGNORECASE)
+NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
+FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
+HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
 SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
-NO_RISK = re.compile(r"(?:none|low)(?: risk)?[.!]?", re.IGNORECASE)
-NO_DEPARTURE = re.compile(r"(?:none|no departure|n/a)\.?", re.IGNORECASE)
+SENTENCES = re.compile(r"(?<=[.!?])\s+")
+PARENTHETICAL = re.compile(r"\s*\([^()\n]*\)")
+NOTHING = re.compile(
+    r"(?:none|nothing(?: differ(?:s|ed))?|no (?:departures?|deviations?)(?: from the plan)?|n/a)[.!]?", re.IGNORECASE
+)
+RECORD_ID = re.compile(
+    r"\b(?:cc-notes|ccn|cci)\s+(?:task|note|answer|doc|plan|log|record|seq|row)s?\b"
+    r"|\bcci\s+#?\d+"
+    r"|\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{7,40}\b"
+    r"|(?<![\d,.$#])\b\d{6,}\b(?![,.]\d)"
+    r"|\b[ojm]\d{1,5}\b"
+    r"|\brmw[0-9a-z]{4,}\b|\bcard-[0-9a-z][0-9a-z-]*"
+)
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -57,12 +76,40 @@ def framed(opening: str, plain: str, closing: str = "") -> str:
     return opening + cut(plain, TITLE_CHARS - len(opening) - len(closing)) + closing
 
 
+def heading_key(heading: str) -> str:
+    return heading.strip().rstrip(":").lower().replace("\u2019", "'")
+
+
 def sections(body: str) -> dict[str, str]:
-    parts = HEADING.split(body)
+    """Each level-one or level-two heading of a PR body, lowercased, mapped to its text; a # inside a code fence is code."""
     found: dict[str, str] = {}
-    for heading, text in zip(parts[1::2], parts[2::2], strict=True):
-        found.setdefault(heading.strip().rstrip(":").lower(), text)
+    heading: str | None = None
+    lines: list[str] = []
+    fenced = False
+    for line in body.splitlines():
+        if FENCE_LINE.match(line):
+            fenced = not fenced
+        elif not fenced and (match := HEADING.fullmatch(line)):
+            if heading is not None:
+                found.setdefault(heading, "\n".join(lines))
+            heading, lines = heading_key(match[1]), []
+            continue
+        lines.append(line)
+    if heading is not None:
+        found.setdefault(heading, "\n".join(lines))
     return found
+
+
+def without_records(text: str) -> str:
+    """The text with every parenthesis naming a record id removed, then every sentence still naming one."""
+    text = PARENTHETICAL.sub(lambda match: "" if RECORD_ID.search(match[0]) else match[0], text)
+    kept = []
+    for line in text.splitlines():
+        if not line.strip():
+            kept.append("")
+        elif said := " ".join(part for part in SENTENCES.split(line) if not RECORD_ID.search(part)).strip():
+            kept.append(said)
+    return "\n".join(kept)
 
 
 def first_paragraph(text: str) -> str:
@@ -83,16 +130,39 @@ def clipped(text: str, limit: int = FIELD_CHARS) -> str:
 
 
 def section_words(found: dict[str, str], *headings: str) -> str:
-    return next((clipped(first_paragraph(found[heading])) for heading in headings if heading in found), "")
+    text = next((found[heading] for heading in headings if heading in found), "")
+    words = clipped(first_paragraph(without_records(text)))
+    return "" if NOTHING.fullmatch(words.strip()) else words
 
 
-def unless(nothing: re.Pattern[str], words: str) -> str:
-    return "" if nothing.fullmatch(words.strip()) else words
+def comment_eli5(pr: dict) -> str:
+    """The ELI5 section of the newest PR comment that has one, such as a reviewer bot's companion comment."""
+    for comment in reversed(pr.get("comments") or []):
+        body = comment.get("body") or ""
+        if heading := ELI5_HEADING.search(body):
+            rest = body[heading.end() :]
+            end = NEXT_HEADING.search(rest)
+            return clipped(first_paragraph(without_records(HTML_TAG.sub("", rest[: end.start() if end else None]))))
+    return ""
 
 
-def pictures(found: dict[str, str]) -> list[str]:
-    image = IMAGE.search(found.get("show me", ""))
-    return [image[1] or image[2]] if image else []
+def show_me_words(text: str, pictured: bool) -> str:
+    """A Show me's words on his card: one short caption, and its first code block when no picture draws."""
+    bare = picture.FENCE.sub("", picture.IMAGE.sub("", text))
+    first = SENTENCES.split(first_paragraph(without_records(bare)), maxsplit=1)[0].strip()
+    readable = first and not first.startswith("|") and "`" not in first and len(first) <= CAPTION_CHARS
+    shown = [first] if readable else []
+    code = next((match for match in picture.FENCE.finditer(text) if match[1].lower() not in (*picture.DIAGRAMS, "mermaid")), None)
+    if code and not pictured:
+        shown.append("```\n" + code_clipped(code[2].strip("\n")) + "\n```")
+    return "\n".join(shown)
+
+
+def code_clipped(code: str) -> str:
+    if len(code) <= CODE_CHARS:
+        return code
+    end = code.rfind("\n", 0, CODE_CHARS)
+    return code[: end if end > 0 else CODE_CHARS].rstrip() + "\n…"
 
 
 def description(body: str) -> str:
@@ -149,20 +219,29 @@ def merge_waits(url: str) -> str:
     return f"merge:{repo.replace('/', ':')}:{number}"
 
 
-def render(pr: dict, entry: dict) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload and the drive's entry for that PR."""
+def stack_waits(keys: list[str]) -> str:
+    repo, bottom = keys[0].split("#")
+    return f"merge:{repo.replace('/', ':')}:{bottom}-{keys[-1].split('#')[1]}"
+
+
+def body_of(pr: dict) -> str:
+    return COMMENT.sub("", pr["body"] or "")
+
+
+def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, and its drawn Show me pictures."""
     kind, plain = kind_and_title(pr["title"])
-    body = COMMENT.sub("", pr["body"] or "")
-    found = sections(body)
+    body = body_of(pr)
+    found = {heading: HTML_TAG.sub("", text) for heading, text in sections(body).items()}
     row = {
         "url": pr["url"],
         "title": pr["title"],
         "head": pr["headRefOid"],
+        "eli5": section_words(found, "eli5", "in plain words") or comment_eli5(pr),
         "change": section_words(found, "what changes for you", "summary"),
-        "eli5": section_words(found, "eli5", "in plain words", "context"),
-        "show_me": clipped(first_paragraph(IMAGE.sub("", found.get("show me", "")))),
-        "risk": unless(NO_RISK, section_words(found, "risk", "risk profile")),
-        "plan": unless(NO_DEPARTURE, section_words(found, "against the plan")),
+        "hate_most": section_words(found, *HATE_HEADINGS),
+        "show_me": show_me_words(found.get("show me", ""), bool(shown)),
+        "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
         "blocks": "",
         "lands": "",
@@ -182,7 +261,30 @@ def render(pr: dict, entry: dict) -> dict:
     else:
         row["blocks"] = waits_on(pr, entry)
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
-    if shown := pictures(found):
+    if shown:
+        card["pictures"] = list(shown)
+    return card
+
+
+def render_stack(members: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
+    """One card for a stack of PRs, bottom first: a row per PR as its own card draws it, and one Approve for all."""
+    drawn = [render(pr, entry, shown) for pr, entry, shown in members]
+    kinds = [kind_and_title(pr["title"]) for pr, _, _ in members]
+    kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
+    names = " · ".join(plain for _, plain in kinds)
+    count = len(members)
+    card = {"status": "info", "title": framed(f"{kind}: {count} PRs: ", names), "prs": [one["prs"][0] for one in drawn]}
+    if any(one["status"] == "needs_you" for one in drawn):
+        card |= {
+            "status": "needs_you",
+            "title": framed(f"{kind}: approve {count} PRs, bottom first: ", names, "?"),
+            "options": list(TAP_LABELS),
+            "recommended": "Approve",
+            "waits": stack_waits([state.pr_key(pr["url"]) for pr, _, _ in members]),
+        }
+    elif all(one["status"] == "done" for one in drawn):
+        card["status"] = "done"
+    if shown := [path for one in drawn for path in one.get("pictures", [])]:
         card["pictures"] = shown
     return card
 
@@ -195,23 +297,67 @@ def key_of(ask: dict) -> str:
     return f"{ask['repo']}#{ask['number']}"
 
 
-def drawn(key: str, entry: dict) -> dict | None:
+def read(key: str) -> dict | None:
     repo, number = key.split("#")
     try:
-        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS]))
+        return json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS]))
     except (GithubError, json.JSONDecodeError) as error:
         print(f"drive card: {key}: {error}", file=sys.stderr)
         return None
-    return render(pr, entry)
+
+
+def pictured(name: str, key: str, pr: dict) -> tuple[str, ...]:
+    repo, number = key.split("#")
+    label = f"{repo.split('/')[1]} PR {number}"
+    show_me = sections(body_of(pr)).get("show me", "")
+    return tuple(picture.pictures(state.drive_dir(name) / "pictures", label, show_me))
+
+
+def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
+    """The asked PRs grouped into stacks, bottom first: a PR sits on another when its base branch is the other's head."""
+    by_head = {(state.pr_key(reads[key]["url"]).split("#")[0], reads[key]["headRefName"]): key for key in keys}
+    below = {key: by_head.get((key.split("#")[0], reads[key]["baseRefName"])) for key in keys}
+    above = {under: key for key, under in below.items() if under}
+    found: list[list[str]] = []
+    for key in keys:
+        if below[key]:
+            continue
+        chain = [key]
+        while (nxt := above.get(chain[-1])) and nxt not in chain:
+            chain.append(nxt)
+        found.append(chain)
+    placed = {key for chain in found for key in chain}
+    return found + [[key] for key in keys if key not in placed]
+
+
+def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
+    for key in stack:
+        name = known[key][0]
+        with state.edit(name) as data:
+            data["prs"][key]["stack"] = stack
+        known[key][1]["stack"] = stack
 
 
 def cards(asked: list[dict]) -> dict:
+    """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw."""
     known = drive_prs()
+    keys = [key for ask in asked if (key := key_of(ask)) in known]
+    reads = {key: pr for key in keys if (pr := read(key))}
+    stored = [known[key][1]["stack"] for key in reads if known[key][1].get("stack")]
+    fresh = [key for key in reads if not known[key][1].get("stack")]
+    groups = list({tuple(stack): stack for stack in stored}.values()) + chains(fresh, reads)
     found = []
-    for ask in asked:
-        key = key_of(ask)
-        if key in known and (card := drawn(key, known[key][1])):
-            found.append({"repo": ask["repo"], "number": ask["number"], "card": card})
+    for group in groups:
+        reads |= {key: pr for key in group if key not in reads and (pr := read(key))}
+        members = [key for key in group if key in reads and key in known]
+        if not members:
+            continue
+        if len(group) > 1 and not known[members[0]][1].get("stack"):
+            remember(known, group)
+        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
+        card = render_stack(shown) if len(group) > 1 else render(*shown[0])
+        repo, number = members[0].split("#")
+        found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found}
 
 
@@ -254,17 +400,22 @@ def answered(ask: dict) -> dict:
         raise state.DriveError(f"{key} is not a drive PR")
     if ask["label"] not in TAP_LABELS:
         raise state.DriveError(f"a PR card answers Approve or Hold, not {ask['label']!r}")
-    name = known[key][0]
+    name, held = known[key]
+    stack = held.get("stack") or []
+    members = stack if stack and ask["waits"] == stack_waits(stack) else [key]
     with state.edit(name) as data:
-        entry = data["prs"][key]
-        if entry["state"] == "open":
+        for member in members:
+            entry = data["prs"][member]
+            if entry["state"] != "open":
+                continue
             entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": entry["head"], "source": ask["source"]}
             entry["updated"] = entry["tap"]["at"]
+            repo, number = member.split("#")
             state.append_event(
                 name,
                 "tap",
-                repo=ask["repo"],
-                number=ask["number"],
+                repo=repo,
+                number=int(number),
                 label=ask["label"],
                 head=entry["head"],
                 source=ask["source"],
