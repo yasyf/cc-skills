@@ -34,6 +34,7 @@ type cardShell struct {
 	questions map[string]bool
 	offers    map[string][]string
 	shows     map[string][]int
+	titles    map[string]string
 	repos     map[string]string
 	rowed     map[string]bool
 	posts     map[string]string
@@ -77,6 +78,9 @@ func (f *cardShell) Run(_ context.Context, c shell.Command) (shell.Result, error
 		blocks := []map[string]any{{"id": "sec", "type": "markdown"}, {"id": mergeTriage, "type": "card"}}
 		for _, card := range f.cards {
 			block := map[string]any{"id": card, "type": "card"}
+			if title := f.titles[card]; title != "" {
+				block["title"] = title
+			}
 			var children []map[string]any
 			if f.questions[card] || f.offers[card] != nil {
 				var options []map[string]any
@@ -403,6 +407,36 @@ func TestSweepWithdrawsACardAskingToLandOnceEveryPRItShowsMergedOrClosedWhatever
 	}
 	if f.status.reads != 1 {
 		t.Fatalf("status reads = %d, want one read for every card's PRs", f.status.reads)
+	}
+}
+
+func TestSweepWithdrawsAPickCardOnceEveryPRItsTitleNamesMergedOrClosed(t *testing.T) {
+	on := &cardShell{
+		cards:     []string{"card-close-both", "card-go-ahead", "card-one-open", "card-no-number"},
+		questions: map[string]bool{"card-close-both": true, "card-go-ahead": true, "card-one-open": true, "card-no-number": true},
+		offers:    map[string][]string{"card-close-both": {"Close both", "Keep them open"}, "card-go-ahead": {"Go ahead", "Leave it"}, "card-one-open": {"Close both", "Keep them open"}, "card-no-number": {"A", "B"}},
+		titles: map[string]string{
+			"card-close-both": "Cleanup: close #31950 and #31960, two October upgrades?",
+			"card-go-ahead":   "New: go ahead with the plan for #48953?",
+			"card-one-open":   "Cleanup: close #31950 and #52745?",
+			"card-no-number":  "Tooling fix 1 of 4: who builds a tooling change you order?",
+		},
+	}
+	f := newCards(t, on, map[int]string{31950: "CLOSED", 31960: "CLOSED", 48953: "MERGED", 52745: "OPEN"})
+	ctx := context.Background()
+	for _, card := range on.cards {
+		if _, err := f.Until(ctx, card, "answered", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Sweep(ctx, "board-lane", &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"card-close-both", "card-go-ahead"}; !reflect.DeepEqual(on.removed, want) {
+		t.Fatalf("removed = %v, want %v: a pick card whose titled PRs all ended asks nothing, whatever its buttons say", on.removed, want)
+	}
+	if want := []string{"Forge-AI/monorepo#31950 is closed, Forge-AI/monorepo#31960 is closed", "Forge-AI/monorepo#48953 is merged"}; !reflect.DeepEqual(on.reasons, want) {
+		t.Fatalf("remove-block reasons = %q, want %q", on.reasons, want)
 	}
 }
 
