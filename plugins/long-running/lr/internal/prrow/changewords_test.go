@@ -1,6 +1,9 @@
 package prrow
 
 import (
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -68,5 +71,28 @@ func TestRiskWordsIsTheRiskSectionsFirstPlainSentence(t *testing.T) {
 	}
 	if got := RiskWords(store.ReviewRow{}); got != "" {
 		t.Fatalf("RiskWords of no Risk section = %q, want none", got)
+	}
+}
+
+func TestARenderedDiagramPostsAsItsPictureNeverAsSourceOrAPath(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const shown = "## Show me\n\nPicture (rendered from the diagram below): `~/.vcache/scratch/bugs/s100.png`\n\n![An empty tag goes back to be redrafted](~/.vcache/scratch/bugs/s100.png)\n\nThe draft is checked before it shows.\n\n```dot\ndigraph G { a -> b }\n```\n"
+	row := store.ReviewRow{Description: shown}
+
+	if pictures := ShowMePictures(row); !slices.Equal(pictures, []string{filepath.Join(home, ".vcache/scratch/bugs/s100.png")}) {
+		t.Fatalf("pictures = %q, want the one local image as an absolute path", pictures)
+	}
+	if words := ShowMeWords(row); words != "The draft is checked before it shows." {
+		t.Fatalf("words = %q, want only the sentence, with no path, image link or dot source", words)
+	}
+	if flaw := showMeFlaw(row); flaw != "" {
+		t.Fatalf("flaw = %q, want a rendered picture to stand as the show-me", flaw)
+	}
+	unrendered := store.ReviewRow{Description: "## Show me\n\n```mermaid\ngraph TD; a-->b\n```\n"}
+	if flaw := showMeFlaw(unrendered); !strings.Contains(flaw, "prints as text") {
+		t.Fatalf("flaw = %q, want diagram source with no picture refused", flaw)
 	}
 }

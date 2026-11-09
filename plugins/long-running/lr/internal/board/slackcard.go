@@ -50,6 +50,7 @@ type SlackCard struct {
 	Recommended string       `json:"recommended"`
 	Waits       string       `json:"waits"`
 	MergesAt    string       `json:"merges_at,omitempty"`
+	Pictures    []string     `json:"pictures,omitempty"`
 }
 
 type SlackPRRow struct {
@@ -121,6 +122,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
 			Change: prrow.ChangeWords(row), Plan: PlanDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMeWords(row), Risk: prrow.RiskWords(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
+		Pictures: prrow.ShowMePictures(row),
 	}
 	switch row.State {
 	case prrow.StateLanded:
