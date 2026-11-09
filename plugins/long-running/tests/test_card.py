@@ -260,6 +260,11 @@ def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
     assert first["refresher"] == "It lists drives."
 
 
+def test_a_monorepo_context_is_the_refresher() -> None:
+    body = "## Context\nThe uploader writes each file once.\n\n## Summary\nAdds retries.\n"
+    assert card.render(pr_json(body=body), entry())["prs"][0]["refresher"] == "The uploader writes each file once."
+
+
 def test_the_refresher_comes_from_a_reviewer_comment_when_the_body_has_none() -> None:
     comments = [
         {"author": {"login": "someone"}, "body": "Looks good."},

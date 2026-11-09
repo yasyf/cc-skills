@@ -21,7 +21,8 @@ itself.
     tap without them.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
-    It leads the PR's section of his card. The card still reads an older `## ELI5`.
+    It leads the PR's section of his card. The card also reads an older `## ELI5`, and a monorepo
+    body's `## Context`, which its `submit-pr` template now writes in this voice.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
   - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
