@@ -1,7 +1,7 @@
 {
   "name": "long-running",
   "description": "Run a long drive from one Claude Code session: every order becomes a background agent that ships it end to end, one watcher turns CI, merges, taps and promised times into events, and every message to the owner is short and plain.",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
