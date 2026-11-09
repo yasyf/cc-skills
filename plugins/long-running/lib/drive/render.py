@@ -9,6 +9,8 @@ DRIVER_RULES = (
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
     "Every message by messages.md: each line, question card and PR card follows reference/messages.md.",
     "A promise is --due: a time you promise him is recorded with drive order set <id> --due.",
+    "Ack, then batch: ack each message of his at once and run drive heard; any other line is a summary at most every"
+    " 30 minutes; while he is away only cards post, and drive heard's CATCH-UP is one post when he writes.",
 )
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
 ROLLUP_FACTS = 10

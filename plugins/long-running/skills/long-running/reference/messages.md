@@ -1,15 +1,19 @@
 # Messages to the owner
 
-Only the driver writes to him, and only in three shapes. Each one is short, says what changed
-for him, and carries its own buttons when it waits on him.
+Only the driver writes to him, in the shapes below and on the schedule below. Each message is
+short, says what changed for him, and carries its own buttons when it waits on him.
 
-## The three shapes
+## The shapes
 
-**A line**, in the thread of the message it answers, posted with
-`slack_dm_status(text=…, thread_ts=<his thread>)`:
+**An ack**, in the thread of his message, the second call after `slack_pickup`, before any other
+work: one line restating what he asked and what happens next, by when.
+
+**A summary**, in a thread, posted with `slack_dm_status(text=…, thread_ts=<his thread>)`: what
+changed for him since the last one, grouped by feature, one bold line per feature and at most two
+sentences under it.
 
 ```
-*<what is true now, for him, in under 12 words>*
+*<feature>: <what is true now, for him, in under 12 words>*
 <one or two sentences: what it means and what happens next, by when>
 ```
 
@@ -22,13 +26,32 @@ and say in the body which option you are building. Set `drive` to the drive's na
 card: cc-slack reads a `waits` card that names its drive as the drive's question, whose home is
 Slack, and posts it with no cc-present board warning.
 
-**A PR card**, which you never write. `slack_dm_status(tap_prs=[<url>], text=<line>,
-thread_ts=<his thread>)` makes cc-slack draw the card at his DM root from the PR itself
-(`drive card`), with Approve and Hold while it waits on him. Its words come from the PR's
-title and body, so a bad card is fixed in the PR body, never in the message.
+**A PR card**, which you never write: one card per stack. `slack_dm_status(tap_prs=[<each url,
+bottom first>], text=<line>, thread_ts=<his thread>)` makes cc-slack draw one card at his DM root
+for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him; his
+Approve lands exactly those PRs, bottom first, and a PR added later gets its own card. Each PR on
+it shows its ELI5 first, then what changes for him, what he will hate most, where it stands, how it
+differs from the plan when it does, and its Show me picture. Its words come from each PR's title
+and body, with record ids dropped, so a bad card is fixed in the PR body, never in the message.
 
-The status card at his DM root is the fourth surface and is drawn, not written: after an
-order changes state, post `drive rollup`'s card with `slack_dm_status(card=…, root_only=true)`.
+The status card at his DM root is drawn, not written: after an order changes state, post
+`drive rollup`'s card with `slack_dm_status(card=…, root_only=true)`.
+
+## When it goes out
+
+- **His message gets its ack at once**, whatever else is running. The work it starts reports back
+  in that thread when it is done.
+- **Everything else waits for a summary.** No line per event: a job result, a merge, a CI turn or
+  a promised time feeds the next summary of its thread. The watch's `TICK` comes every 30 minutes
+  and names the orders with news; post at most one summary per thread per tick, then
+  `drive order set <o> --lined` for each order it covered.
+- **He is away** when he says he is going to sleep or stepping out (`drive heard --away`), or when
+  he has written nothing for an hour. Then only cards post: PR cards and question cards that wait
+  on him, and an incident line [incidents.md](incidents.md) calls for. Summaries, due-time lines
+  and job results wait.
+- **His next message gets one catch-up**, right after its ack: `drive heard` prints `CATCH-UP`
+  with every order that changed while he was away. Post one summary in his main thread covering
+  them, grouped by feature, with what waits on him last, then `--lined` each.
 
 ## What goes in
 
@@ -51,7 +74,7 @@ order changes state, post `drive rollup`'s card with `slack_dm_status(card=…, 
 - **The machinery.** Pins, packs, installs-as-process, who handed what to whom, which hook
   refused what. When he asks why, give the cause in one or two sentences, then the fix and
   when it is live.
-- **Messages with no new fact.** Acknowledge with a `+1` reaction instead. Never "nothing new".
+- **Messages with no new fact.** Chatter gets a `+1` reaction instead of an ack. Never "nothing new".
 - **Second copies.** One post per thing; a correction edits it in place; never text and a
   card for the same thing.
 - **Promises without a timer.** A time you write is set with `drive order set <o> --due` in
@@ -86,8 +109,7 @@ The other four are in review and land by 11:10 PM; each goes live within minutes
 > *Build, install and clean up first; the one-pager after*
 > Order changed as you said: your Opus subagent builds the overhaul, merges and installs it,
 > rewrites the recent posts in this DM and removes their duplicates and closed-PR cards, and
-> only then sends you the one-pager with the design questions about forward tweaks.
-> Progress lines keep coming here every 15 minutes, next at 9:40 PM.
+> only then sends you the one-pager with the design questions about forward tweaks. …
 
 ## Before it goes out
 

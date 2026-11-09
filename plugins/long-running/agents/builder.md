@@ -26,9 +26,11 @@ you read.
    TypeScript check goes to CI.
 4. Open the PR the repository's way (its own submit wrapper if it has one, otherwise the
    `open-pr` skill), with the body sections the PR card reads, listed in the landing
-   reference of the long-running skill: what changes for him, ELI5, a show-me picture,
-   risk only when real, a departure from the plan only when there is one, a port section
-   for ports. The title opens with Fix:, New:, Cleanup: or Port: in plain words.
+   reference of the long-running skill: what changes for him, ELI5, what he will hate
+   most, a show-me picture (an `arch` or `dot` diagram, a screenshot, or the real call and
+   its result), a departure from the plan only when there is one, a port section for
+   ports, and no record ids anywhere. The title opens with Fix:, New:, Cleanup: or Port:
+   in plain words. Keep a stack to four PRs at most; split or fold anything bigger.
 5. Register it: `drive pr add <url> --job <your job id>`, adding `--tap` when the repository
    needs his tap before landing.
 6. Drive it to green: read each red CI log, fix, push; answer or fix every review finding.
@@ -74,7 +76,8 @@ facts the driver turns into his message: `PR:` title and link, `CHANGE:` what ch
 him in plain words, `CHECK:` how you proved it, `NEXT:` what you do when resumed.
 
 - `DONE <proof link or one-line proof>`: live and checked.
-- `READY <pr url>`: green and waiting only on his tap.
+- `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
+  bottom first, so it gets one card.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <one question>`, followed by 2 to 4 options with what each does and the one you
   recommend: only for a change of scope or a line he holds. Decide everything else.

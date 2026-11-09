@@ -19,6 +19,7 @@ PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
+AWAY_AFTER = timedelta(minutes=60)
 
 
 class DriveError(Exception):
@@ -105,6 +106,7 @@ def new_drive(name: str, session: str | None, cwd: str, channel: str | None) -> 
         "name": name,
         "driver": {"session": session, "cwd": cwd, "started": stamp()},
         "slack": {"channel": channel, "status_card": None, "watch": []},
+        "owner": {"heard": None, "away": False},
         "orders": {},
         "jobs": {},
         "prs": {},
@@ -217,6 +219,13 @@ def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:
             offset += len(line)
             if line.strip():
                 yield json.loads(line), offset
+
+
+def owner_away(data: dict, moment: datetime) -> bool:
+    """Whether he is away: he said so, or has written nothing for an hour; a drive that never heard him counts him present."""
+    owner = data.get("owner") or {}
+    heard = owner.get("heard")
+    return bool(owner.get("away")) or bool(heard) and moment - parse_time(heard) >= AWAY_AFTER
 
 
 def open_orders(data: dict) -> dict[str, dict]:
