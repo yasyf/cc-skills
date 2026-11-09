@@ -189,6 +189,9 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.unreadAsk(); err != nil {
 				return "reply: " + err.Error(), true
 			}
+			if err := r.choiceWithoutPicks(); err != nil {
+				return "reply: " + err.Error(), true
+			}
 			warning, err = fanout.askedAlready(ctx, r)
 			if err != nil {
 				return "reply: " + err.Error(), true
