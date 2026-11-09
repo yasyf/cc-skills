@@ -2244,6 +2244,9 @@ func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T)
 	if gaps := BodyGaps(drawn); len(gaps) != 0 {
 		t.Fatalf("gaps = %q, want an arch block that draws to stand as the show-me", gaps)
 	}
+	if gaps := BodyGaps(strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "Before: a chat spins for a minute after the drop. After: it loads at once.", 1)); len(gaps) != 0 {
+		t.Fatalf("gaps = %q, want a sentence to stand as the show-me when it reads best", gaps)
+	}
 	if words, doc := ShowMeWords(store.ReviewRow{Description: drawn}), ShowMeDiagram(store.ReviewRow{Description: drawn}); words != "The relay now reconnects:" || !strings.HasPrefix(string(doc), `{"arch":1`) {
 		t.Fatalf("words = %q, doc = %s; want the words beside the block and the block as the diagram", words, doc)
 	}
@@ -2253,7 +2256,6 @@ func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T)
 		"no Context":                       {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
 		"an unnamed plan form":             {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
 		"no Show me":                       {strings.Split(ready, "## Show me")[0], "its show-me: its PR body has no Show me section"},
-		"a Show me of words":               {strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "Before: a chat spins for a minute after the drop. After: it loads at once.", 1), "its show-me: its Show me section is words alone"},
 		"an arch block that does not draw": {strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "```arch\n{}\n```", 1), "its show-me: its Show me arch block does not draw"},
 		"a new function, no call":          {strings.Replace(ready, "Chats load right after a network drop.", "Chats load right after a network drop, and a new function presigns uploads.", 1), "it adds a function, and its Show me section has no real Sand API call"},
 	} {
