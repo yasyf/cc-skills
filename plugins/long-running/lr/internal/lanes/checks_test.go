@@ -425,7 +425,7 @@ func (f commanded) Run(_ context.Context, c shell.Command) (shell.Result, error)
 	return f(c)
 }
 
-var releaseComponents = map[string]string{"api/": "api", "common/": "api", "go/sand/": "sand", "go/llm-gateway/": "llm-gateway", "tools/remote-builder/": "sanddb", "rust/crates/": "sand-next"}
+var releaseComponents = map[string]string{"api/": "api", "common/": "api", "go/sand/": "sand", "go/llm-gateway/": "llm-gateway", "tools/remote-builder/": "sanddb", "rust/crates/": "sand-next", "go/ci/internal/stagingsmoke/": "staging-smoke"}
 
 func notLive(t *testing.T, ledger string, files map[string]string, live string, ancestor bool) (*LandedNotLive, *fakeBus) {
 	t.Helper()
@@ -461,7 +461,7 @@ func notLive(t *testing.T, ledger string, files map[string]string, live string, 
 					touched = append(touched, component)
 				}
 			}
-			answer, err := json.Marshal(map[string][]string{"touched": touched})
+			answer, err := json.Marshal(map[string][]string{"touched": touched, "deploying": slices.DeleteFunc(slices.Clone(touched), func(component string) bool { return component == "staging-smoke" })})
 			return shell.Result{Stdout: string(answer)}, err
 		default:
 			return shell.Result{Stdout: live}, nil
@@ -585,6 +585,40 @@ func TestALandingWhoseFilesReachNoReleaseTargetOwesNoRelease(t *testing.T) {
 	}
 
 	equal(t, len(bus.posted), 0)
+}
+
+func TestALandingTouchingOnlyAComponentThatDeploysNothingOwesNoRelease(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"52400","state":"landed","title":"staging-smoke: retry","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/ci/internal/stagingsmoke/run.go\n"}, `[{"target":"staging-smoke","commit":"c1"}]`, false)
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 0)
+}
+
+func TestASelectAnswerWithNoDeployingListRaisesNothingAndReadsAgain(t *testing.T) {
+	ledger := fmt.Sprintf(`[{"pr":"47799","state":"landed","title":"sand: fix it","landed_sha":"abc","landed_at":%q}]`, t0.Add(-2*time.Hour).Format(time.RFC3339))
+	check, bus := notLive(t, ledger, map[string]string{"abc": "go/sand/internal/vm/vm.go\n"}, `[{"target":"sand","commit":"c1"}]`, false)
+	answers := check.Env.Runner
+	check.Env.Runner = commanded(func(c shell.Command) (shell.Result, error) {
+		if slices.Contains(c.Argv, "select") {
+			return shell.Result{Stdout: `{"touched":["sand"]}`}, nil
+		}
+		return answers.Run(context.Background(), c)
+	})
+
+	if err := check.Check(context.Background(), t0); err != nil {
+		t.Fatal(err)
+	}
+
+	equal(t, len(bus.posted), 0)
+	kept, err := check.Store.ReleaseTargets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	equal(t, len(kept), 0)
 }
 
 func TestALandingOwesTheTargetsItsFilesReachNeverItsTitleScope(t *testing.T) {

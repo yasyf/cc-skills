@@ -151,12 +151,15 @@ func touchedBy(ctx context.Context, runner shell.Runner, cli []string, checkout 
 		return nil, fmt.Errorf("%w: %w", ErrUnread, err)
 	}
 	var answer struct {
-		Touched []string `json:"touched"`
+		Deploying *[]string `json:"deploying"`
 	}
 	if err := json.Unmarshal([]byte(selected.Stdout), &answer); err != nil {
 		return nil, fmt.Errorf("%w: release select --pr: %w", ErrUnread, err)
 	}
-	return answer.Touched, nil
+	if answer.Deploying == nil {
+		return nil, fmt.Errorf("%w: release select --pr names no deploying components", ErrUnread)
+	}
+	return *answer.Deploying, nil
 }
 
 func (r *ReleaseRead) View(ctx context.Context) ReleaseView {
