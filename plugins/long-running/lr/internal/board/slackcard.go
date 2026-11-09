@@ -21,6 +21,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/app"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
@@ -98,8 +99,10 @@ type slackAsk struct {
 	Refused []SlackRefused `json:"refused"`
 	Answer  *struct {
 		SlackPR
-		Waits string `json:"waits"`
-		Label string `json:"label"`
+		Waits    string `json:"waits"`
+		Label    string `json:"label"`
+		ActionTS string `json:"action_ts"`
+		Source   string `json:"source"`
 	} `json:"answer"`
 	Unheard *SlackUnheard `json:"unheard"`
 }
@@ -482,7 +485,7 @@ func slackCardCommand(a *app.App) *cobra.Command {
 					return fmt.Errorf("no live drive holds %s#%d", k.Repo, k.Number)
 				}
 				return withRows(c, live[at], []int{k.Number}, ledgerRows, func(s *store.Store, repository string, rows []store.ReviewRow) error {
-					return Respond(s, repository, postHooks(c.Context(), cardAnswers{a.Runner, live[at].Checkout, c.ErrOrStderr()}, live[at].Bus(), lane, repository), rows, k.Number, k.Waits, k.Label, a.Now())
+					return Respond(s, repository, postHooks(c.Context(), cardAnswers{a.Runner, live[at].Checkout, c.ErrOrStderr()}, live[at].Bus(), lane, repository, bus.Press{ActionTS: k.ActionTS, Source: k.Source}), rows, k.Number, k.Waits, k.Label, a.Now())
 				})
 			}
 			if len(ask.Refused) > 0 {

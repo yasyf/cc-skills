@@ -76,9 +76,19 @@ func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record
 	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name())+"/"+strconv.Itoa(tap.PR))
 }
 
+// Press is how his answer reached a card: the Slack action or message it came from, and whether he pressed the button, typed its number or answered a card it copies.
+type Press struct {
+	ActionTS string
+	Source   string
+}
+
 // PostCardTap records his tap on a card as an owner record, which WriteOrders turns into the land order on the landing host. An owner machine's relay never carries a dotted kind, so a typed order written here would stay here.
-func (b Bus) PostCardTap(ctx context.Context, repo string, tap Tap) error {
-	return b.postOwnerTap(ctx, repo, tap, fmt.Sprintf("card-tap/%d/%s", tap.PR, tap.Head), "on a card", nil)
+func (b Bus) PostCardTap(ctx context.Context, repo string, tap Tap, press Press) error {
+	where, attrs := "on a card", map[string]string{}
+	if press.Source != "" {
+		where, attrs["source"], attrs["action_ts"] = fmt.Sprintf("on a card (%s, Slack action %s)", press.Source, press.ActionTS), press.Source, press.ActionTS
+	}
+	return b.postOwnerTap(ctx, repo, tap, fmt.Sprintf("card-tap/%d/%s", tap.PR, tap.Head), where, attrs)
 }
 
 func (b Bus) PostWordTap(ctx context.Context, repo string, tap Tap, word client.Record, writer string) error {
