@@ -180,6 +180,11 @@ def test_a_conventional_commit_title_becomes_its_kind_and_plain_words() -> None:
         ("Cleanup: drop the board", "Cleanup", "drop the board"),
         ("style: reflow", "Change", "reflow"),
         ("Bump the plugin", "Change", "Bump the plugin"),
+        ("sandsql-server: ✨ a moved table commits in both files", "New", "a moved table commits in both files"),
+        ("ci: 🐛 pin smoke candidates once", "Fix", "pin smoke candidates once"),
+        ("api: 🔥 drop the old table", "Cleanup", "drop the old table"),
+        ("long-running: ⚡️ the watch reads once", "Cleanup", "the watch reads once"),
+        ("go/sand: 🎨 tidy the loop", "Change", "tidy the loop"),
     ],
 )
 def test_kind_and_title(title: str, kind: str, plain: str) -> None:

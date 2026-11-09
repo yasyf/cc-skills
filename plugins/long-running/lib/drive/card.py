@@ -24,11 +24,17 @@ CONVENTIONAL_KINDS = {
     "feat": "New",
     **dict.fromkeys(("refactor", "chore", "docs", "test", "ci", "build", "perf"), "Cleanup"),
 }
+GITMOJI_KINDS = {
+    **dict.fromkeys("✨🎉🚸", "New"),
+    **dict.fromkeys("🐛🚑🩹🔒💚", "Fix"),
+    **dict.fromkeys("♻🔥⚡📝✅🔧🏷🚚🧹👷📌⬆", "Cleanup"),
+}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 
 KIND_WORD = re.compile(rf"({'|'.join(KINDS)}):\s*", re.IGNORECASE)
 CONVENTIONAL = re.compile(r"([a-z]+)(?:\([^)]*\))?!?:\s*")
+SCOPED = re.compile(r"([a-z0-9][a-z0-9_./-]*):\s*(\S)")
 HEADING = re.compile(r"#{1,2}[ \t]+(.+?)[ \t#]*")
 ELI5_HEADING = re.compile(r"^#{2,3}[ \t]+ELI5[ \t]*$", re.MULTILINE | re.IGNORECASE)
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
@@ -67,6 +73,8 @@ def kind_and_title(title: str) -> tuple[str, str]:
     plain = without_emoji(title)
     if word := KIND_WORD.match(plain):
         return word[1].capitalize(), without_emoji(plain[word.end() :])
+    if (scoped := SCOPED.match(title)) and is_emoji(scoped[2]):
+        return GITMOJI_KINDS.get(scoped[2], "Change"), without_emoji(title[scoped.end(1) + 1 :])
     if prefix := CONVENTIONAL.match(plain):
         return CONVENTIONAL_KINDS.get(prefix[1], "Change"), without_emoji(plain[prefix.end() :])
     return "Change", plain
