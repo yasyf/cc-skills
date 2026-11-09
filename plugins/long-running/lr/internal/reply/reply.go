@@ -1213,7 +1213,11 @@ func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
 func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {
 	done, err := f.Runner.Run(ctx, shell.Command{Argv: []string{"gh", "pr", "view", pr, "--json", "title,body"}, Timeout: postTimeout})
 	var read struct{ Title, Body string }
-	if err != nil || json.Unmarshal([]byte(done.Stdout), &read) != nil {
+	if err == nil {
+		err = json.Unmarshal([]byte(done.Stdout), &read)
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s was graded on its PR ledger copy, since its body did not read from GitHub: %v\n", pr, err)
 		return row
 	}
 	var body store.ReviewRow
