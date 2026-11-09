@@ -69,7 +69,7 @@ func (b Bus) PostOrder(ctx context.Context, tap Tap, from client.Record) (Record
 	if err != nil {
 		return Record{}, err
 	}
-	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name()))
+	return b.postKeyed(ctx, tap.Kind(), raw, nil, "", namespace+"."+tap.Kind()+"/"+cmp.Or(from.ID, from.Name())+"/"+strconv.Itoa(tap.PR))
 }
 
 // PostCardTap records his tap on a card as an owner record, which WriteOrders turns into the land order on the landing host. An owner machine's relay never carries a dotted kind, so a typed order written here would stay here.
@@ -163,22 +163,28 @@ func (b Bus) PostHoldEnded(ctx context.Context, repo string, pr int, held client
 	return err
 }
 
-// OrderOf reads the land order one owner record carries. An empty Head means the record names no head, so the order lands at the PR's head when it is written.
-func OrderOf(record client.Record, repo string) (Tap, bool) {
+// OrdersOf reads the land orders one owner record carries: one for a row record, and one per PR its card showed at the head it showed for a pick. An empty Head means the record names no head, so the order lands at the PR's head when it is written.
+func OrdersOf(record client.Record, repo string) []Tap {
 	if string(record.Kind) != ownerKind {
-		return Tap{}, false
+		return nil
 	}
 	attrs := record.Fields.Attrs
 	if row, err := strconv.Atoi(attrs["row"]); err == nil {
 		value, known := rowValues[attrs["verdict"]]
-		return Tap{PR: row, Head: strings.ToLower(attrs["head"]), By: OwnerBy, Value: value}, known
+		if !known {
+			return nil
+		}
+		return []Tap{{PR: row, Head: strings.ToLower(attrs["head"]), By: OwnerBy, Value: value}}
 	}
 	value := cardValue(attrs, record.Text)
 	if value == "" {
-		return Tap{}, false
+		return nil
 	}
-	number, head, named := cardPR(attrs["heads"], record.Text, repo)
-	return Tap{PR: number, Head: head, By: OwnerBy, Value: value}, named
+	var taps []Tap
+	for _, shown := range cardPRs(attrs["heads"], record.Text, repo) {
+		taps = append(taps, Tap{PR: shown.PR, Head: shown.Head, By: OwnerBy, Value: value})
+	}
+	return taps
 }
 
 // UnreadPick says a pick was recorded with option ids and no label, so no one can tell a land pick from any other. A Slack permission card asks whether to post, so its pick never lands a PR.
@@ -193,7 +199,7 @@ func UnnamedLand(record client.Record, repo string) bool {
 	if string(record.Kind) != ownerKind || attrs["event"] != "choice.selected" || cardValue(attrs, record.Text) == "" {
 		return false
 	}
-	if _, ordered := OrderOf(record, repo); ordered {
+	if len(OrdersOf(record, repo)) > 0 {
 		return false
 	}
 	return attrs["heads"] != "" || len(namedPRs(record.Text, repo)) > 0
@@ -204,8 +210,7 @@ func CarriedEach(pick client.Record, later []client.Record, repo string) bool {
 	value, named := cardValue(pick.Fields.Attrs, pick.Text), pickedPRs(pick, repo)
 	return len(named) > 0 && !slices.ContainsFunc(named, func(number int) bool {
 		return !slices.ContainsFunc(later, func(record client.Record) bool {
-			tap, ordered := OrderOf(record, repo)
-			return ordered && tap.PR == number && tap.Value == value
+			return slices.ContainsFunc(OrdersOf(record, repo), func(tap Tap) bool { return tap.PR == number && tap.Value == value })
 		})
 	})
 }
@@ -272,18 +277,24 @@ func cardValue(attrs map[string]string, text string) string {
 	return ""
 }
 
-func cardPR(heads, text, repo string) (int, string, bool) {
-	if heads != "" {
-		pr, head, _ := strings.Cut(heads, "=")
+func cardPRs(heads, text, repo string) []Tap {
+	if heads == "" {
+		if numbers := namedPRs(text, repo); len(numbers) == 1 {
+			return []Tap{{PR: numbers[0]}}
+		}
+		return nil
+	}
+	var shown []Tap
+	for entry := range strings.SplitSeq(heads, ",") {
+		pr, head, _ := strings.Cut(entry, "=")
 		owner, digits, _ := strings.Cut(pr, "#")
 		number, err := strconv.Atoi(digits)
-		return number, strings.ToLower(head), err == nil && !strings.Contains(heads, ",") && (repo == "" || strings.EqualFold(owner, repo))
+		if err != nil || repo != "" && !strings.EqualFold(owner, repo) {
+			return nil
+		}
+		shown = append(shown, Tap{PR: number, Head: strings.ToLower(head)})
 	}
-	numbers := namedPRs(text, repo)
-	if len(numbers) != 1 {
-		return 0, "", false
-	}
-	return numbers[0], "", true
+	return shown
 }
 
 func namedPRs(text, repo string) []int {

@@ -430,8 +430,8 @@ func TestASlackMergeCardTapIsAnOwnerRecordThatReachesTheLandingHost(t *testing.T
 	if len(written) != 1 {
 		t.Fatalf("records = %+v", written)
 	}
-	if tap, ordered := bus.OrderOf(written[0], repo); !ordered || tap.PR != number || tap.Head != head || tap.Value != string(machine.TapTapped) {
-		t.Fatalf("order = %+v, %v", tap, ordered)
+	if taps := bus.OrdersOf(written[0], repo); len(taps) != 1 || taps[0].PR != number || taps[0].Head != head || taps[0].Value != string(machine.TapTapped) {
+		t.Fatalf("orders = %+v", taps)
 	}
 }
 

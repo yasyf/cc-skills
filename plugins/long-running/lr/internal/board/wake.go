@@ -154,8 +154,7 @@ func (w Waker) routed(ctx context.Context, a CardAnswer) (bool, error) {
 	naming := namesAny(a.Card, a.Block)
 	return slices.ContainsFunc(records, func(record client.Record) bool {
 		if record.Seq == a.OwnerSeq {
-			_, ordered := bus.OrderOf(record, "")
-			return ordered
+			return len(bus.OrdersOf(record, "")) > 0
 		}
 		return string(record.Kind) != ownerKind && record.Lane != w.Lane && naming.MatchString(record.Text)
 	}), nil

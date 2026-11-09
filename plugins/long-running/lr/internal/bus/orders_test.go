@@ -10,7 +10,7 @@ import (
 
 func TestOnlyAnOwnerRecordCarriesAnOrder(t *testing.T) {
 	said := map[string]string{"event": "choice.selected"}
-	if _, ordered := bus.OrderOf(legacyRecord(t, "report", "board-watch", "Owner on board: Land #7? (c): picked “Land #7 now”", nil, said), repo); ordered {
+	if taps := bus.OrdersOf(legacyRecord(t, "report", "board-watch", "Owner on board: Land #7? (c): picked “Land #7 now”", nil, said), repo); len(taps) > 0 {
 		t.Fatal("a lane's report carried a land order")
 	}
 }
@@ -33,15 +33,22 @@ func TestAPickReadsItsOwnPRAndItsOwnHeadsRepository(t *testing.T) {
 		{"a port card naming its port", "port of #50061: Land #50460? (c): picked “Land it”", "", 50460, "", true},
 		{"a port card opening with its dev source", "Port, old tree to new: dev #50061: Approve #50460 at abc1234? (c): picked “Approve”", "", 50460, "", true},
 		{"a port card linking its dev source", "Port, old tree to new: dev [#50061](https://github.com/" + repo + "/pull/50061): Land #50460? (c): picked “Land it”", "", 50460, "", true},
-		{"two PRs its card asked about", "Land #7? (c): picked “Land it”", repo + "#7=abc1234," + repo + "#8=def5678", 0, "", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			attrs := map[string]string{"event": "choice.selected", "heads": tt.heads}
-			got, ordered := bus.OrderOf(legacyRecord(t, "owner", "board-watch", tt.text, nil, attrs), repo)
-			if ordered != tt.ordered || ordered && (got.PR != tt.pr || got.Head != tt.head) {
-				t.Fatalf("OrderOf = %+v, %v", got, ordered)
+			got := bus.OrdersOf(legacyRecord(t, "owner", "board-watch", tt.text, nil, attrs), repo)
+			if len(got) > 0 != tt.ordered || tt.ordered && (len(got) != 1 || got[0].PR != tt.pr || got[0].Head != tt.head) {
+				t.Fatalf("OrdersOf = %+v", got)
 			}
 		})
+	}
+}
+
+func TestAnApproveOnACardShowingTwoPRsOrdersEachAtTheHeadItShowed(t *testing.T) {
+	attrs := map[string]string{"event": "choice.selected", "heads": repo + "#7=ABC1234," + repo + "#8=def5678"}
+	got := bus.OrdersOf(legacyRecord(t, "owner", "board-watch", "Land both? (c): picked “Approve both”", nil, attrs), repo)
+	if len(got) != 2 || got[0].PR != 7 || got[0].Head != "abc1234" || got[1].PR != 8 || got[1].Head != "def5678" || got[0].Value != "tapped" || got[1].Value != "tapped" {
+		t.Fatalf("OrdersOf = %+v, want #7 at abc1234 and #8 at def5678, both tapped", got)
 	}
 }
 
@@ -74,9 +81,9 @@ func TestHisTypedAnswerToACardOrdersOnlyWhenItIsALandWordNamingOnePR(t *testing.
 		{"words with no quoted label", "Owner in thread: merge #51241", 0, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ordered := bus.OrderOf(legacyRecord(t, "owner", "owner-relay", tt.text, nil, nil), repo)
-			if ordered != tt.ordered || ordered && (got.PR != tt.pr || got.Head != "" || got.Value != "tapped") {
-				t.Fatalf("OrderOf = %+v, %v", got, ordered)
+			got := bus.OrdersOf(legacyRecord(t, "owner", "owner-relay", tt.text, nil, nil), repo)
+			if len(got) > 0 != tt.ordered || tt.ordered && (len(got) != 1 || got[0].PR != tt.pr || got[0].Head != "" || got[0].Value != "tapped") {
+				t.Fatalf("OrdersOf = %+v", got)
 			}
 		})
 	}

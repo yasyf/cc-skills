@@ -278,8 +278,8 @@ func TestAHandCarriedOrderTakesTheSameRowGateAsATap(t *testing.T) {
 			if len(written) != 1 || string(written[0].Kind) != tt.kind {
 				t.Fatalf("written = %+v", written)
 			}
-			if tap, ordered := bus.OrderOf(written[0], "o/r"); ordered == tt.refused || !tt.refused && (tap.PR != 7 || tap.Head != handHead) {
-				t.Fatalf("the landing host reads = %+v, %v", tap, ordered)
+			if taps := bus.OrdersOf(written[0], "o/r"); len(taps) > 0 == tt.refused || !tt.refused && (len(taps) != 1 || taps[0].PR != 7 || taps[0].Head != handHead) {
+				t.Fatalf("the landing host reads = %+v", taps)
 			}
 			if tt.refused && !strings.Contains(out.String(), "Nothing: superseded, #8") {
 				t.Fatalf("out = %s", out.String())
@@ -352,8 +352,8 @@ func TestAnOrderFromABoxWithNoLandStoreGoesToTheHostAtTheFullHeadNamingItsWriter
 	if len(written) != 1 || written[0].Fields.Attrs[bus.WriterAttr] != "sprite-lane" {
 		t.Fatalf("written = %+v", written)
 	}
-	if tap, ordered := bus.OrderOf(written[0], "o/r"); !ordered || tap.PR != 7 || tap.Head != head {
-		t.Fatalf("the landing host reads = %+v, %v", tap, ordered)
+	if taps := bus.OrdersOf(written[0], "o/r"); len(taps) != 1 || taps[0].PR != 7 || taps[0].Head != head {
+		t.Fatalf("the landing host reads = %+v", taps)
 	}
 }
 
