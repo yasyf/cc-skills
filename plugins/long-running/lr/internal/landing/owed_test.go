@@ -36,7 +36,7 @@ type owedFixture struct {
 	clocks []string
 }
 
-func newOwed(t *testing.T, lane, labels, body string) *owedFixture {
+func newOwed(t *testing.T, lane, labels, body string, files ...string) *owedFixture {
 	t.Helper()
 	t.Setenv("CCI_HOME", t.TempDir())
 	s, err := store.Memory()
@@ -55,7 +55,11 @@ func newOwed(t *testing.T, lane, labels, body string) *owedFixture {
 		t.Fatal(err)
 	}
 	fake := &shelltest.Fake{}
-	fake.Reply(fmt.Sprintf(`{"body":%q,"labels":[%s],"mergedAt":%q,"mergeCommit":{"oid":%q}}`, body, labels, merged.Format(time.RFC3339), owedSHA), "ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view")
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, fmt.Sprintf(`{"path":%q}`, file))
+	}
+	fake.Reply(fmt.Sprintf(`{"body":%q,"files":[%s],"labels":[%s],"mergedAt":%q,"mergeCommit":{"oid":%q}}`, body, strings.Join(paths, ","), labels, merged.Format(time.RFC3339), owedSHA), "ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "view")
 	f := &owedFixture{fake: fake, store: s, merged: merged, now: merged}
 	f.owed = f.instance(t, merged.Add(-time.Minute))
 	return f
@@ -183,6 +187,17 @@ func TestAnIncidentFixOwesItsReleaseAndOnlyABuildOrFixLiveSettlesIt(t *testing.T
 	f.at(t, 21*time.Minute)
 	if got := owedPosted(t, "blocker"); len(got) != 1 {
 		t.Fatalf("pressed past fix-live: %+v", got)
+	}
+}
+
+func TestAnIncidentFixThatChangesOnlyTestsOwesNoRelease(t *testing.T) {
+	f := newOwed(t, "incident-api-fix", "", "no release line", "go/sand/runner/upload_test.go")
+	owedAlert(t)
+
+	f.at(t, 0)
+	f.at(t, 11*time.Minute)
+	if got := owedPosted(t, "release", "blocker"); len(got) != 0 {
+		t.Fatalf("a test-only incident landing was pressed for a release: %+v", got)
 	}
 }
 

@@ -16,6 +16,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bkread"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -186,12 +187,15 @@ func (r *ReleaseOwed) landings(ctx context.Context, start time.Time) ([]owedLand
 }
 
 func (r *ReleaseOwed) judge(ctx context.Context, pr store.PR) (string, error) {
-	out, err := r.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(pr.Number), "--repo", r.Repo, "--json", "body,labels,mergedAt,mergeCommit")
+	out, err := r.CCX.GH(ctx, ccx.MaxAgeFresh, "pr", "view", strconv.Itoa(pr.Number), "--repo", r.Repo, "--json", "body,files,labels,mergedAt,mergeCommit")
 	if err != nil {
 		return "", err
 	}
 	var view struct {
-		Body   string `json:"body"`
+		Body  string `json:"body"`
+		Files []struct {
+			Path string `json:"path"`
+		} `json:"files"`
 		Labels []struct {
 			Name string `json:"name"`
 		} `json:"labels"`
@@ -202,6 +206,13 @@ func (r *ReleaseOwed) judge(ctx context.Context, pr store.PR) (string, error) {
 	}
 	if err := json.Unmarshal([]byte(out), &view); err != nil {
 		return "", fmt.Errorf("the view of #%d: %w", pr.Number, err)
+	}
+	files := make([]string, 0, len(view.Files))
+	for _, file := range view.Files {
+		files = append(files, file.Path)
+	}
+	if gates.PathClass(files, []string{gates.TestOnlyGrade}) != "" {
+		return owedClosed, r.close(pr)
 	}
 	incident, err := r.incident(ctx, pr)
 	if err != nil {
