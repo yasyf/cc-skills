@@ -2783,3 +2783,23 @@ func TestAPickCardWhoseQuestionAnOpenCardAlreadyAsksIsRefused(t *testing.T) {
 		}
 	}
 }
+
+func TestAChoicePutToHimAsTextIsRefusedUntilItCarriesPicks(t *testing.T) {
+	for name, tc := range map[string]struct {
+		reply   Reply
+		refused bool
+	}{
+		"lettered options":      {Reply{Title: "The busy pod", MD: "A) the pod row names its work\nB) a new busy state"}, true},
+		"bold options":          {Reply{MD: "- **A:** keep it\n- **B:** revert it"}, true},
+		"an A or B question":    {Reply{MD: "Keep it or revert it, A or B?"}, true},
+		"the same with picks":   {Reply{MD: "A) keep it\nB) revert it", Picks: []string{"Keep" + pickSplit + "it stays", "Revert" + pickSplit + "a revert PR"}}, false},
+		"a status with no pick": {Reply{MD: "#52806 landed at 8:32 PM."}, false},
+		"one lettered line":     {Reply{MD: "A: the fix is live."}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := tc.reply.choiceWithoutPicks(); (err != nil) != tc.refused {
+				t.Fatalf("choiceWithoutPicks() = %v, want refused=%v", err, tc.refused)
+			}
+		})
+	}
+}
