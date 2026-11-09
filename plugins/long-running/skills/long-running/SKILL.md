@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; it acks each of his messages within seconds, hands the work over, and posts every line and card he sees. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; it acks each of his messages within seconds, answers his read-only questions from Sonnet readers it starts itself, hands orders and rulings over, and posts every line and card he sees. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -12,8 +12,11 @@ the model their agent names. His ruling, Nov 9 1:32 PM: "Our coordinator and com
 should switch to fable 5.2, released today (still no other lanes should be fable)".
 
 - **The communicator** is the only session he talks to. It picks up and acks each of his messages
-  within seconds, hands the work to the coordinator, and writes every message he sees. It never
-  works and never waits, so his next message never sits behind bookkeeping.
+  within seconds, answers his read-only questions through `long-running:reader` jobs it starts
+  itself, sends the coordinator his orders, rulings and answers, and writes every message he sees.
+  It does no order's work and never waits, so his next message never sits behind bookkeeping. His
+  ruling, Nov 9 2:05 PM: "the communicator should spawn a read only subagent that can go read the
+  transcripts of various lanes etc instead of having to bug the coordinator for read only queries".
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
   agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
@@ -23,7 +26,7 @@ should switch to fable 5.2, released today (still no other lanes should be fable
 | Concept | What it is |
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its jobs, its proof. `drive order …` |
-| Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only), `codex:codex-wrapper` (review, diagnosis, incidents). A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
+| Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only, on Sonnet), `codex:codex-wrapper` (review, diagnosis, incidents). A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
 | Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close, `EVENT catch-up …` when he is back. |
 | Record | A cci record on the drive between the two sessions, by [Between the two sessions](#between-the-two-sessions). |
 | Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
@@ -32,8 +35,8 @@ should switch to fable 5.2, released today (still no other lanes should be fable
 The drive's state lives in one file, written only by the `drive` CLI on your PATH and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
 which outlive a compaction or a restart. A job's agent answers only to the session that started it,
-so every job is the coordinator's. Other sessions reach the drive through cci, addressed to `root`,
-the coordinator.
+so a reader the communicator starts for his question is the communicator's, and every other job is
+the coordinator's. Other sessions reach the drive through cci, addressed to `root`, the coordinator.
 
 ## Start or resume
 
@@ -76,7 +79,7 @@ live session reads here can land on another drive. Each record names the thread 
 
 | Record | From | To | Carries | The receiver |
 |---|---|---|---|---|
-| `owner` | communicator | `root@<drive>` | his words verbatim, his message's permalink as `--url`, his thread | makes them orders or a question, by its table |
+| `owner` | communicator | `root@<drive>` | his words verbatim, his message's permalink as `--url`, his thread, and `--attr ruling=<answer id>` on a ruling | makes them orders, or starts a skill rewrite for a ruling, by its table |
 | `answer` | communicator | `root@<drive>` | `--re` the `ask` it answers, which closes it, `--attr job=<j>`, and his pick or his own words | records his answer and resumes that job |
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
 | `report` | `root` | `communicator@<drive>` | the facts of one message: the thread or alert link it goes in, what changed for him, links and proof | writes the message and posts it |
@@ -91,31 +94,34 @@ message, and none of them waits on work.
 | Input | Do, in this turn |
 |---|---|
 | A message from him | First `slack_pickup` on it, then a one-line ack in the thread he wrote in, restating what he asked and what happens next. No call comes before the ack. Then, together, `drive heard --thread <his thread>`, with `--away` when he says he is going to sleep or stepping away, and the row below for what he wrote. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. |
-| An order, a ruling, an alert, or a question one read cannot answer | An `owner` record. |
-| A question one `drive status` read answers | Answer it in his thread from that read. |
+| An order or an alert | An `owner` record. |
+| A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | A ruling on arrival, even when he asks for no change: `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`, then an `owner` record with `--attr ruling=<answer id>`, which the coordinator turns into a skill rewrite. Never wait for him to ask for the durable change. His ruling, Nov 9 2:06 PM: "make the durable change to the skill why did I have to tell you that why is it not automatic?" Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". |
+| A read-only question: where something stands, what a job did, why something is late | One `drive status` or `drive view` read that answers it is answered in his thread at once. Anything more starts a `long-running:reader` on the spot, by [Jobs](#jobs) on this Mac, with `run_in_background: true` and his question as its brief; it runs on Sonnet. Never send a read to the coordinator. His ruling, Nov 9 2:06 PM: "should not take 30 mins to spawn read only sonnet lanes". |
+| A reader finished | Post its answer in the thread of the question it answers, by [reference/messages.md](reference/messages.md). An answer that shows something to act on is an order he gives, never one you start. |
 | His words in a question card's thread (the message's `thread_card` names the card) | `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<his words>, other=true, via=<his message's permalink>)`, which collapses the card to his answer as if he had tapped, and an `answer` record with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record. |
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack, run `drive heard --thread <his thread>`, and nothing else. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. |
 | Explain more on a question card | Reply under it with `slack_dm_status` text and `about` set to its id, in two or three sentences from the `ask` record that made it. When that record does not answer it, an `owner` record with his question. |
 | A tap on a PR card | Nothing: the coordinator hears it as a `TAP` event. |
-| A `report` | Write the message it carries by [reference/messages.md](reference/messages.md), run `cc-slack check-post` on it, and post it in its thread, at his DM root when it names none, or in an alert's thread in that channel. Post no status card after it: `drive watch` redraws his status as the canvas tab in his DM. |
-| A `ready` | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`. cc-slack draws one card at his DM root for the stack the URLs form, from the PRs themselves, and the line links it. His Approve on it lands exactly those PRs, bottom first. When the call fails, its line already went out, so never post it again: the error names each PR with no card and why. A card `drive card` refused reaches the coordinator as `EVENT refused`; any other reason is a `defect` record. |
-| An `ask` | A question card at his DM root by [reference/messages.md](reference/messages.md), with its `waits` id, `recommended` and `drive` set, then a line in its thread linking the card. |
+| A `report` | Write the message it carries by [reference/messages.md](reference/messages.md), run `cc-slack check-post` on it, and post it in its thread, at his DM root when it names none, or in an alert's or a bug report's thread in that channel. When it says anything waits on him, `cc-slack card-copy --url <card permalink> --thread <its thread>` puts each open card `drive view` lists in his queue into that thread, buttons and all. Post no status card after it: `drive watch` redraws his status as the canvas tab in his DM. |
+| A `ready` | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`. cc-slack draws one card at his DM root for the stack the URLs form, from the PRs themselves; then `cc-slack card-copy` of that card into the thread, so the line that says it waits on him carries its buttons. His Approve on it lands exactly those PRs, bottom first. When the call fails, its line already went out, so never post it again: the error names each PR with no card and why. A card `drive card` refused reaches the coordinator as `EVENT refused`; any other reason is a `defect` record. |
+| An `ask` | A question card at his DM root by [reference/messages.md](reference/messages.md), with its `waits` id, `recommended` and `drive` set, then `cc-slack card-copy --url <the card's permalink> --thread <its thread>`, so his thread carries the card with its buttons, never a link alone. |
 | A tool defect you hit | A `defect` record, and the post moves to a route that works meanwhile. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. |
 
 `drive heard` prints `CATCH-UP` when he is back after being away; the coordinator hears it as an
-event and sends his catch-up as a `report`. Your own calls are the Slack tools, cci posts,
-`drive heard`, `drive status`, `drive view` and `cc-slack check-post`. A thread read, a transcript,
-a search, or anything past one `drive status` read goes to the coordinator as an `owner` record.
+event and sends his catch-up as a `report`. Your own calls are the Slack tools, `cc-slack card-copy`,
+cci posts, `answer_add`, `drive heard`, `drive status`, `drive view`, `cc-slack check-post`, and the
+Agent tool for a `long-running:reader`. A thread read, a transcript, a search, or anything past one
+read goes to a reader you start, never to the coordinator: it gets only orders, alerts, rulings, his
+answers and defects.
 
 ## The coordinator
 
 | Input | Do, in this turn |
 |---|---|
 | An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>` for each order in it, then give each to a background job now, in the order he stated them. Every order goes to a job: a past-due one, a one-line one and a session close too. Set `--due` for when he hears next. |
-| A question, in an `owner` record | An order and a reader job; its answer goes back as a `report` for his thread. |
-| A ruling on how things should work, in an `owner` record | `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`. A reader job started for it finds every live job the ruling touches; send each the ruling with `SendMessage` when it returns. If it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed. |
+| A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each the ruling with `SendMessage` when it returns. |
 | An `answer` record | `answer_add` with the card's question and his pick. Resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent, or `drive job resume` for a remote lane. |
 | A `defect` record | A builder on that tool's repository, by [Tooling](#tooling). |
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
@@ -141,7 +147,7 @@ a search, or anything past one `drive status` read goes to the coordinator as an
 | `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
 | `DUE o<n> …` | Read the order's job transcripts first, set the new time with `--due`, then a `report`: what is late, why, and the new time. While he is away it waits for his catch-up instead. Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One `report` per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each. An order with nothing new gets no line. |
-| `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, then `--lined` each. |
+| `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the communicator copies the card in, then `--lined` each. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then send its `ready` again. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his `answer` to that card. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
@@ -152,7 +158,8 @@ While he is away, send only `ready` and `ask` records and the incident lines
 
 ## Jobs
 
-Every job is the coordinator's, and runs as a background agent on this Mac but one. His ruling,
+Every job but the communicator's readers is the coordinator's, and runs as a background agent on
+this Mac but one. His ruling,
 Nov 9 7:11 AM: "No I'm saying that should be true when load is high, lanes will mostly start
 remote". So while this Mac is over its load limit, a builder on Forge-AI/monorepo starts as a remote
 lane on a Sprite, where its builds and checks are local to that machine; under the limit it runs
@@ -249,7 +256,15 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
 - Done means live and checked; say how in a few words, with the link.
-- Something that waits on him carries its buttons in the same post; nothing else has buttons.
+- Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
+  card with its buttons in the same thread, never a link alone. His ruling, Nov 9 1:49 PM: "Anything
+  that says waiting on me you always need to embed the card with the buttons". Nothing else has
+  buttons.
+- In a bug report's thread the drive posts once, after the fix ships: plain English, no jargon, and
+  no asks such as "please retry" or "please confirm". His ruling, Nov 9 1:53 PM: "we have
+  authorization to message once in bug fix threads after we ship the fix … it needs to be in plain
+  simple English no jargon, no crazy shit, and no asks". No card option offers to ask a reporter
+  anything.
 - One copy of everything. A correction edits the message in place.
 - A time promised to him is set with `--due` by the coordinator in the same turn, so the watch
   holds the drive to it.
@@ -266,12 +281,17 @@ class fix whose PR deletes the earlier patches.
 ## Never
 
 - The communicator never puts work between his message and its ack: `slack_pickup`, then the
-  ack, then the rest. It never starts a job, reads past one `drive status`, or waits on anything.
+  ack, then the rest. It never starts a builder, does an order's work, or waits on anything: a
+  read past one `drive status` goes to a `long-running:reader` it starts on the spot, and only
+  orders, alerts, rulings, his answers and defects go to the coordinator.
+- Neither session treats his correction about how the drive works as a one-off: it is a ruling,
+  recorded and sent for a skill rewrite in the turn it arrives.
 - The coordinator never posts to Slack, and never does an order's work itself, a past-due order's
   included: every order goes to a background job. Its own shell calls are reads of `drive`, `cci`
   and one `gh` call, beside the transcript reads and the remote-lane `drive job` verbs this skill
   names. A loop, any other `orca` call, a build, a close, a thread read, a draft, and anything else
-  runs in a background job, so its turn never blocks.
+  runs in a background job, so its turn never blocks. His read-only questions are the
+  communicator's, never the coordinator's.
 - Never send a record or post a line per event: events feed the next summary, and nothing but
   cards and incident lines goes out while he is away.
 - Never stop, signal, or close another session unless he named it.

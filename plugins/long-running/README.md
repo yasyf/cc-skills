@@ -32,7 +32,7 @@ Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR car
 
 | Concept | What it is |
 | --- | --- |
-| Communicator | The session you talk to. It acks each of your messages within seconds, hands the work to the coordinator, and writes every message you get. It never works and never waits. |
+| Communicator | The session you talk to. It acks each of your messages within seconds, answers your read-only questions from Sonnet readers it starts itself, sends the coordinator your orders and rulings, and writes every message you get. It does no order's work and never waits. |
 | Coordinator | The session that runs the drive. It turns your messages into orders and jobs, routes events, lands and installs, and sends the communicator what to post. It never posts to Slack. |
 | Order | One thing you asked for, in your words, with a state, an optional due time, its jobs, and its proof. |
 | Job | One background agent owning one deliverable: a `builder` ships one change from code through merge and install, a `reader` answers one question, a `codex` lane reviews or diagnoses. While your Mac is over its load limit, a builder on the monorepo starts as a remote lane on a Sprite instead, so its builds and checks run there. |

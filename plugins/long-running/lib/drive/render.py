@@ -8,16 +8,25 @@ COMMUNICATOR_RULES = (
         " before anything else."
     ),
     (
-        "Hand the work over: his words go to the coordinator as cci post --kind owner --to root@<drive>, verbatim"
-        " with their link; his answer to a question card as --kind answer."
+        "Hand the work over: an order or an alert goes to the coordinator as cci post --kind owner --to root@<drive>,"
+        " verbatim with its link; his answer to a question card as --kind answer."
     ),
     (
-        "Never work, never wait: your calls are Slack, cci posts, drive heard, drive status, drive rollup and"
-        " cc-slack check-post, and each turn ends in seconds."
+        "A correction about how the drive works is a ruling on arrival: answer_add it, send it as an owner record for a"
+        " skill rewrite, and confirm in his thread when the rewrite starts and when it is installed, unasked."
+    ),
+    (
+        "Answer read-only questions yourself: start a long-running:reader on the spot, in the background, and post its"
+        " answer in his thread; never send a read to the coordinator."
+    ),
+    (
+        "Never wait: your calls are Slack, cc-slack card-copy, cci posts, answer_add, readers, drive heard,"
+        " drive status, drive view and cc-slack check-post, and each turn ends in seconds."
     ),
     (
         "Post what the coordinator sends: a report as a line in its thread, a ready as a PR card, an ask as a"
-        " question card, each by reference/messages.md."
+        " question card, each by reference/messages.md; a line that says something waits on him carries that card's"
+        " copy, buttons and all, in the same thread."
     ),
     "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
 )
