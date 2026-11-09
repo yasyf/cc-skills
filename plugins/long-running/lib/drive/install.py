@@ -4,7 +4,7 @@ import re
 import subprocess
 import sys
 import time
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 POLL_SECONDS = 20
 CONTAINS = {"ahead", "identical"}
@@ -52,7 +52,7 @@ def marketplace_repo(marketplace: str) -> str:
     raise InstallError(f"marketplace {marketplace} has no GitHub repo ({source.get('source')}); pass --repo")
 
 
-def named_ref(repo: str, plugin: str, deadline: float) -> str | None:
+def release_ref(repo: str, plugin: str, deadline: float) -> str | None:
     raw = run(
         ["gh", "api", f"repos/{repo}/contents/.claude-plugin/marketplace.json", "-H", "Accept: application/vnd.github.raw"],
         deadline,
@@ -61,7 +61,10 @@ def named_ref(repo: str, plugin: str, deadline: float) -> str | None:
     if entry is None:
         raise InstallError(f"{repo} marketplace names no plugin {plugin}")
     source = entry["source"]
-    return source.get("ref") if isinstance(source, dict) else None
+    if isinstance(source, dict):
+        return source.get("ref")
+    manifest = PurePosixPath(source) / ".claude-plugin" / "plugin.json"
+    return run(["gh", "api", f"repos/{repo}/commits?path={manifest}&per_page=1", "--jq", ".[0].sha"], deadline).strip()
 
 
 def contains(repo: str, ref: str, sha: str, deadline: float) -> bool:
@@ -73,7 +76,7 @@ def await_release(repo: str, plugin: str, sha: str, deadline: float, timeout: in
     failure = ""
     while True:
         try:
-            ref = named_ref(repo, plugin, deadline)
+            ref = release_ref(repo, plugin, deadline)
             last = ref or "none named"
             failure = ""
             if ref and contains(repo, ref, sha, deadline):
