@@ -154,10 +154,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/long-running",
-        "ref": "long-running--v0.7.2119"
+        "ref": "long-running--v1.0.0"
       },
       "description": "Run a long drive from one Claude Code session: every order becomes a background agent that ships it end to end, one watcher turns CI, merges, taps and promised times into events, and every message to the owner is short and plain.",
-      "version": "0.7.2119"
+      "version": "1.0.0"
     },
     {
       "name": "live-dashboard",
@@ -165,10 +165,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/live-dashboard",
-        "ref": "live-dashboard--v0.5.12"
+        "ref": "live-dashboard--v0.5.13"
       },
       "description": "A live dashboard assembled per task from typed components: PRs waiting for review, stack landing previews, Slack test-thread feeds, latency percentiles, design gates, Datadog monitors, cci lanes, and local components written for the job at hand, served on a stable port with a scheduler that caches, backs off, and drops secret-shaped payloads.",
-      "version": "0.5.12"
+      "version": "0.5.13"
     },
     {
       "name": "open-pr",
@@ -176,10 +176,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/open-pr",
-        "ref": "open-pr--v0.6.17"
+        "ref": "open-pr--v0.6.18"
       },
       "description": "Open a PR in the repo's own voice — guidelines and template from ccx, house style scouted from recent human-authored merged PRs, an OSS politeness and standards pass, shipped via ccx vcs ship, and a background watcher that clears mechanical CI and bot failures.",
-      "version": "0.6.17"
+      "version": "0.6.18"
     },
     {
       "name": "plans",
