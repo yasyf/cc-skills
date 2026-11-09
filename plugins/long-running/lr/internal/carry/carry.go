@@ -26,6 +26,7 @@ const (
 	maxBytes = 64 << 20
 	notesDir = "ccn"
 	cciDir   = "cci"
+	anyEntry = "entry"
 	pathStop = `\s` + "`" + `'"<>()\[\]{},;:|*?$`
 	template = "<{$*"
 	joined   = `\w./~-`
@@ -40,7 +41,8 @@ var (
 		`|cci show(?P<shown>(?: +(?:` + showToken.String() + `))+)` +
 		`|\brecords? +#?(?P<recorded>\d{4,}(?:@[0-9a-f]{6,16})?)\b` +
 		`|\b(?P<tagged>\d+@[0-9a-f]{6,16})\b` +
-		`|\b(?P<lane>[A-Za-z]\w*(?:-\w+)*)(?:'s)? +(?P<bare>\d{5,})\b`)
+		`|\b(?P<lane>[A-Za-z]\w*(?:-\w+)*)(?:'s)? +(?P<bare>\d{5,})\b` +
+		`|\bccn (?:show )?(?P<entry>[0-9a-f]{7,40})\b`)
 	assigned     = regexp.MustCompile(`(?m)(?:^|[\s;` + "`" + `])(?:export )?([A-Z_][A-Z0-9_]*)=["']?((?:~/|/)[^` + pathStop + `]+)`)
 	joinedByte   = regexp.MustCompile(`[` + joined + `]`)
 	QuotedRows   = regexp.MustCompile(`(?ms)^Register slice:.*?^slice-hash: [0-9a-f]+$`)
@@ -287,6 +289,9 @@ func (c Carrier) cited(brief string, match []int) ([]source, int, bool) {
 		}
 		return []source{{kind: cciDir, id: id}}, start, true
 	}
+	if id, _ := span("entry"); id != "" {
+		return []source{{kind: anyEntry, id: id}}, match[0], true
+	}
 	if id, start := span("bare"); id != "" {
 		lane, _ := span("lane")
 		return []source{{kind: cciDir, id: id, lane: lane}}, start, true
@@ -315,6 +320,9 @@ func (c Carrier) carry(ctx context.Context, named source) (string, error) {
 
 func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 	show := shell.Command{Argv: []string{"ccn", "-R", c.Repo, kind, "show", id}}
+	if kind == anyEntry {
+		show.Argv = []string{"ccn", "-R", c.Repo, "show", id}
+	}
 	shown, err := c.Runner.Run(ctx, show)
 	if err != nil {
 		if _, unsynced := c.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", c.Repo, "sync"}}); unsynced != nil {
@@ -322,6 +330,9 @@ func (c Carrier) note(ctx context.Context, kind, id string) (string, error) {
 		} else {
 			shown, err = c.Runner.Run(ctx, show)
 		}
+	}
+	if err != nil && kind == anyEntry {
+		return "", nil
 	}
 	if err != nil {
 		return "", needed{fmt.Errorf("`ccn %s show %s` failed: %w", kind, id, err)}
