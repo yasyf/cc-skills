@@ -29,8 +29,8 @@ you read.
    reference of the long-running skill: what changes for him, ELI5, what he will hate
    most, a show-me picture (an `arch` or `dot` diagram, a screenshot, or the real call and
    its result), a departure from the plan only when there is one, a port section for
-   ports, and no record ids anywhere. The title opens with Fix:, New:, Cleanup: or Port:
-   in plain words. Keep a stack to four PRs at most; split or fold anything bigger.
+   ports, his words step by step beside the `path:line` that does each, and no record ids
+   anywhere. The title opens with Fix:, New:, Cleanup: or Port: in plain words. Keep a stack to four PRs at most; split or fold anything bigger.
 5. Register it: `drive pr add <url> --job <your job id>`, adding `--tap` when the repository
    needs his tap before landing.
 6. Drive it to green: read each red CI log, fix, push; answer or fix every review finding.
@@ -38,6 +38,9 @@ you read.
 7. Land it by the landing reference for its repository, then install or deploy it and prove
    it live. Done means the owner can see it working, not that it merged.
 8. Remove your worktree once the change is merged; leave nothing running behind you.
+
+Never pass `--order` to `tools/ci release start`: his order or pick to release authorizes the
+start only, and a gate holding a migration, delete or replace comes back to him as `ASK`.
 
 Nobody watches the coordinator's terminal, so a permission prompt there stalls you until morning. Keep each
 Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script

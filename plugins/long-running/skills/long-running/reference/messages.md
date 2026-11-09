@@ -2,8 +2,9 @@
 
 Only the communicator writes to him, in the shapes below and on the schedule below, from his own
 messages and the `report`, `ready` and `ask` records the coordinator sends it. The coordinator's
-record carries the facts and the communicator writes the words. Each message is short, says what
-changed for him, and carries its own buttons when it waits on him.
+record carries the facts and the communicator writes the words, and it answers his read-only
+questions from the `long-running:reader` jobs it starts. Each message is short, says what changed
+for him, and carries the card with its buttons whenever it says something waits on him.
 
 ## The shapes
 
@@ -21,9 +22,11 @@ by feature, one bold line per feature and at most two sentences under it.
 ```
 
 **A question card**, written from an `ask` record, at his DM root with `slack_dm_status(card=…)` and
-no thread, then one line in his thread linking it. Title: one question in one sentence. Body: at most three
+no thread, then `cc-slack card-copy --url <its permalink> --thread <his thread>`, so the card and its
+buttons sit in his thread too. Title: one question in one sentence. Body: at most three
 sentences saying why it matters and what the drive is doing meanwhile. Two to four options, each
-saying what picking it does. When something waits on his answer, set `waits` to
+saying what picking it does. No option asks a reporter or anyone else to retry, confirm or check:
+the drive proves a fix itself. When something waits on his answer, set `waits` to
 `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues on the recommended
 pick, leave both out and say in the body which option is being built. Set `drive` to the drive's name on every
 card: cc-slack reads a `waits` card that names its drive as the drive's question, whose home is
@@ -33,10 +36,24 @@ Slack, and posts it with no cc-present board warning.
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root
 for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him; his
-Approve lands exactly those PRs, bottom first, and a PR added later gets its own card. Each PR on
+Approve lands exactly those PRs, bottom first, and a PR added later gets its own card. The line
+in his thread is followed by `cc-slack card-copy` of the card, so that thread carries its buttons. Each PR on
 it shows its ELI5 first, then what changes for him, what he will hate most, where it stands, how it
 differs from the plan when it does, and its Show me picture. Its words come from each PR's title
 and body, with record ids dropped, so a bad card is fixed in the PR body, never in the message.
+
+**A confirmation of a skill update**, twice for each message of his that leads to one: the ack
+says the skill is being updated and what changes, in plain words, and a summary says it is merged
+and installed, listing each rule now in the skill.
+
+**A fix-live note in a bug report's thread**, once per bug, after the fix ships and is checked, never
+before: one or two plain sentences saying what is fixed and since when, with the link. No jargon, no
+internal names, and no asks: never "please retry", "please confirm" or "let us know". Nothing else
+goes in that thread: no progress, no test results, no follow-up.
+
+```
+Fixed: Iris picks up again right after you answer its question, on today's build.
+```
 
 **The status page**, which you never write: `drive watch` redraws the drive's canvas, a tab named
 after the drive in his DM with the app, within a minute of any change. It lists what waits on him
@@ -57,6 +74,11 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **His next message gets one catch-up**, right after its ack: `drive heard` tells the coordinator
   every order that changed while he was away, and it sends one `report` for his thread covering
   them, grouped by feature, with what waits on him last, then `--lined` each.
+- **Anything that says it waits on him carries its card.** A summary, a catch-up, a TICK line or a
+  line linking a card is followed in the same thread by `cc-slack card-copy` of each card it names,
+  so his buttons are there; a link alone is not enough.
+- **His read-only question gets its answer within minutes**: one read answers it at once, and
+  anything more comes from a reader the communicator starts on the spot.
 
 ## What goes in
 
@@ -79,6 +101,7 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **The machinery.** Pins, packs, installs-as-process, who handed what to whom, which hook
   refused what. When he asks why, give the cause in one or two sentences, then the fix and
   when it is live.
+- **Asks of a reporter.** A bug thread gets its one fix-live note and nothing that asks them to act.
 - **Messages with no new fact.** Chatter gets a `+1` reaction instead of an ack. Never "nothing new".
 - **Second copies.** One post per thing; a correction edits it in place; never text and a
   card for the same thing.

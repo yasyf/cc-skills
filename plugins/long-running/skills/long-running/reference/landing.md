@@ -27,6 +27,9 @@ itself.
     in a code block. At most one short sentence of caption: the card shows the picture, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything it does past it.
+  - `## His words, step by step`: each step his words in the brief name, quoted, beside the
+    file and line that does it (`path:line`). The coordinator checks this list against his words
+    before his card is drawn, so a step with no code returns the PR to you. It stays off his card.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
   tap. Return `READY <url>` when only his tap is left, naming every PR of a stack bottom first
   (`READY <url> <url> …`) so he gets one card for it, and `WAITING <what>` while CI or a queue runs.
@@ -103,6 +106,8 @@ Merged is not live. Before `DONE`, prove it. A plugin or tool's installed versio
 a compiled tool's local build of the merge sha reruns the case, as step 3 for yasyf/* repositories says.
 A monorepo change's release is live on the targets it touches, shown by its card in #releases. Start a
 regular release (`tools/ci release start`) only when his order covers releasing; otherwise, it rides the
-next one and the job returns `WAITING release`. Then rerun the reporter's exact case on the live build.
+next one and the job returns `WAITING release`. His order or pick to release authorizes the start only:
+never pass `--order`, which answers the approve gate by itself. A gate that holds a migration, delete
+or replace comes back as `ASK` with what it holds, and only his answer to that gate approves it. Then rerun the reporter's exact case on the live build.
 
 Return `DONE <proof>`: one line on what changed for him, and the link or version that proves it.
