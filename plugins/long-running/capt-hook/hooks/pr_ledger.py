@@ -363,6 +363,7 @@ def ships_that_open_a_pr_name_its_body(evt: BaseHookEvent) -> HookResult | None:
         Input(command="ccx vcs ship --amend -m 'x: 🐛 z'", env=LANE_ENV): Allow(),
         Input(command="gh pr edit 9 --body '## Summary'  # ccx:raw", env=LANE_ENV): Allow(),
         Input(command="python3 /gen.py > /new.md && gh pr edit 9 --body-file /new.md", env=LANE_ENV): Allow(),
+        Input(command="cat > /b.md <<'EOF'\n## Summary\nChats load, and the plan row shows only on a departure.\n\nPlan: owner:m1932\n## Risk profile\n- **Availability:** a slow chat.\nEOF\nccx vcs ship -m 'x: ✨ y' --pr-body-file /b.md", env=LANE_ENV): Allow(),
         Input(command="cat > /new.md <<'EOF'\n## Summary\nChats load.\nEOF\ngh pr edit 9 --body-file /new.md", env=LANE_ENV): Block(pattern="Availability"),
     },
 )
@@ -379,8 +380,7 @@ def drive_pr_bodies_carry_card_lines(evt: BaseHookEvent) -> HookResult | None:
         return None
     body = "\n".join([*files, evt.command.raw])
     missing = [line for line, pattern in CARD_LINES.items() if not pattern.search(body)]
-    plan = PLAN_LINE.search(body)
-    if not (plan and PLAN_NAMED.search(plan.group())):
+    if not any(PLAN_NAMED.search(plan.group()) for plan in PLAN_LINE.finditer(body)):
         missing.append(PLAN_FORMS)
     return evt.block(CARD_LINES_MISSING + "\n```\n" + "\n".join(missing) + "\n```") if missing else None
 
