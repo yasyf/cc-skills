@@ -10,6 +10,8 @@ from pathlib import Path
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "dot")
+UNDRAWN = ("", "mermaid", "text", "txt", "plain")
+FREEZE = ["freeze", "--theme", "github", "--window=false", "--font.family", "Menlo", "--font.size", "14", "--padding", "20", "--margin", "0", "--background", "#ffffff"]
 SHAPES = {"store": "cylinder", "log": "cylinder", "actor": "oval"}
 PATH_COLOR = "#2563eb"
 GRAPH_STYLE = 'rankdir=LR compound=true labelloc=t fontsize=18 fontname="Helvetica" pad=0.3 nodesep=0.4 ranksep=0.6'
@@ -99,6 +101,22 @@ def dot_png(source: str, out: Path) -> None:
         raise PictureError(" ".join(result.stderr.split()) or f"dot exited {result.returncode}")
 
 
+def code_png(language: str, source: str, out: Path) -> None:
+    try:
+        result = subprocess.run(
+            [*FREEZE, "--language", language, "--output", str(out)],
+            input=source,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=DOT_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PictureError(f"freeze did not run: {error}") from None
+    if result.returncode:
+        raise PictureError(" ".join(result.stderr.split()) or f"freeze exited {result.returncode}")
+
+
 def downloaded(url: str, out: Path) -> None:
     try:
         with urllib.request.urlopen(url, timeout=DOWNLOAD_SECONDS) as reply:
@@ -108,8 +126,13 @@ def downloaded(url: str, out: Path) -> None:
 
 
 def sources(show_me: str) -> list[tuple[str, str]]:
-    """Each picture a Show me section holds, in order, as (kind, source): an arch or dot fence, or an image link."""
+    """Each picture a Show me section holds, in order, as (kind, source): an arch or dot fence, a code fence drawn highlighted, or an image link."""
     found = [(match.start(), match[1].lower(), match[2]) for match in FENCE.finditer(show_me) if match[1].lower() in DIAGRAMS]
+    found += [
+        (match.start(), f"code:{match[1].lower()}", match[2])
+        for match in FENCE.finditer(show_me)
+        if match[1].lower() not in (*DIAGRAMS, *UNDRAWN)
+    ]
     found += [(match.start(), "image", match[1] or match[2]) for match in IMAGE.finditer(show_me)]
     return [(kind, source) for _, kind, source in sorted(found)]
 
@@ -120,6 +143,8 @@ def draw(kind: str, source: str, out: Path) -> Path:
             dot_png(arch_dot(json.loads(source)), out)
         case "dot":
             dot_png(source, out)
+        case _ if kind.startswith("code:"):
+            code_png(kind.removeprefix("code:"), source, out)
         case _:
             out = out.with_suffix(Path(source.split("?")[0]).suffix or ".png")
             downloaded(source, out)
