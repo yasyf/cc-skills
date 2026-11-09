@@ -313,9 +313,9 @@ func TestADeadLaneRelaunchesWithItsHandoffAndIsToldItStoodDownAtOnce(t *testing.
 
 	out := tick(t, s, f, t0)
 
-	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-4", "stopped, quiet for 20 min"}})
+	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-4", "stopped, no record for 20 min"}})
 	equal(t, f.launches, []string{"conflicts-4"})
-	contains(t, f.posts[0].Text, "RELAUNCHED conflicts-2 as conflicts-4: it stopped, quiet for 20 min; handoff 9f3c2e1; PRs #46001 #46002; brief ")
+	contains(t, f.posts[0].Text, "RELAUNCHED conflicts-2 as conflicts-4: it stopped, no record for 20 min; handoff 9f3c2e1; PRs #46001 #46002; brief ")
 	text := f.briefs["conflicts-4"]
 	if !strings.HasPrefix(text, "Replaces: conflicts-2\n") {
 		t.Fatal(text)
@@ -329,7 +329,7 @@ func TestADeadLaneRelaunchesWithItsHandoffAndIsToldItStoodDownAtOnce(t *testing.
 	equal(t, f.kinds(), []string{"report:root", "stand-down:" + lane2})
 	standDown := f.posts[1]
 	equal(t, []any{standDown.Successor, standDown.PRs}, []any{"conflicts-4", []int{46001, 46002}})
-	equal(t, standDown.Text, "conflicts-2 stood down for conflicts-4; conflicts-2 stopped, quiet for 20 min.")
+	equal(t, standDown.Text, "conflicts-2 stood down for conflicts-4; conflicts-2 stopped, no record for 20 min.")
 	if old := row(t, s, lane2); old.State != store.LaneRetired || old.RetiredBy != "conflicts-4" {
 		t.Fatalf("%+v", old)
 	}
@@ -966,7 +966,7 @@ func TestALaneTheSupervisorRelaunchedOnceIsHeldWithADefectToRootWhenItDiesAgain(
 	defects := f.ofKind("defect")
 	equal(t, len(defects), 1)
 	equal(t, defects[0].To, []string{Root})
-	contains(t, defects[0].Text, "the supervisor already relaunched it once, when conflicts-2 stopped, quiet for 20 min")
+	contains(t, defects[0].Text, "the supervisor already relaunched it once, when conflicts-2 stopped, no record for 20 min")
 }
 
 func TestAMetaLanesSecondDeathRaisesItsDefectToItsLaunchersHead(t *testing.T) {
@@ -1380,7 +1380,7 @@ func TestTheOwnerHearsOneLineAnHourAndOnlyWhenALaneRestarted(t *testing.T) {
 
 	equal(t, len(f.posts), 1)
 	equal(t, f.posts[0].Attrs, map[string]string{"audience": "owner"})
-	equal(t, f.posts[0].Text, "In the past hour the lane supervisor restarted 1 lane with no coordinator action: conflicts-2 stopped, quiet for 16 min, so conflicts-3 took over.")
+	equal(t, f.posts[0].Text, "In the past hour the lane supervisor restarted 1 lane with no coordinator action: conflicts-2 stopped, no record for 16 min, so conflicts-3 took over.")
 }
 
 func TestClassify(t *testing.T) {
@@ -1418,7 +1418,7 @@ func TestClassify(t *testing.T) {
 		equal(t, Classify(lane, seen, t0, c.tokens, 600_000).Kind, c.want)
 	}
 	cold := &Peer{Lane: "l-1", Seen: t0.Add(-mins(20)), Row: Row{Unverified: "has an Orca agent that reads unverifiable (host_unavailable)"}}
-	equal(t, Classify(store.Lane{Name: "l-1", State: store.LaneDesired, Since: t0.Add(-mins(30))}, cold, t0, 0, 0), Verdict{Unproven, "has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 20 min, so nothing proves it died"})
+	equal(t, Classify(store.Lane{Name: "l-1", State: store.LaneDesired, Since: t0.Add(-mins(30))}, cold, t0, 0, 0), Verdict{Unproven, "has an Orca agent that reads unverifiable (host_unavailable) and has posted nothing for 20 min, so nothing proves it died"})
 }
 
 func TestALaunchingLaneThatNeverComesUpIsANoShow(t *testing.T) {
@@ -2224,7 +2224,7 @@ func TestALaneThatStoppedOnAnEarlierDayNamesHowLongItWasQuietAndNoClock(t *testi
 
 	verdict := Classify(store.Lane{Name: lane2, State: store.LaneDesired}, &Peer{Lane: lane2, Seen: at}, t0, 0, 0)
 
-	equal(t, verdict.Why, "stopped, quiet for 1800 min")
+	equal(t, verdict.Why, "stopped, no record for 1800 min")
 }
 
 func TestAnOrcaWorkerThatSucceededIsRetiredBeforeItsOutcomeLineArrives(t *testing.T) {
@@ -3002,7 +3002,7 @@ func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(
 
 	equal(t, f.launches, []string{Root})
 	equal(t, f.keys, []string{fmt.Sprintf("supervisor-launch:root:%d", t0.Unix())})
-	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped, quiet for 20 min"}})
+	equal(t, out.Relaunched, []Relaunch{{Root, Root, "stopped, no record for 20 min"}})
 	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
 	equal(t, row(t, s, Root).State, store.LaneLaunching)
 	if _, found, _ := s.Lane("root-2"); found {

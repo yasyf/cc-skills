@@ -44,7 +44,7 @@ func TestAnUnverifiableQuietLaneThatAnswersItsOneRelayGetsNoBlockerAndNoRelaunch
 	relays := stateRelays(f)
 	equal(t, len(relays), 1)
 	equal(t, relays[0].To, []string{orcaDesk})
-	contains(t, relays[0].Text, "orca-desk: relay to conflicts-2: This lane has an Orca agent that reads unverifiable (stale_status) and has been quiet for 41 min. Post your state now")
+	contains(t, relays[0].Text, "orca-desk: relay to conflicts-2: This lane has an Orca agent that reads unverifiable (stale_status) and has posted nothing for 41 min. Post your state now")
 
 	f.feed = append(f.feed, rec(3, lane2, "state", t0.Add(mins(8)), "alive and slow"))
 	out := tick(t, s, f, t0.Add(relayAnswer))
@@ -72,7 +72,7 @@ func TestAnUnverifiableLaneThatAnswersNoRelayRelaunchesFromItsBriefAndHandoffOnc
 	out := tick(t, s, f, t0.Add(relayAnswer))
 	tick(t, s, f, t0.Add(relayAnswer+time.Minute))
 
-	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has an Orca agent that reads unverifiable (stale_status) and has been quiet for 56 min, and posted no record in the 15 min after a relay asked its state"}})
+	equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has an Orca agent that reads unverifiable (stale_status) and has posted nothing for 56 min, and posted no record in the 15 min after a relay asked its state"}})
 	equal(t, []any{f.launches, row(t, s, lane2).State, row(t, s, "conflicts-3").PRs, len(f.ofKind("blocker"))}, []any{[]string{"conflicts-3"}, store.LaneRetired, []int{46001}, 0})
 	contains(t, f.briefs["conflicts-3"], "Your handoff is")
 	contains(t, f.briefs["conflicts-3"], "restack the five approved stacks")
@@ -82,7 +82,7 @@ func TestARelaunchedLaneThatAnswersNoRelayIsHeldWithOneBlockerNamingBothLosses(t
 	s := memory(t)
 	f := newFake(t, nil, nil)
 	registered(t, s, store.Lane{Name: metaDesk, Role: RoleMeta})
-	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", PRs: []int{46001}, Predecessor: lane2, Reason: "stopped, quiet for 20 min"})
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", PRs: []int{46001}, Predecessor: lane2, Reason: "stopped, no record for 20 min"})
 	f.peers = []Row{unverifiableRow("conflicts-3", t0.Add(-mins(41))), who(metaDesk, true, t0)}
 
 	tick(t, s, f, t0)
@@ -93,7 +93,7 @@ func TestARelaunchedLaneThatAnswersNoRelayIsHeldWithOneBlockerNamingBothLosses(t
 	blockers := f.ofKind("blocker")
 	equal(t, len(blockers), 1)
 	equal(t, blockers[0].To, []string{metaDesk})
-	contains(t, blockers[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 stopped, quiet for 20 min")
+	contains(t, blockers[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 stopped, no record for 20 min")
 	contains(t, blockers[0].Text, "posted no record in the 15 min after a relay asked its state")
 }
 

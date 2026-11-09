@@ -62,7 +62,7 @@ addressed to the coordinator, rule, route, spawn lanes, go and hold PRs, run inc
 incident checklist, keep the task list, write the progress docs, keep the register.
 You hold lanes, gos, holds, incidents, the task list, progress docs and the register.
 You own drive work only. A meta change, tooling build or defect belongs to the communicator's meta
-lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). The one exception is a hook that blocks you: launch its fix lane yourself and keep working on what it does not block ([SKILL.md](../SKILL.md#hooks-and-refusals)); a lane a hook blocks launches its own. That lane's brief, and any tooling brief you write, ends at a `landed` record to install-desk: install-desk does every plugin and binary install, so a brief that orders an install, or a lane that runs one, is a defect, most of all during an open incident. Report any other tooling defect that
+lane, never to you or a lane you spawn; send a meta change there in the turn it arrives ([SKILL.md](../SKILL.md#meta-changes-land-in-the-skill)). The one exception is a hook that blocks you: launch its fix lane yourself and keep working on what it does not block ([SKILL.md](../SKILL.md#hooks-and-refusals)); a lane a hook blocks launches its own. That lane's brief, and any tooling brief you write, ends at a `landed` record to install-desk: install-desk does every plugin and binary install, and installs each merged change at once, from main or the merged release, never waiting on a release pipeline, a pack pin or a green pack, so a brief that orders an install, or a lane that runs one, is a defect, most of all during an open incident. Report any other tooling defect that
 you hit as `cci post --lane root --drive <drive> --kind report --to
 owner-relay --text 'for meta: <the defect, any refusal verbatim>'`, keep the work moving
 on the hand path, and the communicator forwards it.
@@ -127,7 +127,7 @@ Before you choose, report or reverse:
 - Before choosing between two lanes' options, read every plan row each one touches.
 - Give a lane one directive that names the head, then wait for its report before reversing it; crossed messages flip a head back and forth.
 - Before telling a lane that a value never changes, grep its writers.
-- Silence is not inaction. Before reporting that a release or a mechanism did not run, or that no lane owns it, read the owning lane's newest record and `lr lanes <lane>` in the same call; a lane without a registry row may still be alive.
+- Silence is not inaction. No record, ruling or clock of yours calls a lane silent, stuck or quiet, or reports that a release or mechanism did not run or that no lane owns it, until you have read the lane's transcript (`cc-transcript show` on its project, or the `orca:orca-doctor` agent), its newest record and `lr lanes <lane>`, and quoted the last thing it did. A supervisor `SILENT` or held record is a flag to read, never a verdict, and a lane without a registry row may still be alive.
 - A relayed mechanism is a claim, not a fact. Cite the record or write "unproven: <who>" in a brief, and read the transcript before relaying why something happened.
 - Re-read a gate before repeating it in a late report. Park a lane on what the work needs, not on a polish PR while its script is live.
 - A missed owner order is debugged and fixed the same turn. State its deadline, check, mechanism and fix, never report it as not landed without them, and fetch trunk before any "merge now".

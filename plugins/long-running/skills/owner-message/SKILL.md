@@ -37,6 +37,8 @@ One skill, one verb. When you have something for him, you send it yourself with 
 | A tap counts once per PR and carries across a patch-identical head; never ask what he answered | "I literally just answered this" |
 | A card whose PR merges, closes or is superseded loses its buttons at once, done by the supervisor | "Next time do it before I tell you" |
 | Never pull a card while he is writing in its thread | "I was reading and responding then this disappeared" |
+| No post reports no change; a scheduled line with nothing new names what blocks and who moves it, or is not sent | "I thought we were going to get rid of all the nothing new spam" |
+| Never call a lane silent, stuck or quiet; read its transcript and say what it is doing | "Why would you blindly say it's silent without reading its transcript" |
 | Every message of his gets eyes and the working line naming what is happening, from `lr owner watch`, cleared by your reply | "The bar should also say things like 'waiting for subagent'" |
 
 ## Templates
