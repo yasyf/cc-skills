@@ -59,6 +59,7 @@ var (
 	goHead         = regexp.MustCompile(`(?i)#(\d+)\s+at\s+([0-9a-f]{7,40})\b`)
 	withdrawnGo    = regexp.MustCompile(`(?i)^\s*withdrawn\b`)
 	withdrawsNamed = regexp.MustCompile(`(?i)\bwithdraws?\b[^.;:\n#]*#(\d+)`)
+	withdrawnSeq   = regexp.MustCompile(`(?i)\b(\d{4,})['’]s\b[^.\n]*\bwithdrawn\b`)
 	prNumber       = regexp.MustCompile(`\d+`)
 	finderVerdicts = map[string]string{"ok": "clear", "major": "ask"}
 	behaviorSays   = regexp.MustCompile(`^behavior: (same|changed) ([0-9a-f]{7,40}) since ([0-9a-f]{7,40})(?:: (.+))?`)
@@ -427,13 +428,46 @@ func LiveGos(records []client.Record, goLanes []string) []client.Record {
 		}
 	}
 	return slices.DeleteFunc(slices.Clone(records), func(record client.Record) bool {
-		return !delegated(record.Lane, lanes) || !isGo(record) || closed[record.Seq]
+		if !delegated(record.Lane, lanes) || !isGo(record) || closed[record.Seq] {
+			return true
+		}
+		return slices.ContainsFunc(goHeads(record.Text), func(pair headPair) bool {
+			by, found := WithdrawnAt(records, goLanes, pair.PR, pair.Head)
+			return found && (record.Seq < by.Seq || client.Stem(record.Lane) != client.Stem(by.Lane))
+		})
 	})
 }
 
+func WithdrawnAt(records []client.Record, goLanes []string, pr int, head string) (client.Record, bool) {
+	lanes := goAuthors(goLanes)
+	for _, by := range slices.Backward(records) {
+		if !delegated(by.Lane, lanes) || !withdrawing(by) {
+			continue
+		}
+		seqs := closes(by)
+		for _, target := range records {
+			if target.Seq == 0 || !slices.Contains(seqs, target.Seq) || !isGo(target) {
+				continue
+			}
+			if slices.ContainsFunc(goHeads(target.Text), func(pair headPair) bool { return pair.PR == pr && sameHead(pair.Head, head) }) {
+				return by, true
+			}
+		}
+	}
+	return client.Record{}, false
+}
+
+func sameHead(a, b string) bool {
+	a, b = strings.ToLower(a), strings.ToLower(b)
+	return a != "" && b != "" && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
+}
+
+func withdrawing(record client.Record) bool {
+	return slices.Contains([]string{"withdraw", "correction", "decide"}, string(record.Kind))
+}
+
 func ClosedGos(record client.Record, goLanes []string) []int64 {
-	kind := string(record.Kind)
-	if (kind != "withdraw" && kind != "correction") || !delegated(record.Lane, goAuthors(goLanes)) {
+	if !withdrawing(record) || !delegated(record.Lane, goAuthors(goLanes)) {
 		return nil
 	}
 	return slices.DeleteFunc(closes(record), func(seq int64) bool { return seq == 0 })
@@ -462,12 +496,13 @@ func Withdraws(record client.Record) []int64 {
 
 func closes(record client.Record) []int64 {
 	seqs := append([]int64{record.Resolves}, record.AlsoResolves...)
-	kind := string(record.Kind)
-	if kind != "withdraw" && kind != "correction" {
+	if !withdrawing(record) {
 		return seqs
 	}
-	seqs = append(seqs, record.Re)
-	for _, named := range withdrawsNamed.FindAllStringSubmatch(record.Text, -1) {
+	if string(record.Kind) != "decide" {
+		seqs = append(seqs, record.Re)
+	}
+	for _, named := range slices.Concat(withdrawsNamed.FindAllStringSubmatch(record.Text, -1), withdrawnSeq.FindAllStringSubmatch(record.Text, -1)) {
 		if seq, err := strconv.ParseInt(named[1], 10, 64); err == nil {
 			seqs = append(seqs, seq)
 		}

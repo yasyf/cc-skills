@@ -126,7 +126,7 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	if TaplessClassAt(c, r) {
 		cards = slices.DeleteFunc(slices.Clone(cards), func(card Card) bool { return strings.HasPrefix(card.ID, TapCardPrefix(c.PR)) })
 	}
-	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts, r.Rulings), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
+	refusals := slices.Concat(nonEmpty(finderRefusal), fidelityRefusals, classRefused, openHolds(c, r.Records, r.Lifts, r.Rulings), OpenCards(c.PR, r.Body, cards), rules, standingGos(c, r), withdrawnGo(c, r), nonEmpty(UnsafeOnDev(UnsafeWait(r.Body))))
 	if len(refusals) > 0 {
 		return "", "", refusals
 	}
@@ -632,6 +632,14 @@ func standingGos(c Claim, r Read) []string {
 		}
 	}
 	return out
+}
+
+func withdrawnGo(c Claim, r Read) []string {
+	by, found := bus.WithdrawnAt(r.Records, r.GoLanes, c.PR, c.Head)
+	if !found {
+		return nil
+	}
+	return []string{fmt.Sprintf("%s withdrew the go at this head in %s, so only a new go from %s lands it", by.Lane, by.Name(), by.Lane)}
 }
 
 func nonEmpty(text string) []string {

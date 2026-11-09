@@ -408,3 +408,21 @@ func TestOwnerRelaysConflictingDecisionIsAFactAtNoHeadForEachPRItConflictsWith(t
 		t.Fatalf("LegacyFacts = %+v for a word that decides nothing, want none", got)
 	}
 }
+
+func TestAGoRootWithdrewInADecideKillsEveryGoAtThatHeadAndTheSweepsCopy(t *testing.T) {
+	rootGo := client.Record{Seq: 637036, Kind: "go", Lane: "root", Text: "go #52841 at 9d5ca6b on green [exempt: ci-tooling]"}
+	withdrawal := client.Record{Seq: 637099, Kind: "decide", Lane: "root", Text: "Correction, root error: 637036's '[exempt: ci-tooling]' is withdrawn. #52841 lands on his tap."}
+	sweepGo := client.Record{Seq: 637142, Kind: "go", Lane: bus.SweepLane, Text: "go #52841 at 9d5ca6b on green [exempt: ci-tooling]: fidelity ok #637111"}
+	otherGo := client.Record{Seq: 637150, Kind: "go", Lane: bus.SweepLane, Text: "go #52900 at abc1234 on green [exempt: test-only]"}
+	freshGo := client.Record{Seq: 637200, Kind: "go", Lane: "root", Text: "go #52841 at 9d5ca6b on green [exempt: test-only]"}
+	records := []client.Record{rootGo, withdrawal, sweepGo, otherGo}
+	if by, found := bus.WithdrawnAt(records, nil, 52841, "9d5ca6b8d3"); !found || by.Seq != withdrawal.Seq {
+		t.Fatalf("WithdrawnAt = %+v, %v, want the 637099 withdrawal", by, found)
+	}
+	if live := bus.LiveGos(records, nil); len(live) != 1 || live[0].Seq != otherGo.Seq {
+		t.Fatalf("LiveGos = %+v, want only the go at the other PR", live)
+	}
+	if live := bus.LiveGos(append(records, freshGo), nil); len(live) != 2 || live[1].Seq != freshGo.Seq {
+		t.Fatalf("LiveGos = %+v, want root's new go after its withdrawal to stand", live)
+	}
+}
