@@ -21,6 +21,7 @@ OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
+PART_CHARS = 80
 
 
 class DriveError(Exception):
@@ -130,7 +131,21 @@ def load(name: str) -> dict:
         raise DriveError(f"no drive named {name}") from None
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
+    for order in data["orders"].values():
+        if "parts" not in order:
+            whole = whole_order(order["text"])
+            order["parts"] = {whole: new_part()}
+            for job_id in order["jobs"]:
+                data["jobs"][job_id].setdefault("parts", [whole])
     return data
+
+
+def whole_order(text: str) -> str:
+    return " ".join(text.split())[:PART_CHARS]
+
+
+def new_part() -> dict:
+    return {"posted": None, "orphan_said": None}
 
 
 def save(name: str, data: dict) -> None:
@@ -267,3 +282,24 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 def open_pr_keys(data: dict) -> list[str]:
     return [key for key, pr in data["prs"].items() if pr["state"] == "open"]
+
+
+def new_pr(url: str, job_id: str, order_id: str) -> dict:
+    return {
+        "url": url,
+        "job": job_id,
+        "order": order_id,
+        "wants_tap": False,
+        "tap": None,
+        "exempt": None,
+        "fundamental": None,
+        "state": "open",
+        "title": "",
+        "head": "",
+        "checks": "pending",
+        "review": "none",
+        "draft": False,
+        "merged_sha": None,
+        "stuck": None,
+        "updated": stamp(),
+    }

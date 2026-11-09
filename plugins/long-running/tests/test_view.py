@@ -1,7 +1,7 @@
 from datetime import timedelta
 
 import pytest
-from drive import cli, page, state, view, watch
+from drive import page, state, view, watch
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
@@ -35,7 +35,7 @@ def job(order_id: str, job_state: str, said: str | None = None, updated: int = -
 
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     url = f"https://github.com/yasyf/cc-skills/pull/{number}"
-    entry = cli.new_pr(url, "j1", order_id) | {"title": f"New: \U0001f680 change {number}", "updated": at(-number)}
+    entry = state.new_pr(url, "j1", order_id) | {"title": f"New: \U0001f680 change {number}", "updated": at(-number)}
     return f"yasyf/cc-skills#{number}", entry | {"checks": "pass", "review": "approved"} | overrides
 
 

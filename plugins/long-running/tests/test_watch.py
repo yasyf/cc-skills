@@ -38,7 +38,7 @@ def demo(state_root: Path) -> str:
     data = state.new_drive("demo", "coordinator", "session-under-test", "/work", "D123")
     data["orders"]["o1"] = order()
     data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
-    data["prs"][KEY] = cli.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title"}
+    data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title"}
     state.create(data)
     return "demo"
 
@@ -246,7 +246,8 @@ def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": True}
         data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
-        data["orders"]["o2"] = order(jobs=[], updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
     serve(monkeypatch, {})
     watching = watcher(demo)
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
@@ -304,3 +305,181 @@ def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.M
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
     assert not state.pid_path(demo).exists()
+
+
+REAL_LOCAL_GAP = watch.local_gap
+CARD = "https://acme.slack.com/archives/D123/p1794200000000100"
+
+
+def files_order(data: dict, **overrides: object) -> None:
+    data["orders"]["o2"] = order(text="build the files design", jobs=["j2"], **overrides)
+    data["orders"]["o2"]["parts"] = {"stack 1": state.new_part(), "stack 2": state.new_part()}
+    data["jobs"]["j2"] = job(order="o2", parts=["stack 1"])
+
+
+def test_a_part_no_job_carries_is_an_orphan_in_the_same_pass_and_again_every_thirty_minutes(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ['ORPHAN o2 "stack 2": no job']
+
+
+def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data, due=state.stamp(T0 + timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
+    lines = watch.run_pass(watching, T0 + timedelta(minutes=11))
+    assert lines[0].startswith('DUE o2 "build the files design"')
+    assert lines[1:] == ['ORPHAN o2 "stack 2": no job']
+
+
+def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["parts"].append("stack 2")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
+
+
+def test_a_done_builder_delivers_its_part_and_a_done_reader_waits_for_the_posted_answer(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(monkeypatch, {})
+    earlier = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="done", updated=earlier)
+        data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", updated=earlier)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "why do old runs fail?": j2 answered and the answer is not posted to him']
+    assert cli.main(["order", "posted", "o2", "https://slack.example/p1", "--drive", demo]) == 2
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    assert cli.main(["start", demo, "--role", "communicator"]) == 0
+    assert cli.main(["order", "posted", "o2", "https://slack.example/p1", "--drive", demo]) == 0
+    capsys.readouterr()
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    part = state.load(demo)["orders"]["o2"]["parts"]["why do old runs fail?"]
+    assert part == {"posted": "https://slack.example/p1", "orphan_said": None}
+
+
+def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2"}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(state="waiting", said="ASK which store?", card=CARD, updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
+        'ORPHAN o1 "ship the watch": j1 waits on "ASK which store?" and no open PR, card or due time can wake it'
+    ]
+
+
+def test_a_job_changed_in_the_last_two_minutes_is_still_being_handed_over(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(state="waiting", said="ASK which store?")
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2))[0].startswith('ORPHAN o1 "ship the watch": j1 waits on')
+
+
+def test_a_running_job_whose_agent_is_gone_is_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session")
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=5)) == [
+        'ORPHAN o1 "ship the watch": j1\'s agent ended with an earlier session'
+    ]
+
+
+def write_transcript(config: Path, entries: list[dict], quiet: timedelta) -> None:
+    path = config / "projects" / "-work" / "session-under-test" / "subagents" / "agent-a1.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+    stamp = (state.now() - quiet).timestamp()
+    os.utime(path, (stamp, stamp))
+
+
+FINISHED = {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "DONE shipped\nPR: x"}]}}
+CALLING = {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}}
+RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
+
+
+@pytest.mark.parametrize(
+    ("entries", "quiet", "gap"),
+    [
+        ([CALLING, FINISHED], timedelta(minutes=10), 'j1\'s agent finished and its result is not recorded: "DONE shipped"'),
+        ([FINISHED, {"type": "user", "message": {"content": "next event"}}], timedelta(minutes=10), None),
+        ([CALLING, RESULT], timedelta(minutes=10), None),
+        ([CALLING, RESULT], timedelta(minutes=45), "j1's agent has written nothing for 45 minutes"),
+        ([CALLING, FINISHED], timedelta(seconds=30), None),
+    ],
+)
+def test_a_local_agent_is_judged_by_its_transcript(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, gap: str | None
+) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    write_transcript(tmp_path / "config", entries, quiet)
+    job_of = {"session": "session-under-test", "agent": "a1"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+
+
+def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    data = state.load(demo)
+    assert REAL_LOCAL_GAP("j1", {"session": "old", "agent": "a1"}, data, state.now()) == "j1's agent ended with an earlier session"
+    assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": "a1"}, data, state.now()) == "j1's agent a1 has no transcript"
+
+
+def worker(verdict: str = "live", outcome: str = "in_progress", attention: list[str] = (), quiet: timedelta = timedelta()) -> dict:
+    output = (T0 - quiet).timestamp() * 1000
+    return {
+        "projection": {"liveness": {"verdict": verdict}, "outcome": outcome, "attention": {"categories": list(attention)}},
+        "terminal": {"lastOutputAt": output},
+    }
+
+
+@pytest.mark.parametrize(
+    ("shown", "gap"),
+    [
+        (worker(), None),
+        (worker(verdict="exited"), "j4's lane exited"),
+        (worker(outcome="succeeded"), "j4's lane succeeded and its result is not recorded"),
+        (worker(attention=["input"], quiet=timedelta(minutes=5)), None),
+        (worker(attention=["input"], quiet=timedelta(minutes=40)), "j4's lane has sat at its prompt for 40 minutes"),
+    ],
+)
+def test_a_remote_lane_is_judged_by_its_dispatch(shown: dict, gap: str | None) -> None:
+    assert watch.remote_gap("j4", shown, T0) == gap
+
+
+def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {KEY: read(checks="FAILURE")})
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f'PR {KEY} "Fix: the watch": checks failed [o1 j1]']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'PR {KEY} "Fix: the watch": still red for 30 minutes [o1 j1]']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+
+
+def test_a_green_approved_pr_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
+        f'PR {KEY} "Fix: the watch": green and approved with no card drawn for 30 minutes [o1 j1]'
+    ]
