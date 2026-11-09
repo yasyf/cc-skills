@@ -320,3 +320,14 @@ def test_setup_defaults_to_xdg_bin_home(run: Run, tmp_path: Path, monkeypatch: p
     monkeypatch.setenv("XDG_BIN_HOME", str(tmp_path / "xdg-bin"))
     run("setup")
     assert (tmp_path / "xdg-bin" / "drive").exists()
+
+
+def test_desk_wait_forwards_to_lr_wait(tmp_path: Path) -> None:
+    stub = tmp_path / "lr"
+    stub.write_text('#!/bin/sh\necho lr "$@"\n')
+    stub.chmod(0o755)
+    plugin = Path(__file__).resolve().parent.parent
+    env = {**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}"}
+    for script in (plugin / "bin" / "desk-wait.sh", plugin / "skills" / "long-running" / "scripts" / "desk-wait.sh"):
+        out = subprocess.run([str(script), "30", "mailbox:x=c"], env=env, capture_output=True, text=True, check=True)
+        assert out.stdout == "lr wait 30 mailbox:x=c\n"
