@@ -4,7 +4,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import orca, place, render, state, watch
+from drive import orca, place, reads, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -191,6 +191,36 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == ("msg_question", "waiting", job["report"].splitlines()[0])
     assert job["report"].endswith("CHANGE: y")
+
+
+def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url = "https://buildkite.com/forge/test/builds/121531"
+    deliver(monkeypatch, [message("question", f"LOG {url}", id="msg_log")])
+    asked, replies = [], []
+    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append((question, root)) or "ERROR: journal write")
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    assert asked == [(f"LOG {url}", tmp_path)]
+    assert replies == [("reply", "--id", "msg_log", "--body", "ERROR: journal write")]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
+
+
+def test_a_read_answer_orca_refuses_is_one_watch_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", "LOG https://buildkite.com/forge/test/builds/1")])
+    monkeypatch.setattr(reads, "answer", lambda question, root: "log")
+
+    def refuse(*args: str) -> dict:
+        raise orca.OrcaError("orca orchestration reply: not_found: no message")
+
+    monkeypatch.setattr(orca, "call", refuse)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        "WATCH read answer to j1 failed: orca orchestration reply: not_found: no message; its lane asks again when its wait ends"
+    ]
 
 
 def test_a_lane_that_stops_without_a_report_names_its_last_output(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

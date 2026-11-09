@@ -172,7 +172,15 @@ say so in the order's next report. A failure after worker-start ran may have lef
 live, so a reader checks its attempt before anything starts it again. The lane reports through
 Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
 the `DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED` a background agent returns; `drive status --json`
-holds the whole report. No `drive` CLI runs on a Sprite, so register the PR its `PR:` line links:
+holds the whole report. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
+ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with
+a blocking question: `LOG <url>` for a red Buildkite or GitHub Actions check, `READ <command>` for
+a `cci` or `ccn` read the builder agent lists. The watch answers it itself, with no event: it runs
+`tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in the directory the coordinator started the
+drive from and replies with the output, cut to 12,000 characters. A command off that list gets a
+refusal naming the list. Its `WATCH read answer … failed` line needs nothing from you, since the
+lane asks again when its wait ends. No `drive` CLI runs on a Sprite, so register the PR its
+`PR:` line links:
 `drive pr add <url> --job <j>` with `--tap` on a monorepo PR, and `drive pr set <url> --exempt
 <class>` for an `EXEMPT:` line.
 
