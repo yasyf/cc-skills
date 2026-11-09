@@ -687,3 +687,22 @@ func TestARecordCompactionFoldedSinceTheFirstLaunchTravelsFromTheCopyThatLaunchK
 		t.Fatal("a record no launch kept carried with no warning")
 	}
 }
+
+func TestAnIncidentBriefsCcnIdOfAnyKindTravelsAndAMissIsLeftAsWritten(t *testing.T) {
+	c, fake := carrier(t)
+	fake.Reply("rel-13898 evidence stopped at staging scope ruling\n", "ccn", "-R", c.Repo, "show", "40105e4")
+	fake.Reply("", "ccn", "-R", c.Repo, "sync")
+	fake.Fail(3, "not-found", "ccn", "-R", c.Repo, "show", "deadbee")
+
+	out, _, lacked := c.Stage(context.Background(), "Evidence so far: ccn 40105e4 with report.json; see ccn show deadbee.\n")
+
+	if want := "Evidence so far: " + box + "/ccn/entry-40105e4.md with report.json; see ccn show deadbee.\n"; out != want {
+		t.Fatalf("rewritten brief:\n%s\nwant:\n%s", out, want)
+	}
+	if len(lacked) > 0 {
+		t.Fatalf("a missing ccn id refused the launch: %v", lacked)
+	}
+	if got := landed(t, c, box+"/ccn/entry-40105e4.md"); got != "rel-13898 evidence stopped at staging scope ruling\n" {
+		t.Fatalf("note copy holds %q", got)
+	}
+}
