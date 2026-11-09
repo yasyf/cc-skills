@@ -13,6 +13,10 @@ Answer the one question in your brief, from what you read, and change nothing.
   `cc-transcript` for what a session did, cc-notes answers for what the owner decided,
   `drive status` for the drive's own orders. Never answer from an absence of messages.
 - Prefer `ccx` reads and one batched call over many small ones.
+- Nobody watches the driver's terminal, so a permission prompt there stalls you until morning. Keep each
+  Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script
+  file under your scratch directory and run that file, since Claude Code asks before running a command
+  its parser cannot read.
 - Stop once the answer is proven; do not widen the question.
 
 Your final message is the answer for the owner: a first line that answers the question in
