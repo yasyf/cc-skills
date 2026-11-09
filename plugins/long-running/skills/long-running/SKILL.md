@@ -15,7 +15,7 @@ never blocks, so it is always free to answer him.
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its jobs, its proof. `drive order …` |
 | Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only), `codex:codex-wrapper` (review, diagnosis, incidents). `drive job …` |
-| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `DUE …` when a promised time passes, `TICK …` when an order owes a progress line. |
+| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `DUE …` when a promised time passes, `TICK …` when an order has news since its last line or its promised time is close. |
 | Message | A line in his thread, a question card at his DM root, or a PR card that cc-slack draws from the PR. Nothing else. [reference/messages.md](reference/messages.md) |
 
 State lives in one file per drive, written only by the `drive` CLI on your PATH. His rulings
@@ -72,7 +72,7 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | `TAP Approve …` | Resume the PR's job: land it. |
 | `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
 | `DUE o<n> …` | Read the order's job transcripts first, then a line in his thread: what is late, why, and the new time, set with `--due`. Never call a job silent, stuck or done without reading its transcript. |
-| `TICK o<n> …` | One progress line per listed order, in its thread: what is done since the last line and what is next. Then `drive order set <o> --lined`. |
+| `TICK o<n> …` | The watch lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One line per listed order, in its thread (his main thread when it has none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined`. An order with nothing new gets no line. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then draw it again with `tap_prs`. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his answer to that card. |
 
