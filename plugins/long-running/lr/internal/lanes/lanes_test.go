@@ -2941,6 +2941,7 @@ func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(
 		t.Fatal("a numbered coordinator")
 	}
 	text := f.briefs[Root]
+	contains(t, text, "Replaces: root\nccx: place=local why=mac-state\n")
 	contains(t, text, "You are root, this drive's coordinator, in a new session.")
 	contains(t, text, "root left no handoff")
 	body, _ := os.ReadFile(brief)
