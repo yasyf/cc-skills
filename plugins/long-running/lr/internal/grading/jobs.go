@@ -457,15 +457,19 @@ func (p *JobPool) findingRows(ctx context.Context, named, pr string) ([]grader.F
 
 func (p *JobPool) owedDeletions(ctx context.Context, body string) ([]string, []string) {
 	tasks, err := p.owedTasks(ctx)
+	var unsynced error
 	if err == nil && citesUnlisted(body, tasks) {
-		if _, err = p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "sync", "--prefix", tasksRefs}, Timeout: readTimeout}); err == nil {
+		if _, unsynced = p.Runner.Run(ctx, shell.Command{Argv: []string{"ccn", "-R", p.briefs, "sync", "--prefix", tasksRefs}, Timeout: readTimeout}); unsynced == nil {
 			tasks, err = p.owedTasks(ctx)
 		}
 	}
 	if err != nil {
 		return nil, []string{fmt.Sprintf("the open owed-deletion tasks: %v", err)}
 	}
-	lines := make([]string, 0, len(tasks))
+	lines := make([]string, 0, len(tasks)+1)
+	if unsynced != nil {
+		lines = append(lines, fmt.Sprintf("- this list is the local copy: the body cites a task it lacks, and fetching the newest tasks failed with %v, so a cited task missing here may exist", unsynced))
+	}
 	for _, task := range tasks {
 		lines = append(lines, fmt.Sprintf("- task %s, owner %s: %s", task.ID[:min(docChars, len(task.ID))], cmp.Or(task.Assignee, "nobody"), task.Title))
 	}
