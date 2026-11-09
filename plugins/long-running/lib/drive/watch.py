@@ -109,38 +109,42 @@ def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | 
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each live remote lane's mail, read from its own Run: reports become JOB lines, read questions are answered here."""
     data = state.load(watcher.name)
-    lanes = {
-        f"dispatch:{job['dispatch']}": job_id
-        for job_id, job in data["jobs"].items()
-        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES
-    }
-    if not lanes:
-        return []
-    try:
-        messages = orca.mail(data["orca_run"])
-    except orca.OrcaError as error:
-        return read_failed(watcher, "lane mail", error, moment)
-    watcher.failures.pop("lane mail", None)
-    lines, reads_asked = [], []
+    lanes: dict[str, dict[str, str]] = {}
+    for job_id, job in data["jobs"].items():
+        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES:
+            lanes.setdefault(job["run"], {})[f"dispatch:{job['dispatch']}"] = job_id
+    lines, messages = [], []
+    for run, handles in lanes.items():
+        source = f"lane mail of {run}"
+        try:
+            messages += [(run, handles, message) for message in orca.mail(run)]
+        except orca.OrcaError as error:
+            lines += read_failed(watcher, source, error, moment)
+            continue
+        watcher.failures.pop(source, None)
+    if not messages:
+        return lines
+    reads_asked = []
     with state.edit(watcher.name) as data:
-        for message in messages:
-            job_id = lanes.get(message["from_handle"])
+        for run, handles, message in messages:
+            job_id = handles.get(message["from_handle"])
             if not job_id:
                 continue
             if message["type"] == "question" and (question := reads.request(message["body"] or "")):
-                reads_asked.append((job_id, message["id"], question))
+                reads_asked.append((job_id, run, message["id"], question))
                 continue
             lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
     checkout = Path(data["roles"]["coordinator"]["cwd"])
-    lines += [answer_read(job_id, message_id, question, checkout) for job_id, message_id, question in reads_asked]
+    lines += [answer_read(*asked, checkout) for asked in reads_asked]
     return [line for line in lines if line]
 
 
-def answer_read(job_id: str, message_id: str, question: str, checkout: Path) -> str | None:
+def answer_read(job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
     """Answer a remote lane's `LOG` or `READ` question here, since a Sprite holds no CI credentials or drive records."""
     try:
-        orca.call("reply", "--id", message_id, "--body", reads.answer(question, checkout))
+        orca.call("reply", "--id", message_id, "--run", run, "--body", reads.answer(question, checkout))
     except orca.OrcaError as error:
         return f"WATCH read answer to {job_id} failed: {error}; its lane asks again when its wait ends"
     return None

@@ -160,13 +160,13 @@ def checkout() -> Path:
 
 def job_launch(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    data = state.load(name)
-    if dispatch := remote_job(data, args.id).get("dispatch"):
+    job = remote_job(state.load(name), args.id)
+    if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     root = checkout()
-    run = orca.bound_run(data.get("orca_run"), f"drive {name}: remote builders")
+    run = orca.new_run(f"drive {name} {args.id}: {job['goal']}")
     with state.edit(name) as data:
-        data["orca_run"] = run
+        data["jobs"][args.id]["run"] = run
     brief = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     brief.parent.mkdir(exist_ok=True)
     brief.write_text(orca.vm_brief(name, args.id, Path(args.brief).read_text()))
@@ -201,7 +201,7 @@ def job_end(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     job = started_job(data, args.id)
-    reclaimed = orca.reclaim(data["orca_run"], job["dispatch"], checkout())
+    reclaimed = orca.reclaim(job["run"], job["dispatch"], checkout())
     with state.edit(name) as data:
         data["jobs"][args.id].update(state="done", ask=None, updated=state.stamp())
     return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})

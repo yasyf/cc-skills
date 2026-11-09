@@ -47,13 +47,9 @@ def call(*args: str) -> dict:
     return reply["result"]
 
 
-def bound_run(stored: str | None, objective: str) -> str:
-    """The drive's Run, bound to this terminal: created on first use, rebound when the coordinator moved."""
-    if not stored:
-        return call("run-create", "--objective", objective)["run"]["id"]
-    if (call("run-current")["run"] or {}).get("id") != stored:
-        call("run-use", "--id", stored)
-    return stored
+def new_run(objective: str) -> str:
+    """A fresh Run for one lane, bound to this terminal, so only this drive's watch reads its mail."""
+    return call("run-create", "--objective", objective)["run"]["id"]
 
 
 def lane_name(drive: str, job_id: str) -> str:
@@ -137,7 +133,17 @@ def mail(run: str) -> list[dict]:
 def answer(job: dict, text: str) -> str:
     """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
     if job.get("ask"):
-        call("reply", "--id", job["ask"], "--body", text)
+        call("reply", "--id", job["ask"], "--run", job["run"], "--body", text)
         return f"answered its question {job['ask']}"
-    call("send", "--to", f"dispatch:{job['dispatch']}", "--subject", "From the coordinator", "--body", text)
+    call(
+        "send",
+        "--to",
+        f"dispatch:{job['dispatch']}",
+        "--run",
+        job["run"],
+        "--subject",
+        "From the coordinator",
+        "--body",
+        text,
+    )
     return f"sent to dispatch {job['dispatch']}"

@@ -165,7 +165,8 @@ returns: `drive job add <kind> --order <o> --goal "<one line>" --agent <id>`.
 **Remote.** `drive job add builder --order <o> --goal "<one line>" --remote`, write the brief
 to a file in your scratch directory, then run `drive job launch <j> <brief file>` from the
 monorepo checkout's root with `run_in_background: true`. It starts the builder through the
-`orca` skill's launcher as an Orca worker on a Sprite, and its notification says where it
+`orca` skill's launcher as an Orca worker on a Sprite, on an Orca Run of its own that only this
+drive's watch reads, so no other session takes its mail, and its notification says where it
 started or why it could not. A lane that started no worker runs here instead, never
 silently: start it with the Agent tool, record it with `drive job set <j> --agent <id>`, and
 say so in the order's next report. A failure after worker-start ran may have left the lane
