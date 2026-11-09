@@ -29,8 +29,7 @@ def remote(run: Run, demo: str) -> str:
     run("order", "add", "ship the remote builder")
     run("job", "add", "builder", "--order", "o1", "--goal", "remote builders", "--remote")
     with state.edit(demo) as data:
-        data["orca_run"] = RUN
-        data["jobs"]["j1"].update(dispatch=DISPATCH, ask=None)
+        data["jobs"]["j1"].update(run=RUN, dispatch=DISPATCH, ask=None)
     return demo
 
 
@@ -91,7 +90,8 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
     run("order", "add", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
-    monkeypatch.setattr(orca, "bound_run", lambda stored, objective: RUN)
+    objectives = []
+    monkeypatch.setattr(orca, "new_run", lambda objective: objectives.append(objective) or RUN)
     launched = {}
 
     def fake_launch(lane: str, brief: Path, checkout: Path, run_id: str) -> dict:
@@ -108,7 +108,8 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert "# Land a change" in launched["brief"]
     assert launched["brief"].endswith("# Brief\n\nOrder (his words): ship it\nDrive: demo, order o1, job j1\n")
     data = state.load(demo)
-    assert data["orca_run"] == RUN
+    assert objectives == ["drive demo j1: ship it"]
+    assert data["jobs"]["j1"]["run"] == RUN
     assert data["jobs"]["j1"]["dispatch"] == DISPATCH
     assert "remote dispatch ctx_lane0001" in render.job_line("j1", data["jobs"]["j1"])
     assert run("job", "launch", "j1", "brief.md")[0] == 2
@@ -133,8 +134,18 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert run("job", "resume", "j1", "TAP Approve")[0] == 0
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
-        ("reply", "--id", "msg_q1", "--body", "TAP Approve"),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--subject", "From the coordinator", "--body", "PR checks failed"),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve"),
+        (
+            "send",
+            "--to",
+            f"dispatch:{DISPATCH}",
+            "--run",
+            RUN,
+            "--subject",
+            "From the coordinator",
+            "--body",
+            "PR checks failed",
+        ),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
@@ -204,7 +215,7 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == []
     assert asked == [(f"LOG {url}", tmp_path)]
-    assert replies == [("reply", "--id", "msg_log", "--body", "ERROR: journal write")]
+    assert replies == [("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write")]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
@@ -251,7 +262,7 @@ def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure
 
     monkeypatch.setattr(orca, "mail", broken)
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    said = "WATCH lane mail read failed {} times in a row: orca orchestration check: runtime_unavailable: no answer"
+    said = f"WATCH lane mail of {RUN} read failed {{}} times in a row: orca orchestration check: runtime_unavailable: no answer"
     assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
     assert calls == [RUN] * 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
@@ -263,3 +274,17 @@ def test_lane_names_fit_a_sprite() -> None:
     long = orca.lane_name("x" * 80, "j3")
     assert len(long) <= orca.LANE_LIMIT
     assert long.endswith("-j3")
+
+
+def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "second lane", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j2"].update(run="run_drive0002", dispatch="ctx_lane0002", ask=None)
+    mailboxes = {
+        RUN: [message("question", "READY first", id="msg_1")],
+        "run_drive0002": [message("question", "READY second", id="msg_2", from_handle="dispatch:ctx_lane0002")],
+    }
+    monkeypatch.setattr(orca, "mail", lambda run_id: mailboxes.pop(run_id))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == ["JOB j1 o1 READY first", "JOB j2 o1 READY second"]
+    assert mailboxes == {}
