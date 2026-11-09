@@ -54,7 +54,7 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | Chatter ("ok", "thanks", "nice") | React `+1`. No reply. |
 | A job finished | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
-| An alert or incident | [reference/incidents.md](reference/incidents.md), before anything else. |
+| An alert he sent, or one the drive's own release caused | [reference/incidents.md](reference/incidents.md), before anything else. Any other alert in a held channel gets nothing: no line, no job. |
 
 | Job result | Do |
 |---|---|

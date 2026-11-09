@@ -1,11 +1,19 @@
 # Handle an incident
 
-An active alert is handled in the turn it arrives, before anything else: a Datadog monitor, a Sentry
-alert, an `#outage` or `#alerts-*` report, a page, or his link to one. Alerts arrive as `slack.message`
-events from the alert channels the drive holds, each a `drive start --watch` and named on the `Hold
-with slack_watch` line of `drive status`, or as his message in his DM. A drive holding only his DM
-reads only the alerts he forwards. Nothing comes between the alert and its jobs: no question to him,
-no real-or-ours verdict, no plan mode, no mute as a resolution.
+An alert is the drive's in two cases only, and then it is handled in the turn it arrives, before
+anything else:
+
+- **He sends it or asks about it:** his message, or his link to a Datadog monitor, a Sentry issue, an
+  `#outage` or `#alerts-*` report, or a page.
+- **The drive caused it:** a monitor goes bad on a target one of the drive's own releases or changes
+  touched, during that release or after it.
+
+Every other alert in the channels the drive holds is nobody's here: no line, no order, no job. He ruled
+it ("stop wasting time with random non-issue incidents no one asked you to"), so before starting an
+incident run `answer_search` for his incident rulings and follow them. The alert channels stay held,
+each a `drive start --watch` named on the `Hold with slack_watch` line of `drive status`, so the drive
+sees its own releases go bad. Once an alert is the drive's, nothing comes between it and its jobs: no
+question to him, no real-or-ours verdict, no plan mode, no mute as a resolution.
 
 ## In the same turn
 
