@@ -908,6 +908,23 @@ func (d *Desk) heldWorktree(ctx context.Context, lane string, pushedHeads []stri
 }
 
 func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, error) {
+	books, err := d.containers(lanePrefix)
+	if err != nil {
+		return "", err
+	}
+	for _, container := range books {
+		other := strings.TrimPrefix(container, lanePrefix)
+		if other == lane || client.Stem(other) != client.Stem(lane) {
+			continue
+		}
+		dispatch, err := d.show(ctx, other, "")
+		if err != nil {
+			return "", err
+		}
+		if dispatch.active() {
+			return other + ", the live lane under the alias " + client.Stem(lane), nil
+		}
+	}
 	if briefReader.MatchString(text) {
 		return "", nil
 	}
@@ -937,10 +954,6 @@ func (d *Desk) duplicateHolder(ctx context.Context, lane, text string) (string, 
 				pushed[record.Lane] = append(pushed[record.Lane], head)
 			}
 		}
-	}
-	books, err := d.containers(lanePrefix)
-	if err != nil {
-		return "", err
 	}
 	for _, container := range books {
 		other := strings.TrimPrefix(container, lanePrefix)
