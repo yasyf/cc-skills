@@ -115,7 +115,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info",
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMe(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMeWords(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	switch row.State {
@@ -218,7 +218,9 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"eli5", "ELI5", row.ELI5}, {"show_me", "Show me", row.ShowMe}, {"blocker", "Blocks landing", row.Blocks},
 	} {
 		if line.said != "" {
-			child[line.key] = line.said
+			if line.key != "show_me" {
+				child[line.key] = line.said
+			}
 			sep := " "
 			if strings.HasPrefix(line.said, "- ") {
 				sep = "\n"

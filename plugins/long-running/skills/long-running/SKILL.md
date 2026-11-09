@@ -345,7 +345,7 @@ The coordinator's brief lists every desk it starts and what each does.
   ledger, `lr board rows --json`, which every PR card, list and gate reads. A PR waits on him only when its row
   says `ready_for_tap` and not tapped, else `Not ready for your tap` with `waits_on`. No lane keeps a PR list or
   card lines; a wrong field is fixed in the PR body or its record. `cci owner-waits` prints all else he owes.
-- Every other owner ask is a question card its lane draws with `lr ask-owner` once the decision is his: a question on a held PR,
+- Every other owner ask is a question card board-refresher draws for its lane with `lr ask-owner` once the decision is his: a question on a held PR,
   or on cutover before he says cutover is ready, stays in the lane's handoff. It has two to four answers, the recommended one
   built on a branch as soon as it is asked, with no PR until he answers. A settled question never reaches the board, and his No
   or a pulled card settles one for good. The card rules are in [orca-lane-brief.md](reference/orca-lane-brief.md) ("A design lane's part").

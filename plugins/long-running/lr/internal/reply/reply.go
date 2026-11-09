@@ -126,7 +126,9 @@ type prCard struct {
 	Title  string `json:"title,omitempty"`
 	Review string `json:"review,omitempty"`
 	Tap    bool   `json:"tap,omitempty"`
+	ShowMe string `json:"show_me,omitempty"`
 	Lines
+	diagram json.RawMessage
 }
 
 type Reply struct {
@@ -755,6 +757,7 @@ func (f Fanout) aliased(r Reply) Reply {
 	r.PRCards = slices.Clone(r.PRCards)
 	for n, card := range r.PRCards {
 		r.PRCards[n].Lines = Lines{aliases.In(card.Change), aliases.In(card.Plan), aliases.In(card.ELI5), aliases.In(card.Blocks)}
+		r.PRCards[n].ShowMe = aliases.In(card.ShowMe)
 	}
 	r.Blocks = slices.Clone(r.Blocks)
 	for n, block := range r.Blocks {
@@ -1042,6 +1045,21 @@ func firstLine(md string) string {
 	return strings.TrimSpace(line)
 }
 
+// askedAlready refuses a pick card whose question an open card on his board already asks, since board-refresher alone draws a lane's question and he answers each once.
+func (f Fanout) askedAlready(ctx context.Context, r Reply) (string, error) {
+	if len(r.Picks) == 0 {
+		return "", nil
+	}
+	open, err := board.Cards{Runner: f.Runner, Checkout: f.Entry.Checkout}.OpenAsks(ctx)
+	if err != nil {
+		return fmt.Sprintf("his board was not read for a card asking the same, so this card may ask him twice: %v", err), nil
+	}
+	if ask, asked := board.AskedAlready(open, cardPrefix+r.ID, r.Title); asked {
+		return "", fmt.Errorf("ASKED ALREADY: card %s already asks him %q, so nothing posted; he answers each question once, so tell the asking lane that card's id and leave the drawing to board-refresher", ask.ID, strings.TrimSpace(ask.Title))
+	}
+	return "", nil
+}
+
 func (r Reply) unreadAsk() error {
 	if len(r.Picks) == 0 {
 		return nil
@@ -1166,6 +1184,9 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		return r, fmt.Errorf("PR CARD GAP: %s, so nothing went out; send each named lane its gap to write into the PR body's Summary, plan reference or Context, then send this again", strings.Join(gaps, "; "))
 	}
 	r.PRCards = cards
+	if shown := slices.IndexFunc(cards, func(card prCard) bool { return card.diagram != nil }); shown >= 0 && len(r.Diagram) == 0 {
+		r.Diagram = cards[shown].diagram
+	}
 	return r, nil
 }
 
@@ -1186,7 +1207,7 @@ func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
 	if prrow.BlocksWords(row) == "" {
 		missing = append(missing, "what it waits on: its ledger row names nothing")
 	}
-	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.ELI5Words(row), prrow.BlocksWords(row)}}, missing
+	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), ShowMe: prrow.ShowMeWords(row), diagram: prrow.ShowMeDiagram(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.ELI5Words(row), prrow.BlocksWords(row)}}, missing
 }
 
 func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {
@@ -1212,7 +1233,7 @@ func (r Reply) prChild(id, pr string) map[string]any {
 		return child
 	}
 	card := r.PRCards[at]
-	child = board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, ELI5: card.ELI5, Blocks: card.Blocks})
+	child = board.FillPRChild(child, board.SlackPRRow{Head: card.Head, Title: card.Title, Review: card.Review, Change: card.Change, Plan: card.Plan, ELI5: card.ELI5, ShowMe: card.ShowMe, Blocks: card.Blocks})
 	if card.Tap && !slices.ContainsFunc(r.Picks, bus.ReadsAsLand) {
 		child["tap"] = true
 	}

@@ -1,11 +1,13 @@
 package prrow
 
 import (
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -23,7 +25,8 @@ var (
 	resolverStays  = regexp.MustCompile(`(?i)\bLLM\b[^.\n]*\bresolver\b[^.\n]*\b(?:stays|remains|is kept|keeps)\b|\bkeeps?\b[^.\n]*\bLLM\b[^.\n]*\bresolver\b`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
-	shownView      = regexp.MustCompile("(?is)!\\[[^\\]]*\\]\\(|https?://\\S+\\.(?:png|jpe?g|gif|webp|mp4|mov)\\b|```|\\bbefore\\b.*\\bafter\\b")
+	shownImage     = regexp.MustCompile(`(?i)!\[[^\]]*\]\(|https?://\S+\.(?:png|jpe?g|gif|webp|mp4|mov)\b`)
+	archFence      = regexp.MustCompile("(?s)```arch[ \t]*\n(.*?)\n[ \t]*```")
 	addsFunction   = regexp.MustCompile(`(?i)\b(?:adds?|new)\b[^.\n]{0,40}\b(?:builtins?|functions?)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
 )
@@ -63,20 +66,40 @@ func CardGaps(row store.ReviewRow) []string {
 	return gaps
 }
 
-// ShowMe is the PR body's Show me section: a screenshot or gif of a UI
-// change, a real Sand API call and its result for a new function, or a before
-// and after of a behaviour change.
+// ShowMe is the PR body's Show me section: a picture of the change, as a
+// screenshot or gif, or a fenced arch block lr reply draws as the card's
+// picture.
 func ShowMe(row store.ReviewRow) string {
 	return section(row.Description, "Show me")
 }
 
+// ShowMeWords is the Show me section with its arch block taken out, since the
+// card shows that block as its picture.
+func ShowMeWords(row store.ReviewRow) string {
+	return strings.TrimSpace(archFence.ReplaceAllString(ShowMe(row), ""))
+}
+
+// ShowMeDiagram is the Show me section's arch doc, nil when it has none.
+func ShowMeDiagram(row store.ReviewRow) json.RawMessage {
+	found := archFence.FindStringSubmatch(ShowMe(row))
+	if found == nil {
+		return nil
+	}
+	return json.RawMessage(found[1])
+}
+
 func showMeFlaw(row store.ReviewRow) string {
+	const drawn = "link a screenshot or gif, or carry a fenced arch block (arch/v1) that lr reply draws as the card's picture"
 	shown := ShowMe(row)
 	if shown == "" {
-		return "its PR body has no Show me section; add a screenshot or gif for a UI change, a real Sand API call and its result in a code block for a new function, or a before and after for a behaviour change"
+		return "its PR body has no Show me section; " + drawn
 	}
-	if !shownView.MatchString(shown) {
-		return "its Show me section holds no screenshot, gif, code block, or before and after"
+	if doc := ShowMeDiagram(row); doc != nil {
+		if problems := arch.Problems(doc); len(problems) > 0 {
+			return "its Show me arch block does not draw: " + strings.Join(problems, "; ")
+		}
+	} else if !shownImage.MatchString(shown) {
+		return "its Show me section is words alone, and he reads a picture; " + drawn
 	}
 	if addsFunction.MatchString(row.ForUsers+"\n"+section(row.Description, "Changes")) && !strings.Contains(shown, "```") {
 		return "it adds a function, and its Show me section has no real Sand API call and its result in a code block"

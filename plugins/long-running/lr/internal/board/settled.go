@@ -242,6 +242,17 @@ func asksTitle(card json.RawMessage) (string, string, bool) {
 	return "", "", false
 }
 
+// AskedAlready is the open card on his board, other than id itself or one it replaces, that asks him the same question as title.
+func AskedAlready(open []OpenAsk, id, title string, replaces ...string) (OpenAsk, bool) {
+	at := slices.IndexFunc(open, func(ask OpenAsk) bool {
+		return ask.ID != id && !slices.Contains(replaces, ask.ID) && sameText(ask.Title, title)
+	})
+	if at < 0 {
+		return OpenAsk{}, false
+	}
+	return open[at], true
+}
+
 func sameText(one, other string) bool {
 	return strings.EqualFold(strings.Join(strings.Fields(one), " "), strings.Join(strings.Fields(other), " "))
 }
@@ -262,13 +273,11 @@ func (c Cards) Check(ctx context.Context, judge Judge, card json.RawMessage, rep
 	if err != nil {
 		failed = append(failed, fmt.Errorf("his board was not read for a card asking the same: %w", err))
 	}
-	for _, ask := range open {
-		if ask.ID == id && sameText(ask.Title, title) {
-			return nil, nil
-		}
-		if sameText(ask.Title, title) && !slices.Contains(replaces, ask.ID) {
-			return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
-		}
+	if ask, asked := AskedAlready(open, id, title, replaces...); asked {
+		return fmt.Errorf("refused: %s already asks him %q; change that card instead of drawing a second", ask.ID, strings.TrimSpace(ask.Title)), nil
+	}
+	if slices.ContainsFunc(open, func(ask OpenAsk) bool { return ask.ID == id && sameText(ask.Title, title) }) {
+		return nil, nil
 	}
 	confirm, err := judge(ctx, confirmKind, drawnForHim, string(card))
 	if verdictOf(confirm) == "yes" {

@@ -2236,18 +2236,26 @@ func TestARowsPortStateReadsItsHeadRecordThenItsBodysPortLine(t *testing.T) {
 }
 
 func TestABodyIsCardReadyOnlyWithAPlainSummaryAPlanLineAndAContext(t *testing.T) {
-	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\nChats load right after a network drop.\n\nPlan: bug list item 4 (slack-bugs)\n\n## Show me\n\nBefore: a chat spins for a minute after the drop. After: it loads at once.\n"
+	const ready = "## Context\n\nChats reconnected late after a network drop.\n\n## Summary\n\nChats load right after a network drop.\n\nPlan: bug list item 4 (slack-bugs)\n\n## Show me\n\n![a chat loading right after the drop](https://example.com/drop.png)\n"
 	if gaps := BodyGaps(ready); len(gaps) != 0 {
 		t.Fatalf("gaps = %q, want none", gaps)
 	}
+	drawn := strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "The relay now reconnects:\n\n```arch\n"+`{"arch":1,"name":"relay","title":"Reconnect","nodes":[{"id":"chat","kind":"service","name":"Chat","role":"reconnects"}]}`+"\n```", 1)
+	if gaps := BodyGaps(drawn); len(gaps) != 0 {
+		t.Fatalf("gaps = %q, want an arch block that draws to stand as the show-me", gaps)
+	}
+	if words, doc := ShowMeWords(store.ReviewRow{Description: drawn}), ShowMeDiagram(store.ReviewRow{Description: drawn}); words != "The relay now reconnects:" || !strings.HasPrefix(string(doc), `{"arch":1`) {
+		t.Fatalf("words = %q, doc = %s; want the words beside the block and the block as the diagram", words, doc)
+	}
 	for name, tc := range map[string]struct{ body, gap string }{
-		"no Plan: line":           {strings.Replace(ready, "Plan: bug list item 4 (slack-bugs)\n", "", 1), "the plan row: its PR body has no Plan: line"},
-		"a code term":             {strings.Replace(ready, "Chats load right", "`reconnect()` runs right", 1), "what it changes for a user: its Summary carries"},
-		"no Context":              {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
-		"an unnamed plan form":    {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
-		"no Show me":              {strings.Split(ready, "## Show me")[0], "its show-me: its PR body has no Show me section"},
-		"a Show me of words":      {strings.Replace(ready, "Before: a chat spins for a minute after the drop. After: it loads at once.", "It works now.", 1), "holds no screenshot, gif, code block, or before and after"},
-		"a new function, no call": {strings.Replace(ready, "Chats load right after a network drop.", "Chats load right after a network drop, and a new function presigns uploads.", 1), "it adds a function, and its Show me section has no real Sand API call"},
+		"no Plan: line":                    {strings.Replace(ready, "Plan: bug list item 4 (slack-bugs)\n", "", 1), "the plan row: its PR body has no Plan: line"},
+		"a code term":                      {strings.Replace(ready, "Chats load right", "`reconnect()` runs right", 1), "what it changes for a user: its Summary carries"},
+		"no Context":                       {strings.Replace(ready, "## Context\n\nChats reconnected late after a network drop.\n\n", "", 1), "its plain-words ELI5"},
+		"an unnamed plan form":             {strings.Replace(ready, "bug list item 4", "the slack bugs list", 1), "names no plan step"},
+		"no Show me":                       {strings.Split(ready, "## Show me")[0], "its show-me: its PR body has no Show me section"},
+		"a Show me of words":               {strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "Before: a chat spins for a minute after the drop. After: it loads at once.", 1), "its show-me: its Show me section is words alone"},
+		"an arch block that does not draw": {strings.Replace(ready, "![a chat loading right after the drop](https://example.com/drop.png)", "```arch\n{}\n```", 1), "its show-me: its Show me arch block does not draw"},
+		"a new function, no call":          {strings.Replace(ready, "Chats load right after a network drop.", "Chats load right after a network drop, and a new function presigns uploads.", 1), "it adds a function, and its Show me section has no real Sand API call"},
 	} {
 		if gaps := strings.Join(BodyGaps(tc.body), "; "); !strings.Contains(gaps, tc.gap) {
 			t.Errorf("%s: gaps = %q, want %q", name, gaps, tc.gap)
