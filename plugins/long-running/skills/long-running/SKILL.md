@@ -24,6 +24,7 @@ A drive is two sessions and the background agents one of them starts. His ruling
 | Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close, `EVENT catch-up …` when he is back. |
 | Record | A cci record on the drive between the two sessions, by [Between the two sessions](#between-the-two-sessions). |
 | Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
+| Status | One model of where the drive stands, `drive view`: what waits on him, highest priority first (his open question cards, PRs ready for his tap, promised times that passed), then each feature by state (blocked, running, waiting, merged, live, not started). `drive dashboard` serves it as two screens, Your queue and Status, and `drive watch` draws it as the drive's canvas tab in his DM. |
 
 The drive's state lives in one file, written only by the `drive` CLI on your PATH and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
@@ -55,6 +56,8 @@ Each session runs these steps for its role. A restart, a resume and a compaction
    a fresh one only when something needs it: a `running` job now, a `waiting` job when its next
    event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line. The
    disk is the record: never re-derive state from memory.
+6. The coordinator runs `drive dashboard`, which starts the drive's dashboard, or finds it running,
+   and prints its link.
 
 A drive saved by the earlier one-session driver reads as that session coordinating;
 [reference/migration.md](reference/migration.md#from-one-driver-to-two-sessions) moves it to two.
@@ -137,7 +140,7 @@ a search, or anything past one `drive status` read goes to the coordinator as an
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then send its `ready` again. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his `answer` to that card. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
-| `WATCH … failed` | GitHub or Orca did not answer; the watch keeps trying and says so again in ten minutes. Nothing to him. |
+| `WATCH … failed` | GitHub or Orca did not answer, or cc-slack could not draw the status page; the watch keeps trying and says so again in ten minutes. Nothing to him; a failed page draw that persists gets a builder on cc-slack. |
 
 While he is away, send only `ready` and `ask` records and the incident lines
 [reference/incidents.md](reference/incidents.md) calls for; everything else waits for his catch-up.

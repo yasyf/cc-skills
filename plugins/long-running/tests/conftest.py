@@ -2,7 +2,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import cli
+from drive import cli, page, view
 
 SESSION = "session-under-test"
 
@@ -30,3 +30,11 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
 def demo(run: Callable[..., tuple[int, str]]) -> str:
     run("start", "demo", "--role", "coordinator", "--channel", "D123")
     return "demo"
+
+
+@pytest.fixture(autouse=True)
+def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    pages: list[str] = []
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or "https://slack.example/docs/T1/F1")
+    return pages

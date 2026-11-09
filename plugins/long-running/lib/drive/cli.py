@@ -335,8 +335,22 @@ def context(args: argparse.Namespace) -> int:
     return 0
 
 
-def rollup(args: argparse.Namespace) -> int:
-    print(json.dumps(render.rollup_card(state.load(state.resolve(args.drive)))))
+def view_command(args: argparse.Namespace) -> int:
+    from drive import page, view
+
+    model = view.read(state.resolve(args.drive), state.now())
+    return emit(args, page.render(model), model)
+
+
+def dashboard_command(args: argparse.Namespace) -> int:
+    from drive import dashboard
+
+    name = state.resolve(args.drive)
+    port = args.port or dashboard.port_of(name)
+    if args.serve:
+        dashboard.serve(name, port)
+        return 0
+    print(dashboard.start(name, port))
     return 0
 
 
@@ -474,7 +488,13 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
     verb.set_defaults(run=context)
-    verbs.add_parser("rollup", parents=[drive_opt]).set_defaults(run=rollup)
+    verbs.add_parser("view", parents=both, help="what waits on him and where each feature stands").set_defaults(
+        run=view_command
+    )
+    verb = verbs.add_parser("dashboard", parents=[drive_opt], help="start the drive's dashboard and print its link")
+    verb.add_argument("--port", type=int, help="serve on this port instead of the drive's own")
+    verb.add_argument("--serve", action="store_true", help="serve in the foreground")
+    verb.set_defaults(run=dashboard_command)
     verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
     verbs.add_parser("card").set_defaults(run=card_command)
 
