@@ -557,3 +557,11 @@ func TestAMergeCardNamesThePRByItsTitleAndNoCommit(t *testing.T) {
 		t.Fatalf("title = %q, want the PR's words and no commit, which stays the card's title once it resolves", card.Title)
 	}
 }
+
+func TestAPRCardCarriesItsRiskInOnePlainSentenceAndNoPlanItFollows(t *testing.T) {
+	row := store.ReviewRow{Number: 7, Title: "relay: fix the reconnect", ForUsers: "Chats load.", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Risk: "- **Availability:** a dropped relay retries once. Nothing else waits.", ReadyForTap: true}
+	got := Card("acme/app", row).PRs[0]
+	if got.Risk != "a dropped relay retries once." || got.Plan != "" {
+		t.Fatalf("card row risk %q plan %q, want the risk's first plain sentence and no plan line for a PR that follows its plan", got.Risk, got.Plan)
+	}
+}

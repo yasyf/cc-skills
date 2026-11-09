@@ -129,6 +129,7 @@ type prCard struct {
 	Review string `json:"review,omitempty"`
 	Tap    bool   `json:"tap,omitempty"`
 	ShowMe string `json:"show_me,omitempty"`
+	Risk   string `json:"risk,omitempty"`
 	Lines
 	diagram json.RawMessage
 }
@@ -1217,7 +1218,7 @@ func prCardFrom(row store.ReviewRow, pr string) (prCard, []string) {
 	if prrow.BlocksWords(row) == "" {
 		missing = append(missing, "what it waits on: its ledger row names nothing")
 	}
-	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), ShowMe: prrow.ShowMeWords(row), diagram: prrow.ShowMeDiagram(row), Lines: Lines{prrow.ChangeWords(row), board.PlanWords(row), prrow.ELI5Words(row), prrow.BlocksWords(row)}}, missing
+	return prCard{URL: pr, Head: row.Head, Title: row.Title, Review: board.Standing(row), ShowMe: prrow.ShowMeWords(row), Risk: prrow.RiskWords(row), diagram: prrow.ShowMeDiagram(row), Lines: Lines{prrow.ChangeWords(row), board.PlanDeparture(row), prrow.ELI5Words(row), prrow.BlocksWords(row)}}, missing
 }
 
 func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) store.ReviewRow {

@@ -1187,8 +1187,8 @@ func TestAPRCardWhosePlanLineIsAMechanismSentenceIsRefusedUntilItsBodyNamesAPlan
 	f = fanout(t, fixed)
 	ledgerRow(t, f, mechanism)
 	got, err := f.withPRCards(context.Background(), r)
-	if err != nil || len(got.PRCards) != 1 || got.PRCards[0].Plan != "Plan: owner:m1793." {
-		t.Fatalf("cards = %+v, err %v; want the plan row read from the fixed body", got.PRCards, err)
+	if err != nil || len(got.PRCards) != 1 || got.PRCards[0].Plan != "" {
+		t.Fatalf("cards = %+v, err %v; want the fixed body's plan row accepted and no plan line on a card that follows its plan", got.PRCards, err)
 	}
 }
 
@@ -1219,7 +1219,7 @@ func TestAPRCardCarriesItsLedgerRowToEverySurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	pr := card.Children[len(card.Children)-1]
-	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Status:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.Contains(pr["summary"].(string), "**ELI5:** Chats reconnected late after a network drop.") || pr["plan"] != "Plan: step 3." {
+	if pr["type"] != "pr" || pr["change"] != "Chats load" || !strings.Contains(pr["summary"].(string), "**Where it stands:** CI ") || pr["review"] != nil || pr["description"] != nil || pr["blocker"] != "Your tap" || pr["title"] != "Relay fix" || !strings.HasPrefix(pr["summary"].(string), "Chats reconnected late after a network drop.") || pr["eli5"] != "Chats reconnected late after a network drop." || pr["plan"] != nil {
 		t.Fatalf("pr child = %+v, want its lines for Slack and for the board", pr)
 	}
 }
