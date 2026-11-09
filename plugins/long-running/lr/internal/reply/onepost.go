@@ -129,20 +129,19 @@ func cardShows(card board.OpenCard, number int) bool {
 		return true
 	}
 	var block struct {
-		Children []struct {
-			Type   string      `json:"type"`
-			Number json.Number `json:"number"`
-		} `json:"children"`
+		Children []cardChild `json:"children"`
 	}
 	if json.Unmarshal(card.Block, &block) != nil {
 		return false
 	}
-	return slices.ContainsFunc(block.Children, func(child struct {
-		Type   string      `json:"type"`
-		Number json.Number `json:"number"`
-	}) bool {
+	return slices.ContainsFunc(block.Children, func(child cardChild) bool {
 		return child.Type == "pr" && child.Number.String() == strconv.Itoa(number)
 	})
+}
+
+type cardChild struct {
+	Type   string      `json:"type"`
+	Number json.Number `json:"number"`
 }
 
 func (f Fanout) drawCard(ctx context.Context, r Reply, block string) (shell.Result, error) {
