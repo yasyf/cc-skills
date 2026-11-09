@@ -118,8 +118,8 @@ func TestAPickOnSeveralPRsIsCarriedOnlyWhenALaterRecordOrdersEachOfThem(t *testi
 		}
 		return records
 	}
-	if !bus.UnnamedLand(pick, repo) {
-		t.Fatal("a pick on two PRs read as naming one")
+	if bus.UnnamedLand(pick, repo) {
+		t.Fatal("a pick whose card showed both PRs at their heads read as naming none")
 	}
 	if bus.CarriedEach(pick, carried(7), repo) {
 		t.Fatal("a pick carried for one of its two PRs read as carried")
