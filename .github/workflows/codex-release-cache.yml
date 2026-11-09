@@ -1,0 +1,20 @@
+name: codex release cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/codex-release-cache.yml"
+      - ".goreleaser.yaml"
+      - "plugins/codex/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  warm:
+    uses: yasyf/homebrew-tap/.github/workflows/go-release-cache.yml@12c82844c146643f7d8d1fdf6aca69918ea4f7a8
+    with:
+      runner: macos-latest
+      go-version-file: plugins/codex/go.mod
