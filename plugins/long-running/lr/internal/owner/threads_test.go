@@ -46,7 +46,7 @@ func emitted(t *testing.T, s *store.Store, runner streamed, line string) map[str
 	t.Helper()
 	runner.lines = []string{line}
 	var out bytes.Buffer
-	if err := watch(context.Background(), runner, s.SlackThreadAt, noRows, &out); err != nil {
+	if err := watch(context.Background(), runner, s.SlackThreadAt, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 	last := strings.TrimSpace(strings.TrimPrefix(out.String(), started))
@@ -88,7 +88,7 @@ func TestAMessageInAnUnknownThreadEmitsPlainly(t *testing.T) {
 	runner := watched(hisEvent)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, threadStore(t).SlackThreadAt, noRows, &out); err != nil {
+	if err := watch(context.Background(), runner, threadStore(t).SlackThreadAt, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestAThreadThatDoesNotReadStillDeliversHisMessage(t *testing.T) {
 	}
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), watched(hisEvent), broken, noRows, &out); err != nil {
+	if err := watch(context.Background(), watched(hisEvent), broken, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -123,7 +123,7 @@ func TestReadingTheJoinStaysFlatAsRepliesGrow(t *testing.T) {
 			reads++
 			return s.SlackThreadAt(ts)
 		}
-		if err := watch(context.Background(), runner, counted, noRows, &bytes.Buffer{}); err != nil {
+		if err := watch(context.Background(), runner, counted, noRows, noDesk(), &bytes.Buffer{}); err != nil {
 			t.Fatal(err)
 		}
 		return len(runner.Calls()), reads
@@ -175,12 +175,12 @@ func TestWordsAroundALinkReadNoLink(t *testing.T) {
 func TestALinkThatDoesNotReadStillDeliversHisMessage(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"user_id":"U1"}`, "cc-slack", "whoami")
-	fake.Reply(`{"ok":true}`, "cc-slack", "react")
+	fake.Reply(`{"ok":true}`, "cc-slack", "pickup")
 	fake.Fail(1, "channel_not_found", "cc-slack", "thread")
 	line := `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"2.0","ts":"2.0","user":"U1","text":"` + permalink + `"}`
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{line}}, threadStore(t).SlackThreadAt, noRows, &out); err != nil {
+	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{line}}, threadStore(t).SlackThreadAt, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 

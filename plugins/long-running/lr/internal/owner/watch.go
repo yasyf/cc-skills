@@ -22,10 +22,9 @@ const (
 	slackWatchError   = "slack.watch_error"
 	slackOwnerStopped = "slack.owner_stopped"
 	fallbackPost      = "_(Yasyf's Claude)_"
-	lookingAt         = "eyes"
 	slackCall         = 15 * time.Second
 	maxSlackEvent     = 4 << 20
-	watching          = "owner Slack watch running for %s: each of his messages gets :eyes: and wakes this window"
+	watching          = "owner Slack watch running for %s: each of his messages gets :eyes: and the working line and wakes this window"
 )
 
 type slackEvent struct {
@@ -45,33 +44,33 @@ func (e slackEvent) fromBot() bool {
 func watchCommand(a *app.App, driveName *string, lane LaneOf) *cobra.Command {
 	return &cobra.Command{
 		Use:   "watch",
-		Short: "Stream this window's Slack events under its standing Monitor, reacting :eyes: on each of his messages as it arrives and printing what his thread answers and what a bare link names; a bot's message wakes nothing",
+		Short: "Stream this window's Slack events under its standing Monitor, picking up each of his messages as it arrives with :eyes: and the working line, holding it at 30 seconds unanswered, and printing what his thread answers and what a bare link names; a bot's message wakes nothing",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			threads, rows, closed, err := openWords(a.Runner, *driveName, lane)
+			threads, rows, dir, closed, err := openWords(a.Runner, *driveName, lane)
 			if err != nil {
 				return err
 			}
 			defer closed()
-			return watch(cmd.Context(), a.Runner, threads, rows, cmd.OutOrStdout())
+			return watch(cmd.Context(), a.Runner, threads, rows, desk{dir: dir, now: time.Now, after: func(d time.Duration, f func()) { time.AfterFunc(d, f) }}, cmd.OutOrStdout())
 		},
 	}
 }
 
 type rowsOf func(ctx context.Context, word threadWord) ([]string, []string, error)
 
-func openWords(runner shell.Runner, driveName string, lane LaneOf) (threadsAt, rowsOf, func(), error) {
+func openWords(runner shell.Runner, driveName string, lane LaneOf) (threadsAt, rowsOf, string, func(), error) {
 	entry, err := drive.Named(driveName)
 	if errors.Is(err, drive.ErrNoDrive) {
 		none := func(string) (store.SlackThread, bool, error) { return store.SlackThread{}, false, nil }
-		return none, func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, nil }, func() {}, nil
+		return none, func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, nil }, "", func() {}, nil
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, "", nil, err
 	}
 	s, err := store.Open(entry.Store())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, "", nil, err
 	}
 	rows := func(ctx context.Context, word threadWord) ([]string, []string, error) {
 		route, err := word.route(s, lane, entry)
@@ -80,10 +79,10 @@ func openWords(runner shell.Runner, driveName string, lane LaneOf) (threadsAt, r
 		}
 		return word.rows(ctx, runner, entry, route)
 	}
-	return s.SlackThreadAt, rows, func() { _ = s.Close() }, nil
+	return s.SlackThreadAt, rows, PickupDir(entry), func() { _ = s.Close() }, nil
 }
 
-func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows rowsOf, out io.Writer) error {
+func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows rowsOf, picks desk, out io.Writer) error {
 	shown, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "whoami"}, Timeout: slackCall})
 	if err != nil {
 		return err
@@ -107,8 +106,8 @@ func watch(ctx context.Context, runner shell.Runner, threads threadsAt, rows row
 		}
 		var written, routed []string
 		if event.Type == slackMessage && event.User == me.User {
-			if _, err := runner.Run(ctx, shell.Command{Argv: []string{"cc-slack", "react", "--channel", event.Channel, "--ts", event.TS, "--name", lookingAt}, Timeout: slackCall}); err != nil {
-				fmt.Fprintln(out, clippedLine(fmt.Sprintf("%s did not land on his message %s: %v", lookingAt, event.TS, err)))
+			if err := picks.pickUp(ctx, runner, event); err != nil {
+				fmt.Fprintln(out, clippedLine(fmt.Sprintf("the pickup did not land on his message %s: %v", event.TS, err)))
 			}
 			var word threadWord
 			if err := json.Unmarshal(line, &word); err != nil {

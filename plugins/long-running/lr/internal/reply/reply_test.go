@@ -792,6 +792,29 @@ func TestAnAnswerToHisThreadReplyPostsInThatThreadAsWholeText(t *testing.T) {
 	}
 }
 
+func TestAnAnswerInHisThreadEndsItsPickupSoNoHoldingReplyFollows(t *testing.T) {
+	fake := scripted()
+	f := fanout(t, fake)
+	dir := owner.PickupDir(f.Entry)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	picked, err := json.Marshal(owner.Pickup{Channel: "D0B6Z", TS: "1793635199.000001", Thread: "1793635190.051179", State: "Reading your message…"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waiting := filepath.Join(dir, "1793635199.000001.json")
+	if err := os.WriteFile(waiting, picked, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f.Send(context.Background(), Reply{ID: "r7p", Title: "Yes, it reached the board", MD: "It is the third card.", Thread: "1793635190.051179"})
+
+	if _, err := os.Stat(waiting); !os.IsNotExist(err) {
+		t.Fatalf("pickup still open after the answer posted in his thread: %v", err)
+	}
+}
+
 func TestAPlainAnswerToHisThreadStillReachesTheThread(t *testing.T) {
 	fake := scripted()
 	fanout(t, fake).Send(context.Background(), Reply{ID: "r7", Title: "Yes, it reached the board", MD: "It is the third card.", Thread: "1793684147.131059"})
