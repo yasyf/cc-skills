@@ -205,7 +205,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	}
 	id := strings.TrimSuffix(filepath.Base(saved[0]), ".json")
 	text := result.Result.Content[0].Text
-	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended)\n- Hold it", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
+	for _, want := range []string{"Its checks passed.", "| lr-go | green |", "- Land it (recommended): it lands tonight\n- Hold it: it waits for you", "Reply " + id + ";", "- board: card-" + id, "- slack: " + permalink, "- record: #12@2479ec97", "- dashboard: " + saved[0]} {
 		if !strings.Contains(text, want) {
 			t.Errorf("window text lacks %q:\n%s", want, text)
 		}

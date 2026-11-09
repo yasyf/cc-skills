@@ -88,7 +88,7 @@ func TestPickRulesThatOnceWarnedNowRefuse(t *testing.T) {
 func TestATapThatAPRLedgerRowRefusesNowStopsTheReply(t *testing.T) {
 	f, fake := fanout(t, nil), scripted()
 	ledgerRow(t, Fanout{Entry: f.Entry}, carded)
-	text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"title": "Which way?", "md": "#2196 is ready for you.", "picks": []string{"Close it :: it closes", "Keep it :: it stays"}, "recommended": "Close it", "unprompted": true})
+	text, failed := throughTheTool(t, f.Entry, fake, map[string]any{"title": "Cleanup: close #2196 or keep it?", "md": "#2196 is ready for you.", "picks": []string{"Close it :: it closes", "Keep it :: it stays"}, "recommended": "Close it", "unprompted": true})
 	if !failed || !strings.Contains(text, "REFUSED") || len(calls(fake, "cc-slack")) != 0 {
 		t.Fatalf("reply = %q, failed %v; want the missing Approve refused with nothing posted", text, failed)
 	}
