@@ -421,19 +421,18 @@ func TestATapStillWaitingForItsHeadRecordAfterTheHourTellsTheRelayOnce(t *testin
 	}
 }
 
-func TestARefusalOfATapNamingNoHeadLeavesNoEmptyHeadInItsText(t *testing.T) {
+func TestATapNamingNoHeadOnAPRWithNoRowAdoptsItAtItsOpenHead(t *testing.T) {
 	h := unreadHarness(t)
 	drawReady(t, h.store, surfacePR+1, surfaceHead)
 	ownerRecord(t, `Owner: "Approve" #4242`, nil)
 
 	writeOrders(t, h)
 
-	refused, told := refusals(t), blockers(t)
-	if len(refused) != 1 || refused[0].Text != "tap on #4242 refused: "+gates.NoRow {
-		t.Fatalf("refusals = %+v", refused)
+	if refused, told := refusals(t), blockers(t); len(refused) != 0 || len(told) != 0 {
+		t.Fatalf("refusals = %+v, blockers = %+v", refused, told)
 	}
-	if len(told) != 1 || !strings.Contains(told[0].Text, "of #4242 was refused") || strings.Contains(told[0].Text, "at  ") {
-		t.Fatalf("blockers = %+v", told)
+	if opened := adopted(t); len(opened) != 1 || opened[0].Fields.Attrs["head"] != surfaceHead || strings.Contains(opened[0].Text, "at  ") {
+		t.Fatalf("adopted = %+v", opened)
 	}
 }
 
@@ -770,25 +769,39 @@ func TestATapAtAHeadTheRowMovedOffIsOrderedThereForTheCarryRule(t *testing.T) {
 	}
 }
 
-func TestATapOnAPRWithNoRowIsRefused(t *testing.T) {
+func adopted(t *testing.T) []client.Record {
+	t.Helper()
+	written, err := client.Tail(context.Background(), client.Query{Drive: "d", Kinds: []string{"opened"}, Lanes: []string{facts.OrderLane}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return written
+}
+
+func TestATapOnAPRWithNoRowAdoptsItAndWaitsForItsRowInsteadOfRefusing(t *testing.T) {
 	h := unreadHarness(t)
 	drawReady(t, h.store, surfacePR+1, surfaceHead)
 	ownerRecord(t, landOnCard, pickAttrs)
 
 	writeOrders(t, h)
 
-	refused := refusals(t)
-	if written := orders(t); len(written) != 0 || len(refused) != 1 || refused[0].Fields.Attrs["reason"] != gates.NoRow {
-		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
+	if written, refused, told := orders(t), refusals(t), blockers(t); len(written) != 0 || len(refused) != 0 || len(told) != 0 {
+		t.Fatalf("orders = %+v, refusals = %+v, blockers = %+v; want none before its row", written, refused, told)
+	}
+	if opened := adopted(t); len(opened) != 1 || opened[0].Fields.Attrs["head"] != surfaceHead {
+		t.Fatalf("adopted = %+v, want one opened record at %s", opened, surfaceHead)
+	}
+	if pending := pendingTaps(t); len(pending) != 1 {
+		t.Fatalf("pending = %+v, want the tap waiting for its row", pending)
 	}
 }
 
-func TestATapRefusedForNoRowIsOrderedWhenItsRowAppearsAfterTheWindow(t *testing.T) {
+func TestATapOnAPRWithNoRowIsOrderedWhenItsRowAppearsAfterTheWindow(t *testing.T) {
 	h := unreadHarness(t)
 	drawReady(t, h.store, surfacePR+1, surfaceHead)
 	word := ownerRecord(t, "Owner on board b, merge-prs: 4242 approved at "+surfaceHead[:7], map[string]string{"event": "triage.decided", "block": "merge-prs", "row": "4242", "verdict": "approved", "head": surfaceHead[:7]})
 	writeOrders(t, h)
-	if written, refused := orders(t), refusals(t); len(written) != 0 || len(refused) != 1 || refused[0].Fields.Attrs["reason"] != gates.NoRow {
+	if written, refused := orders(t), refusals(t); len(written) != 0 || len(refused) != 0 {
 		t.Fatalf("orders = %+v, refusals = %+v", written, refused)
 	}
 
@@ -805,8 +818,8 @@ func TestATapRefusedForNoRowIsOrderedWhenItsRowAppearsAfterTheWindow(t *testing.
 	if written := orders(t); len(written) != 1 || !strings.Contains(written[0].Text, surfaceHead[:12]) {
 		t.Fatalf("orders = %+v", written)
 	}
-	if told := blockers(t); len(told) != 1 {
-		t.Fatalf("blockers = %+v, want the one refusal told", told)
+	if told := blockers(t); len(told) != 0 {
+		t.Fatalf("blockers = %+v, want none: the tap adopted its PR and waited", told)
 	}
 }
 

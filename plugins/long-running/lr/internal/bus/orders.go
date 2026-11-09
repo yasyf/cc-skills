@@ -132,6 +132,17 @@ func (b Bus) PostPending(ctx context.Context, repo string, tap Tap, from client.
 	return err
 }
 
+func (b Bus) PostAdopted(ctx context.Context, repo string, pr int, head string) error {
+	_, err := client.Post(ctx, client.Draft{
+		Drive: b.Drive, Lane: b.Lane, Kind: "opened",
+		ID:    fmt.Sprintf("adopted/%d/%s", pr, head),
+		PRs:   []string{fmt.Sprintf("%s#%d", repo, pr)},
+		Attrs: map[string]string{"head": head},
+		Text:  fmt.Sprintf("adopted #%d%s: he tapped it, and no drive lane had opened it, so the landing store now follows it", pr, At(head)),
+	})
+	return err
+}
+
 // At names a head as " at <sha>" for a record's text, and nothing when no head is known.
 func At(head string) string {
 	if head == "" {
