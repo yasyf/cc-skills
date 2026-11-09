@@ -982,3 +982,28 @@ func uncardedBlockers(t *testing.T) []client.Record {
 	}
 	return slices.DeleteFunc(records, func(record client.Record) bool { return !strings.HasPrefix(record.Text, "UNCARDED ") })
 }
+
+func TestATapCardCarriesItsPRBodysArchBlockForTheLinkLaneToDraw(t *testing.T) {
+	const doc = `{"arch":1,"name":"inbox","title":"Where an answer goes","nodes":[{"id":"sub","kind":"service","name":"subagent","role":"writes"}],"edges":[]}`
+	row := tapRow(52227)
+	row.Description = "## Summary\n\nAnswers land.\n\n## Show me\n\n```arch\n" + doc + "\n```\n"
+	block, err := TapCard(readyRepo, row)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var card struct {
+		Children []struct {
+			Type string          `json:"type"`
+			Doc  json.RawMessage `json:"doc"`
+		} `json:"children"`
+	}
+	if err := json.Unmarshal(block, &card); err != nil {
+		t.Fatal(err)
+	}
+	if card.Children[0].Type != "lr.arch" || string(card.Children[0].Doc) != doc {
+		t.Fatalf("children = %+v, want the arch block first", card.Children)
+	}
+	if plain, err := TapCard(readyRepo, tapRow(52228)); err != nil || strings.Contains(string(plain), "lr.arch") {
+		t.Fatalf("a body with no arch block drew %s, %v", plain, err)
+	}
+}
