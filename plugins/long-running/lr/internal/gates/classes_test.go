@@ -49,7 +49,7 @@ func TestAClassThePathsAloneDecideIsNamedOnlyWhenEveryChangedFileFitsIt(t *testi
 		{"a tenant script that writes to a bucket", []string{".agents/skills/escape-hatch-new-tenant/scripts/verify-chain.sh"}, ""},
 		{"the landing scripts' tests", []string{".agents/skills/submit-pr/scripts/stack_enqueue_test.py"}, TestOnlyGrade},
 		{"a skill script that decides no gate", []string{".agents/skills/iris-desktop-cdp-preview/scripts/iris-stack.sh"}, TestOnlyGrade},
-		{"#49370 remote-builder routes", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/root.go", "go/remote-builder/cli/rb/routes.go", "tools/remote-builder/shims/remote-builder"}, "class ci-tooling"},
+		{"#49370 remote-builder routes", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/root.go", "go/remote-builder/cli/rb/routes.go", "tools/remote-builder/shims/remote-builder"}, ""},
 		{"tests and CI only", []string{"go/sand/internal/vm/run_test.go", "infra/ci/src/pipelines/ci-go.ts"}, TestOnlyGrade},
 		{"#51295 api jest test", []string{"api/src/modules/llm/apiContextToLLMContext.jest.ts"}, TestOnlyGrade},
 		{"a jest test beside product code", []string{"api/src/modules/llm/apiContextToLLMContext.jest.ts", "api/src/modules/llm/apiContextToLLMContext.ts"}, ""},

@@ -458,7 +458,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 		tapRow  bool
 	}{
 		"test-only with its card shown and open":       {class: "test-only", grade: "adds the regression test", files: testFile},
-		"ci-tooling with its card shown and open":      {class: "ci-tooling", grade: "bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
+		"ci-only with its card shown and open":         {class: "ci-only", grade: "bumps the shard script", files: "[\".buildkite/v2/scripts/test-shard.sh\",\"@@ +1 @@\\n+set -e\"]\n"},
 		"a claimed pure port with its card shown":      {class: gates.ClassOf(gates.PortGrade), grade: "compared by file", files: "[\"go/sand/next/a.go\",\"@@ +1 @@\\n+\\treturn nil\"]\n", claims: []client.Draft{portClaim}},
 		"a claimed flake fix with its card shown":      {class: gates.NoClass, grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}},
 		"a claimed flake fix that he held on its card": {class: gates.NoClass, grade: "reads right", files: testFile, claims: []client.Draft{flakeClaim}, tap: string(machine.TapWithdrawn), refused: "he answered its tap card at 51717bb, so it waits on his tap"},
@@ -474,7 +474,7 @@ func TestATaplessClassLandsOnTheSweepsGoPastItsShownTapCardUnlessHeAnsweredIt(t 
 			}
 			defer func() { _ = s.Close() }()
 			for _, draft := range []client.Draft{
-				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["pure port, no interaction","class test-only","class ci-tooling","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
+				{Drive: "d", Lane: self, Kind: "note", Topic: gateInputsTopic, ID: "inputs", Text: "inputs", Attrs: map[string]string{gateInputsAttr: `{"exempt":["pure port, no interaction","class test-only","class ci-only","class owner-pick"],"cards":[{"id":"card-tap-1-51717bb","title":"Tap: #1, adds the regression test"}]}`}},
 				pipelineOK("o/r#1", head, c.class, c.grade),
 				{Drive: "d", Lane: "finder-desk", Kind: "review", PRs: []string{"o/r#1"}, Text: "finder: ok " + head + " no majors"},
 			} {
