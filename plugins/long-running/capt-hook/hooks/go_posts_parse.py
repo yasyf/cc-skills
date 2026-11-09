@@ -19,7 +19,7 @@ ORDER = re.compile(r"^\s*(?:\d{1,2}:\d{2}\s*[AP]M\s+)?orca-desk:")
 QUOTED = re.compile(r"(?s)```.*?(?:```|\Z)|(?m:^[ \t]*>[^\n]*)|`[^`\n]*`|\"[^\"\n]*\"|“[^”]*”")
 NAMED = re.compile(r"(?i)(?P<lead>[^.;!?\n]{0,40}?)(?<![\w./-])go(?![\w./-])(?P<mid>[^.;:\n#]{0,40}?)(?<![\w/-])#(?P<pr>\d+)(?:\s+(?:at\s+)?(?P<sha>[0-9a-f]{7,40})\b)?")
 EXEMPT = re.compile(r"(?i)\[exempt:\s*[^\],;\s]+")
-CLASS = re.compile(r"(?i)(?<![\w-])(?:test-only|ci-only|ci-tooling|old-tree-port|port|flake-fix|regression|twin|owner-pick|exempt|2c70b68|06288326|eea86c3)(?![\w-])")
+CLASS = re.compile(r"(?i)(?<![\w-])(?:test-only|ci-only|ci-tooling|old-tree-port|port|flake-fix|design-asked|regression|twin|owner-pick|exempt|2c70b68|06288326|eea86c3)(?![\w-])")
 CLASS_ATTR = "exempt-class"
 REFUSAL = (
     "The landing pass reads a go only from a clause opening `go #<pr> at <sha>`, and an exempt class only from the `exempt-class` attr, so this go moves nothing."

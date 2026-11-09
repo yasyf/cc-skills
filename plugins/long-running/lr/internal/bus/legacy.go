@@ -19,6 +19,7 @@ const (
 	PortOfAttr        = "port-of"
 	PortInteractsAttr = "port-interacts"
 	FlakeFixAttr      = "flake-fix"
+	DesignAskedAttr   = "design-asked"
 	ExemptClassAttr   = "exempt-class"
 
 	LegacyCursor  = "legacy"
@@ -91,7 +92,7 @@ func CarriedClaim(record client.Record) bool {
 
 func carriedClaimFacts(record client.Record, repo string) []Fact {
 	var out []Fact
-	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr} {
+	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr, DesignAskedAttr} {
 		if value := record.Fields.Attrs[attr]; value != "" {
 			out = append(out, factsPerPR(record, repo, record.Fields.Attrs[refusedHead], attr, value)...)
 		}

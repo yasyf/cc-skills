@@ -43,6 +43,8 @@ const (
 	portSourceOpen    = "not merged"
 	FlakeFixClass     = "flake-fix"
 	FlakeFixAttr      = bus.FlakeFixAttr
+	DesignAskedClass  = "design-asked"
+	DesignAskedAttr   = bus.DesignAskedAttr
 	StandingRefused   = bus.GoRefusedFact
 	portTree          = "go/sand/next/"
 	oldTree           = "go/sand/"
@@ -96,11 +98,14 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	finder, finderRefusal := finderCite(c, r)
 	port, claimed := PortAt(c, r)
 	flaked := FlakeAt(c, r.Records)
+	asked := DesignAskedAt(c, r.Records)
 	portFacts := ClaimFacts(port, r)
 	word := ""
 	switch {
 	case flaked:
 		word = FlakeFixClass
+	case len(asked) > 0:
+		word = DesignAskedClass
 	case claimed && len(PortRefusals(portFacts)) == 0:
 		word = OldTreePortClass
 	}
@@ -114,6 +119,8 @@ func ExemptGo(c Claim, r Read) (string, string, []string) {
 	switch {
 	case class == FlakeFixClass:
 		classRefused = flakeRefusals(r, gradedTestOnly(c, r))
+	case class == DesignAskedClass:
+		classRefused = askedRefusals(asked, r.Rulings)
 	case isPortClass(class) && !claimed:
 		classRefused = []string{fmt.Sprintf("port: no head record at %s carries %s=<old-tree PR> and its body does not open %s#<old-tree PR>, and a grade's words do not prove a port", short(c.Head), PortOfAttr, cardtext.PortOpener)}
 	case isPortClass(class) || claimed && !port.Interacts:
@@ -184,11 +191,11 @@ func claimRecord(record client.Record) bool {
 }
 
 func CarriedClaim(from, head string, atFrom, atHead map[string]string) (map[string]string, string) {
-	if atHead[PortOfAttr] != "" || atHead[FlakeFixAttr] != "" || !SameDiff(atFrom, atHead) {
+	if atHead[PortOfAttr] != "" || atHead[FlakeFixAttr] != "" || atHead[DesignAskedAttr] != "" || !SameDiff(atFrom, atHead) {
 		return nil, ""
 	}
 	attrs := map[string]string{headKind: head}
-	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr} {
+	for _, attr := range []string{PortOfAttr, PortInteractsAttr, FlakeFixAttr, DesignAskedAttr} {
 		if value := atFrom[attr]; value != "" {
 			attrs[attr] = value
 		}
@@ -238,6 +245,9 @@ func TaplessClassAt(c Claim, r Read) bool {
 	if FlakeAt(c, r.Records) {
 		word = FlakeFixClass
 	}
+	if asked := DesignAskedAt(c, r.Records); len(asked) > 0 && len(askedRefusals(asked, r.Rulings)) == 0 {
+		word = DesignAskedClass
+	}
 	_, finderRefusal := finderCite(c, r)
 	_, _, refusals := fidelityCite(c, r, taplessPhrases(r.Exempt), word)
 	return finderRefusal == "" && len(refusals) == 0
@@ -248,7 +258,26 @@ func taplessPhrases(exempt []string) []string {
 }
 
 func TaplessClass(class string) bool {
-	return PathDecided(class) || isPortClass(class) || class == FlakeFixClass
+	return PathDecided(class) || isPortClass(class) || class == FlakeFixClass || class == DesignAskedClass
+}
+
+func DesignAskedAt(c Claim, records []client.Record) []string {
+	for _, record := range slices.Backward(records) {
+		if said := record.Fields.Attrs[DesignAskedAttr]; said != "" && claimRecord(record) && namesHead(record, c) {
+			return strings.FieldsFunc(said, func(r rune) bool { return r == ',' || r == ' ' || r == '#' })
+		}
+	}
+	return nil
+}
+
+func askedRefusals(asked []string, his map[string]bool) []string {
+	var out []string
+	for _, id := range asked {
+		if !his[id] {
+			out = append(out, fmt.Sprintf("design-asked: %s is not his answer, so a design decision it names lands on his tap", id))
+		}
+	}
+	return out
 }
 
 func testOnlyPhrases(exempt []string) []string {
