@@ -32,7 +32,7 @@ DEVICE_LINK = re.compile(rf"{AWS_DEVICE_LINK.pattern}|github\.com/login/device|m
 RECORD_WRITES = (("cci", "post"), ("ccn", "doc", "add"))
 DEVICE_SIGN_IN = (
     "A device code and its sign-in link are a credential until they expire, and a record keeps both. "
-    "Send them to him on a card with `lr ask-owner`, and post only that a sign-in waits on him."
+    "Send them to him on a card with `lr say`, and post only that a sign-in waits on him."
 )
 AWS_SIGN_IN = (
     "An AWS read never waits on his sign-in, and a device code in a record is a credential. "
