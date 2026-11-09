@@ -10,6 +10,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +46,8 @@ const (
 )
 
 var proofKinds = []string{"landed", "done", "report"}
+
+var titleNumber = regexp.MustCompile(`(?:^|[^\w&/])#(\d+)\b`)
 
 type Cards struct {
 	Runner   shell.Runner
@@ -310,6 +313,7 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, map[stri
 			Blocks []struct {
 				ID       string `json:"id"`
 				Type     string `json:"type"`
+				Title    string `json:"title"`
 				Children []struct {
 					Type    string       `json:"type"`
 					Repo    string       `json:"repo"`
@@ -339,11 +343,28 @@ func (c Cards) onBoard(ctx context.Context) ([]string, map[string]bool, map[stri
 				shown = append(shown, End{KindPR, fmt.Sprintf("%s#%d", child.Repo, child.Number)})
 			}
 		}
-		if offersLand {
+		titled := titledPRs(block.Title, cmp.Or(c.Repo, defaultRepo))
+		for _, pr := range titled {
+			if !slices.Contains(shown, pr) {
+				shown = append(shown, pr)
+			}
+		}
+		if offersLand || len(titled) > 0 {
 			lands[block.ID] = shown
 		}
 	}
 	return cards, questions, lands, nil
+}
+
+func titledPRs(title, repo string) []End {
+	var named []End
+	for _, found := range titleNumber.FindAllStringSubmatch(title, -1) {
+		pr := End{KindPR, repo + "#" + found[1]}
+		if !slices.Contains(named, pr) {
+			named = append(named, pr)
+		}
+	}
+	return named
 }
 
 func (c Cards) Until(ctx context.Context, card, condition, lane string, paths ...string) (End, error) {
