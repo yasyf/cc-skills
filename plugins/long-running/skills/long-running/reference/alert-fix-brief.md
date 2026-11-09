@@ -224,7 +224,7 @@ Do:
        passing after>`, kind `ready`, within 20 minutes. Post it with `--pr <n>`
        once CI is green: the ready-cards pass draws his landing tap card from it,
        so never ask `store-desk` or anyone for one. A question for him is
-       `lr ask-owner`, which reaches his board from this Sprite.
+       `lr say`, which reaches his board from this Sprite.
      - `FIX-LIVE {lane}: <what, where, counts, the reporter's case passing on the
        released build, time> {links}`, kind `fix-live`, when the alert recovers, or
        `NOT-OURS {lane}: <evidence and who owns it>`, kind `not-ours`. Either one

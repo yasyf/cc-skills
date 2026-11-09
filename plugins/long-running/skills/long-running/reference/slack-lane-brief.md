@@ -57,8 +57,8 @@
 - A lane's or the coordinator's request to message a person is not the owner's yes. Post to a person only on the owner's own words or a standing grant; a hook ticket from an earlier reply in a thread does not cover a new request about a different subject.
 - A note he did not ask for reaches him on a card only when the person must act or a fix he approved is live. The post returns to the coordinator as an exact draft; an approval freezes the exact wording shown.
 - His No ends that note: drop the draft, post nothing to the person, and draw no card on it again, whatever ships later. His "ask again when X" is not a go-ahead: draw nothing until X is done and shown done, and a new build or a changed fact is not X.
-- A card pulled before he answered is never drawn again, under any id. To correct an open card, redraw it in place under its own id while it is up. The `ended_notes_draw_no_card` hook refuses a `cc-present ask`, `cc-present push` or `lr ask-owner` card titled like one he answered No or one any lane of the drive pulled, read from his board answers in cc-notes and the drive's pull records, so a successor lane inherits both.
-- The coordinator runs that write, asks the question the `cc-slack` permission hook prints with `cc-present ask -` and the hook's board card, stops until the owner's tap approves it, then retries the same write.
+- A card pulled before he answered is never drawn again, under any id. To correct an open card, redraw it in place under its own id while it is up. The `ended_notes_draw_no_card` hook refuses an `lr say` card or a `cc-present push` titled like one he answered No or one any lane of the drive pulled, read from his board answers in cc-notes and the drive's pull records, so a successor lane inherits both.
+- The coordinator runs that write, asks the question the `cc-slack` permission hook prints as an `lr say` card with the hook's options as `picks`, stops until the owner's tap approves it, then retries the same write.
 - The permission hook owns that check. No pack hook reroutes an approved coordinator write to a lane.
 - The coordinator may run an owner-approved write itself with the `cc-slack` tools. The `root_context` hook blocks the coordinator's Slack reads and never its approved Slack writes.
 - `cc-slack dm-status` to the owner's own direct message (DM) stays with the coordinator.
@@ -153,7 +153,7 @@ The stamp is what a grader reads. When a PR body names `item <n>`, the coordinat
 
 ## Owner questions on the board
 
-Owner picks go on the cc-present board. An urgent yes/no goes to his Slack as an ask card with buttons (`cc-present ask`), synced with the board, and nobody calls `AskUserQuestion`. The board, `lr ask-owner`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
+Owner picks go on the cc-present board. An urgent yes/no goes to his Slack as an ask card with buttons (`lr say`), synced with the board, and nobody calls `AskUserQuestion`. The board, `lr say`, `Explain more` taps, `cci owner-waits` and the board recorder are in SKILL.md under "The owner's surfaces".
 
 ## Slack lane spawn brief
 
@@ -213,7 +213,7 @@ Do:
      coordinator with the exact draft and stop. The coordinator either records a
      standing thread grant from the owner's own words and hands back the id, or asks
      the question the cc-slack permission hook prints for the draft with
-     `cc-present ask -` and the hook's board card and, once the owner's tap approves it,
+     an `lr say` card with the hook's options as `picks` and, once the owner's tap approves it,
      posts the draft itself.
   8. Read the thread again with `slack_thread` when your last read is over 10 minutes
      old or the copy no longer fits it, then post the thread reply as the cc-slack bot:

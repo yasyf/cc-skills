@@ -345,19 +345,19 @@ The coordinator's brief lists every desk it starts and what each does.
   ledger, `lr board rows --json`, which every PR card, list and gate reads. A PR waits on him only when its row
   says `ready_for_tap` and not tapped, else `Not ready for your tap` with `waits_on`. No lane keeps a PR list or
   card lines; a wrong field is fixed in the PR body or its record. `cci owner-waits` prints all else he owes.
-- Every other owner ask is a question card board-refresher draws for its lane with `lr ask-owner` once the decision is his: a question on a held PR,
+- Every message to him, whoever has it, is sent by that lane itself with `lr say`, under the [owner-message](../owner-message/SKILL.md) skill, which holds every template and every rule he set, each refused before anything posts; no lane draws for another, and a raw post to his DM is refused. Every other owner ask is a question card the asking lane sends that way once the decision is his: a question on a held PR,
   or on cutover before he says cutover is ready, stays in the lane's handoff. It has two to four answers, the recommended one
   built on a branch as soon as it is asked, with no PR until he answers. A settled question never reaches the board, and his No
   or a pulled card settles one for good. The card rules are in [orca-lane-brief.md](reference/orca-lane-brief.md) ("A design lane's part").
-- Every card names the event that ends it, such as a release going live or a PR landing, and the board
-  refresher withdraws it once that happens.
+- Every card names the event that ends it, such as a release going live or a PR landing, and the supervisor
+  pulls it once that happens: buttons gone, a Landed or Closed line in their place.
 - While the owner is away, each recommended option is built as a branch and deployed to staging one at a
   time, with the full test and perf tables run on each, without stopping when a bar is met.
 - A line to him that names something breaking names the plan to fix it beside it, and no card option has a loss
-  and no fix. Every card he reads, whatever lane or tool posts it, asks one question in one sentence, says what it changes for a user, and names no record id, plan step, lane, hash, corpus row, build or test function; `lr reply` and `lr ask-owner` refuse one that does ([communicator-brief.md](reference/communicator-brief.md), "Card shape"). A card or reply that asks him to decide on a check, job, guard, lane or mechanism first says in two or three sentences what it does, for an engineer who built the system and has not read that code in a while. An option acting on a set names each member, its PR link and what it does for a user, and a card or reply choosing between architecture designs carries one architecture diagram drawn with the component, an arch/v1 doc comparing them, never a picture; a judge warns on either. Anything as complex carries one by default.
+  and no fix. Every card he reads, whatever lane or tool posts it, asks one question in one sentence, says what it changes for a user, and names no record id, plan step, lane, hash, corpus row, build or test function; `lr say` refuses one that does ([communicator-brief.md](reference/communicator-brief.md), "Card shape"). A card or reply that asks him to decide on a check, job, guard, lane or mechanism first says in two or three sentences what it does, for an engineer who built the system and has not read that code in a while. An option acting on a set names each member, its PR link and what it does for a user, and a card or reply choosing between architecture designs carries one architecture diagram drawn with the component, an arch/v1 doc comparing them, never a picture; a judge warns on either. Anything as complex carries one by default.
 - A change to anything he sees, a card, status line, board row, Slack post or dashboard, is designed for how he reads and
   taps it on his phone before it ships; the fastest edit is not the bar. A Slack message link is posted as its permalink and Slack draws its preview; nothing hand-draws one. A PR link shows the preview cc-slack draws from the PR ledger.
-- Nobody calls `AskUserQuestion`; an urgent yes/no is the same card sent to his Slack with `cc-present ask`.
+- Nobody calls `AskUserQuestion`; an urgent yes/no is the same card sent with `lr say`.
 - Every `gh` write posts under his GitHub login, so an approval or a tap verdict cites `board verdict #<seq>`
   or the `owner_login_verdicts` hook refuses it.
 - The drive writes one automated Slack message, the merge card, posted at the root of his DM with its own
@@ -373,7 +373,7 @@ other kind of state lives are in [bus-contracts.md](reference/bus-contracts.md).
   seq. A deadline is the exception, carried as attrs: `--attr owner=<lane>` and one
   `--attr step:<n>=<clock> <what>` per step (`deadline_plans`).
 - Every cci `--to`, record, reply card, status line and chat message names a lane by its alias, such as
-  tap-rows, never tap-rows-1: a numbered `--to` warns, and `lr reply` rewrites one.
+  tap-rows, never tap-rows-1: a numbered `--to` warns, and `lr say` rewrites one.
 - Lane liveness and standing duties live in the supervisor's registry, which the coordinator changes
   only through `lr request`; PRs live in the PR ledger (`lr board rows`). A decide's prose changes no row.
 - The task list is the coordinator's: it runs `TaskCreate` the turn it spawns a lane or an ask arrives,

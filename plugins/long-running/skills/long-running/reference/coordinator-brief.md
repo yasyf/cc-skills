@@ -172,8 +172,8 @@ ask, PR and card, with `--open '<item>; <item>'`, or says `--open none`. An `own
 too. Run without it, the verb posts nothing and prints the records you have not read with
 the command to run again. A request posts under the lane bound to your session, and is
 refused when none is bound unless `--by <lane>` names one. A decide saying a lane retired or is done, that one
-lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing, and a duty lane such as board-refresher that a decide ends in prose is relaunched by the supervisor on its next pass; end a duty with `lr request done <lane>`.
-Address a lane by its stem, the name without a trailing `-<n>`, such as `--to board-refresher`:
+lane replaces another, or that a PR moves to a lane or has `owner=<lane>` changes nothing, and a duty lane such as landing-desk that a decide ends in prose is relaunched by the supervisor on its next pass; end a duty with `lr request done <lane>`.
+Address a lane by its stem, the name without a trailing `-<n>`, such as `--to landing-desk`:
 cci delivers it to the stem's newest live lane, so no record has to track a lane's number.
 
 Your first act, before any read, is `/long-running:coordinator`: it arms every drive
@@ -184,8 +184,7 @@ You own desk-runner, the relay and every desk; the communicator starts none of t
 Next, before any lane, and again after any relaunch, run `lr desks start`. It takes the
 Run for this terminal and relaunches every standing desk in the registry whose row is
 down: each lane whose brief carries a `Standing:` line. Start a desk the registry does
-not hold yet, such as `fidelity-desk`, `red-sweep`, `alerts-desk`, `drive-watchdog` or
-`board-refresher` on a new drive, once with `lr launch lane <desk> <model> <effort> <brief>`
+not hold yet, such as `fidelity-desk`, `red-sweep`, `alerts-desk`, or `drive-watchdog` on a new drive, once with `lr launch lane <desk> <model> <effort> <brief>`
 from a brief with its `Standing:` line. The landing pass and every desk run remote, each an lr-launched lane
 registered to you, on a Sprite unless its brief says `place=local why=<need>`, naming what only
 the Mac has. You never spawn a desk with Agent: a subagent ends with your window. The relay is the

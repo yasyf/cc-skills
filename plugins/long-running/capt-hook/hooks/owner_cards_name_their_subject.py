@@ -28,20 +28,18 @@ PICKS = {"picks": ["Keep them ours", "Open them"], "recommended": "Keep them our
 LAND_PR = "https://github.com/yasyf/cc-skills/pull/2196"
 
 JUDGE = script_module("long_running/judge")
-NAMES_PR = re.compile(r"(?i)(?<![\w/&])#\d{2,}\b|/pull/\d+|\bPR \d+\b")
 UNNAMED = 'Name the feature: a card\'s title and first sentence say what it is about, and this one opens with "{opener}". Edit the reply to name it.'
-BARE_PR = "A pick card about a PR passes it in `prs`, which gives him its link, CI, description and four lines: edit the reply to add the PR's url to `prs`."
 UNANSWERED = "A post to the owner names the concrete things it changes and answers the first question he will ask, so nothing posted. Answer the question below in the text and send again, or open a line with `Unproven:` for a fact nobody has yet."
 BARE_ID = re.compile(r"(?i)(?<![\w/.:-])#?\d{6,}\b|\bSentry\s+#?\d+\b")
 RECORD_NUMBER = re.compile(r"(?is)(<!--.*?-->|\[[^\]]*\]\([^)]*\)|https?://\S+|\bSentry\s+#?\d+\b)|\s*\(#?(\d{6,})\)|\s*(?<![\w/.:=-])#?(\d{6,})\b(?!\.\d)")
 RECORDS_MOVED = "Warning, nothing was blocked: {numbers} moved out of what he reads into a hidden cite, since a cci record number has no page. If one is a real count, edit this reply with its `id`."
-BARE_NUMBER = "Warning, nothing was blocked: a bare id shows him no page. Make each one below a link, and name no cci record number at all."
+BARE_NUMBER = "Nothing posted: a bare id shows him no page. Make each one below a link, and name no cci record number at all."
 TAP_WORDS = re.compile(r"(?i)\b(?:tap|taps|tapping|(?:wait|waits|waiting|blocked) (?:on|for) (?:you|your|a yes or no|yes or no)|needs? a yes or no|yes or no from you|your (?:yes|no|picks?|answers?|word))\b|\byes or no\?|(?<!release )\bcards?\b")
-CARDLESS = "Warning, nothing was blocked: the words below read as asking him to tap and this post carries no card. If something waits on him, pass it in `picks` or `prs`, or `options` or `--tap-pr` on a lane's status card, and edit this reply with its `id`."
+CARDLESS = "Nothing posted: the words below read as asking him to tap and this post carries no card. If something waits on him, pass it in `picks` or `prs`, or `options` or `--tap-pr` on a lane's status card, and edit this reply with its `id`."
 ALERT_HOST = r"[^)|>\s]*(?:sentry\.io/|datadoghq\.com/monitors|slack\.com/archives)[^)|>\s]*"
 LABELLED_ALERT = re.compile(rf"\]\(<?https://{ALERT_HOST}>?\)|<https://{ALERT_HOST}\|")
 INCIDENT = re.compile(r"(?i)\bincident\b")
-BARE_ALERT = "Warning, nothing was blocked: an incident line carries the alert's Slack message and its Sentry or Datadog issue as bare URLs so Slack unfurls them, and a label hides the URL. Write each one out."
+BARE_ALERT = "Nothing posted: an incident line carries the alert's Slack message and its Sentry or Datadog issue as bare URLs so Slack unfurls them, and a label hides the URL. Write each one out."
 SHORT_WORDS = 12
 WHOLE_POST = "He reads the post below whole, with its urls, links and picks."
 CHANGE = re.compile(r"(?i)\b(?:add|chang|clean|delet|drop|fix|migrat|mov|refactor|remov|renam|replac|rewrit|split)\w*")
@@ -49,7 +47,7 @@ DRAW_SCRIPT = "draw.zsh"
 NAMED_PR = re.compile(r"(?i)(?<![\w/&])#(\d{2,})\b|/pull/(\d+)|\bPR (\d+)\b")
 PORTS_READ = f"{LR} board ports"
 PORT_OPENER = "Port, old tree to new: dev "
-PORT_UNSAID = f"Warning, nothing was blocked: a post naming a forward port opens its title with `{PORT_OPENER}#` and the number of the dev PR it ports. Open this one that way for PR {{sources}}."
+PORT_UNSAID = f"Nothing posted: a post naming a forward port opens its title with `{PORT_OPENER}#` and the number of the dev PR it ports. Open this one that way for PR {{sources}}."
 ASK_OWNER = CommandSchema(
     "lr",
     operands=(Operand("words", count="*"),),
@@ -74,7 +72,7 @@ STATUS_POST = f"/plugins/cc-slack/bin/cc-slack dm-status --thread 1793829658.340
 SENTRY_LINK = "https://poetic.sentry.io/issues/4821"
 SET_OPTIONS = "set-options"
 SET_EVIDENCE = "A coding agent is about to send this card to the owner. Each url in `prs` draws on the card with its title and what it changes for a user, and its `diagram`, an architecture doc, draws as the architecture diagram component."
-SET_UNNAMED = "Warning, nothing was blocked: this card leaves out what he needs to pick. Give each set member its PR link and what it does for a user, pass `diagram` when it compares designs, name the branch of a code pick in `build`, and say what a thing the pick splits or shares is for, from the model doc."
+SET_UNNAMED = "Nothing posted: this card leaves out what he needs to pick. Give each set member its PR link and what it does for a user, pass `diagram` when it compares designs, name the branch of a code pick in `build`, and say what a thing the pick splits or shares is for, from the model doc."
 BUGS_TITLE = "Pending next-tree bugs: what each needs from you"
 BUGS_BODY = "Seven things wait on you, and the old-chat blocker waits on lanes."
 BUGS_OPTIONS = ["Tap all four ready fixes", "Tap them after the old-chat fixes land", "Hold all of them"]
@@ -109,33 +107,16 @@ def unnamed_opener(evt: BaseHookEvent) -> str | None:
     Event.PreToolUse,
     only_if=[Bound(), Tool(REPLY)],
     tests={
-        Input(tool=REPLY, tool_input={"title": "This adds three pieces of API. Keep them to our own apps?", "md": "Our apps call them.", **PICKS}, state=BOUND): Warn(pattern=r'Name the feature:[\s\S]*"This"'),
-        Input(tool=REPLY, tool_input={"title": "Keep the board API private?", "md": "It adds three calls.", **PICKS}, state=BOUND): Warn(pattern=r'"It"'),
-        Input(tool=REPLY, tool_input={"title": "The relay fix", "md": "The change is live.", "prs": [LAND_PR]}, state=BOUND): Warn(pattern=r'"The change"'),
+        Input(tool=REPLY, tool_input={"title": "This adds three pieces of API. Keep them to our own apps?", "md": "Our apps call them.", **PICKS}, state=BOUND): Block(pattern=r'Name the feature:[\s\S]*"This"'),
+        Input(tool=REPLY, tool_input={"title": "Keep the board API private?", "md": "It adds three calls.", **PICKS}, state=BOUND): Block(pattern=r'"It"'),
+        Input(tool=REPLY, tool_input={"title": "The relay fix", "md": "The change is live.", "prs": [LAND_PR]}, state=BOUND): Block(pattern=r'"The change"'),
         Input(tool=REPLY, tool_input={"title": "Keep the board API private?", "md": "The board API adds three calls.", **PICKS}, state=BOUND): Allow(),
         Input(tool=REPLY, tool_input={"title": "This landed", "md": "It is live."}, state=BOUND): Allow(),
     },
 )
 def cards_name_their_subject(evt: BaseHookEvent) -> HookResult | None:
     if is_card(evt) and (opener := unnamed_opener(evt)):
-        return evt.context("Warning, nothing was blocked: " + UNNAMED.format(opener=opener))
-    return None
-
-
-@on(
-    Event.PreToolUse,
-    only_if=[Bound(), Tool(REPLY)],
-    tests={
-        Input(tool=REPLY, tool_input={"title": "Land #49722 tonight?", "md": "Its checks passed.", **PICKS}, state=BOUND): Warn(pattern=r"A pick card about a PR passes it in `prs`"),
-        Input(tool=REPLY, tool_input={"title": "Land the relay fix?", "md": "Its checks passed on PR 49722.", **PICKS}, state=BOUND): Warn(pattern=r"`prs`"),
-        Input(tool=REPLY, tool_input={"title": "Land #49722 tonight?", "md": "Its checks passed.", "prs": [LAND_PR], **PICKS}, state=BOUND): Allow(),
-        Input(tool=REPLY, tool_input={"title": "Land the relay fix?", "md": "Its checks passed.", **PICKS}, state=BOUND): Allow(),
-        Input(tool=REPLY, tool_input={"title": "#49722 landed", "md": "Its checks passed.", "status": "done"}, state=BOUND): Allow(),
-    },
-)
-def pick_cards_pass_their_prs(evt: BaseHookEvent) -> HookResult | None:
-    if evt._tool_input.get("picks") and not evt._tool_input.get("prs") and NAMES_PR.search(given(evt, "title") + "\n" + given(evt, "md")):
-        return evt.context("Warning, nothing was blocked: " + BARE_PR)
+        return evt.block(UNNAMED.format(opener=opener))
     return None
 
 
@@ -239,17 +220,17 @@ def card_about(title: str, body: str, commands: dict[str, object]) -> Input:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", SLACK_CARD, *DM_TOOLS)],
     tests={
-        card_about("Land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        card_about("Land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Block(pattern=r"for PR 49412\."),
         card_about("Port, old tree to new: dev #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
         card_about("Port, old tree to new: dev [#49412](https://github.com/Forge-AI/monorepo/pull/49412): land it?", "See [#50254](https://github.com/Forge-AI/monorepo/pull/50254).", {PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
-        card_about("port of #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
-        card_about("Land it?", "See https://github.com/Forge-AI/monorepo/pull/50254.", {PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        card_about("port of #49412: land #50254?", "Its checks passed.", {PORTS_READ: json.dumps({"50254": 49412})}): Block(pattern=r"for PR 49412\."),
+        card_about("Land it?", "See https://github.com/Forge-AI/monorepo/pull/50254.", {PORTS_READ: json.dumps({"50254": 49412})}): Block(pattern=r"for PR 49412\."),
         card_about("Land #50333?", "Its checks passed.", {PORTS_READ: "{}"}): Allow(),
         card_about("Land #50254?", "Its checks passed.", {PORTS_READ: (1, "store unreadable")}): Warn(pattern=r"could not read"),
         card_about("Relay fix", "Its checks passed.", {}): Allow(),
         Input(command="lr ask-owner --title 'Land PR 50254?' --port-of 49412 --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
         Input(command="lr ask-owner --title 'Land PR 50254?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Allow(),
-        Input(command="lr ask-owner --title 'Land PR 50254 before PR 50333?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Warn(pattern=r"for PR 49412\."),
+        Input(command="lr ask-owner --title 'Land PR 50254 before PR 50333?' --option 'Land :: It goes.' --option 'Hold :: It waits.' --nothing-to-build pick", env=HOOK_ENV, commands={PORTS_READ: json.dumps({"50254": 49412})}): Block(pattern=r"for PR 49412\."),
         Input(command="ls -la", env=HOOK_ENV): Allow(),
     },
 )
@@ -266,7 +247,7 @@ def posts_say_when_they_name_a_port(evt: BaseHookEvent) -> HookResult | None:
         return evt.context(reads.warning("posts_say_when_they_name_a_port"))
     opened = lr_opened(evt, sources)
     unsaid = [source for source in dict.fromkeys(sources.values()) if source not in opened and not re.search(rf"(?i){re.escape(PORT_OPENER)}\[?#{source}\b", text)]
-    return evt.context(PORT_UNSAID.format(sources=", ".join(map(str, unsaid)))) if unsaid else None
+    return evt.block(PORT_UNSAID.format(sources=", ".join(map(str, unsaid)))) if unsaid else None
 
 
 def describes_change(text: str) -> bool:
@@ -344,10 +325,10 @@ def asking_card(evt: BaseHookEvent, reads: Reads) -> dict | None:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD)],
     tests={
-        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNBUILT_PICK): Warn(pattern=r"name the branch of a code pick[\s\S]*Tap all four ready fixes[\s\S]*names no branch"),
-        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNNAMED_SET): Warn(pattern=r"^Warning, nothing was blocked: this card leaves out[\s\S]*Tap all four ready fixes[\s\S]*Name each of the four ready fixes"),
-        Input(tool=SLACK_CARD, tool_input={"card": json.loads(BUGS_CARD)}, env=HOOK_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),
-        Input(command=f"cc-slack dm-status --card '{BUGS_CARD}'", env=LANE_ENV, commands=UNNAMED_SET): Warn(pattern=r"Tap all four ready fixes"),
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNBUILT_PICK): Block(pattern=r"name the branch of a code pick[\s\S]*Tap all four ready fixes[\s\S]*names no branch"),
+        reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands=UNNAMED_SET): Block(pattern=r"^Nothing posted: this card leaves out[\s\S]*Tap all four ready fixes[\s\S]*Name each of the four ready fixes"),
+        Input(tool=SLACK_CARD, tool_input={"card": json.loads(BUGS_CARD)}, env=HOOK_ENV, commands=UNNAMED_SET): Block(pattern=r"Tap all four ready fixes"),
+        Input(command=f"cc-slack dm-status --card '{BUGS_CARD}'", env=LANE_ENV, commands=UNNAMED_SET): Block(pattern=r"Tap all four ready fixes"),
         reply("Land the relay fix?", "It stops a dropped reply when a chat reconnects.", given={"prs": [LAND_PR], **PICKS}, commands=judged()): Allow(),
         reply("Land the two relay fixes?", f"[#2196]({LAND_PR}) stops a dropped reply. [#2197](https://github.com/yasyf/cc-skills/pull/2197) shows the retry button.", given={"picks": ["Land both", "Hold both"], "recommended": "Land both"}, commands=judged()): Allow(),
         reply(BUGS_TITLE, BUGS_BODY, given=BUGS_PICKS, commands={"uv run --no-project --quiet": (1, "overloaded")}): Allow(),
@@ -363,7 +344,7 @@ def options_name_their_set(evt: BaseHookEvent) -> HookResult | None:
         return None
     env = reqenv.env_map()
     verdict = judge_call(JUDGE, SET_OPTIONS, SET_EVIDENCE, json.dumps(card), backend=JUDGE.backend_from(env), drive=which[1], timeout=reqenv.clamp_timeout(FOREGROUND_JUDGE_SECONDS), env=env)
-    return evt.context(fenced(SET_UNNAMED, [f'option: "{verdict.artifact_phrase}"', verdict.sentence])) if verdict and verdict.flagged else None
+    return evt.block(fenced(SET_UNNAMED, [f'option: "{verdict.artifact_phrase}"', verdict.sentence])) if verdict and verdict.flagged else None
 
 
 @on(
@@ -392,11 +373,11 @@ def reply_record_numbers_move_to_hidden_cites(evt: BaseHookEvent) -> HookResult 
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Alert", "Sentry 4821 fired again."): Warn(pattern=r"^Warning, nothing was blocked: a bare id[\s\S]*Sentry 4821"),
+        reply("Alert", "Sentry 4821 fired again."): Block(pattern=r"^Nothing posted: a bare id[\s\S]*Sentry 4821"),
         reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
-        reply("Alert", "It fired.", given={"action": "Read record #427030."}): Warn(pattern=r"a bare id[\s\S]*#427030"),
+        reply("Alert", "It fired.", given={"action": "Read record #427030."}): Block(pattern=r"a bare id[\s\S]*#427030"),
         reply("Alert", "Record #427030 says so."): Allow(),
-        Input(command="cc-slack dm-status 'Record #427030 says so.'", env=LANE_ENV): Warn(pattern=r"#427030"),
+        Input(command="cc-slack dm-status 'Record #427030 says so.'", env=LANE_ENV): Block(pattern=r"#427030"),
         Input(command="cc-slack reply --channel D0B6Z --text 'Sentry 4821 fired again.'", env=HOOK_ENV): Allow(),
         Input(tool=REPLY, tool_input={"title": "Alert", "md": "Sentry 4821 fired again."}): Allow(),
     },
@@ -405,33 +386,36 @@ def posts_link_the_ids_they_name(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
     moved = hide_records(given(evt, "md"))[1] if evt.tool_name == REPLY else []
-    bare = [hit for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(readable(post_text(evt, Reads(evt, which))))) if hit.lstrip("#") not in moved]
-    return evt.context(fenced(BARE_NUMBER, bare)) if bare else None
+    reads = Reads(evt, which)
+    bare = [hit for hit in dict.fromkeys(found[0] for found in BARE_ID.finditer(readable(post_text(evt, reads)))) if hit.lstrip("#") not in moved]
+    if not bare:
+        return None
+    return evt.context(reads.warning("posts_link_the_ids_they_name")) if reads.failures else evt.block(fenced(BARE_NUMBER, bare))
 
 
 @on(
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Your list", REMINDER): Warn(pattern=r"^Warning, nothing was blocked: the words below[\s\S]*wait on your"),
+        reply("Your list", REMINDER): Block(pattern=r"^Nothing posted: the words below[\s\S]*wait on your"),
         reply("Your list", REMINDER, given={"prs": [LAND_PR]}): Allow(),
         reply("Your list", REMINDER, given={"picks": ["Land", "Hold"], "recommended": "Land"}): Allow(),
-        reply("Support reply", WAITS_ON_HIM): Warn(pattern=r"waits on your"),
-        reply("Support reply", "It needs your yes before it posts."): Warn(pattern=r"your yes"),
-        reply("Support reply", "This is blocked on you."): Warn(pattern=r"blocked on you"),
-        reply("Support reply", "Your pick decides the wording."): Warn(pattern=r"Your pick"),
-        reply("Support reply", "Send the reply, yes or no?"): Warn(pattern=r"yes or no\?"),
-        reply("Pick card", "PR card: redrawing as our own Block Kit."): Warn(pattern=r"```\ncard\n```"),
+        reply("Support reply", WAITS_ON_HIM): Block(pattern=r"waits on your"),
+        reply("Support reply", "It needs your yes before it posts."): Block(pattern=r"your yes"),
+        reply("Support reply", "This is blocked on you."): Block(pattern=r"blocked on you"),
+        reply("Support reply", "Your pick decides the wording."): Block(pattern=r"Your pick"),
+        reply("Support reply", "Send the reply, yes or no?"): Block(pattern=r"yes or no\?"),
+        reply("Pick card", "PR card: redrawing as our own Block Kit."): Block(pattern=r"```\ncard\n```"),
         reply("Delete prompt", THIRD_PARTY): Allow(),
         reply("Live", f"The Platy release card is up at {CARD_LINK}."): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER}}, env=HOOK_ENV): Warn(pattern=r"carries no card"),
+        Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER}}, env=HOOK_ENV): Block(pattern=r"carries no card"),
         Input(tool=SLACK_CARD, tool_input={"card": {"title": "Your list", "body": REMINDER, "options": ["Land", "Hold"]}}, env=HOOK_ENV): Allow(),
-        Input(command=STATUS_POST, env=LANE_ENV): Warn(pattern=r"waits on your"),
+        Input(command=STATUS_POST, env=LANE_ENV): Block(pattern=r"waits on your"),
         Input(command=f"cc-slack dm-status --tap-pr {LAND_PR} '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
         Input(command=f"cc-slack dm-status --about ask-1 '{WAITS_ON_HIM}'", env=LANE_ENV): Allow(),
-        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM}, env=LANE_ENV): Warn(pattern=r"carries no card"),
+        Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM}, env=LANE_ENV): Block(pattern=r"carries no card"),
         Input(tool=SLACK_CARD, tool_input={"text": WAITS_ON_HIM, "tap_prs": [LAND_PR]}, env=LANE_ENV): Allow(),
-        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Warn(pattern=r"carries no card"),
+        Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: HIS_DM}): Block(pattern=r"carries no card"),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "D0B6Z", "text": WAITS_ON_HIM}, env=LANE_DM_ENV, commands={PEER: json.dumps({"channel_id": "D0B6Z", "peer": "U0SOMEONE", "peer_name": "Sam"})}): Allow(),
         Input(tool=DM_TOOLS[1], tool_input={"channel_id": "C0RELEASES1", "text": WAITS_ON_HIM}, env=LANE_DM_ENV): Allow(),
         Input(tool=REPLY, tool_input={"title": "Pick card", "md": "The card redraws."}): Allow(),
@@ -443,16 +427,18 @@ def posts_naming_a_card_carry_it(evt: BaseHookEvent) -> HookResult | None:
         return None
     reads = Reads(evt, which)
     named = TAP_WORDS.search(readable(post_text(evt, reads) or lane_dm_words(evt, reads)))
-    return evt.context(fenced(CARDLESS, [named[0]])) if named and not carries_cards(evt, reads) else None
+    if not named or carries_cards(evt, reads):
+        return None
+    return evt.context(reads.warning("posts_naming_a_card_carry_it")) if reads.failures else evt.block(fenced(CARDLESS, [named[0]]))
 
 
 @on(
     Event.PreToolUse,
     only_if=[Bound(), Tool(REPLY, SLACK_CARD, *DM_TOOLS)],
     tests={
-        reply("Incident: run timeline", f"It fails. [Sentry 4821]({SENTRY_LINK})"): Warn(pattern=r"bare URLs"),
-        reply("Incident: run timeline", f"It fails. <{SENTRY_LINK}|Sentry 4821>"): Warn(pattern=r"bare URLs"),
-        reply("Incident: run timeline", "It fails. [alert](https://acme.slack.com/archives/C1/p1793833513167859)"): Warn(pattern=r"bare URLs"),
+        reply("Incident: run timeline", f"It fails. [Sentry 4821]({SENTRY_LINK})"): Block(pattern=r"bare URLs"),
+        reply("Incident: run timeline", f"It fails. <{SENTRY_LINK}|Sentry 4821>"): Block(pattern=r"bare URLs"),
+        reply("Incident: run timeline", "It fails. [alert](https://acme.slack.com/archives/C1/p1793833513167859)"): Block(pattern=r"bare URLs"),
         reply("Incident: run timeline", f"It fails. {SENTRY_LINK} https://acme.slack.com/archives/C1/p1793833513167859"): Allow(),
         reply("Incident: run timeline", f"It fails. <{SENTRY_LINK}>"): Allow(),
         reply("Alert", f"[Sentry 4821]({SENTRY_LINK}) fired again."): Allow(),
@@ -463,4 +449,4 @@ def incident_lines_carry_bare_links(evt: BaseHookEvent) -> HookResult | None:
     if not (which := drive_args(evt)):
         return None
     posted = post_text(evt, Reads(evt, which))
-    return evt.context(BARE_ALERT) if INCIDENT.search(posted) and LABELLED_ALERT.search(posted) else None
+    return evt.block(BARE_ALERT) if INCIDENT.search(posted) and LABELLED_ALERT.search(posted) else None
