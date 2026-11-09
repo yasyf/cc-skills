@@ -185,6 +185,7 @@ func wired(ctx context.Context, a *app.App, env lanes.Env, s *store.Store, lrVer
 		promptWatch := prompts.NewWatch(a, env.Config.Drive)
 		checks = append(checks,
 			(&background{name: "waste-report", every: wasteEvery, run: report.Pass, store: s, post: post, log: a.Log, to: wasteConfig.Lane}).Check,
+			(&background{name: "unanswered-owner", every: unansweredEvery, run: unanswered{runner: a.Runner, store: s, post: post, now: a.Now}.raise, store: s, post: post, log: a.Log}).Check,
 			(&watch.Stalls{Store: s, Drive: env.Config.Drive, Runner: a.Runner, Post: post, Log: a.Log}).Check,
 			(&lanes.MutePushback{Env: env, Log: a.Log}).Check,
 			(&background{name: "relay-rejoin", every: rejoinEvery, run: rejoin.Pass, store: s, post: post, log: a.Log}).Check,
