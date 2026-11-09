@@ -51,7 +51,12 @@ func throughTheTool(t *testing.T, entry drive.Entry, fake *shelltest.Fake, field
 	if err := os.WriteFile(filepath.Join(config, "long-running", "drives", "d.json"), encoded, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	fields["title"], fields["md"] = "The answer", "The body."
+	if fields["title"] == nil {
+		fields["title"] = "The answer"
+	}
+	if fields["md"] == nil {
+		fields["md"] = "The body."
+	}
 	args, err := json.Marshal(fields)
 	if err != nil {
 		t.Fatal(err)

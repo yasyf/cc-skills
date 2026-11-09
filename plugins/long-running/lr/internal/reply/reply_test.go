@@ -167,7 +167,7 @@ func TestOneReplyThroughTheMCPToolReachesEverySurfaceUnderOneID(t *testing.T) {
 	fake := scripted()
 	call, err := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{"name": "reply", "arguments": map[string]any{
 		"title": "Land the relay fix tonight?", "md": "Its checks passed.\n\n| check | state |\n|---|---|\n| lr-go | green |",
-		"picks": []string{"Land it", "Hold it"}, "recommended": "Land it", "prs": []string{landPR},
+		"picks": []string{"Land it :: it lands tonight", "Hold it :: it waits for you"}, "recommended": "Land it", "prs": []string{landPR}, "unprompted": true,
 	}}})
 	if err != nil {
 		t.Fatal(err)
@@ -1538,9 +1538,9 @@ func TestACardLinkInSlackLinksTheCardsOneMessageAndCopiesNothing(t *testing.T) {
 	}
 }
 
-func TestAnUnknownCardLinkDrawsItsWordsInSlack(t *testing.T) {
+func TestAnUnknownCardLinkDrawsItsWordsAndAnOpenOneLinksItsMessage(t *testing.T) {
 	r := Reply{OpenCards: []board.OpenCard{{ID: "card-a", Title: "Card A", URL: cardMessage}}}
-	if got := r.inSlack("[the gone one](card:card-b) and [](card:card-a)"); got != "the gone one and Card A" {
+	if got := r.inSlack("[the gone one](card:card-b) and [](card:card-a)"); got != "the gone one and [Card A]("+cardMessage+")" {
 		t.Fatalf("inSlack = %q", got)
 	}
 }
