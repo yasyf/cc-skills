@@ -168,27 +168,6 @@ def test_status_data_keeps_only_open_work() -> None:
     assert set(data["prs"]) == {"yasyf/cc-skills#9"}
 
 
-def test_rollup_card_orders_by_due_then_created() -> None:
-    card = render.rollup_card(sample())
-    assert card["title"] == "2 open: demo"
-    assert [fact["label"] for fact in card["facts"]] == [
-        "Ship the drive rewrite and install it",
-        render.cut(sample()["orders"]["o3"]["text"], 60),
-    ]
-    assert card["facts"][0]["value"].startswith("working · due ")
-    assert card["facts"][0]["value"].endswith("https://github.com/yasyf/cc-skills/pull/9")
-    assert card["facts"][1]["value"] == "open"
-    assert all(len(fact["label"]) <= 60 for fact in card["facts"])
-
-
-def test_rollup_card_caps_facts_at_ten() -> None:
-    drive = state.new_drive("busy", "coordinator", None, "/work", None)
-    drive["orders"] = {f"o{n}": order(f"order {n}", created=f"2026-11-09T08:{n:02d}:00-08:00") for n in range(1, 15)}
-    card = render.rollup_card(drive)
-    assert card["title"] == "14 open: busy"
-    assert [fact["label"] for fact in card["facts"]] == [f"order {n}" for n in range(1, 11)]
-
-
 def test_when_names_the_day_for_other_days() -> None:
     tomorrow = state.now() + timedelta(days=1)
     assert render.when(state.stamp(tomorrow)).startswith(tomorrow.strftime("%b %-d"))

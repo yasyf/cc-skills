@@ -26,7 +26,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
             "started": data["roles"]["communicator"]["started"],
         }
     }
-    assert data["slack"] == {"channel": "D123", "status_card": None, "watch": []}
+    assert data["slack"] == {"channel": "D123", "page": None, "watch": []}
 
 
 def test_start_needs_a_role(run: Run) -> None:
@@ -368,14 +368,21 @@ def test_status_renders_stored_fields_when_github_fails(
     assert "Forge-AI/monorepo#42 open, checks pending, review none" in out
 
 
-def test_context_and_rollup(run: Run, with_pr: str) -> None:
+def test_context_lists_open_orders(run: Run, with_pr: str) -> None:
     code, out = run("context")
     assert code == 0
     assert "o1 open: land it" in out
-    code, out = run("rollup")
-    card = json.loads(out)
-    assert card["title"] == "1 open: demo"
-    assert card["facts"] == [{"label": "land it", "value": f"open · {PR}"}]
+
+
+def test_view_prints_the_model_and_its_page(run: Run, with_pr: str) -> None:
+    code, out = run("view", "--json")
+    model = json.loads(out)
+    assert code == 0
+    assert (model["drive"], model["cards"]) == ("demo", "live")
+    assert [group["features"][0]["title"] for group in model["status"] if group["features"]] == ["land it"]
+    code, out = run("view")
+    assert "## Waiting on you" in out
+    assert "land it" in out
 
 
 def test_drive_flag_picks_among_several(run: Run, demo: str) -> None:

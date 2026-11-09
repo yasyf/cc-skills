@@ -29,7 +29,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "updated": state.stamp(T0)}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "state": "running", "said": None, "updated": state.stamp(T0)}
     return {**base, **overrides}
 
 

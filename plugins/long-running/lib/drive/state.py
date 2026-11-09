@@ -110,7 +110,7 @@ def new_drive(name: str, role: str, session: str | None, cwd: str, channel: str 
     return {
         "name": name,
         "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
-        "slack": {"channel": channel, "status_card": None, "watch": []},
+        "slack": {"channel": channel, "page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
         "jobs": {},

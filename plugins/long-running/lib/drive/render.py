@@ -38,7 +38,6 @@ SUBSCRIBE = {
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
-ROLLUP_FACTS = 10
 
 
 def cut(text: str, limit: int) -> str:
@@ -55,10 +54,6 @@ def when(iso: str) -> str:
     if moment.date() == now().date():
         return clock(moment)
     return f"{moment.strftime('%b %-d')} {clock(moment)}"
-
-
-def order_prs(drive: dict, order_id: str) -> dict[str, dict]:
-    return {key: pr for key, pr in drive["prs"].items() if pr["order"] == order_id}
 
 
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
@@ -166,30 +161,3 @@ def status_text(drive: dict, pr_fields: str) -> str:
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))
     return "\n".join(lines)
-
-
-def due_order(item: tuple[str, dict]) -> tuple:
-    order_id, order = item
-    due = order.get("due")
-    return (due is None, parse_time(due) if due else parse_time(order["created"]), int(order_id[1:]))
-
-
-def rollup_value(drive: dict, order_id: str, order: dict) -> str:
-    parts = [order["state"]]
-    if order.get("due"):
-        parts.append(f"due {when(order['due'])}")
-    parts.extend(pr["url"] for pr in order_prs(drive, order_id).values())
-    return " · ".join(parts)
-
-
-def rollup_card(drive: dict) -> dict:
-    """The cc-slack status card summing up every open order, oldest due first."""
-    orders = sorted(open_orders(drive).items(), key=due_order)
-    return {
-        "status": "info",
-        "title": f"{len(orders)} open: {drive['name']}",
-        "facts": [
-            {"label": cut(order["text"], 60), "value": rollup_value(drive, order_id, order)}
-            for order_id, order in orders[:ROLLUP_FACTS]
-        ],
-    }

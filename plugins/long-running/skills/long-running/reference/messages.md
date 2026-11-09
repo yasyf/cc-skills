@@ -38,8 +38,9 @@ it shows its ELI5 first, then what changes for him, what he will hate most, wher
 differs from the plan when it does, and its Show me picture. Its words come from each PR's title
 and body, with record ids dropped, so a bad card is fixed in the PR body, never in the message.
 
-The status card at his DM root is drawn, not written: after each `report`, post `drive rollup`'s
-card with `slack_dm_status(card=…, root_only=true)`.
+**The status page**, which you never write: `drive watch` redraws the drive's canvas, a tab named
+after the drive in his DM with the app, within a minute of any change. It lists what waits on him
+first, then each feature by state. Nothing to post; a line that says where things stand links it.
 
 ## When it goes out
 
