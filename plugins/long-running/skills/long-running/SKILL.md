@@ -23,11 +23,16 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 
 ## Start or resume
 
-1. `drive start <name> --channel <his DM channel id>` creates the drive or rebinds it to this
-   session, and prints its open orders. A restart, a resume and a compaction all land here;
-   the `SessionStart` hook prints the same block for you after a compaction.
-2. Hold his DM: `slack_watch(channel_id=<DM>)` with no thread. His messages and taps arrive
-   as `slack.message` and `slack.action` events.
+1. `drive start <name> --channel <his DM channel id> [--watch <channel id>]...` creates the
+   drive or rebinds it to this session, and prints the channels it holds and its open orders.
+   A drive watches more than his DM: each alert channel it reads is a `--watch`, kept in the
+   drive across restarts, and a later `--watch` adds one. A restart, a resume and a compaction
+   all land here; the `SessionStart` hook prints the same block for you after a compaction.
+2. Hold his DM and every channel the `Hold with slack_watch` line names: one
+   `slack_watch(channel_id=<id>)` each, with no thread. His messages and taps arrive as
+   `slack.message` and `slack.action` events, and alerts as `slack.message` events from their
+   channels. One session holds a channel at a time, so a channel another session holds is
+   not yours until that session runs `cc-slack unfollow` ([reference/migration.md](reference/migration.md)).
 3. Arm `Monitor` with `drive watch`, `timeout_ms` 1800000, and arm it again at every expiry
    notice. A second copy exits on its own, so arming twice is harmless.
 4. `cci drive use <name>` and `cci subscribe --reader root`, so asks from other sessions
@@ -42,7 +47,7 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | Input | Do, in this turn |
 |---|---|
 | A message from him | First call: `slack_pickup` on it, so he sees eyes and a working line. Then classify it: order, question, ruling, answer, or chatter, and do that row. Reply in the thread he wrote in; a terminal message gets its reply in Slack too. |
-| An order | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>`. Start its jobs now, in the order he stated them. Reply within the minute: a bold line restating the order, one sentence on what happens, and when he hears next, set with `--due`. |
+| An order | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>`. Give it to a background job now, in the order he stated them. Every order goes to a job: a past-due one, a one-line one and a session close too. Your own calls for it are reads of `drive`, `cci` and one `gh` call; a loop, an `orca` call, a build or anything else runs in the job. Reply within the minute: a bold line restating the order, one sentence on what happens, and when he hears next, set with `--due`. |
 | A question | If `drive status`, one `gh` read or one transcript read answers it, answer in his thread now. Otherwise start a reader job and answer when it returns. Never make him wait on work he did not ask about. |
 | A ruling on how things should work | `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`. Apply it this turn to every live job it touches (`SendMessage`) and every open card. If it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed. Reply in one line: what changes and when it is live. |
 | An answer or tap on a question card | `answer_add` with the card's question and his pick. Resume the job waiting on it with `SendMessage`. Reply only if something changes for him. |
@@ -139,7 +144,10 @@ symptom is a class fix whose PR deletes the earlier patches.
 
 ## Never
 
-- Never block: a call that can take over 30 seconds runs in the background or in a job.
+- Never do an order's work yourself, a past-due order's included: every order goes to a
+  background job. Your own shell calls are reads of `drive`, `cci` and one `gh` call, beside
+  the transcript reads and `cc-slack check-post` this skill names; a loop, an `orca` call, a
+  build, a close, and anything else runs in a background job, so your turn never blocks.
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
 - Never hold, freeze, or reorder work he did not hold, freeze, or reorder.

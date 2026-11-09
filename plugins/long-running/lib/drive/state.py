@@ -104,7 +104,7 @@ def new_drive(name: str, session: str | None, cwd: str, channel: str | None) -> 
     return {
         "name": name,
         "driver": {"session": session, "cwd": cwd, "started": stamp()},
-        "slack": {"channel": channel, "status_card": None},
+        "slack": {"channel": channel, "status_card": None, "watch": []},
         "orders": {},
         "jobs": {},
         "prs": {},

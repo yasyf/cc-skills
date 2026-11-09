@@ -1,8 +1,11 @@
 # Handle an incident
 
 An active alert is handled in the turn it arrives, before anything else: a Datadog monitor, a Sentry
-alert, an `#outage` or `#alerts-*` report, a page, or his link to one. Nothing comes between the alert
-and its jobs: no question to him, no real-or-ours verdict, no plan mode, no mute as a resolution.
+alert, an `#outage` or `#alerts-*` report, a page, or his link to one. Alerts arrive as `slack.message`
+events from the alert channels the drive holds, each a `drive start --watch` and named on the `Hold
+with slack_watch` line of `drive status`, or as his message in his DM. A drive holding only his DM
+reads only the alerts he forwards. Nothing comes between the alert and its jobs: no question to him,
+no real-or-ours verdict, no plan mode, no mute as a resolution.
 
 ## In the same turn
 
