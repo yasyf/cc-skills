@@ -60,6 +60,20 @@ func SparseCommand(a *app.App) *cobra.Command {
 	return cmd
 }
 
+// WidenLaneDirs checks out the tracked .agents and .claude and each ccx.sparseInclude directory a sparse checkout at top lacks, and names what it added.
+func WidenLaneDirs(ctx context.Context, runner shell.Runner, top string) ([]string, error) {
+	sparse, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "config", "--type=bool", "--default=false", "core.sparseCheckout"}, Dir: top})
+	if err != nil || strings.TrimSpace(sparse.Stdout) != "true" {
+		return nil, err
+	}
+	lane, err := missingLaneDirs(ctx, runner, top)
+	if err != nil || len(lane) == 0 {
+		return nil, err
+	}
+	_, err = runner.Run(ctx, shell.Command{Argv: []string{"git", "sparse-checkout", "add", "--stdin"}, Dir: top, Stdin: strings.Join(lane, "\n") + "\n"})
+	return lane, err
+}
+
 func missingLaneDirs(ctx context.Context, runner shell.Runner, top string) ([]string, error) {
 	included, err := runner.Run(ctx, shell.Command{Argv: []string{"git", "config", "--get-all", "ccx.sparseInclude"}, Dir: top})
 	var unset *shell.ExitError
