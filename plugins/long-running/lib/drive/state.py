@@ -50,6 +50,10 @@ def pid_path(name: str) -> Path:
     return drive_dir(name) / "watch.pid"
 
 
+def cursor_path(name: str) -> Path:
+    return drive_dir(name) / "watch.cursor"
+
+
 def names() -> list[str]:
     base = root()
     if not base.is_dir():
@@ -204,6 +208,19 @@ def append_event(name: str, kind: str, **fields: object) -> dict:
 def events_end(name: str) -> int:
     path = events_path(name)
     return path.stat().st_size if path.exists() else 0
+
+
+def watch_cursor(name: str) -> int:
+    """The events offset the drive's watch has read up to; the log's end for a drive whose watch never ran."""
+    path = cursor_path(name)
+    return int(path.read_text()) if path.exists() else events_end(name)
+
+
+def save_watch_cursor(name: str, offset: int) -> None:
+    path = cursor_path(name)
+    tmp = path.with_name("watch.cursor.tmp")
+    tmp.write_text(f"{offset}\n")
+    os.replace(tmp, path)
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:

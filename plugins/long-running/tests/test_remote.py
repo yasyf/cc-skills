@@ -210,16 +210,22 @@ def test_mail_is_read_only_while_a_remote_lane_is_live(remote: str, monkeypatch:
     assert calls == [RUN]
 
 
-def test_a_failed_mail_read_reports_at_most_every_ten_minutes(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_row(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
     def broken(run: str) -> list[dict]:
+        calls.append(run)
         raise orca.OrcaError("orca orchestration check: runtime_unavailable: no answer")
 
     monkeypatch.setattr(orca, "mail", broken)
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    line = "WATCH lane mail read failed: orca orchestration check: runtime_unavailable: no answer"
-    assert watch.run_pass(watching, T0) == [line]
+    said = "WATCH lane mail read failed {} times in a row: orca orchestration check: runtime_unavailable: no answer"
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
+    assert calls == [RUN] * 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [line]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == [said.format(5)]
 
 
 def test_lane_names_fit_a_sprite() -> None:
