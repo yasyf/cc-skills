@@ -18,7 +18,9 @@ line in his thread linking it. Title: one question in one sentence. Body: at mos
 sentences saying why it matters and what you are doing meanwhile. Two to four options, each
 saying what picking it does. When something waits on his answer, set `waits` to
 `<drive>:<short slug>` and `recommended`; when work continues on your pick, leave both out
-and say in the body which option you are building.
+and say in the body which option you are building. Set `drive` to the drive's name on every
+card: cc-slack reads a `waits` card that names its drive as the drive's question, whose home is
+Slack, and posts it with no cc-present board warning.
 
 **A PR card**, which you never write. `slack_dm_status(tap_prs=[<url>], text=<line>,
 thread_ts=<his thread>)` makes cc-slack draw the card at his DM root from the PR itself
