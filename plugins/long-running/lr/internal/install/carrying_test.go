@@ -2,6 +2,8 @@ package install
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,9 +21,13 @@ func carryingChecks(t *testing.T, tags string, compare map[string]string) (Check
 	return checks, &now
 }
 
-func TestCarryingPicksTheNewestTagWhenItHoldsTheCommit(t *testing.T) {
+const pinPath = "api repos/o/r/contents/plugins/long-running/bin/lr.binrun?ref=long-running--v0.7.100"
+
+var pinned = fmt.Sprintf(`{"content":%q}`, base64.StdEncoding.EncodeToString([]byte("#!/usr/bin/env binrun\n{\"version\":{\"static\":\"0.1394.1\"}}\n")))
+
+func TestCarryingPicksTheNewestTagWhenTheLrItPinsHoldsTheCommit(t *testing.T) {
 	tags := "a\trefs/tags/long-running--v0.7.99\nb\trefs/tags/long-running--v0.7.100\nc\trefs/tags/long-running--v0.7.98\n"
-	checks, _ := carryingChecks(t, tags, map[string]string{"api repos/o/r/compare/abc123...long-running--v0.7.100": `{"status":"ahead"}`})
+	checks, _ := carryingChecks(t, tags, map[string]string{pinPath: pinned, "api repos/o/r/compare/abc123...lr--v0.1394.1": `{"status":"ahead"}`})
 
 	got, err := checks.Carrying(context.Background(), "abc123", func(time.Duration) { t.Fatal("slept with a carrying tag in hand") })
 
@@ -30,8 +36,8 @@ func TestCarryingPicksTheNewestTagWhenItHoldsTheCommit(t *testing.T) {
 	}
 }
 
-func TestCarryingWaitsAnHourForATagAndThenRefuses(t *testing.T) {
-	checks, now := carryingChecks(t, "a\trefs/tags/long-running--v0.7.100\n", map[string]string{"api repos/o/r/compare/abc123...long-running--v0.7.100": `{"status":"behind"}`})
+func TestCarryingWaitsAnHourForATagWhoseLrHoldsTheCommitAndThenRefuses(t *testing.T) {
+	checks, now := carryingChecks(t, "a\trefs/tags/long-running--v0.7.100\n", map[string]string{pinPath: pinned, "api repos/o/r/compare/abc123...lr--v0.1394.1": `{"status":"behind"}`})
 	slept := 0
 
 	_, err := checks.Carrying(context.Background(), "abc123", func(d time.Duration) { slept++; *now = now.Add(d) })

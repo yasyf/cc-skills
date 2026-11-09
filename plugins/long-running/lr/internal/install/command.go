@@ -18,6 +18,7 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/config"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/drive"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/lanes"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/launchd"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/orca"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
@@ -57,6 +58,23 @@ func Command(a *app.App) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&opts.ciRedOK, "ci-red-ok", "", "why this version must run though main's CI has not passed on it")
 	cmd.Flags().StringVar(&opts.carrying, "carrying", "", "wait up to an hour for the first pack tag that carries this commit, update the plugin to it, and install that version")
+	following := &cobra.Command{
+		Use:   "follow",
+		Short: "Install each new long-running tag and cc-slack release within a minute of its merge, and roll back one that does not serve",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return follow(cmd.Context(), a)
+		},
+	}
+	following.AddCommand(&cobra.Command{
+		Use:   "load",
+		Short: "Write the launchd agent that runs lr install follow and bootstrap it",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return loadFollow(cmd, a)
+		},
+	})
+	cmd.AddCommand(following)
 	cmd.AddCommand(&cobra.Command{
 		Use:   "check",
 		Short: "Refuse when this binary could not run this drive: its config, its credentials and every shim's verb",
@@ -157,6 +175,75 @@ func install(ctx context.Context, a *app.App, version string, opts options) (str
 		return "", 0, "", err
 	}
 	return version, generation, text, nil
+}
+
+func follow(ctx context.Context, a *app.App) error {
+	cfg, state, err := lanes.Loaded(a)
+	if err != nil {
+		return err
+	}
+	claude, err := drive.ConfigDir()
+	if err != nil {
+		return err
+	}
+	dir, err := Installs(claude)
+	if err != nil {
+		return err
+	}
+	agents, err := launchd.New(a.Runner, a.Stderr)
+	if err != nil {
+		return err
+	}
+	post := bus.Bus{Drive: cfg.Drive, Lane: lane}
+	checks := Checks{Runner: a.Runner, CCX: a.CCX, Installs: dir, Claude: claude, Now: a.Now}
+	return Follow{
+		Checks: checks,
+		Install: func(ctx context.Context, version string) error {
+			_, _, _, err := install(ctx, a, version, options{ciRedOK: followRedOK})
+			return err
+		},
+		Rollback: func(ctx context.Context, version string) error {
+			if err := Restore(claude, checks.dir(version)); err != nil {
+				return err
+			}
+			s, err := store.Open(filepath.Join(state, lanes.StoreFile))
+			if err != nil {
+				return err
+			}
+			defer func() { _ = s.Close() }()
+			if err := orca.MoveSpritePins(ctx, s, claude, filepath.Join(state, "runner.json"), a.Stderr); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			return agents.Restart(ctx, "com.long-running."+cfg.Drive+".supervisor")
+		},
+		Block: func(ctx context.Context, subject, text string) error {
+			_, err := post.Post(ctx, []string{rootLane}, bus.Escalation{Subject: "install-follow:" + subject, Cause: text})
+			return errors.Join(err, tellInstallDesk(ctx, post, text))
+		},
+		State: filepath.Join(state, "install-follow"),
+		Sleep: time.Sleep,
+	}.Run(ctx)
+}
+
+func loadFollow(cmd *cobra.Command, a *app.App) error {
+	cfg, state, err := lanes.Loaded(a)
+	if err != nil {
+		return err
+	}
+	configPath, err := filepath.Abs(a.ConfigPath)
+	if err != nil {
+		return err
+	}
+	agents, err := launchd.New(a.Runner, cmd.OutOrStdout())
+	if err != nil {
+		return err
+	}
+	return agents.Install(cmd.Context(), launchd.Job{
+		Label:     "com.long-running." + cfg.Drive + ".install-follow",
+		Env:       [][2]string{{"CLAUDE_LONG_RUNNING_DRIVE", cfg.Drive}},
+		Arguments: []string{filepath.Join(agents.Claude, pluginName, pluginLink, "bin", "lr"), "install", "follow", "--config", configPath},
+		Log:       filepath.Join(state, "install-follow.log"),
+	})
 }
 
 func preflight(ctx context.Context, checks Checks, configPath, version string, opts options) []string {
