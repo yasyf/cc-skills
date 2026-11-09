@@ -1,7 +1,7 @@
 import os
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from drive import github, orca, state
@@ -10,6 +10,7 @@ from drive.state import DriveError
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
+FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 LINE_LIMIT = 300
@@ -24,8 +25,21 @@ class Watcher:
     offset: int
     ticked_at: datetime
     read_at: datetime | None = None
-    failure_said: datetime | None = None
-    mail_failure_said: datetime | None = None
+    failures: dict[str, int] = field(default_factory=dict)
+    failure_said: dict[str, datetime] = field(default_factory=dict)
+
+
+def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetime) -> list[str]:
+    """Retry a failed read on the next poll; say so once it fails three times running, then at most every ten minutes."""
+    failures = watcher.failures[source] = watcher.failures.get(source, 0) + 1
+    if failures < FAILURES_BEFORE_SAYING:
+        watcher.read_at = None
+        return []
+    said = watcher.failure_said.get(source)
+    if said and moment - said < FAILURE_EVERY:
+        return []
+    watcher.failure_said[source] = moment
+    return [f"WATCH {source} read failed {failures} times in a row: {error}"]
 
 
 def ids(pr: dict) -> str:
@@ -54,10 +68,8 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         reads = github.fetch(keys)
     except github.GithubError as error:
-        if watcher.failure_said and moment - watcher.failure_said < FAILURE_EVERY:
-            return []
-        watcher.failure_said = moment
-        return [f"WATCH github read failed: {error}"]
+        return read_failed(watcher, "github", error, moment)
+    watcher.failures.pop("github", None)
     lines = []
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
@@ -105,10 +117,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     try:
         messages = orca.mail(data["orca_run"])
     except orca.OrcaError as error:
-        if watcher.mail_failure_said and moment - watcher.mail_failure_said < FAILURE_EVERY:
-            return []
-        watcher.mail_failure_said = moment
-        return [f"WATCH lane mail read failed: {error}"]
+        return read_failed(watcher, "lane mail", error, moment)
+    watcher.failures.pop("lane mail", None)
     lines = []
     with state.edit(watcher.name) as data:
         for message in messages:
@@ -184,7 +194,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: GitHub every 60 s, new events, passed due times, a tick every 30 minutes while he is here."""
+    """One loop of the watch: GitHub every 60 s and again next poll after a failure, new events, passed due times, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -231,11 +241,15 @@ def main(drive_name: str | None = None) -> int:
         return 0
     if not claim(name):
         return 0
-    watcher = Watcher(name, offset=state.events_end(name), ticked_at=state.now())
+    watcher = Watcher(name, offset=state.watch_cursor(name), ticked_at=state.now())
+    state.save_watch_cursor(name, watcher.offset)
     try:
         while True:
+            read_from = watcher.offset
             for line in run_pass(watcher, state.now()):
                 print(line, flush=True)
+            if watcher.offset != read_from:
+                state.save_watch_cursor(name, watcher.offset)
             time.sleep(POLL_SECONDS)
     finally:
         release(name)

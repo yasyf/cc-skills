@@ -106,17 +106,60 @@ def test_github_reads_at_most_once_a_minute(demo: str, monkeypatch: pytest.Monke
     assert len(calls) == 2
 
 
-def test_failed_read_reports_at_most_every_ten_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(keys: list[str]) -> dict:
+def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> list[list[str]]:
+    calls, queue = [], list(outcomes)
+
+    def fetch(keys: list[str]) -> dict[str, dict]:
+        calls.append(keys)
+        if queue.pop(0):
+            return {KEY: read()}
         raise github.GithubError("HTTP 502")
 
-    monkeypatch.setattr(github, "fetch", broken)
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["state"] = "open"
+    monkeypatch.setattr(github, "fetch", fetch)
+    return calls
+
+
+def test_failed_read_retries_next_poll_and_says_so_from_the_third_failure_in_a_row(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = fetch_outcomes(monkeypatch, [False] * 5)
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == ["WATCH github read failed: HTTP 502"]
+    said = "WATCH github read failed {} times in a row: HTTP 502"
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15)] == [[], [], [said.format(3)], []]
+    assert len(calls) == 3
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["WATCH github read failed: HTTP 502"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10, seconds=10)) == [said.format(5)]
+
+
+def test_a_good_read_starts_the_failure_count_over(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    fetch_outcomes(monkeypatch, [False, True, False, False, False])
+    watching = watcher(demo)
+    lines = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 65, 70, 75)]
+    assert lines == [[], [], [], [], ["WATCH github read failed 3 times in a row: HTTP 502"]]
+
+
+def run_watch(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def stop(seconds: float) -> None:
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(watch.time, "sleep", stop)
+    with pytest.raises(KeyboardInterrupt):
+        watch.main(name)
+
+
+def test_a_restarted_watch_replays_events_written_while_none_ran(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    serve(monkeypatch, {})
+    state.append_event(demo, "shown", repo="Forge-AI/monorepo", number=7)
+    run_watch(demo, monkeypatch)
+    assert capsys.readouterr().out == ""
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    run_watch(demo, monkeypatch)
+    assert capsys.readouterr().out == f"TAP Approve {KEY} [o1 j1]\n"
+    assert state.watch_cursor(demo) == state.events_end(demo)
+    run_watch(demo, monkeypatch)
+    assert capsys.readouterr().out == ""
 
 
 def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,12 +286,6 @@ def test_no_drive_exits_quietly(state_root: Path, capsys: pytest.CaptureFixture[
 
 def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     state.pid_path(demo).write_text("999999999\n")
-
-    def stop(seconds: float) -> None:
-        raise KeyboardInterrupt
-
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
-    monkeypatch.setattr(watch.time, "sleep", stop)
-    with pytest.raises(KeyboardInterrupt):
-        watch.main(demo)
+    run_watch(demo, monkeypatch)
     assert not state.pid_path(demo).exists()
