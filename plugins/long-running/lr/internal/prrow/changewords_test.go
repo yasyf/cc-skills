@@ -50,3 +50,13 @@ func TestChangeWordsShowOnlyAUserSentence(t *testing.T) {
 		})
 	}
 }
+
+func TestTheArchExampleARefusalQuotesDrawsOnHisCard(t *testing.T) {
+	row := store.ReviewRow{Description: "## Show me\n\n" + archExample + "\n"}
+	if flaw := showMeFlaw(row); flaw != "" {
+		t.Fatalf("the quoted example is refused: %s", flaw)
+	}
+	if ShowMeDiagram(row) == nil {
+		t.Fatal("the quoted example draws no diagram")
+	}
+}

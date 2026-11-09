@@ -88,15 +88,17 @@ func ShowMeDiagram(row store.ReviewRow) json.RawMessage {
 	return json.RawMessage(found[1])
 }
 
+const archExample = "```arch\n" + `{"arch":1,"name":"inbox","title":"Where an answer goes","nodes":[{"id":"sub","kind":"service","name":"subagent","role":"writes its answer"},{"id":"row","kind":"store","name":"inbox row","role":"one per answer","medium":"disk"}],"edges":[{"from":"sub","to":"row"}]}` + "\n```"
+
 func showMeFlaw(row store.ReviewRow) string {
-	const drawn = "link a screenshot or gif, or carry a fenced arch block (arch/v1) that lr reply draws as the card's picture"
+	const drawn = "link a screenshot or gif, or carry a fenced arch block (arch/v1) that lr reply draws as the card's picture, such as " + archExample
 	shown := ShowMe(row)
 	if shown == "" {
 		return "its PR body has no Show me section; " + drawn
 	}
 	if doc := ShowMeDiagram(row); doc != nil {
 		if problems := arch.Problems(doc); len(problems) > 0 {
-			return "its Show me arch block does not draw: " + strings.Join(problems, "; ")
+			return "its Show me arch block does not draw: " + strings.Join(problems, "; ") + "; a block that draws: " + archExample
 		}
 	} else if !shownImage.MatchString(shown) {
 		return "its Show me section is words alone, and he reads a picture; " + drawn
