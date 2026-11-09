@@ -130,12 +130,12 @@ func firstCells(lines []string) []string {
 func TestAFullRowOnlyWhereABlockerOrAFailureLivesAndOneLineNamingTheRest(t *testing.T) {
 	blocked := Row{"red-sweep-3", "reds", "desired", "red-sweep-3", "red-sweep-3 waits on the coordinator's answer to ask #9", "red-sweep-3: state 6:01 PM", noneRecorded, false}
 	plain := Row{"flake-1", "flakes", "desired", "flake-1", nothingBlocks, "flake-1: state 6:05 PM: fixed", noneRecorded, false}
-	quiet := Row{"old-lane-1", "x", "desired, last report 2:38 PM", nobody, nothingBlocks, "nobody is on it", "old-lane-1 quiet since 2:38 PM", false}
+	quiet := Row{"old-lane-1", "x", "desired, last report 2:38 PM", nobody, nothingBlocks, "nobody is on it", "old-lane-1 no record since 2:38 PM", false}
 	step := Row{"Step 3", "3. The writer", "0 of 2 tasks done", "flake-1, red-sweep-3", nothingBlocks, "-", noneRecorded, false}
 	closed := Row{"user-creds", "creds", "closed since 1:15 AM", nobody, nothingBlocks, "-", "-", true}
 	red := Row{"#46107", "sand: unarchive a chat", "red", nobody, "held by cci #1", "-", "its head is red", false}
 	held := Row{"#45623", "iris: a model pick", "red", "p8a-step7", "held by cci #2", "-", "-", false}
-	quietLine := "Quiet over 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"
+	quietLine := "No record in 2 h, nobody on them now: old-lane-1 (desired, last report 2:38 PM)"
 
 	lanes := section{title: noStepTitle, rows: []Row{blocked, plain, quiet}}.lines(folding{})
 	if got, want := firstCells(lanes[2:]), []string{"| red-sweep-3", "- flake-1: flake-1: state 6:05 PM: fixed", "", quietLine}; !reflect.DeepEqual(got, want) {

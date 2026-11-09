@@ -78,10 +78,17 @@ func rootLane(lane string) bool {
 	return lane == root || lane == "main"
 }
 
-func answeredByRoot(records []client.Record) map[int64]bool {
+func answeredAsks(records []client.Record) map[int64]bool {
+	asker := map[int64]string{}
+	for _, record := range records {
+		asker[record.Seq] = client.Stem(record.Lane)
+	}
 	answered := map[int64]bool{}
 	for _, record := range records {
-		if rootLane(record.Lane) && record.Re != 0 {
+		if record.Re == 0 {
+			continue
+		}
+		if rootLane(record.Lane) || !slices.Contains(machineLanes, record.Lane) && client.Stem(record.Lane) != asker[record.Re] {
 			answered[record.Re] = true
 		}
 	}
@@ -89,7 +96,7 @@ func answeredByRoot(records []client.Record) map[int64]bool {
 }
 
 func OpenAsks(asks, records []client.Record, now time.Time) []Wait {
-	answered := answeredByRoot(records)
+	answered := answeredAsks(records)
 	var waits []Wait
 	for _, ask := range asks {
 		if slices.Contains(notLanes, ask.Lane) || answered[ask.Seq] || now.Sub(ask.At) >= askWindow {

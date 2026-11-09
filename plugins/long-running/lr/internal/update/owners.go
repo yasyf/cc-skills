@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/yasyf/cc-inbox/client"
 )
 
 type Owners struct {
@@ -27,16 +29,15 @@ func ReadOwners(ctx context.Context, src Sources, now time.Time) (Owners, error)
 		return Owners{}, err
 	}
 	v := newView(lanes, records, nil, now)
-	owners := Owners{PRs: map[string][]string{}, Live: slices.Collect(maps.Keys(v.answerers))}
-	for _, row := range openPRRows(rows) {
-		owners.PRs[strconv.Itoa(row.Number)] = aliases(slices.DeleteFunc(v.prLanes(row), func(lane string) bool { return !v.live(lane) }))
-	}
+	live := map[string]bool{}
 	for _, lane := range lanes {
-		if v.live(lane.Name) {
-			owners.Live = append(owners.Live, lane.Name)
+		if registered(lane) {
+			live[lane.Name], live[client.Stem(lane.Name)] = true, true
 		}
 	}
-	slices.Sort(owners.Live)
-	owners.Live = slices.Compact(owners.Live)
+	owners := Owners{PRs: map[string][]string{}, Live: slices.Sorted(maps.Keys(live))}
+	for _, row := range openPRRows(rows) {
+		owners.PRs[strconv.Itoa(row.Number)] = aliases(slices.DeleteFunc(v.prLanes(row), func(lane string) bool { return !live[lane] }))
+	}
 	return owners, nil
 }

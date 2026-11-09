@@ -202,7 +202,7 @@ func TestAQuietLaneHoldingAnOpenPROwnsItsIncidentAndARetiredOrEmptyHandedOneDoes
 
 	found := viewOf([]Lane{parked, retired}, records, nil).incidents(records, testDrive)
 
-	if len(found) != 1 || found[0].unowned() || !strings.HasPrefix(found[0].work.who, "drain-repair-1, quiet since ") || !strings.HasSuffix(found[0].work.who, ", holding #50026") {
+	if len(found) != 1 || found[0].unowned() || !strings.HasPrefix(found[0].work.who, "drain-repair-1, no record since ") || !strings.HasSuffix(found[0].work.who, ", holding #50026") {
 		t.Fatalf("incidents = %+v", found)
 	}
 	if strings.Contains(found[0].work.who, "drain-fix") {

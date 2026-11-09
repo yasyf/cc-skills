@@ -23,7 +23,11 @@ const (
 )
 
 func heardLive(lane Lane, now time.Time) bool {
-	return !slices.Contains(selves, lane.Name) && slices.Contains(posting, lane.State) && !lane.Heard.IsZero() && now.Sub(lane.Heard) < heardWithin
+	return registered(lane) && !lane.Heard.IsZero() && now.Sub(lane.Heard) < heardWithin
+}
+
+func registered(lane Lane) bool {
+	return !slices.Contains(selves, lane.Name) && slices.Contains(posting, lane.State)
 }
 
 func holdsStep(lane Lane, step *plans.Step) bool {

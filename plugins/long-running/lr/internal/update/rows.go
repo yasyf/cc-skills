@@ -414,7 +414,7 @@ func (v view) workOf(lanes []string) work {
 	}
 	for _, lane := range lanes {
 		if row, found := v.byLane[lane]; found && !slices.Contains(selves, lane) && !v.live(lane) {
-			wrong = append(wrong, fmt.Sprintf("%s quiet since %s", lane, pacificText(row.Heard)))
+			wrong = append(wrong, fmt.Sprintf("%s no record since %s", lane, pacificText(row.Heard)))
 		}
 	}
 	for _, lane := range on {

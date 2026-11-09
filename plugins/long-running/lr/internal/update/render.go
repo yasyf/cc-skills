@@ -41,7 +41,7 @@ const (
 	workstreams    = "Lanes by workstream"
 	firstUpdate    = "- The first update from this generator: every row below is new."
 	closedToday    = "Closed today: "
-	quietNow       = "Quiet over 2 h, nobody on them now: "
+	quietNow       = "No record in 2 h, nobody on them now: "
 	updateBytes    = 40_000
 	columns        = "| Row | What it delivers | State | Who is on it right now | What blocks it | What we are doing to unblock it, and by when | What went wrong or slowed it |"
 	divider        = "|---|---|---|---|---|---|---|"
@@ -616,7 +616,7 @@ func (v view) listSections(in Inputs, lanes []Lane, doneLines []string) []listSe
 		deliveredShort = []string{"- " + strings.Join(delivered, ", ")}
 	}
 	return []listSection{
-		{fmt.Sprintf("Registry lanes quiet over %d h", int(quietAfter.Hours())), quietLines, nil},
+		{fmt.Sprintf("Registry lanes with no record in %d h", int(quietAfter.Hours())), quietLines, nil},
 		{"Waiting on the coordinator", waiting, waitCounts(in.Waits)},
 		{"Owed deletions with no live owner", orphaned, orphanedShort},
 		{"Owed deletions past due", late, nil},
