@@ -23,6 +23,8 @@ var (
 	resolverStays  = regexp.MustCompile(`(?i)\bLLM\b[^.\n]*\bresolver\b[^.\n]*\b(?:stays|remains|is kept|keeps)\b|\bkeeps?\b[^.\n]*\bLLM\b[^.\n]*\bresolver\b`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
+	shownView      = regexp.MustCompile("(?is)!\\[[^\\]]*\\]\\(|https?://\\S+\\.(?:png|jpe?g|gif|webp|mp4|mov)\\b|```|\\bbefore\\b.*\\bafter\\b")
+	addsFunction   = regexp.MustCompile(`(?i)\b(?:adds?|new)\b[^.\n]{0,40}\b(?:builtins?|functions?)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
 )
 
@@ -37,7 +39,7 @@ func ChangeWords(row store.ReviewRow) string {
 }
 
 // CardGaps names each line a PR card cannot draw from the row: what it changes
-// for a user, its plan row and its plain-words ELI5.
+// for a user, its plan row, its show-me and its plain-words ELI5.
 func CardGaps(row store.ReviewRow) []string {
 	var gaps []string
 	if flaw := ChangeFlaw(row.ForUsers); flaw != "" {
@@ -49,6 +51,9 @@ func CardGaps(row store.ReviewRow) []string {
 	if flaw := PlanFlaw(row.PlanLine); flaw != "" {
 		gaps = append(gaps, "the plan row: "+flaw)
 	}
+	if flaw := showMeFlaw(row); flaw != "" {
+		gaps = append(gaps, "its show-me: "+flaw)
+	}
 	if ELI5Words(row) == "" {
 		gaps = append(gaps, "its plain-words ELI5: the reviewer bot has posted none and the body has no Context section")
 	}
@@ -56,6 +61,27 @@ func CardGaps(row store.ReviewRow) []string {
 		gaps = append(gaps, "that the LLM resolver stays: it names a loop breaker, so its Summary or Context says in plain words that the LLM loop resolver building the initial DAG stays")
 	}
 	return gaps
+}
+
+// ShowMe is the PR body's Show me section: a screenshot or gif of a UI
+// change, a real Sand API call and its result for a new function, or a before
+// and after of a behaviour change.
+func ShowMe(row store.ReviewRow) string {
+	return section(row.Description, "Show me")
+}
+
+func showMeFlaw(row store.ReviewRow) string {
+	shown := ShowMe(row)
+	if shown == "" {
+		return "its PR body has no Show me section; add a screenshot or gif for a UI change, a real Sand API call and its result in a code block for a new function, or a before and after for a behaviour change"
+	}
+	if !shownView.MatchString(shown) {
+		return "its Show me section holds no screenshot, gif, code block, or before and after"
+	}
+	if addsFunction.MatchString(row.ForUsers+"\n"+section(row.Description, "Changes")) && !strings.Contains(shown, "```") {
+		return "it adds a function, and its Show me section has no real Sand API call and its result in a code block"
+	}
+	return ""
 }
 
 // BodyGaps is CardGaps for a PR body before it reaches the ledger.
