@@ -3572,3 +3572,30 @@ func TestALiveLaneSilentWithAMonitorArmedIsLeftWaiting(t *testing.T) {
 
 	equal(t, len(out.Relaunched)+len(f.launches), 0)
 }
+
+func TestALaneWhoseBriefNamesAnotherLaneIsHeldNotRelaunched(t *testing.T) {
+	s := memory(t)
+	brief := filepath.Join(t.TempDir(), "sentry-7836549570-fix.brief.md")
+	if err := os.WriteFile(brief, []byte("ccx: lane=sentry-7836549570-fix role=incident effort=high\n# sentry-7836549570-fix: fix the alert\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := adopted(t, s, brief, "", 52619)
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "rebased #52619 onto dev", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	out := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, []any{len(out.Relaunched), out.Held, len(f.launches)}, []any{0, []string{lane2}, 0})
+}
+
+func TestALaneWhosePRsAnotherLaneHoldsIsHeldNotRelaunched(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52619)
+	f.foreign = map[int]bool{52619: true}
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "rebased #52619 onto dev", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	out := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, []any{len(out.Relaunched), out.Held, len(f.launches)}, []any{0, []string{lane2}, 0})
+}
