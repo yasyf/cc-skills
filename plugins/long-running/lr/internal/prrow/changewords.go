@@ -25,6 +25,7 @@ var (
 	resolverStays  = regexp.MustCompile(`(?i)\bLLM\b[^.\n]*\bresolver\b[^.\n]*\b(?:stays|remains|is kept|keeps)\b|\bkeeps?\b[^.\n]*\bLLM\b[^.\n]*\bresolver\b`)
 	hexWord        = regexp.MustCompile(`\b[0-9a-f]{7,}\b`)
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
+	riskLabel      = regexp.MustCompile(`^\s*(?:[-*]\s+)?(?:\*\*[^*\n]+\*\*:?|[A-Z][\w ]{0,30}:\s)\s*`)
 	archFence      = regexp.MustCompile("(?s)```arch[ \t]*\n(.*?)\n[ \t]*```")
 	addsFunction   = regexp.MustCompile(`(?i)\b(?:adds?|new)\b[^.\n]{0,40}\b(?:builtins?|functions?)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
@@ -63,6 +64,20 @@ func CardGaps(row store.ReviewRow) []string {
 		gaps = append(gaps, "that the LLM resolver stays: it names a loop breaker, so its Summary or Context says in plain words that the LLM loop resolver building the initial DAG stays")
 	}
 	return gaps
+}
+
+func RiskWords(row store.ReviewRow) string {
+	for _, line := range strings.Split(row.Risk, "\n") {
+		said := strings.TrimSpace(strings.ReplaceAll(riskLabel.ReplaceAllString(line, ""), "**", ""))
+		if said == "" {
+			continue
+		}
+		if at := sentenceEnd.FindStringIndex(said); at != nil {
+			return said[:at[0]+1]
+		}
+		return said
+	}
+	return ""
 }
 
 // ShowMe is the PR body's Show me section: a picture of the change, as a

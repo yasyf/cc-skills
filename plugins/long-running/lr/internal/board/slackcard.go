@@ -61,6 +61,7 @@ type SlackPRRow struct {
 	Plan   string `json:"plan"`
 	ELI5   string `json:"eli5"`
 	ShowMe string `json:"show_me"`
+	Risk   string `json:"risk,omitempty"`
 	Blocks string `json:"blocks"`
 	Lands  string `json:"lands,omitempty"`
 	Port   string `json:"port,omitempty"`
@@ -118,7 +119,7 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		Status: "info",
 		PRs: []SlackPRRow{{
 			URL: fmt.Sprintf("https://github.com/%s/pull/%d", repo, row.Number), Title: row.Title, Head: row.Head, Review: Standing(row),
-			Change: prrow.ChangeWords(row), Plan: planDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMeWords(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
+			Change: prrow.ChangeWords(row), Plan: PlanDeparture(row), ELI5: prrow.ELI5Words(row), ShowMe: prrow.ShowMeWords(row), Risk: prrow.RiskWords(row), Blocks: prrow.BlocksWords(row), Port: portLine(repo, row), Description: row.Description,
 		}},
 	}
 	switch row.State {
@@ -217,8 +218,12 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	if row.Port != "" {
 		summary = append(summary, "**"+row.Port+".**")
 	}
+	if row.ELI5 != "" {
+		summary = append(summary, row.ELI5)
+		child["eli5"] = row.ELI5
+	}
 	for _, line := range []struct{ key, label, said string }{
-		{"change", "What changes", row.Change}, {"plan", "Against the plan", row.Plan}, {"eli5", "ELI5", row.ELI5}, {"show_me", "Show me", row.ShowMe}, {"blocker", "Blocks landing", row.Blocks},
+		{"change", "What changes for you", row.Change}, {"blocker", "Waits on", row.Blocks}, {"plan", "Differs from the plan", row.Plan}, {"risk", "Risk", row.Risk}, {"show_me", "Show me", row.ShowMe},
 	} {
 		if line.said != "" {
 			if line.key != "show_me" {
@@ -232,7 +237,7 @@ func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 		}
 	}
 	if row.Review != "" {
-		summary = append(summary, "**Status:** "+row.Review)
+		summary = append(summary, "**Where it stands:** "+row.Review)
 	}
 	if len(summary) > 0 {
 		child["summary"] = strings.Join(summary, "\n\n")
@@ -252,7 +257,7 @@ const slackTitleChars = 140
 
 const planOwed = "Not written yet: its PR body names no plan step."
 
-func planDeparture(row store.ReviewRow) string {
+func PlanDeparture(row store.ReviewRow) string {
 	if !prrow.DepartsFromPlan(row) {
 		return ""
 	}

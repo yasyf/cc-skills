@@ -60,3 +60,13 @@ func TestTheArchExampleARefusalQuotesDrawsOnHisCard(t *testing.T) {
 		t.Fatal("the quoted example draws no diagram")
 	}
 }
+
+func TestRiskWordsIsTheRiskSectionsFirstPlainSentence(t *testing.T) {
+	row := store.ReviewRow{Risk: "- **Threat model:** app cookies stop relying on SameSite. App actions already require a matching Origin.\n- **Data:** no new data."}
+	if got := RiskWords(row); got != "app cookies stop relying on SameSite." {
+		t.Fatalf("RiskWords = %q, want the first sentence without its bold label", got)
+	}
+	if got := RiskWords(store.ReviewRow{}); got != "" {
+		t.Fatalf("RiskWords of no Risk section = %q, want none", got)
+	}
+}
