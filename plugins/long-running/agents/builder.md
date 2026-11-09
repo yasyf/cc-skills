@@ -33,6 +33,11 @@ you read.
    it live. Done means the owner can see it working, not that it merged.
 8. Remove your worktree once the change is merged; leave nothing running behind you.
 
+Nobody watches the driver's terminal, so a permission prompt there stalls you until morning. Keep each
+Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script
+file under your scratch directory and run that file, since Claude Code asks before running a command
+its parser cannot read.
+
 ## Waiting
 
 Never poll and never sleep. Wait inline only when a check finishes within one 10-minute
