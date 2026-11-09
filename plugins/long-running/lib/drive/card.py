@@ -225,14 +225,26 @@ def numbered(numbers: list[int]) -> dict:
     return {"prs": matches}
 
 
-def noted(kind: str, asks: list[dict]) -> dict:
+def shown(asks: list[dict]) -> dict:
+    known = drive_prs()
+    return {"shown": sum(1 for ask in asks if key_of(ask) in known)}
+
+
+def refused(asks: list[dict]) -> dict:
     known = drive_prs()
     told = 0
     for ask in asks:
-        if (key := key_of(ask)) in known:
-            state.append_event(known[key][0], kind, **ask)
-            told += 1
-    return {kind: told}
+        if (key := key_of(ask)) not in known:
+            continue
+        name = known[key][0]
+        with state.edit(name) as data:
+            entry = data["prs"][key]
+            if entry.get("refused") == ask["reason"]:
+                continue
+            entry["refused"] = ask["reason"]
+        state.append_event(name, "refused", **ask)
+        told += 1
+    return {"refused": told}
 
 
 def answered(ask: dict) -> dict:
@@ -282,9 +294,9 @@ def respond(request: dict) -> dict:
         case {"numbers": numbers}:
             return numbered(numbers)
         case {"shown": asks}:
-            return noted("shown", asks)
+            return shown(asks)
         case {"refused": asks}:
-            return noted("refused", asks)
+            return refused(asks)
         case {"answer": ask}:
             return answered(ask)
         case {"unheard": ask}:

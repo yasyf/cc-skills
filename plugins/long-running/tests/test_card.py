@@ -279,22 +279,25 @@ def test_numbers_lists_every_drive_pr_with_that_number(drive: str) -> None:
     }
 
 
-def test_shown_appends_an_event_per_known_pr(drive: str) -> None:
+def test_shown_counts_known_prs_and_wakes_nobody(drive: str) -> None:
     shown = [
         {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42"},
         {"repo": "Forge-AI/monorepo", "number": 99, "waits": ""},
     ]
     assert ask({"shown": shown}) == {"shown": 1}
-    [event] = events(drive)
-    assert event["kind"] == "shown"
-    assert event["waits"] == "merge:Forge-AI:monorepo:42"
+    assert ask({"shown": shown}) == {"shown": 1}
+    assert events(drive) == []
 
 
-def test_refused_appends_an_event_with_the_reason(drive: str) -> None:
+def test_refused_appends_one_event_per_new_reason(drive: str) -> None:
     refused = [{"repo": "Forge-AI/monorepo", "number": 42, "reason": "card needs a title"}]
     assert ask({"refused": refused}) == {"refused": 1}
-    [event] = events(drive)
-    assert (event["kind"], event["reason"]) == ("refused", "card needs a title")
+    assert ask({"refused": refused}) == {"refused": 0}
+    assert ask({"refused": [{**refused[0], "reason": "pull request is merged"}]}) == {"refused": 1}
+    assert [(event["kind"], event["reason"]) for event in events(drive)] == [
+        ("refused", "card needs a title"),
+        ("refused", "pull request is merged"),
+    ]
 
 
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:

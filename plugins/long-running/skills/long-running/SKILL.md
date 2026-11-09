@@ -73,6 +73,8 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
 | `DUE o<n> …` | Read the order's job transcripts first, then a line in his thread: what is late, why, and the new time, set with `--due`. Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | One progress line per listed order, in its thread: what is done since the last line and what is next. Then `drive order set <o> --lined`. |
+| `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then draw it again with `tap_prs`. |
+| `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his answer to that card. |
 
 ## Jobs
 
