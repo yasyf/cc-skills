@@ -1,0 +1,322 @@
+import json
+import os
+import subprocess
+import sys
+import types
+from collections.abc import Callable
+from pathlib import Path
+
+import drive
+import pytest
+from drive import state
+
+Run = Callable[..., tuple[int, str]]
+PR = "https://github.com/Forge-AI/monorepo/pull/42"
+
+
+def test_start_creates_the_drive_and_prints_context(run: Run, tmp_path: Path) -> None:
+    code, out = run("start", "demo", "--channel", "D123")
+    assert code == 0
+    assert "You are the driver of drive demo." in out
+    data = state.load("demo")
+    assert data["driver"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
+    assert data["driver"]["cwd"] == str(tmp_path)
+    assert data["slack"] == {"channel": "D123", "status_card": None}
+
+
+def test_start_again_rebinds_the_session_and_keeps_orders(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "keep me")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
+    code, _ = run("start", "demo")
+    data = state.load("demo")
+    assert code == 0
+    assert data["driver"]["session"] == "after-restart"
+    assert data["slack"]["channel"] == "D123"
+    assert data["orders"]["o1"]["text"] == "keep me"
+
+
+def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
+    code, _ = run("start", "../escape")
+    assert code == 2
+
+
+def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) -> None:
+    assert run("order", "add", "first  words", "--from", "slack:D123/1.2", "--thread", "1.2") == (0, "o1")
+    assert run("order", "add", "second", "--due", "+30m") == (0, "o2")
+    orders = state.load("demo")["orders"]
+    assert orders["o1"]["text"] == "first  words"
+    assert orders["o1"]["from"] == "slack:D123/1.2"
+    assert orders["o1"]["thread"] == "1.2"
+    assert orders["o1"]["state"] == "open"
+    assert orders["o1"]["due"] is None
+    assert orders["o2"]["from"] == "terminal"
+    assert state.parse_time(orders["o2"]["due"]) > state.now()
+
+
+def test_order_add_json(run: Run, demo: str) -> None:
+    code, out = run("order", "add", "words", "--json")
+    assert code == 0
+    assert json.loads(out)["id"] == "o1"
+
+
+def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) -> None:
+    run("order", "add", "words")
+    code, out = run("order", "set", "o1", "--state", "working", "--note", "on it", "--lined")
+    order = state.load("demo")["orders"]["o1"]
+    assert code == 0
+    assert out == "o1 working: words"
+    assert order["note"] == "on it"
+    assert order["last_line"] == order["updated"]
+    assert order["proof"] is None
+    run("order", "set", "o1", "--proof", "https://example.com/proof")
+    order = state.load("demo")["orders"]["o1"]
+    assert order["state"] == "working"
+    assert order["proof"] == "https://example.com/proof"
+
+
+def test_order_set_unknown_order_fails(run: Run, demo: str) -> None:
+    assert run("order", "set", "o9", "--state", "done")[0] == 2
+
+
+def test_order_set_rejects_unknown_state(run: Run, demo: str) -> None:
+    run("order", "add", "words")
+    with pytest.raises(SystemExit):
+        run("order", "set", "o1", "--state", "finished")
+
+
+def test_job_add_links_the_order(run: Run, demo: str) -> None:
+    run("order", "add", "words")
+    code, out = run(
+        "job", "add", "builder", "--order", "o1", "--goal", "do it", "--repo", "yasyf/cc-skills", "--branch", "b"
+    )
+    data = state.load("demo")
+    assert (code, out) == (0, "j1")
+    assert data["orders"]["o1"]["jobs"] == ["j1"]
+    assert data["jobs"]["j1"]["kind"] == "builder"
+    assert data["jobs"]["j1"]["state"] == "running"
+    assert data["jobs"]["j1"]["repo"] == "yasyf/cc-skills"
+
+
+def test_job_add_needs_a_known_order(run: Run, demo: str) -> None:
+    assert run("job", "add", "reader", "--order", "o3", "--goal", "look")[0] == 2
+
+
+def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
+    run("order", "add", "words")
+    run("job", "add", "codex", "--order", "o1", "--goal", "review")
+    run("job", "set", "j1", "--agent", "a-1", "--state", "waiting", "--said", "PR up", "--pr", PR)
+    run("job", "set", "j1", "--pr", PR)
+    job = state.load("demo")["jobs"]["j1"]
+    assert job["agent"] == "a-1"
+    assert job["state"] == "waiting"
+    assert job["said"] == "PR up"
+    assert job["prs"] == [PR]
+
+
+@pytest.fixture
+def with_pr(run: Run, demo: str) -> str:
+    run("order", "add", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR + "/files", "--job", "j1", "--tap")
+    return "Forge-AI/monorepo#42"
+
+
+def test_pr_add_registers_under_the_key(run: Run, with_pr: str) -> None:
+    data = state.load("demo")
+    pr = data["prs"][with_pr]
+    assert pr["url"] == PR
+    assert pr["job"] == "j1"
+    assert pr["order"] == "o1"
+    assert pr["wants_tap"] is True
+    assert pr["tap"] is None
+    assert pr["state"] == "open"
+    assert data["jobs"]["j1"]["prs"] == [PR]
+
+
+def test_pr_add_again_keeps_stored_state(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["checks"] = "pass"
+    run("pr", "add", PR, "--job", "j1")
+    pr = state.load("demo")["prs"][with_pr]
+    assert pr["checks"] == "pass"
+    assert pr["wants_tap"] is True
+
+
+def test_pr_tapped_without_a_tap_exits_one(run: Run, with_pr: str) -> None:
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap from him yet")
+
+
+def test_pr_tapped_with_approve_exits_zero(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
+    code, out = run("pr", "tapped", PR)
+    assert code == 0
+    assert out.startswith(f"{with_pr}: approved by him at ")
+
+
+def test_pr_tapped_with_hold_exits_one(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": "Hold", "at": state.stamp(), "head": "abc", "source": "slack"}
+    code, out = run("pr", "tapped", PR)
+    assert code == 1
+    assert "held by him" in out
+
+
+def test_pr_set_fundamental_clears_the_tap(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
+    run("pr", "set", PR, "--fundamental", "now deletes the old table")
+    assert state.load("demo")["prs"][with_pr]["tap"] is None
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap since it changed: now deletes the old table")
+
+
+def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--exempt", "test-only")
+    assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: test-only")
+
+
+def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--no-tap")
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
+    run("pr", "set", PR, "--tap")
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
+
+
+def test_pr_set_unknown_pr_fails(run: Run, demo: str) -> None:
+    assert run("pr", "set", PR, "--tap")[0] == 2
+
+
+def test_pr_tapped_unknown_pr_may_land(run: Run, demo: str) -> None:
+    assert run("pr", "tapped", PR) == (0, "Forge-AI/monorepo#42: not a drive PR")
+
+
+def test_pr_tapped_json(run: Run, with_pr: str) -> None:
+    code, out = run("pr", "tapped", PR, "--json")
+    assert code == 1
+    assert json.loads(out) == {"key": with_pr, "may_land": False, "why": "no tap from him yet"}
+
+
+def test_status_reads_state_only(run: Run, with_pr: str) -> None:
+    code, out = run("status")
+    assert code == 0
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders"
+    assert "Forge-AI/monorepo#42 open, checks pending" in out
+    code, out = run("status", "--json")
+    assert set(json.loads(out)["prs"]) == {with_pr}
+
+
+def test_context_and_rollup(run: Run, with_pr: str) -> None:
+    code, out = run("context")
+    assert code == 0
+    assert "o1 open: land it" in out
+    code, out = run("rollup")
+    card = json.loads(out)
+    assert card["title"] == "1 open: demo"
+    assert card["facts"] == [{"label": "land it", "value": f"open · {PR}"}]
+
+
+def test_drive_flag_picks_among_several(run: Run, demo: str) -> None:
+    run("start", "other")
+    run("order", "add", "for other", "--drive", "other")
+    assert state.load("other")["orders"]["o1"]["text"] == "for other"
+    assert state.load("demo")["orders"] == {}
+
+
+def test_unresolvable_drive_exits_two(run: Run, state_root: Path) -> None:
+    assert run("status")[0] == 2
+
+
+def fake_module(monkeypatch: pytest.MonkeyPatch, name: str, main: Callable[..., int]) -> None:
+    module = types.ModuleType(f"drive.{name}")
+    module.main = main
+    monkeypatch.setitem(sys.modules, f"drive.{name}", module)
+    monkeypatch.setattr(drive, name, module, raising=False)
+
+
+def test_watch_dispatches_with_the_drive_flag(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    fake_module(monkeypatch, "watch", lambda name: calls.append(name) or 0)
+    assert run("watch", "--drive", "demo")[0] == 0
+    assert calls == ["demo"]
+
+
+def test_card_dispatches_stdin_and_stdout(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    fake_module(monkeypatch, "card", lambda stdin, stdout: calls.append((stdin, stdout)) or 3)
+    assert run("card")[0] == 3
+    assert calls == [(sys.stdin, sys.stdout)]
+
+
+def test_install_dispatches_its_arguments(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    fake_module(monkeypatch, "install", lambda *args: calls.append(args) or 0)
+    assert run("install", "long-running@skills", "--sha", "abc", "--repo", "yasyf/cc-skills")[0] == 0
+    assert run("install", "long-running@skills", "--timeout", "60")[0] == 0
+    assert calls == [("long-running@skills", "abc", "yasyf/cc-skills", 900), ("long-running@skills", None, None, 60)]
+
+
+def installed(config: Path, entries: dict[str, list[dict]]) -> None:
+    plugins = config / "plugins"
+    plugins.mkdir(parents=True)
+    (plugins / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": entries}))
+
+
+def fake_plugin(path: Path, marker: str) -> str:
+    (path / "bin").mkdir(parents=True)
+    target = path / "bin" / "drive"
+    target.write_text(f'#!/bin/sh\necho {marker} "$@"\n')
+    target.chmod(0o755)
+    return str(path)
+
+
+def test_setup_shim_execs_the_newest_installed_plugin(run: Run, tmp_path: Path) -> None:
+    config = tmp_path / "claude"
+    installed(
+        config,
+        {
+            "long-running@skills": [
+                {"installPath": fake_plugin(tmp_path / "old", "old"), "lastUpdated": "2026-11-01T00:00:00Z"}
+            ],
+            "long-running@other": [
+                {"installPath": fake_plugin(tmp_path / "new", "new"), "lastUpdated": "2026-11-09T00:00:00Z"}
+            ],
+            "codex@skills": [
+                {"installPath": fake_plugin(tmp_path / "codex", "codex"), "lastUpdated": "2026-12-01T00:00:00Z"}
+            ],
+        },
+    )
+    bin_dir = tmp_path / "bin"
+    code, out = run("setup", "--bin-dir", str(bin_dir))
+    shim = bin_dir / "drive"
+    assert (code, out) == (0, f"wrote {shim}")
+    assert os.access(shim, os.X_OK)
+    result = subprocess.run(
+        [str(shim), "card", "x"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CLAUDE_CONFIG_DIR": str(config)},
+    )
+    assert result.returncode == 0
+    assert result.stdout.strip() == "new card x"
+
+
+def test_setup_shim_fails_when_not_installed(run: Run, tmp_path: Path) -> None:
+    config = tmp_path / "claude"
+    installed(config, {})
+    run("setup", "--bin-dir", str(tmp_path / "bin"))
+    result = subprocess.run(
+        [str(tmp_path / "bin" / "drive")],
+        capture_output=True,
+        text=True,
+        check=False,
+        env={**os.environ, "CLAUDE_CONFIG_DIR": str(config)},
+    )
+    assert result.returncode == 1
+    assert "not installed" in result.stderr
+
+
+def test_setup_defaults_to_xdg_bin_home(run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("XDG_BIN_HOME", str(tmp_path / "xdg-bin"))
+    run("setup")
+    assert (tmp_path / "xdg-bin" / "drive").exists()

@@ -1,0 +1,350 @@
+import argparse
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+from drive import render, state
+from drive.state import DriveError
+
+DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+SHIM = """#!/bin/sh
+drive_bin=$(python3 -I -c '
+import json, os, pathlib
+config = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or pathlib.Path.home() / ".claude")
+plugins = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+entries = [entry for key, installs in plugins.items() if key.startswith("long-running@") for entry in installs]
+if not entries:
+    raise SystemExit("drive: the long-running plugin is not installed")
+newest = max(entries, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
+print(pathlib.Path(newest["installPath"]) / "bin" / "drive")
+') || exit 1
+exec "$drive_bin" "$@"
+"""
+
+
+def emit(args: argparse.Namespace, line: str, payload: object) -> int:
+    print(json.dumps(payload, indent=2) if args.json else line)
+    return 0
+
+
+def due_stamp(text: str) -> str:
+    return state.stamp(state.parse_due(text))
+
+
+def start(args: argparse.Namespace) -> int:
+    if not DRIVE_NAME.fullmatch(args.name):
+        raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if not state.exists(args.name):
+        state.create(state.new_drive(args.name, session, os.getcwd(), args.channel))
+    else:
+        with state.edit(args.name) as data:
+            data["driver"] = {"session": session, "cwd": os.getcwd(), "started": state.stamp()}
+            if args.channel:
+                data["slack"]["channel"] = args.channel
+    data = state.load(args.name)
+    return emit(args, render.context(data), data)
+
+
+def order_add(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    created = state.stamp()
+    with state.edit(name) as data:
+        order_id = state.next_id(data["orders"], "o")
+        order = data["orders"][order_id] = {
+            "text": args.words,
+            "from": args.source,
+            "thread": args.thread,
+            "state": "open",
+            "due": due_stamp(args.due) if args.due else None,
+            "due_said": None,
+            "jobs": [],
+            "proof": None,
+            "note": None,
+            "created": created,
+            "updated": created,
+            "last_line": None,
+        }
+    return emit(args, order_id, {"id": order_id, **order})
+
+
+def find(records: dict, key: str, label: str) -> dict:
+    if key not in records:
+        raise DriveError(f"no {label} {key}")
+    return records[key]
+
+
+def order_set(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    changes = {
+        "state": args.state,
+        "due": due_stamp(args.due) if args.due else None,
+        "note": args.note,
+        "proof": args.proof,
+        "thread": args.thread,
+    }
+    with state.edit(name) as data:
+        order = find(data["orders"], args.id, "order")
+        order.update({field: value for field, value in changes.items() if value is not None})
+        order["updated"] = state.stamp()
+        if args.lined:
+            order["last_line"] = order["updated"]
+    return emit(args, render.order_line(args.id, order), {"id": args.id, **order})
+
+
+def job_add(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    created = state.stamp()
+    with state.edit(name) as data:
+        order = find(data["orders"], args.order, "order")
+        job_id = state.next_id(data["jobs"], "j")
+        job = data["jobs"][job_id] = {
+            "order": args.order,
+            "kind": args.kind,
+            "goal": args.goal,
+            "agent": args.agent,
+            "repo": args.repo,
+            "branch": args.branch,
+            "worktree": args.worktree,
+            "prs": [],
+            "state": "running",
+            "said": None,
+            "created": created,
+            "updated": created,
+        }
+        order["jobs"].append(job_id)
+        order["updated"] = created
+    return emit(args, job_id, {"id": job_id, **job})
+
+
+def job_set(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    changes = {"agent": args.agent, "state": args.state, "said": args.said}
+    with state.edit(name) as data:
+        job = find(data["jobs"], args.id, "job")
+        job.update({field: value for field, value in changes.items() if value is not None})
+        job["prs"].extend(url for url in args.pr if url not in job["prs"])
+        job["updated"] = state.stamp()
+    return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def new_pr(url: str, job_id: str, order_id: str) -> dict:
+    return {
+        "url": url,
+        "job": job_id,
+        "order": order_id,
+        "wants_tap": False,
+        "tap": None,
+        "exempt": None,
+        "fundamental": None,
+        "state": "open",
+        "title": "",
+        "head": "",
+        "checks": "pending",
+        "review": "none",
+        "draft": False,
+        "merged_sha": None,
+        "updated": state.stamp(),
+    }
+
+
+def pr_add(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    key = state.pr_key(args.url)
+    url = state.pr_url(key)
+    with state.edit(name) as data:
+        job = find(data["jobs"], args.job, "job")
+        pr = data["prs"].setdefault(key, new_pr(url, args.job, job["order"]))
+        pr.update(job=args.job, order=job["order"], wants_tap=pr["wants_tap"] or args.tap)
+        if url not in job["prs"]:
+            job["prs"].append(url)
+    return emit(args, key, {"key": key, **pr})
+
+
+def pr_set(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    key = state.pr_key(args.url)
+    with state.edit(name) as data:
+        pr = find(data["prs"], key, "drive PR")
+        if args.tap is not None:
+            pr["wants_tap"] = args.tap
+        if args.exempt:
+            pr["exempt"] = args.exempt
+        if args.fundamental:
+            pr["fundamental"] = args.fundamental
+            pr["tap"] = None
+        if args.tapped:
+            pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
+            pr["fundamental"] = None
+        pr["updated"] = state.stamp()
+    return emit(args, render.pr_line(key, pr), {"key": key, **pr})
+
+
+def tap_verdict(pr: dict | None) -> tuple[bool, str]:
+    if pr is None:
+        return True, "not a drive PR"
+    if pr.get("exempt"):
+        return True, f"exempt: {pr['exempt']}"
+    tap = pr.get("tap")
+    if tap and tap["label"] == "Approve":
+        return True, f"approved by him at {render.when(tap['at'])}"
+    if tap:
+        return False, f"held by him at {render.when(tap['at'])}"
+    if pr.get("fundamental"):
+        return False, f"no tap since it changed: {pr['fundamental']}"
+    return False, "no tap from him yet"
+
+
+def pr_tapped(args: argparse.Namespace) -> int:
+    key = state.pr_key(args.url)
+    pr = state.load(state.resolve(args.drive))["prs"].get(key)
+    may_land, why = tap_verdict(pr)
+    emit(args, f"{key}: {why}", {"key": key, "may_land": may_land, "why": why})
+    return 0 if may_land else 1
+
+
+def status(args: argparse.Namespace) -> int:
+    data = state.load(state.resolve(args.drive))
+    return emit(args, render.status_text(data), render.status_data(data))
+
+
+def context(args: argparse.Namespace) -> int:
+    print(render.context(state.load(state.resolve(args.drive))))
+    return 0
+
+
+def rollup(args: argparse.Namespace) -> int:
+    print(json.dumps(render.rollup_card(state.load(state.resolve(args.drive)))))
+    return 0
+
+
+def watch_events(args: argparse.Namespace) -> int:
+    from drive import watch
+
+    return watch.main(args.drive)
+
+
+def card_command(args: argparse.Namespace) -> int:
+    from drive import card
+
+    return card.main(sys.stdin, sys.stdout)
+
+
+def install_plugin(args: argparse.Namespace) -> int:
+    from drive import install
+
+    return install.main(args.plugin, args.sha, args.repo, args.timeout)
+
+
+def default_bin_dir() -> Path:
+    if xdg := os.environ.get("XDG_BIN_HOME"):
+        return Path(xdg)
+    return Path.home() / ".local" / "bin"
+
+
+def setup(args: argparse.Namespace) -> int:
+    bin_dir = Path(args.bin_dir) if args.bin_dir else default_bin_dir()
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    shim = bin_dir / "drive"
+    shim.write_text(SHIM)
+    shim.chmod(0o755)
+    print(f"wrote {shim}")
+    return 0
+
+
+def parser() -> argparse.ArgumentParser:
+    drive_opt = argparse.ArgumentParser(add_help=False)
+    drive_opt.add_argument("--drive", help="the drive to act on")
+    json_opt = argparse.ArgumentParser(add_help=False)
+    json_opt.add_argument("--json", action="store_true", help="print JSON")
+    both = [drive_opt, json_opt]
+
+    root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
+    verbs = root.add_subparsers(dest="verb", required=True)
+
+    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or rebind it to this session")
+    verb.add_argument("name")
+    verb.add_argument("--channel")
+    verb.set_defaults(run=start)
+
+    order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
+    verb = order.add_parser("add", parents=both)
+    verb.add_argument("words")
+    verb.add_argument("--from", dest="source", default="terminal")
+    verb.add_argument("--thread")
+    verb.add_argument("--due")
+    verb.set_defaults(run=order_add)
+    verb = order.add_parser("set", parents=both)
+    verb.add_argument("id")
+    verb.add_argument("--state", choices=state.ORDER_STATES)
+    verb.add_argument("--due")
+    verb.add_argument("--note")
+    verb.add_argument("--proof")
+    verb.add_argument("--thread")
+    verb.add_argument("--lined", action="store_true")
+    verb.set_defaults(run=order_set)
+
+    job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
+    verb = job.add_parser("add", parents=both)
+    verb.add_argument("kind", choices=state.JOB_KINDS)
+    verb.add_argument("--order", required=True)
+    verb.add_argument("--goal", required=True)
+    verb.add_argument("--agent")
+    verb.add_argument("--repo")
+    verb.add_argument("--branch")
+    verb.add_argument("--worktree")
+    verb.set_defaults(run=job_add)
+    verb = job.add_parser("set", parents=both)
+    verb.add_argument("id")
+    verb.add_argument("--agent")
+    verb.add_argument("--state", choices=state.JOB_STATES)
+    verb.add_argument("--said")
+    verb.add_argument("--pr", action="append", default=[])
+    verb.set_defaults(run=job_set)
+
+    pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
+    verb = pr.add_parser("add", parents=both)
+    verb.add_argument("url")
+    verb.add_argument("--job", required=True)
+    verb.add_argument("--tap", action="store_true")
+    verb.set_defaults(run=pr_add)
+    verb = pr.add_parser("set", parents=both)
+    verb.add_argument("url")
+    verb.add_argument("--tap", action=argparse.BooleanOptionalAction)
+    verb.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
+    verb.add_argument("--fundamental")
+    verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
+    verb.add_argument("--tap-source", default="recorded", help="where that tap came from")
+    verb.set_defaults(run=pr_set)
+    verb = pr.add_parser("tapped", parents=both)
+    verb.add_argument("url")
+    verb.set_defaults(run=pr_tapped)
+
+    verbs.add_parser("status", parents=both).set_defaults(run=status)
+    verbs.add_parser("context", parents=[drive_opt]).set_defaults(run=context)
+    verbs.add_parser("rollup", parents=[drive_opt]).set_defaults(run=rollup)
+    verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
+    verbs.add_parser("card").set_defaults(run=card_command)
+
+    verb = verbs.add_parser("install")
+    verb.add_argument("plugin", metavar="plugin@marketplace")
+    verb.add_argument("--sha")
+    verb.add_argument("--repo")
+    verb.add_argument("--timeout", type=int, default=900)
+    verb.set_defaults(run=install_plugin)
+
+    verb = verbs.add_parser("setup")
+    verb.add_argument("--bin-dir")
+    verb.set_defaults(run=setup)
+    return root
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    try:
+        return args.run(args)
+    except DriveError as error:
+        print(f"drive: {error}", file=sys.stderr)
+        return 2

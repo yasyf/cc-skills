@@ -139,9 +139,9 @@ A pack is a directory of component modules shared across dashboards. Name it in
 `context.json`:
 
 ```json
-{"id": "release-v3", "title": "Release v3", "packs": {"lr": "/path/to/long-running/dashboard"}}
+{"id": "release-v3", "title": "Release v3", "packs": {"ops": "/path/to/ops-components"}}
 ```
 
-Its components register as `lr.<id>`, and modules in the directory import each other
+Its components register as `ops.<id>`, and modules in the directory import each other
 relatively, as `from . import inboxlines`. Changing a pack's path retires the running
 server on the next `start`, so the new code serves.

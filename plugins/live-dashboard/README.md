@@ -34,7 +34,7 @@ Tracking which pull requests block a stack or where a release sits takes too man
 Show me where this PR stack stands
 ```
 
-The skill sets up the `pr-review` preset with `pr-review-queue` and `landing-preview` cards, leaving PR bodies and review comment text off the board. For other tasks, it starts from the `drive`, `incident`, `sweep`, `design-doc`, or `release` presets. `release.*` cards read a Platy release pipeline, and a pack named in `context.json` registers as `<name>.*`, so long-running's pack is `lr.*`. Payloads cache in `cache/<id>.json` so restarts serve the last good data at once, failing cards keep their last good payload and back off, and cards that miss two cadences show a stale-since marker.
+The skill sets up the `pr-review` preset with `pr-review-queue` and `landing-preview` cards, leaving PR bodies and review comment text off the board. For other tasks, it starts from the `drive`, `incident`, `sweep`, `design-doc`, or `release` presets. `release.*` cards read a Platy release pipeline, and a pack named in `context.json` registers as `<name>.*`. Payloads cache in `cache/<id>.json` so restarts serve the last good data at once, failing cards keep their last good payload and back off, and cards that miss two cadences show a stale-since marker.
 
 ### Answer a task-specific question with a custom card
 

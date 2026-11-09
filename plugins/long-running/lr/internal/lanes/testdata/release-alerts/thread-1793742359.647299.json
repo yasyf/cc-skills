@@ -1,4 +1,0 @@
-{"channel_id":"C0B75AL4XEW","thread_ts":"1793742359.647299","messages":[
- {"ts":"1793742359.647299","thread_ts":"1793742359.647299","text":":hourglass_flowing_sand: joie-johannes is running · <@U07JOIEJOHN> via `claude` · `sandsql`"},
- {"ts":"1793742421.000100","thread_ts":"1793742359.647299","text":":x: The Watch failed for SandSQL on SoFi: \"SandSQL Below-Floor Database Count\" crossed its monitor's bound since the release started. Nothing else in joie-johannes waits on it. <https://buildkite.com/forge/release/builds/12414#01a1a361-e394-434c-a401-6567fcf80fb7|Open the job>"}
-],"truncated":false}

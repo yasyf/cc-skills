@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import shutil
-
 from livedash import Col, Context, Table, component
 
-ORCA = ("lr", "orca") if shutil.which("lr") else ("orca",)
+ORCA = ("orca",)
 SETTLED = frozenset({"completed", "failed"})
 LIVE = "live"
 
