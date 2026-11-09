@@ -39,8 +39,12 @@ One skill, one verb. When you have something for him, you send it yourself with 
 | Never pull a card while he is writing in its thread | "I was reading and responding then this disappeared" |
 | A tap card stays up while its PR's CI is fixed; red checks never pull it | "I can approve while u fix CI" |
 | Close our own stale or superseded PR with no card: write the reason on it and list it in the next update | "You don't have to ask before closing stuff like this" |
+| Every card posts at his DM root; the thread it answers gets a link to it | "DM root with a link in the thread" |
+| `lr say` writes a PR card's plain words from the PR; a lane never writes them | "The send tool writes them" |
+| During any big job, a progress line every 10 minutes for as long as it runs, not only when he asks | "During any big job" |
+| A clock promised to him that passes unmet gets a line at the clock, before any other work: what is late, why, and who moves it | "why do u keep missing deadlines and not even saying a thing" |
 | No post reports no change; a scheduled line with nothing new names what blocks and who moves it, or is not sent | "I thought we were going to get rid of all the nothing new spam" |
-| Never call a lane silent, stuck or quiet; read its transcript and say what it is doing | "Why would you blindly say it's silent without reading its transcript" |
+| Never call a lane silent, stuck, late or replaced, or message it about that, before a read subagent reads its transcript with `cc-transcript`; a late line names what the transcript shows it doing | "Don't just blindly message it fucking look at its transcript" |
 | Every message of his gets eyes and the working line naming what is happening, from `lr owner watch`, cleared by your reply | "The bar should also say things like 'waiting for subagent'" |
 
 ## Templates
@@ -62,7 +66,7 @@ Send the PR in `prs`, and `lr say` draws its one card from the PR ledger. The he
 
 ### Thread reply
 
-Answer him where he wrote: `order` names his ledger row, and the reply lands in that row's thread. Two or three sentences: the answer, what it changes, his next question answered. A pick he is asked there is a card, in that thread only.
+Answer him where he wrote: `order` names his ledger row, and the reply lands in that row's thread. Two or three sentences: the answer, what it changes, his next question answered. A pick he is asked there is a card at his DM root, and the thread gets a link to it (owner, Nov 9 1:03 AM: "DM root with a link in the thread").
 
 ### Table
 
