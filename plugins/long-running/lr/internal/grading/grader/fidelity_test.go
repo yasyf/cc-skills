@@ -915,21 +915,20 @@ const regressionPhrase = "class regression, fixes shipped production code"
 var classes = map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase}
 
 func TestAnOkNamesTheClassItsChangedPathsDecideWhateverTheModelSaid(t *testing.T) {
-	const tooling = "class ci-tooling"
-	pathClasses := map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase, "ci-tooling": tooling}
-	grades := []string{portPhrase, testOnly, regressionPhrase, tooling}
+	pathClasses := map[string]string{"port": portPhrase, "test-only": testOnly, "regression": regressionPhrase}
+	grades := []string{portPhrase, testOnly, regressionPhrase}
 	for name, tc := range map[string]struct {
 		names  string
 		exempt string
 		said   string
 	}{
-		"#49240's cc-remote files with no class from the model": {"tools/cc-remote/agents-payload.json\ntools/cc-remote/config.yaml\n", "none", tooling},
-		"the shared toolchain pins name no path class":          {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", ""},
-		"tooling over a class the model judged":                 {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", tooling},
-		"a product path keeps the model's judgment":             {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase},
-		"a product path names no path class the model gave":     {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
-		"#47254's listed CI verbs and build cache":              {"go/ci/bkverb.go\ngo/ci/internal/cache/cold.go\ngo/ci/prune.go\ngo/ci/prune_test.go\n", "none", testOnly},
-		"#51878's pass-box verb, which the CI list leaves out":  {"docs/pass-boxes.md\ngo/ci/passbox.go\ngo/ci/passbox_test.go\ntools/loadtest/tasks/README.md\n", "none", ""},
+		"#49240's cc-remote files name no path class":          {"tools/cc-remote/agents-payload.json\ntools/cc-remote/config.yaml\n", "none", ""},
+		"the shared toolchain pins name no path class":         {"mise.toml\ntools/cc-remote/config.yaml\ntools/versions.toml\n", "none", ""},
+		"remote-builder code keeps the model's judgment":       {"go/remote-builder/cli/rb/exec.go\ntools/remote-builder/README.md\n", "regression", regressionPhrase},
+		"a product path keeps the model's judgment":            {"go/sand/next/replica/follow.go\n", "regression", regressionPhrase},
+		"a product path names no path class the model gave":    {"go/sand/next/replica/follow.go\ngo/sand/next/replica/follow_test.go\n", "test-only", ""},
+		"#47254's listed CI verbs and build cache":             {"go/ci/bkverb.go\ngo/ci/internal/cache/cold.go\ngo/ci/prune.go\ngo/ci/prune_test.go\n", "none", testOnly},
+		"#51878's pass-box verb, which the CI list leaves out": {"docs/pass-boxes.md\ngo/ci/passbox.go\ngo/ci/passbox_test.go\ntools/loadtest/tasks/README.md\n", "none", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			directory := fidelityDir(t, map[string]any{"grades": []any{}, "exempt": pathClasses, "exempt_grades": grades})
@@ -944,7 +943,7 @@ func TestAnOkNamesTheClassItsChangedPathsDecideWhateverTheModelSaid(t *testing.T
 			equal(t, shell.posted[0]["--attr"], gates.FidelityClassAttr+"="+class)
 			question := readText(t, directory, "question-1.md")
 			holdsAll(t, question, "`regression` (\""+regressionPhrase+"\")")
-			holdsNone(t, question, "`ci-tooling` (", "`test-only` (")
+			holdsNone(t, question, "`test-only` (")
 		})
 	}
 }
