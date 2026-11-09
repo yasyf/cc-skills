@@ -629,3 +629,16 @@ func TestACardThreadThatAlsoNamesAPullRequestGoesToTheCardsLane(t *testing.T) {
 		t.Fatalf("posted = %q, routed = %q, lane reads = %d, want the card's lane alone", got, routed, looked)
 	}
 }
+
+func TestHisWordsInAMergeCardsThreadGoToThePRsLane(t *testing.T) {
+	fake, entry, s := routedEntry(t)
+	put(t, s, store.SlackThread{TS: cardRoot, Card: "merge:52745:8861ac9"})
+	word := wordIn("D0B6Z", cardRoot, "it should just be one batched read from the inbox")
+	looked := 0
+
+	routed := heard(t, fake, s, entry, ownedBy(map[int]string{52745: "subagent-shape"}, &looked), word)
+
+	if !slices.Equal(routed, []string{"subagent-shape", "owner-relay"}) {
+		t.Fatalf("routed %q, want the PR's lane and the relay", routed)
+	}
+}

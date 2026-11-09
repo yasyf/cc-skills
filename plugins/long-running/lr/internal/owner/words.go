@@ -58,6 +58,7 @@ var (
 	issueCounts    = map[string]int{"two": 2, "three": 3, "four": 4, "five": 5, "six": 6}
 	credentials    = regexp.MustCompile(`\b(?:sk|pk|rk)-[\w-]{16,}|\b(?:gh[pousr]|github_pat)_[\w.-]{20,}|\bxox[abprs]-[\w-]{10,}|\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:api|sdk|mob)-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\b|\beyJ[\w-]{8,}\.[\w-]{8,}\.[\w-]{8,}`)
 	longRun        = regexp.MustCompile(`\S{32,}`)
+	mergeCard      = regexp.MustCompile(`^merge:(\d+):[0-9a-fA-F]{7,40}$`)
 	tokenBody      = regexp.MustCompile(`^[\w+/=]+$`)
 )
 
@@ -102,7 +103,19 @@ func (w threadWord) route(s *store.Store, lane LaneOf, entry drive.Entry) (cardR
 	}
 	if card, found := w.cardIn(indexed, entry); found {
 		drew, err := lane.Card(s, card.id)
-		return cardRoute{card: card.id, to: withRelay([]string{drew})}, err
+		if err != nil {
+			return cardRoute{}, err
+		}
+		to := []string{drew}
+		if merge := mergeCard.FindStringSubmatch(card.id); merge != nil {
+			number, _ := strconv.Atoi(merge[1])
+			owner, err := lane.PR(s, number)
+			if err != nil {
+				return cardRoute{}, err
+			}
+			to = append(to, owner)
+		}
+		return cardRoute{card: card.id, to: withRelay(to)}, nil
 	}
 	var owners []string
 	for _, pr := range indexed.PRs {
