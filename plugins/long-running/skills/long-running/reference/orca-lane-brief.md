@@ -630,7 +630,7 @@ Observable acceptance: <the test, output, or PR URL that proves completion>.
 
 ## A design lane's part
 
-A lane that designs, mocks or redesigns anything the owner sees, such as a dashboard, a board, a Slack card format or a skill's UI, carries these lines in its `<lane>.md` part, before `Change:`. Its brief never says to design from a blank page or "not from today's layout"; a change the owner wants away from the live artifact still starts from it.
+A lane that designs, mocks or redesigns anything the owner sees, such as a dashboard, a board, a Slack card format or a skill's UI, carries these lines in its `<lane>.md` part, before `Change:`, and launches on the Mac with `WORKER_LOCAL=1`: its codex pass needs the ChatGPT login only the Mac has, and the launcher refuses its brief on a Sprite. Its brief never says to design from a blank page or "not from today's layout"; a change the owner wants away from the live artifact still starts from it.
 
 ```
 Artifact: <the live artifact: its URL or app, and the repo path that renders it>.

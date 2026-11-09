@@ -59,6 +59,9 @@ if [ "$route" = sprite ]; then
   if grep -qiE '(^|[-_.])fable([-_.0-9]|$)' <<<"$model_id"; then
     die "$model_id is Fable, which runs only on the explicit local route, WORKER_LOCAL=1; nothing was prepared, and nothing launched locally instead"
   fi
+  if grep -q '^Draw: every visual deliverable' "$brief"; then
+    die "$brief is a design lane's brief, and its codex design pass needs the ChatGPT login only this Mac has, since a Sprite carries an API key that mounts no image tools; launch it with WORKER_LOCAL=1; nothing was prepared"
+  fi
   [ -z "${WORKER_REPO:-}" ] ||
     die "WORKER_REPO picks a local Orca repository; a Sprite checks out the repository its cc-remote config names, chosen with CC_REMOTE_CONFIG; nothing was prepared"
   [ -z "${WORKER_BASE_BRANCH:-}" ] ||
