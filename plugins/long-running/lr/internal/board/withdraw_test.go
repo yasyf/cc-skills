@@ -215,7 +215,7 @@ func TestWithdrawingAnAskCardRemovesOnlyThatCard(t *testing.T) {
 func TestAWhyNamingAnIDIsRefused(t *testing.T) {
 	on := &cardShell{cards: []string{"card-pick-1"}}
 	f := newCards(t, on, nil)
-	for _, said := range []string{"", "superseded by #49700", "see card-pick-2", "moved to merge:49622:abc1234"} {
+	for _, said := range []string{"", "superseded by #49700", "see card-pick-2", "moved to merge:49622:abc1234", "its words go to root first (617717)"} {
 		if _, err := f.Pull(context.Background(), "meta-desk", "card-pick-1", said, &bytes.Buffer{}); err == nil {
 			t.Fatalf("--why %q went to the owner", said)
 		}

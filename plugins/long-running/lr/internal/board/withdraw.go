@@ -25,7 +25,7 @@ const readingWindow = 10 * time.Minute
 
 var (
 	tapTarget = regexp.MustCompile(`^(?:#?(\d+)|merge:(\d+):[0-9a-f]+)$`)
-	namesID   = regexp.MustCompile(`#\d|\bcard-|\bmerge:\d`)
+	namesID   = regexp.MustCompile(`#\d|\bcard-|\bmerge:\d|\b\d{5,}\b`)
 )
 
 func plainWhy(why string) error {
