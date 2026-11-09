@@ -108,6 +108,7 @@ func TestAChannelLinkIsItsCardAloneInsteadOfAButtonOrALinkLine(t *testing.T) {
 func TestAThreadAnswerNamesItsPRByTitleOnceInSlackMarkup(t *testing.T) {
 	fake := scripted()
 	r := titled(Reply{ID: "r1", Title: "t", MD: "## Done\n[#2196](" + landPR + ") is in CI.", PRs: []string{landPR}, Thread: "1793684147.131059"})
+	r.live = r.PRs
 	fanout(t, fake).Send(context.Background(), r)
 	posted := calls(fake, "cc-slack")
 	want := "*t*\n*Done*\n<" + landPR + "|Relay fix> is in CI."
