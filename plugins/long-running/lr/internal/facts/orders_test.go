@@ -1140,6 +1140,7 @@ func TestHisHoldWordsInACardsThreadWithdrawTheTapAndHoldThePRUntilHisNextTap(t *
 	if open := openHoldSeqs(t); len(open) != 1 {
 		t.Fatalf("open holds = %v, want his words' hold", open)
 	}
+	time.Sleep(5 * time.Millisecond)
 
 	tapAt(t, surfaceHead)
 	writeOrders(t, h)
