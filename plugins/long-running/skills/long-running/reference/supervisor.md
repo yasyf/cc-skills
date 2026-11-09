@@ -116,7 +116,7 @@ One tick does all of the following from one read of the new records and one `cci
 - **Gates:** an event record clears the wait and sets a page for each lane parked on it.
 - **Restart:** a page reaches a live lane through its roster inbox or `orca orchestration send`. A process that is gone gets one successor when its row holds an open PR or a standing duty, because its obligation is on the row; a row holding neither retires once silent past the threshold (see Dead lanes).
 - **Successor:** only for a live row. A row that ended is retired, and a parked row waits for its gate.
-- **A woken lane** that answers nothing for 30 minutes and has made no tool call in that time gets a successor. The successor's check for live processes in the worktree keeps two writers out.
+- **A silent lane:** a live lane holding work, woken or not, that has made no tool call for 30 minutes and runs no subagent or wait gets a successor from its handoff or brief. One parked on an `ask`, `blocked` or `blocker`, or an idle rostered teammate, waits on an answer instead, so root gets one SILENT blocker naming it. The successor's check for live processes in the worktree keeps two writers out.
 
 ### Owed deletions
 

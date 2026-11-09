@@ -3519,6 +3519,21 @@ func TestALiveLaneSilentPastItsHandoffIsRelaunchedFromIt(t *testing.T) {
 	equal(t, f.launches, []string{"conflicts-3"})
 }
 
+func TestALiveLaneSilentThirtyMinutesAfterAReportIsRelaunched(t *testing.T) {
+	s := memory(t)
+	f := adopted(t, s, writeBrief(t), "", 52619)
+	f.feed = append(f.feed, rec(2, lane2, "report", t0, "rebased #52619 onto dev", Root))
+	f.peers = []Row{who(lane2, true, t0)}
+
+	quiet := tick(t, s, f, t0.Add(PageAnswer-mins(1)))
+	replaced := tick(t, s, f, t0.Add(PageAnswer))
+
+	equal(t, len(quiet.Relaunched), 0)
+	equal(t, replaced.Relaunched[0].Old, lane2)
+	contains(t, replaced.Relaunched[0].Why, "has made no tool call in the 30 min since")
+	equal(t, f.launches, []string{"conflicts-3"})
+}
+
 func TestALiveLaneSilentWithNoWaitRunningIsPostedToRootOnce(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 52619)

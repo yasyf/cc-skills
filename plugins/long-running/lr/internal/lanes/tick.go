@@ -444,7 +444,11 @@ func stalled(s *store.Store, d Deps, lane store.Lane, peer Peer, found map[strin
 		relaunch(s, d, lane, found, fmt.Sprintf("wrote its handoff at %s and has made no tool call in the %d min since", pacific(lane.Heard), quiet), "", taken, now, out)
 		return
 	}
-	text := fmt.Sprintf("SILENT %s is live in Orca but has made no tool call in %d min and runs no wait, holding %s; relaunch it from its handoff or brief %s, or stand it down", lane.Name, quiet, or(numberList(lane.PRs), "no PR"), lane.Brief)
+	if lane.Waiting == 0 && !peer.Row.Idle {
+		relaunch(s, d, lane, found, fmt.Sprintf("is live in Orca but has made no tool call in the %d min since %s and runs no wait", quiet, pacific(newer(peer.Seen, lane.Heard))), "", taken, now, out)
+		return
+	}
+	text := fmt.Sprintf("SILENT %s is live in Orca but has made no tool call in %d min and runs no wait, holding %s; answer what it waits on, relaunch it from its handoff or brief %s, or stand it down", lane.Name, quiet, or(numberList(lane.PRs), "no PR"), lane.Brief)
 	if must(s.Escalate(fmt.Sprintf("silent:%s:%d", lane.Name, must(s.NewestSeq(lane.Name))), "silent", Root, now)) {
 		do(d.Post(Post{Kind: "blocker", To: []string{Root}, LaneRef: lane.Name, Text: text}))
 	}
