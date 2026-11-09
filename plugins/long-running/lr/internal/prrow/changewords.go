@@ -3,6 +3,8 @@ package prrow
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -27,6 +29,8 @@ var (
 	recordWords    = regexp.MustCompile(`(?i)\b(?:record #\d+|cci \d+|exit(?:s| code)? \d+|[a-z][a-z0-9]*(?:-[a-z0-9]+)+ brief)\b`)
 	riskLabel      = regexp.MustCompile(`^\s*(?:[-*]\s+)?(?:\*\*[^*\n]+\*\*:?|[A-Z][\w ]{0,30}:\s)\s*`)
 	archFence      = regexp.MustCompile("(?s)```arch[ \t]*\n(.*?)\n[ \t]*```")
+	diagramSource  = regexp.MustCompile("(?s)```(?:dot|graphviz|mermaid|plantuml)[ \t]*\n.*?\n[ \t]*```")
+	pictureLink    = regexp.MustCompile(`!\[[^\]\n]*\]\(((?:~|/)[^)\s]+\.(?i:png|jpe?g|gif|webp))\)`)
 	addsFunction   = regexp.MustCompile(`(?i)\b(?:adds?|new)\b[^.\n]{0,40}\b(?:builtins?|functions?)\b`)
 	codeTerm       = regexp.MustCompile("`[^`\n]+`" + `|\w+::\w+|(?:^|[\s(])/[a-z][\w{}/-]*|\b[a-z][a-z0-9]*_[a-z0-9_]+\b|\b[A-Za-z_][\w.]*\(\)|\b[A-Za-z][\w.-]*/[A-Za-z][\w.-]*/[A-Za-z][\w./-]*|\b[\w.-]+/[\w.-]+\.(?:go|rs|ts|tsx|js|py|sql|sh|json|ya?ml|toml)\b`)
 )
@@ -87,10 +91,39 @@ func ShowMe(row store.ReviewRow) string {
 	return section(row.Description, "Show me")
 }
 
-// ShowMeWords is the Show me section with its arch block taken out, since the
-// card shows that block as its picture.
+// ShowMeWords is the Show me section without what the card draws as its
+// pictures: the arch block, each local image, the lines naming those images,
+// and the diagram source they were rendered from.
 func ShowMeWords(row store.ReviewRow) string {
-	return strings.TrimSpace(archFence.ReplaceAllString(ShowMe(row), ""))
+	shown := diagramSource.ReplaceAllString(archFence.ReplaceAllString(ShowMe(row), ""), "")
+	named := pictureLink.FindAllStringSubmatch(shown, -1)
+	if len(named) == 0 {
+		return strings.TrimSpace(shown)
+	}
+	kept := slices.DeleteFunc(strings.Split(shown, "\n"), func(line string) bool {
+		return slices.ContainsFunc(named, func(link []string) bool { return strings.Contains(line, link[1]) })
+	})
+	return strings.TrimSpace(paragraphBreak.ReplaceAllString(strings.Join(kept, "\n"), "\n\n"))
+}
+
+// ShowMePictures is each local image the Show me section links, as an
+// absolute path the card uploads into its post.
+func ShowMePictures(row store.ReviewRow) []string {
+	var pictures []string
+	for _, link := range pictureLink.FindAllStringSubmatch(ShowMe(row), -1) {
+		path := link[1]
+		if rest, ok := strings.CutPrefix(path, "~/"); ok {
+			home, err := os.UserHomeDir()
+			if err != nil {
+				panic(err)
+			}
+			path = filepath.Join(home, rest)
+		}
+		if !slices.Contains(pictures, path) {
+			pictures = append(pictures, path)
+		}
+	}
+	return pictures
 }
 
 // ShowMeDiagram is the Show me section's arch doc, nil when it has none.
@@ -114,6 +147,9 @@ func showMeFlaw(row store.ReviewRow) string {
 		if problems := arch.Problems(doc); len(problems) > 0 {
 			return "its Show me arch block does not draw: " + strings.Join(problems, "; ") + "; a block that draws: " + archExample
 		}
+	}
+	if diagramSource.MatchString(shown) && len(ShowMePictures(row)) == 0 {
+		return "its Show me has dot or mermaid source, which his card prints as text; link the rendered picture as a markdown image of a local PNG, or write it as " + archExample
 	}
 	if addsFunction.MatchString(row.ForUsers+"\n"+section(row.Description, "Changes")) && !strings.Contains(shown, "```") {
 		return "it adds a function, and its Show me section has no real Sand API call and its result in a code block"
