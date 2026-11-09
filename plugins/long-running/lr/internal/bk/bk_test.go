@@ -457,6 +457,18 @@ func TestALogOfAFailedJobAnswersItsFailuresFromTheMiddleOfTheLog(t *testing.T) {
 	}
 }
 
+func TestAGrepThatFindsNothingInARunningJobSaysItReadTheLogSoFar(t *testing.T) {
+	build := `{"number":12,"state":"running","jobs":[{"id":"` + failedJob + `","type":"script","name":"go 3/8","state":"running"}]}`
+	runner := &fakeRunner{replies: map[string]string{"/pipelines/test/builds/12": build, failedJob: "=== RUN TestEarly\n"}}
+	desk, _ := newDesk(t, runner)
+
+	read := desk.read(context.Background(), "bk log test 12 "+failedJob+" --grep TestLate")
+
+	if !strings.HasPrefix(read.head, "the job is running, so this reads its log so far; ask again once it finishes: 0 lines matching TestLate") {
+		t.Fatalf("head = %q", read.head)
+	}
+}
+
 func TestALogOfAPassedJobKeepsItsTail(t *testing.T) {
 	log := "--- FAIL: TestRetriedThenPassed\n" + strings.Repeat("ok\n", 100)
 	build := `{"number":12,"state":"passed","jobs":[{"id":"` + failedJob + `","type":"script","name":"go 3/8","state":"passed"}]}`
