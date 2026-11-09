@@ -1,8 +1,0 @@
-{
-  "private": true,
-  "scripts": {
-    "tsc:api": "tsgo --noEmit -p ./api",
-    "watch:tsc:api": "yarn tsc:api --watch",
-    "tsc:all": "npm-run-all -p tsc:api"
-  }
-}

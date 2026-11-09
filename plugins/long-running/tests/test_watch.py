@@ -1,287 +1,207 @@
-from __future__ import annotations
-
 import json
-import subprocess
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
 
-from long_running import ledger
 import pytest
-from conftest import DRIVE, LEDGER, FakeShell
+from drive import cli, github, state, watch
 
-REPO = "Forge-AI/monorepo"
-PR = "27949"
-HEAD = "eb4241ac46674fbddb035a3b369440c4c7ecb41b"
-SQUASH = "815d915c0000000000000000000000000000abcd"
-LANE = "phase0-deploy"
+KEY = "Forge-AI/monorepo#42"
+T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 
 
-def event(kind: str, pr: str = PR, detail: str = "", head: str = HEAD) -> str:
-    payload = {"at": "2026-09-30T05:34:49Z", "pr": int(pr), "event": kind, "head": head}
-    if detail:
-        payload["detail"] = detail
-    return json.dumps(payload)
+def order(**overrides: object) -> dict:
+    base = {
+        "text": "ship the watch",
+        "from": "terminal",
+        "thread": None,
+        "state": "working",
+        "due": None,
+        "due_said": None,
+        "jobs": ["j1"],
+        "proof": None,
+        "note": None,
+        "created": state.stamp(T0),
+        "updated": state.stamp(T0),
+        "last_line": state.stamp(T0),
+    }
+    return {**base, **overrides}
 
 
-def watch(shell: FakeShell, tmp_path, *extra: str) -> int:
-    return ledger.main(
-        ["watch", "--repo", REPO, "--ledger", LEDGER, "--drive", DRIVE, "--checkout", str(tmp_path), "--state", str(tmp_path / "watch.json"), "--once", *extra],
-        shell,
-    )
+@pytest.fixture
+def demo(state_root: Path) -> str:
+    data = state.new_drive("demo", "session-under-test", "/work", "D123")
+    data["orders"]["o1"] = order()
+    data["jobs"]["j1"] = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [state.pr_url(KEY)]}
+    data["prs"][KEY] = cli.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title"}
+    state.create(data)
+    return "demo"
 
 
-def row_shell(**fields: str) -> FakeShell:
-    return FakeShell(rows=[{"key": PR, "fields": {"head": HEAD, "lane": LANE, "state": "open", **fields}}])
+def read(**overrides: object) -> dict:
+    base = {
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": "aaaaaaa111",
+        "mergeCommit": None,
+        "checks": "PENDING",
+        "reviewDecision": None,
+        "title": "Fix: the watch",
+    }
+    return {**base, **overrides}
 
 
-def p0s(shell: FakeShell) -> list[dict]:
-    return [fields for fields in ledger.Messages(shell, DRIVE).read(None).values() if fields["kind"] == "p0"]
+def serve(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[str]]:
+    calls = []
+
+    def fake(keys: list[str]) -> dict[str, dict]:
+        calls.append(keys)
+        return {key: reads[key] for key in keys if key in reads}
+
+    monkeypatch.setattr(github, "fetch", fake)
+    return calls
 
 
-def test_an_ejection_the_pass_it_happens_is_a_p0_on_the_inbox_and_a_line(capsys, tmp_path):
-    shell = row_shell(label_head=HEAD, labelled_at="2026-09-30T05:28:00Z")
-    shell.ccx_out = event("ejected", detail="it had merge conflicts") + "\n" + event("conflicting") + "\n"
-
-    assert watch(shell, tmp_path) == 0
-
-    out = capsys.readouterr().out.splitlines()
-    assert out == [f"P0 #{PR} ejected (it had merge conflicts) {LANE}", f"P0 #{PR} conflicting {LANE}"]
-    ejected, conflicting = p0s(shell)
-    assert ejected["pr"] == PR and ejected["head"] == HEAD and ejected["lane"] == LANE and ejected["state"] == "pending"
-    assert "ejected (it had merge conflicts)" in ejected["text"]
-    assert conflicting["text"] == f"#{PR} conflicting: rebase or fix now"
-    row = shell.fields(PR)
-    assert row["ejected_at"] == "2026-09-30T05:34:49Z"
-    assert row["watch_event"] == "conflicting"
-    assert row["watch_queued"] == ""
+def watcher(name: str, moment: datetime = T0) -> watch.Watcher:
+    return watch.Watcher(name, offset=state.events_end(name), ticked_at=moment)
 
 
-def test_an_ejection_is_a_p0_even_on_a_row_the_desk_never_labelled(capsys, tmp_path):
-    shell = row_shell()
-    shell.ccx_out = event("queued") + "\n"
-    watch(shell, tmp_path)
-    assert shell.fields(PR)["watch_queued"] == "true"
-    assert not p0s(shell)
-
-    shell.ccx_out = event("ejected") + "\n"
-    watch(shell, tmp_path)
-
-    assert len(p0s(shell)) == 1
-    assert f"P0 #{PR} ejected {LANE}" in capsys.readouterr().out
+def test_github_pass_emits_one_line_per_change_and_stores_fields(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks="SUCCESS", reviewDecision="APPROVED")})
+    lines = watch.run_pass(watcher(demo), T0)
+    assert lines == [
+        f'PR {KEY} "Fix: the watch": new head bbbbbbb [o1 j1]',
+        f'PR {KEY} "Fix: the watch": checks passed [o1 j1]',
+        f'PR {KEY} "Fix: the watch": approved [o1 j1]',
+    ]
+    pr = state.load(demo)["prs"][KEY]
+    assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
 
 
-def test_red_on_a_queued_or_priority_row_is_a_p0_and_elsewhere_only_recorded(capsys, tmp_path):
-    shell = row_shell()
-    shell.ccx_out = event("red", detail="buildkite/tests") + "\n"
+def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {KEY: read()})
+    assert watch.run_pass(watcher(demo), T0) == []
 
-    watch(shell, tmp_path)
-    assert not p0s(shell)
-    assert shell.fields(PR)["watch_event"] == "red buildkite/tests"
+
+def test_merge_is_reported_and_the_pr_leaves_the_read_set(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f'PR {KEY} "Fix: the watch": merged [o1 j1]']
+    assert state.load(demo)["prs"][KEY]["merged_sha"] == "ccc333"
+    watch.run_pass(watching, T0 + timedelta(seconds=61))
+    assert calls == [[KEY]]
+
+
+def test_github_reads_at_most_once_a_minute(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = serve(monkeypatch, {KEY: read()})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    watch.run_pass(watching, T0 + timedelta(seconds=30))
+    watch.run_pass(watching, T0 + timedelta(seconds=60))
+    assert len(calls) == 2
+
+
+def test_failed_read_reports_at_most_every_ten_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(keys: list[str]) -> dict:
+        raise github.GithubError("HTTP 502")
+
+    monkeypatch.setattr(github, "fetch", broken)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "open"
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == ["WATCH github read failed: HTTP 502"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["WATCH github read failed: HTTP 502"]
+
+
+def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    state.append_event(demo, "shown", repo="Forge-AI/monorepo", number=7)
+    watching = watcher(demo)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    state.append_event(demo, "refused", repo="Forge-AI/monorepo", number=42, reason="stale")
+    assert watch.run_pass(watching, T0) == [
+        f"TAP Approve {KEY} [o1 j1]",
+        "EVENT refused repo=Forge-AI/monorepo number=42 reason=stale",
+    ]
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+
+
+def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    path = state.events_path(demo)
+    with open(path, "a") as handle:
+        handle.write(json.dumps({"kind": "note", "at": state.stamp(T0)}))
+    assert watch.run_pass(watching, T0) == []
+    with open(path, "a") as handle:
+        handle.write("\n")
+    assert watch.run_pass(watching, T0) == ["EVENT note"]
+
+
+def test_due_fires_once_and_stamps_due_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["due"] = state.stamp(T0 - timedelta(minutes=30))
+        data["orders"]["o2"] = order(text="later", due=state.stamp(T0 + timedelta(hours=1)))
+        data["orders"]["o3"] = order(state="done", due=state.stamp(T0 - timedelta(hours=1)))
+    watching = watcher(demo)
+    lines = watch.run_pass(watching, T0)
+    assert len(lines) == 1
+    assert lines[0].startswith('DUE o1 "ship the watch" was due ')
+    assert lines[0].endswith("9:30 AM")
+    assert state.load(demo)["orders"]["o1"]["due_said"] == state.stamp(T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+
+
+def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["due"] = state.stamp(T0 + timedelta(minutes=20))
+        data["orders"]["o1"]["due_said"] = state.stamp(T0 - timedelta(minutes=5))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=21))[0].startswith("DUE o1")
+
+
+def test_tick_names_working_orders_without_a_recent_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(state="waiting", last_line=None)
+        data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=5)))
+        data["orders"]["o4"] = order(state="open")
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["TICK o1 o2"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
+
+
+def test_lines_are_capped_at_three_hundred_chars(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    state.append_event(demo, "unheard", question="x" * 500)
+    assert len(watch.run_pass(watching, T0)[0]) == 300
+
+
+def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    state.pid_path(demo).write_text(f"{os.getpid()}\n")
+    assert watch.main(demo) == 0
     assert capsys.readouterr().out == ""
 
-    watch(shell, tmp_path, "--priority", PR)
-    assert len(p0s(shell)) == 1
-    assert capsys.readouterr().out == f"P0 #{PR} red buildkite/tests {LANE}\n"
+
+def test_no_drive_exits_quietly(state_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    assert watch.main(None) == 0
+    assert capsys.readouterr().out == ""
 
 
-def test_each_pass_rereads_the_rows_so_new_prs_join_and_settled_ones_leave(tmp_path):
-    shell = row_shell()
-    shell.stores[LEDGER]["rows"].append({"key": "27001", "fields": {"state": "landed"}})
-    watch(shell, tmp_path)
-    shell.stores[LEDGER]["rows"].append({"key": "28008", "fields": {"head": HEAD, "lane": "phase0-rebase"}})
-    watch(shell, tmp_path)
+def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    state.pid_path(demo).write_text("999999999\n")
 
-    first, second = shell.ccx_calls
-    assert first[:5] == ["ccx", "vcs", "pr", "watch", PR] and "27001" not in first
-    assert second[4:6] == [PR, "28008"]
-    assert first[first.index("--state") + 1] == str(tmp_path / "watch.json.pending")
-    assert {"--once", "--json"} <= set(first)
+    def stop(seconds: float) -> None:
+        raise KeyboardInterrupt
 
-
-def test_a_report_a_lane_wrote_itself_wakes_the_desk_once(capsys, tmp_path):
-    shell = row_shell()
-    ledger.Messages(shell, DRIVE).post({"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY"})
-
-    watch(shell, tmp_path)
-    watch(shell, tmp_path)
-
-    assert capsys.readouterr().out.splitlines() == [f"REPORT #1 report #{PR} {HEAD[:9]} {LANE}: clean READY"]
-    assert ledger.Messages(shell, DRIVE).read(None)["#1"]["state"] == "pending"
-
-
-def test_peer_mail_cci_tail_carries_is_not_a_lane_message(tmp_path):
-    shell = row_shell()
-    messages = ledger.Messages(shell, DRIVE)
-    messages.post({"kind": "report", "pr": PR, "head": HEAD, "lane": LANE, "text": "clean READY"})
-    peer = {"lane": "inc-5177-edge-fix", "at": "2026-10-10T21:16:22Z", "topic": "", "re": 1, "fields": {}, "to": ["peer:b577ef71"]}
-    shell.cci += [
-        {**peer, "seq": 2, "drive": "release-v3", "kind": "state", "text": "verification only"},
-        {**peer, "seq": 3, "drive": "release-v3", "kind": "blocker", "text": "Orb GetRoleCredentials No access"},
-        {**peer, "seq": 4, "drive": DRIVE, "kind": "state", "text": "checking plat"},
-        {**peer, "seq": 5, "drive": DRIVE, "kind": "answer", "text": "seen"},
-    ]
-
-    assert {key: (fields["kind"], fields["state"]) for key, fields in messages.read(None).items()} == {"#1": ("report", "pending")}
-    assert list(messages.read(frozenset({LANE}))) == ["#1"]
-
-
-def arm(tmp_path, *prs: str) -> None:
-    (tmp_path / "watch.json").write_text(json.dumps({"prs": {pr: {"state": "OPEN"} for pr in prs}}))
-
-
-def test_a_landing_settles_the_row_in_the_same_pass(tmp_path):
-    arm(tmp_path, PR)
-    shell = row_shell()
-    shell.pulls[PR] = {"number": int(PR), "state": "closed", "merged_at": "2026-09-30T00:00:00Z", "head": {"sha": HEAD, "ref": "yasyf/v3-phase0/deploy"}, "base": {"ref": "yasyf/v3-phase0/base"}, "created_at": "2026-09-29T00:00:00Z"}
-    shell.pull_heads[PR] = HEAD
-    shell.pr_files[PR] = ["infra/ci/src/pipelines/deploy/index.ts"]
-    shell.trunk_log = [f"{SQUASH} 2026-09-30T05:50:00+00:00 ci: 🐛 deploy index (#{PR})"]
-    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n"
-
-    assert watch(shell, tmp_path) == 0
-
-    assert shell.fields(PR)["state"] == "landed"
-    assert shell.fields(PR)["landed_sha"] == SQUASH
-    assert not p0s(shell)
-
-
-def test_a_failed_ccx_poll_is_reported_and_writes_nothing(capsys, tmp_path):
-    class Failing(FakeShell):
-        def run(self, argv, stdin=None):
-            if argv[0] == "ccx":
-                raise subprocess.CalledProcessError(1, argv, stderr="pr watch: 10 polls in a row failed")
-            return super().run(argv, stdin)
-
-    shell = Failing(rows=[{"key": PR, "fields": {"head": HEAD, "lane": LANE}}])
-
-    assert watch(shell, tmp_path) == 1
-    assert "10 polls in a row failed" in capsys.readouterr().err
-    assert not p0s(shell)
-
-
-def test_a_rate_limit_line_passes_through(capsys, tmp_path):
-    shell = row_shell()
-    shell.ccx_out = json.dumps({"at": "2026-09-30T06:00:00Z", "event": "rate-limited", "detail": "until 2026-09-30T07:00:00Z"}) + "\n"
-
-    watch(shell, tmp_path)
-
-    assert capsys.readouterr().out == "rate-limited until 2026-09-30T07:00:00Z\n"
-
-
-def test_a_ccn_read_retries_while_another_desk_writes(monkeypatch):
-    calls: list[list[str]] = []
-    slept: list[float] = []
-
-    def flaky(argv, stdin, cwd=None):
-        calls.append(argv)
-        if len(calls) < 3:
-            raise subprocess.CalledProcessError(1, argv, stderr="ledger busy")
-        return "{}"
-
-    monkeypatch.setattr(ledger.Shell, "once", staticmethod(flaky))
-    monkeypatch.setattr(ledger.time, "sleep", slept.append)
-
-    assert ledger.Shell().run(["ccn", "ledger", "show", LEDGER, "--json"]) == "{}"
-    assert len(calls) == 3
-    assert slept == [0.5, 1.0]
-
-
-def test_a_ccn_read_that_keeps_failing_raises_and_a_write_is_never_retried(monkeypatch):
-    calls: list[list[str]] = []
-
-    def failing(argv, stdin, cwd=None):
-        calls.append(argv)
-        raise subprocess.CalledProcessError(1, argv, stderr="ledger busy")
-
-    monkeypatch.setattr(ledger.Shell, "once", staticmethod(failing))
-    monkeypatch.setattr(ledger.time, "sleep", lambda _: None)
-
-    with pytest.raises(subprocess.CalledProcessError):
-        ledger.Shell().run(["ccn", "ledger", "show", LEDGER, "--json"])
-    assert len(calls) == ledger.CCN_READ_ATTEMPTS
-
-    calls.clear()
-    with pytest.raises(subprocess.CalledProcessError):
-        ledger.Shell().run(["ccn", "ledger", "row", "set", LEDGER, "--key", PR, "--field", "a=b"])
-    assert len(calls) == 1
-
-
-def test_the_snapshot_advances_only_after_the_ledger_took_every_transition(tmp_path):
-    shell = row_shell(label_head=HEAD, labelled_at="2026-09-30T05:28:00Z")
-    shell.ccx_out = event("ejected", detail="it had merge conflicts") + "\n"
-    state = tmp_path / "watch.json"
-    shell.fail_ccn_writes = True
-
-    assert watch(shell, tmp_path) == 1
-    assert not state.exists()
-
-    shell.fail_ccn_writes = False
-    assert watch(shell, tmp_path) == 0
-    assert json.loads(state.read_text())["call"] == 2
-    assert len(p0s(shell)) == 1
-
-
-def test_an_acked_red_does_not_swallow_a_later_ejection_on_the_same_head(capsys, tmp_path):
-    shell = row_shell()
-    shell.ccx_out = event("red", detail="buildkite/tests") + "\n"
-    watch(shell, tmp_path, "--priority", PR)
-    messages = ledger.Messages(shell, DRIVE)
-    for key, fields in messages.read(None).items():
-        messages.answer(key, fields, "acked")
-
-    shell.ccx_out = event("ejected") + "\n"
-    watch(shell, tmp_path)
-
-    assert [m["text"] for m in p0s(shell)] == [f"#{PR} red buildkite/tests: rebase or fix now", f"#{PR} ejected: rebase or fix now"]
-
-
-def test_a_stray_line_from_ccx_is_reported_and_the_events_still_land(capsys, tmp_path):
-    shell = row_shell()
-    shell.ccx_out = "warning: something\n" + event("ejected") + "\n"
-
-    assert watch(shell, tmp_path) == 0
-
-    captured = capsys.readouterr()
-    assert "ccx: warning: something" in captured.err
-    assert f"P0 #{PR} ejected {LANE}" in captured.out
-
-
-def test_arming_drops_a_landing_or_close_that_predates_the_snapshot_and_keeps_standing_conditions(capsys, tmp_path):
-    shell = row_shell(label_head=HEAD, labelled_at="2026-09-30T05:28:00Z")
-    shell.stores[LEDGER]["rows"].append({"key": "28008", "fields": {"head": HEAD, "lane": LANE, "state": "open"}})
-    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n" + event("closed-without-squash", pr="28008") + "\n" + event("conflicting") + "\n"
-
-    assert watch(shell, tmp_path) == 0
-
-    assert capsys.readouterr().out == f"P0 #{PR} conflicting {LANE}\n"
-    assert shell.fields(PR)["watch_event"] == "conflicting"
-    assert shell.fields(PR)["state"] == "open"
-    assert "watch_event" not in shell.fields("28008")
-    assert shell.fields("28008")["state"] == "open"
-    assert set(json.loads((tmp_path / "watch.json").read_text())["prs"]) == {PR, "28008"}
-
-
-def test_a_shard_watches_only_its_lanes_and_keeps_its_own_snapshot(tmp_path):
-    shell = row_shell()
-    shell.stores[LEDGER]["rows"].append({"key": "28008", "fields": {"head": HEAD, "lane": "phase0-rebase", "state": "open"}})
-
-    watch(shell, tmp_path, "--shard", LANE)
-
-    assert shell.ccx_calls[0][4:6] == [PR, "--repo"]
-    home = ledger.Path.home() / ".cache" / "ccn-ledger"
-    scope = ledger.Scope(REPO, REPO)
-    assert ledger.watch_state(LEDGER, None, scope) == home / f"{LEDGER}.watch.json"
-    sharded = ledger.watch_state(LEDGER, frozenset({"b", "a"}), scope)
-    assert sharded == ledger.watch_state(LEDGER, frozenset({"a", "b"}), scope) != ledger.watch_state(LEDGER, frozenset({"a"}), scope)
-    assert sharded.parent == home and sharded.name.startswith(f"{LEDGER}.") and sharded.name.endswith(".watch.json")
-    assert len(ledger.watch_state(LEDGER, frozenset(f"lane-{n:03}" for n in range(200)), scope).name) < 255
-    assert ledger.watch_state(LEDGER, None, ledger.Scope("yasyf/cc-skills", REPO)) == home / f"{LEDGER}.yasyf.cc-skills.watch.json"
-
-
-@pytest.mark.parametrize("snapshot", [{}, {"prs": None}])
-def test_a_snapshot_without_prs_arms_like_an_absent_one(capsys, tmp_path, snapshot):
-    (tmp_path / "watch.json").write_text(json.dumps(snapshot))
-    shell = row_shell()
-    shell.ccx_out = event("landed", detail=SQUASH[:9]) + "\n"
-
-    assert watch(shell, tmp_path) == 0
-
-    assert shell.fields(PR)["state"] == "open"
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
+    monkeypatch.setattr(watch.time, "sleep", stop)
+    with pytest.raises(KeyboardInterrupt):
+        watch.main(demo)
+    assert not state.pid_path(demo).exists()

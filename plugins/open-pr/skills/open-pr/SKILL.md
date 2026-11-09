@@ -195,8 +195,8 @@ Read the user's `CLAUDE.md` for one of these exact lines:
   only on a yes.
 
 Never label or open on the report alone. Under the `long-running` skill,
-forward the report to the landing desk; it owns the decision regardless of
-the setting.
+land by that skill's `reference/landing.md`; it owns the decision regardless
+of the setting.
 
 After adding the queue label to a PR whose watcher already reported `ready-to-merge`, resume that watcher by name so it watches the queue through green checks to a landing or a failure:
 
@@ -215,7 +215,7 @@ command -v cc-review >/dev/null ||
   jq -e '.enabledPlugins["cc-review@cc-review"] == true' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" >/dev/null
 ```
 
-On exit 0, ask "Review #<number> in cc-review?" through `AskUserQuestion` in that same turn. On a yes, invoke the `cc-review:start` skill with `--pr <url> --open`: its first step runs `cc-review start --pr <url> --open`, which loads the PR's stack and opens the review in the browser, and the rest of that skill drives the event loop. On a no, or when the check fails, skip it. Ask once per PR, never again on a re-ship. A lane under the `long-running` skill has no user to ask, so it skips the offer.
+On exit 0, ask "Review #<number> in cc-review?" through `AskUserQuestion` in that same turn. On a yes, invoke the `cc-review:start` skill with `--pr <url> --open`: its first step runs `cc-review start --pr <url> --open`, which loads the PR's stack and opens the review in the browser, and the rest of that skill drives the event loop. On a no, or when the check fails, skip it. Ask once per PR, never again on a re-ship. A background job under the `long-running` skill has no user to ask, so it skips the offer.
 
 <success_criteria>
 The PR is open when ship has reported branch, PR number, URL, and head sha, and exactly one watcher holds the watch. It's done well when the title, body, and commit subjects match the style card at its stated confidence; every hard requirement in the guidelines card has a disposition — met, or skipped by the user's explicit pick; the body fills the repo's template and passed a triaged slop-cop run; and on a foreign repo, the diff cleared the conformance pass before the body was written.

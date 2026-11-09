@@ -1,6 +1,6 @@
 ---
 name: live-dashboard
-description: Assemble, serve, and keep live a dashboard built for the task at hand from typed components - PRs waiting for review, stack landing previews, Slack test threads with the bot's response times, latency percentiles, design-doc gates, Datadog monitors, cci lanes - plus local components written for this one job. Use when a drive, release, live test, incident, sweep, or review needs a page the owner can watch; when the owner asks for a dashboard, a status page, or "show me where this stands"; or when long-running starts a drive dashboard.
+description: Assemble, serve, and keep live a dashboard built for the task at hand from typed components - PRs waiting for review, stack landing previews, Slack test threads with the bot's response times, latency percentiles, design-doc gates, Datadog monitors, cci lanes - plus local components written for this one job. Use when a drive, release, live test, incident, sweep, or review needs a page the owner can watch, or when the owner asks for a dashboard, a status page, or "show me where this stands".
 ---
 
 # Live dashboard
@@ -18,8 +18,7 @@ percentiles. When no built-in answers the owner's question, write a local compon
 
 ## Start one
 
-`live-dashboard` is the plugin's `bin/` entry point; inside a long-running drive the
-hook prints its full path.
+`live-dashboard` is the plugin's `bin/` entry point.
 
 ```bash
 live-dashboard init --dir ~/.claude/scratch/bot-test/dashboard --preset live-test --title "Bot latency"
@@ -29,8 +28,7 @@ live-dashboard start --dir ~/.claude/scratch/bot-test/dashboard
 
 `init` copies a preset into `layout.yaml` and writes a minimal `context.json` when none
 exists. `start` prints the link to give the owner; it is the tailnet URL when Tailscale
-runs. A long-running drive runs none of this: it starts long-running's own drive
-dashboard app from its first plan, as that skill's Drive dashboard section says.
+runs.
 
 ## Commands
 
@@ -89,7 +87,7 @@ naming the line. Cards with the same `use` and the same bound parameters share o
 run.
 
 Built-ins are bare names. `release.*` reads a Platy release pipeline. A pack named in
-`context.json` under `packs` registers as `<name>.*`, so long-running's pack is `lr.*`.
+`context.json` under `packs` registers as `<name>.*`.
 This dir's own components register as `local.*`.
 
 ## Never on the board

@@ -1,0 +1,8 @@
+[
+  {
+    "name": "drive-watch",
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/drive watch",
+    "description": "drive events: PR state, taps, due times, ticks",
+    "when": "on-skill-invoke:long-running"
+  }
+]

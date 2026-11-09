@@ -1,5 +1,0 @@
-{"channel_id":"C0B75AL4XEW","thread_ts":"1793740168.770509","messages":[
- {"ts":"1793740168.770509","thread_ts":"1793740168.770509","text":":hourglass_flowing_sand: pensive-vallespir is running · <@U05FTPXU8PP> via `claude` · `executor`"},
- {"ts":"1793740230.000100","thread_ts":"1793740168.770509","text":":rotating_light: Executor went red on plat after 1 min. Tenant smoke test, Router, API and 9 more passed their 4-min watch."},
- {"ts":"1793740290.000200","thread_ts":"1793740168.770509","text":":x: The Watch failed for Executor on plat: \"Runner refusing runs whose journal cannot open on\" crossed its monitor's bound since the release started. Nothing else in pensive-vallespir waits on it. <https://buildkite.com/forge/release/builds/12404#01a1a349-af4e-4b67-b4e8-893cbba19b3c|Open the job>"}
-],"truncated":false}

@@ -8,7 +8,6 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 
 | The owner asks | Cards |
 |---|---|
-| What waits on me? | `lr.needs-owner` pinned: owner tasks and boards still asking |
 | What is broken? | `release.incidents`, `open-records` |
 | What is live? | `release.kpis`, `release.timeline`, `release.builds` folded |
 | Where do the program's numbers stand, and which way are they moving? | `release.kpis` |
@@ -16,8 +15,7 @@ directly and put it first. Everything else goes in a collapsed section or nowher
 | Which targets are at 0/0 in which environments? | `release.census-grid`, `release.census` |
 | What does the cloud account spend per day? | `aws-spend` with the account's `profile` and `target_per_day` |
 | What is in flight? | `cci-lanes`, `orca`, `tasks`, `asks` titled for the owner's own asks |
-| What is done and what is left in the plan? | `lr.plan-progress`: the drive's cc-notes tasks per plan step |
-| Where does each plan step stand, what holds it, and what went wrong so far? | `view` titled Plan table over `plan-table.md`, which long-running's `plan-table.py` regenerates from the owner table doc |
+| Where does each plan step stand, what holds it, and what went wrong so far? | `view` titled Plan table over `plan-table.md` |
 | Which PRs need my review, and what lands if I approve? | `pr-review-queue`, `stack-graph`, `landing-preview`, `held-prs` |
 | Does the bot answer, and how fast? | `slack-feed` on the test threads, `latency-percentiles` over the bot's timelines |
 | Which test cells pass, and where is each one's evidence? | `matrix-file` over the test lane's results file |
@@ -61,12 +59,8 @@ phases, a heatmap for a state across two axes.
 
 ## Bind once, reuse everywhere
 
-Put a fact every card shares in `context.json`, not in each `with:`. A long-running
-drive's `context.json` already carries `id`, `title`, `program`, `repo`, `checkout`,
-`ledger`, `sessions`, `cci_drive`, `orca_run`, `state_dir`, `started_at`, and `packs`.
-Add a key for the task, such as `owner_login`, and every card with that parameter
-binds it. `drive.py` rewrites only the keys it owns, so a task key survives the next
-registry write.
+Put a fact every card shares in `context.json`, not in each `with:`. Add a key for the
+task, such as `owner_login`, and every card with that parameter binds it.
 
 Two cards with the same `use` and the same bound parameters share one run. `landing-preview`
 reads the `stack-graph` and `pr-review-queue` cards by id, `stack` and `review` by

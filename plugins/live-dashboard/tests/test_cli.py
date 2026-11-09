@@ -10,7 +10,6 @@ from livedash import layout, registry
 
 SKILL = Path(__file__).resolve().parents[1] / "skills" / "live-dashboard"
 SCRIPT = SKILL / "scripts" / "live-dashboard.py"
-LR_PACK = Path(__file__).resolve().parents[2] / "long-running" / "dashboard"
 DRIVE_FACTS = {
     "id": "900424b6",
     "title": "release-v3",
@@ -23,7 +22,7 @@ DRIVE_FACTS = {
     "orca_run": None,
     "state_dir": "/state/release-v3",
     "started_at": "2026-10-06T00:00:00Z",
-    "packs": {"lr": str(LR_PACK)},
+    "packs": {},
 }
 
 

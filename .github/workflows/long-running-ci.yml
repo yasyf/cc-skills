@@ -3,212 +3,32 @@ name: long-running CI
 on:
   push:
     branches: [main]
-    tags: ["long-running--v*", "live-dashboard--v*"]
     paths:
       - "plugins/long-running/**"
-      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
-      - ".github/lr-controls/**"
-      - ".github/scripts/lr_controls.py"
-      - ".github/scripts/lr_pinned_binaries.sh"
-      - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
   pull_request:
     branches: [main]
     paths:
       - "plugins/long-running/**"
-      - "plugins/live-dashboard/skills/live-dashboard/scripts/**"
-      - ".github/lr-controls/**"
-      - ".github/scripts/lr_controls.py"
-      - ".github/scripts/lr_pinned_binaries.sh"
-      - ".github/lr-test-durations.json"
       - ".github/workflows/long-running-ci.yml"
-  schedule:
-    - cron: "11,41 * * * *"
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'main-cron' || (github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main') && github.sha || github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
 
 jobs:
-  pytest:
-    name: pytest ${{ matrix.shard }}/${{ strategy.job-total }}
+  test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
-    env:
-      # TODO: drop once isal, thinc, and ast-grep-py ship CPython 3.15 wheels; uv 0.13.0 defaults to 3.15 and their source builds fail.
-      UV_PYTHON: "3.14"
-      LR_TEST_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-      LR_TEST_DURATIONS: ${{ github.workspace }}/.github/lr-test-durations.json
-      LR_TEST_SCALE: ${{ github.event_name == 'pull_request' && 'skip' || 'run' }}
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v8.2.0
-      - id: pins
-        run: echo "cci=$(jq -r '.dependencies[] | select(.name == "cc-inbox").version | ltrimstr(">=")' plugins/long-running/.claude-plugin/plugin.json)" >> "$GITHUB_OUTPUT"
-      - id: pinned
-        uses: actions/cache/restore@v6
+      - uses: actions/setup-python@v6
         with:
-          path: |
-            ~/.daemonkit/binrun
-            ~/.daemonkit/cache
-            ~/.cache/cc-skills/cci
-          key: lr-pinned-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('plugins/long-running/bin/lr.binrun', 'plugins/long-running/scripts/binrun.sh') }}-cci-${{ steps.pins.outputs.cci }}
-      - name: fetch the pinned lr and cci
-        if: steps.pinned.outputs.cache-hit != 'true'
-        env:
-          CCI_VERSION: ${{ steps.pins.outputs.cci }}
-        run: .github/scripts/lr_pinned_binaries.sh
-      - if: steps.pinned.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v6
-        with:
-          path: |
-            ~/.daemonkit/binrun
-            ~/.daemonkit/cache
-            ~/.cache/cc-skills/cci
-          key: ${{ steps.pinned.outputs.cache-primary-key }}
+          python-version: "3.12"
+      - run: pip install pytest
       - name: pytest
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests -q -n auto --dist worksteal --durations=10 --junitxml="$RUNNER_TEMP/pytest.xml" -o junit_family=xunit1
-      - uses: actions/upload-artifact@v7
-        if: always() && github.event_name != 'pull_request'
-        with:
-          name: pytest-${{ matrix.shard }}
-          path: ${{ runner.temp }}/pytest.xml
-          if-no-files-found: error
-
-  controls:
-    name: controls ${{ matrix.shard }}/${{ strategy.job-total }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-    env:
-      UV_PYTHON: "3.14"
-      LR_CONTROLS_SHARD: ${{ matrix.shard }}/${{ strategy.job-total }}
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-      - uses: astral-sh/setup-uv@v8.2.0
-      - name: Compat and negative controls
-        run: uv run .github/scripts/lr_controls.py
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: lr-controls-${{ matrix.shard }}
-          path: ${{ runner.temp }}/lr-controls
-          if-no-files-found: ignore
-
-  capt-hook-pack:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-      - uses: astral-sh/setup-uv@v8.2.0
-      - name: capt-hook pack test
-        run: uvx --isolated 'capt-hook>=12.74.0' pack test plugins/long-running
-
-  lr-wait-daemon:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    env:
-      UV_PYTHON: "3.14"
-      GOMAXPROCS: "2"
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/checkout@v7
-        with:
-          repository: yasyf/cc-inbox
-          ref: db4456864d1e86e9f25835b5fb453ed78d16da45
-          path: .ci-daemon-cci
-          persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: plugins/long-running/lr/go.mod
-          cache-dependency-path: |
-            plugins/long-running/lr/go.sum
-            .ci-daemon-cci/go.sum
-      - uses: astral-sh/setup-uv@v8.2.0
-      - name: build actual cci daemon and lr
-        run: |
-          mkdir -p "$RUNNER_TEMP/daemon-cci"
-          go -C .ci-daemon-cci build -p 2 -o "$RUNNER_TEMP/daemon-cci/cci" ./cmd/cci
-          go -C plugins/long-running/lr build -p 2 -o "$RUNNER_TEMP/lr" ./cmd/lr
-      - name: lr wait survives a real daemon restart
-        env:
-          CCI_DAEMON_BINARY_DIR: ${{ runner.temp }}/daemon-cci
-          LR_BINARY: ${{ runner.temp }}/lr
-        run: uv run --locked --project plugins/long-running pytest plugins/long-running/tests/lr_wait_daemon_integration.py -q -s
-
-  replay-fixture:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: A defect fix to the lanes mover or the class check carries its replay fixture
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
-        run: |
-          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" > "$RUNNER_TEMP/pr.diff"
-          python3 - "$RUNNER_TEMP/pr.diff" <<'PY'
-          import os
-          import re
-          import sys
-
-          diff = open(sys.argv[1]).read()
-          if "🐛" not in os.environ["TITLE"] or not re.search(r"\b(?:root|cci) #\d{6}\b", os.environ.get("BODY") or ""):
-              sys.exit(0)
-          scripts = "plugins/long-running/skills/long-running/scripts/"
-          files = set(re.findall(r"^diff --git a/(\S+)", diff, re.MULTILINE))
-          checked = {f"{scripts}lr/movers/lanes.py", f"{scripts}long_running/testfiles.py"} & files or re.search(r"^@@ .* @@ def (?:test_only_offender|unclassed_files|file_kinds|dev_only|is_test_or_ci_file)\(", diff, re.MULTILINE)
-          if checked and not any(name.startswith("plugins/long-running/tests/fixtures/replay/") for name in files):
-              sys.exit("This fix cites the cci record that reported its defect but adds no replay fixture: write one with `replay.py capture` from that record into plugins/long-running/tests/fixtures/replay/, so CI replays the reporting case.")
-          PY
-
-  lr-go:
-    runs-on: ubuntu-latest
-    env:
-      LR_TEST_SCALE: ${{ github.event_name == 'pull_request' && 'skip' || 'run' }}
-    defaults:
-      run:
-        working-directory: plugins/long-running/lr
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: plugins/long-running/lr/go.mod
-          cache-dependency-path: plugins/long-running/lr/go.sum
-      - name: build, vet, test (race)
-        run: go build -o /dev/null ./cmd/lr && go vet ./... && go run gotest.tools/gotestsum@v1.13.0 --format standard-quiet --jsonfile "$RUNNER_TEMP/go-test.json" -- -race -gcflags='modernc.org/...=-race=false' -timeout 20m ./...
-      - name: slowest tests
-        if: ${{ !cancelled() }}
-        run: go run gotest.tools/gotestsum@v1.13.0 tool slowest --jsonfile "$RUNNER_TEMP/go-test.json" --threshold 2s
-      - name: release build parity (CGO_ENABLED=0, linux and darwin)
-        run: |
-          CGO_ENABLED=0 go build -o /dev/null ./cmd/lr
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o "$RUNNER_TEMP/lr-darwin-arm64" ./cmd/lr
-      - uses: actions/upload-artifact@v7
-        with:
-          name: lr-darwin-arm64
-          path: ${{ runner.temp }}/lr-darwin-arm64
-          retention-days: 3
-      - uses: golangci/golangci-lint-action@v9
-        with:
-          install-mode: goinstall
-          version: v2.15.0
-          working-directory: plugins/long-running/lr
+        run: python -m pytest plugins/long-running/tests -q
