@@ -151,7 +151,8 @@ def answer_read(job_id: str, run: str, message_id: str, question: str, checkout:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when its model changed since the last drawing."""
+    """Store his cards for every reader, and redraw the drive's Slack status page when its model changed since the last drawing."""
+    view.refresh_cards(watcher.name)
     model = view.read(watcher.name, moment)
     shape = json.dumps(model | {"at": None}, sort_keys=True)
     if shape == watcher.page_shape:

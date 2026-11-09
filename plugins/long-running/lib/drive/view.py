@@ -10,11 +10,17 @@
   (its latest job line), `due`, `late`, `proof`, `updated`, `url` and `prs`, each PR with `title`, `url`,
   `state`, `checks`, `review` and `tap`.
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
+
+`board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
+`work` (each running or waiting job of a shown feature), `history` (the last day, newest first) and each
+feature's `text`, `note`, `created` and `jobs`.
 """
 
 import json
+import os
 import re
 import subprocess
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 
 from drive import state
@@ -30,6 +36,9 @@ SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
 TITLE_CHARS = 100
 NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
+UNREAD = "not read yet: the drive's watch reads them every minute"
+HISTORY_FOR = timedelta(days=1)
+HISTORY_EVENTS = ("tap", "refused")
 
 
 class CardsError(Exception):
@@ -49,12 +58,33 @@ def cards(name: str) -> dict:
     return json.loads(result.stdout)
 
 
-def read(name: str, moment: datetime) -> dict:
-    """The named drive's model as stored now, with his cards when cc-slack answers."""
+def refresh_cards(name: str) -> None:
+    """Store his cards as cc-slack lists them now, rewriting the drive's cards file only when they changed."""
     try:
-        found, source = cards(name), "live"
+        found = {"source": "live", **cards(name)}
     except CardsError as error:
-        found, source = NO_CARDS, f"unavailable: {error}"
+        found = {"source": f"unavailable: {error}", **NO_CARDS}
+    path = state.cards_path(name)
+    text = json.dumps(found, indent=2, sort_keys=True) + "\n"
+    if path.exists() and path.read_text() == text:
+        return
+    tmp = path.with_name("cards.json.tmp")
+    tmp.write_text(text)
+    os.replace(tmp, path)
+
+
+def stored_cards(name: str) -> tuple[dict, str]:
+    """His cards as the drive last stored them, and `live` or why they are missing."""
+    path = state.cards_path(name)
+    if not path.exists():
+        return NO_CARDS, UNREAD
+    found = json.loads(path.read_text())
+    return found, found.pop("source")
+
+
+def read(name: str, moment: datetime) -> dict:
+    """The named drive's model from its stored state and its stored cards."""
+    found, source = stored_cards(name)
     return build(state.load(name), found, moment) | {"cards": source}
 
 
@@ -195,6 +225,7 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, team_url:
     jobs = [drive["jobs"][job_id] for job_id in order["jobs"]]
     prs = [pr for pr in drive["prs"].values() if pr["order"] == order_id]
     return {
+        "id": order_id,
         "title": plain(order["text"], TITLE_CHARS),
         "state": feature_state(order, jobs, prs),
         "now": latest_line(order, jobs),
@@ -220,3 +251,74 @@ def build(drive: dict, found: dict, moment: datetime) -> dict:
     groups = status(drive, moment, found["team_url"])
     counts = {"queue": len(waiting), **{group["state"]: len(group["features"]) for group in groups}}
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
+
+
+def job_entry(job_id: str, job: dict) -> dict:
+    return {
+        "id": job_id,
+        "feature": job["order"],
+        "kind": job["kind"],
+        "goal": job["goal"],
+        "state": job["state"],
+        "where": job.get("where") or "local",
+        "said": said(job["said"]),
+        "updated": job["updated"],
+        "prs": len(job["prs"]),
+    }
+
+
+def progress(drive: dict) -> dict:
+    prs = drive["prs"].values()
+    return {
+        "prs": len(prs),
+        "merged": sum(pr["state"] == "merged" for pr in prs),
+        "open": sum(pr["state"] == "open" for pr in prs),
+        "red": sum(pr["state"] == "open" and pr["checks"] == "fail" for pr in prs),
+        "running": sum(job["state"] == "running" for job in drive["jobs"].values()),
+    }
+
+
+def history(drive: dict, events: Iterable[dict], moment: datetime, team_url: str) -> list[dict]:
+    """What happened in the last day, newest first: his orders, features gone live, merges, failed jobs, his taps and refused cards."""
+    since = moment - HISTORY_FOR
+    prs = drive["prs"]
+    happened = []
+    for order_id, order in drive["orders"].items():
+        url = thread_url(drive, team_url, order.get("thread"))
+        happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id})
+        if order["state"] == "done":
+            happened.append({"at": order["updated"], "kind": "live", "text": plain(order["text"], TITLE_CHARS), "detail": said(order.get("proof")), "url": url, "feature": order_id})
+    for pr in prs.values():
+        if pr["state"] == "merged":
+            happened.append({"at": pr["updated"], "kind": "merged", "text": pr_title(pr), "detail": "", "url": pr["url"], "feature": pr["order"]})
+    for job in drive["jobs"].values():
+        if job["state"] == "failed":
+            happened.append({"at": job["updated"], "kind": "failed", "text": job["goal"], "detail": said(job["said"]), "url": None, "feature": job["order"]})
+    for event in (event for event in events if event["kind"] in HISTORY_EVENTS):
+        pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
+        detail = event["label"] if event["kind"] == "tap" else said(event["reason"])
+        happened.append({"at": event["at"], "kind": event["kind"], "text": pr_title(pr), "detail": detail, "url": pr["url"], "feature": pr["order"]})
+    recent = [entry for entry in happened if state.parse_time(entry["at"]) > since]
+    return sorted(recent, key=lambda entry: state.parse_time(entry["at"]), reverse=True)
+
+
+def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime) -> dict:
+    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs."""
+    model = build(drive, found, moment) | {"cards": source}
+    shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
+    for group in model["status"]:
+        for entry in group["features"]:
+            order = drive["orders"][entry["id"]]
+            entry |= {
+                "text": order["text"],
+                "note": said(order.get("note")),
+                "created": order["created"],
+                "jobs": [job_entry(job_id, drive["jobs"][job_id]) for job_id in order["jobs"]],
+            }
+    active = [job_entry(job_id, job) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] in ("running", "waiting")]
+    active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
+    return model | {
+        "progress": progress(drive),
+        "work": active,
+        "history": history(drive, events, moment, found["team_url"]),
+    }
