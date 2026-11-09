@@ -215,12 +215,11 @@ func portOpening(repo string, row store.ReviewRow) string {
 
 func FillPRChild(child map[string]any, row SlackPRRow) map[string]any {
 	var summary []string
-	for _, lead := range []string{row.Port, row.ELI5} {
-		if lead != "" {
-			summary = append(summary, lead)
-		}
+	if row.Port != "" {
+		summary = append(summary, "**"+row.Port+".**")
 	}
 	if row.ELI5 != "" {
+		summary = append(summary, row.ELI5)
 		child["eli5"] = row.ELI5
 	}
 	for _, line := range []struct{ key, label, said string }{
