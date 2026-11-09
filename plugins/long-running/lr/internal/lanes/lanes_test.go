@@ -928,19 +928,24 @@ func TestASpawnedRecordAfterARegistrationSetsTheLauncherRoleAndCostOfTheAdoptedR
 	equal(t, []any{audit.State, audit.Launcher, audit.Role, audit.Model, audit.Placement}, []any{store.LaneDesired, "meta-desk-3", "read", "sol", "orca"})
 }
 
-func TestASuccessorThatNeverComesUpEscalatesOnce(t *testing.T) {
+func TestASuccessorThatNeverComesUpIsLaunchedOnceMoreThenStartedDirectly(t *testing.T) {
 	s := memory(t)
 	f := adopted(t, s, writeBrief(t), "", 46001)
 	f.peers = []Row{who(lane2, false, t0.Add(-mins(20)))}
 	tick(t, s, f, t0)
-	f.posts = nil
+	f.posts, f.launches = nil, nil
 
-	for _, later := range []int{25, 26} {
-		tick(t, s, f, t0.Add(mins(later)))
-	}
+	tick(t, s, f, t0.Add(mins(26)))
 
-	equal(t, f.kinds(), []string{"blocker:root"})
-	equal(t, row(t, s, "conflicts-3").State, store.LaneHeld)
+	equal(t, f.launches, []string{"conflicts-3"})
+	equal(t, len(f.posts)+len(f.starts), 0)
+
+	tick(t, s, f, t0.Add(mins(52)))
+
+	equal(t, f.starts, []string{"conflicts-3"})
+	equal(t, len(f.posts), 1)
+	contains(t, f.posts[0].Text, "conflicts-3 did not start: twice it was not live 25 minutes after its launch through the orca runner, so the supervisor started it directly")
+	equal(t, row(t, s, "conflicts-3").State, store.LaneLaunching)
 }
 
 func TestALaneTheSupervisorRelaunchedOnceIsHeldWithADefectToRootWhenItDiesAgain(t *testing.T) {
@@ -2075,8 +2080,10 @@ func TestAHeldLaneThatPostsAgainIsLiveAndAPRRootOpenedForItIsTheLanes(t *testing
 	s, brief := memory(t), writeBrief(t)
 	f := adopted(t, s, brief, "")
 	f.feed = append(f.feed, spawned(2, "ssql-sleep-truncation", brief, t0, nil))
+	f.deps.Start = func(string, string, string, string) error { return errors.New("no terminal bound to the Run") }
 	tick(t, s, f, t0)
 	tick(t, s, f, t0.Add(mins(26)))
+	tick(t, s, f, t0.Add(mins(52)))
 	equal(t, row(t, s, "ssql-sleep-truncation").State, store.LaneHeld)
 	f.posts = nil
 	f.states = map[int]string{47353: NeedsWork}
@@ -3015,7 +3022,7 @@ func TestADeadCoordinatorRelaunchesFromItsBriefUnderItsOwnNameAndTellsTheBridge(
 	tick(t, s, f, t0.Add(mins(2)))
 
 	equal(t, row(t, s, Root).State, store.LaneDesired)
-	equal(t, len(f.posts), 0)
+	equal(t, f.kinds(), []string{"report:" + OwnerRelay})
 }
 
 func TestACoordinatorThatDiesAgainSoonAfterItsRelaunchIsHeldForTheBridge(t *testing.T) {

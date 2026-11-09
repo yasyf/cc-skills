@@ -16,7 +16,7 @@ func TestAGradeWhoseTasksFetchTimesOutGradesFromTheLocalListAndSaysSo(t *testing
 
 	lines, missing := pool.owedDeletions(context.Background(), "Deletes the loop owed by task bbbbbbb2.")
 
-	if len(missing) != 0 || len(lines) != 2 || !strings.Contains(lines[0], "fetching the newest tasks failed") || !strings.Contains(lines[1], "task aaaaaaa1, owner chores") {
+	if len(missing) != 0 || len(lines) != 2 || !strings.Contains(lines[0], "fetching the newest tasks failed") || !strings.Contains(lines[1], "task aaaaaaa, owner chores") {
 		t.Fatalf("lines %q, missing %q; want the local list with a note that the fetch failed, and nothing missing", lines, missing)
 	}
 }
