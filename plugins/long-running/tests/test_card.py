@@ -13,10 +13,10 @@ PASSING = [
     {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
     {"__typename": "StatusContext", "context": "buildkite", "state": "SUCCESS"},
 ]
-FIX_BODY = """## What changes for you
+FIX_BODY = """## Biggest surprise
 Uploads that fail once now retry instead of losing the file.
 
-## ELI5
+## Refresher
 When the network hiccups, we try again.
 
 ## What you'll hate most
@@ -76,11 +76,12 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
 def row(**fields: str) -> dict:
     return {
         "url": URL,
-        "title": "Fix: retry flaky uploads",
+        "title": "retry flaky uploads",
         "head": HEAD,
-        "change": "Uploads that fail once now retry instead of losing the file.",
-        "eli5": "When the network hiccups, we try again.",
+        "refresher": "When the network hiccups, we try again.",
+        "surprise": "Uploads that fail once now retry instead of losing the file.",
         "show_me": "",
+        "pictures": [],
         "hate_most": "Retries could send a file twice. The server drops the copy.",
         "plan": "The plan said three retries; this does five.",
         "port": "",
@@ -138,11 +139,11 @@ def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:
 
 
 def test_a_port_carries_its_port_section() -> None:
-    body = "## Port\nBrings the upload retry from the server to the CLI.\n\n## Summary\nThe CLI retries uploads.\n"
+    body = "## Port\nBrings the upload retry from the server to the CLI.\n\n## Biggest surprise\nThe CLI retries uploads.\n"
     drawn = card.render(pr_json(title="Port: upload retry to the CLI", body=body), entry())
     assert drawn["title"] == "Port: approve upload retry to the CLI?"
     assert drawn["prs"][0]["port"] == "Brings the upload retry from the server to the CLI."
-    assert drawn["prs"][0]["change"] == "The CLI retries uploads."
+    assert drawn["prs"][0]["surprise"] == "The CLI retries uploads."
 
 
 def test_an_exempt_port_waits_on_nothing_of_his() -> None:
@@ -152,9 +153,9 @@ def test_an_exempt_port_waits_on_nothing_of_his() -> None:
         "title": "Port: upload retry to the CLI",
         "prs": [
             row(
-                title="Port: upload retry to the CLI",
-                change="",
-                eli5="",
+                title="upload retry to the CLI",
+                surprise="",
+                refresher="",
                 hate_most="",
                 plan="",
                 description="",
@@ -191,10 +192,10 @@ def test_kind_and_title(title: str, kind: str, plain: str) -> None:
     assert card.kind_and_title(title) == (kind, plain)
 
 
-def test_summary_fills_change_and_risk_stays_off_the_card() -> None:
+def test_a_summary_is_no_surprise_and_risk_stays_off_the_card() -> None:
     body = "## Summary\nThe status card lists open orders.\n\nA second paragraph.\n\n## Risk profile\n- **Threat model:** internal.\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["change"] == "The status card lists open orders."
+    assert first["surprise"] == ""
     assert "risk" not in first
     assert "Threat model" not in json.dumps({key: value for key, value in first.items() if key != "description"})
 
@@ -208,7 +209,7 @@ def test_what_he_will_hate_most_fills_its_line(heading: str) -> None:
 def test_drawn_pictures_ride_the_card_and_the_show_me_keeps_one_caption() -> None:
     body = "## Show me\n![the card](https://example.com/card.png)\nThe card after his tap. It has buttons.\n"
     drawn = card.render(pr_json(body=body), entry(), ("/pictures/app PR 42.png",))
-    assert drawn["pictures"] == ["/pictures/app PR 42.png"]
+    assert drawn["pictures"] == drawn["prs"][0]["pictures"] == ["/pictures/app PR 42.png"]
     assert drawn["prs"][0]["show_me"] == "The card after his tap."
 
 
@@ -242,13 +243,13 @@ The earlier #49744 fixes a separate invariant. Release relayed the raw folds in 
 
 def test_record_ids_never_reach_a_card_line() -> None:
     body = (
-        "## What changes for you\nUploads retry (cci 638067). A failed upload no longer loses the file.\n\n"
-        "## ELI5\nWe try again. Root ruled it in 646598 for j134, per cc-notes task d0545d2.\n\n"
+        "## Biggest surprise\nUploads retry (cci 638067). A failed upload no longer loses the file.\n\n"
+        "## Refresher\nWe try again. Root ruled it in 646598 for j134, per cc-notes task d0545d2.\n\n"
         "## Against the plan\nThe plan said three retries (card rmw8x1pwx); this does five. See m2074.\n"
     )
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["change"] == "Uploads retry. A failed upload no longer loses the file."
-    assert first["eli5"] == "We try again."
+    assert first["surprise"] == "Uploads retry. A failed upload no longer loses the file."
+    assert first["refresher"] == "We try again."
     assert first["plan"] == "The plan said three retries; this does five."
 
 
@@ -256,16 +257,16 @@ def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
     body = "## Show me\nA shell session.\n\n```sh\n# list the drives\ndrive status\n```\n\n## ELI5\nIt lists drives.\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
     assert first["show_me"] == "A shell session.\n```\n# list the drives\ndrive status\n```"
-    assert first["eli5"] == "It lists drives."
+    assert first["refresher"] == "It lists drives."
 
 
-def test_the_eli5_comes_from_a_reviewer_comment_when_the_body_has_none() -> None:
+def test_the_refresher_comes_from_a_reviewer_comment_when_the_body_has_none() -> None:
     comments = [
         {"author": {"login": "someone"}, "body": "Looks good."},
         {"author": {"login": "forge-pr-reviewer"}, "body": "<!-- companion -->\n\n### ELI5\n\nUploads try again.\n\n### Diagram\nflow"},
     ]
     first = card.render(pr_json(body="## Summary\nAdds retries.\n", comments=comments), entry())["prs"][0]
-    assert first["eli5"] == "Uploads try again."
+    assert first["refresher"] == "Uploads try again."
 
 
 @pytest.mark.parametrize("words", ["None.", "Nothing.", "Nothing differed."])
@@ -283,9 +284,9 @@ def test_an_against_the_plan_section_saying_none_is_omitted(words: str) -> None:
 
 def test_long_sections_cut_at_a_sentence_end() -> None:
     sentence = "Each retry waits twice as long as the one before it. "
-    body = "## Summary\n" + sentence * 10
-    change = card.render(pr_json(body=body), entry())["prs"][0]["change"]
-    assert change == (sentence * 7).strip()
+    body = "## Refresher\n" + sentence * 10
+    refresher = card.render(pr_json(body=body), entry())["prs"][0]["refresher"]
+    assert refresher == (sentence * 7).strip()
 
 
 def test_template_comments_stay_out_of_the_card() -> None:
@@ -460,6 +461,7 @@ def test_unheard_appends_an_event(drive: str) -> None:
     assert event["question"] == "Which drive first?"
 
 
+STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"
 STACK = {
     41: ("New: readers read both tables", "main", "move-1"),
     42: ("New: copy every row across", "move-1", "move-2"),
@@ -482,7 +484,8 @@ def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]
         asked.append(cmd)
         number = int(cmd[3])
         title, base, branch = STACK.get(number, ("Fix: a later fix on top", "move-3", "move-4"))
-        return json.dumps(pr_json(title=title, url=stack_url(number), base=base, branch=branch))
+        body = STACK_BODY + FIX_BODY if number == 41 else FIX_BODY
+        return json.dumps(pr_json(title=title, body=body, url=stack_url(number), base=base, branch=branch))
 
     monkeypatch.setattr(card, "run", gh)
     return asked
@@ -497,14 +500,20 @@ def test_a_stack_draws_one_card_listing_each_pr_bottom_first(stacked: list[list[
     assert (drawn["repo"], drawn["number"]) == ("Forge-AI/monorepo", 41)
     stack_card = drawn["card"]
     assert [row["url"] for row in stack_card["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
-    assert stack_card["title"] == (
-        "New: approve 3 PRs, bottom first: readers read both tables · copy every row across · drop the old table?"
-    )
+    assert stack_card["title"] == "New: the orders table moves to a new one without a pause"
+    assert stack_card["body"] == "Readers read both tables, every row is copied across, then the old table goes."
     assert stack_card["waits"] == "merge:Forge-AI:monorepo:41-43"
     assert (stack_card["options"], stack_card["recommended"], stack_card["status"]) == (["Approve", "Hold"], "Approve", "needs_you")
     assert all(row["hate_most"] == "Retries could send a file twice. The server drops the copy." for row in stack_card["prs"])
     keys = ["Forge-AI/monorepo#41", "Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+
+
+def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    drawn = ask(asks(41, 42, 43))
+    assert drawn["cards"] == []
+    assert all("The stack" in skipped["reason"] for skipped in drawn["skipped"])
 
 
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:

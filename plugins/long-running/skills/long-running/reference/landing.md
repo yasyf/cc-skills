@@ -8,23 +8,32 @@ itself.
 
 - One PR is one feature-sized unit; review fixes and follow-ups amend it (`ccx vcs ship --amend`). Open a
   second PR only when another job waits on part of the work or a review asks for the split.
-- A stack is at most four PRs, since his card shows every PR of a stack with its own lines and picture.
-  A change that needs more is split into stacks that land on their own, or folded into fewer PRs.
+- A stack is at most four PRs, since his card shows every PR of a stack in its own section with its
+  pictures. A change that needs more is split into stacks that land on their own, or folded into fewer PRs.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A repository
   whose title check demands `fix:` or `feat:` keeps it; the card reads either.
 - Body sections, in this order. His card is drawn from them: fix the body, never the card. Each is
   plain words for him: no record ids (cc-notes, cci, job or order ids), hashes, file paths or code
   identifiers; a sentence carrying a record id is dropped from his card.
-  - `## What changes for you`: what a user sees change, in one short paragraph.
-  - `## ELI5`: the change explained to someone who has never seen the code. It leads his card.
+  - `## The stack`: only on the bottom PR of a stack. Its first line is the stack's title, one readable
+    line saying what the whole stack does; then a short paragraph explaining the whole stack in the
+    Refresher's register. They head his stack card, and `drive card` refuses a stack card waiting on his
+    tap without them.
+  - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
+    code lately: which part of the system it touches, what that part did before, and what it does now.
+    It leads the PR's section of his card. The card still reads an older `## ELI5`.
+  - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
+    sentences.
   - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
     plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take. A PR that
     waits on his tap draws no card without it: `drive card` refuses the card and the coordinator
     hears `EVENT refused`.
-  - `## Show me`: one picture of the change. For a mechanism, a before-and-after diagram as a fenced
-    `arch` block (arch/v1 JSON) or `dot` block, which his card draws as an image; for a UI change, a
-    screenshot or gif linked as a markdown image; for a new function, the real Sand call and its result
-    in a code block. At most one short sentence of caption: the card shows the picture, never prose.
+  - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
+    or Sand call it changes, with what happened before and after, in a fenced block tagged with its
+    language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a
+    screenshot or gif linked as a markdown image. Add a before-and-after `arch` (arch/v1 JSON) or `dot`
+    diagram beside the example when a mechanism needs one. At most one short sentence of caption: the
+    card shows the pictures, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything it does past it.
   - `## His words, step by step`: each step his words in the brief name, quoted, beside the

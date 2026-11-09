@@ -26,11 +26,14 @@ you read.
    TypeScript check goes to CI.
 4. Open the PR the repository's way (its own submit wrapper if it has one, otherwise the
    `open-pr` skill), with the body sections the PR card reads, listed in the landing
-   reference of the long-running skill: what changes for him, ELI5, what he will hate
-   most, a show-me picture (an `arch` or `dot` diagram, a screenshot, or the real call and
-   its result), a departure from the plan only when there is one, a port section for
-   ports, his words step by step beside the `path:line` that does each, and no record ids
-   anywhere. The title opens with Fix:, New:, Cleanup: or Port: in plain words. Keep a stack to four PRs at most; split or fold anything bigger.
+   reference of the long-running skill: the stack's title and summary on a stack's bottom
+   PR, a refresher for someone who knows the codebase but has not read this code lately,
+   the biggest surprise, what he will hate most, a show-me with a concrete example (the
+   real SQL, code or call with its before and after, plus a diagram or screenshot when it
+   helps), a departure from the plan only when there is one, a port section for ports,
+   his words step by step beside the `path:line` that does each, and no record ids
+   anywhere. The title opens with Fix:, New:, Cleanup: or Port: in plain words. Keep a
+   stack to four PRs at most; split or fold anything bigger.
 5. Register it: `drive pr add <url> --job <your job id>`, adding `--tap` when the repository
    needs his tap before landing.
 6. Drive it to green: read each red CI log, fix, push; answer or fix every review finding.

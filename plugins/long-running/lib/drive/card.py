@@ -17,6 +17,9 @@ CODE_CHARS = 900
 DESCRIPTION_CHARS = 2800
 KINDS = ("Fix", "New", "Cleanup", "Port")
 STACK_KINDS = ("New", "Fix", "Port", "Cleanup")
+REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words")
+STACK_HEADING = "the stack"
+STACK_CHARS = 700
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 CONVENTIONAL_KINDS = {
@@ -36,7 +39,7 @@ KIND_WORD = re.compile(rf"({'|'.join(KINDS)}):\s*", re.IGNORECASE)
 CONVENTIONAL = re.compile(r"([a-z]+)(?:\([^)]*\))?!?:\s*")
 SCOPED = re.compile(r"([a-z0-9][a-z0-9_./-]*):\s*(\S)")
 HEADING = re.compile(r"#{1,2}[ \t]+(.+?)[ \t#]*")
-ELI5_HEADING = re.compile(r"^#{2,3}[ \t]+ELI5[ \t]*$", re.MULTILINE | re.IGNORECASE)
+REFRESHER_HEADING = re.compile(r"^#{2,3}[ \t]+(?:Refresher|ELI5)[ \t]*$", re.MULTILINE | re.IGNORECASE)
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
 FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -144,11 +147,11 @@ def section_words(found: dict[str, str], *headings: str) -> str:
     return "" if NOTHING.fullmatch(words.strip()) else words
 
 
-def comment_eli5(pr: dict) -> str:
-    """The ELI5 section of the newest PR comment that has one, such as a reviewer bot's companion comment."""
+def comment_refresher(pr: dict) -> str:
+    """The Refresher, or older ELI5, section of the newest PR comment that has one, such as a reviewer bot's companion comment."""
     for comment in reversed(pr.get("comments") or []):
         body = comment.get("body") or ""
-        if heading := ELI5_HEADING.search(body):
+        if heading := REFRESHER_HEADING.search(body):
             rest = body[heading.end() :]
             end = NEXT_HEADING.search(rest)
             return clipped(first_paragraph(without_records(HTML_TAG.sub("", rest[: end.start() if end else None]))))
@@ -246,12 +249,13 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
     found = {heading: HTML_TAG.sub("", text) for heading, text in sections(body).items()}
     row = {
         "url": pr["url"],
-        "title": pr["title"],
+        "title": plain,
         "head": pr["headRefOid"],
-        "eli5": section_words(found, "eli5", "in plain words") or comment_eli5(pr),
-        "change": section_words(found, "what changes for you", "summary"),
+        "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
+        "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
         "show_me": show_me_words(found.get("show me", ""), bool(shown)),
+        "pictures": list(shown),
         "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
         "blocks": "",
@@ -277,18 +281,26 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
     return card
 
 
+def stack_words(pr: dict) -> tuple[str, str]:
+    """The stack's one-line title and its summary, from the `## The stack` section of its bottom PR's body."""
+    text = without_records(HTML_TAG.sub("", sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
+    title, _, rest = text.partition("\n")
+    return title.strip(), clipped(" ".join(rest.split()), STACK_CHARS)
+
+
 def render_stack(members: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
-    """One card for a stack of PRs, bottom first: a row per PR as its own card draws it, and one Approve for all."""
+    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for all."""
     drawn = [render(pr, entry, shown) for pr, entry, shown in members]
     kinds = [kind_and_title(pr["title"]) for pr, _, _ in members]
     kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
-    names = " · ".join(plain for _, plain in kinds)
+    title, summary = stack_words(members[0][0])
     count = len(members)
-    card = {"status": "info", "title": framed(f"{kind}: {count} PRs: ", names), "prs": [one["prs"][0] for one in drawn]}
+    card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count} PRs: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
+    if summary:
+        card["body"] = summary
     if any(one["status"] == "needs_you" for one in drawn):
         card |= {
             "status": "needs_you",
-            "title": framed(f"{kind}: approve {count} PRs, bottom first: ", names, "?"),
             "options": list(TAP_LABELS),
             "recommended": "Approve",
             "waits": stack_waits([state.pr_key(pr["url"]) for pr, _, _ in members]),
@@ -380,8 +392,14 @@ def cards(asked: list[dict]) -> dict:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = render_stack(shown) if len(group) > 1 else render(*shown[0])
-        if bare := [row["url"] for (pr, entry, _), row in zip(shown, card["prs"]) if offers_approval(pr, entry) and not row["hate_most"]]:
+        bare = [row["url"] for (pr, entry, _), row in zip(shown, card["prs"]) if offers_approval(pr, entry) and not row["hate_most"]]
+        if len(group) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
+            reason = f"its stack card needs a \"The stack\" section, a one-line title then a summary, in the body of its bottom PR {shown[0][0]['url']}"
+        elif bare:
             reason = f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
+        else:
+            reason = ""
+        if reason:
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

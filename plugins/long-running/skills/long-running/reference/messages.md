@@ -37,10 +37,13 @@ Slack, and posts it with no cc-present board warning.
 cc-slack draw one card at his DM root
 for the stack those PRs form (`drive card`), with Approve and Hold while it waits on him; his
 Approve lands exactly those PRs, bottom first, and a PR added later gets its own card. The line
-in his thread is followed by `cc-slack card-copy` of the card, so that thread carries its buttons. Each PR on
-it shows its ELI5 first, then what changes for him, what he will hate most, where it stands, how it
-differs from the plan when it does, and its Show me picture. Its words come from each PR's title
-and body, with record ids dropped, so a bad card is fixed in the PR body, never in the message.
+in his thread is followed by `cc-slack card-copy` of the card, so that thread carries its buttons. Each
+PR on it gets its own section, opened by its title, link and Open button, then its Refresher, its
+biggest surprise, what he will hate most, where it stands and what it waits on only when that is not
+green and his tap, how it differs from the plan when it does, and its Show me with its pictures
+inline. A stack card's title and opening summary come from `## The stack` in its bottom PR. Once he
+answers, the card folds to its title, his pick, and one line per PR. Its words come from each PR's
+title and body, with record ids dropped, so a bad card is fixed in the PR body, never in the message.
 
 **A confirmation of a skill update**, twice for each message of his that leads to one: the ack
 says the skill is being updated and what changes, in plain words, and a summary says it is merged
