@@ -1150,7 +1150,7 @@ func (f Fanout) withPRCards(ctx context.Context, r Reply) (Reply, error) {
 		if len(r.Picks) == 0 && !board.OffersApproval(row) {
 			continue
 		}
-		if prrow.ChangeFlaw(row.ForUsers) != "" || prrow.PlanFlaw(row.PlanLine) != "" || prrow.ELI5Words(row) == "" {
+		if len(prrow.CardGaps(row)) > 0 {
 			row = f.fromGitHub(ctx, row, pr)
 		}
 		card, missing := prCardFrom(row, pr)
@@ -1197,7 +1197,7 @@ func (f Fanout) fromGitHub(ctx context.Context, row store.ReviewRow, pr string) 
 	}
 	var body store.ReviewRow
 	prrow.ApplyBody(&body, read.Body)
-	row.Title, row.ForUsers, row.Description = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(row.Description, read.Body)
+	row.Title, row.ForUsers, row.Description = cmp.Or(row.Title, read.Title), cmp.Or(row.ForUsers, body.ForUsers), cmp.Or(read.Body, row.Description)
 	if prrow.PlanFlaw(row.PlanLine) != "" {
 		row.PlanLine, row.PlanRow = body.PlanLine, body.PlanLine
 	}
