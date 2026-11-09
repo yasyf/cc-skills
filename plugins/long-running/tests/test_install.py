@@ -11,9 +11,10 @@ REPO = "yasyf/cc-skills"
 
 
 class FakeGitHub:
-    def __init__(self, config: Path, refs: list[str], statuses: dict[str, str], call_seconds: float) -> None:
+    def __init__(self, config: Path, refs: list[str], statuses: dict[str, str], call_seconds: float, path: str | None) -> None:
         self.config = config
         self.refs = refs
+        self.path = path
         self.statuses = statuses
         self.call_seconds = call_seconds
         self.now = 1000.0
@@ -37,11 +38,15 @@ class FakeGitHub:
         self.now += self.call_seconds
         return subprocess.CompletedProcess(cmd, 0, self.answer(cmd), "")
 
+    def next_ref(self) -> str:
+        return self.refs.pop(0) if len(self.refs) > 1 else self.refs[0]
+
     def answer(self, cmd: list[str]) -> str:
         if cmd[:2] == ["gh", "api"] and cmd[2].endswith("marketplace.json"):
-            ref = self.refs.pop(0) if len(self.refs) > 1 else self.refs[0]
-            source = {"source": "git-subdir", "url": f"https://github.com/{REPO}", "ref": ref}
+            source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "ref": self.next_ref()}
             return json.dumps({"name": "skills", "plugins": [{"name": "long-running", "source": source}]})
+        if cmd[:2] == ["gh", "api"] and "/commits?" in cmd[2]:
+            return self.next_ref() + "\n"
         if cmd[:2] == ["gh", "api"] and "/compare/" in cmd[2]:
             return self.statuses[cmd[2].rpartition("...")[2]] + "\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
@@ -71,8 +76,8 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 @pytest.fixture
 def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGitHub]:
-    def make(refs: list[str], statuses: dict[str, str], call_seconds: float = 0) -> FakeGitHub:
-        github = FakeGitHub(config, refs, statuses, call_seconds)
+    def make(refs: list[str], statuses: dict[str, str], call_seconds: float = 0, path: str | None = None) -> FakeGitHub:
+        github = FakeGitHub(config, refs, statuses, call_seconds, path)
         monkeypatch.setattr(install.subprocess, "run", github.run)
         monkeypatch.setattr(install, "clock", github.clock)
         monkeypatch.setattr(install, "sleep", github.sleep)
@@ -119,6 +124,22 @@ def test_a_timeout_names_the_last_ref_and_installs_nothing(
     assert github.sleeps == [20, 20, 20]
     assert "last ref long-running--v1.0.2" in capsys.readouterr().err
     assert github.claude_calls() == []
+
+
+@pytest.mark.parametrize(
+    ("path", "manifest"),
+    [("./captain_hook", "captain_hook/.claude-plugin/plugin.json"), ("./", ".claude-plugin/plugin.json")],
+)
+def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
+    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str], path: str, manifest: str
+) -> None:
+    github = fake(["0ld5ync", "n3w5ync"], {"0ld5ync": "behind", "n3w5ync": "ahead"}, path=path)
+    assert install.main("long-running@skills", SHA, None, 900) == 0
+    assert ["gh", "api", f"repos/{REPO}/commits?path={manifest}&per_page=1", "--jq", ".[0].sha"] in github.calls
+    assert ["gh", "api", f"repos/{REPO}/compare/{SHA}...n3w5ync", "--jq", ".status"] in github.calls
+    assert github.sleeps == [20]
+    assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
+    assert len(github.claude_calls()) == 2
 
 
 def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]) -> None:
