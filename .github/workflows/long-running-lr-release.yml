@@ -127,6 +127,12 @@ jobs:
           git add "$DESCRIPTOR"
           git commit -m "chore(long-running): pin lr $VERSION [skip ci]"
           for _ in 1 2 3 4 5; do
+            git fetch -q origin main
+            pinned="$(git show "origin/main:$DESCRIPTOR" | tail -n +2 | jq -r .version.static)"
+            if [ "$(printf '%s\n' "$pinned" "$VERSION" | sort -V | tail -n 1)" != "$VERSION" ]; then
+              echo "::notice::main already pins lr $pinned, newer than $VERSION, so this run leaves the pin"
+              exit 0
+            fi
             if git pull --rebase origin main && git push origin HEAD:main; then
               exit 0
             fi
