@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell/shelltest"
@@ -22,7 +23,7 @@ const (
 	asClaude = `{"type":"slack.message","channel_id":"D0B6Z","thread_ts":"1.0","ts":"1.5","user":"U1","from_claude":false,"text":"_(Yasyf's Claude)_ sent through his login"}`
 	someone  = `{"type":"slack.message","channel_id":"C1","thread_ts":"1.0","ts":"1.3","user":"U2","from_claude":false,"text":"a teammate"}`
 	tapped   = `{"type":"slack.action","channel_id":"D0B6Z","ts":"1.4","label":"Land"}`
-	started  = "owner Slack watch running for U1: each of his messages gets :eyes: and wakes this window\n"
+	started  = "owner Slack watch running for U1: each of his messages gets :eyes: and the working line and wakes this window\n"
 )
 
 type streamed struct {
@@ -57,14 +58,18 @@ var noLane = LaneOf{
 func watched(lines ...string) streamed {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"user_id":"U1"}`, "cc-slack", "whoami")
-	fake.Reply(`{"ok":true}`, "cc-slack", "react")
+	fake.Reply(`{"ok":true}`, "cc-slack", "pickup")
 	return streamed{Fake: fake, lines: lines}
+}
+
+func noDesk() desk {
+	return desk{now: func() time.Time { return time.Unix(0, 0) }, after: func(time.Duration, func()) {}}
 }
 
 func reactions(fake *shelltest.Fake) [][]string {
 	var found [][]string
 	for _, call := range fake.Calls() {
-		if call.Argv[1] == "react" {
+		if call.Argv[1] == "pickup" {
 			found = append(found, call.Argv[2:])
 		}
 	}
@@ -75,13 +80,13 @@ func TestHisMessageGetsEyesBeforeItWakesTheWindow(t *testing.T) {
 	runner := watched(hisEvent)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, noThreads, noRows, &out); err != nil {
+	if err := watch(context.Background(), runner, noThreads, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
-	want := [][]string{{"--channel", "D0B6Z", "--ts", "1.1", "--name", "eyes"}}
+	want := [][]string{{"--channel", "D0B6Z", "--ts", "1.1", "--thread", "1.0"}}
 	if got := reactions(runner.Fake); !slices.EqualFunc(got, want, slices.Equal[[]string]) {
-		t.Fatalf("reactions = %q, want eyes on his message", got)
+		t.Fatalf("pickups = %q, want eyes and the working line on his message", got)
 	}
 	if out.String() != started+hisEvent+"\n" {
 		t.Fatalf("printed %q, want the start line then his event", out.String())
@@ -92,7 +97,7 @@ func TestOnlyHisOwnWordsGetEyesAndABotsPostWakesNothing(t *testing.T) {
 	runner := watched(bot, asClaude, someone, tapped)
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), runner, noThreads, noRows, &out); err != nil {
+	if err := watch(context.Background(), runner, noThreads, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -107,14 +112,14 @@ func TestOnlyHisOwnWordsGetEyesAndABotsPostWakesNothing(t *testing.T) {
 func TestAFailedReactionStillDeliversHisMessage(t *testing.T) {
 	fake := &shelltest.Fake{}
 	fake.Reply(`{"user_id":"U1"}`, "cc-slack", "whoami")
-	fake.Fail(1, "channel_not_found", "cc-slack", "react")
+	fake.Fail(1, "channel_not_found", "cc-slack", "pickup")
 	var out bytes.Buffer
 
-	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{hisEvent}}, noThreads, noRows, &out); err != nil {
+	if err := watch(context.Background(), streamed{Fake: fake, lines: []string{hisEvent}}, noThreads, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(out.String(), "eyes did not land on his message 1.1") || !strings.Contains(out.String(), hisEvent) {
+	if !strings.Contains(out.String(), "the pickup did not land on his message 1.1") || !strings.Contains(out.String(), hisEvent) {
 		t.Fatalf("printed %q, want the failure and his message", out.String())
 	}
 }
@@ -123,7 +128,7 @@ func TestAWatchThatDiesEndsTheMonitorWithItsCause(t *testing.T) {
 	runner := watched(hisEvent)
 	runner.ended = errors.New("daemon gone")
 
-	err := watch(context.Background(), runner, noThreads, noRows, io.Discard)
+	err := watch(context.Background(), runner, noThreads, noRows, noDesk(), io.Discard)
 
 	if err == nil || !strings.Contains(fmt.Sprint(err), "daemon gone") {
 		t.Fatalf("err = %v, want the watch's cause", err)
@@ -137,7 +142,7 @@ func fitsAMonitorEvent(t *testing.T, event any, target any) string {
 		t.Fatal(err)
 	}
 	var out strings.Builder
-	if err := watch(context.Background(), watched(string(raw)), noThreads, noRows, &out); err != nil {
+	if err := watch(context.Background(), watched(string(raw)), noThreads, noRows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 	printed := strings.TrimSuffix(strings.TrimPrefix(out.String(), started), "\n")
@@ -281,7 +286,7 @@ func TestAFailureLongerThanAnEventIsClippedAndHisMessageStillArrives(t *testing.
 	var out strings.Builder
 	rows := func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, long }
 
-	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, &out); err != nil {
+	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 

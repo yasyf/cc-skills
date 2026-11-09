@@ -385,7 +385,7 @@ func TestTheWatchWritesARowFromTheWholeMessageAndPrintsItsIDOnAFittedLine(t *tes
 	}
 	var out strings.Builder
 
-	if err := watch(context.Background(), watched(string(event)), noThreads, rows, &out); err != nil {
+	if err := watch(context.Background(), watched(string(event)), noThreads, rows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 
@@ -402,7 +402,7 @@ func TestARowThatDoesNotWriteIsSaidAndTheStreamGoesOn(t *testing.T) {
 	rows := func(context.Context, threadWord) ([]string, []string, error) { return nil, nil, os.ErrPermission }
 	var out strings.Builder
 
-	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, &out); err != nil {
+	if err := watch(context.Background(), watched(hisEvent), noThreads, rows, noDesk(), &out); err != nil {
 		t.Fatal(err)
 	}
 

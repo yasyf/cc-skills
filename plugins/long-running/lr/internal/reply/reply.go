@@ -64,8 +64,9 @@ const (
 	typeForYou      = "for_you"
 	typeQuestion    = "question"
 
-	threadIndex = "thread index"
-	linePrefix  = "line:"
+	threadIndex   = "thread index"
+	pickupSurface = "pickup"
+	linePrefix    = "line:"
 
 	untiedPick = "Picking this approves no PR by itself: this card shows no single PR at one head, so a lane carries your yes by hand."
 
@@ -225,7 +226,21 @@ func (f Fanout) Send(ctx context.Context, r Reply) []Outcome {
 	for _, s := range steps {
 		sent = append(sent, s.surface(ctx, s.reply, sent)...)
 	}
-	return append(sent, f.indexThreads(r, sent)...)
+	sent = append(sent, f.indexThreads(r, sent)...)
+	return append(sent, f.answeredPickups(sent)...)
+}
+
+func (f Fanout) answeredPickups(sent []Outcome) []Outcome {
+	var missed []Outcome
+	for _, o := range sent {
+		if !strings.HasPrefix(o.Surface, "slack") || o.Error != "" || owner.ThreadRoot(o.Ref) == "" {
+			continue
+		}
+		if err := owner.Answered(owner.PickupDir(f.Entry), owner.ThreadRoot(o.Ref)); err != nil {
+			missed = append(missed, Outcome{Surface: pickupSurface, Error: err.Error()})
+		}
+	}
+	return missed
 }
 
 func (f Fanout) indexThreads(r Reply, sent []Outcome) []Outcome {
