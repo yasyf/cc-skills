@@ -14,6 +14,7 @@ import (
 	"github.com/yasyf/cc-inbox/client"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/ccx"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/gates"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/machine"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/prrow"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/shell"
@@ -35,6 +36,8 @@ const (
 var orderWatchers = []string{"meta-desk", "owner-relay"}
 
 var errHeadWait = errors.New(prrow.NoHeadYet)
+
+var errAdopted = errors.New("adopted: it waits for its review row")
 
 var errRefused = errors.New("refused for now")
 
@@ -82,7 +85,8 @@ func (s Source) WriteOrders(ctx context.Context) error {
 			}
 			s.Log.Warn("an owner tap has no land order yet", "record", record.Name(), "pr", tap.PR, "err", failed)
 			refused := errors.Is(failed, errRefused)
-			parked := refused || age >= OrderWindow
+			adopted := errors.Is(failed, errAdopted)
+			parked := refused || adopted || age >= OrderWindow
 			settled = settled && parked
 			written = written && parked
 			if parked {
@@ -91,7 +95,7 @@ func (s Source) WriteOrders(ctx context.Context) error {
 				}
 			}
 			switch {
-			case refused:
+			case refused, adopted:
 			case errors.Is(failed, errHeadWait), errors.Is(failed, prrow.ErrRowsNotFolded):
 				if age >= OrderWindow {
 					s.escalateOrder(ctx, record, tap, OrderWindow, failed)
@@ -301,6 +305,18 @@ func (s Source) writeOrder(ctx context.Context, record client.Record, tap bus.Ta
 		return errHeadWait
 	case tap.Head == "" && now.Sub(record.At) >= OrderWindow, refusal == prrow.AlreadyLanded, refusal == prrow.ClosedUnlanded:
 		return nil
+	case refusal == gates.NoRow:
+		at, open, err := s.orderHead(ctx, tap)
+		if err != nil || !open {
+			return err
+		}
+		if err := orders.PostAdopted(ctx, s.Repo, tap.PR, at); err != nil {
+			return err
+		}
+		if err := orders.PostPending(ctx, s.Repo, tap, record); err != nil {
+			return err
+		}
+		return errAdopted
 	}
 	tap.Head = head
 	if refusal != "" {
