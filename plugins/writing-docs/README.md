@@ -10,7 +10,7 @@
 ```
 
 Prerequisites:
-- The `gemini` CLI on `PATH`, which drafts the prose with `gemini -m gemini-4-argon`.
+- The `gemini` CLI on `PATH`, which drafts the prose with `gemini -m gemini-4-argon --skip-trust`.
 - `slop-cop` binary on `PATH`, or the `slop-cop` plugin installed so `slop-cop:slop-cop-check` can bootstrap the Go binary.
 
 ## Use it
@@ -23,7 +23,7 @@ Your README opens with architecture internals, mixes setup options, and shows ha
 Rewrite the README for this repo.
 ```
 
-Claude loads the conversion skeleton, or the standalone-readme rules when there is no docs site. It drops the contributing section, the development section, and any "How it works" tour. The README gets an opener that names the reader's pain and one live get-started path with a real run shown directly below it. It also gets use cases built from real commands and observed behavior, an agent-paste block, and a funnel ending. Claude hands the facts to `gemini -m gemini-4-argon -p` and lands its reply verbatim. It then runs `slop-cop check README.md --lang=markdown`, triages every finding, and works through the pre-merge checkbox checklist.
+Claude loads the conversion skeleton, or the standalone-readme rules when there is no docs site. It drops the contributing section, the development section, and any "How it works" tour. The README gets an opener that names the reader's pain and one live get-started path with a real run shown directly below it. It also gets use cases built from real commands and observed behavior, an agent-paste block, and a funnel ending. Claude hands the facts to `gemini -m gemini-4-argon --skip-trust -p` and lands its reply verbatim. It then runs `slop-cop check README.md --lang=markdown`, triages every finding, and works through the pre-merge checkbox checklist.
 
 ### Write a single how-to or reference page that passes honesty gates
 
