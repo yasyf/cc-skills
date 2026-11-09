@@ -40,6 +40,7 @@ ELI5_HEADING = re.compile(r"^#{2,3}[ \t]+ELI5[ \t]*$", re.MULTILINE | re.IGNOREC
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
 FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+TRAILER = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:[ \t]+\S.*")
 HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
 SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
@@ -233,7 +234,9 @@ def stack_waits(keys: list[str]) -> str:
 
 
 def body_of(pr: dict) -> str:
-    return COMMENT.sub("", pr["body"] or "")
+    body = COMMENT.sub("", pr["body"] or "").replace("\r\n", "\n").rstrip()
+    rest, _, last = body.rpartition("\n\n")
+    return rest if rest and all(TRAILER.fullmatch(line.strip()) for line in last.splitlines()) else body
 
 
 def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
@@ -301,8 +304,16 @@ def drive_prs() -> dict[str, tuple[str, dict]]:
     return {key: (name, entry) for name in state.names() for key, entry in state.load(name)["prs"].items()}
 
 
-def key_of(ask: dict) -> str:
-    return f"{ask['repo']}#{ask['number']}"
+def keys_of(asks: list[dict], known: dict[str, tuple[str, dict]]) -> list[str]:
+    folded = {key.casefold(): key for key in known}
+    asked = [f"{ask['repo']}#{ask['number']}" for ask in asks]
+    return [folded.get(key.casefold(), key) for key in asked]
+
+
+def skip(key: str, reason: str) -> dict:
+    print(f"drive card: {key}: {reason}", file=sys.stderr)
+    repo, number = key.split("#")
+    return {"repo": repo, "number": int(number), "reason": reason}
 
 
 def read(key: str) -> dict | None:
@@ -349,8 +360,13 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
 def cards(asked: list[dict]) -> dict:
     """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw."""
     known = drive_prs()
-    keys = [key for ask in asked if (key := key_of(ask)) in known]
+    asked_keys = keys_of(asked, known)
+    for key in asked_keys:
+        if key not in known:
+            print(f"drive card: {key} is in no drive", file=sys.stderr)
+    keys = [key for key in asked_keys if key in known]
     reads = {key: pr for key in keys if (pr := read(key))}
+    skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
     stored = [known[key][1]["stack"] for key in reads if known[key][1].get("stack")]
     fresh = [key for key in reads if not known[key][1].get("stack")]
     groups = list({tuple(stack): stack for stack in stored}.values()) + chains(fresh, reads)
@@ -364,9 +380,15 @@ def cards(asked: list[dict]) -> dict:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = render_stack(shown) if len(group) > 1 else render(*shown[0])
+        if bare := [row["url"] for (pr, entry, _), row in zip(shown, card["prs"]) if offers_approval(pr, entry) and not row["hate_most"]]:
+            reason = f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
+            refusals = [skip(key, reason) for key in members]
+            refused(refusals)
+            skipped += refusals
+            continue
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
-    return {"cards": found}
+    return {"cards": found, "skipped": skipped}
 
 
 def numbered(numbers: list[int]) -> dict:
@@ -381,14 +403,14 @@ def numbered(numbers: list[int]) -> dict:
 
 def shown(asks: list[dict]) -> dict:
     known = drive_prs()
-    return {"shown": sum(1 for ask in asks if key_of(ask) in known)}
+    return {"shown": sum(1 for key in keys_of(asks, known) if key in known)}
 
 
 def refused(asks: list[dict]) -> dict:
     known = drive_prs()
     told = 0
-    for ask in asks:
-        if (key := key_of(ask)) not in known:
+    for ask, key in zip(asks, keys_of(asks, known)):
+        if key not in known:
             continue
         name = known[key][0]
         with state.edit(name) as data:
@@ -402,8 +424,8 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
-    key = key_of(ask)
     known = drive_prs()
+    key = keys_of([ask], known)[0]
     if key not in known:
         raise state.DriveError(f"{key} is not a drive PR")
     if ask["label"] not in TAP_LABELS:
