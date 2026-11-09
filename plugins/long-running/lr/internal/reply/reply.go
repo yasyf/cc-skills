@@ -92,7 +92,7 @@ var (
 	tapOrder      = regexp.MustCompile(`(?i)^\s*(?:tap|approve)\b`)
 	asksTap       = regexp.MustCompile(`(?i)\b(?:waits?|waiting|ready|needs?|asks?)\b[^.\n]{0,60}\b(?:your (?:tap|approval|answer|yes)|on you\b)|\bapprove or hold\b|\b(?:approve|tap) (?:to land|it\b|here\b|#\d)`)
 	describes     = regexp.MustCompile(`(?i)\b(?:refus\w*|buttons?)\b`)
-	optionLine    = regexp.MustCompile(`(?im)^\s*(?:[-*]\s*)?(?:\*\*)?(?:option\s+)?[A-D](?:\*\*)?[).:]\s+\S`)
+	optionLine    = regexp.MustCompile(`(?im)^\s*(?:[-*]\s*)?(?:\*\*)?(?:option\s+)?[A-D](?:\*\*)?[).:](?:\*\*)?\s+\S`)
 	choiceAsk     = regexp.MustCompile(`(?i)\bA or B\b|\bwhich (?:one|option|do you want|would you like)\b|\bpick (?:one|A|B)\b|\byour pick\b`)
 	notLanding    = regexp.MustCompile(`(?i)\b(?:is|was|got|been|now|stays?|PR|it) closed\b|#\d+,? (?:is |was )?closed\b|\bclos(?:e|es|ed|ing) (?:#\d+|it\b|this\b|unlanded|unmerged|without)|\bunlanded\b|\bwithdr(?:aw|awn|ew|awing)\b|\b(?:not|never|won't|will not|does not|doesn't) land(?:s|ing)?\b|\babandon(?:ed|ing)?\b`)
 	namedPR       = regexp.MustCompile(`(?i)github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)|([\w.-]+)#(\d+)\b|(?:^|[^\w/#-])#(\d+)\b|\bPRs? #?(\d+)\b`)

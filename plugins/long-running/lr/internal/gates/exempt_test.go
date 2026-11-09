@@ -294,7 +294,7 @@ func pipelineGrade(t *testing.T, seq int, verdict, class string) client.Record {
 
 func TestTheGateReadsTheClassFromThePipelinesFieldAndNeverFromTypedText(t *testing.T) {
 	finder := decoded(t, `{"seq":1,"lane":"finder-desk","kind":"review","text":"finder: ok `+portHead+`","refs":{"prs":[49999]}}`)
-	desk := decoded(t, `{"seq":3,"lane":"fidelity-desk-31","kind":"review","text":"fidelity: ok `+portHead+` class owner-pick: desk grade for root, in root's owner-pick class.","refs":{"prs":[49999]}}`)
+	desk := decoded(t, `{"seq":3,"lane":"fidelity-desk-31","kind":"review","text":"fidelity: ok `+portHead+` test-only or CI-only, no non-test code: desk grade for root.","refs":{"prs":[49999]}}`)
 	override := client.Record{Seq: 4, Lane: "root", Kind: "decide", Text: "fidelity-override #49999 at abc1234: 2"}
 	ciOnly := []string{"go/ci/prune.go", "go/ci/prune_test.go", "infra/ci/src/cache/units.ts"}
 	passBox := []string{"docs/pass-boxes.md", "go/ci/passbox.go", "go/ci/passbox_test.go", "tools/loadtest/tasks/README.md"}
@@ -309,7 +309,7 @@ func TestTheGateReadsTheClassFromThePipelinesFieldAndNeverFromTypedText(t *testi
 		"a missing grade root overrode keeps the class it names":     {[]client.Record{finder, pipelineGrade(t, 2, "missing", ClassOf(TestOnlyGrade)), override}, ciOnly, ClassOf(TestOnlyGrade), ""},
 		"#51878's pass-box verb the pipeline names none":             {[]client.Record{finder, pipelineGrade(t, 2, "ok", NoClass)}, passBox, "", "fidelity-pipeline's grade #2 names class none"},
 		"#51878 overridden still names none":                         {[]client.Record{finder, pipelineGrade(t, 2, "missing", NoClass), override}, passBox, "", "names class none"},
-		"a desk typing a class beside the pipeline's none":           {[]client.Record{finder, pipelineGrade(t, 2, "ok", NoClass), desk}, passBox, "", "fidelity-pipeline's grade #2 names class none; fidelity-desk-31's grade #3 types class owner-pick, but only fidelity-pipeline's fidelity-class attr names a head's class, so his tap lands it"},
+		"a desk typing a class beside the pipeline's none":           {[]client.Record{finder, pipelineGrade(t, 2, "ok", NoClass), desk}, passBox, "", "fidelity-pipeline's grade #2 names class none; fidelity-desk-31's grade #3 types test-only or CI-only, no non-test code, but only fidelity-pipeline's fidelity-class attr names a head's class, so his tap lands it"},
 		"a desk typing a class over an overridden missing":           {[]client.Record{finder, pipelineGrade(t, 2, "missing", NoClass), desk, override}, passBox, "", "names an exempt class"},
 		"a class his rulings do not land untapped needs his tap":     {[]client.Record{finder, pipelineGrade(t, 2, "ok", "owner-pick")}, ciOnly, "", "names class owner-pick"},
 		"an ok the pipeline posted before the field reads its text":  {[]client.Record{finder, decoded(t, `{"seq":2,"lane":"fidelity-pipeline","kind":"review","text":"fidelity: ok `+portHead+` `+TestOnlyGrade+`: one test","refs":{"prs":[49999]}}`)}, ciOnly, ClassOf(TestOnlyGrade), ""},
