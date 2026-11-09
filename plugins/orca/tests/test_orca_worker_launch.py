@@ -187,7 +187,7 @@ class Launch:
         placement = ["--on", prepared["environment"], "--worktree", f"id:{prepared['worktreeId']}", "--terminal", prepared["terminal"]]
         return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
 
-    def local_calls(self, model: str = "claude-fable-5-1", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE) -> list[list[str]]:
+    def local_calls(self, model: str = "claude-fable-5-2", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE) -> list[list[str]]:
         claude = f"env {LANE_ENV} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools {LANE_DENIED_TOOLS} --strict-mcp-config --no-chrome --model {model} --effort {effort} --settings '{LANE_SETTINGS}'"
         pointer = f"Lane '{LANE}'. Your full brief is the file {self.brief}: read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is {LOCAL_WORKTREE}.{f" This lane is sparse: widen with `{WIDEN}` before reading outside it." if cone else ""} You run in bypass-permissions mode; the brief's Escalate rules still hold."
         return [
@@ -276,7 +276,7 @@ class PreAllocationTest(LaunchTest):
         self.assert_refused(self.launch, self.launch.run(WORKER_REPO="repo-1"), "WORKER_REPO picks a local Orca repository; a Sprite checks out the repository its cc-remote config names, chosen with CC_REMOTE_CONFIG; nothing was prepared", [])
 
     def test_fable_refuses_the_sprite_route_before_any_call(self):
-        for model, model_id in (("fable", "claude-fable-5-1"), ("claude-fable-5-1", "claude-fable-5-1"), ("claude-Fable-6", "claude-Fable-6")):
+        for model, model_id in (("fable", "claude-fable-5-2"), ("claude-fable-5-2", "claude-fable-5-2"), ("claude-Fable-6", "claude-Fable-6")):
             with self.subTest(model=model):
                 launch = self.fresh()
                 launch.sprite()

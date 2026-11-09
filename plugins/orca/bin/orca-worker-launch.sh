@@ -36,7 +36,7 @@ attempt=$dir/${name%.*}.worker
 case $model in
   opus) model_id="claude-opus-5-5" ;;
   sonnet) model_id="claude-sonnet-5-5" ;;
-  fable) model_id="claude-fable-5-1" ;;
+  fable) model_id="claude-fable-5-2" ;;
   *) model_id=$model ;;
 esac
 case $model_id in
