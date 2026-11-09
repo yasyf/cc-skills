@@ -97,15 +97,34 @@ def test_context_with_no_open_orders_says_none() -> None:
     assert "Open orders (0):\n- none" in render.context(drive)
 
 
+def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
+    drive = sample()
+    drive["jobs"]["j1"]["prs"] = [
+        "https://github.com/yasyf/cc-skills/pull/10",
+        "https://github.com/yasyf/cc-skills/pull/9",
+    ]
+    drive["prs"]["yasyf/cc-skills#11"] = drive["prs"]["yasyf/cc-skills#9"] | {
+        "url": "https://github.com/yasyf/cc-skills/pull/11"
+    }
+    lines = render.context(drive).splitlines()
+    pr_lines = [line for line in lines if line.startswith("    - ")]
+    assert pr_lines == [
+        "    - https://github.com/yasyf/cc-skills/pull/10",
+        "    - yasyf/cc-skills#9 open, checks pass, review none, wants tap",
+        "    - yasyf/cc-skills#11 open, checks pass, review none, wants tap",
+    ]
+
+
 def test_status_text_counts_open_orders() -> None:
-    text = render.status_text(sample())
-    assert text.splitlines()[0] == "demo: 2 open of 3 orders"
+    text = render.status_text(sample(), "live")
+    assert text.splitlines()[0] == "demo: 2 open of 3 orders; PR fields live"
     assert "o1 working" in text
     assert "o2" not in text
 
 
 def test_status_data_keeps_only_open_work() -> None:
-    data = render.status_data(sample())
+    data = render.status_data(sample(), "stored")
+    assert data["pr_fields"] == "stored"
     assert set(data["orders"]) == {"o1", "o3"}
     assert set(data["jobs"]) == {"j1"}
     assert set(data["prs"]) == {"yasyf/cc-skills#9"}

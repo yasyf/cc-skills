@@ -90,3 +90,14 @@ def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github.subprocess, "run", fake)
     with pytest.raises(github.GithubError):
         github.run(["gh", "api", "graphql"])
+
+
+def test_fetch_raises_a_github_error_on_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "run", lambda cmd: "<html>bad gateway</html>")
+    with pytest.raises(github.GithubError, match="unreadable GraphQL reply"):
+        github.fetch(["a/one#1"])
+
+
+def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
+    read = {"state": "MERGED", "checks": "ERROR", "reviewDecision": "CHANGES_REQUESTED", "headRefOid": "abc", "title": "T"}
+    assert github.live(read) == {"state": "merged", "checks": "fail", "review": "changes", "head": "abc", "title": "T"}

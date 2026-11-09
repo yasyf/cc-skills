@@ -29,7 +29,8 @@ COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
 SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
-NOTHING = re.compile(r"(?:none|low)(?: risk)?[.!]?", re.IGNORECASE)
+NO_RISK = re.compile(r"(?:none|low)(?: risk)?[.!]?", re.IGNORECASE)
+NO_DEPARTURE = re.compile(r"(?:none|no departure|n/a)\.?", re.IGNORECASE)
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -85,8 +86,8 @@ def section_words(found: dict[str, str], *headings: str) -> str:
     return next((clipped(first_paragraph(found[heading])) for heading in headings if heading in found), "")
 
 
-def unless_nothing(words: str) -> str:
-    return "" if NOTHING.fullmatch(words.strip()) else words
+def unless(nothing: re.Pattern[str], words: str) -> str:
+    return "" if nothing.fullmatch(words.strip()) else words
 
 
 def pictures(found: dict[str, str]) -> list[str]:
@@ -160,8 +161,8 @@ def render(pr: dict, entry: dict) -> dict:
         "change": section_words(found, "what changes for you", "summary"),
         "eli5": section_words(found, "eli5", "in plain words", "context"),
         "show_me": clipped(first_paragraph(IMAGE.sub("", found.get("show me", "")))),
-        "risk": unless_nothing(section_words(found, "risk", "risk profile")),
-        "plan": section_words(found, "against the plan"),
+        "risk": unless(NO_RISK, section_words(found, "risk", "risk profile")),
+        "plan": unless(NO_DEPARTURE, section_words(found, "against the plan")),
         "port": section_words(found, "port"),
         "blocks": "",
         "lands": "",

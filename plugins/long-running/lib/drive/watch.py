@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,9 +14,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=10)
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
-PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
-CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail", "PENDING": "pending", "EXPECTED": "pending"}
-REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
+LINE_BREAKS = re.compile(r"[\r\n]+")
 
 
 @dataclass
@@ -32,12 +31,7 @@ def ids(pr: dict) -> str:
 
 
 def pr_changes(pr: dict, read: dict) -> list[str]:
-    fresh = {
-        "state": PR_STATES[read["state"]],
-        "checks": CHECKS.get(read["checks"], "none"),
-        "review": REVIEWS.get(read["reviewDecision"], "none"),
-        "head": read["headRefOid"],
-    }
+    fresh = github.live(read)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
         changes.append(f"new head {fresh['head'][:7]}")
@@ -47,17 +41,17 @@ def pr_changes(pr: dict, read: dict) -> list[str]:
         changes.append("approved" if fresh["review"] == "approved" else "changes requested")
     if fresh["state"] != pr["state"]:
         changes.append(fresh["state"])
-    pr.update(fresh, title=read["title"], draft=read["isDraft"], merged_sha=read["mergeCommit"])
+    pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"])
     return changes
 
 
 def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    keys = [key for key, pr in state.load(watcher.name)["prs"].items() if pr["state"] == "open"]
+    keys = state.open_pr_keys(state.load(watcher.name))
     if not keys:
         return []
     try:
         reads = github.fetch(keys)
-    except (github.GithubError, ValueError) as error:
+    except github.GithubError as error:
         if watcher.failure_said and moment - watcher.failure_said < FAILURE_EVERY:
             return []
         watcher.failure_said = moment
@@ -132,7 +126,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)
-    return [line[:LINE_LIMIT] for line in lines]
+    return [LINE_BREAKS.sub(" ", line)[:LINE_LIMIT] for line in lines]
 
 
 def alive(pid: int) -> bool:
