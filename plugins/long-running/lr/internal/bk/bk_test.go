@@ -274,6 +274,7 @@ func TestEveryWriteAndUnknownVerbIsRefusedWithoutRunningTheClient(t *testing.T) 
 		"bk build test",
 		"bk build test twelve",
 		"bk jobs test twelve",
+		"bk jobs test 12 --step (unclosed",
 		"bk builds",
 		"bk builds --branch dev",
 		"bk builds test extra",
@@ -683,6 +684,52 @@ func TestJobsListsPassedJobsTooSoAPassCanBeProven(t *testing.T) {
 	}
 	if body := bodyOf(t, found[0]); body != "passed job=job-1 go tests\nfailed job=job-2 lint\n" {
 		t.Fatalf("body = %q", body)
+	}
+}
+
+func TestJobsPastTheReplyLimitAnswersInWindowsEachNamingTheNext(t *testing.T) {
+	read := build{Number: 13917, State: "passed"}
+	var every strings.Builder
+	for n := range 400 {
+		id := fmt.Sprintf("01a1bea1-f5c7-478b-a2ef-%012d", n)
+		name := fmt.Sprintf("deploy stack %03d %s", n, strings.Repeat("x", 80))
+		read.Jobs = append(read.Jobs, job{ID: id, Type: "script", Name: name, State: "passed"})
+		fmt.Fprintf(&every, "passed job=%s %s\n", id, name)
+	}
+	raw, err := json.Marshal(read)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk, _ := newDesk(t, &fakeRunner{reply: shell.Result{Stdout: string(raw)}})
+
+	first := desk.read(context.Background(), "bk jobs release 13917")
+	if !strings.HasSuffix(first.head, "passed, 400 jobs, window 1 of 4; bk jobs release 13917 2/4 reads the next") {
+		t.Fatalf("head = %q", first.head)
+	}
+	joined := first.body
+	for window := 2; window <= 4; window++ {
+		next := desk.read(context.Background(), fmt.Sprintf("bk jobs release 13917 %d/4", window))
+		if len(next.body) > replyLimit || strings.Contains(next.head, "reads the next") != (window < 4) {
+			t.Fatalf("window %d: %d bytes, head %q", window, len(next.body), next.head)
+		}
+		joined += next.body
+	}
+	if joined != every.String() {
+		t.Fatalf("the windows joined differ from the whole list")
+	}
+	if past := desk.read(context.Background(), "bk jobs release 13917 5/4"); !strings.HasSuffix(past.head, "in 4 windows, so there is no window 5") {
+		t.Fatalf("head = %q", past.head)
+	}
+}
+
+func TestJobsFiltersByStateAndStep(t *testing.T) {
+	build := `{"number":12,"state":"failed","jobs":[{"id":"job-1","type":"script","name":"go tests","state":"failed"},{"id":"job-2","type":"script","name":"lint","state":"failed"},{"id":"job-3","type":"script","name":"lint fix","state":"passed"},{"id":"job-4","type":"script","name":"apply","step_key":"apply-restate","state":"failed"}]}`
+	desk, _ := newDesk(t, &fakeRunner{reply: shell.Result{Stdout: build}})
+
+	read := desk.read(context.Background(), "bk jobs test 12 --state failed --step ^lint|restate — which ones failed")
+
+	if read.body != "failed job=job-2 lint\nfailed job=job-4 apply\n" || !strings.HasSuffix(read.head, "failed, 4 jobs, 2 matching") {
+		t.Fatalf("reply = %+v", read)
 	}
 }
 
