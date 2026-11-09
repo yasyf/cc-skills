@@ -93,6 +93,7 @@ func newGatesOnDev(t *testing.T, devTest string) *gateFixture {
 		Runner: tool, CCX: ccx.CLI{Runner: fake}, Store: s, Drive: "d", Repo: monorepo, Trunk: "dev", Check: "buildkite/test", Checkout: "/co", Rulings: gateTool,
 		Session: func(context.Context) (string, error) { return "board-1", nil },
 		Now:     func() time.Time { return f.now },
+		Sleep:   func(d time.Duration) { f.now = f.now.Add(d) },
 		Log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}
 	return f
@@ -213,18 +214,37 @@ func TestACardThatCannotDrawTellsTheLaneAndRootAndStillHoldsTheHead(t *testing.T
 	}
 }
 
-func TestARulingsCheckThatDoesNotReadPassesTheHeadAndAClearOneIsNotReadAgain(t *testing.T) {
+func TestARulingsCheckThatDoesNotReadForAMinuteHoldsTheHeadAndTellsRoot(t *testing.T) {
 	f := newGates(t)
 	acts := []pass.Act{enqueueAct(1, "one", "dev")}
+	started := f.now
 
 	f.tool.broken = true
-	f.admit(t, acts, 1)
+	f.admit(t, acts)
+	if waited := f.now.Sub(started); waited < time.Minute {
+		t.Fatalf("waited %s before holding, want a minute of rereads", waited)
+	}
+	blockers := gateRecords(t, "blocker")
+	if len(blockers) != 1 || !strings.HasPrefix(blockers[0].Text, "RULINGS-UNREAD #1 ") || !slices.Contains(blockers[0].To, "root") {
+		t.Fatalf("blockers = %+v, want one RULINGS-UNREAD to root", blockers)
+	}
 
 	f.tool.broken = false
 	f.admit(t, acts, 1)
 	f.admit(t, acts, 1)
 	if f.tool.reads != 1 {
-		t.Fatalf("reads = %d, want one read after the failed one and none once clear", f.tool.reads)
+		t.Fatalf("reads = %d, want one read once it reads and none once clear", f.tool.reads)
+	}
+}
+
+func TestAHandEnqueueGateNamesARulingsCheckThatDoesNotRead(t *testing.T) {
+	f := newGates(t)
+	f.tool.broken = true
+
+	got := f.gates.HandEnqueueLines(context.Background(), []machine.Facts{gateFacts(1, "one", "dev", nil)}, []string{"1"}, false, false)
+
+	if len(got) != 1 || !strings.HasPrefix(got[0], "#1 e718a7434f RULINGS-UNREAD ") {
+		t.Fatalf("lines = %q", got)
 	}
 }
 
