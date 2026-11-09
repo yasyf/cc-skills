@@ -11,13 +11,14 @@ import (
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
 
-func TestOwnersReadASpriteAliasRowAndALaneQuietOverAnHourAsLiveAndNeverAMention(t *testing.T) {
+func TestOwnersReadEveryRegisteredLaneAndItsAliasAsLiveHoweverLongSinceItPostedAndNeverAMention(t *testing.T) {
 	lanes := []Lane{
 		{Name: "spa-edge-role", State: "unregistered", PRs: []int{50150, 50212}},
 		heard("spa-edge-role-1", "desired", 2),
 		heard("ship-2", "desired", 90),
 		heard("stale-1", "desired", 300),
 		heard("dd-331634912-fix", "desired", 1),
+		heard("gone-3", "retired", 5),
 	}
 	records := []Record{
 		forPR(record(1, "ship-2", "head", "HEAD #48401 abc", 100), 48401),
@@ -40,12 +41,12 @@ func TestOwnersReadASpriteAliasRowAndALaneQuietOverAnHourAsLiveAndNeverAMention(
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string][]string{"50212": {"spa-edge-role"}, "50150": {"spa-edge-role"}, "48401": {"ship"}, "7": {}}
+	want := map[string][]string{"50212": {"spa-edge-role"}, "50150": {"spa-edge-role"}, "48401": {"ship"}, "7": {"stale"}}
 	if fmt.Sprint(got.PRs) != fmt.Sprint(want) {
-		t.Fatalf("owners = %v, want %v: each owner by alias: the Sprite's alias row and its numbered lane's head own theirs once, the lane quiet for 90 minutes owns its PR, a lane quiet for five hours owns nothing, and a head that mentions a PR owns only its own", got.PRs, want)
+		t.Fatalf("owners = %v, want %v: each owner by alias: the Sprite's alias row and its numbered lane's head own theirs once, a registered lane owns its PR however long since it posted, and a head that mentions a PR owns only its own", got.PRs, want)
 	}
-	if !slices.Equal(got.Live, []string{"dd-331634912-fix", "ship", "ship-2", "spa-edge-role", "spa-edge-role-1"}) {
-		t.Fatalf("live = %v, want each lane heard within two hours and the alias its Sprite lane answers for", got.Live)
+	if !slices.Equal(got.Live, []string{"dd-331634912-fix", "ship", "ship-2", "spa-edge-role", "spa-edge-role-1", "stale", "stale-1"}) {
+		t.Fatalf("live = %v, want every registered lane that is not retired, five hours since its post included, and each alias", got.Live)
 	}
 }
 

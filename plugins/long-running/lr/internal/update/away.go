@@ -315,7 +315,7 @@ func (a away) ownerWords(owners []Lane) string {
 	for i, owner := range owners {
 		words[i] = alias(owner.Name)
 		if !heardLive(owner, a.in.Now) {
-			words[i] += ", quiet since " + stamp(owner.Heard, a.in.Now)
+			words[i] += ", no record since " + stamp(owner.Heard, a.in.Now)
 		}
 	}
 	return strings.Join(unique(words), "; ")

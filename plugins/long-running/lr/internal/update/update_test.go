@@ -95,7 +95,7 @@ func TestWorkIsHeldOnlyByLanesHeardWithinTwoHoursWithTheirNextRecordDueAndRootWa
 	if !strings.HasPrefix(w.unblock, "release-5: head ") || !strings.Contains(w.unblock, "; next record due by ") {
 		t.Fatalf("unblock = %q", w.unblock)
 	}
-	if !strings.HasPrefix(w.wrong, "old-desk-1 quiet since ") {
+	if !strings.HasPrefix(w.wrong, "old-desk-1 no record since ") {
 		t.Fatalf("wrong = %q", w.wrong)
 	}
 	idle := v.workOf([]string{"old-desk-1", "root"})
@@ -193,7 +193,7 @@ func TestAPRRowsOwnerIsTheNewestLanePushingItEvenWhenTheLedgerNamesAnotherAndNoD
 	if row.Who != "ship-2" {
 		t.Fatalf("who = %q", row.Who)
 	}
-	if !strings.HasPrefix(row.Wrong, "stale-1 quiet since ") {
+	if !strings.HasPrefix(row.Wrong, "stale-1 no record since ") {
 		t.Fatalf("wrong = %q", row.Wrong)
 	}
 }

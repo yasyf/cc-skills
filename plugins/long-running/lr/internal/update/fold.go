@@ -94,7 +94,7 @@ func (s section) oneLine() string {
 	if len(quiet) == 0 {
 		return line
 	}
-	return line + "; quiet: " + strings.Join(quiet, ", ")
+	return line + "; nobody on: " + strings.Join(quiet, ", ")
 }
 
 func closingLine(f folding, whole, stepLines, droppedLines int, droppedAfter string) string {

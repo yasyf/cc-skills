@@ -396,7 +396,7 @@ func TestAPortDeskThatStopsWalkingTellsRootOnceUntilItEndsOrWalksAgain(t *testin
 	}
 }
 
-func TestAReportOrAnswerToRootThatEndsInOptionsIsOpenUntilRootRepliesToIt(t *testing.T) {
+func TestAReportOrAnswerToRootThatEndsInOptionsIsOpenUntilAReply(t *testing.T) {
 	s, r := memory(t), &recorder{}
 	posted := at(t, "2026-11-08T21:00:00Z")
 	records := []client.Record{
@@ -429,6 +429,26 @@ func TestAReportOrAnswerToRootThatEndsInOptionsIsOpenUntilRootRepliesToIt(t *tes
 		t.Fatalf("open = %+v, %v", open, err)
 	}
 	if open, err := s.OpenItems(AskNamespace, 502); err != nil || len(open) == 0 {
-		t.Fatalf("502 open = %+v, %v, want it open until root replies", open, err)
+		t.Fatalf("502 open = %+v, %v, want it open until a reply", open, err)
+	}
+}
+
+func TestAnAskToRootAnsweredByAnotherLaneIsNoLongerOwedButTheAskersOwnFollowUpAndTheSupervisorsChaseLeaveItOpen(t *testing.T) {
+	posted := at(t, "2026-11-09T07:00:00Z")
+	ask := client.Record{Seq: 646561, Lane: "vector-replay-2", Kind: "report", At: posted, To: []string{"root"}, Text: "wrong owners again: reply (a) or (b)"}
+	cases := []struct {
+		name   string
+		answer client.Record
+		open   int
+	}{
+		{"another lane's correction answers it", client.Record{Seq: 646611, Lane: "progress-desk", Kind: "correction", At: posted.Add(time.Minute), Re: 646561}, 0},
+		{"root's answer answers it", client.Record{Seq: 646700, Lane: "root", Kind: "decide", At: posted.Add(time.Minute), Re: 646561}, 0},
+		{"the asker's own follow-up leaves it open", client.Record{Seq: 646620, Lane: "vector-replay-3", Kind: "note", At: posted.Add(time.Minute), Re: 646561}, 1},
+		{"the supervisor's chase leaves it open", client.Record{Seq: 647128, Lane: "supervisor", Kind: "lr.escalation", At: posted.Add(time.Minute), Re: 646561}, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			want(t, len(OpenAsks([]client.Record{ask}, []client.Record{ask, c.answer}, posted.Add(5*time.Minute))), c.open)
+		})
 	}
 }
