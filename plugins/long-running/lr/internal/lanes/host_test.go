@@ -104,7 +104,7 @@ func TestAQuietLaneNoProbeSettlesIsAskedItsStateOnceThenRelaunchedWithNoBlocker(
 
 			out := tick(t, s, f, t0.Add(relayAnswer))
 
-			equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 56 min, and posted no record in the 15 min after a relay asked its state"}})
+			equal(t, out.Relaunched, []Relaunch{{lane2, "conflicts-3", "has an Orca agent that reads unverifiable (host_unavailable) and has posted nothing for 56 min, and posted no record in the 15 min after a relay asked its state"}})
 			equal(t, []any{f.launches, row(t, s, "conflicts-3").PRs, len(f.ofKind("go")), len(f.ofKind("blocker"))}, []any{[]string{"conflicts-3"}, []int{46001}, 1, 0})
 		})
 	}
@@ -244,7 +244,7 @@ func TestALostSpriteLaneWithNoPRAndNoWorkInADayIsHeldForRootInsteadOfRelaunched(
 func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *testing.T) {
 	s := memory(t)
 	f := newFake(t, nil, nil)
-	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "stopped, quiet for 20 min"})
+	registered(t, s, store.Lane{Name: "conflicts-3", Role: "lane", Placement: placedOnSprite, Predecessor: lane2, Reason: "stopped, no record for 20 min"})
 	coldOnSprite(t, s, f, "conflicts-3", HostEmpty)
 
 	first := tick(t, s, f, t0)
@@ -254,7 +254,7 @@ func TestASecondLossOfARelaunchedLaneIsReportedAndHeldNeverRelaunchedAgain(t *te
 	reports := lostReports(f)
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{"meta-desk-3"})
-	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 stopped, quiet for 20 min")
+	contains(t, reports[0].Text, "held, not relaunched: the supervisor already relaunched it once, when conflicts-2 stopped, no record for 20 min")
 }
 
 func TestTheSandsqlShardingBuildLossesToItsDeadSpritesRelaunchOnAFreshSpriteAndNeverHold(t *testing.T) {

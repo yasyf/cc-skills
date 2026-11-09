@@ -865,7 +865,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		}
 		heardFor := "was never heard"
 		if !heard.IsZero() {
-			heardFor = fmt.Sprintf("has been quiet for %d min", int(now.Sub(heard).Minutes()))
+			heardFor = fmt.Sprintf("has posted nothing for %d min", int(now.Sub(heard).Minutes()))
 		}
 		if peer == nil {
 			return Verdict{Unproven, "has no process row in cci who or Orca and " + heardFor + nothingProves}
@@ -879,7 +879,7 @@ func Classify(lane store.Lane, peer *Peer, now time.Time, tokens, rotateAt int) 
 		if peer.Row.Unverified != "" {
 			return Verdict{Unproven, peer.Row.Unverified + " and " + heardFor + nothingProves}
 		}
-		return Verdict{Dead, fmt.Sprintf("stopped, quiet for %d min", int(now.Sub(heard).Minutes()))}
+		return Verdict{Dead, fmt.Sprintf("stopped, no record for %d min", int(now.Sub(heard).Minutes()))}
 	}
 	if tokens > 0 && rotateAt > 0 && tokens >= rotateAt {
 		return Verdict{AskRotate, commas(tokens) + " tokens"}

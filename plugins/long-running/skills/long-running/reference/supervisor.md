@@ -117,7 +117,7 @@ One tick does all of the following from one read of the new records and one `cci
 - **Restart:** a page reaches a live lane through its roster inbox or `orca orchestration send`. A process that is gone gets one successor when its row holds an open PR or a standing duty, because its obligation is on the row; a row holding neither retires once silent past the threshold (see Dead lanes).
 - **His unanswered message:** a message of his in the DM that `cc-slack dm-owed` lists with no reply for 10 minutes is raised once to owner-relay and root as UNANSWERED, naming its link.
 - **Successor:** only for a live row. A row that ended is retired, and a parked row waits for its gate.
-- **A silent lane:** a live lane holding work, woken or not, that has made no tool call for 30 minutes and runs no subagent or wait gets a successor from its handoff or brief. One parked on an `ask`, `blocked` or `blocker`, or an idle rostered teammate, waits on an answer instead, so root gets one SILENT blocker naming it. The successor's check for live processes in the worktree keeps two writers out.
+- **A silent lane:** a live lane holding work, woken or not, that has made no tool call for 30 minutes and runs no subagent or wait gets a successor from its handoff or brief. One parked on an `ask`, `blocked` or `blocker`, or an idle rostered teammate, waits on an answer instead, so root gets one SILENT blocker naming it. That blocker is a flag, never a verdict: it says only that no tool call came for 30 minutes, and root reads the lane's transcript and quotes what it is doing before ruling on it. The successor's check for live processes in the worktree keeps two writers out.
 
 ### Owed deletions
 

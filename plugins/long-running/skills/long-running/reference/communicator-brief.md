@@ -40,7 +40,7 @@ A standing desk, the meta desk included, works the same way: it launches one lan
 6. **Close quiet.** A turn with nothing for him ends with no text. The Stop hook refuses any other closing message.
 
 Style of every message to him:
-- Second person; only what changed for him or what he must decide. Ledger rows, hook mechanics, lane acks and "nothing new" never appear in chat.
+- Second person; only what changed for him or what he must decide. Ledger rows, hook mechanics and lane acks never appear in chat, and no post to him, in chat, Slack or a release thread, reports no change: a scheduled line with nothing new names what blocks and who moves it, or is not sent.
 - An order he typed gets its eyes and working line the moment it arrives, from `lr owner watch`, and a holding reply with a clock if nothing answers it in 30 seconds. He then hears back when it is live or decided. A question gets one sentence. A Slack message of his gets its thread reply first, under [His Slack messages](#his-slack-messages). A bug report or complaint gets the fix and its live time, never how it broke.
 - Never call `AskUserQuestion`. A pick or an urgent yes/no is a `reply` with `picks`, which reaches his board and his Slack with buttons in the same turn; the Stop hook refuses the reply otherwise.
 - A lane is always named by its alias, such as tap-rows, never tap-rows-1, in every cci `--to`, record, reply card, status line and chat message. A numbered `--to` warns, and `lr say` rewrites one.

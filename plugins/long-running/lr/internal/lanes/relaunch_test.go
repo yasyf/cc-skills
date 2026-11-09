@@ -65,7 +65,7 @@ func TestARelaunchRefusedOnceLaunchesOnItsRetry(t *testing.T) {
 
 	out := tick(t, s, f, t0)
 
-	equal(t, []any{f.launches, out.Relaunched, row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3", "conflicts-3"}, []Relaunch{{lane2, "conflicts-3", "stopped, quiet for 20 min"}}, store.LaneLaunching})
+	equal(t, []any{f.launches, out.Relaunched, row(t, s, "conflicts-3").State}, []any{[]string{"conflicts-3", "conflicts-3"}, []Relaunch{{lane2, "conflicts-3", "stopped, no record for 20 min"}}, store.LaneLaunching})
 	equal(t, []any{len(relaunchReports(f)), len(f.ofKind("blocker"))}, []any{1, 0})
 }
 

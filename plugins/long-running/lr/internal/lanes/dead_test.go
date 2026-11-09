@@ -20,7 +20,7 @@ func TestADesiredOrcaLaneWhoseAgentExitedWithAnOpenPRRelaunchesOnce(t *testing.T
 	first := tick(t, s, f, t0)
 	second := tick(t, s, f, t0.Add(mins(1)))
 
-	equal(t, first.Relaunched, []Relaunch{{lane2, "conflicts-3", "stopped, quiet for 30 min"}})
+	equal(t, first.Relaunched, []Relaunch{{lane2, "conflicts-3", "stopped, no record for 30 min"}})
 	equal(t, len(second.Relaunched), 0)
 	equal(t, f.launches, []string{"conflicts-3"})
 	equal(t, row(t, s, "conflicts-3").PRs, []int{46001})
@@ -42,7 +42,7 @@ func TestADeadLaneThatHoldsNothingRetiresOnceSilentPastTheThresholdAndIsToldItSt
 	reports := f.ofKind("report")
 	equal(t, len(reports), 1)
 	equal(t, reports[0].To, []string{Root})
-	equal(t, reports[0].Text, "RETIRED for owning no PR, holding no standing duty, and posting nothing for 60 minutes or more: conflicts-2 (it stopped, quiet for 60 min).")
+	equal(t, reports[0].Text, "RETIRED for owning no PR, holding no standing duty, and posting nothing for 60 minutes or more: conflicts-2 (it stopped, no record for 60 min).")
 	standDowns := f.ofKind("stand-down")
 	equal(t, len(standDowns), 1)
 	equal(t, []any{standDowns[0].To, standDowns[0].Successor, standDowns[0].Text}, []any{[]string{lane2}, "", "conflicts-2 stood down: the supervisor retired it (silent)."})
@@ -74,7 +74,7 @@ func TestAColdSpriteParkedOnARecordedWaitIsLeftAloneAndAnUnparkedOneWithAPRIsAsk
 		equal(t, []any{out.Held, row(t, s, lane2).State, len(f.ofKind("blocker"))}, []any{[]string(nil), store.LaneDesired, 0})
 		relays := f.ofKind("go")
 		equal(t, len(relays), 1)
-		contains(t, relays[0].Text, "relay to conflicts-2: This lane has an Orca agent that reads unverifiable (host_unavailable) and has been quiet for 180 min. Post your state now")
+		contains(t, relays[0].Text, "relay to conflicts-2: This lane has an Orca agent that reads unverifiable (host_unavailable) and has posted nothing for 180 min. Post your state now")
 	}
 }
 
