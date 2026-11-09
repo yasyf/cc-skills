@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/askdesk"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/scaletest"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/store"
 )
@@ -65,6 +66,26 @@ func TestASpriteLaneHoldingAnyMailIsWokenOnTheFirstTickPastThirtySecondsAndOnlyO
 	after := at(70 * time.Second)
 
 	equal(t, len(before.Woken)+len(after.Woken), 0)
+	equal(t, woken.Woken, []string{lane2})
+}
+
+func TestAStoreDeskAnswerToARelayedReadNeverWakesTheLaneWhoseCommandPrintedIt(t *testing.T) {
+	s := memory(t)
+	f := onSprite(t, s)
+	answer := rec(2, askdesk.StoreDesk, "answer", t0, "board rows: 3 rows", lane2)
+	answer.Fields.Attrs = map[string]string{"exit": "0"}
+	f.feed = append(f.feed, answer)
+	at := func(after time.Duration) Outcome {
+		f.peers = []Row{{Lane: lane2, Live: true, SeenAt: t0.Add(after), Dispatch: "ctx_1", Terminal: "term_1", Environment: "env_1"}}
+		return tick(t, s, f, t0.Add(after))
+	}
+
+	equal(t, len(at(40*time.Second).Woken), 0)
+
+	f.feed = append(f.feed, rec(3, orderAuthor, "report", t0.Add(time.Minute), "your PR merged", lane2))
+	at(70 * time.Second)
+	woken := at(110 * time.Second)
+
 	equal(t, woken.Woken, []string{lane2})
 }
 
