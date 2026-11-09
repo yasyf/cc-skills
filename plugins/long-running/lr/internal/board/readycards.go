@@ -68,7 +68,6 @@ const (
 	tapCardRefused = "refused"
 	newVersionWhy  = "a new version replaced it, and its own card asks again"
 	newVersionAsks = "a new version asks again in its own card"
-	redWhy         = "CI went red at its newest version and the lane that owns it was told; a new card asks once CI is green"
 	exemptWhy      = "it lands on root's go with no tap, under the drive's standing rule for its class"
 )
 
@@ -96,11 +95,6 @@ func (r ReadyCards) Pass(ctx context.Context) error {
 		return err
 	}
 	if err := r.tellChangeOwed(ctx, rows, facts); err != nil {
-		return err
-	}
-	if err := r.retireCards(ctx, rows, redWhy, func(row store.ReviewRow) bool {
-		return row.CI == prrow.CIRed && !row.Tapped && row.State == prrow.StateOpen
-	}); err != nil {
 		return err
 	}
 	if err := r.retireCards(ctx, rows, exemptWhy, func(row store.ReviewRow) bool { return row.State == prrow.StateExempt }); err != nil {
