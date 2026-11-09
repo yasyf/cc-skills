@@ -521,6 +521,58 @@ func TestRootsDoneEndsAStandingLanesDutySoNothingRelaunchesItLiveOrAlreadyRetire
 	}
 }
 
+func TestRootsStandDownRequestWithNoSuccessorEndsAStandingLanesDutyLikeItsDone(t *testing.T) {
+	for name, retired := range map[string]bool{"live": false, "retired": true} {
+		t.Run(name, func(t *testing.T) {
+			s := memory(t)
+			f, _ := standingLane(t, s)
+			if retired {
+				do(s.SetLaneState(refresher, store.LaneRetired, t0, retiredWorkerDone, ""))
+			}
+			f.feed = append(f.feed, ask(2, "stand-down", refresher, t0, nil, Root, map[string]string{"open": "none"}))
+			f.peers = nil
+
+			tick(t, s, f, t0.Add(mins(1)))
+			tick(t, s, f, t0.Add(mins(12)))
+			tick(t, s, f, t0.Add(mins(30)))
+
+			got := row(t, s, refresher)
+			equal(t, []any{len(f.launches), got.RetiredBy, got.Standing}, []any{0, retiredDutyEnded, ""})
+		})
+	}
+}
+
+func TestARootDecideEndingAStandingLaneInProseDrawsADefectNamingItsDoneRequest(t *testing.T) {
+	cases := []struct {
+		name, text string
+		defects    []string
+	}{
+		{"ends it", "board-refresher (642901): confirmed, end. 640046 gave every card to owner-fixer through owner-relay.", []string{"`lr request done " + refresher + "`"}},
+		{"never respawn", "supervisor: never respawn board-refresher or fix-card-pull on a worker-done.", []string{"`lr request done " + refresher + "`"}},
+		{"names it without ending it", "board-refresher: redraw the cards from 640046.", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			s := memory(t)
+			f, _ := standingLane(t, s)
+			do(s.SetLaneState(refresher, store.LaneRetired, t0, retiredWorkerDone, ""))
+			f.feed = append(f.feed, rec(2, Root, "decide", t0, c.text, "board-refresher", Self))
+			f.peers = nil
+
+			tick(t, s, f, t0.Add(mins(1)))
+
+			var named []string
+			for _, p := range f.ofKind("defect") {
+				if p.Re == 2 {
+					named = append(named, p.Text[strings.Index(p.Text, "`"):strings.LastIndex(p.Text, "`")+1])
+				}
+			}
+			equal(t, named, c.defects)
+			equal(t, row(t, s, refresher).RetiredBy, retiredWorkerDone)
+		})
+	}
+}
+
 func TestAPlainStandDownRecordNamingItsLivePosterAsSuccessorEndsTheChainSoNothingRelaunches(t *testing.T) {
 	s := memory(t)
 	f, _ := standingLane(t, s)

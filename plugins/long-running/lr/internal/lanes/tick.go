@@ -295,6 +295,13 @@ func announce(s *store.Store, d Deps, said folded, now time.Time) {
 	for _, record := range said.untyped {
 		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide %s carries a verb but is no registry request, so the registry is unchanged; post `%s` instead.", record.Name(), Request{Verb: "<" + strings.Join(verbs, "|") + ">", Lane: "<lane>"}.Command()), Re: record.Seq}))
 	}
+	for _, one := range said.prose {
+		commands := make([]string, len(one.lanes))
+		for i, lane := range one.lanes {
+			commands[i] = "`" + Request{Verb: "done", Lane: lane}.Command() + "`"
+		}
+		do(d.Post(Post{Kind: "defect", To: []string{Root}, Text: fmt.Sprintf("The coordinator's decide %s ends %s in prose, but a decide changes no row, so each keeps its standing duty and the supervisor relaunches it when its worker ends; end each duty with %s.", one.record.Name(), strings.Join(one.lanes, ", "), strings.Join(commands, " and ")), Re: one.record.Seq}))
+	}
 	for _, one := range said.unread {
 		to := []string{noticeTo(s, one.name), one.name}
 		if !slices.Contains(to, one.asker) {
