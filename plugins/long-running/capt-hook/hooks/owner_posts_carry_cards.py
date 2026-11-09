@@ -29,9 +29,9 @@ CLAUSE = re.compile(r"[,;:]")
 DOC_PR = re.compile(r"(?i)\bdesign-docs(?:/pull/|#)\d+")
 DOC_PAGE = re.compile(r"https://(?:docs\.poetic\.design|[\w-]+\.github\.io)/|https?://[\w.-]+\.ts\.net(?::\d+)?/")
 MERGE_ASK = re.compile(r"(?i)\b(?:merg|approv)\w*")
-BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr reply` with the PR in `prs`, or put the PR's GitHub link in the post."
+BARE_PR = "Warning, nothing was blocked: A post to the owner naming a monorepo PR links it, because a bare number shows no card unless a drive's ledger holds it. Send it through `lr say` with the PR in `prs`, or put the PR's GitHub link in the post."
 NO_PLATY_CARD = "Warning, nothing was blocked: A release word to the owner gives what users get in plain words and links the Platy release card. Add the card's #releases permalink, which the build's `release-slack-root` annotation names."
-NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it. Send it through `lr reply` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
+NOTHING_TO_TAP = "A message to the owner that asks him to tap, approve or answer carries the button to do it. Send it through `lr say` with its picks or the ready PR in `prs`, pass each ready PR as `--tap-pr <url>` (`tap_prs`), draw it as a waiting card, or say what it waits on without asking him."
 UNSHOWN_DOC = "A card asking him to merge or approve a design doc or retro links the rendered doc: its docs.poetic.design page or PR preview (/previews/pr-<n>/...), or a local render's tailnet link. Add one outside any hidden cite."
 UNCARDED_RECORD ="Warning, nothing was blocked: A release record carries the Platy release card, so the relay can show it to the owner. Add `--attr card=<permalink>`, read from the build's `release-slack-root` annotation."
 
@@ -76,7 +76,7 @@ def names_a_release(words: str) -> bool:
     Event.PreToolUse,
     only_if=[Bound(), Tool("Bash", REPLY, *WRITE_TOOLS)],
     tests={
-        sent("#50026 fixes the flaky test."): Warn(pattern=r"^Warning, nothing was blocked: A post to the owner naming a monorepo PR.*`lr reply` with the PR in `prs`"),
+        sent("#50026 fixes the flaky test."): Warn(pattern=r"^Warning, nothing was blocked: A post to the owner naming a monorepo PR.*`lr say` with the PR in `prs`"),
         sent(f"{PR_LINK} fixes the flaky test."): Allow(),
         sent(f"<{PR_LINK}|#50026> fixes the flaky test."): Allow(),
         sent(f"#50026 and #50027 fix the flaky test: {PR_LINK}"): Warn(),
@@ -91,7 +91,7 @@ def names_a_release(words: str) -> bool:
         Input(tool=f"{CC_SLACK}{DM_CARD}", tool_input={"card": {"title": "Flaky tests", "body": f"{PR_LINK} fixes them."}}, env=LANE): Allow(),
         Input(command="cc-slack dm-status 'PR 50026 fixes the flaky test.'", env=LANE): Warn(),
         Input(command=f"cc-slack send --channel D0B6Z --text '{PR_LINK} fixes the flaky test.'", env=LANE): Allow(),
-        replied("#50026 fixes the flaky test."): Warn(pattern=r"`lr reply` with the PR in `prs`"),
+        replied("#50026 fixes the flaky test."): Warn(pattern=r"`lr say` with the PR in `prs`"),
         replied("#50026 fixes the flaky test.", prs=[PR_LINK]): Allow(),
         replied("The flaky test is fixed."): Allow(),
         Input(tool=f"{CC_SLACK}slack_send", tool_input={"channel_id": "D0B6Z", "text": "#50026 fixes the flaky test."}): Allow(),
