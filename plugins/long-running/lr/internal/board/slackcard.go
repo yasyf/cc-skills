@@ -114,7 +114,10 @@ type SlackPRCard struct {
 }
 
 func Card(repo string, row store.ReviewRow) SlackCard {
-	opening, lead := portTitleOpening(row), ""
+	opening, lead, approve := portTitleOpening(row), "", "Approve"
+	if opening == "" {
+		opening, approve = cardtext.ChangeKind(row.Title)+": ", "approve"
+	}
 	card := SlackCard{
 		Status: "info",
 		PRs: []SlackPRRow{{
@@ -138,11 +141,11 @@ func Card(repo string, row store.ReviewRow) SlackCard {
 		card.Title, card.PRs[0].Head = headed(row.Number, row.Title, func(named string) string { return opening + lead + named }), ""
 		return card
 	}
-	card.Status, card.Title = "needs_you", headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%sApprove %s?", opening, named) })
+	card.Status, card.Title = "needs_you", headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%s%s %s?", opening, approve, named) })
 	card.Options, card.Recommended, card.Waits = []string{approveLabel, holdLabel}, approveLabel, MergeWaits(row.Number, row.Head)
 	if merges, err := store.Parse(row.MergesAt); err == nil {
 		card.Title = headed(row.Number, row.Title, func(named string) string {
-			return fmt.Sprintf("%sApprove %s before it merges itself at %s?", opening, named, pacific(merges))
+			return fmt.Sprintf("%s%s %s before it merges itself at %s?", opening, approve, named, pacific(merges))
 		})
 		card.MergesAt = row.MergesAt
 	}

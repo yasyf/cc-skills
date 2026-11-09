@@ -31,7 +31,7 @@ import (
 func TestTheApproveCardIsTheLedgerRowWithApproveAndHold(t *testing.T) {
 	row := readyRow(nil)
 	want := SlackCard{
-		Status: "needs_you", Title: "Approve #45583, faster chats?",
+		Status: "needs_you", Title: "New: approve #45583, faster chats?",
 		PRs: []SlackPRRow{{
 			URL: "https://github.com/org/repo/pull/45583", Title: "sand: faster chats", Head: head,
 			Review: "CI green; approved by poetic-svc; grade pass; mergeable clean",
@@ -456,7 +456,7 @@ func TestAnAlertFixCardSaysThePacificMinuteItMergesItselfAt(t *testing.T) {
 
 	card := Card(repo, row)
 
-	if card.MergesAt != row.MergesAt || card.Title != "Approve #45583, faster chats before it merges itself at 5:12 AM?" {
+	if card.MergesAt != row.MergesAt || card.Title != "New: approve #45583, faster chats before it merges itself at 5:12 AM?" {
 		t.Fatalf("card = %+v, want the minute it merges itself", card)
 	}
 	if moved := Card(repo, readyRow(func(r *store.ReviewRow) { r.MergesAt = "2026-11-05T14:12:00Z" })); drawnSignature(moved) == drawnSignature(card) {
