@@ -48,7 +48,7 @@ def call(*args: str) -> dict:
 
 
 def bound_run(stored: str | None, objective: str) -> str:
-    """The drive's Run, bound to this terminal: created on first use, rebound when the driver moved."""
+    """The drive's Run, bound to this terminal: created on first use, rebound when the coordinator moved."""
     if not stored:
         return call("run-create", "--objective", objective)["run"]["id"]
     if (call("run-current")["run"] or {}).get("id") != stored:
@@ -130,7 +130,7 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
 
 
 def mail(run: str) -> list[dict]:
-    """Take the Run's unread mail: the driver's watch is its one consumer."""
+    """Take the Run's unread mail: the coordinator's watch is its one consumer."""
     return call("check", "--run", run)["messages"]
 
 
@@ -139,5 +139,5 @@ def answer(job: dict, text: str) -> str:
     if job.get("ask"):
         call("reply", "--id", job["ask"], "--body", text)
         return f"answered its question {job['ask']}"
-    call("send", "--to", f"dispatch:{job['dispatch']}", "--subject", "From the driver", "--body", text)
+    call("send", "--to", f"dispatch:{job['dispatch']}", "--subject", "From the coordinator", "--body", text)
     return f"sent to dispatch {job['dispatch']}"

@@ -1,17 +1,17 @@
 # Handle an incident
 
-An alert is the drive's in two cases only, and then it is handled in the turn it arrives, before
-anything else:
+An alert is the drive's in two cases only, and then the coordinator handles it in the turn it
+arrives, before anything else:
 
 - **He sends it or asks about it:** his message, or his link to a Datadog monitor, a Sentry issue, an
-  `#outage` or `#alerts-*` report, or a page.
+  `#outage` or `#alerts-*` report, or a page, which reaches the coordinator as an `owner` record.
 - **The drive caused it:** a monitor goes bad on a target one of the drive's own releases or changes
   touched, during that release or after it.
 
 Every other alert in the channels the drive holds is nobody's here: no line, no order, no job. He ruled
 it ("stop wasting time with random non-issue incidents no one asked you to"), so before starting an
-incident run `answer_search` for his incident rulings and follow them. The alert channels stay held,
-each a `drive start --watch` named on the `Hold with slack_watch` line of `drive status`, so the drive
+incident run `answer_search` for his incident rulings and follow them. The coordinator holds the
+alert channels, each a `drive start --watch` named on its `Hold with slack_watch` line, so the drive
 sees its own releases go bad. Once an alert is the drive's, nothing comes between it and its jobs: no
 question to him, no real-or-ours verdict, no plan mode, no mute as a resolution.
 
@@ -22,7 +22,7 @@ question to him, no real-or-ours verdict, no plan mode, no mute as a resolution.
    - **fix**, with apply authority, starting at the code path the alert names;
    - **diagnosis**, which finds the mechanism and feeds it to the fix job; it gates nothing.
    Record each with `drive job add codex --order <o> --goal "<fix|diagnosis>: <alert>" --agent <id>`.
-3. Send him the first of his three lines.
+3. Send the communicator a `report` for the first of his three lines.
 
 ## While it runs
 
@@ -45,7 +45,7 @@ question to him, no real-or-ours verdict, no plan mode, no mute as a resolution.
 
 ## What he hears
 
-Three lines, nothing between them, each in the alert's thread with the alert's Slack link and its
-Sentry or Datadog link, bare so they unfurl: **spawned** (the alert and that the fix is running),
+Three lines, nothing between them, each a `report` to the communicator, which posts it in the
+alert's thread with the alert's Slack link and its Sentry or Datadog link, bare so they unfurl: **spawned** (the alert and that the fix is running),
 **mechanism** (what broke, in plain words), **fix live** (what is live and the proof). Healthy means the
 affected customers' runs succeed, not that a monitor went quiet; the last line says whose runs did.

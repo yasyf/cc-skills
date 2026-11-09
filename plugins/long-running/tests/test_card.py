@@ -295,7 +295,7 @@ def test_failed_ci_names_the_agent_fixing_it() -> None:
 
 @pytest.fixture
 def drive(state_root: Path) -> str:
-    data = state.new_drive("demo", "s1", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "s1", "/work", "D123")
     data["prs"] = {
         "Forge-AI/monorepo#42": entry(),
         "yasyf/cc-skills#42": {**entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"},
@@ -431,7 +431,7 @@ def stack_url(number: int) -> str:
 
 @pytest.fixture
 def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
-    data = state.new_drive("demo", "s1", "/work", "D123")
+    data = state.new_drive("demo", "coordinator", "s1", "/work", "D123")
     data["prs"] = {f"Forge-AI/monorepo#{number}": {**entry(), "url": stack_url(number)} for number in (41, 42, 43, 44)}
     state.create(data)
     asked: list[list[str]] = []

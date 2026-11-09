@@ -13,6 +13,7 @@ JOB_KINDS = ("builder", "reader", "codex")
 JOB_STATES = ("running", "waiting", "done", "failed", "stopped")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
+ROLES = ("communicator", "coordinator")
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -105,10 +106,10 @@ def pr_url(key: str) -> str:
     return f"https://github.com/{repo}/pull/{number}"
 
 
-def new_drive(name: str, session: str | None, cwd: str, channel: str | None) -> dict:
+def new_drive(name: str, role: str, session: str | None, cwd: str, channel: str | None) -> dict:
     return {
         "name": name,
-        "driver": {"session": session, "cwd": cwd, "started": stamp()},
+        "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
         "slack": {"channel": channel, "status_card": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
@@ -118,10 +119,14 @@ def new_drive(name: str, session: str | None, cwd: str, channel: str | None) -> 
 
 
 def load(name: str) -> dict:
+    """Read a drive; one saved with a single driver session reads as that session coordinating."""
     try:
-        return json.loads(state_path(name).read_text())
+        data = json.loads(state_path(name).read_text())
     except FileNotFoundError:
         raise DriveError(f"no drive named {name}") from None
+    if "driver" in data:
+        data["roles"] = {"coordinator": data.pop("driver")}
+    return data
 
 
 def save(name: str, data: dict) -> None:
@@ -171,13 +176,20 @@ def next_id(records: dict, prefix: str) -> str:
     return f"{prefix}{max(taken, default=0) + 1}"
 
 
+def session_role(data: dict, session: str | None) -> str | None:
+    return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+
+
+def last_started(data: dict) -> str:
+    return max(held["started"] for held in data["roles"].values())
+
+
 def session_drives(session: str) -> list[str]:
-    matches = [(load(name), name) for name in names()]
-    bound = [
-        (data["driver"].get("started") or "", name)
-        for data, name in matches
-        if data["driver"].get("session") == session
-    ]
+    bound = []
+    for name in names():
+        data = load(name)
+        if role := session_role(data, session):
+            bound.append((data["roles"][role]["started"], name))
     return [name for _, name in sorted(bound, reverse=True)]
 
 
@@ -194,7 +206,7 @@ def resolve(name: str | None = None) -> str:
     if len(available) == 1:
         return available[0]
     if not available:
-        raise DriveError("no drives; start one with: drive start <name>")
+        raise DriveError("no drives; start one with: drive start <name> --role coordinator")
     raise DriveError(f"several drives, pass --drive: {', '.join(available)}")
 
 

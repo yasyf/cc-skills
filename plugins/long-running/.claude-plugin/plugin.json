@@ -1,6 +1,6 @@
 {
   "name": "long-running",
-  "description": "Run a long drive from one Claude Code session: every order becomes a background agent that ships it end to end, one watcher turns CI, merges, taps and promised times into events, and every message to the owner is short and plain.",
+  "description": "Run a long drive as two Claude Code sessions: a communicator that acks every message of the owner's within seconds and writes everything he sees, and a coordinator that turns each order into a background agent shipping it end to end while one watcher turns CI, merges, taps and promised times into events.",
   "version": "1.0.13",
   "author": {
     "name": "Yasyf Mohamedali",

@@ -1,6 +1,6 @@
 # long-running
 
-A drive that spans a night of orders loses track the moment one session tries to do the work, watch CI, and talk to you at once. `long-running` keeps one session, the driver, on talking and routing: every order goes to a background agent that ships it end to end, and one watcher turns every outside wait into an event.
+A drive that spans a night of orders loses track the moment one session tries to do the work, watch CI, and talk to you at once, and your messages sit for minutes while it does bookkeeping. `long-running` splits the drive into two sessions: the communicator only talks to you, acking each message within seconds, and the coordinator turns each order into a background agent that ships it end to end while one watcher turns every outside wait into an event.
 
 ## Install
 
@@ -18,11 +18,13 @@ Prerequisites:
 
 ## Start a drive
 
+Open two sessions in the same checkout and run the skill in each:
+
 ```text
 /long-running durable-agents-rebuild
 ```
 
-The session you type in becomes the driver. It runs `drive start <name>`, arms the `drive watch` monitor, and takes orders from the terminal and your Slack DM. After a restart, the same command rebinds the drive to the new session.
+One runs `drive start <name> --role coordinator --watch <alert channel>`, arms the `drive watch` monitor, and holds the alert channels. The other runs `drive start <name> --role communicator --channel <your DM>` and holds your Slack DM. The two talk through cci records on the drive. After a restart, the same command rebinds that role to the new session, and the role's cci cursor delivers what it missed.
 
 Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR cards without the plugin on its `PATH`.
 
@@ -30,7 +32,8 @@ Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR car
 
 | Concept | What it is |
 | --- | --- |
-| Driver | The one session you talk to. It plans, spawns jobs, routes events, and writes every message you get. It hands off all the work and never blocks. |
+| Communicator | The session you talk to. It acks each of your messages within seconds, hands the work to the coordinator, and writes every message you get. It never works and never waits. |
+| Coordinator | The session that runs the drive. It turns your messages into orders and jobs, routes events, lands and installs, and sends the communicator what to post. It never posts to Slack. |
 | Order | One thing you asked for, in your words, with a state, an optional due time, its jobs, and its proof. |
 | Job | One background agent owning one deliverable: a `builder` ships one change from code through merge and install, a `reader` answers one question, a `codex` lane reviews or diagnoses. While your Mac is over its load limit, a builder on the monorepo starts as a remote lane on a Sprite instead, so its builds and checks run there. |
 | Event | A line from `drive watch`: a PR's CI or merge state changed, you tapped a PR card, a remote lane reported, a promised time passed, or open work owes a summary (every 30 minutes, never while you are away). |
@@ -42,11 +45,11 @@ State lives in one file per drive under `~/.local/state/long-running/<drive>/`, 
 
 | Component | Kind | What it does |
 | --- | --- | --- |
-| `long-running:long-running` | Skill | Makes this session the driver of a named drive. |
+| `long-running:long-running` | Skill | Makes this session the communicator or the coordinator of a named drive. |
 | `long-running:builder` | Agent | Ships one change end to end: code, PR, CI, merge, install, check. |
 | `long-running:reader` | Agent | Answers one question read-only, with evidence. |
 | `drive` | CLI | Drive state: orders, jobs, PRs, taps, status, the event stream, PR cards, and plugin install after merge; `drive place` says whether a builder starts here or remote, and `drive job launch`, `resume` and `end` run a remote lane through the `orca` plugin. |
-| `drive-watch` | Monitor | Streams PR state changes, taps, due times, and ticks into the driver. |
-| `session_start`, `landing_guard` | Hooks | Inject the drive's state into the driver at start, resume, and compaction; refuse merging a drive PR in a `Forge-AI` repo without your tap or a recorded exemption. |
+| `drive-watch` | Monitor | Streams PR state changes, taps, due times, ticks, and your return into the coordinator. |
+| `session_start`, `landing_guard` | Hooks | Inject the drive's state and the session's role into each session at start, resume, and compaction; refuse merging a drive PR in a `Forge-AI` repo without your tap or a recorded exemption. |
 
 Part of [cc-skills](../../README.md).

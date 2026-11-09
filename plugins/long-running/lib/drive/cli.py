@@ -37,14 +37,14 @@ def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, session, os.getcwd(), args.channel)
+    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel)
     with state.edit_or_create(args.name, fresh) as data:
-        data["driver"] = fresh["driver"]
+        data["roles"][args.role] = fresh["roles"][args.role]
         if args.channel:
             data["slack"]["channel"] = args.channel
         watch = data["slack"].setdefault("watch", [])
         watch.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watch)
-    return emit(args, render.context(data), data)
+    return emit(args, render.context(data, args.role), data)
 
 
 def order_add(args: argparse.Namespace) -> int:
@@ -300,6 +300,8 @@ def heard(args: argparse.Namespace) -> int:
                 last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
                 if watch.changed_since(order, data["jobs"], last):
                     news.append(key)
+    if news:
+        state.append_event(name, "catch-up", thread=args.thread, orders=" ".join(news))
     line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
     return emit(args, line, {"away": args.away, "back": back, "since": since, "catch_up": news})
 
@@ -324,7 +326,12 @@ def status(args: argparse.Namespace) -> int:
 
 
 def context(args: argparse.Namespace) -> int:
-    print(render.context(state.load(state.resolve(args.drive))))
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    role = args.role or state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if role is None:
+        raise DriveError(f"this session holds no role in drive {name}; pass --role")
+    print(render.context(data, role))
     return 0
 
 
@@ -377,8 +384,11 @@ def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     verbs = root.add_subparsers(dest="verb", required=True)
 
-    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or rebind it to this session")
+    verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
     verb.add_argument("name")
+    verb.add_argument(
+        "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs orders and jobs"
+    )
     verb.add_argument("--channel", help="his DM channel id")
     verb.add_argument(
         "--watch", action="append", default=[], metavar="CHANNEL", help="another channel to hold, kept across restarts"
@@ -453,12 +463,17 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_tapped)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
-    verb = verbs.add_parser("heard", parents=both, help="he wrote: record it, and list the orders his catch-up covers")
+    verb = verbs.add_parser(
+        "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up covers"
+    )
+    verb.add_argument("--thread", required=True, help="the thread his message is in, where his catch-up goes")
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.set_defaults(run=heard)
 
     verbs.add_parser("status", parents=both).set_defaults(run=status)
-    verbs.add_parser("context", parents=[drive_opt]).set_defaults(run=context)
+    verb = verbs.add_parser("context", parents=[drive_opt])
+    verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
+    verb.set_defaults(run=context)
     verbs.add_parser("rollup", parents=[drive_opt]).set_defaults(run=rollup)
     verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
     verbs.add_parser("card").set_defaults(run=card_command)

@@ -56,20 +56,28 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
     return capsys.readouterr().out
 
 
-def test_session_start_gives_the_driver_its_context(demo: str, run: Run) -> None:
+def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "ship the fix")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "resume"})
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
-    assert "You are the driver of drive demo." in context
+    assert context.startswith("You are the coordinator of drive demo: ")
     assert "ship the fix" in context
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("You are the communicator of drive demo: you talk to him.")
 
 
-def test_session_start_names_every_channel_the_driver_holds(run: Run) -> None:
-    run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
     context = output["hookSpecificOutput"]["additionalContext"]
-    assert "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G" in context
+    assert "Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G" in context
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    context = session_start.respond({"session_id": "talker"})["hookSpecificOutput"]["additionalContext"]
+    assert "Hold with slack_watch: his DM D123" in context
 
 
 def test_session_start_prints_nothing_for_another_session(
@@ -285,18 +293,18 @@ def test_guard_looks_up_a_merge_naming_no_pr_or_repo_in_the_checkout(
 
 def started_at(name: str, moment: str) -> None:
     with state.edit(name) as data:
-        data["driver"]["started"] = moment
+        data["roles"]["coordinator"]["started"] = moment
 
 
 def test_guard_judges_a_shared_pr_by_the_newest_drive_that_knows_it(
     drive_pr: str, run: Run, no_calls: list[list[str]]
 ) -> None:
     approve(drive_pr)
-    run("start", "later")
+    run("start", "later", "--role", "coordinator")
     run("order", "add", "land it again", "--drive", "later")
     run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", "later")
     run("pr", "add", PR, "--job", "j1", "--tap", "--drive", "later")
-    run("start", "unrelated")
+    run("start", "unrelated", "--role", "coordinator")
     started_at("demo", "2026-11-09T08:00:00-05:00")
     started_at("later", "2026-11-09T09:00:00-05:00")
     started_at("unrelated", "2026-11-09T12:00:00-05:00")

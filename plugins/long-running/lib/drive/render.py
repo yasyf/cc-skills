@@ -1,17 +1,42 @@
 from datetime import datetime
 
-from drive.state import now, open_orders, parse_time, pr_key, pr_url
+from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
 
-DRIVER_RULES = (
-    "One job per deliverable: every change or question goes to one background job that owns it end to end.",
-    "Never block: every order goes to a job, past-due ones too; your own calls are reads of drive, cci and one gh call.",
+COMMUNICATOR_RULES = (
+    (
+        "Ack at once: each message of his gets slack_pickup, then a one-line ack in its thread, then drive heard,"
+        " before anything else."
+    ),
+    (
+        "Hand the work over: his words go to the coordinator as cci post --kind owner --to root@<drive>, verbatim"
+        " with their link; his answer to a question card as --kind answer."
+    ),
+    (
+        "Never work, never wait: your calls are Slack, cci posts, drive heard, drive status, drive rollup and"
+        " cc-slack check-post, and each turn ends in seconds."
+    ),
+    (
+        "Post what the coordinator sends: a report as a line in its thread, a ready as a PR card, an ask as a"
+        " question card, each by reference/messages.md."
+    ),
+    "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
+)
+COORDINATOR_RULES = (
+    "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
+    "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
+    "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
-    "Every message by messages.md: each line, question card and PR card follows reference/messages.md.",
-    "A promise is --due: a time you promise him is recorded with drive order set <id> --due.",
-    "Ack, then batch: ack each message of his at once and run drive heard; any other line is a summary at most every"
-    " 30 minutes; while he is away only cards post, and drive heard's CATCH-UP is one post when he writes.",
+    "A promise is --due: a time he is promised is recorded with drive order set <id> --due.",
+    "Batch: job results and events feed the next TICK's report; while he is away only cards and incident lines go.",
 )
+RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}
+SUBSCRIBE = {
+    "communicator": "cci subscribe --reader communicator --cursor communicator",
+    "coordinator": "cci subscribe --reader root --cursor coordinator",
+}
+OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
+JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
 ROLLUP_FACTS = 10
 
@@ -64,10 +89,25 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
 
 
-def watch_line(drive: dict) -> str:
+def held_channels(drive: dict, role: str) -> list[str]:
     slack = drive["slack"]
-    channels = [f"his DM {slack['channel']}" if slack["channel"] else "no DM set", *slack.get("watch", [])]
-    return f"Hold with slack_watch: {', '.join(channels)}"
+    if role == "communicator":
+        return [f"his DM {slack['channel']}" if slack["channel"] else "no DM set"]
+    return slack.get("watch", [])
+
+
+def hold_line(drive: dict, role: str) -> str:
+    channels = held_channels(drive, role)
+    return f"Hold with slack_watch: {', '.join(channels)}" if channels else "Hold no Slack channel."
+
+
+def who(drive: dict, role: str) -> str:
+    held = drive["roles"].get(role)
+    return f"session {held['session']}" if held else "not started"
+
+
+def role_line(drive: dict, role: str) -> str:
+    return f"{role}: {who(drive, role)}; {hold_line(drive, role)}"
 
 
 def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
@@ -79,17 +119,27 @@ def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str
     return lines
 
 
-def context(drive: dict) -> str:
-    """The SessionStart block that tells a driver session its drive, open orders and rules."""
+def context(drive: dict, role: str) -> str:
+    """The SessionStart block that tells a session its role in the drive, the drive's open orders and its rules."""
     orders = open_orders(drive)
-    lines = [f"You are the driver of drive {drive['name']}.", watch_line(drive), "", f"Open orders ({len(orders)}):"]
+    lines = [
+        f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}.",
+        hold_line(drive, role),
+        f"Subscribe: cci drive use {drive['name']}, then {SUBSCRIBE[role]}",
+        "",
+        f"Open orders ({len(orders)}):",
+    ]
     for order_id, order in orders.items():
-        lines.extend(order_block(drive, order_id, order, 120))
+        if role == "coordinator":
+            lines.extend(order_block(drive, order_id, order, 120))
+        else:
+            lines.append(f"- {order_line(order_id, order, 120)}")
     if not orders:
         lines.append("- none")
-    lines += ["", "Driver rules:"]
-    lines.extend(f"{number}. {rule}" for number, rule in enumerate(DRIVER_RULES, 1))
-    lines += ["", MONITOR_LINE]
+    lines += ["", f"{role.capitalize()} rules:"]
+    lines.extend(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1))
+    if role == "coordinator":
+        lines += ["", MONITOR_LINE]
     return "\n".join(lines)
 
 
@@ -99,6 +149,7 @@ def status_data(drive: dict, pr_fields: str) -> dict:
     return {
         "name": drive["name"],
         "pr_fields": pr_fields,
+        "roles": drive["roles"],
         "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
@@ -110,7 +161,7 @@ def status_text(drive: dict, pr_fields: str) -> str:
     orders = open_orders(drive)
     lines = [
         f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}",
-        watch_line(drive),
+        *(role_line(drive, role) for role in ROLES),
     ]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))

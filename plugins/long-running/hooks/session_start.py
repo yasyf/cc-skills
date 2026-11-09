@@ -7,14 +7,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import render, state
 
 
-def driver_context(session: str) -> str | None:
+def role_context(session: str) -> str | None:
     bound = state.session_drives(session)
-    return render.context(state.load(bound[0])) if bound else None
+    if not bound:
+        return None
+    data = state.load(bound[0])
+    return render.context(data, state.session_role(data, session))
 
 
 def respond(payload: dict) -> dict | None:
     session = payload.get("session_id")
-    text = driver_context(session) if session else None
+    text = role_context(session) if session else None
     if text is None:
         return None
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}

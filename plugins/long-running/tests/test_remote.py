@@ -134,7 +134,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
         ("reply", "--id", "msg_q1", "--body", "TAP Approve"),
-        ("send", "--to", f"dispatch:{DISPATCH}", "--subject", "From the driver", "--body", "PR checks failed"),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--subject", "From the coordinator", "--body", "PR checks failed"),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
