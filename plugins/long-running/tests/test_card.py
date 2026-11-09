@@ -212,6 +212,13 @@ def test_drawn_pictures_ride_the_card_and_the_show_me_keeps_one_caption() -> Non
     assert drawn["prs"][0]["show_me"] == "The card after his tap."
 
 
+def test_closing_git_trailers_never_reach_the_card() -> None:
+    body = FIX_BODY + "\n## Show me\n\n![shot](https://example.com/shot.png)\n\nRelease-With: api dashboard\r\nCo-authored-by: A <a@b.c>\n"
+    first = card.render(pr_json(body=body), entry())["prs"][0]
+    assert first["show_me"] == ""
+    assert "Release-With" not in first["description"]
+
+
 def test_a_show_me_without_a_picture_shows_its_code_block() -> None:
     body = "## Show me\nThe new call and its answer.\n\n```sand\nrun_journal(run)\n# => 12 steps\n```\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
@@ -336,10 +343,39 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
             ]
         }
     )
-    assert reply == {"cards": [{"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())}]}
+    assert reply == {
+        "cards": [{"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())}],
+        "skipped": [{"repo": "yasyf/cc-skills", "number": 42, "reason": "drive card could not read it from GitHub"}],
+    }
     assert asked[0] == ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS]
     assert len(asked) == 2
-    assert "yasyf/cc-skills#42" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "yasyf/cc-skills#42" in err
+    assert "Forge-AI/monorepo#99 is in no drive" in err
+
+
+def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    reply = ask({"prs": [{"repo": "forge-ai/monorepo", "number": 42}]})
+    assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
+
+
+def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = FIX_BODY.split("## What you'll hate most")[0]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {URL}"
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
+        "cards": [],
+        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
+    }
+    assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
+
+
+def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = FIX_BODY.split("## What you'll hate most")[0]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body, pr_state="MERGED")))
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["status"] == "done"
 
 
 def test_numbers_lists_every_drive_pr_with_that_number(drive: str) -> None:
@@ -388,6 +424,12 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
         "number": 42,
         "label": "Approve",
     }
+
+
+def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
+    answer = {"repo": "forge-ai/monorepo", "number": 42, "waits": "", "label": "Hold", "action_ts": "", "source": "s"}
+    assert ask({"answer": answer}) == {"ok": True}
+    assert state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]["label"] == "Hold"
 
 
 def test_answer_on_a_merged_pr_stores_nothing(drive: str) -> None:

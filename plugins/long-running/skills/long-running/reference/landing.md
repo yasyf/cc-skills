@@ -18,7 +18,9 @@ itself.
   - `## What changes for you`: what a user sees change, in one short paragraph.
   - `## ELI5`: the change explained to someone who has never seen the code. It leads his card.
   - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
-    plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take.
+    plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take. A PR that
+    waits on his tap draws no card without it: `drive card` refuses the card and the coordinator
+    hears `EVENT refused`.
   - `## Show me`: one picture of the change. For a mechanism, a before-and-after diagram as a fenced
     `arch` block (arch/v1 JSON) or `dot` block, which his card draws as an image; for a UI change, a
     screenshot or gif linked as a markdown image; for a new function, the real Sand call and its result

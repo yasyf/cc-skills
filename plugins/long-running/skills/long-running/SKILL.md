@@ -88,20 +88,20 @@ message, and none of them waits on work.
 | A message from him | First `slack_pickup` on it, then a one-line ack in the thread he wrote in, restating what he asked and what happens next. No call comes before the ack. Then, together, `drive heard --thread <his thread>`, with `--away` when he says he is going to sleep or stepping away, and the row below for what he wrote. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. |
 | An order, a ruling, an alert, or a question one read cannot answer | An `owner` record. |
 | A question one `drive status` read answers | Answer it in his thread from that read. |
-| His words in a question card's thread (the message's `thread_card` names the card) | `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<his words>, other=true, via=<his message's permalink>)`, which collapses the card to his answer as if he had tapped, and an `answer` record, its job and seq read from the `waits` id. |
+| His words in a question card's thread (the message's `thread_card` names the card) | `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<his words>, other=true, via=<his message's permalink>)`, which collapses the card to his answer as if he had tapped, and an `answer` record with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record. |
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack, run `drive heard --thread <his thread>`, and nothing else. |
-| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label`, its job and seq read from the `id`; a card from before the split has neither, so its `id` goes in the text. The card already shows his pick. |
+| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. |
 | Explain more on a question card | Reply under it with `slack_dm_status` text and `about` set to its id, in two or three sentences from the `ask` record that made it. When that record does not answer it, an `owner` record with his question. |
 | A tap on a PR card | Nothing: the coordinator hears it as a `TAP` event. |
-| A `report` | Write the message it carries by [reference/messages.md](reference/messages.md), run `cc-slack check-post` on it, and post it in its thread, at his DM root when it names none, or in an alert's thread in that channel. Then redraw his status card: `drive rollup`'s card, posted with `slack_dm_status(card=…, root_only=true)`. |
-| A `ready` | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`. cc-slack draws one card at his DM root for the stack the URLs form, from the PRs themselves, and the line links it. His Approve on it lands exactly those PRs, bottom first. |
+| A `report` | Write the message it carries by [reference/messages.md](reference/messages.md), run `cc-slack check-post` on it, and post it in its thread, at his DM root when it names none, or in an alert's thread in that channel. Post no status card after it: `drive watch` redraws his status as the canvas tab in his DM. |
+| A `ready` | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`. cc-slack draws one card at his DM root for the stack the URLs form, from the PRs themselves, and the line links it. His Approve on it lands exactly those PRs, bottom first. When the call fails, its line already went out, so never post it again: the error names each PR with no card and why. A card `drive card` refused reaches the coordinator as `EVENT refused`; any other reason is a `defect` record. |
 | An `ask` | A question card at his DM root by [reference/messages.md](reference/messages.md), with its `waits` id, `recommended` and `drive` set, then a line in its thread linking the card. |
 | A tool defect you hit | A `defect` record, and the post moves to a route that works meanwhile. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. |
 
 `drive heard` prints `CATCH-UP` when he is back after being away; the coordinator hears it as an
 event and sends his catch-up as a `report`. Your own calls are the Slack tools, cci posts,
-`drive heard`, `drive status`, `drive rollup` and `cc-slack check-post`. A thread read, a transcript,
+`drive heard`, `drive status`, `drive view` and `cc-slack check-post`. A thread read, a transcript,
 a search, or anything past one `drive status` read goes to the coordinator as an `owner` record.
 
 ## The coordinator

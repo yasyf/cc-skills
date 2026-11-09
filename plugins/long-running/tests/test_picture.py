@@ -46,3 +46,11 @@ def test_a_local_image_is_used_where_it_is_and_a_missing_one_is_skipped(tmp_path
     shot.write_bytes(b"\x89PNG\r\n")
     show_me = f"![shot]({shot})\n![gone](/nowhere/gone.png)\n"
     assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) == [str(shot)]
+
+
+def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    shot = tmp_path / "shots" / "s106.png"
+    shot.parent.mkdir()
+    shot.write_bytes(b"\x89PNG\r\n")
+    assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]

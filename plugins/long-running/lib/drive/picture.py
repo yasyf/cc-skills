@@ -131,8 +131,8 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
     drawn = []
     for index, (kind, source) in enumerate(sources(show_me), start=1):
         if kind == "image" and not source.startswith(("http://", "https://")):
-            if Path(source).is_absolute() and Path(source).is_file():
-                drawn.append(source)
+            if (local := Path(source).expanduser()).is_absolute() and local.is_file():
+                drawn.append(str(local))
             else:
                 print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
             continue
