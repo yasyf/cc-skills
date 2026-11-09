@@ -159,7 +159,7 @@ func scopedOut(lane string, incidents []client.Record) bool {
 	family := func(name string) bool { return name == lane || strings.HasPrefix(name, lane+"-") }
 	said := ""
 	for _, record := range incidents {
-		if !family(record.Lane) && (record.Lane != rootLane || !slices.ContainsFunc(record.To, family)) {
+		if !family(record.Lane) && (client.Stem(record.Lane) != rootLane || !slices.ContainsFunc(record.To, family)) {
 			continue
 		}
 		if found := activeSays.FindStringSubmatch(record.Text); found != nil {
@@ -234,7 +234,7 @@ func endedLanes(records []client.Record) map[string]int64 {
 }
 
 func closesIncident(record client.Record) bool {
-	return record.Lane == rootLane && incidentClose.MatchString(record.Text)
+	return client.Stem(record.Lane) == rootLane && incidentClose.MatchString(record.Text)
 }
 
 func openIncident(f machine.Facts, incidents []client.Record, ended map[string]int64) *client.Record {

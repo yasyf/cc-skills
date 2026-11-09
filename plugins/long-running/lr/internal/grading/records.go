@@ -504,7 +504,7 @@ func settleByRebuttals(ctx context.Context, drive, repo, pr, pull string, oldest
 	}
 	rulings := make(map[int64]bool, len(found))
 	for _, r := range found {
-		if r.Kind == kindDecide && r.Lane == rootLane && aboutPR(r, repo, pr) {
+		if r.Kind == kindDecide && client.Stem(r.Lane) == rootLane && aboutPR(r, repo, pr) {
 			rulings[r.Seq] = true
 		}
 	}

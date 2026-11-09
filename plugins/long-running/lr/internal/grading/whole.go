@@ -70,7 +70,7 @@ func requested(r client.Record, repo string) []string {
 	}
 	switch string(r.Kind) {
 	case kindDecide, kindDefect:
-		if r.Lane != rootLane {
+		if client.Stem(r.Lane) != rootLane {
 			return nil
 		}
 		var prs []string

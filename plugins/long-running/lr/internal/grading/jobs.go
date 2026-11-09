@@ -575,7 +575,7 @@ func (p *JobPool) fidelitySources(ctx context.Context, spec Spec, lane string, l
 		return "", nil, err
 	}
 	for _, r := range records {
-		if slices.Contains(cited, r.Seq) && (r.Lane != rootLane || (r.Kind != kindDefect && r.Kind != kindDecide && r.Kind != kindAnswer)) {
+		if slices.Contains(cited, r.Seq) && (client.Stem(r.Lane) != rootLane || (r.Kind != kindDefect && r.Kind != kindDecide && r.Kind != kindAnswer)) {
 			continue
 		}
 		sections = append(sections, fmt.Sprintf("## cci %s, %s from %s\n\n%s", r.Name(), r.Kind, r.Lane, bus.FullText(r)))

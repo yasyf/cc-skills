@@ -1183,7 +1183,7 @@ func (n *LandedNotLive) withheld(ctx context.Context, now time.Time) (map[string
 	withheld := map[string]bool{}
 	for _, open := range records {
 		hold := recordOf(open)
-		if hold.Lane != Root {
+		if Stem(hold.Lane) != Root {
 			continue
 		}
 		if until := hold.Attr("until"); until != "" {

@@ -50,7 +50,7 @@ func (c *ClassUnowned) Check(ctx context.Context, now time.Time) error {
 		}
 	}
 	for _, record := range records {
-		if record.Lane == Root || closed[record.Seq] || (string(record.Kind) != "incident" && !classLine.MatchString(record.Text)) {
+		if Stem(record.Lane) == Root || closed[record.Seq] || (string(record.Kind) != "incident" && !classLine.MatchString(record.Text)) {
 			continue
 		}
 		keys := classKeys(record)
@@ -85,7 +85,7 @@ func fixOrdered(records []client.Record, class client.Record, keys []string) boo
 			lane, _, _ := strings.Cut(spawned, " ")
 			return fixLaneOf(lane, keys)
 		}
-		return (record.Lane == Root || record.Lane == Self) && record.Seq > class.Seq && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
+		return (Stem(record.Lane) == Root || record.Lane == Self) && record.Seq > class.Seq && slices.Contains(orderKinds, string(record.Kind)) && fixOrder.MatchString(record.Text) &&
 			slices.ContainsFunc(incidentKeys(record.Topic, record.Text), func(key string) bool { return slices.Contains(keys, key) })
 	})
 }
