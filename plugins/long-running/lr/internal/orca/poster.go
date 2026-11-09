@@ -241,9 +241,16 @@ func (p Poster) Launch(ctx context.Context, order Order, timeout time.Duration) 
 	for _, warning := range warnings {
 		fmt.Fprintln(p.Out, "WARN "+warning)
 	}
-	stored, err := p.post(ctx, bus, order.Lane, order.Line(), or(order.ID, incident.LaunchAttempt(order.Lane, p.Now())), order.Brief)
+	began, attempt := p.Now(), or(order.ID, incident.LaunchAttempt(order.Lane, p.Now()))
+	stored, err := p.post(ctx, bus, order.Lane, order.Line(), attempt, order.Brief)
 	if err != nil {
 		return "", err
+	}
+	if stored.At.Before(began.Add(-time.Minute)) {
+		fmt.Fprintf(p.Out, "the key %s already named %s from %s, so cci returned that line instead of posting; reposting under a fresh key\n", attempt, stored.Name(), stored.At.Format(time.RFC3339))
+		if stored, err = p.post(ctx, bus, order.Lane, order.Line(), fmt.Sprintf("%s:%d", attempt, began.UnixNano()), order.Brief); err != nil {
+			return "", err
+		}
 	}
 	key := "R" + strings.TrimPrefix(stored.Name(), "#")
 	label, stage, err := p.settle(ctx, bus, stored, key, order.Lane, timeout)

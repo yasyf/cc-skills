@@ -51,7 +51,7 @@ func (b *runnerBus) Post(_ context.Context, d client.Draft) (client.Record, erro
 		return earlier, nil
 	}
 	seq := b.records[len(b.records)-1].Seq + 1
-	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Text: d.Text}
+	record := client.Record{Seq: seq, Num: fmt.Sprintf("#%d%s", seq, b.node), Lane: d.Lane, Text: d.Text, At: time.Now()}
 	b.records = append(b.records, record)
 	if b.stored != nil {
 		b.stored[d.Text+"\x00"+d.ID] = record
@@ -259,6 +259,23 @@ func TestARelaunchUnderAFailedNameWithinTheBusDedupWindowPostsItsOwnLineAndReads
 	}
 	if !strings.Contains(f.out.String(), "posted cci #104: ") {
 		t.Fatalf("the relaunch posted no line of its own:\n%s", f.out)
+	}
+}
+
+func TestALaunchWhoseKeyNamesAnOldLineRepostsUnderAFreshKey(t *testing.T) {
+	f := newPosterFixture(t)
+	brief := f.brief(t, "brief-of-a.md", "work\n"+briefLines)
+	order := Order{Lane: "new-lane", Model: "opus", Effort: "high", Brief: brief, Now: true, ID: "supervisor-launch:new-lane"}
+	f.bus.stored = map[string]client.Record{"orca-desk: launch new-lane NOW opus high brief=" + brief + "\x00" + order.ID: {Seq: 50, Num: "#50", At: time.Now().Add(-24 * time.Hour)}}
+	f.bus.verdicts["R102"] = "LAUNCHED R102 %[1]s: dispatch ctx_l terminal term_l"
+
+	launched, err := f.poster.Launch(context.Background(), order, time.Minute)
+
+	if err != nil || launched != verdictLaunched {
+		t.Fatalf("%q, %v:\n%s", launched, err, f.out)
+	}
+	if !strings.Contains(f.out.String(), "the key supervisor-launch:new-lane already named #50 from ") || !strings.HasPrefix(f.bus.posts[len(f.bus.posts)-1].ID, order.ID+":") {
+		t.Fatalf("no fresh key:\n%s", f.out)
 	}
 }
 

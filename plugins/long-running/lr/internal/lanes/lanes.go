@@ -33,6 +33,7 @@ const (
 	mainLane        = "main"
 	CursorName      = "lanes"
 	launchKey       = "supervisor-launch:"
+	launchTry       = "launch-retried:"
 	SpriteLimit     = "Maximum concurrent sprites limit"
 	spriteCapacity  = "sprite-capacity"
 	launchFailed    = "LAUNCH-FAILED: "

@@ -51,6 +51,7 @@ type Deps struct {
 	Transcript            func(Row) string
 	Post                  func(Post) error
 	Launch                func(name, model, effort, brief, key string) error
+	Start                 func(name, model, effort, brief string) error
 	Withdraw              func(name string) error
 	Wake                  func(name string, row Row, page map[string]any) (bool, error)
 	PRStates              func(prs []int) (map[int]string, error)
@@ -338,14 +339,16 @@ func act(s *store.Store, d Deps, lane store.Lane, found map[string]Peer, proven 
 	switch verdict.Kind {
 	case CameUp:
 		do(s.SetLaneState(lane.Name, store.LaneDesired, now, "", ""))
+		do(s.Unprobe(launchTry + lane.Name))
+		if coordinates(lane.Name) && lane.Reason != "" {
+			do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: lane.Name, Text: fmt.Sprintf("RELAUNCHED the coordinator: %s is live in cci who; it was relaunched because it %s", lane.Name, lane.Reason)}))
+		}
 	case NoShow:
 		if lane.Placement == placedOnSprite {
 			lost(s, d, lane, found, Verdict{Lost, fmt.Sprintf("has posted no record and is not live %d minutes after its launch", int(launchWindow.Minutes()))}, taken, now, out)
 			return
 		}
-		hold(s, lane.Name, verdict.Why, now)
-		escalate(s, d, "lane:"+lane.Name, fmt.Sprintf("%s; brief %s", verdict.Why, filepath.Join(d.Briefs, lane.Name+".brief.md")), now)
-		out.Held = append(out.Held, lane.Name)
+		retryLaunch(s, d, lane, verdict.Why, now, out)
 	case Unproven:
 		proof, settled := proven[lane.Name]
 		if proof.Kind == Lost {
@@ -670,16 +673,14 @@ func relaunchCoordinator(s *store.Store, d Deps, old store.Lane, found map[strin
 		transcript = d.Transcript(peer.Row)
 	}
 	do(os.WriteFile(path, []byte(must(coordinatorBrief(old, why, d, transcript))), 0o600))
+	must(s.ReleaseWorker(Root))
+	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
 	if err := launchOrRetry(d, Root, old.Model, old.Effort, path, fmt.Sprintf("%s%s:%d", launchKey, Root, now.Unix())); err != nil {
-		hold(s, Root, why, now)
-		escalate(s, d, "lane:"+Root, fmt.Sprintf("held, not relaunched: its launch was refused twice, last with %s; it %s; brief %s", err, why, path), now)
-		out.Held = append(out.Held, Root)
+		startDirectly(s, d, store.Lane{Name: Root, Model: old.Model, Effort: old.Effort}, path, fmt.Sprintf("the orca runner refused its relaunch twice, last with %s", err), why, now, out)
 		return
 	}
 	do(s.SetLaneState(Root, store.LaneLaunching, now, "", why))
-	must(s.ReleaseWorker(Root))
-	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("RELAUNCHED the coordinator: it %s; handoff %s; brief %s", why, or(old.Handoff, "none, the new session writes it"), path)}))
-	out.Relaunched = append(out.Relaunched, Relaunch{Root, Root, why})
+	do(d.Post(Post{Kind: "report", To: []string{d.coordinatorReportsTo()}, LaneRef: Root, Text: fmt.Sprintf("RELAUNCH ORDERED for the coordinator: it %s; it counts as relaunched once cci who shows it live; handoff %s; brief %s", why, or(old.Handoff, "none, the new session writes it"), path)}))
 }
 
 func handoffStart(old store.Lane, d Deps, transcript string) string {
@@ -934,6 +935,41 @@ func launchOrRetry(d Deps, name, model, effort, brief, key string) error {
 		return nil
 	}
 	return d.Launch(name, model, effort, brief, key)
+}
+
+func retryLaunch(s *store.Store, d Deps, lane store.Lane, why string, now time.Time, out *Outcome) {
+	brief := filepath.Join(d.Briefs, lane.Name+".brief.md")
+	if !briefExists(brief) {
+		brief = lane.Brief
+	}
+	reason := or(lane.Reason, why)
+	if _, retried := must(s.Probes())[launchTry+lane.Name]; !retried {
+		do(s.Probe(launchTry+lane.Name, now))
+		err := d.Launch(lane.Name, lane.Model, lane.Effort, brief, fmt.Sprintf("%s%s:try:%d", launchKey, lane.Name, now.Unix()))
+		if err == nil {
+			do(s.SetLaneState(lane.Name, store.LaneLaunching, now, "", reason))
+			return
+		}
+		startDirectly(s, d, lane, brief, fmt.Sprintf("it was %s, and its second launch through the orca runner was refused with %s", why, err), reason, now, out)
+		return
+	}
+	startDirectly(s, d, lane, brief, fmt.Sprintf("twice it was %s through the orca runner", why), reason, now, out)
+}
+
+func startDirectly(s *store.Store, d Deps, lane store.Lane, brief, mechanism, reason string, now time.Time, out *Outcome) {
+	do(s.Unprobe(launchTry + lane.Name))
+	to := owningDesk(s, d, lane.Name)
+	if coordinates(lane.Name) {
+		to = d.coordinatorReportsTo()
+	}
+	if err := d.Start(lane.Name, lane.Model, lane.Effort, brief); err != nil {
+		hold(s, lane.Name, mechanism, now)
+		out.Held = append(out.Held, lane.Name)
+		do(d.Post(Post{Kind: "blocker", To: []string{to}, LaneRef: lane.Name, Text: fmt.Sprintf("%s did not start: %s, so the supervisor started it directly with `lr launch start`, which failed with %s; brief %s", lane.Name, mechanism, err, brief)}))
+		return
+	}
+	do(s.SetLaneState(lane.Name, store.LaneLaunching, now, "", reason))
+	do(d.Post(Post{Kind: "report", To: []string{to}, LaneRef: lane.Name, Text: fmt.Sprintf("%s did not start: %s, so the supervisor started it directly with `lr launch start`; it counts as started once cci who shows it live; brief %s", lane.Name, mechanism, brief)}))
 }
 
 func refusedRelaunch(s *store.Store, d Deps, refused refusal, now time.Time, out *Outcome) {
