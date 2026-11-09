@@ -969,8 +969,8 @@ func TestARowWaitingOnHisTapWithNoCardAtItsHeadBlocksItsLaneAndOwnerRelayOnce(t 
 	readyPass(t, f)
 
 	got := uncardedBlockers(t)
-	if len(got) != 1 || !slices.Equal(got[0].To, []string{"lane-52666", communicator}) || !strings.HasPrefix(got[0].Text, "UNCARDED #52666 at fa8217f") {
-		t.Fatalf("blockers = %+v, want one to lane-52666 and owner-relay naming #52666 and none for the carded row", got)
+	if len(got) != 1 || !slices.Equal(got[0].To, []string{"lane-52666", boardDesk}) || !strings.HasPrefix(got[0].Text, "UNCARDED #52666 at fa8217f") {
+		t.Fatalf("blockers = %+v, want one to lane-52666 and board-refresher naming #52666 and none for the carded row", got)
 	}
 }
 

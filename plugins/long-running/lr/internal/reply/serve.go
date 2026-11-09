@@ -189,10 +189,14 @@ func Tool(a *app.App) channel.Tool {
 			if err := r.unreadAsk(); err != nil {
 				return "reply: " + err.Error(), true
 			}
-			if err := r.strayMarkup(); err != nil {
+			warning, err = fanout.askedAlready(ctx, r)
+			if err != nil {
 				return "reply: " + err.Error(), true
 			}
-			if r, err = fanout.pictured(ctx, r); err != nil {
+			if warning != "" {
+				warned = append(warned, warning)
+			}
+			if err := r.strayMarkup(); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			if warning := fanout.tapWarning(r); warning != "" {
@@ -206,6 +210,9 @@ func Tool(a *app.App) channel.Tool {
 				warned = append(warned, warning)
 			}
 			if r, err = fanout.withPRCards(ctx, r); err != nil {
+				return "reply: " + err.Error(), true
+			}
+			if r, err = fanout.pictured(ctx, r); err != nil {
 				return "reply: " + err.Error(), true
 			}
 			r, warning = r.untiedApprovals()

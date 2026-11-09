@@ -1088,7 +1088,7 @@ func TestAReplyNamingAPortOpensWithItsSource(t *testing.T) {
 	}
 }
 
-var carded = store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.", WaitsOn: "Your tap", Title: "Relay fix"}
+var carded = store.ReviewRow{ReadyForTap: true, ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)", WaitsOn: "Your tap", Title: "Relay fix"}
 
 func TestAPRCardMissingALineRefusesTheReplyAndNamesItsLane(t *testing.T) {
 	for name, r := range map[string]Reply{
@@ -1138,7 +1138,7 @@ func TestAReplyListingAPRHeldOrClosedOutsideHisTapIsRefusedUnlessItSaysItIsNotLa
 
 func TestAPRCardMissingItsLedgerFieldsTakesThemFromItsPRBody(t *testing.T) {
 	fake := scripted()
-	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\nPlan: step 3.\n\n## Context\n\nA dropped network left chats offline.\n\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.\n"}`, "gh", "pr", "view")
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\nPlan: step 3.\n\n## Context\n\nA dropped network left chats offline.\n\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)\n"}`, "gh", "pr", "view")
 	f := fanout(t, fake)
 	ledgerRow(t, f, store.ReviewRow{ReadyForTap: true, WaitsOn: "Your tap"})
 	r, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
@@ -1151,7 +1151,7 @@ func TestAPRCardWhoseLedgerRowPredatesItsShowMeReadsTheSectionFromItsPRBody(t *t
 	stale := carded
 	stale.Description = "## Context\n\nChats reconnected late after a network drop."
 	fake := scripted()
-	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.\n"}`, "gh", "pr", "view")
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats reconnect on their own after a network drop.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)\n"}`, "gh", "pr", "view")
 	f := fanout(t, fake)
 	ledgerRow(t, f, stale)
 	r, err := f.withPRCards(context.Background(), Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}})
@@ -1176,14 +1176,14 @@ func TestAPRCardWhosePlanLineIsAMechanismSentenceIsRefusedUntilItsBodyNamesAPlan
 	mechanism.PlanLine, mechanism.PlanRow, mechanism.Lane = "Plan: the gate reads the body.", "Plan: the gate reads the body.", "relay-1"
 	r := Reply{ID: "r1", Title: "Land the relay fix?", MD: "Checks passed.", Picks: []string{"Land", "Hold"}, Recommended: "Land", PRs: []string{landPR}}
 	fake := scripted()
-	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: the gate reads the body.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.\n"}`, "gh", "pr", "view")
+	fake.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: the gate reads the body.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)\n"}`, "gh", "pr", "view")
 	f := fanout(t, fake)
 	ledgerRow(t, f, mechanism)
 	if _, err := f.withPRCards(context.Background(), r); err == nil || !strings.Contains(err.Error(), "lacks the plan row") || !strings.Contains(err.Error(), prrow.PlanForms) {
 		t.Fatalf("err = %v, want the card refused naming the accepted plan forms", err)
 	}
 	fixed := scripted()
-	fixed.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: owner:m1793.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.\n"}`, "gh", "pr", "view")
+	fixed.Reply(`{"title":"relay: fix the reconnect","body":"## Summary\n\nChats load.\n\nPlan: owner:m1793.\n\n## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)\n"}`, "gh", "pr", "view")
 	f = fanout(t, fixed)
 	ledgerRow(t, f, mechanism)
 	got, err := f.withPRCards(context.Background(), r)
@@ -1287,7 +1287,7 @@ func TestAnOrderNamesARowOrASubRow(t *testing.T) {
 	}
 }
 
-var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\nBefore: chats stayed offline. After: they reconnect.", State: prrow.StateOpen, Hold: prrow.None, SupersededBy: prrow.None, CI: prrow.CIPending, WaitsOn: "CI is running or not read yet at this head"}
+var inCI = store.ReviewRow{Title: "Relay fix", ForUsers: "Chats load", PlanLine: "Plan: step 3.", PlanRow: "Plan: step 3.", Description: "## Context\n\nChats reconnected late after a network drop.\n\n## Show me\n\n![chats reconnecting](https://example.com/reconnect.png)", State: prrow.StateOpen, Hold: prrow.None, SupersededBy: prrow.None, CI: prrow.CIPending, WaitsOn: "CI is running or not read yet at this head"}
 
 func TestAListedPRDrawsItsApproveInCIAndALinkOnlyWhenItCannotBeApproved(t *testing.T) {
 	r := Reply{ID: "r2", Title: "The relay fix", MD: "m", Status: info, PRs: []string{landPR}}
@@ -2765,5 +2765,20 @@ func TestAPickCardNamesHisNearestRulingsSoAPickHeSettledComesOff(t *testing.T) {
 	}
 	if warning := f.rulingsWarning(context.Background(), Reply{Title: "Landed"}); warning != "" || len(fake.Calls()) != 1 {
 		t.Fatalf("a reply with no picks warned %q and ran %d commands", warning, len(fake.Calls()))
+	}
+}
+
+func TestAPickCardWhoseQuestionAnOpenCardAlreadyAsksIsRefused(t *testing.T) {
+	const open = `{"doc":{"blocks":[{"id":"card-doc-llm-gateway","type":"card","title":"Route every model call through the gateway?","children":[{"id":"c1","type":"choice"}]}]},"interactions":{"choices":{}}}`
+	for title, refused := range map[string]bool{
+		"Route every model call  through the gateway?": true,
+		"Search chats on Turbopuffer?":                 false,
+	} {
+		fake := scripted()
+		fake.Reply(open, "cc-present", "outcomes")
+		_, err := fanout(t, fake).askedAlready(context.Background(), Reply{ID: "r9", Title: title, Picks: []string{"Yes", "No"}})
+		if (err != nil) != refused || refused && !strings.Contains(err.Error(), "card-doc-llm-gateway") {
+			t.Errorf("%q: err = %v, want refused %v naming the open card", title, err, refused)
+		}
 	}
 }

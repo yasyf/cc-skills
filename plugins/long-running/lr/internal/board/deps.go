@@ -21,6 +21,7 @@ import (
 
 const (
 	communicator = "owner-relay"
+	boardDesk    = "board-refresher"
 	premiseKind  = "premise"
 	decidedKind  = "decided"
 	movedTopic   = "cards-moved"

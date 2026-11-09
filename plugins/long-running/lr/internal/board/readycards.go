@@ -210,8 +210,8 @@ func (r ReadyCards) blockUncarded(ctx context.Context, waiting []store.ReviewRow
 		at := row.Head[:min(waitsSHA, len(row.Head))]
 		why := cmp.Or(prrow.WordsWait(row), facts[row.Number][FactTapCard], "no card drew")
 		if _, err := r.Cards.Post(ctx, client.Draft{
-			Drive: r.Cards.Bus, Lane: r.Lane, Kind: "blocker", ID: fmt.Sprintf("uncarded:%s#%d@%s", r.Repo, row.Number, row.Head), To: []string{row.Lane, communicator}, PRs: []string{fmt.Sprintf("%s#%d", r.Repo, row.Number)},
-			Text: fmt.Sprintf("UNCARDED #%d at %s waits on his tap with no card asking at this head (%s), so he has nothing to press. %s: give the PR the title and body its card needs; %s: draw its card at %s now.", row.Number, at, why, row.Lane, communicator, at),
+			Drive: r.Cards.Bus, Lane: r.Lane, Kind: "blocker", ID: fmt.Sprintf("uncarded:%s#%d@%s", r.Repo, row.Number, row.Head), To: []string{row.Lane, boardDesk}, PRs: []string{fmt.Sprintf("%s#%d", r.Repo, row.Number)},
+			Text: fmt.Sprintf("UNCARDED #%d at %s waits on his tap with no card asking at this head (%s), so he has nothing to press. %s: give the PR the title and body its card needs; %s: draw its card at %s now and record its id --to %s.", row.Number, at, why, row.Lane, boardDesk, at, communicator),
 		}); err != nil {
 			return fmt.Errorf("#%d: %w", row.Number, err)
 		}
