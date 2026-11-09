@@ -12,7 +12,6 @@ var (
 		`|(?:^|/)tests?\.\w+$|(?:^|/)test_[^/]*$|_test\.\w+$|\.(?:test|spec|e2e|jest)\.\w+$|(?:^|/)(?:fake|mock)s?_[^/]*$|_(?:fake|mock)s?\.\w+$|(?:^|/)[^/]*test-timings\.json$`)
 	latestDir    = regexp.MustCompile(`[a-z0-9_-]*latest/`)
 	toolingGlobs = regexp.MustCompile(`^(?:\.agents/skills/.*/scripts/.*|\.agents/skills/.*/tests/.*|\.agents/skills/.*\.md|\.config/nextest.*|.*/\.config/nextest.*)$`)
-	devTooling   = regexp.MustCompile(`^(?:go/remote-builder/|tools/remote-builder/|tools/cc-remote/)`)
 	tomlSection  = regexp.MustCompile(`^\s*\[+([^\]]+)\]+\s*$`)
 	jsonSection  = regexp.MustCompile(`^\s*"([^"]+)":\s*\{\s*$`)
 	jsonClose    = regexp.MustCompile(`^\s*\},?\s*$`)
@@ -38,7 +37,6 @@ var (
 		ClassOf(TestOnlyGrade): testOrCIFile,
 		"test-only":            testOrCIFile,
 		"ci-only":              testOrCIFile,
-		"ci-tooling":           func(name string) bool { return testOrCIFile(name) || devTooling.MatchString(name) },
 	}
 )
 

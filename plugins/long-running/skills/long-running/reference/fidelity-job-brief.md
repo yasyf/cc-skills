@@ -136,7 +136,7 @@ Answer in the schema:
 - `exempt`: `port` only when the PR ports an old-tree PR its body names by number, line for
   line, and touches no code or behavior the plan's steps changed or own ("{port}");
   any other class among {classes} only when the head is what its words say; `none` otherwise.
-  A class the changed paths alone decide, such as test-only or ci-tooling, is not yours to
+  A class the changed paths alone decide, such as test-only or ci-only, is not yours to
   name: the pass reads it from the diff's files. The pass records one class on every grade, in
   the field the landing gate reads. That class is the one the paths decide, else the one you
   name, else `none`.

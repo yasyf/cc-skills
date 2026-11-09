@@ -39,9 +39,9 @@ func TestAClassThePathsAloneDecideIsNamedOnlyWhenEveryChangedFileFitsIt(t *testi
 		files []string
 		want  string
 	}{
-		{"#49101 remote-builder", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/exec_test.go", "tools/remote-builder/README.md"}, "class ci-tooling"},
+		{"#49101 remote-builder", []string{"go/remote-builder/AGENTS.md", "go/remote-builder/cli/rb/exec.go", "go/remote-builder/cli/rb/exec_test.go", "tools/remote-builder/README.md"}, ""},
 		{"#49240 cc-remote pin, whose shared pin files hold the pulumi and kubectl pins a release uses", []string{"mise.toml", "tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml", "tools/versions.toml"}, ""},
-		{"cc-remote alone", []string{"tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml"}, "class ci-tooling"},
+		{"cc-remote alone", []string{"tools/cc-remote/agents-payload.json", "tools/cc-remote/config.yaml"}, ""},
 		{"the toolchain pins alone", []string{"tools/versions.toml"}, ""},
 		{"the landing enqueue script", []string{".agents/skills/submit-pr/scripts/stack-enqueue"}, ""},
 		{"the landing check list", []string{".agents/skills/submit-pr/scripts/merge-check.json"}, ""},
