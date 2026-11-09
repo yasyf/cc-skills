@@ -2914,6 +2914,27 @@ func coordinator(t *testing.T, s *store.Store, brief string) *fake {
 	return f
 }
 
+func TestASecondCoordinatorRelaunchCarriesOnePreambleAndOneMergedCcxLine(t *testing.T) {
+	s, brief := memory(t), filepath.Join(t.TempDir(), "root.md")
+	if err := os.WriteFile(brief, []byte("# root\nccx: place=local role=desk incident=none\nwork\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := coordinator(t, s, brief)
+	f.peers = []Row{who(Root, false, t0.Add(-mins(20)))}
+	tick(t, s, f, t0)
+	f.peers = []Row{who(Root, true, t0.Add(mins(3)))}
+	tick(t, s, f, t0.Add(mins(4)))
+	f.peers = []Row{who(Root, false, t0.Add(mins(10)))}
+
+	tick(t, s, f, t0.Add(strikeWindow+mins(40)))
+
+	text := f.briefs[Root]
+	equal(t, strings.Count(text, "Replaces: root\n"), 1)
+	equal(t, strings.Count(text, "ccx:"), 1)
+	contains(t, text, "Replaces: root\nccx: place=local why=mac-state role=desk incident=none\n")
+	contains(t, text, "# root\nwork\n")
+}
+
 func TestARelaunchedCoordinatorCountsAsRelaunchedOnlyOnceCciWhoShowsItLive(t *testing.T) {
 	s := memory(t)
 	f := coordinator(t, s, writeBrief(t))

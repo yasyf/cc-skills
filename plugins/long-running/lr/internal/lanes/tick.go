@@ -691,17 +691,35 @@ func handoffStart(old store.Lane, d Deps, transcript string) string {
 }
 
 func coordinatorBrief(old store.Lane, why string, d Deps, transcript string) (string, error) {
-	body, err := os.ReadFile(old.Brief)
+	raw, err := os.ReadFile(old.Brief)
 	if err != nil {
 		return "", err
 	}
+	body := string(raw)
+	if strings.HasPrefix(body, "Replaces: "+Root+"\n") {
+		_, body, _ = strings.Cut(body, "\n\n")
+	}
+	fields, kept := []string{"place=local", "why=mac-state"}, ""
+	for line := range strings.Lines(body) {
+		words, annotated := strings.CutPrefix(line, "ccx:")
+		if !annotated {
+			kept += line
+			continue
+		}
+		for _, word := range strings.Fields(words) {
+			key, _, _ := strings.Cut(word, "=")
+			if !slices.ContainsFunc(fields, func(field string) bool { return strings.HasPrefix(field, key+"=") }) {
+				fields = append(fields, word)
+			}
+		}
+	}
 	return strings.Join([]string{
 		"Replaces: " + Root,
-		"ccx: place=local why=mac-state",
+		"ccx: " + strings.Join(fields, " "),
 		fmt.Sprintf("You are %s, this drive's coordinator, in a new session. The lane supervisor launched you from your brief because the last coordinator session %s.", Root, why),
 		handoffStart(old, d, transcript),
 		"",
-		string(body),
+		kept,
 	}, "\n"), nil
 }
 
