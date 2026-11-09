@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-from drive import github, render, state
+from drive import github, orca, place, render, state
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -104,6 +104,7 @@ def job_add(args: argparse.Namespace) -> int:
             "kind": args.kind,
             "goal": args.goal,
             "agent": args.agent,
+            "where": "remote" if args.remote else "local",
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
@@ -125,9 +126,85 @@ def job_set(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
+        if args.agent:
+            job["where"] = "local"
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def place_job(args: argparse.Namespace) -> int:
+    jobs = state.load(state.resolve(args.drive))["jobs"].values()
+    local_builders = sum(
+        job["kind"] == "builder" and job["state"] == "running" and job.get("where") != "remote" for job in jobs
+    )
+    share, ceiling = place.busy(), place.limit()
+    where, why = place.verdict(share, ceiling, local_builders)
+    payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": local_builders}
+    return emit(args, f"{where}: {why}", payload)
+
+
+def remote_job(data: dict, job_id: str) -> dict:
+    job = find(data["jobs"], job_id, "job")
+    if job.get("where") != "remote":
+        raise DriveError(f"{job_id} runs on this Mac; resume it with SendMessage")
+    return job
+
+
+def checkout() -> Path:
+    root = Path.cwd()
+    if not (root / ".orca.json").is_file():
+        raise DriveError(f"{root} has no .orca.json; run this from the root of the checkout lanes clone")
+    return root
+
+
+def job_launch(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    if dispatch := remote_job(data, args.id).get("dispatch"):
+        raise DriveError(f"{args.id} already started as dispatch {dispatch}")
+    root = checkout()
+    run = orca.bound_run(data.get("orca_run"), f"drive {name}: remote builders")
+    with state.edit(name) as data:
+        data["orca_run"] = run
+    brief = state.drive_dir(name) / "jobs" / f"{args.id}.md"
+    brief.parent.mkdir(exist_ok=True)
+    brief.write_text(orca.vm_brief(name, args.id, Path(args.brief).read_text()))
+    receipt = orca.launch(orca.lane_name(name, args.id), brief, root, run)
+    started = {field: receipt[field] for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+    with state.edit(name) as data:
+        job = data["jobs"][args.id]
+        job.update(started, brief=str(brief), ask=None, report=None, updated=state.stamp())
+    return emit(args, f"{args.id} started on Sprite {started['workspace']} as dispatch {started['dispatch']}", started)
+
+
+def started_job(data: dict, job_id: str) -> dict:
+    job = remote_job(data, job_id)
+    if not job.get("dispatch"):
+        raise DriveError(f"{job_id} has not started; launch it with: drive job launch {job_id} <brief>")
+    return job
+
+
+def job_resume(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    job = started_job(state.load(name), args.id)
+    how = orca.answer(job, args.text)
+    with state.edit(name) as data:
+        fresh = data["jobs"][args.id]
+        if fresh.get("ask") == job.get("ask"):
+            fresh.update(ask=None, state="running")
+        fresh["updated"] = state.stamp()
+    return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
+
+
+def job_end(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    job = started_job(data, args.id)
+    reclaimed = orca.reclaim(data["orca_run"], job["dispatch"], checkout())
+    with state.edit(name) as data:
+        data["jobs"][args.id].update(state="done", ask=None, updated=state.stamp())
+    return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:
@@ -315,6 +392,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repo")
     verb.add_argument("--branch")
     verb.add_argument("--worktree")
+    verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=both)
     verb.add_argument("id")
@@ -323,6 +401,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said")
     verb.add_argument("--pr", action="append", default=[])
     verb.set_defaults(run=job_set)
+    verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
+    verb.add_argument("id")
+    verb.add_argument("brief", help="the job's brief, the same one a background agent gets")
+    verb.set_defaults(run=job_launch)
+    verb = job.add_parser("resume", parents=both, help="answer a remote lane's question, or send it the next event")
+    verb.add_argument("id")
+    verb.add_argument("text")
+    verb.set_defaults(run=job_resume)
+    verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite")
+    verb.add_argument("id")
+    verb.set_defaults(run=job_end)
 
     pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
     verb = pr.add_parser("add", parents=both)
@@ -344,6 +433,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("url")
     verb.set_defaults(run=pr_tapped)
 
+    verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
     verbs.add_parser("status", parents=both).set_defaults(run=status)
     verbs.add_parser("context", parents=[drive_opt]).set_defaults(run=context)
     verbs.add_parser("rollup", parents=[drive_opt]).set_defaults(run=rollup)

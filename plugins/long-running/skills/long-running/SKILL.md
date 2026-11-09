@@ -14,8 +14,8 @@ never blocks, so it is always free to answer him.
 | Concept | What it is |
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its jobs, its proof. `drive order …` |
-| Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only), `codex:codex-wrapper` (review, diagnosis, incidents). `drive job …` |
-| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `DUE …` when a promised time passes, `TICK …` when an order has news since its last line or its promised time is close. |
+| Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question, read only), `codex:codex-wrapper` (review, diagnosis, incidents). A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
+| Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` when a promised time passes, `TICK …` when an order has news since its last line or its promised time is close. |
 | Message | A line in his thread, a question card at his DM root, or a PR card that cc-slack draws from the PR. Nothing else. [reference/messages.md](reference/messages.md) |
 
 State lives in one file per drive, written only by the `drive` CLI on your PATH. His rulings
@@ -52,13 +52,13 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | A ruling on how things should work | `answer_add` with the question verbatim as title, his words as body, labels `scope:durable` and `drive:<name>`. Apply it this turn to every live job it touches (`SendMessage`) and every open card. If it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed. Reply in one line: what changes and when it is live. |
 | An answer or tap on a question card | `answer_add` with the card's question and his pick. Resume the job waiting on it with `SendMessage`. Reply only if something changes for him. |
 | Chatter ("ok", "thanks", "nice") | React `+1`. No reply. |
-| A job finished | Read the first line of its result and do the matching row below. |
+| A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
 | An alert he sent, or one the drive's own release caused | [reference/incidents.md](reference/incidents.md), before anything else. Any other alert in a held channel gets nothing: no line, no job. |
 
 | Job result | Do |
 |---|---|
-| `DONE <proof>` | `drive order set <o> --state done --proof <proof>` once its last job is done. Line in his thread: what changed for him, with the proof link. |
+| `DONE <proof>` | `drive order set <o> --state done --proof <proof>` once its last job is done; a remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. Line in his thread: what changed for him, with the proof link. |
 | `READY <pr url>` | `drive pr set <url> --tap`, then `slack_dm_status(tap_prs=[url], text=<line>, thread_ts=<his thread>)`. cc-slack draws the PR card at his DM root from the PR itself, and the line in his thread links it. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`. Nothing to him. The watch wakes you. |
 | `ASK <question>` | A question card (it waits on him, so `waits` and `recommended` are set); a link line in his thread. Resume the job when he answers. |
@@ -75,16 +75,41 @@ live in cc-notes answers. Other sessions reach the drive through cci.
 | `TICK o<n> …` | The watch lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One line per listed order, in its thread (his main thread when it has none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined`. An order with nothing new gets no line. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then draw it again with `tap_prs`. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his answer to that card. |
+| `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
+| `WATCH … failed` | GitHub or Orca did not answer; the watch keeps trying and says so again in ten minutes. Nothing to him. |
 
 ## Jobs
 
-Start every job with the Agent tool: `subagent_type` `long-running:builder`,
+Every job runs as a background agent on this Mac but one. His ruling, Nov 9 7:11 AM: "No I'm
+saying that should be true when load is high, lanes will mostly start remote". So while this
+Mac is over its load limit, a builder on Forge-AI/monorepo starts as a remote lane on a Sprite,
+where its builds and checks are local to that machine; under the limit it runs here. Before
+starting a monorepo builder, run `drive place`: it answers `remote` when this Mac's CPU is at
+or over its load gate's limit, or when eight builders already run here, and `local`
+otherwise. Readers, codex jobs, builders on any other repository, since a yasyf/* tool
+installs on this Mac, and any job that touches this Mac's processes always run here.
+
+**On this Mac.** Start the job with the Agent tool: `subagent_type` `long-running:builder`,
 `long-running:reader` or `codex:codex-wrapper`, `run_in_background: true`, a short
 `description`, and the brief as `prompt`. **Never pass `name`.** Agent teams are on here, and a
 named agent becomes a teammate that never wakes on events. Record the agent id the call
 returns: `drive job add <kind> --order <o> --goal "<one line>" --agent <id>`.
 
-The brief is the job's whole context:
+**Remote.** `drive job add builder --order <o> --goal "<one line>" --remote`, write the brief
+to a file in your scratch directory, then run `drive job launch <j> <brief file>` from the
+monorepo checkout's root with `run_in_background: true`. It starts the builder through the
+`orca` skill's launcher as an Orca worker on a Sprite, and its notification says where it
+started or why it could not. A lane that started no worker runs here instead, never
+silently: start it with the Agent tool, record it with `drive job set <j> --agent <id>`, and
+say so in the order's next line. A failure after worker-start ran may have left the lane
+live, so a reader checks its attempt before anything starts it again. The lane reports through Orca mail, and `drive watch` turns each
+report into a `JOB <j> <o> <line>` event that opens with the `DONE`, `READY`, `WAITING`,
+`ASK` or `BLOCKED` a background agent returns; `drive status --json` holds the whole report.
+No `drive` CLI runs on a Sprite, so register the PR its `PR:` line links: `drive pr add <url>
+--job <j>` with `--tap` on a monorepo PR, and `drive pr set <url> --exempt <class>` for an
+`EXEMPT:` line.
+
+The brief is the job's whole context, the same for both:
 
 ```
 Order (his words): <verbatim>
@@ -96,18 +121,23 @@ Plan: <the plan section this implements, quoted>
 Drive: <name>, order <o>, job <j>
 ```
 
-- **Resume, never respawn.** Send the next event or answer to the job's agent id with
-  `SendMessage`; a finished agent resumes with its history. Start a fresh job only when the
-  agent is gone (a restart) or its context is spent, with a handoff of branch, PR, and last line.
+- **Resume, never respawn.** Send the next event or answer to the job: `SendMessage` to its
+  agent id here, `drive job resume <j> "<event or answer>"` to a remote lane, which answers the
+  question it is waiting on. A finished agent resumes with its history. Start a fresh job only
+  when the agent is gone (a restart) or its context is spent, with a handoff of branch, PR, and
+  last line.
 - **One deliverable per job, and no job waits on another.** When B needs A merged, B starts on
   A's `DONE`.
 - **A sweep over many units is one job running a Workflow**, started by you, since a
   background agent cannot start agents.
 - **A job's state is its transcript.** Before telling him anything about a running job, read
-  its transcript with `cc-transcript`; the agent id names its file. An absent message is
-  never evidence.
-- Keep at most eight builders running at once on this Mac; later orders wait as `open`, oldest due
-  first.
+  it: `cc-transcript` on the file its agent id names, or for a remote lane
+  `orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An
+  absent message is never evidence.
+- At most eight builders run on this Mac at once, and remote lanes do not count. Past eight, a
+  monorepo builder starts remote, by his Nov 2 rule "Workers that are refused and enqueues
+  should instead spill to being started remotely automatically"; any other builder waits as
+  `open`, oldest due first.
 
 ## Ask him
 
@@ -148,8 +178,9 @@ symptom is a class fix whose PR deletes the earlier patches.
 
 - Never do an order's work yourself, a past-due order's included: every order goes to a
   background job. Your own shell calls are reads of `drive`, `cci` and one `gh` call, beside
-  the transcript reads and `cc-slack check-post` this skill names; a loop, an `orca` call, a
-  build, a close, and anything else runs in a background job, so your turn never blocks.
+  the transcript reads, `cc-slack check-post` and the remote-lane `drive job` verbs this skill
+  names. A loop, any other `orca` call, a build, a close, and anything else runs in a
+  background job, so your turn never blocks.
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
 - Never hold, freeze, or reorder work he did not hold, freeze, or reorder.
