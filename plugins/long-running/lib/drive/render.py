@@ -4,7 +4,7 @@ from drive.state import now, open_orders, parse_time, pr_key, pr_url
 
 DRIVER_RULES = (
     "One job per deliverable: every change or question goes to one background job that owns it end to end.",
-    "Never block: no foreground waits, no work with a body; jobs and drive watch do the waiting.",
+    "Never block: every order goes to a job, past-due ones too; your own calls are reads of drive, cci and one gh call.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "Every message by messages.md: each line, question card and PR card follows reference/messages.md.",
     "A promise is --due: a time you promise him is recorded with drive order set <id> --due.",
@@ -58,6 +58,12 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
 
 
+def watch_line(drive: dict) -> str:
+    slack = drive["slack"]
+    channels = [f"his DM {slack['channel']}" if slack["channel"] else "no DM set", *slack.get("watch", [])]
+    return f"Hold with slack_watch: {', '.join(channels)}"
+
+
 def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
     lines = [f"- {order_line(order_id, order, limit)}"]
     for job_id in order["jobs"]:
@@ -70,7 +76,7 @@ def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str
 def context(drive: dict) -> str:
     """The SessionStart block that tells a driver session its drive, open orders and rules."""
     orders = open_orders(drive)
-    lines = [f"You are the driver of drive {drive['name']}.", "", f"Open orders ({len(orders)}):"]
+    lines = [f"You are the driver of drive {drive['name']}.", watch_line(drive), "", f"Open orders ({len(orders)}):"]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 120))
     if not orders:
@@ -87,6 +93,7 @@ def status_data(drive: dict, pr_fields: str) -> dict:
     return {
         "name": drive["name"],
         "pr_fields": pr_fields,
+        "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},
@@ -95,7 +102,10 @@ def status_data(drive: dict, pr_fields: str) -> dict:
 
 def status_text(drive: dict, pr_fields: str) -> str:
     orders = open_orders(drive)
-    lines = [f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}"]
+    lines = [
+        f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}",
+        watch_line(drive),
+    ]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))
     return "\n".join(lines)

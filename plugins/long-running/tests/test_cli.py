@@ -21,7 +21,7 @@ def test_start_creates_the_drive_and_prints_context(run: Run, tmp_path: Path) ->
     data = state.load("demo")
     assert data["driver"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
     assert data["driver"]["cwd"] == str(tmp_path)
-    assert data["slack"] == {"channel": "D123", "status_card": None}
+    assert data["slack"] == {"channel": "D123", "status_card": None, "watch": []}
 
 
 def test_start_again_rebinds_the_session_and_keeps_orders(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -33,6 +33,39 @@ def test_start_again_rebinds_the_session_and_keeps_orders(run: Run, demo: str, m
     assert data["driver"]["session"] == "after-restart"
     assert data["slack"]["channel"] == "D123"
     assert data["orders"]["o1"]["text"] == "keep me"
+
+
+def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
+    code, out = run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW")
+    assert code == 0
+    assert "Hold with slack_watch: his DM D123, C0B75AL4XEW" in out
+    assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
+    run("start", "demo")
+    assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
+    run("start", "demo", "--watch", "C0822AHFY3G", "--watch", "C0B75AL4XEW")
+    data = state.load("demo")
+    assert data["slack"]["channel"] == "D123"
+    assert data["slack"]["watch"] == ["C0B75AL4XEW", "C0822AHFY3G"]
+
+
+def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: str) -> None:
+    with state.edit("demo") as data:
+        del data["slack"]["watch"]
+    assert run("start", "demo", "--watch", "C0822AHFY3G")[0] == 0
+    assert state.load("demo")["slack"]["watch"] == ["C0822AHFY3G"]
+
+
+def test_status_and_context_print_every_held_channel(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    held = "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G"
+    code, out = run("status")
+    assert code == 0
+    assert out.splitlines()[1] == held
+    code, out = run("status", "--json")
+    assert json.loads(out)["slack"] == {"channel": "D123", "watch": ["C0B75AL4XEW", "C0822AHFY3G"]}
+    code, out = run("context")
+    assert held in out.splitlines()
 
 
 def test_start_holds_the_lock_across_its_existence_check(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

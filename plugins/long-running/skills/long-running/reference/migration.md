@@ -13,15 +13,25 @@ in cc-notes answers.
 
 ## Carry
 
-1. In the new driver session, run `drive setup`, then `drive start <name> --channel <his DM>`.
-2. Each order still open (its deliverable is not live, and he neither dropped nor replaced it), in his
+1. In the new driver session, run `drive setup`, then `drive start <name> --channel <his DM>` with a
+   `--watch <channel id>` for every channel the old drive watched beside his DM, its alert channels
+   above all. `cc-slack follows --session <old holder's session id>` lists them.
+2. Hand the watches over. cc-slack lets one session hold a DM or channel watch at a time, and stopping
+   the old holder's Monitor releases nothing. The old holder runs `cc-slack unfollow <watch id>` for
+   each watch, finding the ids with `cc-slack follows --session <its session id>`; ask it with
+   `cci post --drive <old> --lane root --kind ask --to <session> --text "Run cc-slack unfollow for each
+   of your Slack watches and reply with the ids; keep answering him until drive <new> says it holds
+   them."` Then the new driver arms its watches (Start step 2) and, once every `slack_watch` succeeds,
+   posts `cci post --drive <old> --lane root --kind handoff --to <session> --text "Drive <new> holds
+   <DM> and <channels>."` The old holder keeps answering him until that record arrives.
+3. Each order still open (its deliverable is not live, and he neither dropped nor replaced it), in his
    words verbatim, never a summary:
    `drive order add "<his words>" --from migrated:<old row> --due <the time he was promised>`.
    An open incident without a fix-live record is an order too, run by [incidents.md](incidents.md).
-3. Each open drive PR, as a job with no agent under the order it serves (else the migration order):
+4. Each open drive PR, as a job with no agent under the order it serves (else the migration order):
    `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name> --branch <branch>`,
    `drive job set <j> --state waiting --pr <url>`, then `drive pr add <url> --job <j>` (`--tap` if it waits on him).
-4. A tap he gave carries over when the old ledger shows it in force, so he is never asked again:
+5. A tap he gave carries over when the old ledger shows it in force, so he is never asked again:
    `drive pr set <url> --tapped Approve --tap-source migrated:<old>` (or `--tapped Hold`).
    A recorded exemption carries the same way: `drive pr set <url> --exempt "<class>"`.
 
@@ -32,7 +42,7 @@ in cc-notes answers.
 - An implementation session mid-change is asked to push and stop:
   `cci post --drive <old> --lane root --kind ask --to <session> --text "Push your branch and PR now, reply
   with the branch and head, then stop work: drive <new> adopts it."` When it replies, carry its PR as in
-  step 3.
+  step 4.
 
 ## Cards, stand-downs and what stays behind
 

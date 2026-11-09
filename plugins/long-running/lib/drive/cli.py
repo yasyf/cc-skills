@@ -42,6 +42,8 @@ def start(args: argparse.Namespace) -> int:
         data["driver"] = fresh["driver"]
         if args.channel:
             data["slack"]["channel"] = args.channel
+        watch = data["slack"].setdefault("watch", [])
+        watch.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watch)
     return emit(args, render.context(data), data)
 
 
@@ -281,7 +283,10 @@ def parser() -> argparse.ArgumentParser:
 
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or rebind it to this session")
     verb.add_argument("name")
-    verb.add_argument("--channel")
+    verb.add_argument("--channel", help="his DM channel id")
+    verb.add_argument(
+        "--watch", action="append", default=[], metavar="CHANNEL", help="another channel to hold, kept across restarts"
+    )
     verb.set_defaults(run=start)
 
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)

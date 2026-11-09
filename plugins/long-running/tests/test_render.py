@@ -86,6 +86,25 @@ def test_context_lists_open_orders_jobs_prs_rules_and_monitor() -> None:
     assert text.endswith(render.MONITOR_LINE)
 
 
+def test_context_names_his_dm_and_every_watched_channel() -> None:
+    drive = sample()
+    drive["slack"]["watch"] = ["C0B75AL4XEW", "C0822AHFY3G"]
+    lines = render.context(drive).splitlines()
+    assert lines[1] == "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G"
+
+
+def test_watch_line_reads_a_drive_saved_before_watch_existed() -> None:
+    drive = sample()
+    del drive["slack"]["watch"]
+    assert render.watch_line(drive) == "Hold with slack_watch: his DM D123"
+
+
+def test_watch_line_says_when_no_dm_is_set() -> None:
+    drive = state.new_drive("empty", None, "/work", None)
+    drive["slack"]["watch"] = ["C0822AHFY3G"]
+    assert render.watch_line(drive) == "Hold with slack_watch: no DM set, C0822AHFY3G"
+
+
 def test_context_cuts_words_to_120() -> None:
     line = next(line for line in render.context(sample()).splitlines() if line.startswith("- o3"))
     assert len(line.split(": ", 1)[1]) == 120
@@ -117,7 +136,7 @@ def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
 
 def test_status_text_counts_open_orders() -> None:
     text = render.status_text(sample(), "live")
-    assert text.splitlines()[0] == "demo: 2 open of 3 orders; PR fields live"
+    assert text.splitlines()[:2] == ["demo: 2 open of 3 orders; PR fields live", "Hold with slack_watch: his DM D123"]
     assert "o1 working" in text
     assert "o2" not in text
 

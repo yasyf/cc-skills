@@ -65,6 +65,13 @@ def test_session_start_gives_the_driver_its_context(demo: str, run: Run) -> None
     assert "ship the fix" in context
 
 
+def test_session_start_names_every_channel_the_driver_holds(run: Run) -> None:
+    run("start", "demo", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
+    output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
+    context = output["hookSpecificOutput"]["additionalContext"]
+    assert "Hold with slack_watch: his DM D123, C0B75AL4XEW, C0822AHFY3G" in context
+
+
 def test_session_start_prints_nothing_for_another_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
