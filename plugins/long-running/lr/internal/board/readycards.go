@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/yasyf/cc-inbox/client"
+	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/arch"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/bus"
 	"github.com/yasyf/cc-skills/plugins/long-running/lr/internal/cardtext"
 	lrfacts "github.com/yasyf/cc-skills/plugins/long-running/lr/internal/facts"
@@ -666,16 +667,20 @@ func TapCard(repo string, row store.ReviewRow) (json.RawMessage, error) {
 	id := tapCardID(row)
 	pr := Card(repo, row).PRs[0]
 	pr.Port, pr.Head = "", row.Head
+	children := []map[string]any{
+		{"id": id + "-choice", "type": "choice", "options": []map[string]any{
+			{"id": id + "-approve", "label": approveLabel, "recommended": true},
+			{"id": id + "-hold", "label": holdLabel},
+		}},
+		FillPRChild(map[string]any{"id": id + "-pr", "type": "pr", "repo": repo, "number": row.Number}, pr),
+	}
+	if doc := prrow.ShowMeDiagram(row); doc != nil {
+		children = slices.Insert(children, 0, map[string]any{"id": id + "-diagram", "type": arch.Block, "doc": doc})
+	}
 	return json.Marshal(map[string]any{
 		"id": id, "type": "card", "title": headed(row.Number, row.Title, func(named string) string { return fmt.Sprintf("%sLand %s?", portTitleOpening(row), named) }),
-		"summary": portOpening(repo, row) + "It passed its checks and review and waits only on your tap.",
-		"children": []map[string]any{
-			{"id": id + "-choice", "type": "choice", "options": []map[string]any{
-				{"id": id + "-approve", "label": approveLabel, "recommended": true},
-				{"id": id + "-hold", "label": holdLabel},
-			}},
-			FillPRChild(map[string]any{"id": id + "-pr", "type": "pr", "repo": repo, "number": row.Number}, pr),
-		},
+		"summary":  portOpening(repo, row) + "It passed its checks and review and waits only on your tap.",
+		"children": children,
 	})
 }
 
