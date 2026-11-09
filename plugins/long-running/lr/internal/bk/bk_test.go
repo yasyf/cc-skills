@@ -464,7 +464,7 @@ func TestAGrepThatFindsNothingInARunningJobSaysItReadTheLogSoFar(t *testing.T) {
 
 	read := desk.read(context.Background(), "bk log test 12 "+failedJob+" --grep TestLate")
 
-	if !strings.HasPrefix(read.head, "the job is running, so this reads its log so far; ask again once it finishes: 0 lines matching TestLate") {
+	if !strings.Contains(read.head, ": the job is running, so this reads its log so far; ask again once it finishes: 0 lines matching TestLate") {
 		t.Fatalf("head = %q", read.head)
 	}
 }
