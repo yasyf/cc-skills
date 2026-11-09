@@ -29,6 +29,11 @@ const (
 	cardPaths   = "; a card is no store read: ask the owner with `lr ask-owner` from any host, and a landing tap card comes from the ready-cards pass once you post `cci post --kind ready --pr <n>` on a green head"
 )
 
+func AnsweredInline(lane string, attrs map[string]string) bool {
+	_, read := attrs[exitAttr]
+	return lane == StoreDesk && read
+}
+
 var StoreVerbs = []string{
 	"asks",
 	"board cards drawn",

@@ -806,7 +806,7 @@ func isOrder(kind, text string) bool {
 }
 
 func isMail(r Record) bool {
-	return !slices.Contains(machineAuthors, r.Lane) && !slices.Contains(machineKinds, r.Kind) && !strings.HasPrefix(r.Kind, "lr.")
+	return !slices.Contains(machineAuthors, r.Lane) && !slices.Contains(machineKinds, r.Kind) && !strings.HasPrefix(r.Kind, "lr.") && !askdesk.AnsweredInline(r.Lane, r.Fields.Attrs)
 }
 
 func foldUnread(s *store.Store, r Record, addressed map[string]bool, at time.Time) {
