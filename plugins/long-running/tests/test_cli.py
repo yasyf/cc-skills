@@ -585,19 +585,35 @@ def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: s
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
 
 
-def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_the_section(
+def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_section(
     run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    on_github["body"] = CARD_BODY.split("## His words")[0].replace("## What you'll hate most", "## Biggest surprise")
+    on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
     assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
     reason = f"its tap card needs a \"What you'll hate most\" section in the body of {PR}"
     assert capsys.readouterr().err.strip() == f"drive: {with_pr}: {reason}"
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["wants_tap"], pr.get("serves")) == (False, None)
-    on_github["body"] = CARD_BODY.split("## His words")[0]
+    on_github["body"] = CARD_BODY.split("## His words")[0].replace("## What you'll hate most", "## Biggest surprise")
     assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(f"drive: {with_pr}: no order of his names {PR}: ")
+    assert capsys.readouterr().err.startswith(
+        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
+        f" list naming his order in the body of {PR}. No order of his names {PR}: "
+    )
+
+
+def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refuse(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_github["body"] = "## Summary\nLands it."
+    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.startswith(
+        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
+    )
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    assert run("pr", "set", PR, "--serves", "o1")[0] == 0
 
 
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:

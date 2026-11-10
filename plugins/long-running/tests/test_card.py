@@ -381,7 +381,7 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
 
 
 def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.split("## What you'll hate most")[0]
+    body = FIX_BODY.replace("## What you'll hate most", "## Biggest worry")
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
     reason = f"its tap card needs a \"What you'll hate most\" section in the body of {URL}"
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
@@ -389,6 +389,18 @@ def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive:
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
     }
     assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
+
+
+def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = FIX_BODY.split("## What you'll hate most")[0]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
+    assert skipped["reason"].startswith(
+        f"its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\" list naming his order"
+        f" in the body of {URL}. No order of his names {URL}: "
+    )
+    assert skipped["reason"].endswith("Never edit its body to quote his words for another change")
+    assert [event["kind"] for event in events(drive)] == ["refused"]
 
 
 def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -416,7 +428,10 @@ def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
     body = FIX_BODY.split("## His words, step by step")[0] + f"## His words, step by step\n{words}\n"
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(f"no order of his names {URL}: ")
+    assert skipped["reason"].startswith(
+        f"its tap card needs a \"His words, step by step\" list naming his order in the body of {URL}."
+        f" No order of his names {URL}: "
+    )
     assert [event["kind"] for event in events(drive)] == ["refused"]
 
 
@@ -580,6 +595,26 @@ def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[
     drawn = ask(asks(41, 42, 43))
     assert drawn["cards"] == []
     assert all("The stack" in skipped["reason"] for skipped in drawn["skipped"])
+
+
+def test_a_stack_refusal_names_each_section_every_pr_body_lacks(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    stacked_gh = card.run
+
+    def gh(cmd: list[str]) -> str:
+        pr = json.loads(stacked_gh(cmd))
+        if cmd[3] == "42":
+            pr["body"] = pr["body"].replace("## What you'll hate most", "## Biggest worry")
+        return json.dumps(pr)
+
+    monkeypatch.setattr(card, "run", gh)
+    drawn = ask(asks(41, 42, 43))
+    reason = (
+        f"its tap card needs a \"The stack\" section with the stack's one-line title then its summary in the body of"
+        f" {stack_url(41)}; a \"What you'll hate most\" section in the body of {stack_url(42)}"
+    )
+    assert drawn["cards"] == []
+    assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason, reason]
 
 
 def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:

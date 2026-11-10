@@ -399,21 +399,29 @@ def drawn_card(shown: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
 
 
 def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
-    asking = [(pr, row) for (pr, entry, _), row in zip(shown, card["prs"], strict=True) if offers_approval(pr, entry)]
-    bare = [row["url"] for _, row in asking if not row["hate_most"]]
-    unordered = [pr["url"] for pr, _ in asking if not names_his_order(pr)]
+    needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
-        return f"its stack card needs a \"The stack\" section, a one-line title then a summary, in the body of its bottom PR {shown[0][0]['url']}"
-    if bare:
-        return f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
-    if unordered:
-        return (
-            f"no order of his names {', '.join(unordered)}: its \"His words, step by step\" list is missing, empty or says"
-            " none, so it is a port, which lands with no card; drive tooling, which goes to him as a question of its own at his"
-            " DM root opening \"Drive tooling:\" and saying what it unblocks, or lands under an exempt class; or the drive's to"
-            " drop. Never edit its body to quote his words for another change"
-        )
-    return ""
+        needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
+    unordered = []
+    for (pr, entry, _), row in zip(shown, card["prs"], strict=True):
+        if not offers_approval(pr, entry):
+            continue
+        if not row["hate_most"]:
+            needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
+        if not names_his_order(pr):
+            needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
+            unordered.append(pr["url"])
+    if not needs:
+        return ""
+    wanted = "; ".join(f"{' and '.join(each)} in the body of {url}" for url, each in needs.items())
+    if not unordered:
+        return f"its tap card needs {wanted}"
+    return (
+        f"its tap card needs {wanted}. No order of his names {', '.join(unordered)}: its \"His words, step by step\" list"
+        " is missing, empty or says none, so it is a port, which lands with no card; drive tooling, which goes to him as a"
+        " question of its own at his DM root opening \"Drive tooling:\" and saying what it unblocks, or lands under an"
+        " exempt class; or the drive's to drop. Never edit its body to quote his words for another change"
+    )
 
 
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
