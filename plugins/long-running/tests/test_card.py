@@ -521,6 +521,15 @@ def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[
     assert all("The stack" in skipped["reason"] for skipped in drawn["skipped"])
 
 
+def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    ask(asks(41, 42, 43))
+    assert all(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"]["refused"] for n in (41, 42, 43))
+    monkeypatch.setattr(card, "STACK_HEADING", "the stack")
+    assert len(ask(asks(41, 42, 43))["cards"]) == 1
+    assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43))
+
+
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     [drawn] = ask(asks(42))["cards"]
