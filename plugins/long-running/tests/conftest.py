@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, dashboard, orca, page, slack, view, watch
+from drive import cli, dashboard, orca, page, settled, slack, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -85,3 +85,16 @@ def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+
+
+@dataclass
+class Answers:
+    found: list[dict] = field(default_factory=list)
+    asked: list[str] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
+    answers = Answers()
+    monkeypatch.setattr(settled, "answers", lambda text, cwd: answers.asked.append(text) or list(answers.found))
+    return answers

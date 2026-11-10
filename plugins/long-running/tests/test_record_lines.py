@@ -1,4 +1,6 @@
 import record_lines
+from conftest import Answers
+from drive import state
 
 SESSION = "session-under-test"
 LONG = (
@@ -40,3 +42,33 @@ def test_a_long_record_that_attaches_a_file_is_refused(demo: str) -> None:
     made = record_lines.decision(post(kind="report", text=LONG, path="/tmp/facts.md"))
     assert made["permissionDecision"] == "deny"
     assert "put the rest of its text in that file" in made["permissionDecisionReason"]
+
+
+IDLE = "Close these 14 idle sessions and their terminals?"
+RULING = {"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "close every completed or idle Claude or Codex session and its terminal"}
+
+
+def test_an_ask_his_recorded_answer_may_settle_is_refused_until_a_reason_names_that_answer(demo: str, recorded: Answers) -> None:
+    recorded.found = [RULING]
+    made = record_lines.decision(post(kind="ask", text=IDLE))
+    assert made["permissionDecision"] == "deny"
+    assert "- ac61348 close every completed or idle Claude or Codex session and its terminal" in made["permissionDecisionReason"]
+    assert recorded.asked == [IDLE]
+    assert record_lines.decision(post(records=[{"kind": "report", "text": "j12 merged"}, {"kind": "ask", "text": IDLE}]))["permissionDecision"] == "deny"
+    named = {"unsettled": "ac61348: it lets a lane close them; the session guard still needs his tap on each terminal"}
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"unsettled": "the guard needs his tap"}))["permissionDecision"] == "deny"
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=named)) is None
+
+
+def test_an_ask_carrying_an_ask_drive_job_ask_kept_is_not_checked_again(demo: str, recorded: Answers) -> None:
+    recorded.found = [RULING]
+    kept = state.drive_dir(demo) / "asks" / "j1.md"
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": str(kept), "job": "j1"})) is None
+    assert recorded.asked == []
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": "/tmp/asks/j1.md"}))["permissionDecision"] == "deny"
+
+
+def test_an_ask_no_answer_of_his_touches_goes_out_and_other_sessions_are_not_checked(demo: str, recorded: Answers) -> None:
+    assert record_lines.decision(post(kind="ask", text=IDLE)) is None
+    recorded.found = [RULING]
+    assert record_lines.decision(post(session="another-session", kind="ask", text=IDLE)) is None

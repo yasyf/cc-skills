@@ -385,3 +385,22 @@ def test_guard_reads_the_origin_where_env_runs_the_command(
 
     monkeypatch.setattr(landing_guard, "run", answer)
     assert landing_guard.deny_reason(bash(command)) is not None
+
+
+def asked_from_bash(command: str, session: str) -> dict:
+    return bash(command) | {"session_id": session}
+
+
+def test_bash_posts_a_drive_ask_only_when_it_carries_a_kept_ask(demo: str, no_calls: list[list[str]]) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    kept = state.drive_dir(demo) / "asks" / "j1.md"
+    for command in (
+        "cci post --kind ask --lane root --to communicator@demo 'Close these sessions?'",
+        "cd /work && cci post --lane root --kind=ASK --attr job=j1 'Close these sessions?'",
+        "zsh -c \"cci post --kind ask 'Close these sessions?'\"",
+    ):
+        assert landing_guard.deny_reason(asked_from_bash(command, session)) == landing_guard.ASK_BY_TOOL
+    carried = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Close these sessions?'"
+    assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
+    assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
+    assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
