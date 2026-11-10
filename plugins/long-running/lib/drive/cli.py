@@ -178,6 +178,7 @@ def job_add(args: argparse.Namespace) -> int:
             "agent": args.agent,
             "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
             "parts": parts,
+            "carries": {},
             "card": None,
             "where": "remote" if args.remote else "local",
             "repo": args.repo,
@@ -201,9 +202,18 @@ def job_set(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
-        if args.part:
+        if args.carries:
+            if args.part and len(args.carries) > 1:
+                raise DriveError("--part names the parts of one carried order; carry one order a call to name its parts")
+            for order_id in args.carries:
+                if order_id == job["order"]:
+                    raise DriveError(f"{args.id} is {order_id}'s own job; add its parts with --part")
+                state.carry(data, args.id, order_id, pick_parts(order_id, find(data["orders"], order_id, "order"), args.part))
+        elif args.part:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
+        if args.state == "done":
+            state.drop_carries(data, args.id)
         if args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
@@ -299,6 +309,7 @@ def job_end(args: argparse.Namespace) -> int:
     reclaimed = orca.reclaim(job["run"], job["dispatch"], checkout())
     with state.edit(name) as data:
         data["jobs"][args.id].update(state="done", ask=None, updated=state.stamp())
+        state.drop_carries(data, args.id)
     return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})
 
 
@@ -548,7 +559,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--said")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[])
-    verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers")
+    verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
+    verb.add_argument(
+        "--carries", action="append", default=[], metavar="ORDER", help="another order whose part this job delivers, until it is done"
+    )
     verb.add_argument("--card", help="the Slack link of the question card this job waits on")
     verb.set_defaults(run=job_set)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")

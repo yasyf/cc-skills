@@ -104,7 +104,8 @@ def job_line(job_id: str, job: dict) -> str:
     else:
         handle = f" agent {job['agent']}" if job.get("agent") else ""
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
-    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}{repro}"
+    carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
+    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}{repro}{carries}"
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:

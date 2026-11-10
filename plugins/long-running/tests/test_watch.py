@@ -1,5 +1,6 @@
 import json
 import os
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -238,10 +239,12 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
 def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        data["orders"]["o2"] = order(state="waiting", last_line=None, updated=state.stamp(T0 + timedelta(minutes=2)))
+        data["orders"]["o2"] = order(state="waiting", last_line=None, updated=state.stamp(T0 + timedelta(minutes=2)), jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2")
         data["orders"]["o3"] = order(last_line=state.stamp(T0 + timedelta(minutes=15)), jobs=["j3"])
         data["jobs"]["j3"] = job(order="o3", updated=state.stamp(T0 + timedelta(minutes=16)))
-        data["orders"]["o4"] = order(state="open", updated=state.stamp(T0 + timedelta(minutes=2)))
+        data["orders"]["o4"] = order(state="open", updated=state.stamp(T0 + timedelta(minutes=2)), jobs=["j4"])
+        data["jobs"]["j4"] = job(order="o4")
         data["orders"]["o5"] = order(jobs=["j5"], due=state.stamp(T0 + timedelta(minutes=45)))
         data["jobs"]["j5"] = job(order="o5")
         data["orders"]["o6"] = order(jobs=["j6"])
@@ -361,6 +364,21 @@ def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.Mon
     lines = watch.run_pass(watching, T0 + timedelta(minutes=11))
     assert lines[0].startswith('DUE o2 "build the files design"')
     assert lines[1:] == ['ORPHAN o2 "stack 2": no job']
+
+
+def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
+    assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
+    assert state.load(demo)["orders"]["o2"]["jobs"] == ["j2", "j1"]
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert run("job", "set", "j1", "--state", "done")[0] == 0
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o2 "stack 2": no job']
 
 
 def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
