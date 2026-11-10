@@ -955,6 +955,23 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     assert parts == {"why": {"posted": answer, "orphan_said": None}, "what": state.new_part()}
 
 
+def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
+    run: Run, demo: str, slack_thread: "Thread"
+) -> None:
+    run("order", "add", "how fast can restore go?", "--thread", "1794100000.000100")
+    run("job", "add", "design", "--order", "o1", "--goal", "faster restore")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    answer = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "posted", "o1", answer)[0] == 2
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["card"] = "https://acme.slack.com/archives/D123/p1794200000000100"
+    assert run("order", "posted", "o1", answer)[0] == 0
+    assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer
+
+
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
     run("order", "add", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)

@@ -9,6 +9,7 @@ from drive.install import config_dir
 
 PLUGIN = "cc-slack@cc-slack"
 MESSAGE_LINK = re.compile(r"/archives/[A-Z0-9]+/p(\d{10})(\d{6})")
+CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 RECENT = 50
 WHOLE_THREAD = 1000
 
@@ -44,15 +45,37 @@ def withdraw_pr_card(url: str, reason: str) -> list[str]:
     return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason)["withdrawn"]
 
 
+def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
+    """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
+    links = (CARD_LINK.search(data["jobs"][job_id].get("card") or "") for job_id in order["jobs"])
+    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+
+
+def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
+    """The threads a line for an order goes in: its own, then each of its cards'."""
+    own = state.promise_thread(data, order)
+    return list(dict.fromkeys([*([own] if own else []), *card_threads(data, order)]))
+
+
 def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
-    """When the drive posted in the thread an order's promised line goes in, oldest first among its most recent messages, and why the thread could not be read."""
-    if not (where := state.promise_thread(data, order)):
+    """When the drive posted in an order's threads, its own and each of its cards' past the card itself, oldest first among each thread's most recent messages, and why a thread could not be read."""
+    if not (threads := order_threads(data, order)):
         return [], "it has no thread to read; give it one with drive order set --thread"
-    try:
-        messages = thread("--channel", where[0], "--thread", where[1], "--limit", str(RECENT))
-    except SlackError as error:
-        return [], f"its thread could not be read: {error}"
-    return sorted(datetime.fromtimestamp(float(message["ts"])).astimezone() for message in messages if message.get("from_claude")), None
+    cards = set(card_threads(data, order))
+    posts: list[datetime] = []
+    unread = None
+    for where in threads:
+        try:
+            messages = thread("--channel", where[0], "--thread", where[1], "--limit", str(RECENT))
+        except SlackError as error:
+            unread = unread or f"its thread {where[1]} could not be read: {error}"
+            continue
+        posts += [
+            datetime.fromtimestamp(float(message["ts"])).astimezone()
+            for message in messages
+            if message.get("from_claude") and not (where in cards and message["ts"] == where[1])
+        ]
+    return sorted(posts), unread
 
 
 def message(link: str) -> dict:

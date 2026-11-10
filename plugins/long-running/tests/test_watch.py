@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import cli, github, state, watch
+from drive import cli, github, slack, state, watch
 
 KEY = "Forge-AI/monorepo#42"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
@@ -254,6 +254,25 @@ def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_
     assert state.load(demo)["orders"]["o1"]["state"] == "done"
     assert said_due(watching, T0 + timedelta(hours=3)) == []
     assert slack_thread.reads == [("--channel", "D123", "--thread", "1794200000.000100", "--limit", "50")] * 8
+
+
+def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    card = f"{(T0 - timedelta(minutes=10)).timestamp():.6f}"
+    threads: dict[str, list[dict]] = {"1794200000.000100": [], card: [{"ts": card, "from_claude": True}]}
+    monkeypatch.setattr(slack, "thread", lambda *where: list(threads[where[3]]))
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(
+            thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
+        )
+        data["jobs"]["j1"]["card"] = f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"
+    watching = watcher(demo)
+    assert said_due(watching, T0)[0].startswith("DUE o1")
+    threads[card].append({"ts": f"{(T0 + timedelta(minutes=5)).timestamp():.6f}", "thread_ts": card, "from_claude": True})
+    assert said_due(watching, T0 + timedelta(minutes=10)) == []
+    assert state.load(demo)["orders"]["o1"]["kept"] is not None
 
 
 @pytest.mark.parametrize(
