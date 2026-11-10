@@ -46,10 +46,10 @@ def request(body: str) -> str | None:
 
 
 def answer(question: str, checkout: Path) -> str:
-    """Answer a read question with this Mac's credentials and records, or say why it could not."""
-    if log := LOG.fullmatch(question):
-        return read_log(log[1], checkout)
-    return read_records(READ.fullmatch(question)[1], checkout)
+    """Answer a read question with this Mac's credentials and records, or say why it could not; never with nothing."""
+    log = LOG.fullmatch(question)
+    said = read_log(log[1], checkout) if log else read_records(READ.fullmatch(question)[1], checkout)
+    return said or f"{question}: empty, the read printed nothing"
 
 
 def read_log(url: str, checkout: Path) -> str:
