@@ -975,7 +975,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_tapped)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
-    verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock")
+    verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock, then bind the drive's own Run, which no lane mails")
     verb.add_argument("lane_run", metavar="run")
     verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command and its arguments")
     verb.set_defaults(run=bound)

@@ -129,8 +129,17 @@ def holds(tree: dict[int, int], root: int, pid: int) -> bool:
 
 
 def new_run(objective: str) -> str:
-    """A fresh Run for one lane, bound to this terminal, so only this drive's watch reads its mail."""
+    """A fresh Run, bound to this terminal beside the Runs it already holds."""
     return call("run-create", "--objective", objective)["run"]["id"]
+
+
+def bind_drive_run(drive: str) -> None:
+    run = state.load(drive).get("run")
+    if not run:
+        run = new_run(f"drive {drive}: the coordinator's own Run, which no lane mails")
+        with state.edit(drive) as data:
+            data["run"] = run
+    call("run-use", "--id", run)
 
 
 def lane_name(drive: str, job_id: str) -> str:
@@ -304,18 +313,24 @@ def start_after(drive: str, lane: str, brief: Path, job: dict, worktree: str) ->
 def reply(drive: str, run: str, message_id: str, body: str) -> None:
     """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
     with state.binding(drive):
-        call("run-use", "--id", run)
-        call("reply", "--id", message_id, "--run", run, "--body", body)
+        try:
+            call("run-use", "--id", run)
+            call("reply", "--id", message_id, "--run", run, "--body", body)
+        finally:
+            bind_drive_run(drive)
 
 
 def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
     """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first."""
     with state.binding(drive):
-        for _ in range(2):
-            call("run-use", "--id", run)
-            done = subprocess.run(argv, capture_output=True, text=True, check=False)
-            if FENCED not in done.stdout:
-                break
+        try:
+            for _ in range(2):
+                call("run-use", "--id", run)
+                done = subprocess.run(argv, capture_output=True, text=True, check=False)
+                if FENCED not in done.stdout:
+                    break
+        finally:
+            bind_drive_run(drive)
     return done
 
 
