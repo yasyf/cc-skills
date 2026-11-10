@@ -369,6 +369,17 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
         known[key][1]["stack"] = stack
 
 
+def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
+    """Clears the refusal each member carries, so a body fixed after a refusal reads as drawn and a later refusal is told again."""
+    for key in members:
+        name, entry = known[key]
+        if not entry.get("refused"):
+            continue
+        with state.edit(name) as data:
+            data["prs"][key].pop("refused", None)
+        entry.pop("refused")
+
+
 def cards(asked: list[dict]) -> dict:
     """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw."""
     known = drive_prs()
@@ -404,6 +415,7 @@ def cards(asked: list[dict]) -> dict:
             refused(refusals)
             skipped += refusals
             continue
+        drawn(known, members)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
     return {"cards": found, "skipped": skipped}
