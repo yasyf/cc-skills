@@ -69,7 +69,8 @@ SWEPT_BATCH = 40
 REMOVALS_PER_PASS = 3
 CLOSES_PER_PASS = 12
 SHELL_QUIET_MS = 3 * 24 * 60 * 60 * 1000
-SLOW_READ_S = 5.0
+SLOW_READ_S = 15.0
+PASS_ORCA_S = 180.0
 CALL_TIMEOUT_S = 60
 BACKOFF_FIRST_S = 15 * 60
 BACKOFF_MOST_S = 4 * 60 * 60
@@ -372,6 +373,8 @@ def on(environment: str | None) -> tuple[str, ...]:
 class Orca:
     bounded = False
     slowed: str | None = None
+    spent = 0.0
+    spending = threading.Lock()
 
     def call(self, *args: str) -> dict:
         if self.slowed:
@@ -384,21 +387,24 @@ class Orca:
             self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
             raise OrcaSlow(self.slowed) from None
         took = time.monotonic() - started
-        if self.bounded and tuple(args[:2]) not in MUTATIONS and took > SLOW_READ_S:
-            self.slowed = f"orca {' '.join(args[:2])} took {took:.1f} s, over the {SLOW_READ_S:.0f} s a read may take"
+        if self.bounded and tuple(args[:2]) not in MUTATIONS:
+            with self.spending:
+                self.spent += took
+                if took > SLOW_READ_S:
+                    self.slowed = f"orca {' '.join(args[:2])} took {took:.1f} s, over the {SLOW_READ_S:.0f} s a read may take"
+                elif self.spent > PASS_ORCA_S:
+                    self.slowed = f"this pass spent {self.spent:.0f} s on Orca reads, over its {PASS_ORCA_S:.0f} s"
         reply = json.loads(done.stdout or done.stderr)
         if orchestration and reply.get("ok") and "_meta" not in reply:
             raise RuntimeError(f"orca {' '.join(args[:2])} printed its concise view, not the full record")
         return reply
 
-    def workers(self, run: str | None) -> list[Worker]:
+    def workers(self, run: str) -> list[Worker]:
         rows: list[dict] = []
         cursor: list[str] = []
-        scope = ("--run", run) if run else ()
+        remote = () if self.bounded else ("--include-remote",)
         while True:
-            page = self.call("orchestration", "worker-list", *scope, "--include-remote", "--limit", "100", "--full", *cursor)["result"]
-            if run is None and page["scope"]["run"] is not None:
-                raise RuntimeError(f"worker-list answered for Run {page['scope']['run']}, the calling terminal's, not every Run: run --new without --run outside an Orca terminal")
+            page = self.call("orchestration", "worker-list", "--run", run, *remote, "--limit", "100", "--full", *cursor)["result"]
             rows += page["workers"]
             after = (page.get("page") or {}).get("nextCursor")
             if not after:
@@ -924,18 +930,21 @@ def gc(
     return Counter(done.verb for done in [action for action, _ in stops] + unplaced + terminals + worktrees + reaped if done)
 
 
-def due(workers: list[Worker], swept: list[str]) -> list[str]:
-    position = {dispatch: index for index, dispatch in enumerate(swept)}
-    settled = list(dict.fromkeys(worker.dispatch for worker in workers if worker.settled and (worker.terminal_state != "released" or worker.environment or (worker.worktree and Path(worker.worktree).is_dir()))))
-    unswept = [dispatch for dispatch in settled if dispatch not in position]
-    return (unswept + sorted((dispatch for dispatch in settled if dispatch in position), key=position.__getitem__))[:SWEPT_BATCH]
+def in_turn(ids: list[str], swept: list[str]) -> list[str]:
+    position = {key: index for index, key in enumerate(swept)}
+    ids = list(dict.fromkeys(ids))
+    return [key for key in ids if key not in position] + sorted((key for key in ids if key in position), key=position.__getitem__)
 
 
-def skipped_runs(orca: Orca, terminals: list[Terminal]) -> set[str]:
-    configured = subprocess.run(["git", "config", "--global", "--get-all", SKIP_RUNS], capture_output=True, text=True).stdout.split()
+def due(workers: list[Worker], swept: list[str], open_handles: set[str]) -> list[str]:
+    leftover = [worker.dispatch for worker in workers if worker.settled and ((worker.terminal_state != "released" and worker.terminal in open_handles) or (worker.environment is None and worker.worktree and Path(worker.worktree).is_dir()))]
+    return in_turn(leftover, swept)[:SWEPT_BATCH]
+
+
+def eligible_runs(orca: Orca, terminals: list[Terminal]) -> list[str]:
+    configured = set(subprocess.run(["git", "config", "--global", "--get-all", SKIP_RUNS], capture_output=True, text=True).stdout.split())
     open_handles = {terminal.handle for terminal in terminals}
-    owned = {run["id"] for run in orca.runs() if run["id"] == UNBOUND_RUN or run.get("legacy") or run.get("coordinator_handle") in open_handles}
-    return owned | set(configured)
+    return [run["id"] for run in orca.runs() if not (run["id"] == UNBOUND_RUN or run.get("legacy") or run.get("coordinator_handle") in open_handles or run["id"] in configured)]
 
 
 def shells(terminals: list[Terminal], workers: list[Worker], dry_run: bool, orca: Orca, git: Git, pause: Pause, budget: Budget, out) -> Counter:
@@ -977,19 +986,24 @@ def sweep(run: str | None, with_shells: bool, dry_run: bool, orca: Orca, git: Gi
         return Counter()
     orca.bounded = True
     budget = Budget()
-    ledger = Swept(SWEPT / f"swept-{run or 'all'}.json")
+    rotation = Swept(SWEPT / "runs.json")
     tally: Counter = Counter()
     try:
-        workers = orca.workers(run)
         terminals = orca.terminals()
+        turn = [run] if run else in_turn(eligible_runs(orca, terminals), rotation.read())[:1]
+        if not turn:
+            print("no Run to sweep", file=out, flush=True)
+            return tally
+        workers = orca.workers(turn[0])
         if with_shells:
             tally += shells(terminals, workers, dry_run, orca, git, pause, budget, out)
-        skipped = set() if run else skipped_runs(orca, terminals)
-        batch = due([worker for worker in workers if worker.run not in skipped], ledger.read())
-        if batch:
-            tally += gc(run, set(batch), dry_run, orca, git, cc_remote, pause, out, budget=budget, record=None if dry_run else ledger.record, listed=workers)
+        ledger = Swept(SWEPT / f"swept-{turn[0]}.json")
+        if batch := due(workers, ledger.read(), {terminal.handle for terminal in terminals}):
+            tally += gc(turn[0], set(batch), dry_run, orca, git, cc_remote, pause, out, budget=budget, record=None if dry_run else ledger.record, listed=workers)
         if orca.slowed:
             raise OrcaSlow(orca.slowed)
+        if not run and not dry_run:
+            rotation.record(turn)
     except OrcaSlow as slow:
         waits = "" if dry_run else f"; the next pass waits {backoff.extend(time.time()) // 60} minutes"
         print(f"stopped: {slow}{waits}", file=out, flush=True)
@@ -1027,18 +1041,20 @@ def main() -> int:
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
         "--dry-run reads through a pause. "
-        f"--new is the recurring pass: it sweeps up to {SWEPT_BATCH} settled dispatches, those no pass has swept first, newest first, then those swept longest ago, "
-        "recording each one under $XDG_STATE_HOME/orca-gc as its last step finishes, so a pass killed partway does not repeat its work. Without --run it reads every Run "
-        f"and skips one whose coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
+        "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
+        f"coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
+        f"In that Run it sweeps up to {SWEPT_BATCH} settled dispatches with an open terminal or a worktree still on disk, those no pass has swept first, newest first, "
+        "then those swept longest ago, recording each one under $XDG_STATE_HOME/orca-gc as its last step finishes, so a pass killed partway does not repeat its work. "
         f"A --new pass closes at most {CLOSES_PER_PASS} terminals and removes at most {REMOVALS_PER_PASS} local worktrees, and never waits on the removal lock; "
-        "what it defers stays first in line for the next pass. Each Orca call gets "
-        f"{CALL_TIMEOUT_S} s, and once a read takes over {SLOW_READ_S:.0f} s the pass makes no further Orca call and the next pass waits, "
+        "what it defers stays first in line for the next pass. It reads only this Mac's workers, not paired servers', which take Orca seconds a page to gather, "
+        "so it leaves paired-server and Sprite dispatches to a hand pass. Each Orca call gets "
+        f"{CALL_TIMEOUT_S} s, and once a read takes over {SLOW_READ_S:.0f} s, or the pass's reads add up to over {PASS_ORCA_S:.0f} s, the pass makes no further Orca call and the next pass waits, "
         f"{BACKOFF_FIRST_S // 60} minutes at first, doubling to {BACKOFF_MOST_S // 3600} hours, until a pass finishes with Orca answering in time. "
         "--shells also closes an Orca shell terminal with no agent in a worktree that holds no agent, whose one process is a login shell with no child, "
         "and whose terminal printed nothing and whose tty was neither read nor written for three days, read again right before the close. "
         "Prints one line per action, skipped action, or kept resource as it happens, then the tally."
     )
-    parser.add_argument("--run", help="the Orca Run id; --new without it reads every Run")
+    parser.add_argument("--run", help="the Orca Run id; --new without it takes the next Run in turn")
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
