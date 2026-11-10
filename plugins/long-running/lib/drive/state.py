@@ -57,6 +57,10 @@ def cursor_path(name: str) -> Path:
     return drive_dir(name) / "watch.cursor"
 
 
+def held_path(name: str) -> Path:
+    return drive_dir(name) / "watch.held"
+
+
 def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
@@ -326,6 +330,19 @@ def save_watch_cursor(name: str, offset: int) -> None:
     path = cursor_path(name)
     tmp = path.with_name("watch.cursor.tmp")
     tmp.write_text(f"{offset}\n")
+    os.replace(tmp, path)
+
+
+def held_lines(name: str) -> list[str]:
+    """The watch lines held for the next batch when the watch last stopped, so a restart delivers them."""
+    path = held_path(name)
+    return path.read_text().splitlines() if path.exists() else []
+
+
+def save_held_lines(name: str, lines: list[str]) -> None:
+    path = held_path(name)
+    tmp = path.with_name("watch.held.tmp")
+    tmp.write_text("".join(f"{line}\n" for line in lines))
     os.replace(tmp, path)
 
 

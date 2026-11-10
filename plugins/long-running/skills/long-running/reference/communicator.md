@@ -28,7 +28,7 @@ spent drafting, checking or drawing holds his next message behind it.
 | A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. For an `ask` it draws the card and, the moment the card is up, closes the ask with a `posted` record carrying the card's permalink and `waits` id, so the ask never reads as unanswered while the card waits on him; his tap is still his `answer`. An `ask` that redraws an open card is one call under that card's `waits` id, which edits it, redraws its copies and posts one fresh copy beside it, so the handler asks for no second copy. The communicator never reads, writes, checks or draws what a record carries, and never opens the body's path: a file it reads comes back after every compaction. | Nothing. |
 | An `FYI` report | Nothing: keep it as context for his next message. | Nothing. |
 | The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
-| A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
+| A handler returned | Keep the line it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
 | A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. | The same. |
 | A tool defect you hit | A `defect` record. | Nothing. |
@@ -56,7 +56,7 @@ and until it starts again the cc-slack daemon posts "Got it, back in a minute." 
 messages beside the eyes, and each arrives with `acked`, so the communicator adds no second ack.
 
 A handler reads what it needs, writes, checks and posts every line, card and share itself, and
-returns a pointer, its permalinks and at most three lines, by its agent definition, since its whole
+returns one line, its permalinks and at most three facts, by its agent definition, since its whole
 return stays in the communicator's context until the next compaction. Anything he waits on that takes it past
 a minute gets one line in his thread first. A read-only question it answers itself, from the source
 that owns the fact, never through the coordinator; his ruling, Nov 9 2:06 PM: "should not take 30

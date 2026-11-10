@@ -256,6 +256,24 @@ def job_ask(args: argparse.Namespace) -> int:
     return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
 
 
+def job_report(args: argparse.Namespace) -> int:
+    """Keep a job's whole return in the drive, or print the one kept, or a remote lane's latest report."""
+    name = state.resolve(args.drive)
+    job = find(state.load(name)["jobs"], args.id, "job")
+    kept = state.drive_dir(name) / "reports" / f"{args.id}.md"
+    if args.file:
+        source = Path(args.file).expanduser()
+        if not source.is_file():
+            raise DriveError(f"no report file at {args.file}")
+        kept.parent.mkdir(exist_ok=True)
+        shutil.copyfile(source, kept)
+        return emit(args, str(kept), {"id": args.id, "report": str(kept)})
+    text = kept.read_text() if kept.exists() else job.get("report")
+    if not text:
+        raise DriveError(f"{args.id} kept no report; its one-line result is all it returned")
+    return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
+
+
 def keep_repro(name: str, job_id: str, source: str) -> str:
     path = Path(source).expanduser()
     if not path.is_file():
@@ -830,6 +848,19 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("file", nargs="?", help="the file holding the ASK block; default: a remote lane's latest report")
     verb.set_defaults(run=job_ask)
+    verb = job.add_parser(
+        "report",
+        parents=both,
+        help="keep a job's whole return in the drive, or print it",
+        description=(
+            "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
+            " is kept here before it returns. With a file, keep it and print where; with none, print the kept report,"
+            " or a remote lane's latest one."
+        ),
+    )
+    verb.add_argument("id")
+    verb.add_argument("file", nargs="?", help="the file holding the job's whole return; default: print the kept one")
+    verb.set_defaults(run=job_report)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
     verb.add_argument("id")
     verb.add_argument(

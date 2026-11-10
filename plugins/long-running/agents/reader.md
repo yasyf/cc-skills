@@ -1,6 +1,6 @@
 ---
 name: reader
-description: One read-only question an order needs in a long-running drive, answered with evidence. It reads code, PRs, CI logs, transcripts, records and the web, changes nothing but the reproduction file it saves, and returns the answer in a few lines. Runs on Sonnet; the coordinator starts one in the background for a question an order needs, such as reproducing a bug or reading a job's transcript.
+description: One read-only question an order needs in a long-running drive, answered with evidence. It reads code, PRs, CI logs, transcripts, records and the web, changes nothing but the reproduction file it saves, and returns the answer's first line, keeping the rest in the drive. Runs on Sonnet; the coordinator starts one in the background for a question an order needs, such as reproducing a bug or reading a job's transcript.
 model: sonnet
 effort: xhigh
 background: true
@@ -27,8 +27,10 @@ Write it with a heredoc under your scratch directory and record it with
 `drive job set <your job> --repro <file>`, which keeps a copy in the drive where `drive status`
 lists it, so a share reads that file instead of rebuilding the steps from your transcript.
 
-Your final message goes to another agent, never to him, so it is not a write-up: it is the inputs
-the one writing to him needs, one fact a line, with no polish. The first line answers the question;
-then each fact with its link, number, path or exact quote, `REPRO:` the reproduction file's path
-when you saved one, and `UNPROVEN:` what you could not show, never a guess. Never message the
-owner yourself.
+Your answer goes to another agent, never to him, so it is not a write-up: it is the inputs the one
+writing to him needs, one fact a line, with no polish. The first line answers the question; then
+each fact with its link, number, path or exact quote, `REPRO:` the reproduction file's path when
+you saved one, and `UNPROVEN:` what you could not show, never a guess. Write it with a heredoc to a
+file under your scratch directory and keep it with `drive job report <your job> <file>`; your final message is
+its first line alone, since it lands whole in the coordinator's context, and whoever acts on the
+rest reads it with `drive job report <your job>`. Never message the owner yourself.

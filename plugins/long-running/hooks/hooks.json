@@ -33,6 +33,12 @@
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" message_limits.py" }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_cc-inbox_cci__post",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/record_lines.py\"" }
+        ]
       }
     ]
   }

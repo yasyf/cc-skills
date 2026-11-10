@@ -71,12 +71,17 @@ Transcripts: <the transcript path of every earlier job on this order, so it read
 Drive: <name>, order <o>, job <j>
 ```
 
-A job's result goes to another agent, never to him, so it is never a write-up: its first line is
-`DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED`, or a design lane's `DESIGN`, and the rest is the inputs to the message he would
-get, one fact a line: links, numbers, paths, exact quotes, and what it could not prove. Only the
-handler that writes to him writes prose. His words, Nov 9 4:14 PM: "agents that are responding to
-agents shoudnt do full himan-quality write ups they just need to dump their context back … I mean
-the inputs to their would-be wriute ups".
+A job's result goes to another agent, never to him, so it is never a write-up, and it reaches the
+coordinator as one line. The job writes its whole return to a file, keeps it with `drive job report
+<j> <file>`, and returns that file's first line alone: `DONE`, `READY`, `BUILT`, `WAITING`,
+`ASK` or `BLOCKED`, or a design lane's `DESIGN`. The rest of the file is the inputs to the message he would
+get, one fact a line: links, numbers, paths, exact quotes, and what it could not prove. Whoever
+acts on it reads it with `drive job report <j>`, which prints a remote lane's Orca report the same
+way; an `ASK` keeps its block through `drive job ask` instead. Only the handler that writes to him
+writes prose. His words, Nov 9 4:14 PM: "agents that are responding to agents shoudnt do full
+himan-quality write ups they just need to dump their context back … I mean the inputs to their
+would-be wriute ups", and his pick, Nov 10 2:08 AM: "Job reports, alerts, role-to-role notes and
+CI events arrive as one line each, CI events batched per 5 minutes".
 
 - **His words, never a stand-in.** A brief's `Order` and `Decisions that bind` carry what he wrote,
   verbatim, and so does every cc-notes answer: never a paraphrase, a bot's summary, a card

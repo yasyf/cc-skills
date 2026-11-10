@@ -153,14 +153,18 @@ Write it under your scratch directory and record it with `drive job set <your jo
 which keeps a copy in the drive where `drive status` lists it, so a share reads that file
 instead of rebuilding the steps from your transcript.
 
-Your final message starts with exactly one of these lines. The lines after it are not a write-up:
-they are the inputs a handler writes his message from, one fact a line, with no polish: `PR:` the
-link, `SERVES:` `port of #N` or the order of his it carries out, quoted from your brief, `CHANGE:`
-what changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `READY`,
-each design decision the PR makes beside the answer id or card permalink of his that settled
-it, or `none`, `INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction file's
-path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
-number or path the message needs.
+Your final message is one line and nothing else, since it lands whole in the coordinator's context.
+Before it, write your whole return to a file under your scratch directory and keep it with `drive
+job report <your job> <file>`; the coordinator, or the handler it names, reads it with `drive job
+report <your job>` only when acting on it. The file's first line, and your final message, is
+exactly one of the lines below. The lines after it in the file are not a write-up: they are the
+inputs a handler writes his message from, one fact a line, with no polish: `PR:` the link,
+`SERVES:` `port of #N` or the order of his it carries out, quoted from your brief, `CHANGE:` what
+changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `READY`, each design
+decision the PR makes beside the answer id or card permalink of his that settled it, or `none`,
+`INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction file's path when you saved
+one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
+number or path the message needs. An `ASK` keeps no report: `drive job ask` keeps its block.
 
 - `DONE <proof link or one-line proof>`: live and checked.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
