@@ -288,6 +288,50 @@ def test_another_apps_queued_suite_without_check_runs_does_not_hold_the_verdict(
     assert run.done == "DONE ready-to-merge"
 
 
+SOCKET = check_run("Socket Security: Pull Request Alerts", app="socket-security")
+
+
+def just_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def test_a_fast_apps_green_check_before_any_actions_run_registers_keeps_watching(poll):
+    pushed = surface(pull(), runs=[SOCKET], suites=[check_suite(app="socket-security", created_at=just_now())])
+    run = poll(pushed, pushed)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
+def test_a_required_check_that_has_not_reported_keeps_watching(poll):
+    partial = surface(pull(), runs=[SOCKET], required=["lr-go"])
+    run = poll(partial, partial)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
+def test_a_required_check_still_running_keeps_watching(poll):
+    running = surface(
+        pull(), runs=[SOCKET, check_run("lr-go", status="in_progress", conclusion=None, run_id=2)], required=["lr-go"]
+    )
+    run = poll(running, running)
+    assert run.done is None
+
+
+def test_ready_once_the_required_check_reports_green(poll):
+    partial = surface(pull(), runs=[SOCKET], required=["lr-go"])
+    complete = surface(pull(), runs=[SOCKET, check_run("lr-go", run_id=2)], required=["lr-go"])
+    run = poll(partial, complete)
+    assert run.done == "DONE ready-to-merge"
+
+
+def test_failed_rules_read_never_reports_ready(poll):
+    blind = surface(pull())
+    blind["rules/branches/dev"] = "FAIL"
+    run = poll(blind, blind)
+    assert run.done is None
+    assert not any(line.startswith("GREEN ") for line in run.lines)
+
+
 def test_failed_check_suite_read_never_reports_ready(poll):
     blind = surface(pull())
     blind[f"commits/{HEAD}/check-suites"] = "FAIL"
