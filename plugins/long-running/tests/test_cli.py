@@ -9,6 +9,7 @@ from pathlib import Path
 
 import drive
 import pytest
+from conftest import Answers
 from drive import card, cli, github, orca, slack, state
 
 Run = Callable[..., tuple[int, str]]
@@ -403,6 +404,31 @@ def test_job_ask_refuses_a_question_over_150_words(
     block.write_text(f"ASK Which?\n{line}\n{line}\n{line}\n- Yes (recommended)\n- No\nFindings:\nmeasured\n")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "the question, summary and options are 153 words; at most 150 in all" in capsys.readouterr().err
+
+
+IDLE_RULING = {
+    "id": "ac6134849ff8a392c9f26294d4303635d1c27a58",
+    "title": "Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking\nsecond line",
+}
+
+
+def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reason_names_it(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    recorded.found = [IDLE_RULING]
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert "- ac61348 Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking" in refusal
+    assert "second line" not in refusal
+    assert recorded.asked[0].startswith("How should a finished run's files be laid out")
+    assert "SQLite" not in recorded.asked[0]
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it closes sessions, not a run's files"]) == 2
+    why = "ac61348: it closes sessions; this asks how a run's files are laid out"
+    assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["unsettled"] == why
 
 
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:

@@ -1,10 +1,11 @@
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import settled, state
 
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
@@ -31,12 +32,24 @@ def shortened(record: dict) -> dict | None:
     return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
 
 
+def unsettled(record: dict, names: list[str], cwd: str) -> str | None:
+    """Why an ask record may not go out: no kept ASK checked it, and a recorded answer of his may already settle its question."""
+    attrs = record.get("attrs") or {}
+    if (record.get("kind") or "").lower() != "ask" or settled.kept(names, attrs.get("ask")):
+        return None
+    return settled.refusal(record.get("text") or "", cwd, attrs.get("unsettled"), "the attr `unsettled` set to")
+
+
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: every record in it one line, the rest in its body for whoever acts on it."""
-    if not state.session_drives(payload.get("session_id") or ""):
+    """What a drive session's post becomes: refused while an ask in it may be settled already, else every record in it one line, the rest in its body for whoever acts on it."""
+    names = state.session_drives(payload.get("session_id") or "")
+    if not names:
         return None
     tool_input = payload["tool_input"]
     records = tool_input.get("records") or [tool_input]
+    cwd = payload.get("cwd") or os.getcwd()
+    if refused := next(filter(None, (unsettled(record, names, cwd) for record in records)), None):
+        return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     cut = [shortened(record) for record in records]
     if not any(cut):
         return None

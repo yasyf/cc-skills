@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from drive import github, limits, orca, place, render, slack, state, watch
+from drive import github, limits, orca, place, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -248,11 +248,13 @@ def job_ask(args: argparse.Namespace) -> int:
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in")
     asked = limits.question(text)
+    if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), os.getcwd(), args.unsettled, "--unsettled"):
+        raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
-        data["jobs"][args.id].update(question=str(kept), state="waiting", said=asked.title, updated=state.stamp())
+        data["jobs"][args.id].update(question=str(kept), state="waiting", said=asked.title, unsettled=args.unsettled, updated=state.stamp())
     return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
 
 
@@ -843,11 +845,16 @@ def parser() -> argparse.ArgumentParser:
             " decided, the recommendation, what happens meanwhile), two to four `- ` options of at most 25 words with"
             " exactly one ending (recommended), at most 150 words in all, in plain words, then `Findings:` with the"
             " evidence. Keep it in the drive and print its path, which the ask record carries; refuse it with every way"
-            " it is out of shape."
+            " it is out of shape, and while a recorded answer of his may already settle it."
         ),
     )
     verb.add_argument("id")
     verb.add_argument("file", nargs="?", help="the file holding the ASK block; default: a remote lane's latest report")
+    verb.add_argument(
+        "--unsettled",
+        metavar="WHY",
+        help="each recorded answer of his the refusal named, by id, and why it does not settle this question",
+    )
     verb.set_defaults(run=job_ask)
     verb = job.add_parser(
         "report",

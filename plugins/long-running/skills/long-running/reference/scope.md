@@ -46,8 +46,11 @@ Ask only what is his to decide: architecture and abstractions, scope, and his ow
 Within his orders, do everything else and report the result with a count: ports, closes,
 restarts, backfills, CI fixes, cleanups, tool fixes.
 
-- Before any question, `answer_search` his recorded answers. A question he has answered is
-  never asked again, in any wording.
+- A question he has answered is never asked again, in any wording. `drive job ask` and every `ask`
+  record check the question against his recorded answers, and refuse it with each answer that
+  may settle it, by id and first line. Read each: one that settles it is his answer, and the work
+  goes ahead on it. Only when none does, the ask goes out with `--unsettled`, or the record's
+  `unsettled` attr, naming each id and why that answer does not settle this question.
 - A trust line waits for him: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](landing.md)), posting as him to anyone else,
   changing production, and stopping or closing sessions he did not name.

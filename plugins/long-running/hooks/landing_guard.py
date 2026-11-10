@@ -6,11 +6,12 @@ import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
+from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import settled, state
 from drive.cli import tap_verdict
 
 GUARDED_OWNER = "forge-ai"
@@ -32,6 +33,10 @@ CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
+ASK_BY_TOOL = (
+    "An ask record carries the ASK `drive job ask` kept (--attr ask=<its path>), which checked it against his recorded"
+    " answers; any other ask record goes through the cci post tool, whose hook checks its question against them"
+)
 
 
 @dataclass(frozen=True)
@@ -284,10 +289,33 @@ def script_reason(script: str, shell: Shell) -> str | None:
     return None
 
 
+def asks_posted(script: str, shell: Shell) -> list[str | None]:
+    """The `ask` attr, None when it has none, of each ask record a script posts with `cci post`."""
+    posted = []
+    for segment in segments(script):
+        words, run_in = command_words(segment, shell)
+        if not words:
+            continue
+        if (inner := shell_script(words)) is not None:
+            posted += asks_posted(inner, run_in)
+        if Path(words[0]).name != "cci" or words[1:2] != ["post"]:
+            continue
+        pairs = list(pairwise(words))
+        kinds = [value for option, value in pairs if option == "--kind"] + [word.removeprefix("--kind=") for word in words if word.startswith("--kind=")]
+        if "ask" in map(str.lower, kinds):
+            posted.append(next((value.removeprefix("ask=") for option, value in pairs if option == "--attr" and value.startswith("ask=")), None))
+    return posted
+
+
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap, or merges with --admin."""
+    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap, merges with --admin, or posts a drive's ask record past the check against his answers."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
-    return script_reason(payload["tool_input"]["command"], Shell(payload.get("cwd") or os.getcwd(), env))
+    shell = Shell(payload.get("cwd") or os.getcwd(), env)
+    command = payload["tool_input"]["command"]
+    asks = asks_posted(command, shell)
+    if asks and (names := state.session_drives(payload.get("session_id") or "")) and not all(settled.kept(names, ask) for ask in asks):
+        return ASK_BY_TOOL
+    return script_reason(command, shell)
 
 
 def denial(reason: str) -> dict:
