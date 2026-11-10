@@ -83,7 +83,9 @@ brought back 25,000 characters of briefs and logs it had written, the first 20,0
    channel another session holds is not yours until that session runs `cc-slack unfollow`
    ([reference/migration.md](migration.md)).
 3. `cci drive use <name>`, then the block's `Subscribe:` line: `cci subscribe --reader communicator
-   --cursor communicator`, or `cci subscribe --reader root --cursor coordinator`. The named cursor
+   --cursor communicator`, or the coordinator's `cci subscribe --reader root --cursor coordinator`
+   with a `--to-kind` list that adds `refuse` to the kinds cci's root hears by default, so a
+   refused `ask` wakes it. The named cursor
    resumes where the role's last session stopped, so a record sent while it was down arrives now.
 4. The communicator handles each reply `cc-slack dm-owed` lists by its table: he wrote them while
    no session held his DM.

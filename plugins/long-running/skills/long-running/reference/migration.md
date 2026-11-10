@@ -18,7 +18,7 @@ communicator.
    `cc-slack unfollow <watch id>` for the watch on his DM channel with no thread, and for every `dm`
    watch on one of its threads. Those are the threads the driver posted in, and his reply there
    reaches only the session that posted, until it lets go. Keep the alert channels' watches.
-3. `cci subscribe --reader root --cursor coordinator`, which replaces the driver's subscription.
+3. The `Subscribe:` line of that block, which replaces the driver's subscription.
 4. Start the communicator in its own Orca terminal with the communicator's command in
    [Start or resume](start.md), whose `--channels` let records and his messages
    wake it. It runs Start steps 1 to 4 for its role: `drive start <name> --role communicator`,
