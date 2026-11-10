@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -520,8 +521,22 @@ def run_show(checkout: Path) -> str:
 def status(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
     pr_fields = overlay_live(data)
-    seen = {role: orca_place(held, name_show) for role, held in data["roles"].items()}
+    installed = installed_build()
+    seen = {role: with_build(orca_place(held, name_show), held, installed) for role, held in data["roles"].items()}
     return emit(args, render.status_text(data, pr_fields, seen), render.status_data(data, pr_fields, seen))
+
+
+def installed_build() -> str | None:
+    if not (claude := shutil.which("claude")):
+        return None
+    done = subprocess.run([claude, "--version"], capture_output=True, text=True, check=False, timeout=30)
+    return done.stdout.split()[0] if done.returncode == 0 and done.stdout.strip() else None
+
+
+def with_build(place: str, held: dict, installed: str | None) -> str:
+    path = watch.config_dir() / "projects" / watch.NOT_SLUG.sub("-", held["cwd"]) / f"{held['session']}.jsonl"
+    note = watch.older_build(watch.running_build(path), installed) if path.exists() else None
+    return f"{place}; {note}" if note else place
 
 
 def context(args: argparse.Namespace) -> int:

@@ -96,7 +96,12 @@ in its own words:
 Then each session runs these steps for its role. A restart, a resume and a compaction land here
 too; the `SessionStart` hook prints the role's block after a compaction.
 
-1. A live session on another model switches with `/model claude-fable-5-2` at an idle prompt.
+1. Never switch a live session's model with `/model`. A Claude Code build older than its model
+   runs it at a 200k window it does not know is wrong: on Nov 9 the communicator, on 2.1.319, ran
+   Fable 5.2 that way and compacted every 6 to 10 minutes. A session on another model, or one whose
+   line in `drive status` says its build is older than the installed one, moves into a fresh Orca
+   terminal on the installed build by [reference/migration.md](reference/migration.md#into-an-orca-terminal),
+   only on his word.
    `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
    creates the drive or binds that role to this session and its Orca terminal, and prints the
    role's block, then the role's line above. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
