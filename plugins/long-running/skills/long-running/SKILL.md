@@ -146,7 +146,7 @@ alerts, rulings, his answers and defects.
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
 | A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
-| An incident: his order with incident priority, an alert he sent in an `owner` record, or an alert in a held channel the drive's own release or change caused | [reference/incidents.md](reference/incidents.md), before anything else: in that turn a fix job whose first change stops users being blocked, a rollback job and a cause job that gates neither, the order due in 10 minutes. Any other alert gets nothing: no record, no job. |
+| An incident: his order with incident priority, an alert he sent in an `owner` record, or an alert in a held channel the drive's own release or change caused | [reference/incidents.md](reference/incidents.md), before anything else. After a release or a new build, in that turn the first check alone: how far the default branch is past the live build's commit, and whether its newest build works on a test machine, which makes releasing it the fix. Otherwise, or when that build fails too, a fix job whose first change stops users being blocked, a rollback job and a cause job that gates neither. He hears a line at least every 5 minutes until live. Any other alert gets nothing: no record, no job. |
 | A record from another session | Answer it on cci as its kind asks. |
 
 | Job result | Do |
@@ -164,7 +164,7 @@ alerts, rulings, his answers and defects.
 | `PR … closed` | Resume the job; if he closed it, the order's work on it ends. |
 | `TAP Approve …` | Resume the PR's job: land it. A stack card's Approve arrives as one `TAP Approve` per PR, bottom first; resume the job once with all of them. |
 | `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
-| `DUE o<n> …` | Read the order's job transcripts first, set the new time with `--due`, then a `report`: what is late, why, and the new time. While he is away it waits for his catch-up instead. Never call a job silent, stuck or done without reading its transcript. |
+| `DUE o<n> …` | Read the order's job transcripts first, set the new time with `--due`, then a `report`: what is late, why, and the new time. While he is away it waits for his catch-up instead, except an incident's, which goes out at once by [reference/incidents.md](reference/incidents.md). Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One `report` per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each. An order with nothing new gets no line. |
 | `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the communicator copies the card in, then `--lined` each. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then send its `ready` again. |
@@ -306,7 +306,10 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
-- Done means live and checked; say how in a few words, with the link.
+- Done means live and checked; say how in a few words, with the link. An incident line carries only
+  a step of the fix with its time, its proof on a real machine and users having it, or what is
+  running and when the next line lands, plus one cause line once a test machine reproduces it:
+  nothing unproven and no side facts about a release.
 - Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
   card with its buttons in the same thread, never a link alone. His ruling, Nov 9 1:49 PM: "Anything
   that says waiting on me you always need to embed the card with the buttons". Nothing else has
@@ -347,5 +350,9 @@ class fix whose PR deletes the earlier patches.
   cards and incident lines goes out while he is away.
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
-- Never hold, freeze, or reorder work he did not hold, freeze, or reorder.
-- Never re-derive state from memory: `drive status`, GitHub and transcripts are the truth.
+- Never hold, freeze, or reorder work he did not hold, freeze, or reorder. A build or release he
+  started is his: never cancel, retry, reorder or approve it, and start no release while it runs.
+  One of ours that must stop gets a `report` to the communicator first, then its job stops it.
+- Never re-derive state from memory or infer it: `drive status`, GitHub and transcripts are the
+  truth, and what a release carries (its PRs, the steps it runs, which build fixes what) is read
+  from that release's commit and build.

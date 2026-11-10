@@ -76,7 +76,8 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **Everything else waits for a summary.** No line per event: a job result, a merge, a CI turn or
   a promised time feeds the next summary of its thread. The watch's `TICK` comes every 30 minutes
   and names the orders with news; the coordinator sends at most one `report` per thread per tick,
-  then `drive order set <o> --lined` for each order it covered.
+  then `drive order set <o> --lined` for each order it covered. An incident is the exception: until
+  its fix is live he hears a line at least every 5 minutes, as [incidents.md](incidents.md) says.
 - **He is away** when he says he is going to sleep or stepping out (`drive heard --away`), or when
   he has written nothing for an hour. Then only cards post: PR cards and question cards that wait
   on him, and an incident line [incidents.md](incidents.md) calls for. Summaries, due-time lines
@@ -103,8 +104,11 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **Answer his next question in the same message**: why, did he already decide this, is it a
   port, what comes after, why it is held.
 - **Done means live and checked.** Say how you checked in a few words with the link. Claim
-  only what you saw; mark the rest `Unproven:`.
-- **State comes from live reads** (`drive status`, GitHub, a transcript), never from memory.
+  only what you saw; outside an incident, mark the rest `Unproven:`. An incident line carries no
+  unproven part and no side facts about a release, by [incidents.md](incidents.md).
+- **State comes from live reads** (`drive status`, GitHub, a transcript), never from memory. What a
+  release carries, such as its PRs, the steps it runs or which build fixes what, is read from that
+  release's commit and build, never inferred.
 
 ## What stays out
 
