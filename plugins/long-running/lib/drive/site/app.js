@@ -55,6 +55,9 @@ let queueFilter = 'all';
 const opened = new Map();
 const expanded = new Set();
 const answers = new Map();
+const drafts = new Map();
+const sent = new Map();
+const TYPED_MARK = '_You, on the dashboard:_ ';
 
 const $ = (selector) => document.querySelector(selector);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -162,6 +165,18 @@ function choices(item) {
   return `<div class="picks${item.kind === 'tap' ? ' row' : ''}">${buttons.join('')}</div>${failed}`;
 }
 
+function sayBox(key, under, placeholder, about = '') {
+  const was = sent.get(key);
+  const note = was?.busy ? '<span class="meta">Sending…</span>'
+    : was?.error ? `<span class="refused">Not sent: ${esc(was.error)}</span>`
+    : was?.at ? `<span class="meta">✓ Sent ${clock(was.at)}. The drive has it, and your DM shows it.</span>` : '';
+  return `<form class="say" data-say="${esc(key)}" data-under="${esc(under)}" data-about="${esc(about)}" data-placeholder="${esc(placeholder)}">
+    <textarea data-draft="${esc(key)}" rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}"${was?.busy ? ' disabled' : ''}>${esc(drafts.get(key) ?? '')}</textarea>
+    <button class="btn"${was?.busy ? ' disabled' : ''}>Send</button>
+    ${note}
+  </form>`;
+}
+
 function pictures(paths) {
   return paths?.length ? `<div class="pics">${paths.map((path) => `<a href="/api/picture?path=${encodeURIComponent(path)}" target="_blank" rel="noopener"><img loading="lazy" src="/api/picture?path=${encodeURIComponent(path)}" alt=""></a>`).join('')}</div>` : '';
 }
@@ -187,6 +202,7 @@ function questionCard(item) {
       ${figures}
       ${links ? `<div class="links">${links}</div>` : ''}
       ${choices(item)}
+      ${sayBox(`q:${item.answer}`, item.answer, 'Reply, or tell Claude something else')}
     </div>
   </article>`;
 }
@@ -208,7 +224,7 @@ function tapCard(item) {
   if (!item.card) {
     return `<article class="item tap bare">
       <span class="label">${LABEL.tap}</span>
-      <div class="body"><h3>${link(item.title, item.url)}</h3><div class="meta">${esc(item.detail)}</div></div>
+      <div class="body"><h3>${link(item.title, item.url)}</h3><div class="meta">${esc(item.detail)}</div>${sayBox(`r:${prKey(item.url)}`, '', 'Tell Claude what to change', `About ${item.url}`)}</div>
     </article>`;
   }
   const card = item.card;
@@ -220,6 +236,7 @@ function tapCard(item) {
       ${card.body ? fold(`b:${item.answer}`, prose(card.body), 3) : ''}
       ${(card.prs ?? []).map((pr, _, all) => prRow(pr, item.answer, all.length === 1)).join('')}
       ${choices(item)}
+      ${sayBox(`t:${item.answer}`, item.answer, 'Tell Claude what to change')}
     </div>
   </article>`;
 }
@@ -227,7 +244,7 @@ function tapCard(item) {
 function lateCard(item) {
   return `<article class="item late">
     <span class="label">${LABEL.late}</span>
-    <div class="body"><h3>${esc(item.title)}</h3><div class="meta">${esc(waited(item))}</div>${item.detail ? `<p class="said">${esc(item.detail)}</p>` : ''}</div>
+    <div class="body"><h3>${esc(item.title)}</h3><div class="meta">${esc(waited(item))}</div>${item.detail ? `<p class="said">${esc(item.detail)}</p>` : ''}${item.url ? sayBox(`l:${item.url}`, item.url, 'Ask where it is, or change it') : ''}</div>
   </article>`;
 }
 
@@ -275,8 +292,13 @@ function reviewCard(entry) {
       <div class="meta">${esc(entry.detail)}${entry.since ? ` · waiting ${ago(entry.since)}` : ''}</div>
       ${rows}
       ${card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : ''}
+      ${changeBox(entry)}
     </div>
   </article>`;
+}
+
+function changeBox(entry) {
+  return sayBox(`r:${entry.key}`, entry.answer ?? '', 'Tell Claude what to change', entry.answer ? '' : `About ${entry.url}`);
 }
 
 function reviewScreen(tab) {
@@ -348,6 +370,7 @@ async function openPR(key) {
     <div class="dr-body">
       <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
       ${answerable}
+      ${entry ? changeBox(entry) : ''}
       <div class="dr-tabs"><button class="on" data-drtab="body">Description</button><button data-drtab="diff">Changes</button></div>
       <div class="dr-pane" data-pane="body">${prose(pr.body)}</div>
       <div class="dr-pane" data-pane="diff" hidden>${diffHtml(pr.diff)}${more}</div>
@@ -383,6 +406,7 @@ function chatScreen(tab) {
     <div>
       <h1 class="h1">Chat <span class="count">your asks, and what came back</span></h1>
       ${owed ? `<a class="owed" href="#/queue/late">${owed} ${owed === 1 ? 'thing' : 'things'} owed to you</a>` : ''}
+      ${sayBox('new', '', 'What would you like done?')}
       <div class="subtabs">${tabs}</div>
       <ul class="asks card">${model.asks.filter(keep).map(askRow).join('') || '<li class="empty">Nothing here.</li>'}</ul>
     </div>
@@ -397,9 +421,11 @@ function slackTime(ts) {
 function message(said, waiting) {
   const item = waiting.get(said.ts);
   const buttons = item ? choices(item) : said.buttons?.length ? `<div class="chips">${said.buttons.map((label) => `<span class="chip settled">${esc(label)}</span>`).join('')}</div>` : '';
-  return `<div class="msg${said.from_claude ? '' : ' you'}">
-    <div class="who">${said.from_claude ? esc(said.user_name) : 'You'} · ${slackTime(said.ts)}</div>
-    <div class="said-text">${prose(said.text)}</div>
+  const typed = said.from_claude && said.text.startsWith(TYPED_MARK);
+  const who = typed ? 'You, on the dashboard' : said.from_claude ? esc(said.user_name) : 'You';
+  return `<div class="msg${said.from_claude && !typed ? '' : ' you'}">
+    <div class="who">${who} · ${slackTime(said.ts)}</div>
+    <div class="said-text">${prose(typed ? said.text.slice(TYPED_MARK.length) : said.text)}</div>
     ${buttons}
   </div>`;
 }
@@ -420,7 +446,9 @@ async function openAsk(id) {
   }
   const waiting = new Map(model.queue.filter((item) => item.answer).map((item) => [item.answer.match(/\/p(\d+)(\d{6})(?:\?|$)/).slice(1).join('.'), item]));
   const messages = thread.messages.filter((said) => said.ts !== ask.thread);
-  drawer.innerHTML = `${head}<div class="dr-body">${words}<div class="thread">${messages.map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has come back in this thread yet.</p>'}</div></div>`;
+  const open = !['done', 'dropped'].includes(ask.state);
+  const gotIt = open && messages.some((said) => said.from_claude) ? `<button class="btn" data-gotit="a:${esc(ask.id)}" data-under="${esc(ask.url)}">Got it</button>` : '';
+  drawer.innerHTML = `${head}<div class="dr-body">${words}<div class="thread">${messages.map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has come back in this thread yet.</p>'}</div>${gotIt}${sayBox(`a:${ask.id}`, ask.url, 'Reply')}</div>`;
 }
 
 function features() {
@@ -681,7 +709,14 @@ function render() {
   $('#findbar').hidden = !['status', 'chat'].includes(screen);
   $('#find').placeholder = screen === 'chat' ? 'Search your asks' : 'Find a feature or pull request';
   const y = window.scrollY;
+  const typing = document.activeElement?.matches?.('#main textarea[data-draft]') ? document.activeElement : null;
+  const caret = typing && [typing.dataset.draft, typing.selectionStart, typing.selectionEnd];
   $('#main').innerHTML = (screens[screen] ?? queueScreen)();
+  const box = caret && document.querySelector(`#main textarea[data-draft="${CSS.escape(caret[0])}"]`);
+  if (box && !box.disabled) {
+    box.focus({ preventScroll: true });
+    box.setSelectionRange(caret[1], caret[2]);
+  }
   if ($('#jump').open) drawJump();
   window.scrollTo(0, y);
   if (['status', 'chat'].includes(screen)) find();
@@ -712,6 +747,28 @@ async function answer(card, label) {
   const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.picks');
   shown?.nextElementSibling?.classList.contains('refused') && shown.nextElementSibling.remove();
   if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
+}
+
+function redrawBoxes(key) {
+  render();
+  for (const box of document.querySelectorAll(`#drawer form[data-say="${CSS.escape(key)}"]`)) box.outerHTML = sayBox(key, box.dataset.under, box.dataset.placeholder, box.dataset.about);
+  for (const button of document.querySelectorAll(`#drawer button[data-gotit="${CSS.escape(key)}"]`)) button.hidden = Boolean(sent.get(key)?.at);
+}
+
+async function say(key, under, words, about) {
+  if (!words.trim() || sent.get(key)?.busy) return;
+  sent.set(key, { busy: true });
+  redrawBoxes(key);
+  try {
+    const reply = await fetch('/api/say', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: about ? `${about}: ${words.trim()}` : words.trim(), under }) });
+    const said = await reply.json();
+    if (!reply.ok) throw new Error(said.error);
+    drafts.delete(key);
+    sent.set(key, { at: new Date().toISOString() });
+  } catch (error) {
+    sent.set(key, { error: error.message });
+  }
+  redrawBoxes(key);
 }
 
 let heard = null;
@@ -762,7 +819,19 @@ document.addEventListener('toggle', (event) => {
   const id = event.target.dataset?.group;
   if (id) opened.set(id, event.target.open);
 }, true);
+document.addEventListener('input', (event) => {
+  const box = event.target.closest('textarea[data-draft]');
+  if (box) drafts.set(box.dataset.draft, box.value);
+});
+document.addEventListener('submit', (event) => {
+  const form = event.target.closest('form[data-say]');
+  if (!form) return;
+  event.preventDefault();
+  say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about);
+});
 document.addEventListener('click', (event) => {
+  const gotIt = event.target.closest('button[data-gotit]');
+  if (gotIt) return say(gotIt.dataset.gotit, gotIt.dataset.under, 'Got it', '');
   const pick = event.target.closest('button[data-card]');
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
@@ -804,6 +873,11 @@ window.addEventListener('hashchange', () => {
   render();
 });
 document.addEventListener('keydown', (event) => {
+  const box = event.target.closest?.('textarea[data-draft]');
+  if (box && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+    event.preventDefault();
+    return box.form.requestSubmit();
+  }
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
     return openJump();
