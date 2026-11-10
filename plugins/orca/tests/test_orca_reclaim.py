@@ -1399,5 +1399,132 @@ class RepoValuesTest(unittest.TestCase):
             self.assertEqual(self.cc_remote(Path(tmp)), ["cc-remote", None])
 
 
+
+def lane_trees(count: int) -> tuple[list[str], FakeOrca, FakeGit]:
+    trees = [f"{WT}-{n}" for n in range(count)]
+    terminals = {tree: [orca_gc.Terminal(f"term_ctx_{n}", "claude", "✳ lane", 0)] for n, tree in enumerate(trees)}
+    return trees, FakeOrca([row(f"ctx_{n}", worktree=tree) for n, tree in enumerate(trees)], terminals=terminals), FakeGit({tree: checkout(tree) for tree in trees})
+
+
+def bounded_gc(orca, git, dispatches: set[str], budget: orca_gc.Budget, recorded: list[str]) -> tuple[dict, str]:
+    out = io.StringIO()
+    tally = orca_gc.gc("run_x", dispatches, False, orca, git, FakeCcRemote(), UNPAUSED, out, budget=budget, record=recorded.extend)
+    return dict(tally), out.getvalue()
+
+
+class BoundedPassTest(unittest.TestCase):
+    def setUp(self):
+        state = tempfile.TemporaryDirectory()
+        self.addCleanup(state.cleanup)
+        self.state = Path(state.name)
+        patched = mock.patch.object(orca_gc, "REMOVING", self.state / "remove.lock")
+        patched.start()
+        self.addCleanup(patched.stop)
+
+    def test_a_pass_removes_three_trees_and_leaves_the_rest_first_in_line(self):
+        trees, orca, git = lane_trees(5)
+        recorded: list[str] = []
+        tally, out = bounded_gc(orca, git, {f"ctx_{n}" for n in range(5)}, orca_gc.Budget(), recorded)
+        removed = {call[1] for call in orca.calls if call[0] == "remove"}
+        self.assertEqual((tally, len(removed)), ({"removed": 3, "keep": 2, "closed": 2}, 3))
+        self.assertIn(orca_gc.DEFERRED_REMOVAL, out)
+        self.assertEqual(set(recorded), {f"ctx_{trees.index(tree)}" for tree in removed})
+
+    def test_a_held_removal_lock_leaves_the_tree_and_still_closes_its_terminal(self):
+        _, orca, git = lane_trees(1)
+        orca_gc.REMOVING.parent.mkdir(parents=True, exist_ok=True)
+        with orca_gc.REMOVING.open("w") as held:
+            orca_gc.fcntl.flock(held, orca_gc.fcntl.LOCK_EX)
+            tally, _ = bounded_gc(orca, git, {"ctx_0"}, orca_gc.Budget(), [])
+        self.assertEqual((tally, orca.calls), ({"keep": 1, "closed": 1}, [("close", "term_ctx_0")]))
+
+    def test_closes_stop_at_the_cap_and_only_closed_dispatches_are_recorded(self):
+        orca = FakeOrca([row("ctx_a"), row("ctx_b", worktree=WT2)], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)], WT2: [orca_gc.Terminal("term_ctx_b", "claude", "✳ lane", 0)]})
+        recorded: list[str] = []
+        tally, out = bounded_gc(orca, FakeGit({WT: checkout(dirty=True), WT2: checkout(WT2, dirty=True)}), {"ctx_a", "ctx_b"}, orca_gc.Budget(closes=1), recorded)
+        self.assertEqual((tally, len([call for call in orca.calls if call[0] == "close"])), ({"keep": 3, "closed": 1}, 1))
+        self.assertIn(orca_gc.DEFERRED_CLOSE, out)
+        closed = next(call[1] for call in orca.calls if call[0] == "close").removeprefix("term_")
+        self.assertEqual(set(recorded), {closed})
+
+    def test_a_removed_tree_is_recorded_before_the_pass_ends(self):
+        orca = FakeOrca([row("ctx_a")], terminals={WT: [orca_gc.Terminal("term_ctx_a", "claude", "✳ lane", 0)]})
+        seen: list[list[tuple[str, ...]]] = []
+        orca_gc.gc("run_x", {"ctx_a"}, False, orca, FakeGit({WT: checkout()}), FakeCcRemote(), UNPAUSED, io.StringIO(), budget=orca_gc.Budget(), record=lambda swept: seen.append(list(orca.calls)))
+        self.assertEqual(seen[0], [("remove", WT)])
+
+    def test_due_takes_unswept_dispatches_newest_first_then_the_longest_swept(self):
+        workers = [orca_gc.Worker.of(row(dispatch)) for dispatch in ("ctx_a", "ctx_b", "ctx_c", "ctx_d")]
+        workers.append(orca_gc.Worker.of(row("ctx_live", status="dispatched")))
+        self.assertEqual(orca_gc.due(workers, ["ctx_c", "ctx_a"]), ["ctx_b", "ctx_d", "ctx_c", "ctx_a"])
+
+    def test_the_ledger_moves_a_swept_dispatch_to_the_end(self):
+        ledger = orca_gc.Swept(self.state / "swept-all.json")
+        ledger.record(["ctx_a", "ctx_b"])
+        ledger.record(["ctx_a"])
+        self.assertEqual(ledger.read(), ["ctx_b", "ctx_a"])
+
+    def test_a_slow_read_stops_every_later_orca_call(self):
+        orca = orca_gc.Orca()
+        orca.bounded = True
+        answered = subprocess.CompletedProcess([], 0, stdout='{"ok": true, "result": {}}', stderr="")
+        with mock.patch.object(orca_gc.subprocess, "run", return_value=answered), mock.patch.object(orca_gc.time, "monotonic", side_effect=[0.0, 30.0, 0.0, 10.0]):
+            orca.call("terminal", "close", "--terminal", "term_a")
+            self.assertIsNone(orca.slowed)
+            orca.call("terminal", "list")
+            with self.assertRaises(orca_gc.OrcaSlow):
+                orca.call("terminal", "list")
+
+    def test_a_slow_pass_backs_off_and_the_next_one_waits(self):
+        class Slow(orca_gc.Orca):
+            def call(self, *args: str) -> dict:
+                raise orca_gc.OrcaSlow("orca terminal list took 9.0 s")
+
+        backoff = orca_gc.Backoff(self.state / "backoff.json")
+        out = io.StringIO()
+        orca_gc.sweep(None, True, False, Slow(), FakeGit({}), FakeCcRemote(), UNPAUSED, out, backoff)
+        orca_gc.sweep(None, True, False, Slow(), FakeGit({}), FakeCcRemote(), UNPAUSED, out, backoff)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(lines[0], "stopped: orca terminal list took 9.0 s; the next pass waits 15 minutes")
+        self.assertTrue(lines[1].startswith("backing off: Orca was slow"))
+
+    def test_a_backoff_doubles_up_to_its_cap(self):
+        backoff = orca_gc.Backoff(self.state / "backoff.json")
+        self.assertEqual([backoff.extend(0) for _ in range(6)], [900, 1800, 3600, 7200, 14400, 14400])
+
+    def test_every_run_refuses_an_answer_scoped_to_one_run(self):
+        orca = RecordingOrca({"ok": True, "result": {"workers": [], "page": {}, "scope": {"run": "run_x", "source": "binding"}}})
+        with self.assertRaises(RuntimeError):
+            orca.workers(None)
+
+    def test_runs_with_a_live_coordinator_or_named_in_config_are_skipped(self):
+        class Runs(FakeOrca):
+            def runs(self) -> list[dict]:
+                return [{"id": "run_a", "coordinator_handle": "term_live"}, {"id": "run_b", "coordinator_handle": "term_gone"}, {"id": "run_unbound"}, {"id": "run_c", "legacy": 1}, {"id": "run_skip"}]
+
+        configured = subprocess.CompletedProcess([], 0, stdout="run_skip\n", stderr="")
+        with mock.patch.object(orca_gc.subprocess, "run", return_value=configured):
+            skipped = orca_gc.skipped_runs(Runs([]), [orca_gc.Terminal("term_live", "claude", "", 0)])
+        self.assertEqual(skipped, {"run_a", "run_unbound", "run_c", "run_skip"})
+
+    def test_only_an_empty_quiet_shell_away_from_agents_and_live_lanes_is_closed(self):
+        old = NOW - orca_gc.SHELL_QUIET_MS - 1
+        terminals = [
+            orca_gc.Terminal("term_empty", None, "", old, worktree=WT),
+            orca_gc.Terminal("term_beside_agent", None, "", old, worktree=WT2),
+            orca_gc.Terminal("term_agent", "claude", "", old, worktree=WT2),
+            orca_gc.Terminal("term_recent", None, "", NOW, worktree=WT),
+            orca_gc.Terminal("term_busy", None, "", old, worktree=WT),
+            orca_gc.Terminal("term_live_lane", None, "", old, worktree="/w/repo/live"),
+            orca_gc.Terminal("term_beside_live_lane", None, "", old, worktree="/w/repo/live-tree"),
+        ]
+        bearers = {"term_empty": ["1"], "term_beside_agent": ["2"], "term_agent": ["3"], "term_recent": ["4"], "term_busy": ["5"], "term_live_lane": ["6"], "term_beside_live_lane": ["7"]}
+        live = [orca_gc.Worker.of(row("ctx_live", status="dispatched", terminal="term_live_lane", worktree="/w/repo/other")), orca_gc.Worker.of(row("ctx_tree", status="dispatched", worktree="/w/repo/live-tree"))]
+        orca = FakeOrca([])
+        with mock.patch.object(orca_gc, "terminal_processes", return_value=bearers), mock.patch.object(orca_gc, "empty_shells", return_value={"1", "2", "4", "6", "7"}):
+            tally = orca_gc.shells(terminals, live, False, orca, FakeGit({}), UNPAUSED, orca_gc.Budget(), io.StringIO())
+        self.assertEqual((dict(tally), orca.calls), ({"closed": 1}, [("close", "term_empty")]))
+
+
 if __name__ == "__main__":
     unittest.main()
