@@ -168,8 +168,10 @@ cc-slack draw one card at his DM root for the stack those PRs form (`drive card`
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
 them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
-The line in his thread is followed by `cc-slack card-copy` of the card, so that thread carries its
-buttons. Each PR on it gets its own section, opened by its title, link and Open
+The same call puts a copy of the card under the line in his thread, so that thread carries its
+buttons with no `card-copy`. The call's `card_permalink` names the card and its `permalink` only
+the line; when the card command gives a PR no card, the call fails with its reason and posts
+nothing. Each PR on it gets its own section, opened by its title, link and Open
 button, then its Refresher, its biggest surprise, what he will hate most, where it stands and what
 it waits on only when that is not green and his tap, how it differs from the plan when it does, and
 its Show me with its pictures inline. A stack card's title and opening summary come from `## The
