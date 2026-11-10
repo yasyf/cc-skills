@@ -40,7 +40,8 @@ you built up.
    TypeScript check goes to CI.
 4. Open the PR the repository's way (its own submit wrapper if it has one, otherwise the
    `open-pr` skill), with the body sections the PR card reads under these exact headings,
-   detailed in the landing reference of the long-running skill: `## The stack`, the
+   detailed in the landing reference of the long-running skill, which `drive manual landing`
+   prints and a remote lane's brief carries whole: `## The stack`, the
    stack's title and summary, on a stack's bottom PR; `## Refresher`, for someone who
    knows the codebase but has not read this code lately; `## Biggest surprise`;
    `## What you'll hate most`; `## Show me`, a concrete example (the real SQL, code or call
@@ -74,7 +75,7 @@ jobs' transcripts the brief lists only for what the event needs.
 
 - A failing check: read its log, fix, push. A review: answer or fix every finding; a non-critical
   bot finding you judge wrong gets a one-line reply saying why. Then return as step 6 says.
-- His tap to land: land it by the landing reference for its repository.
+- His tap to land: land it by the landing reference for its repository, `drive manual landing`.
 - A merge: install or deploy it and prove it live with the brief's `INSTALL:` and `PROVE:` lines.
   Done means the owner can see it working, not that it merged. Remove the worktree once it is
   merged; leave nothing running behind you.
