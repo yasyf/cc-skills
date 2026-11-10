@@ -76,9 +76,9 @@ def test_github_pass_emits_one_line_per_change_and_stores_fields(demo: str, monk
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks="SUCCESS", reviewDecision="APPROVED")})
     lines = watch.run_pass(watcher(demo), T0)
     assert lines == [
-        f'PR {KEY} "Fix: the watch": new head bbbbbbb [o1 j1]',
-        f'PR {KEY} "Fix: the watch": checks passed [o1 j1]',
-        f'PR {KEY} "Fix: the watch": approved [o1 j1]',
+        f'PR {KEY}: new head bbbbbbb [o1 j1]',
+        f'PR {KEY}: checks passed [o1 j1]',
+        f'PR {KEY}: approved [o1 j1]',
     ]
     pr = state.load(demo)["prs"][KEY]
     assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
@@ -92,7 +92,7 @@ def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) 
 def test_merge_is_reported_and_the_pr_leaves_the_read_set(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = serve(monkeypatch, {KEY: read(state="MERGED", mergeCommit="ccc333")})
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f'PR {KEY} "Fix: the watch": merged [o1 j1]']
+    assert watch.run_pass(watching, T0) == [f'PR {KEY}: merged [o1 j1]']
     assert state.load(demo)["prs"][KEY]["merged_sha"] == "ccc333"
     watch.run_pass(watching, T0 + timedelta(seconds=61))
     assert calls == [[KEY]]
@@ -592,9 +592,9 @@ def test_a_remote_lane_is_judged_by_its_dispatch(shown: dict, gap: str | None) -
 def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {KEY: read(checks="FAILURE")})
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f'PR {KEY} "Fix: the watch": checks failed [o1 j1]']
+    assert watch.run_pass(watching, T0) == [f'PR {KEY}: checks failed [o1 j1]']
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'PR {KEY} "Fix: the watch": still red for 30 minutes [o1 j1]']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'PR {KEY}: still red for 30 minutes [o1 j1]']
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=301)) == []
@@ -615,7 +615,7 @@ def test_a_red_pr_is_said_again_on_each_change_and_only_then(
     serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    pr = f'PR {KEY} "Fix: the watch":'
+    pr = f'PR {KEY}:'
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} still red for 30 minutes [o1 j1]"]
     with state.edit(demo) as data:
         change(reads, data)
@@ -650,7 +650,7 @@ def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_h
     asking(monkeypatch, demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=32)) == [f"FREE {KEY} j1 o1: demo:j1-7-b answered or done, nothing else holds it"]
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=33)) == []
-    pr = f'PR {KEY} "Fix: the watch": green and approved with no card drawn for'
+    pr = f"PR {KEY}: green and approved with no card drawn for"
     assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == [f"{pr} 30 minutes [o1 j1]"]
 
 
@@ -661,7 +661,7 @@ def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_end
     serve(monkeypatch, {KEY: read(checks="FAILURE")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    pr = f'PR {KEY} "Fix: the watch":'
+    pr = f"PR {KEY}:"
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} still red for 30 minutes, waiting on j2 [o1 j1]"]
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=90)) == []
     with state.edit(demo) as data:
@@ -738,7 +738,7 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
-        f'PR {KEY} "Fix: the watch": green and approved with no card drawn for 30 minutes [o1 j1]'
+        f'PR {KEY}: green and approved with no card drawn for 30 minutes [o1 j1]'
     ]
 
 
@@ -747,7 +747,7 @@ def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_but_its_changes_ar
     reads = {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")}
     serve(monkeypatch, reads)
     watching = watcher(demo)
-    pr = f'PR {KEY} "Fix: the watch":'
+    pr = f'PR {KEY}:'
     assert watch.run_pass(watching, T0) == [f"{pr} checks passed [o1 j1]", f"{pr} approved [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
@@ -780,12 +780,12 @@ def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo:
     serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    still = f'PR {KEY} "Fix: the watch": still red for'
+    still = f'PR {KEY}: still red for'
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{still} 30 minutes [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=90)) == []
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=247)) == []
     reads[KEY] = read(checks="FAILURE", headRefOid="bbbbbbb222")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=250)) == [f'PR {KEY} "Fix: the watch": new head bbbbbbb [o1 j1]', f"{still} 250 minutes [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=250)) == [f'PR {KEY}: new head bbbbbbb [o1 j1]', f"{still} 250 minutes [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
     with state.edit(demo) as data:
         data["prs"][KEY]["tap"] = None
@@ -812,3 +812,38 @@ def test_unknown_model_flags_only_a_build_without_the_model(tmp_path: Path) -> N
     assert watch.unknown_model("2.1.321", "claude-fable-5-2", tmp_path) is None
     assert watch.unknown_model("2.1.319", "claude-opus-5-5", tmp_path) is None
     assert watch.unknown_model("2.1.400", "claude-fable-5-2", tmp_path) is None
+
+
+def test_lines_that_wait_go_out_together_once_every_five_minutes_and_taps_go_at_once(demo: str) -> None:
+    watching = watcher(demo)
+    first = f"PR {KEY}: checks passed [o1 j1]"
+    assert watch.delivered(watching, [first], T0) == [first]
+    held = [f"PR {KEY}: approved [o1 j1]", 'ORPHAN o1 "ship": no job']
+    assert watch.delivered(watching, held[:1], T0 + timedelta(minutes=1)) == []
+    assert watch.delivered(watching, held[1:], T0 + timedelta(minutes=4)) == []
+    tap = f"TAP Approve {KEY} [o1 j1]"
+    assert watch.delivered(watching, [tap], T0 + timedelta(minutes=4, seconds=5)) == [tap, *held]
+    merged = f"PR {KEY}: merged [o1 j1]"
+    assert watch.delivered(watching, [merged], T0 + timedelta(minutes=6)) == []
+    assert watch.delivered(watching, [], T0 + timedelta(minutes=9, seconds=5)) == [merged]
+    assert watch.delivered(watching, [], T0 + timedelta(minutes=20)) == []
+
+
+def test_promised_times_lane_reports_and_his_return_never_wait(demo: str) -> None:
+    watching = watcher(demo)
+    assert watch.delivered(watching, [f"PR {KEY}: checks failed [o1 j1]"], T0)
+    urgent = [
+        'DUE o1 "ship" was due 10:00 AM: no line in its thread since 9:00 AM',
+        "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
+        'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
+        "EVENT catch-up thread=1.2 orders=o1",
+        "EVENT unheard question=Which? pick=Yes",
+    ]
+    for line in urgent:
+        assert watch.delivered(watching, [line], T0 + timedelta(minutes=1)) == [line]
+
+
+def test_lines_held_when_the_watch_stops_are_delivered_by_the_next_watch(demo: str) -> None:
+    state.save_held_lines(demo, [f"PR {KEY}: approved [o1 j1]"])
+    restarted = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, held=state.held_lines(demo))
+    assert watch.delivered(restarted, [], T0) == [f"PR {KEY}: approved [o1 j1]"]

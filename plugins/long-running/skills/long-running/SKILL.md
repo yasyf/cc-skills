@@ -19,7 +19,7 @@ the user early and often".
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
   and nothing else; cc-slack has put the eyes on his message by then. The handler reads what it
   needs, does the work or hands it to the coordinator, answers him itself in his thread, and
-  returns a pointer: its permalinks and at most three lines. Reports, cards, due lines,
+  returns one line: its permalinks and at most three facts. Reports, cards, due lines,
   drafts and `check-post` all run in handlers, so his next message never sits behind the
   communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
   job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to

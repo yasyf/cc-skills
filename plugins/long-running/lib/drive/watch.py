@@ -18,6 +18,8 @@ FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
+BATCH_EVERY = timedelta(minutes=5)
+AT_ONCE = ("TAP ", "DUE ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ")
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -44,6 +46,8 @@ class Watcher:
     page_shape: str | None = None
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
+    held: list[str] = field(default_factory=list)
+    printed_at: datetime | None = None
 
 
 def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetime) -> list[str]:
@@ -95,8 +99,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)
-            title = cut(pr["title"], 120)
-            lines.extend(f'PR {key} "{title}": {change} {ids(pr)}' for change in changes)
+            lines.extend(f"PR {key}: {change} {ids(pr)}" for change in changes)
     return lines
 
 
@@ -651,6 +654,17 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     return [LINE_BREAKS.sub(" ", line)[:LINE_LIMIT] for line in lines]
 
 
+def delivered(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
+    """What the coordinator hears from this pass: taps, promised times, lane reports, a dead lane, his return and his late answer at once; every other line waits so they arrive together at most once every five minutes, and goes out with anything that goes sooner."""
+    now = [line for line in lines if line.startswith(AT_ONCE)]
+    held = watcher.held + [line for line in lines if not line.startswith(AT_ONCE)]
+    if not now and (not held or watcher.printed_at and moment - watcher.printed_at < BATCH_EVERY):
+        watcher.held = held
+        return []
+    watcher.held, watcher.printed_at = [], moment
+    return now + held
+
+
 def alive(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -686,13 +700,15 @@ def main(drive_name: str | None = None) -> int:
         return 0
     if not claim(name):
         return 0
-    watcher = Watcher(name, offset=state.watch_cursor(name), ticked_at=state.now())
+    watcher = Watcher(name, offset=state.watch_cursor(name), ticked_at=state.now(), held=state.held_lines(name))
     state.save_watch_cursor(name, watcher.offset)
     try:
         while True:
-            read_from = watcher.offset
-            for line in run_pass(watcher, state.now()):
+            read_from, held, moment = watcher.offset, watcher.held, state.now()
+            for line in delivered(watcher, run_pass(watcher, moment), moment):
                 print(line, flush=True)
+            if watcher.held != held:
+                state.save_held_lines(name, watcher.held)
             if watcher.offset != read_from:
                 state.save_watch_cursor(name, watcher.offset)
             time.sleep(POLL_SECONDS)

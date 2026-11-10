@@ -410,6 +410,24 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / "j1.md"))
 
 
+def test_job_report_keeps_a_jobs_whole_return_and_prints_it_back(run: Run, demo: str, tmp_path: Path, state_root: Path) -> None:
+    run("order", "add", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    assert run("job", "report", "j1")[0] == 2
+    whole = tmp_path / "return.md"
+    whole.write_text("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n")
+    assert run("job", "report", "j1", str(whole)) == (0, str(state_root / "demo" / "reports" / "j1.md"))
+    assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
+
+
+def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
+    run("order", "add", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship", "--remote")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["report"] = "DONE installed 1.0.76\nCHECK: drive --version"
+    assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\nCHECK: drive --version")
+
+
 @pytest.fixture(autouse=True)
 def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
     pr = {
@@ -890,4 +908,3 @@ def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run)
     assert len(skill) < 8_000
     code, out = run("manual", "jobs")
     assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
-

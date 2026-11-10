@@ -37,7 +37,7 @@ COMMUNICATOR_RULES = (
     (
         "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
         " deliverable and any path you know that answers it; never retype rules, since the handler's agent"
-        " definition is its standing brief, and a handler's return is its permalinks and at most three lines."
+        " definition is its standing brief, and a handler's return is one line: its permalinks and at most three facts."
     ),
     (
         "After a compaction or a restart, your first call is the ToolSearch below; then one handler posts a line in"
