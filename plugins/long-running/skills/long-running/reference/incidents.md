@@ -101,10 +101,10 @@ also sends him a line in that turn, before he asks: what is late and the new tim
     sand-next --env core-usw2-auto --commit <sha> --emergency`, since Platy refuses a commit off `dev`.
 
   Every other form is in the monorepo `release` skill.
-- The incident order's words approve its own release's gate and its rollback, and only those: the job
-  that starts the release answers the gate with `--order <the answer id>`, or `tools/ci release
-  approve <id> --via <agent>` where it holds at approve. Every other release follows
-  [landing.md](landing.md).
+- The incident order's words approve its own release's gate and its rollback: the job that starts
+  the release answers the gate with `--order <the answer id>`, or `tools/ci release approve <id>
+  --via <agent>` where it holds at approve. Any other release he ordered or picked is approved the
+  same way, by his own order, as [landing.md](landing.md) says.
 - A build or release he started is his: never cancel, retry, reorder or approve it, and start no other
   release while it runs. When its commit carries the fix, its steps are the lines he gets. One of ours
   that must stop gets a `report` to the communicator first, then its job stops it.
@@ -128,8 +128,9 @@ time, its proof on a real machine, or one line of what is running and when the n
 Nothing else reaches him but the one cause line below, and a link appears once, inline, where the
 sentence names the thing it points at.
 
-- No "not proven" or "unproven" paragraph, and no side facts about a release, such as what else it
-  applies, its counts or its parts. An unknown is a job's: the job returns it to the coordinator as an
+- No "not proven" or "unproven" paragraph under any label, as in every line to him by
+  [messages.md](messages.md), and no side facts about a release, such as what else it applies, its
+  counts or its parts. An unknown is a job's: the job returns it to the coordinator as an
   input, and he gets its result or nothing. This binds the communicator, its handlers and any reader
   that posts for it. His ruling, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst
   fucking fix the actual isue".

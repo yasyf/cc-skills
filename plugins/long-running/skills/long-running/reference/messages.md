@@ -116,9 +116,12 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **Numbers over adjectives.** "129 of 476 passed, up from 100" beats "much better".
 - **Answer his next question in the same message**: why, did he already decide this, is it a
   port, what comes after, why it is held.
-- **Done means live and checked.** Say how you checked in a few words with the link. Claim
-  only what you saw; outside an incident, mark the rest `Unproven:`. An incident line carries no
-  unproven part and no side facts about a release, by [incidents.md](incidents.md).
+- **Done means live and checked.** Say how you checked in a few words with the link. A line to
+  him says what was observed, with its proof's link, and never lists what is not proven, under any
+  label: "unproven", "not proven yet", "not seen working yet", "unverified", "untested". Each unknown
+  gets a job, and he gets its result or nothing. A job's `UNPROVEN:` list is the coordinator's input,
+  never copy for him. His words, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst fucking fix the actual isue". An incident line also carries no side
+  facts about a release, by [incidents.md](incidents.md).
 - **State comes from live reads** (`drive status`, GitHub, a transcript), never from memory. What a
   release carries, such as its PRs, the steps it runs or which build fixes what, is read from that
   release's commit and build, never inferred.

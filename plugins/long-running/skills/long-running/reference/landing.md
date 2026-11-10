@@ -116,11 +116,14 @@ Merged is not live. Before `DONE`, prove it. A plugin or tool's installed versio
 a compiled tool's local build of the merge sha reruns the case, as step 3 for yasyf/* repositories says.
 A monorepo change's release is live on the targets it touches, shown by its card in #releases. Start a
 regular release (`tools/ci release start`) only when his order covers releasing; otherwise, it rides the
-next one and the job returns `WAITING release`. His order or pick to release approves that release, its
-approve gate included, whatever migration, delete or replace it holds: start it with
-`--order <his answer id>`, or run `tools/ci release approve <id> --via <agent>` the moment it holds,
-with no `ASK`, card or check in between. A release with no approval of his is never approved by a job,
-and an incident's own cut is approved by its order's words as [incidents.md](incidents.md) says. Then
+next one and the job returns `WAITING release`. His order or his pick on a card to release, or the
+coordinator's record of either, approves that release, its approve gate included, whatever migration,
+delete or replace it holds. Start it with `--order <his answer id>`, or run `tools/ci release approve
+<id> --via <agent>` the moment it holds, with no `ASK`, card or check in between; nobody asks him
+again. A resume or re-plan of a release he ordered keeps his order: pass the same `--order` again. A
+release with no approval of his is never approved by a job, a release he started himself is his and
+never touched, and an incident's own cut is approved by its order's words as [incidents.md](incidents.md)
+says. Then
 rerun the reporter's exact case on the live build.
 
 Return `DONE <proof>`: one line on what changed for him, and the link or version that proves it.

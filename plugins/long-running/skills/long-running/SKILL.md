@@ -339,10 +339,11 @@ the inputs to their would-be wriute ups".
   option's label standing in for words he wrote. A tap's label is his answer only to that card's
   question.
 - **His approval of a release approves it, right then.** His order or card pick to ship, release or
-  approve a release approves that release and its approve gate at once, migrations, deletes and
-  replaces included: the job passes `--order <his answer id>` to `tools/ci release start`, or runs
-  `tools/ci release approve <id> --via <agent>` the moment it holds at approve, with no second card,
-  check or question in between. His words, Nov 9 5:25 PM: "what? no we want he oposite if I apprtove
+  approve a release, or the coordinator's record of either, approves that release and its approve
+  gate at once, migrations, deletes and replaces included: the job passes `--order <his answer id>`
+  to `tools/ci release start`, or runs `tools/ci release approve <id> --via <agent>` the moment it
+  holds at approve, with no second card, check or question in between, and nobody asks him again. A
+  resume or re-plan of a release he ordered keeps his order. His words, Nov 9 5:25 PM: "what? no we want he oposite if I apprtove
   a release dont fuckl around kjust appriove it". No agent approves a release or its gate without an
   approval of his for that release, and a release he started himself is his: never cancel, retry,
   reorder or approve it. An incident's order approves its own cut and rollback, by
@@ -414,10 +415,12 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
-- Done means live and checked; say how in a few words, with the link. An incident line carries only
-  a step of the fix with its time, its proof on a real machine and users having it, or what is
-  running and when the next line lands, plus one cause line once a test machine reproduces it:
-  nothing unproven and no side facts about a release.
+- Done means live and checked; say how in a few words, with the link. A line to him, and every
+  `report` body behind one, says what was observed and never lists what is not proven, under any
+  label: each unknown gets a job, and he gets its result or nothing. A job's `UNPROVEN:` list is the
+  coordinator's input, never copy for him. An incident line carries only a step of the fix with its
+  time, its proof on a real machine and users having it, or what is running and when the next line
+  lands, plus one cause line once a test machine reproduces it: no side facts about a release.
 - A report is one record per thread per coordinator turn, opening `POST` or `FYI`, never a burst:
   everything a turn has for a thread goes in that one record. Each item in it that waits on him
   carries its card's permalink or `waits` id, so the handler never searches for the card.
