@@ -31,7 +31,9 @@ CALL_SECONDS = 60
 
 
 class OrcaError(DriveError):
-    pass
+    def __init__(self, message: str, code: str | None = None) -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class LaneEnd(NamedTuple):
@@ -64,7 +66,7 @@ def result_of(verb: str, done: subprocess.CompletedProcess) -> dict:
         raise OrcaError(f"orca {verb}: {said}") from None
     if not reply.get("ok"):
         error = reply.get("error") or {}
-        raise OrcaError(f"orca {verb}: {error.get('code')}: {error.get('message')}")
+        raise OrcaError(f"orca {verb}: {error.get('code')}: {error.get('message')}", error.get("code"))
     return reply["result"]
 
 
