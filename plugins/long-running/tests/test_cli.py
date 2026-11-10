@@ -648,6 +648,7 @@ LIVE = {
     "mergeCommit": None,
     "checks": "SUCCESS",
     "reviewDecision": "APPROVED",
+    "mergeable": "MERGEABLE",
     "title": "Fix: the live title",
 }
 

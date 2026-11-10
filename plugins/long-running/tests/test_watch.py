@@ -52,6 +52,7 @@ def read(**overrides: object) -> dict:
         "mergeCommit": None,
         "checks": "PENDING",
         "reviewDecision": None,
+        "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
     }
     return {**base, **overrides}
@@ -82,6 +83,18 @@ def test_github_pass_emits_one_line_per_change_and_stores_fields(demo: str, monk
     ]
     pr = state.load(demo)["prs"][KEY]
     assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
+
+
+def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    reads = {KEY: read(mergeable="CONFLICTING")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    said = []
+    for minute, mergeable in enumerate(["CONFLICTING", "CONFLICTING", "UNKNOWN", "CONFLICTING", "MERGEABLE", "CONFLICTING"]):
+        reads[KEY] = read(mergeable=mergeable)
+        said.append(watch.run_pass(watching, T0 + timedelta(minutes=2 * minute)))
+    conflict = [f"PR {KEY}: conflicts with its base [o1 j1]"]
+    assert said == [conflict, [], [], [], [], conflict]
 
 
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
