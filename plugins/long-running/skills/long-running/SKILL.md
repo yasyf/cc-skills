@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; for each of his messages it puts on the eyes, acks and starts a Sonnet handler in one step, and the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; for each of his messages it puts on the eyes and acks inside 5 to 10 seconds, alone in one message, starts a Sonnet handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -11,13 +11,16 @@ and nothing else in the drive runs Fable: builders, readers, codex lanes and eve
 the model their agent names. His ruling, Nov 9 1:32 PM: "Our coordinator and communicator lanes
 should switch to fable 5.2, released today (still no other lanes should be fable)".
 
-- **The communicator** is the only session he talks to, and its whole job is to start one
-  `long-running:handler` per message of his, in the same step as the eyes and the ack. The handler
-  reads what it needs, does the work or hands it to the coordinator, answers him itself in his
-  thread, and returns what it said and learned. The communicator does no work in its own turn, so
-  his next message never sits behind an earlier one. His ruling, Nov 9 4:07 PM: "I told you you
-  need to multiplex and yuour job is just spoawning sub-threads/agents to ahndle a given message,
-  and it should be able to respiond while pushing context back up to you".
+- **The communicator** is the only session he talks to, and its turn is two messages: the eyes and a
+  one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
+  and nothing else. The handler reads what it needs, does the work or hands it to the coordinator,
+  answers him itself in his thread, and returns what it said and learned. Reports, cards, due lines,
+  drafts and `check-post` all run in handlers, so his next message never sits behind the
+  communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
+  job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to
+  respiond while pushing context back up to you", and 5:02 PM: "youre still responding way too slow,
+  so youre clearly not multiplexing enogh, you should be responding in 5-10 seconds for simple
+  things liek that".
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
   agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
@@ -117,38 +120,56 @@ live session reads here can land on another drive. Each record names the thread 
 
 ## The communicator
 
-Its whole job is to start one `long-running:handler` per message of his. His ruling, Nov 9 4:07 PM:
-"ack and whatot shouild be in parallel to starting". Each input is one step: the calls in its row
-go out together in one message, none waits on another, and the turn ends.
+Its turn on his message is two messages and nothing else. His rulings, Nov 9 4:07 PM: "ack and
+whatot shouild be in parallel to starting", 5:02 PM: "you should be responding in 5-10 seconds for
+simple things liek that", and 5:29 PM: "that took you 5 mins to respond sot hats unnaceptable
+agian, figure out what regresdsed".
 
-| Input | Do, in one step |
-|---|---|
-| A message from him | `slack_pickup` on it, a one-line ack in the thread he wrote in, `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away), and a handler for it, all together. The ack goes out inside 30 seconds of his message and before any read: what he asked, what is known now and what is being read. The details are the handler's answer, the second post. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. |
-| A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same step. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". |
-| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack and run `drive heard --thread <his thread>`, with no handler. |
-| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. |
-| A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. |
-| A `report`, `ready` or `ask` record | A handler with the record's seq as its brief. |
-| The Agent tool returned a handler's id for a read-only question | Record it, so the watch holds the answer to him: `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>`, then `drive job add reader --order <o> --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. |
-| A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. |
-| A compaction or a restart | Before anything else, one line in each thread where he waits on a handler that has not returned: what is happening and when he hears next. |
-| An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. |
-| A tool defect you hit | A `defect` record. |
+1. **Pickup and ack, alone**, inside 5 to 10 seconds: `slack_pickup` and the ack, and nothing else
+   in that message. Calls in one message run only once the whole message is written, so a handler
+   brief or a record beside the ack holds the ack behind its writing.
+2. **The rest, in the next message**: `drive heard`, any record its row names, and the handler.
+   Then the turn ends.
+
+Every report, card, due line, draft, `check-post` and read of any kind, and anything that takes more
+than one tool call, runs in a handler started in the background, which posts its own result. A turn
+spent drafting, checking or drawing holds his next message behind it.
+
+| Input | First message | Next message |
+|---|---|---|
+| A message from him | `slack_pickup` on it and an ack in the thread he wrote in: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
+| A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | The same. |
+| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
+| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. | Nothing. |
+| A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
+| A `report`, `ready` or `ask` record | A handler for each, with the record's seq as its brief. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
+| The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
+| A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
+| A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the pickup costs his ack a round trip. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
+| An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. | The same. |
+| A tool defect you hit | A `defect` record. | Nothing. |
 
 Start a handler with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background:
-true`, a short `description`, and never a `name`. Its `prompt` is the brief its agent definition
-lists: the message verbatim, its permalink and thread, and every path you already know that
-answers it, such as a job's reproduction file. The communicator's own calls are `slack_pickup`,
-the ack, a `+1`, `drive heard`, a cci post for a tap, a defect or a `MISSING`, and the Agent tool.
-Everything else is a handler's, so his next message is picked up while earlier ones are still
-being handled.
+true`, a short `description`, and never a `name`. Its `prompt` is a few lines: his words verbatim,
+the permalink, the thread, the handler's scratch folder, the deliverable, and any path you already
+know that answers it, such as a job's reproduction file. Never retype rules into it: the handler's
+agent definition is its standing brief, ships with this skill and loads with the `subagent_type`.
+The communicator's own calls are `slack_pickup`, the ack, a `+1`, `drive heard`, a cci post for a
+tap, a defect or a `MISSING`, the Agent tool, the one `drive` call that records a read-only
+question's handler, and the `ToolSearch` after a compaction. Everything else is a handler's, so his
+next message is picked up inside 5 to 10 seconds while earlier ones are still being handled.
 
-A handler reads what it needs, posts every line, card and share itself, and returns what it said
-and learned, by its agent definition. Anything he waits on that takes it past a minute gets one
-line in his thread first. A read-only question it answers itself, from the source that owns the
-fact, never through the coordinator; his ruling, Nov 9 2:06 PM: "should not take 30 mins to spawn
-read only sonnet lanes". An order or an alert becomes an `owner` record, and a ruling an
-`answer_add` and an `owner` record with `--attr ruling=<answer id>`.
+It compacts only at a quiet moment, never at its context limit mid-conversation, since a compaction
+as his message lands holds the ack for minutes. The coordinator's `drive watch` does it: once the
+communicator's context passes 120,000 tokens and both it and he have been quiet for 10 minutes, the
+watch types `/compact` into the communicator's Orca terminal.
+
+A handler reads what it needs, writes, checks and posts every line, card and share itself, and
+returns what it said and learned, by its agent definition. Anything he waits on that takes it past
+a minute gets one line in his thread first. A read-only question it answers itself, from the source
+that owns the fact, never through the coordinator; his ruling, Nov 9 2:06 PM: "should not take 30
+mins to spawn read only sonnet lanes". An order or an alert becomes an `owner` record, and a ruling
+an `answer_add` and an `owner` record with `--attr ruling=<answer id>`.
 
 A share is his order to post something in a thread he names, and that order is his permission for
 one post there and nowhere else. The handler reads the path in its brief, or the reproduction file
@@ -160,8 +181,9 @@ couiple reads and sends the slack mesage".
 
 `drive heard` prints `CATCH-UP` when he is back after being away; the coordinator hears it as an
 event and sends his catch-up as a `report`. A thread read, a transcript, a search, or anything
-past the communicator's one step is a handler's, never the coordinator's: the coordinator gets only orders,
-alerts, rulings, his answers and defects.
+past the communicator's two messages is a handler's, never the coordinator's: the coordinator gets
+only orders, alerts, rulings, his answers, defects and a question a card's `ask` record does not
+answer.
 
 ## The coordinator
 
@@ -169,6 +191,7 @@ alerts, rulings, his answers and defects.
 |---|---|
 | An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Then give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. Set `--due` for when he hears next. |
 | A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each the ruling with `SendMessage` when it returns. |
+| A question of his, in an `owner` record, such as one a card's `ask` record does not answer | A `report` of what you have now inside 5 to 10 seconds, then the read in a background job when it takes more than one call, its result the second `report`. |
 | An `answer` record | `answer_add` with the card's question as title and, as body, the option he tapped or his own words verbatim, never a paraphrase, a bot's summary, or the closest option standing in for words he wrote. A record with `maps=none` settles nothing: resume no job on it until he picks. Otherwise resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent with `drive job set <j> --state running`, or `drive job resume` for a remote lane. |
 | A `defect` record | A builder on that tool's repository, by [Tooling](#tooling). |
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
@@ -200,6 +223,7 @@ alerts, rulings, his answers and defects.
 | `ORPHAN o<n> "<part>": <why>` | A part of an open order has no live job and no open card: no job ever took it, its job finished with it left over, its agent or lane is gone, its card closed, a waiting job has nothing that can wake it, or a reader's answer is not posted to him. In this turn, start a job for it, resume or restart its job, or have its card drawn; an answer not yet posted goes to the communicator as a `report` read from its reader's transcript. A part already delivered or one he withdrew leaves the order with `drive order set <o> --parts` or the order closes with `--state done` or `dropped`. Never leave one standing: the watch says it again every 30 minutes and at its order's `DUE`. |
 | `PR … still red for <n> minutes`, `green and approved with no card drawn for <n> minutes` | A PR that has not moved for 30 minutes. Resume its job with the line: a red one gets fixed, a green one gets its `ready` sent or, needing no tap, gets landed. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
+| `WATCH compacted the communicator …` | Nothing: the watch typed `/compact` into the communicator's Orca terminal at a quiet moment. |
 | `WATCH … failed` | GitHub or Orca did not answer, or cc-slack could not draw the status page; the watch keeps trying and says so again in ten minutes. Nothing to him; a failed page draw that persists gets a builder on cc-slack. |
 
 While he is away, send only `ready` and `ask` records and the incident lines
@@ -328,13 +352,12 @@ CI fixes, cleanups, tool fixes.
 Every message follows [reference/messages.md](reference/messages.md). The short form:
 
 - Lead with what changed for him, in his words, never with how the machinery got there.
-- Answer each of his messages inside 30 seconds, before any read: the communicator's ack says what
-  he asked, what is known now and what is being read, and the details follow in a second post. A
-  question of his that reaches the coordinator gets the same in the turn it arrives: a `report` of
-  what it has now, then the read in a job, whose result is the second `report`. His words, Nov 9
-  4:33 PM: "anfd tgaking 5 mins to respoind what should be a 30 second response". Everything else
-  is a summary at most every 30 minutes per thread, grouped by feature. While he is away only cards
-  post, and his next message gets one catch-up.
+- Ack each of his messages inside 5 to 10 seconds, alone with the pickup in the communicator's
+  first message. A question of
+  his that reaches the coordinator gets a `report` of what it has in the same time, and the read
+  follows in a second `report`. Every other post is a handler's, a summary at most every 30 minutes
+  per thread, grouped by feature. While he is away only cards post, and his next message gets one
+  catch-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
@@ -354,7 +377,8 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
 - One copy of everything. A correction edits the message in place.
 - A time promised to him is set with `--due` by the coordinator in the same turn, so the watch
   holds the drive to it.
-- Run `cc-slack check-post` on every line but the ack before it goes out, and fix what it flags.
+- A handler runs `cc-slack check-post` on every line it posts and fixes what it flags; the ack, one
+  sentence the communicator already knows, goes out unchecked.
 
 ## Tooling
 
@@ -366,10 +390,11 @@ class fix whose PR deletes the earlier patches.
 
 ## Never
 
-- The communicator does no work in its own turn. The eyes, the ack, `drive heard` and the
-  handler go out together in one step, and every read, card, share and post past the ack belongs
-  to the handler. It never starts a builder or waits on anything, and only orders, alerts,
-  rulings, his answers and defects go to the coordinator.
+- The communicator's turn is two messages: the eyes and the ack alone inside 5 to 10 seconds,
+  then `drive heard` and the handler. Every read, report, card, due line, draft, `check-post`,
+  share and post past the ack belongs to a handler. It never starts a builder or waits on
+  anything, and only orders, alerts, rulings, his answers, defects and a question a card's `ask`
+  record does not answer go to the coordinator.
 - Neither session treats his correction about how the drive works as a one-off: it is a ruling,
   recorded and sent for a skill rewrite in the turn it arrives.
 - The coordinator never posts to Slack, and never does an order's work itself, a past-due order's

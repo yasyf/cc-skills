@@ -446,6 +446,63 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
     assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": "a1"}, data, state.now()) == "j1's agent a1 has no transcript"
 
 
+def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    path = tmp_path / "config" / "projects" / "-work" / "talker.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries))
+    stamp = (state.now() - quiet).timestamp()
+    os.utime(path, (stamp, stamp))
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "talker", "terminal": "term-7", "cwd": "/work", "started": state.stamp(T0)}
+        data["owner"] = {"heard": state.stamp(state.now() - heard), "away": False}
+
+
+def answered(tokens: int) -> dict:
+    usage = {"input_tokens": 10, "cache_creation_input_tokens": 0, "cache_read_input_tokens": tokens - 10}
+    return {"type": "assistant", "message": {"stop_reason": "end_turn", "usage": usage, "content": []}}
+
+
+SUMMARY = {"type": "user", "isCompactSummary": True, "message": {"content": "summary"}}
+
+
+@pytest.mark.parametrize(
+    ("entries", "quiet", "heard", "why"),
+    [
+        ([answered(130_000)], timedelta(minutes=12), timedelta(minutes=20), "at 130000 tokens of context, quiet 10 minutes"),
+        ([answered(130_000)], timedelta(minutes=12), timedelta(minutes=3), None),
+        ([answered(130_000)], timedelta(minutes=4), timedelta(minutes=20), None),
+        ([answered(60_000)], timedelta(minutes=12), timedelta(minutes=20), None),
+        ([answered(130_000), SUMMARY], timedelta(minutes=12), timedelta(minutes=20), None),
+        ([CALLING], timedelta(minutes=12), timedelta(minutes=20), None),
+    ],
+)
+def test_the_communicator_compacts_only_past_the_mark_when_it_and_he_are_quiet(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta, why: str | None
+) -> None:
+    talking(demo, tmp_path, monkeypatch, entries, quiet, heard)
+    assert watch.compact_due(state.load(demo), state.now()) == why
+
+
+def test_a_quiet_communicator_past_the_mark_gets_compact_typed_into_its_terminal(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
+    sent: list[tuple[str, ...]] = []
+    monkeypatch.setattr(watch.orca, "request", lambda *args: sent.append(args) or {})
+    assert watch.compact_lines(watcher(demo), state.now()) == [
+        "WATCH compacted the communicator at 130000 tokens of context, quiet 10 minutes"
+    ]
+    assert sent == [("terminal", "send", "--terminal", "term-7", "--text", "/compact", "--enter")]
+
+
+def test_a_communicator_outside_orca_is_never_compacted(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    talking(demo, tmp_path, monkeypatch, [answered(130_000)], timedelta(minutes=12), timedelta(minutes=20))
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["terminal"] = None
+    assert watch.compact_due(state.load(demo), state.now()) is None
+
+
 def worker(verdict: str = "live", outcome: str = "in_progress", attention: list[str] = (), quiet: timedelta = timedelta()) -> dict:
     output = (T0 - quiet).timestamp() * 1000
     return {

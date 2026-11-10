@@ -99,6 +99,7 @@ def test_communicator_context_lists_orders_without_jobs_and_arms_no_watch() -> N
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
     assert render.MONITOR_LINE not in text
+    assert text.endswith(render.SLACK_TOOLS_LINE)
 
 
 def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> None:
