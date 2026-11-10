@@ -197,7 +197,7 @@ function questionCard(item) {
     <span class="label">${LABEL.question}</span>
     <div class="body">
       <h3>${inline(card.title || item.title)}</h3>
-      <div class="meta">${esc([waited(item), item.holds ? `holds up ${item.holds} finished` : ''].filter(Boolean).join(' · '))}</div>
+      <div class="meta">${esc([waited(item), item.holds ? `holds up ${item.holds} finished` : '', item.blocks.length ? `blocks ${item.blocks.join('; ')}` : ''].filter(Boolean).join(' · '))}</div>
       ${body ? fold(`q:${item.answer}`, body, 4) : ''}
       ${figures}
       ${links ? `<div class="links">${links}</div>` : ''}
@@ -498,13 +498,18 @@ function feature(entry) {
     ${entry.now ? `<div class="now">${esc(entry.now)}</div>` : ''}
     ${entry.prs.length ? `<div class="chips">${prChips(entry.prs)}</div>` : ''}
     ${entry.built.map(builtLine).join('')}
+    ${cardsLine(entry.cards)}
   </li>`;
 }
 
 function builtLine(built) {
-  const asks = built.waits.map((wait) => (wait.url ? `<a href="${esc(wait.url)}" target="_blank" rel="noopener">${esc(wait.title)}</a>` : esc(wait.title)));
-  const next = asks.length ? `no PR until you answer ${asks.join(', ')}` : 'its PR opens next';
-  return `<div class="now">Built on <code>${esc(built.branch)}</code>, ${next}</div>`;
+  return `<div class="now">Built on <code>${esc(built.branch)}</code>, ${built.waits.length ? 'no PR yet' : 'its PR opens next'}</div>`;
+}
+
+function cardsLine(cards) {
+  if (!cards.length) return '';
+  const asks = cards.map((card) => `<a href="${esc(card.url)}" target="_blank" rel="noopener">${esc(card.title)}</a>, asked ${esc(clock(card.asked))}`);
+  return `<div class="now">Waits on your answer to ${asks.join('; ')}</div>`;
 }
 
 function progress() {
@@ -677,6 +682,7 @@ function featureScreen(id) {
     <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
     ${prs ? `<h3 class="sec">Pull requests</h3><ul class="prlist card">${prs}</ul>` : ''}
     ${entry.built.length ? `<h3 class="sec">Built, waiting on your design answers</h3><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
+    ${entry.cards.length ? `<h3 class="sec">Waiting on your answer</h3><div class="card built">${cardsLine(entry.cards)}</div>` : ''}
     ${entry.jobs.length ? `<h3 class="sec">Jobs</h3><ul class="jobs card">${entry.jobs.map((job) => jobRow(job, false)).join('')}</ul>` : ''}`;
 }
 

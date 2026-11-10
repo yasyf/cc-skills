@@ -37,7 +37,7 @@
       {
         "matcher": "mcp__plugin_cc-inbox_cci__post",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/record_lines.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" record_lines.py" }
         ]
       }
     ]

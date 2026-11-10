@@ -55,6 +55,8 @@ def queue_line(number: int, item: dict) -> str:
     parts = [f"**{KIND_WORDS[item['kind']]}:** {link(item['title'], item['url'])}"]
     if item.get("holds"):
         parts.append(f"holds up {item['holds']} finished")
+    if item.get("blocks"):
+        parts.append(f"blocks {'; '.join(cut(title, TITLE_CHARS) for title in item['blocks'])}")
     if item["kind"] == "late":
         parts.append(f"promised {when(item['due'])}")
     elif item["since"]:
@@ -85,13 +87,13 @@ def feature_line(entry: dict) -> str:
     if marks := pr_marks(entry["prs"]):
         parts.append(marks)
     parts.extend(map(built_line, entry["built"]))
+    if entry["cards"]:
+        parts.append("waits on your answer to " + "; ".join(f"{link(card['title'], card['url'])}, asked {when(card['asked'])}" for card in entry["cards"]))
     return "- " + " · ".join(parts)
 
 
 def built_line(built: dict) -> str:
-    if not built["waits"]:
-        return f"built on `{built['branch']}`, its PR opens next"
-    return f"built on `{built['branch']}`, no PR until you answer {', '.join(link(wait['title'], wait['url']) for wait in built['waits'])}"
+    return f"built on `{built['branch']}`, {'no PR yet' if built['waits'] else 'its PR opens next'}"
 
 
 def finished_line(entry: dict) -> str:

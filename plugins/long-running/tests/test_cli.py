@@ -330,6 +330,8 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     assert kept.read_text() == "1. run it\n"
     assert f"- j1 (o1): {kept}" in run("status")[1]
     assert run("job", "set", "j1", "--repro", str(steps))[0] == 2
+    assert run("job", "set", "j1", "--state", "done", "--repro", str(kept))[0] == 0
+    assert kept.read_text() == "1. run it\n"
 
 
 @pytest.fixture
