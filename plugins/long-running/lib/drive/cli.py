@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from drive import github, orca, place, render, slack, state, watch
+from drive import github, limits, orca, place, render, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -228,6 +228,22 @@ def job_set(args: argparse.Namespace) -> int:
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def job_ask(args: argparse.Namespace) -> int:
+    """Keep a job's ASK in the drive once it is in the shape he reads; with no file, a remote lane's latest report."""
+    name = state.resolve(args.drive)
+    job = find(state.load(name)["jobs"], args.id, "job")
+    text = Path(args.file).expanduser().read_text() if args.file else job.get("report")
+    if not text:
+        raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in")
+    asked = limits.question(text)
+    kept = state.drive_dir(name) / "asks" / f"{args.id}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(text)
+    with state.edit(name) as data:
+        data["jobs"][args.id].update(question=str(kept), state="waiting", said=asked.title, updated=state.stamp())
+    return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
 
 
 def keep_repro(name: str, job_id: str, source: str) -> str:
@@ -684,6 +700,21 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--card", help="the Slack link of the question card this job waits on")
     verb.set_defaults(run=job_set)
+    verb = job.add_parser(
+        "ask",
+        parents=both,
+        help="keep a job's ASK in the drive, refused unless it is in the shape he reads, and set the job waiting",
+        description=(
+            "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
+            " decided, the recommendation, what happens meanwhile), two to four `- ` options of at most 25 words with"
+            " exactly one ending (recommended), at most 150 words in all, in plain words, then `Findings:` with the"
+            " evidence. Keep it in the drive and print its path, which the ask record carries; refuse it with every way"
+            " it is out of shape."
+        ),
+    )
+    verb.add_argument("id")
+    verb.add_argument("file", nargs="?", help="the file holding the ASK block; default: a remote lane's latest report")
+    verb.set_defaults(run=job_ask)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
     verb.add_argument("id")
     verb.add_argument("brief", help="the job's brief, the same one a background agent gets")

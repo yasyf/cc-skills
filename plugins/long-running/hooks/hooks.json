@@ -21,6 +21,12 @@
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/landing_guard.py\"" }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_cc-slack_cc-slack__slack_(dm_status|reply|send|edit)",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/message_limits.py\"" }
+        ]
       }
     ]
   }

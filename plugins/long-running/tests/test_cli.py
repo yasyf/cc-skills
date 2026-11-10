@@ -13,6 +13,30 @@ from drive import cli, github, orca, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
+A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
+Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
+Meanwhile nothing is built on either layout.
+- One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
+- A map file beside each journal file: no guessing, but one request per file and twice the objects
+- Map at the start of each file: changes the shared file format and still needs a length read first
+
+Findings:
+(1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
+(2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
+"""
+FINDINGS_FIRST = """ASK Two design picks for the new run page: how a run's files are laid out, and what the runner keeps.
+
+Findings:
+
+(1) The steps log. It is a table inside every run's journal.
+
+The two questions:
+
+Q1. How should a run's files be laid out so the browser never guesses at a page map?
+- Snapshot each finished run when it lands (recommended)
+- A map file beside every journal file
+"""
 
 
 def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path: Path) -> None:
@@ -300,6 +324,84 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     assert kept.read_text() == "1. run it\n"
     assert f"- j1 (o1): {kept}" in run("status")[1]
     assert run("job", "set", "j1", "--repro", str(steps))[0] == 2
+
+
+@pytest.fixture
+def asking(run: Run, demo: str) -> str:
+    run("order", "add", "design the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    return "j1"
+
+
+def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
+    run: Run, asking: str, tmp_path: Path, state_root: Path
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    code, out = run("job", "ask", asking, str(block))
+    kept = state_root / "demo" / "asks" / "j1.md"
+    assert (code, out) == (0, str(kept))
+    assert kept.read_text() == SHORT_ASK
+    job = state.load("demo")["jobs"]["j1"]
+    assert job["question"] == str(kept)
+    assert job["state"] == "waiting"
+    assert job["said"] == "How should a finished run's files be laid out so its page opens without guessing?"
+    shown = json.loads(run("job", "ask", asking, str(block), "--json")[1])
+    assert shown["recommended"].startswith("One snapshot file per finished run")
+    assert len(shown["options"]) == 3
+    assert len(shown["summary"]) == 3
+
+
+def test_job_ask_refuses_findings_before_the_question(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(FINDINGS_FIRST)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert "the ASK is out of shape" in refusal
+    assert "the summary is 0 lines" in refusal
+    assert "0 options; an ASK has 2 to 4" in refusal
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_job_ask_names_every_way_an_ask_is_out_of_shape(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(
+        "ASK Which layout?\n"
+        "The guess lives in /Users/me/repos/sand/reader.go and progress_nodes holds the rest; #53288 and #53300 both touch it.\n"
+        f"- {' '.join(['word'] * 26)} (recommended)\n"
+        "- Keep it (recommended)\n"
+        "- Same as 1 but slower\n"
+    )
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert '"Same as 1" points at an option by number or position' in refusal
+    assert 'option "' in refusal and "is 26 words; each is one line of at most 25" in refusal
+    assert "2 options end with (recommended); exactly one does" in refusal
+    assert 'plain words only: "/Users/me/repos/sand/reader.go" is a file path' in refusal
+    assert 'plain words only: "progress_nodes" is a code name' in refusal
+    assert "it names 2 pull requests; name only the one being decided" in refusal
+    assert "no `Findings:` line with the evidence under it" in refusal
+
+
+def test_job_ask_refuses_a_question_over_150_words(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    line = " ".join(["word"] * 50)
+    block.write_text(f"ASK Which?\n{line}\n{line}\n{line}\n- Yes (recommended)\n- No\nFindings:\nmeasured\n")
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "the question, summary and options are 153 words; at most 150 in all" in capsys.readouterr().err
+
+
+def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:
+    assert run("job", "ask", asking)[0] == 2
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(where="remote", report=SHORT_ASK)
+    assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / "j1.md"))
 
 
 @pytest.fixture

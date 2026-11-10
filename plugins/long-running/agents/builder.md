@@ -117,9 +117,10 @@ with these changes.
   - `READ <command>`, one of `cci show|grep|find|digest|state` with `--drive <the brief's drive>`,
     `ccn search|show|relevant`, `ccn answer|note|doc search|show` or `ccn answer list`: its output,
     its first 12,000 characters. Use it for his recorded words and the records a brief or PR cites.
-- No `drive` CLI runs here, so skip `drive pr add`: the `PR:` line of your report carries
-  the PR's link, an `EXEMPT:` line names an exempt class, and a port's `SERVES: port of #N`
-  line names its old PR; the coordinator registers all three.
+- No `drive` CLI runs here, so skip `drive pr add` and `drive job ask`: the `PR:` line of your
+  report carries the PR's link, an `EXEMPT:` line names an exempt class, and a port's `SERVES: port
+  of #N` line names its old PR; the coordinator registers all three. An `ASK` report is the block
+  itself, in the shape Return gives, which the coordinator checks with `drive job ask`.
 - Report through Orca, never in a final message. `ASK` goes out as
   `orca orchestration ask --question "<your report>"`; then end your turn, and his answer wakes
   you. `DONE`, `READY` and `WAITING` go out as `orca orchestration send --type worker_done
@@ -155,12 +156,23 @@ number or path the message needs.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
   bottom first, so it gets one card.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
-- `ASK <one question>`, then a `Findings:` section, then 2 to 4 options with what each does and
-  the one you recommend: only for a change of scope, a design choice his words do not settle,
-  or a line he holds. The findings are what his pick rests on, one fact a line: what was hit, what was measured with its numbers, the
-  cause, and what each option changes and costs. An `ASK` with no findings goes back to you
-  unasked. Each option stands alone in full words and never points at another by number or
-  position. Decide everything else.
+- `ASK <path>`: only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. Write the
+  block to a file under your scratch directory in this shape, run `drive job ask <your job>
+  <file>`, which refuses it out of shape and names each fix, and return the path it prints:
+
+  ```
+  ASK <the question, one line>
+  <one to three lines: what was found and what is being decided; the recommendation; what happens meanwhile>
+  - <option: what he gets and what it costs, at most 25 words> (recommended)
+  - <option>
+  Findings:
+  <the evidence, for the record: what was hit, what was measured, the cause, what each option changes and costs>
+  ```
+
+  The question, summary and options are all he reads, at most 150 words in plain words: no file
+  paths, table or function names, internal ids, or PRs past the one being decided. Each option
+  stands alone in full words and never points at another by number or position. The findings
+  stay on disk: his tap on Explain more posts the one section his question rests on.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 

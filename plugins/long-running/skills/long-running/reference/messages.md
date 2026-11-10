@@ -8,6 +8,24 @@ and the handler writes the words, and a handler answers his read-only questions 
 is short, says what changed for him, and carries the card with its buttons whenever it says
 something waits on him.
 
+The tooling holds every message to a length. These limits are the coordinator's reading of his Nov 9
+9:33 PM words, "What the fuck is this insane shit you're sending me your messages need to be way
+shorter rewrite this for a human", said under a findings post of about 900 words:
+
+| What he reads | At most |
+|---|---|
+| A line in his thread | 60 words |
+| A summary of two or more features, each under its own bold line | 120 words |
+| A question card: question, summary and options together | 150 words |
+| Each option on a card | one line of 25 words, saying what he gets and what it costs |
+| A findings post | none, ever: findings stay on disk |
+
+The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
+any handler, with the count and the limit, and `drive job ask` refuses a job's `ASK` whose card runs
+over it. Only his own message asking for more, such as "explain", "details", "why" or "show me",
+lifts a post's limit. The handler quotes his words as `asked` in the call, and the hook checks that
+they ask for more and stand in its brief. His tap on Explain more is such a message.
+
 ## The shapes
 
 **An ack**, in the thread of his message, posted alone in the communicator's first message,
@@ -18,22 +36,28 @@ the coordinator sets the order's due time, and the first summary says it.
 
 **A summary**, in a thread, which a handler writes from a `POST` report and posts with
 `slack_dm_status(text=…, thread_ts=<his thread>)`: what changed for him since the last one, grouped
-by feature, one bold line per feature and at most two sentences under it.
+by feature, one bold line per feature and at most two sentences under it, 120 words in all. A
+summary of one feature is a line, 60 words at most.
 
 ```
 *<feature>: <what is true now, for him, in under 12 words>*
 <one or two sentences: what it means and what happens next, by when>
 ```
 
-**A question card**, which a handler writes from an `ask` record, only after the findings it
-rests on are in his thread: what was hit, what was measured, the cause, and what each option
-changes and costs, from the record's `Findings:` section. Then the card at his DM root with
-`slack_dm_status(card=…)` and no thread, then `cc-slack card-copy --url <its permalink> --thread
-<his thread>`, so the card and its buttons sit in his thread under the findings. A record with no
-findings draws no card. Title: one question in one
-sentence. Body: at most three sentences saying why it matters and what the drive is doing meanwhile.
-Two to four options, each saying in full words what picking it does. No option asks a reporter or
-anyone else to retry, confirm or check: the drive proves a fix itself. When something waits on his
+**A question card**, which a handler draws from an `ask` record: the job's `ASK` as `drive job ask`
+kept it, with nothing posted before or after it. Title: its question, in one sentence. Body: its
+summary, one to three lines: what was found and what is being decided, the recommendation, and
+what happens meanwhile. That first line is how he gets the results of the investigation before the
+pick, by his Nov 9 6:22 PM words, "you need to give me the results of the investigation etc before
+sahowing this to me". Two to four options, each one line of at most 25 words saying what he gets
+and what it costs, the card 150 words in all. The findings stay in the job's file: Explain more on
+the card posts the one section its question rests on, in plain words, and that is the only way they
+reach him.
+
+The card goes at his DM root with `slack_dm_status(card=…)` and no thread, then `cc-slack
+card-copy --url <its permalink> --thread <his thread>`, so the card and its buttons sit in his
+thread. No option asks a reporter or anyone else to retry, confirm or check: the drive proves a fix
+itself. When something waits on his
 answer, set `waits` to `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues
 on the recommended pick, leave both out and say in the body which option is being built. Set `drive`
 to the drive's name on every card: cc-slack reads a `waits` card that names its drive as the drive's
@@ -114,8 +138,9 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **What changed for him first.** "You can now tap Approve on any open PR card and it lands"
   beats "the rule that pulled your card when checks went red is merged and gone".
 - **Plain words.** No record ids, row numbers, card ids, hashes, test ids, lane or job names,
-  plan step numbers, file paths, or code identifiers. Product and tool names in backticks are
-  fine. Gloss anything he has not used lately in a few plain words.
+  plan step numbers, file paths, table or function names, or code identifiers, no list of PRs past
+  the one being decided, and no mechanism he did not ask about. Product and tool names in backticks
+  are fine. Gloss anything he has not used lately in a few plain words.
 - **It stands alone.** He reads every line with no other context, so assume he has none. His
   words, Nov 9 9:12 PM: "What is the sixteenth? You say it with no context you always have to
   assume I don't have any other context". A number, fraction, size or ratio says what it
@@ -165,7 +190,8 @@ first, then each feature by state. Nothing to post; a line that says where thing
 
 ## Tonight's posts, rewritten
 
-He called the first two "terrible". The third is the one he answered "Excellent" in 61 seconds.
+He called the first two "terrible" and the last "insane shit". The third is the one he answered
+"Excellent" in 61 seconds.
 
 > *Tooling overhaul, 1:20 AM* Since 1:05: the rule that pulled your card when checks went
 > red is merged and gone; your tap on any open pull request now adopts it into the drive
@@ -190,10 +216,32 @@ The other four are in review and land by 11:10 PM; each goes live within minutes
 > rewrites the recent posts in this DM and removes their duplicates and closed-PR cards, and
 > only then sends you the one-pager with the design questions about forward tweaks. …
 
+The last was a builder's findings passed straight through: 1,110 words in one post above two
+question cards, which he answered at 9:33 PM on Nov 9.
+
+> *Two picks for you below, one on how a run's files are laid out and one on what the runner keeps
+> so the page never reads every call. The third part, the Sand functions that read a run, needs no
+> pick.* *Step logs.* Both the new and the old runner still write the steps log, but nothing on the
+> new side reads it. … *How a run's files are laid out.* A run's journal is a SQLite database that a
+> replication tool (our own copy of Litestream) uploads to the team's bucket as many small files…
+
+Rewritten, each question is its card and nothing else, about 120 words with its options:
+
+```
+*How should a finished run's files be laid out so its page opens without guessing?*
+A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
+Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
+Meanwhile nothing is built on either layout, and the run page works as it does today.
+[One snapshot file per finished run (Recommended): written when the run ends, old runs backfilled; any finished run opens in 3 requests]
+[A map file beside each journal file: no guessing, but still one request per file and twice the objects]
+[Map at the start of the file: changes the shared file format and still needs a length read first]
+```
+
 ## Before it goes out
 
 A handler passes every message it posts through `cc-slack check-post -` and fixes every line it
-prints; the ack alone skips it, being one sentence the communicator already knows. Then the
+prints; the ack alone skips it, being one sentence the communicator already knows. The length hook
+counts its words as it goes out, so a post over its limit comes back refused. Then the
 handler reads it as he will, on a phone, with no context: does he know what changed, whether he
 must act, and when he hears next, and does every number, term and reference in it make sense with
 nothing else open?
