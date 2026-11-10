@@ -191,7 +191,8 @@ def test_due_fires_once_and_stamps_due_said(demo: str, monkeypatch: pytest.Monke
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["orders"]["o1"]["due"] = state.stamp(T0 - timedelta(minutes=30))
-        data["orders"]["o2"] = order(text="later", due=state.stamp(T0 + timedelta(hours=1)))
+        data["orders"]["o2"] = order(text="later", jobs=["j2"], due=state.stamp(T0 + timedelta(hours=1)))
+        data["jobs"]["j2"] = job(order="o2")
         data["orders"]["o3"] = order(state="done", due=state.stamp(T0 - timedelta(hours=1)))
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)

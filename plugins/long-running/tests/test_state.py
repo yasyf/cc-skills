@@ -29,7 +29,7 @@ def make(name: str, session: str | None = None, started: str | None = None) -> N
 def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     make("demo")
     with state.edit("demo") as data:
-        data["orders"]["o1"] = {"text": "ship it"}
+        data["orders"]["o1"] = {"text": "ship it", "jobs": []}
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert not (state_root / "demo" / "drive.json.tmp").exists()
     assert (state_root / "demo" / ".lock").exists()
