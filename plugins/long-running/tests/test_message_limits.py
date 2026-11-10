@@ -94,6 +94,57 @@ CONFIRMATION = """*Installed: long-running 1.0.76.* The skill update for your 1:
 5. Each question card shows how many finished pull requests it holds up, and your queue lists them most first."""
 
 
+HARDWARE_THREAD = "1794292799.809419"
+WHATS_WRONG = "What’s wrong with how it is now?"
+CONNING = "Ok so it should be something conning user and hardware id right?"
+HARDWARE_ANSWER = """*Yes: user plus the Mac's hardware ID, and that settles the card.* Each chat will record the hardware ID of the Mac that created it, once, next to the user it already records.
+
+A chat opens writable only when both match; otherwise it opens read-only with fork. The builder is building this now.
+
+*What is wrong today:* copy a home folder to a second Mac (Migration Assistant, a Time Machine restore, a copied folder) and open a chat there as the same user. The user matches, so it opens writable.
+
+The chat's only claim is a number that names one app launch, not a Mac, and each Mac checks only its own copy. So both Macs write and upload under the same chat with the same transaction ids.
+
+The later upload replaces the earlier, and the web or a later restore can read pages from two chats that went different ways. No other path does this: cloud pods restore only their own agent chats, and a Mac without a chat's file opens it read-only.
+
+*Limits:*
+- A chat already copied to two Macs before the update stays writable on both.
+- A Mac with a replaced logic board gets a new hardware ID, so it reads its old chats read-only and continues them by fork.
+- A chat made before the update has no hardware ID and is claimed by the Mac holding its file on first writable open."""
+
+REWORDINGS = [
+    (
+        "1794308165.132599",
+        ("*Table size was not the cause.* The new replica restored its stored copy, which ends at write 22, but its readiness"
+        " check needs write 23, so it never passed and logged no error.\n\nThe largest database (13 GB) caught up in about two"
+        " minutes, so splitting large tables would not have changed tonight. Production still serves from the old replica."
+        " The fix is being written; next line by 3:25 AM."),
+        ("*Table size was not the cause.* The new replica restored the snapshot from the bucket, which ends at write 22, but"
+        " its readiness check needs write 23, so it never passed and logged no error.\n\nThe largest database (13 GB) caught"
+        " up in about two minutes, so splitting large tables would not have changed tonight. Production still serves from"
+        " the old replica. The fix is being written; next line by 3:25 AM."),
+    ),
+    (
+        "1794309557.014979",
+        ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing history files are back in its bucket, which was empty"
+        " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has an empty"
+        " history folder.\n\nThe release job is finishing the switch, then runs the full release. Next line by 3:40 AM."),
+        ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing LTX files are back in its bucket, which was empty"
+        " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has no LTX"
+        " files in its bucket.\n\nThe release job is finishing the switch, then runs the full release. Next line by 3:40 AM."),
+    ),
+    (
+        "1794310226.425819",
+        ("*Two causes are being traced.* Acme's history files were uploaded at 1:23 AM Nov 9 and gone by 3:15 AM Nov 10; the"
+        " bucket's delete log is refused to us, so who removed them is open. The aborted rollout blocked the resume because"
+        " the release tool refuses to retry it. Next line by 3:50 AM."),
+        ("*Two causes are being traced.* Acme's snapshot was uploaded at 1:23 AM Nov 9 and its LTX files in the bucket were"
+        " gone by 3:15 AM Nov 10; the bucket's delete log is refused to us, so who removed them is open. The aborted rollout"
+        " blocked the resume because the release tool refuses to retry it. Next line by 3:50 AM."),
+    ),
+]
+
+
 def said(count: int) -> str:
     return " ".join(["word"] * count)
 
@@ -144,6 +195,7 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_limit_and_
     reason = posted(transcript, text=said(61), thread_ts="1.2")
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
     assert "way shorter" in reason
+    assert "It names no message of his as asked, so it is not an answer and keeps that limit." in reason
     assert reason.endswith(WHOLE)
     assert posted(transcript, text=said(60), thread_ts="1.2") is None
 
@@ -201,6 +253,46 @@ def test_an_answer_to_two_of_his_messages_names_both_as_asked(
     assert posted(briefed, text=WHICH_DB, thread_ts=DB_THREAD, asked=asked) is None
 
 
+def test_the_answer_to_whats_wrong_goes_out_whole_though_one_of_its_two_messages_is_in_another_thread(
+    talker: str, briefed: Path, slack_thread: Thread
+) -> None:
+    his(slack_thread, CONNING)
+    assert posted(briefed, text=HARDWARE_ANSWER, thread_ts=HARDWARE_THREAD).startswith(
+        "refused: this post is 236 words, and a line in his thread is at most 60 words"
+    )
+    assert posted(briefed, text=HARDWARE_ANSWER, thread_ts=HARDWARE_THREAD, asked=f"{WHATS_WRONG} / {CONNING}") is None
+
+
+def test_his_curly_apostrophe_matches_a_straight_one_in_asked(talker: str, briefed: Path, slack_thread: Thread) -> None:
+    his(slack_thread, WHATS_WRONG)
+    assert posted(briefed, text=HARDWARE_ANSWER, thread_ts=HARDWARE_THREAD, asked="What's wrong with how it is now?") is None
+
+
+@pytest.mark.parametrize(("ts", "before", "after"), REWORDINGS)
+def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
+    talker: str, transcript: Path, slack_thread: Thread, ts: str, before: str, after: str
+) -> None:
+    slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
+    edit = call("slack_edit", transcript, channel_id=DM, ts=ts, thread_ts=BAD_STATE_THREAD, text=after)
+    assert message_limits.deny_reason(edit) is None
+
+
+def test_an_edit_that_grows_its_post_past_a_rewording_is_refused_naming_both_limits(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": said(55)})
+    assert message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(65))) is None
+    reason = message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(66)))
+    assert reason.startswith(
+        "refused: this post is 66 words, and a line in his thread is at most 60 words, or 10 past the 55 words of the post it edits"
+    )
+    assert reason.endswith(WHOLE)
+
+
+def test_an_edit_whose_post_cannot_be_read_keeps_the_line_limit_and_says_why(talker: str, transcript: Path) -> None:
+    reason = message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(61)))
+    assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words (")
+    assert "The post it edits could not be read to check its length: no message 1.3 in the thread at --channel D123 --thread 1.2." in reason
+
+
 def test_the_answer_to_his_audit_order_goes_out_whole_and_its_refusal_says_how(talker: str, briefed: Path, slack_thread: Thread) -> None:
     his(slack_thread, CHECK_SIMPLE)
     reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD)
@@ -232,7 +324,7 @@ def test_his_words_in_the_brief_lift_the_limit_with_no_thread_read(talker: str, 
     ("asked", "named"),
     [
         ("explain everything about the snapshot", '"explain everything about the snapshot"'),
-        (["the page map", "and the bucket history…"], '"and the bucket history"'),
+        (["the bucket history", "and the snapshot…"], '"the bucket history", "and the snapshot"'),
     ],
 )
 def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
@@ -240,6 +332,7 @@ def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
 ) -> None:
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
+    assert "It is not an answer, so it keeps that limit" in reason
     assert f"nor in your brief: {named}. {NOT_HIS}" in reason
 
 
@@ -256,7 +349,7 @@ def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monke
 
     monkeypatch.setattr(slack, "thread", unreadable)
     assert posted(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
-        "His thread could not be read to check asked: daemon not running."
+        "His thread could not be read to check asked, so it is not yet an answer: daemon not running."
     )
 
 

@@ -10,14 +10,16 @@ from drive import limits, slack, state
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 DM_POST = SLACK + "slack_dm_status"
-CHANNEL_POSTS = {SLACK + "slack_reply", SLACK + "slack_send", SLACK + "slack_edit"}
+EDIT = SLACK + "slack_edit"
+CHANNEL_POSTS = {SLACK + "slack_reply", SLACK + "slack_send", EDIT}
 PERMALINK_CHANNEL = re.compile(r"/archives/([A-Z0-9]+)")
 SPACE = re.compile(r"\s+")
 BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
+STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 WHOLE = (
-    " An answer to a question or order of his goes out whole, at any length: pass as asked each message of his it"
-    " answers, word for word, one per line."
+    " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
+    " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
 )
 
 
@@ -62,8 +64,19 @@ def his_messages(payload: dict, dm: str) -> str:
     return " ".join(message["text"] for message in slack.thread(*where, "--limit", str(slack.WHOLE_THREAD)) if not message.get("from_bot"))
 
 
+def edited_words(payload: dict, dm: str) -> int:
+    """How long the post an edit replaces is, read from Slack; 0 for a new post."""
+    if payload["tool_name"] != EDIT:
+        return 0
+    tool_input = payload["tool_input"]
+    if url := tool_input.get("url"):
+        return limits.words(slack.message(url)["text"])
+    ts = tool_input["ts"]
+    return limits.words(slack.message_at(ts, "--channel", dm, "--thread", tool_input.get("thread_ts") or ts)["text"])
+
+
 def squashed(text: str) -> str:
-    return SPACE.sub(" ", html.unescape(text)).strip().casefold()
+    return SPACE.sub(" ", html.unescape(text).translate(STRAIGHT)).strip().casefold()
 
 
 def quotes(asked: str | list[str]) -> list[str]:
@@ -78,28 +91,34 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM goes out longer than he reads: a routine line, summary or card keeps its limit, and an answer to messages of his, each quoted word for word as asked, goes out whole."""
+    """Why a post to his DM goes out longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer quoting any message of his word for word as asked goes out whole."""
     dm = his_dm(payload.get("session_id") or "")
     if dm is None or not posts_to(payload, dm):
         return None
     tool_input = payload["tool_input"]
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
+    try:
+        refusal = limits.post_refusal(tool_input, edited_words(payload, dm))
+    except slack.SlackError as error:
+        refusal += f" The post it edits could not be read to check its length: {error}."
+    if refusal is None:
+        return None
     if not (asked := quotes(tool_input.get("asked") or "")):
         return refusal + WHOLE
-    if not (unbriefed := unsaid(asked, brief(payload))):
+    if len(unbriefed := unsaid(asked, brief(payload))) < len(asked):
         return None
     try:
         missing = unsaid(unbriefed, his_messages(payload, dm))
     except slack.SlackError as error:
-        return refusal + f" His thread could not be read to check asked: {error}."
-    if not missing:
+        return refusal + f" His thread could not be read to check asked, so it is not yet an answer: {error}."
+    if len(missing) < len(asked):
         return None
     named = ", ".join(f'"{part}"' for part in missing)
     return (
-        refusal + " asked lifts the limit only with his own words, and these stand in no message of his in the thread this post"
-        f" goes to, nor in your brief: {named}. Copy each message of his this post answers word for word, one per line, with …"
-        " where you skip words."
+        refusal + " It is not an answer, so it keeps that limit: asked lifts the limit only with his own words, and these stand"
+        f" in no message of his in the thread this post goes to, nor in your brief: {named}. Copy each message of his this post"
+        " answers word for word, one per line, with … where you skip words."
     )
 
 
