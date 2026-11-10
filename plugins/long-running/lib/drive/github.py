@@ -4,12 +4,13 @@ from itertools import groupby
 
 BATCH = 50
 FIELDS = (
-    "state isDraft headRefOid title reviewDecision mergeCommit { oid } "
+    "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
 )
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail", "PENDING": "pending", "EXPECTED": "pending"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
+CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
 
 
 class GithubError(Exception):
@@ -56,19 +57,23 @@ def flatten(node: dict) -> dict:
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
         "checks": rollup["state"] if rollup else None,
         "reviewDecision": node["reviewDecision"],
+        "mergeable": node["mergeable"],
         "title": node["title"],
     }
 
 
 def live(read: dict) -> dict:
-    """The drive's stored fields (state, checks, review, head, title) of one fetched PR."""
-    return {
+    """The drive's stored fields (state, checks, review, head, title, conflict) of one fetched PR; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    fields = {
         "state": PR_STATES[read["state"]],
         "checks": CHECKS.get(read["checks"], "none"),
         "review": REVIEWS.get(read["reviewDecision"], "none"),
         "head": read["headRefOid"],
         "title": read["title"],
     }
+    if read["mergeable"] in CONFLICTS:
+        fields["conflict"] = CONFLICTS[read["mergeable"]]
+    return fields
 
 
 def parse(payload: dict, keys: list[str]) -> dict[str, dict]:

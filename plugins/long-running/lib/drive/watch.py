@@ -76,6 +76,8 @@ def pr_changes(pr: dict, read: dict) -> list[str]:
         changes.append("checks passed" if fresh["checks"] == "pass" else "checks failed")
     if fresh["review"] != pr["review"] and fresh["review"] != "none":
         changes.append("approved" if fresh["review"] == "approved" else "changes requested")
+    if fresh.get("conflict") and not pr["conflict"]:
+        changes.append("conflicts with its base")
     if fresh["state"] != pr["state"]:
         changes.append(fresh["state"])
     pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"])

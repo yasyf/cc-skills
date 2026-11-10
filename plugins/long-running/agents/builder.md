@@ -88,8 +88,10 @@ A brief with a `Handoff:` line names an open PR, its branch and head, and one ev
 branch in a fresh worktree; the coordinator already registered the PR as yours. Read the earlier
 jobs' transcripts the brief lists only for what the event needs.
 
-- A failing check: read its log, fix, push. A review: answer or fix every finding; a non-critical
-  bot finding you judge wrong gets a one-line reply saying why. Then return as step 6 says.
+- A failing check: read its log, fix, push. A conflict with its base: rebase onto the base, resolve
+  each conflict by what both sides meant, push. A review: answer or fix every finding; a
+  non-critical bot finding you judge wrong gets a one-line reply saying why. Then return as step 6
+  says.
 - His answers to the design cards a built branch or open PR waited on, quoted in the brief: rebuild
   wherever his pick differs from the option built, open the PR if none is open, and return as step
   6 says.

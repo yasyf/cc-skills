@@ -12,6 +12,7 @@ def node(**overrides: object) -> dict:
         "headRefOid": "abc1234def",
         "title": "Fix the thing",
         "reviewDecision": None,
+        "mergeable": "MERGEABLE",
         "mergeCommit": None,
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
     }
@@ -48,6 +49,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "mergeCommit": None,
             "checks": "SUCCESS",
             "reviewDecision": None,
+            "mergeable": "MERGEABLE",
             "title": "Fix the thing",
         },
         "a/one#2": {
@@ -57,6 +59,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "mergeCommit": "fff000",
             "checks": None,
             "reviewDecision": "APPROVED",
+            "mergeable": "MERGEABLE",
             "title": "Fix the thing",
         },
     }
@@ -99,5 +102,10 @@ def test_fetch_raises_a_github_error_on_an_unreadable_reply(monkeypatch: pytest.
 
 
 def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
-    read = {"state": "MERGED", "checks": "ERROR", "reviewDecision": "CHANGES_REQUESTED", "headRefOid": "abc", "title": "T"}
-    assert github.live(read) == {"state": "merged", "checks": "fail", "review": "changes", "head": "abc", "title": "T"}
+    read = {"state": "OPEN", "checks": "ERROR", "reviewDecision": "CHANGES_REQUESTED", "mergeable": "CONFLICTING", "headRefOid": "abc", "title": "T"}
+    assert github.live(read) == {"state": "open", "checks": "fail", "review": "changes", "head": "abc", "title": "T", "conflict": True}
+
+
+def test_live_leaves_conflict_out_while_github_has_not_worked_it_out() -> None:
+    read = {"state": "OPEN", "checks": "SUCCESS", "reviewDecision": None, "mergeable": "UNKNOWN", "headRefOid": "abc", "title": "T"}
+    assert "conflict" not in github.live(read)
