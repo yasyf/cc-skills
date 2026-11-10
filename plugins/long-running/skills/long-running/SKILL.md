@@ -160,10 +160,10 @@ live session reads here can land on another drive. Each record names the thread 
 | `owner` | communicator | `root@<drive>` | his words verbatim, his message's permalink as `--url`, his thread, and `--attr ruling=<answer id>` on a ruling | makes them orders, or starts a skill rewrite for a ruling, by its table |
 | `answer` | communicator | `root@<drive>` | `--re` the `ask` it answers, which closes it, `--attr job=<j>`, and his pick or his own words | records his answer and resumes that job |
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
-| `report` | `root` | `communicator@<drive>` | the facts of one message, opening `POST` (a handler posts it) or `FYI` (context, nothing posted): the thread or alert link it goes in, what changed for him, links and proof, and for each item that waits on him its card's permalink or `waits` id | a `POST` gets a handler that writes and posts it; an `FYI` is kept as context |
-| `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first, and in its text the order of his it carries out, his words quoted; never a port and never a PR that is neither | draws the stack's PR card |
-| `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, its `Findings:` section included, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the findings in the order's thread, then the question card under them, its `waits` id `<drive>:<j>-<the record's seq>`; a record with no findings draws nothing and goes back as `refused` |
-| `refused` | communicator | `root@<drive>` | `--re` the `ask` it refuses and why, such as no findings | resumes that job to send its `ASK` again with what was missing |
+| `report` | `root` | `communicator@<drive>` | the facts of one post, opening `POST` (a handler posts it) or `FYI` (context, nothing posted): the thread or alert link it goes in, one plain line per feature saying what changed for him, its link and proof, and for each item that waits on him its card's permalink or `waits` id; never a job's result lines, a path, an id, or a PR past the one a line names, since the post holds at most 120 words | a `POST` gets a handler that writes and posts it; an `FYI` is kept as context |
+| `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first, and in its text the order of his it carries out, his words quoted, for the line of at most 60 words above his card; never a port and never a PR that is neither | draws the stack's PR card |
+| `ask` | `root` | `communicator@<drive>` | the question as its text, `--attr ask=<the path drive job ask printed>` and `--attr job=<j>`, never the block itself; a design fork's carries its question and options as its text and its design lines as its body instead | draws one question card from the file's question, summary and options, its `waits` id `<drive>:<j>-<the record's seq>`, copies it into the order's thread, and posts nothing else: the findings stay in the file for Explain more |
+| `refused` | communicator | `root@<drive>` | `--re` the `ask` it refuses and why, such as the card cc-slack or the length hook refused, quoted | resumes that job to fix its `ASK` and keep it again with `drive job ask` |
 
 ## The communicator
 
@@ -190,7 +190,7 @@ spent drafting, checking or drawing holds his next message behind it.
 | A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
 | A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | The same. |
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
-| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. | Nothing. |
+| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. A tap of Explain more answers nothing and gets no record. | Nothing; for Explain more, a handler briefed `Message (his words): Explain more` with the card's `waits` id and permalink. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
 | A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
 | An `FYI` report | Nothing: keep it as context for his next message. | Nothing. |
@@ -261,8 +261,8 @@ answer.
 | `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, what it served (his order's words, or "port of #N landed" with the old PR linked), and the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
 | `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Its `SERVES:` line says what each PR is, by [Scope](#scope-and-asking-him). **A port**: read it against #N's diff with `gh pr diff`; one that does only what #N does gets `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, and a handoff builder lands it, with no card; anything past #N makes it his order's or neither. **His order**: read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A list that is missing, empty or says none is not his order: no card, whatever the rest of the PR says, and `drive card` refuses one. A step missing or unmatched goes back to the job, with no card. Then read its `DESIGN:` line, which names each design decision the PR makes beside the answer or card of his that settled it, or says none: a decision he never answered draws no card, and goes back to the job to return as an `ASK`, a design question by [Design first](#design-first). Then `drive pr set <url> --tap --serves <o> --design asked:<his answer id or card permalink>` for each URL, or `--design none` when the PR makes no design decision, which prints his words back so you read what they asked for, and one `ready` record with every URL, bottom first, the order's thread, and his order's words quoted in its text. **Neither**: no card and no more work; another lane's PR goes back to that lane in a `handoff` record. A PR added to the stack later comes back as its own `READY` and gets its own card. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`, and for a remote lane `drive job end <j>` in the background. Nothing to him. Its open PR's next event gets a fresh builder with a handoff (Jobs below); a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
-| `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". A design question rests on the design, not a measurement: its findings are the design in plain words, what his words already settle, and what each option changes and costs. |
-| `DESIGN <part>`, from a design lane | By [Design first](#design-first). Each `Fork:` in it becomes one `ask` record, `--attr job=<j>`, its question and options verbatim and its findings the `Design:` and `Settled:` lines, so each fork is its own short question card; then `drive job set <j> --state waiting --said "<the questions>"`. `Fork: none` starts the part's builder now, the design as its brief's `Plan:`. |
+| `ASK <path>` | The job kept its block with `drive job ask`, which refuses one out of shape, names each fix and sets the job waiting. A remote lane's `JOB … ASK` line gets `drive job ask <j>` here, which reads the lane's report; its refusal goes back with `drive job resume <j> "<the refusal>"`, and nothing goes to him. Then one `ask` record with the question as its text, `--attr ask=<the kept path>`, `--attr job=<j>` and the order's thread, never the block. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His rulings, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me", which the summary's first line, what was found, carries on the card; and 9:33 PM: "What the fuck is this insane shit you're sending me your messages need to be way shorter rewrite this for a human", so the findings stay in the file and reach him only when he taps Explain more. A design question rests on the design, not a measurement: its summary is the design in a line, and its findings are the design in plain words, what his words already settle, and what each option changes and costs. |
+| `DESIGN <part>`, from a design lane | By [Design first](#design-first). Each `Fork:` in it becomes one `ask` record, `--attr job=<j>`, its question and options verbatim as its text and its `Design:` and `Settled:` lines as its body, which reach him only when he taps Explain more, so each fork is its own short question card and nothing else; then `drive job set <j> --state waiting --said "<the questions>"`. `Fork: none` starts the part's builder now, the design as its brief's `Plan:`. |
 | `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. `BLOCKED no order of his names this` is a PR that is neither, by [Scope](#scope-and-asking-him): no card, and it goes back to its lane or becomes a question card. |
 
 | Event | Do |
@@ -437,8 +437,8 @@ this? It's not in scope for us."
   licenses none of the fixes: a fix waits for his pick on its card.
 - **Neither**: the drive does not build, polish or card it. Another lane's PR or bug report goes
   back to that lane in a `handoff` record. A sweep's finding, a teammate's report or a job's own
-  finding he has not ordered becomes a question card, its findings posted first, and nothing is
-  built before his pick. His ruling, Nov 9 8:42 AM, on a card for another lane's bug report: "Not
+  finding he has not ordered becomes a question card whose summary says what was found, and nothing
+  is built before his pick. His ruling, Nov 9 8:42 AM, on a card for another lane's bug report: "Not
   ours drop this".
 
 Two kinds of work are the drive's without a new order, and each says so in its line. A defect in
@@ -458,8 +458,11 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
 - A design question goes to him before anything is built on it, by [Design first](#design-first):
   a short card with two to four one-line options, recommendation first, and a picture when the
   shape matters. Nothing is built on the recommendation before his pick.
-- No question card goes up before the findings it rests on are posted in its thread: what was
-  hit, what was measured, the cause, and what each option changes and costs.
+- A question card is the job's `ASK` as `drive job ask` kept it: the question; a summary of one to
+  three lines, what was found and what is being decided, the recommendation, and what happens
+  meanwhile; and two to four options, one line each, saying what he gets and what it costs. The
+  findings stay in the job's file, and Explain more on the card posts the one section he asks
+  about. No separate findings post, ever.
 - His answer is the option he tapped, or his own words when he writes one: a written reply that
   names no single option settles nothing, is never mapped to the closest option, and goes back to
   him under the card. No option asks a reporter or anyone else to retry or confirm.
@@ -510,10 +513,19 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
   the read follows in a second `report`. Every other post is a handler's, a summary at most every 30
   minutes per thread, grouped by feature. While he is away only cards post, and his next message
   gets one catch-up.
+- Short, held there by the tooling. These limits are the coordinator's reading of his Nov 9 9:33 PM
+  words, "your messages need to be way shorter rewrite this for a human": a line in his thread is
+  at most 60 words, a summary of two or more features at most 120, a question card with its options
+  at most 150 in all, each option one line of at most 25 words saying what he gets and what it
+  costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
+  limit, from the communicator or any handler, with the count and the limit, and `drive job ask`
+  refuses an `ASK` that would draw a card over it. Only his own message asking for more
+  ("explain", "details", "why", "show me"), quoted as `asked` in the call, lifts a post's limit.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
-  his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, or
-  code identifiers.
+  his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, table
+  or function names, code identifiers, PRs past the one being decided, or mechanism he did not ask
+  about.
 - Every line stands alone, since he has no other context. A number, fraction, size or ratio says
   what it measures, why that value, and gives one concrete example; a mechanism gets one plain
   sentence before it is used; nothing points at a list, finding, thread or PR he cannot see in
