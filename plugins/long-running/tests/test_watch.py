@@ -638,15 +638,23 @@ def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo:
     assert watch.run_pass(watching, T0 + timedelta(minutes=430)) == [f"{still} 430 minutes [o1 j1]"]
 
 
-def test_running_build_reads_the_newest_request_shape(tmp_path: Path) -> None:
+def test_running_build_reads_the_newest_request_shape_and_model(tmp_path: Path) -> None:
     path = tmp_path / "session.jsonl"
-    shapes = [json.dumps({"type": "api-request-shape", "version": version}) for version in ("2.1.319", "2.1.321")]
-    path.write_text("\n".join([shapes[0], json.dumps({"type": "assistant"}), shapes[1], json.dumps({"type": "user"})]) + "\n")
-    assert watch.running_build(path) == "2.1.321"
+    lines = [
+        {"type": "api-request-shape", "version": "2.1.319"},
+        {"type": "assistant", "message": {"model": "claude-opus-5-5"}},
+        {"type": "api-request-shape", "version": "2.1.321"},
+        {"type": "assistant", "message": {"model": "claude-fable-5-2"}},
+        {"type": "user"},
+    ]
+    path.write_text("".join(json.dumps(line) + "\n" for line in lines))
+    assert watch.running_build(path) == ("2.1.321", "claude-fable-5-2")
 
 
-def test_older_build_flags_only_a_session_behind_the_installed_claude() -> None:
-    assert watch.older_build("2.1.319", "2.1.322").startswith("runs Claude Code 2.1.319, older than the installed 2.1.322")
-    assert watch.older_build("2.1.322", "2.1.322") is None
-    assert watch.older_build("2.1.330", "2.1.322") is None
-    assert watch.older_build(None, "2.1.322") is None
+def test_unknown_model_flags_only_a_build_without_the_model(tmp_path: Path) -> None:
+    (tmp_path / "2.1.319").write_bytes(b"claude-opus-5-5 claude-fable-5-1")
+    (tmp_path / "2.1.321").write_bytes(b"claude-opus-5-5 claude-fable-5-2")
+    assert watch.unknown_model("2.1.319", "claude-fable-5-2", tmp_path).startswith("runs claude-fable-5-2 on Claude Code 2.1.319, which has no entry")
+    assert watch.unknown_model("2.1.321", "claude-fable-5-2", tmp_path) is None
+    assert watch.unknown_model("2.1.319", "claude-opus-5-5", tmp_path) is None
+    assert watch.unknown_model("2.1.400", "claude-fable-5-2", tmp_path) is None

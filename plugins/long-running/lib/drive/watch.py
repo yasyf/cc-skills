@@ -1,4 +1,5 @@
 import json
+import mmap
 import os
 import re
 import time
@@ -321,8 +322,9 @@ def last_turn(path: Path) -> dict | None:
             span *= 4
 
 
-def running_build(path: Path) -> str | None:
-    """The Claude Code version the session's newest API request reports."""
+def running_build(path: Path) -> tuple[str | None, str | None]:
+    """The Claude Code version the session's newest API request reports, and the model its newest turn ran on."""
+    version = model = None
     with open(path, "rb") as handle:
         end = handle.seek(0, os.SEEK_END)
         span = TAIL_BYTES
@@ -330,24 +332,26 @@ def running_build(path: Path) -> str | None:
             start = max(0, end - span)
             handle.seek(start)
             for line in reversed(handle.read().splitlines()[1 if start else 0 :]):
-                if b'"api-request-shape"' in line:
-                    return json.loads(line).get("version")
+                if version is None and b'"api-request-shape"' in line:
+                    version = json.loads(line).get("version")
+                elif model is None and b'"type":"assistant"' in line.replace(b" ", b""):
+                    model = json.loads(line)["message"].get("model")
+                if version and model:
+                    return version, model
             if not start:
-                return None
+                return version, model
             span *= 4
 
 
-def version_key(version: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
-
-
-def older_build(running: str | None, installed: str | None) -> str | None:
-    """What his line says when a session runs an older Claude Code than the one installed, which can lack its model's context window."""
-    if not running or not installed:
+def unknown_model(version: str | None, model: str | None, builds: Path) -> str | None:
+    """What his line says when the session's Claude Code build has no entry for its model, so it runs it at a default window."""
+    binary = builds / version if version else None
+    if not model or not binary or not binary.is_file():
         return None
-    if version_key(running) >= version_key(installed):
-        return None
-    return f"runs Claude Code {running}, older than the installed {installed}, so it can run its model at the wrong context window: restart it on his word"
+    with open(binary, "rb") as handle, mmap.mmap(handle.fileno(), 0, access=mmap.ACCESS_READ) as image:
+        if image.find(model.encode()) >= 0:
+            return None
+    return f"runs {model} on Claude Code {version}, which has no entry for that model and runs it at a default context window: restart it on the installed build on his word"
 
 
 def context_tokens(entry: dict) -> int:
