@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import github, orca, page, reads, state, view
+from drive.install import config_dir
 from drive.render import cut, when
 from drive.state import DriveError
 
@@ -19,6 +20,14 @@ LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
+HANDOFF = timedelta(minutes=2)
+QUIET_FOR = timedelta(minutes=30)
+STUCK_FOR = timedelta(minutes=30)
+TAIL_BYTES = 65536
+NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
+SLACK_TS = re.compile(r"/p(\d+)")
+PR_LINE = re.compile(r"\s*(?:READY|PR:)")
+STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card drawn"}
 
 
 @dataclass
@@ -30,6 +39,8 @@ class Watcher:
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
     page_shape: str | None = None
+    cards: dict | None = None
+    agent_gaps: dict[str, str | None] = field(default_factory=dict)
 
 
 def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetime) -> list[str]:
@@ -78,10 +89,37 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
+            if stuck := stuck_for(pr, watcher.cards, moment):
+                changes.append(stuck)
             pr["updated"] = state.stamp(moment)
             title = cut(pr["title"], 120)
             lines.extend(f'PR {key} "{title}": {change} {ids(pr)}' for change in changes)
     return lines
+
+
+def stuck_as(pr: dict, cards: dict | None) -> str | None:
+    if pr["state"] != "open":
+        return None
+    if pr["checks"] == "fail":
+        return "red"
+    carded = cards is None or view.card_for(cards["pr_cards"], pr["url"])
+    return "ready" if pr["checks"] == "pass" and pr["review"] == "approved" and not carded else None
+
+
+def stuck_for(pr: dict, cards: dict | None, moment: datetime) -> str | None:
+    what, held = stuck_as(pr, cards), pr.get("stuck")
+    if what is None or not held or held["as"] != what:
+        pr["stuck"] = what and {"as": what, "since": state.stamp(moment), "said": None}
+        return None
+    since = state.parse_time(held["since"])
+    if moment - since < STUCK_FOR or held["said"] and moment - state.parse_time(held["said"]) < STUCK_FOR:
+        return None
+    held["said"] = state.stamp(moment)
+    return f"{STUCK_WORDS[what]} for {minutes(moment - since)} minutes"
+
+
+def minutes(span: timedelta) -> int:
+    return int(span.total_seconds() // 60)
 
 
 def first_line(text: str) -> str:
@@ -136,9 +174,23 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 reads_asked.append((job_id, run, message["id"], question))
                 continue
             lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+            track_lane_prs(data, job_id, message["body"] or "")
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines += [answer_read(*asked, checkout) for asked in reads_asked]
     return [line for line in lines if line]
+
+
+def track_lane_prs(data: dict, job_id: str, body: str) -> None:
+    job = data["jobs"][job_id]
+    for line in body.splitlines():
+        if not PR_LINE.match(line):
+            continue
+        for match in state.PR_URL.finditer(line):
+            key = f"{match[1]}/{match[2]}#{match[3]}"
+            url = state.pr_url(key)
+            data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": True})
+            if url not in job["prs"]:
+                job["prs"].append(url)
 
 
 def answer_read(job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
@@ -151,8 +203,7 @@ def answer_read(job_id: str, run: str, message_id: str, question: str, checkout:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Store his cards for every reader, and redraw the drive's Slack status page when its model changed since the last drawing."""
-    view.refresh_cards(watcher.name)
+    """Redraw the drive's Slack status page when its model changed since the last drawing."""
     model = view.read(watcher.name, moment)
     shape = json.dumps(model | {"at": None}, sort_keys=True)
     if shape == watcher.page_shape:
@@ -195,7 +246,7 @@ def overdue(order: dict, moment: datetime) -> bool:
     return due <= moment and (said is None or state.parse_time(said) < due)
 
 
-def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
+def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     if not any(overdue(order, moment) for order in state.load(watcher.name)["orders"].values()):
         return []
     lines = []
@@ -203,7 +254,175 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for order_id, order in data["orders"].items():
             if overdue(order, moment):
                 order["due_said"] = state.stamp(moment)
-                lines.append(f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(order["due"])}')
+                lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(order["due"])}'))
+    return lines
+
+
+def transcript(holder: dict, agent: str) -> Path:
+    project = NOT_SLUG.sub("-", holder["cwd"])
+    return config_dir() / "projects" / project / holder["session"] / "subagents" / f"agent-{agent}.jsonl"
+
+
+def last_turn(path: Path) -> dict | None:
+    with open(path, "rb") as handle:
+        end = handle.seek(0, os.SEEK_END)
+        span = TAIL_BYTES
+        while True:
+            start = max(0, end - span)
+            handle.seek(start)
+            for line in reversed(handle.read().splitlines()[1 if start else 0 :]):
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if entry.get("type") in ("user", "assistant"):
+                    return entry
+            if not start:
+                return None
+            span *= 4
+
+
+def said_last(entry: dict) -> str:
+    texts = [block["text"] for block in entry["message"]["content"] if block.get("type") == "text"]
+    return cut(first_line(texts[-1]), 100) if texts else "nothing"
+
+
+def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    session = job.get("session")
+    holder = next((held for held in data["roles"].values() if session and held["session"] == session), None)
+    if holder is None:
+        return f"{job_id}'s agent ended with an earlier session"
+    if not job.get("agent"):
+        return f"{job_id} has no agent recorded"
+    path = transcript(holder, job["agent"])
+    if not path.exists():
+        return f"{job_id}'s agent {job['agent']} has no transcript"
+    quiet = moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone()
+    if quiet < HANDOFF:
+        return None
+    turn = last_turn(path)
+    if turn and turn["type"] == "assistant" and turn["message"].get("stop_reason") == "end_turn":
+        return f'{job_id}\'s agent finished and its result is not recorded: "{said_last(turn)}"'
+    if quiet >= QUIET_FOR:
+        return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
+    return None
+
+
+def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
+    projection = worker["projection"]
+    if projection["liveness"]["verdict"] == "exited":
+        return f"{job_id}'s lane exited"
+    if projection["outcome"] != "in_progress":
+        return f"{job_id}'s lane {projection['outcome']} and its result is not recorded"
+    output = (worker.get("terminal") or {}).get("lastOutputAt")
+    quiet = output and moment - datetime.fromtimestamp(output / 1000).astimezone()
+    if "input" in projection["attention"]["categories"] and quiet and quiet >= QUIET_FOR:
+        return f"{job_id}'s lane has sat at its prompt for {minutes(quiet)} minutes"
+    return None
+
+
+def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    data = state.load(watcher.name)
+    gaps, lines = {}, []
+    for order in state.open_orders(data).values():
+        for job_id in order["jobs"]:
+            job = data["jobs"][job_id]
+            if job["state"] != "running":
+                continue
+            if job.get("where") != "remote":
+                gaps[job_id] = local_gap(job_id, job, data, moment)
+                continue
+            if not job.get("dispatch"):
+                gaps[job_id] = f"{job_id} never started on its Sprite"
+                continue
+            source = f"lane of {job_id}"
+            try:
+                gaps[job_id] = remote_gap(job_id, orca.worker(job["dispatch"]), moment)
+            except orca.OrcaError as error:
+                if "dispatch_not_found" in str(error):
+                    gaps[job_id] = f"{job_id}'s lane is gone from Orca"
+                    continue
+                lines += read_failed(watcher, source, error, moment)
+                continue
+            watcher.failures.pop(source, None)
+    watcher.agent_gaps = gaps
+    return lines
+
+
+def card_open(url: str, cards: dict | None) -> bool:
+    if cards is None:
+        return True
+    shown = {message_key(card["url"]) for card in [*cards["questions"], *cards["pr_cards"]]}
+    return message_key(url) in shown
+
+
+def message_key(url: str) -> str:
+    match = SLACK_TS.search(url)
+    return match[1] if match else url
+
+
+def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
+    if job.get("ask") or job.get("card") and card_open(job["card"], cards):
+        return True
+    if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
+        return True
+    due = data["orders"][job["order"]]["due"]
+    return bool(due) and state.parse_time(due) > moment
+
+
+def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    if moment - state.parse_time(job["updated"]) < HANDOFF:
+        return None
+    if job["state"] == "running":
+        return watcher.agent_gaps.get(job_id)
+    if job["state"] == "waiting":
+        if can_wake(job_id, job, data, watcher.cards, moment):
+            return None
+        return f'{job_id} waits on "{cut(job["said"] or "nothing named", 80)}" and no open PR, card or due time can wake it'
+    if job["state"] == "done":
+        return f"{job_id} answered and the answer is not posted to him"
+    return f"{job_id} {job['state']}"
+
+
+def part_gap(watcher: Watcher, data: dict, order: dict, part: str, moment: datetime) -> str | None:
+    jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in data["jobs"][job_id]["parts"]]
+    if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] != "reader" for _, job in jobs):
+        return None
+    if not jobs:
+        return "no job"
+    gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
+    return None if None in gaps else gaps[-1]
+
+
+def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
+    return {
+        (order_id, part): part_gap(watcher, data, order, part, moment)
+        for order_id, order in state.open_orders(data).items()
+        for part in order["parts"]
+    }
+
+
+def orphan_change(data: dict, key: tuple[str, str], gap: str | None, due: set[str], moment: datetime) -> str | None:
+    said = data["orders"][key[0]]["parts"][key[1]]["orphan_said"]
+    if gap is None:
+        return "heal" if said else None
+    if key[0] in due or not said or moment - state.parse_time(said) >= TICK_EVERY:
+        return "say"
+    return None
+
+
+def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]:
+    data = state.load(watcher.name)
+    if not any(orphan_change(data, key, gap, due, moment) for key, gap in part_gaps(watcher, data, moment).items()):
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for key, gap in part_gaps(watcher, data, moment).items():
+            change = orphan_change(data, key, gap, due, moment)
+            if change:
+                data["orders"][key[0]]["parts"][key[1]]["orphan_said"] = None if change == "heal" else state.stamp(moment)
+            if change == "say":
+                lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
     return lines
 
 
@@ -236,15 +455,21 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: GitHub and the status page every 60 s, GitHub again next poll after a failure, new events, passed due times, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, lane mail, agents and the status page every 60 s, GitHub again next poll after a failure, new events, passed due times, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
+        view.refresh_cards(watcher.name)
+        found, source = view.stored_cards(watcher.name)
+        watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
+        lines += agent_lines(watcher, moment)
         lines += page_lines(watcher, moment)
     lines += event_lines(watcher)
-    lines += due_lines(watcher, moment)
+    due = due_lines(watcher, moment)
+    lines += [line for _, line in due]
+    lines += orphan_lines(watcher, moment, {order_id for order_id, _ in due})
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from drive import github, state
+from drive import cli, github, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -501,3 +501,50 @@ def test_desk_wait_forwards_to_lr_wait(tmp_path: Path) -> None:
     for script in (plugin / "bin" / "desk-wait.sh", plugin / "skills" / "long-running" / "scripts" / "desk-wait.sh"):
         out = subprocess.run([str(script), "30", "mailbox:x=c"], env=env, capture_output=True, text=True, check=True)
         assert out.stdout == "lr wait 30 mailbox:x=c\n"
+
+
+def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: Run, demo: str) -> None:
+    run("order", "add", "build the files design", "--parts", "stack 1", "stack 2", "stack 3")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "all of it", "--agent", "a")[0] == 2
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "x", "--part", "stack 9")[0] == 2
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "stacks 2-3", "--part", "stack 2", "--part", "stack 3")[1] == "j1"
+    run("job", "set", "j1", "--part", "stack 1", "--card", "https://acme.slack.com/archives/D1/p1")
+    data = state.load("demo")
+    assert list(data["orders"]["o1"]["parts"]) == ["stack 1", "stack 2", "stack 3"]
+    assert data["jobs"]["j1"]["parts"] == ["stack 2", "stack 3", "stack 1"]
+    assert data["jobs"]["j1"]["card"] == "https://acme.slack.com/archives/D1/p1"
+
+
+def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
+    run("order", "add", "fix   the\nwatch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix", "--agent", "a")
+    data = state.load("demo")
+    assert list(data["orders"]["o1"]["parts"]) == ["fix the watch"]
+    assert data["jobs"]["j1"]["parts"] == ["fix the watch"]
+    assert data["jobs"]["j1"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
+
+
+def test_setting_parts_keeps_what_a_kept_part_recorded(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "two answers", "--parts", "why", "how")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
+    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2", "--part", "why")[0] == 0
+    run("order", "set", "o1", "--parts", "why", "what")
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert parts == {"why": {"posted": "https://acme.slack.com/archives/D1/p2", "orphan_said": None}, "what": state.new_part()}
+
+
+def test_only_the_communicator_marks_an_answer_posted(run: Run, demo: str) -> None:
+    run("order", "add", "why?")
+    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
+    assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
+
+
+def test_version_names_the_plugin_version(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--version"])
+    plugin = json.loads((Path(drive.__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())
+    assert capsys.readouterr().out.strip() == f"drive {plugin['version']}"

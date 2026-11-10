@@ -9,6 +9,7 @@ from drive import github, orca, place, render, state
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -60,6 +61,7 @@ def order_add(args: argparse.Namespace) -> int:
             "due": due_stamp(args.due) if args.due else None,
             "due_said": None,
             "jobs": [],
+            "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "proof": None,
             "note": None,
             "created": created,
@@ -75,6 +77,17 @@ def find(records: dict, key: str, label: str) -> dict:
     return records[key]
 
 
+def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
+    listed = ", ".join(f'"{part}"' for part in order["parts"])
+    if not named:
+        if len(order["parts"]) != 1:
+            raise DriveError(f"{order_id} has parts {listed}; name the one this covers with --part")
+        return list(order["parts"])
+    if unknown := [part for part in named if part not in order["parts"]]:
+        raise DriveError(f"{order_id} has no part {', '.join(unknown)}; its parts are {listed}")
+    return list(dict.fromkeys(named))
+
+
 def order_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     changes = {
@@ -87,10 +100,23 @@ def order_set(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         order = find(data["orders"], args.id, "order")
         order.update({field: value for field, value in changes.items() if value is not None})
+        if args.parts:
+            order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
         order["updated"] = state.stamp()
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, render.order_line(args.id, order), {"id": args.id, **order})
+
+
+def order_posted(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
+            raise DriveError("only the communicator marks an answer posted, once the answer is in his thread")
+        order = find(data["orders"], args.id, "order")
+        [part] = pick_parts(args.id, order, [args.part] if args.part else [])
+        order["parts"][part]["posted"] = args.link
+    return emit(args, f'{args.id} "{part}": posted {args.link}', {"id": args.id, "part": part, "posted": args.link})
 
 
 def job_add(args: argparse.Namespace) -> int:
@@ -98,12 +124,16 @@ def job_add(args: argparse.Namespace) -> int:
     created = state.stamp()
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
+        parts = pick_parts(args.order, order, args.part)
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = {
             "order": args.order,
             "kind": args.kind,
             "goal": args.goal,
             "agent": args.agent,
+            "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
+            "parts": parts,
+            "card": None,
             "where": "remote" if args.remote else "local",
             "repo": args.repo,
             "branch": args.branch,
@@ -121,13 +151,17 @@ def job_add(args: argparse.Namespace) -> int:
 
 def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said}
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "card": args.card}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
+        if args.part:
+            added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
+            job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
         if args.agent:
             job["where"] = "local"
+            job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
@@ -207,33 +241,13 @@ def job_end(args: argparse.Namespace) -> int:
     return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})
 
 
-def new_pr(url: str, job_id: str, order_id: str) -> dict:
-    return {
-        "url": url,
-        "job": job_id,
-        "order": order_id,
-        "wants_tap": False,
-        "tap": None,
-        "exempt": None,
-        "fundamental": None,
-        "state": "open",
-        "title": "",
-        "head": "",
-        "checks": "pending",
-        "review": "none",
-        "draft": False,
-        "merged_sha": None,
-        "updated": state.stamp(),
-    }
-
-
 def pr_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     url = state.pr_url(key)
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
-        pr = data["prs"].setdefault(key, new_pr(url, args.job, job["order"]))
+        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]))
         pr.update(job=args.job, order=job["order"], wants_tap=pr["wants_tap"] or args.tap)
         if url not in job["prs"]:
             job["prs"].append(url)
@@ -399,6 +413,7 @@ def parser() -> argparse.ArgumentParser:
     both = [drive_opt, json_opt]
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
+    root.add_argument("--version", action="version", version=f"drive {json.loads(PLUGIN_JSON.read_text())['version']}")
     verbs = root.add_subparsers(dest="verb", required=True)
 
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
@@ -418,6 +433,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--from", dest="source", default="terminal")
     verb.add_argument("--thread")
     verb.add_argument("--due")
+    verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id")
@@ -427,7 +443,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--proof")
     verb.add_argument("--thread")
     verb.add_argument("--lined", action="store_true")
+    verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
     verb.set_defaults(run=order_set)
+    verb = order.add_parser("posted", parents=both, help="the communicator posted the answer a part owes him")
+    verb.add_argument("id")
+    verb.add_argument("link", help="the Slack link of the posted answer")
+    verb.add_argument("--part", help="default: the order's only part")
+    verb.set_defaults(run=order_posted)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser("add", parents=both)
@@ -439,6 +461,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--branch")
     verb.add_argument("--worktree")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
+    verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=both)
     verb.add_argument("id")
@@ -446,6 +469,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--state", choices=state.JOB_STATES)
     verb.add_argument("--said")
     verb.add_argument("--pr", action="append", default=[])
+    verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers")
+    verb.add_argument("--card", help="the Slack link of the question card this job waits on")
     verb.set_defaults(run=job_set)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
     verb.add_argument("id")

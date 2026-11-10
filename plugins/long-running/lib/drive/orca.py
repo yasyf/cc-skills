@@ -130,6 +130,10 @@ def mail(run: str) -> list[dict]:
     return call("check", "--run", run)["messages"]
 
 
+def worker(dispatch: str) -> dict:
+    return call("worker-show", "--dispatch", dispatch)
+
+
 def answer(job: dict, text: str) -> str:
     """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
     if job.get("ask"):

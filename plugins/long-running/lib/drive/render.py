@@ -21,18 +21,22 @@ COMMUNICATOR_RULES = (
     ),
     (
         "Never wait: your calls are Slack, cc-slack card-copy, cci posts, answer_add, readers, drive heard,"
-        " drive status, drive view and cc-slack check-post, and each turn ends in seconds."
+        " drive status, drive view, drive order posted, drive job set --card and cc-slack check-post, and each turn"
+        " ends in seconds."
     ),
     (
         "Post what the coordinator sends: a report as a line in its thread, a ready as a PR card, an ask as a"
         " question card, each by reference/messages.md; a line that says something waits on him carries that card's"
-        " copy, buttons and all, in the same thread."
+        " copy, buttons and all, in the same thread. An ask's card goes on its job with drive job set <j> --card <link>;"
+        " a posted answer to his question is drive order posted <o> <link> --part <part>."
     ),
     "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
 )
 COORDINATOR_RULES = (
     "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
+    "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its --part,"
+    " and an ORPHAN line gets a job, a card or a close in the same turn.",
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
