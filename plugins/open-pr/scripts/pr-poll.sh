@@ -491,7 +491,7 @@ poll() {
     } 2>/dev/null | jq -cs .
   ) || checks_ok=0
   if [ "$checks_ok" = 1 ]; then
-    required=$(get "repos/$REPO/rules/branches/$(jq -rn --arg b "$base" '$b | @uri')" \
+    required=$(get "repos/$REPO/rules/branches/$base" \
       '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context]' |
       jq -cs 'add // [] | unique') || checks_ok=0
   fi
