@@ -17,14 +17,17 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
+| An answer to his own words asking for an explanation or a comparison | 150 words, the rest behind the card's Explain more or in a write-up attached as a file, never a second line |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 
 The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
 any handler, with the count and the limit, and `drive job ask` refuses a job's `ASK` whose card runs
-over it. Only his own message asking for more, such as "explain", "details", "why" or "show me",
-lifts a post's limit. The handler quotes his words as `asked` in the call, and the hook checks that
-they ask for more and stand in its brief. His tap on Explain more is such a message.
+over it. Only his own words asking for an explanation or a comparison, such as "explain", "why",
+"show me", "how is that different" or "pros/cons", raise a post's limit to a card's 150 words. The
+handler quotes his words as `asked` in the call, eliding with `…` where it skips some, and the hook
+checks that they ask for that and stand in a message of his in the thread the post goes to, read
+from Slack, or in the handler's brief. His tap on Explain more is such a message.
 
 ## The short form
 
@@ -41,8 +44,9 @@ they ask for more and stand in its brief. His tap on Explain more is such a mess
   at most 150 in all, each option one line of at most 25 words saying what he gets and what it
   costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
   limit, from the communicator or any handler, with the count and the limit, and `drive job ask`
-  refuses an `ASK` that would draw a card over it. Only his own message asking for more
-  ("explain", "details", "why", "show me"), quoted as `asked` in the call, lifts a post's limit.
+  refuses an `ASK` that would draw a card over it. Only his own words asking for an explanation or
+  a comparison ("explain", "why", "show me", "pros/cons"), quoted as `asked` in the call, raise a
+  post's limit to 150 words; the rest goes behind the card's Explain more or in an attached write-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
   his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, table
