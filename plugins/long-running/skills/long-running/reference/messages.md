@@ -18,16 +18,22 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
 | An answer to his own words asking for an explanation or a comparison | 150 words, the rest behind the card's Explain more or in a write-up attached as a file, never a second line |
+| The installed confirmation of a ruling of his, listing each rule now in the installed skill | 150 words, one short line a rule |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 
 The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
 any handler, with the count and the limit, and `drive job ask` refuses a job's `ASK` whose card runs
-over it. Only his own words asking for an explanation or a comparison, such as "explain", "why",
-"show me", "how is that different" or "pros/cons", raise a post's limit to a card's 150 words. The
-handler quotes his words as `asked` in the call, eliding with `…` where it skips some, and the hook
-checks that they ask for that and stand in a message of his in the thread the post goes to, read
-from Slack, or in the handler's brief. His tap on Explain more is such a message.
+over it. Two posts get a card's 150 words, and only when the call quotes his own words as `asked`.
+The hook finds them in a message of his in the thread the post goes to, read from Slack, or in the
+handler's brief; a quote elides with `…` where it skips some.
+
+- An answer to his words asking for an explanation or a comparison, such as "explain", "why", "show
+  me", "how is that different" or "pros/cons". His tap on Explain more is such a message.
+- The second confirmation of a ruling of his, once the skill update is installed. `asked` quotes the
+  ruling, and `installed` names the plugin and the version installed now, such as `long-running
+  1.0.76`. The hook checks that version against the plugins this machine has installed and that the
+  post says it, so only a real install, stated to him, lifts the limit.
 
 ## The short form
 
@@ -44,9 +50,11 @@ from Slack, or in the handler's brief. His tap on Explain more is such a message
   at most 150 in all, each option one line of at most 25 words saying what he gets and what it
   costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
   limit, from the communicator or any handler, with the count and the limit, and `drive job ask`
-  refuses an `ASK` that would draw a card over it. Only his own words asking for an explanation or
-  a comparison ("explain", "why", "show me", "pros/cons"), quoted as `asked` in the call, raise a
-  post's limit to 150 words; the rest goes behind the card's Explain more or in an attached write-up.
+  refuses an `ASK` that would draw a card over it. Two posts get 150 words. One answers his own
+  words asking for an explanation or a comparison, such as "explain", "why" or "pros/cons", quoted
+  as `asked`. The other confirms a ruling of his is installed, with the ruling quoted as `asked` and
+  `installed` naming the plugin version installed now, which the post says. The rest goes behind
+  the card's Explain more or in an attached write-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
   his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, table

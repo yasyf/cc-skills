@@ -21,6 +21,16 @@ QUOTED = (
     "explain how that's different than the step logs form before… and what the pros/cons are… (and speed / bandwidth"
     " implications of both)"
 )
+HIS_RULING = (
+    "2, it can proactively build the recommended but can’t put up a PR until I answer design Qs, and make that state a"
+    " first class thing in our ledger"
+)
+CONFIRMATION = """*Installed: long-running 1.0.76.* The skill update for your 1:26 AM answer is merged and live. The rules now in the skill:
+1. A builder may build the recommended option before you answer a design card, on a pushed branch, and opens no pull request until you answer.
+2. The drive's list has a state for that work, "Built, waiting on your design answers", on your status tab and the dashboard.
+3. A pull request that waits on a card of yours gets no approve card and stays out of your tap queue.
+4. A pull request or a built branch can wait on several cards and is released only when the last is answered.
+5. Each question card shows how many finished pull requests it holds up, and your queue lists them most first."""
 
 
 def said(count: int) -> str:
@@ -57,7 +67,7 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_and_limit(
     reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(61), thread_ts="1.2"))
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
     assert "way shorter" in reason
-    assert reason.endswith("raise it to 150: pass them, quoted, as asked.")
+    assert reason.endswith('installed naming the plugin and the version now installed, such as "long-running 1.0.76", which the post states.')
     assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(60), thread_ts="1.2")) is None
 
 
@@ -126,6 +136,68 @@ def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, transc
     reason = message_limits.deny_reason(call("slack_dm_status", briefed_with_a_record(transcript), text=said(100), thread_ts="1.2", asked=QUOTED))
     assert reason.startswith("refused: this post is 100 words, and a line in his thread is at most 60 words")
     assert reason.endswith("these do not.")
+
+
+@pytest.fixture
+def ruled(slack_thread: "Thread", tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    slack_thread.messages += [{"ts": "1.3", "user": "U1", "text": HIS_RULING}, {"ts": "1.4", "from_bot": True, "text": "Updating the skill."}]
+    config = tmp_path / "config"
+    (config / "plugins").mkdir(parents=True)
+    entries = {
+        "long-running@skills": [
+            {"version": "1.0.75", "lastUpdated": "2026-11-10T09:58:00Z"},
+            {"version": "1.0.76", "lastUpdated": "2026-11-10T10:16:00Z"},
+        ],
+        "cc-slack@forge": [{"version": "0.19.50", "lastUpdated": "2026-11-10T09:00:00Z"}],
+    }
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": entries}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+
+
+def test_the_installed_confirmation_of_his_ruling_gets_150_words(talker: str, transcript: Path, ruled: None) -> None:
+    briefed = briefed_with_a_record(transcript)
+    ruling = {"text": CONFIRMATION, "thread_ts": "1.2", "asked": HIS_RULING}
+    confirmed = ruling | {"installed": "long-running 1.0.76"}
+    assert message_limits.deny_reason(call("slack_dm_status", briefed, **ruling)).startswith(
+        "refused: this post is 134 words, and a line in his thread is at most 60 words"
+    )
+    assert message_limits.deny_reason(call("slack_dm_status", briefed, **confirmed)) is None
+    reason = message_limits.deny_reason(call("slack_dm_status", briefed, **confirmed | {"text": CONFIRMATION + " " + said(17)}))
+    assert reason.startswith("refused: this post is 151 words, and the installed confirmation of a ruling of his is at most 150 words")
+    assert reason.endswith("List each rule now in the installed skill in plain words, one short line each; everything else stays on disk.")
+
+
+@pytest.mark.parametrize(
+    ("installed", "text", "why"),
+    [
+        ("long-running 1.0.75", CONFIRMATION.replace("1.0.76", "1.0.75"), "but this machine has long-running at 1.0.76."),
+        ("long-running 1.0.77", CONFIRMATION.replace("1.0.76", "1.0.77"), "but this machine has long-running at 1.0.76."),
+        ("long-running 1.0.76", CONFIRMATION.replace("long-running 1.0.76", "the update"), "never says the version it confirms, 1.0.76."),
+    ],
+)
+def test_a_confirmation_lifts_nothing_unless_the_version_it_states_is_installed_now(
+    talker: str, transcript: Path, ruled: None, installed: str, text: str, why: str
+) -> None:
+    payload = call("slack_dm_status", briefed_with_a_record(transcript), text=text, thread_ts="1.2", asked=HIS_RULING, installed=installed)
+    reason = message_limits.deny_reason(payload)
+    assert reason.startswith("refused: this post is 134 words, and a line in his thread is at most 60 words")
+    assert reason.endswith(why)
+
+
+def test_an_ordinary_61_word_line_is_still_refused_with_his_ruling_as_asked(talker: str, transcript: Path, ruled: None) -> None:
+    briefed = briefed_with_a_record(transcript)
+    status = "Two builders are on the run page and three pull requests wait on CI. " + said(47)
+    reason = message_limits.deny_reason(call("slack_dm_status", briefed, text=status, thread_ts="1.2", asked=HIS_RULING))
+    assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
+    assert reason.endswith("in the thread this post goes to or in your brief; these do not.")
+    plain = message_limits.deny_reason(call("slack_dm_status", briefed, text=status, thread_ts="1.2"))
+    assert plain.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
+
+
+def test_installed_lifts_nothing_without_his_ruling_in_the_thread(talker: str, transcript: Path, ruled: None) -> None:
+    confirmed = {"text": CONFIRMATION, "thread_ts": "1.2", "asked": "make the skill better", "installed": "long-running 1.0.76"}
+    payload = call("slack_dm_status", briefed_with_a_record(transcript), **confirmed)
+    assert message_limits.deny_reason(payload).endswith("in the thread this post goes to or in your brief; these do not.")
 
 
 def test_an_unreadable_thread_refuses_with_why(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:

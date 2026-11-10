@@ -10,6 +10,12 @@ OPTION_WORDS = 25
 SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
+LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
+ANSWER_REST = (
+    "Answer what he asked in plain words; the rest goes behind the card's Explain more or into a write-up attached as a file,"
+    " never a second line."
+)
+CONFIRMATION_REST = "List each rule now in the installed skill in plain words, one short line each; everything else stays on disk."
 
 WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
@@ -57,27 +63,23 @@ def block_text(node: object) -> str:
     return ""
 
 
-def post_refusal(post: dict, asked: bool = False) -> str | None:
-    """Why a post to his DM is over the length he reads, or None when it fits; a post answering his words asking for more has a card's length."""
+def post_refusal(post: dict, lift: str = "") -> str | None:
+    """Why a post to his DM is over the length he reads, or None when it fits; a post answering his words asking for more, or confirming his ruling is installed, has a card's length."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
     text = post.get("text") or ""
     count = max(words(text), words(block_text(post.get("blocks") or [])))
     features = len(FEATURE.findall(text))
-    if asked:
-        limit, shape = QUESTION_WORDS, "an answer to his own words asking for an explanation or a comparison"
+    if lift == "asked":
+        limit, shape, rest = QUESTION_WORDS, "an answer to his own words asking for an explanation or a comparison", ANSWER_REST
+    elif lift == "installed":
+        limit, shape, rest = QUESTION_WORDS, "the installed confirmation of a ruling of his", CONFIRMATION_REST
     elif features >= 2:
-        limit, shape = SUMMARY_WORDS, f"a summary of {features} features"
+        limit, shape, rest = SUMMARY_WORDS, f"a summary of {features} features", LINE_REST
     else:
-        limit, shape = LINE_WORDS, "a line in his thread"
+        limit, shape, rest = LINE_WORDS, "a line in his thread", LINE_REST
     if count <= limit:
         return None
-    rest = (
-        "Answer what he asked in plain words; the rest goes behind the card's Explain more or into a write-up attached"
-        " as a file, never a second line."
-        if asked
-        else "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
-    )
     return f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). {rest}"
 
 
