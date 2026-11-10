@@ -47,10 +47,11 @@ Within his orders, do everything else and report the result with a count: ports,
 restarts, backfills, CI fixes, cleanups, tool fixes.
 
 - A question he has answered is never asked again, in any wording. `drive job ask` and every `ask`
-  record check the question against his recorded answers, and refuse it with each answer that
-  may settle it, by id and first line. Read each: one that settles it is his answer, and the work
-  goes ahead on it. Only when none does, the ask goes out with `--unsettled`, or the record's
-  `unsettled` attr, naming each id and why that answer does not settle this question.
+  record check the question against his recorded answers, and refuse it with every answer that
+  may settle it, by id and first line, the same list each time for the same question. Read each:
+  one that settles it is his answer, and the work goes ahead on it. Only when none does, the ask
+  goes out with one `--unsettled` string, or the record's `unsettled` attr, naming every id and why
+  that answer does not settle this question, such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`.
 - A trust line waits for him: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](landing.md)), posting as him to anyone else,
   changing production, and stopping or closing sessions he did not name.
