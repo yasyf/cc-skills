@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import settled, state
 from drive.cli import tap_verdict
+from drive.github import repo_name
 
 GUARDED_OWNER = "forge-ai"
 MONOREPO = "Forge-AI/monorepo"
@@ -199,11 +200,6 @@ def lands(landing: Landing, options: dict[str, list[str]]) -> bool:
         labels = ",".join(options.get("add-label", [])).split(",")
         return landing.label in (label.strip() for label in labels)
     return True
-
-
-def repo_name(remote: str) -> str:
-    owner, name = re.split(r"[/:]", remote.strip().removesuffix("/").removesuffix(".git"))[-2:]
-    return f"{owner}/{name}"
 
 
 def selected_repo(landing: Landing, options: dict[str, list[str]], shell: Shell) -> str | None:

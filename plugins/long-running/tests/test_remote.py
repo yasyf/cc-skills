@@ -7,7 +7,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import cli, orca, place, reads, render, state, watch
+from drive import cli, github, orca, place, reads, render, state, watch
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -377,6 +377,84 @@ def test_the_watch_says_a_lane_orca_dropped_died(remote: str, monkeypatch: pytes
     monkeypatch.setattr(orca, "worker", gone)
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0)[0].startswith("LANE j1 o1 died on Sprite sprite-old: Orca no longer holds its worker, while it worked on")
+
+
+def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:
+    asked = []
+    monkeypatch.setattr(github, "checkout_repo", lambda checkout: "Forge-AI/monorepo")
+    monkeypatch.setattr(github, "open_on", lambda heads: asked.append(heads) or prs)
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    return asked
+
+
+def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until_its_result_is_recorded(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER)
+    asked = branches(monkeypatch, {"Forge-AI/monorepo#53447": {"branch": "ci-mac-box-prove", "checks": "pass", "review": "approved"}})
+    with state.edit(remote) as data:
+        data["orders"]["o1"]["parts"]["ship the remote builder"]["posted"] = "https://acme.slack.com/archives/D123/p1794200000000100"
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+    said = (
+        'ORPHAN o1 "ship the remote builder": j1\'s lane succeeded and its result is not recorded; Forge-AI/monorepo#53447 '
+        "on its branch ci-mac-box-prove is not in the drive: checks pass, review approved"
+    )
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [said]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said]
+    assert asked[0] == [("Forge-AI/monorepo", "ci-mac-box-prove")]
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", said="WAITING CI", updated=state.stamp(T0))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
+    assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
+
+
+def test_a_running_job_with_an_open_pr_the_drive_does_not_track_is_said_until_it_is_added(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch)
+    branches(monkeypatch, {"Forge-AI/monorepo#9": {"branch": "lane-fix", "checks": "pending", "review": "none"}})
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(branch="lane-fix", updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        'ORPHAN o1 "ship the remote builder": j1 is running; Forge-AI/monorepo#9 on its branch lane-fix is not in the drive: checks pending, review none'
+    ]
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/9", "--job", "j1")[0] == 0
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["updated"] = state.stamp(T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+
+
+@pytest.mark.parametrize(
+    ("ago", "said"),
+    [
+        (timedelta(minutes=10), []),
+        (
+            timedelta(minutes=31),
+            ['ORPHAN o1 "ship the remote builder": j1\'s lane ended 31 minutes ago (its worker exited), was not resumed and its result is not recorded'],
+        ),
+    ],
+)
+def test_a_running_job_whose_lane_ended_is_said_once_a_relaunch_would_have_finished(
+    remote: str, monkeypatch: pytest.MonkeyPatch, ago: timedelta, said: list[str]
+) -> None:
+    deliver(monkeypatch)
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane already said to have ended is not read again"))
+    with state.edit(remote) as data:
+        death = {"dispatch": DISPATCH, "workspace": "sprite-old", "why": "its worker exited", "at": state.stamp(T0 - ago)}
+        data["jobs"]["j1"].update(deaths=[death], updated=state.stamp(T0 - ago))
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == said
+
+
+def test_a_lane_result_opens_with_the_subject_it_was_sent_under(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = "Built and opened PR #53447: the serve marks queued card answers.\nLeft: build #122630 is still running"
+    deliver(monkeypatch, [message("worker_done", body, subject="WAITING CI on PR #53447 (build #122630)")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == ["JOB j1 o1 WAITING CI on PR #53447 (build #122630)"]
+    assert state.load(remote)["jobs"]["j1"]["report"] == body
 
 
 def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(

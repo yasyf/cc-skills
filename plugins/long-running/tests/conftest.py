@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, dashboard, orca, page, settled, slack, view, watch
+from drive import cli, dashboard, github, orca, page, settled, slack, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -86,6 +86,7 @@ def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
+    monkeypatch.setattr(github, "open_on", lambda heads: {})
 
 
 @dataclass

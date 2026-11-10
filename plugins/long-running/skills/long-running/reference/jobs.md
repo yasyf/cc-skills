@@ -30,7 +30,8 @@ silently: start it with the Agent tool, record it with `drive job set <j> --agen
 say so in the order's next report. A failure after worker-start ran may have left the lane
 live, so a reader checks its attempt before anything starts it again. The lane reports through
 Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
-the `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED` a background agent returns; `drive status --json`
+the `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED` a background agent returns, taken from a
+final report's subject, which the builder sends as its first line; `drive status --json`
 holds the whole latest report. `drive job replies <j>` prints every result and question the lane
 sent, oldest first, each with its time, for a line that points at an earlier reply. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
 ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with
@@ -42,8 +43,11 @@ refusal naming the list. A lane whose wait ends waits again on the same question
 keeps each question queued on its job until the answer goes through, past a refused reply or a
 watch restart. Its `WATCH the answer to <j>'s read failed` line needs nothing from you. The watch registers each PR a lane's `READY` or `PR:` line
 links as that job's, wanting his tap, and reads the lane's Dispatch from Orca each minute: a
-lane that finished or sat at its prompt for 30 minutes makes its parts `ORPHAN`s, and a lane whose
-worker died, running or waiting, is one `LANE … died` line. `drive job resume` checks the worker
+lane that sat at its prompt for 30 minutes makes its parts `ORPHAN`s, and a lane whose
+worker died, running or waiting, is one `LANE … died` line. While its job stays `running`, a lane
+that finished, or that ended and was not resumed within 30 minutes, makes its parts `ORPHAN`s even
+when another job or a posted answer carries them. So does an open PR on the job's branch or its
+lane's that the drive does not track; the watch reads those from GitHub in the same minute. `drive job resume` checks the worker
 before it sends. A live one gets the message. Orca sends nothing to one that finished, so on a
 Sprite still up resume starts the job's next worker in its terminal. A dead one is relaunched on a
 fresh Sprite on the same Run. Either new worker gets a handoff carrying the job's brief,
