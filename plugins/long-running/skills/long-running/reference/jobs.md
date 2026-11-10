@@ -24,8 +24,12 @@ parts `ORPHAN`s.
 `drive job resume <j> -` included, never through a file the coordinator writes: Claude Code reads the
 files a session wrote back into its context after every compaction. It starts the builder through the
 `orca` skill's launcher as an Orca worker on a Sprite, on an Orca Run of its own that only this
-drive's watch reads, so no other session takes its mail, and its notification says where it
-started or why it could not. A lane that started no worker runs here instead, never
+drive's watch reads, and its notification says where it started or why it could not. Orca types
+"You have N orchestration messages" into the terminal a Run is bound to, so the coordinator's
+terminal holds a lane's Run only for a worker start or an answer. The rest of the time it holds the
+drive's own Run, which no lane mails. Such a line Orca still types in the
+seconds a call holds a lane's Run needs nothing: the watch makes that mail `JOB` events, so never
+run the `orca orchestration check` it names. A lane that started no worker runs here instead, never
 silently: start it with the Agent tool, record it with `drive job set <j> --agent <id>`, and
 say so in the order's next report. A failure after worker-start ran may have left the lane
 live, so a reader checks its attempt before anything starts it again. The lane reports through

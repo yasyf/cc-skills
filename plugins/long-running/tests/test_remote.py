@@ -12,6 +12,7 @@ from drive import cli, github, orca, place, reads, render, state, watch
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
+DRIVE_RUN = "run_coordinator1"
 DISPATCH = "ctx_lane0001"
 SEQUENCE = itertools.count(1)
 FINISHED_WORKER = {
@@ -42,6 +43,7 @@ def remote(run: Run, demo: str) -> str:
     run("job", "add", "builder", "--order", "o1", "--goal", "remote builders", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(run=RUN, dispatch=DISPATCH, ask=None, report=None)
+        data["run"] = DRIVE_RUN
     return demo
 
 
@@ -186,6 +188,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert calls == [
         ("run-use", "--id", RUN),
         ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve"),
+        ("run-use", "--id", DRIVE_RUN),
         (
             "send",
             "--to",
@@ -544,7 +547,11 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == []
     assert asked == [(f"LOG {url}", tmp_path)]
-    assert replies == [("run-use", "--id", RUN), ("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write")]
+    assert replies == [
+        ("run-use", "--id", RUN),
+        ("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write"),
+        ("run-use", "--id", DRIVE_RUN),
+    ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
@@ -572,7 +579,7 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
     ]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {"msg_log": "LOG https://buildkite.com/forge/test/builds/1"}
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
-    assert replies[-1] == ("reply", "--id", "msg_log", "--run", RUN, "--body", "log")
+    assert replies[-2:] == [("reply", "--id", "msg_log", "--run", RUN, "--body", "log"), ("run-use", "--id", DRIVE_RUN)]
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
@@ -631,6 +638,7 @@ def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch
     assert replies == [
         ("run-use", "--id", RUN),
         ("reply", "--id", "relay_read", "--run", RUN, "--body", 'READ ccn answer search "dom extraction": empty, the read printed nothing'),
+        ("run-use", "--id", DRIVE_RUN),
     ]
 
 
@@ -735,16 +743,16 @@ def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: 
     assert data["jobs"]["j1"]["prs"] == ["https://github.com/Forge-AI/monorepo/pull/8"]
 
 
-def test_the_inbox_turns_each_message_into_one_event_and_skips_what_check_already_took(
+def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_took_first(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    taken = message("question", "READY taken by check", id="msg_old", read=1)
+    taken = message("worker_done", "WAITING CI on #7", id="msg_old", read=1)
     first = message("status", "building", id="msg_1")
     second = message("question", "READY https://github.com/Forge-AI/monorepo/pull/7", id="msg_2")
     deliver(monkeypatch, [taken, first], [taken, first, second], [taken, first, second])
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     passes = [watch.run_pass(watching, T0 + timedelta(minutes=m)) for m in (0, 1, 2)]
-    assert passes == [[], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
+    assert passes == [["JOB j1 o1 WAITING CI on #7"], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
     assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}
 
 
@@ -762,4 +770,35 @@ def test_a_reply_during_a_launch_waits_until_its_worker_start_is_done(remote: st
     done = orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
     replying.join()
     assert json.loads(done.stdout) == {"bound": RUN, "reply_waiting": True}
-    assert binds == [RUN, "run_other"]
+    assert binds == [RUN, DRIVE_RUN, "run_other", DRIVE_RUN]
+
+
+def test_every_lane_call_leaves_the_terminal_on_the_drives_own_run_made_once_even_when_orca_refuses_the_call(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(remote) as data:
+        del data["run"]
+    calls = []
+
+    def orca_call(*args: str) -> dict:
+        calls.append(args[:3])
+        if args[0] == "run-create":
+            return {"run": {"id": DRIVE_RUN}}
+        if args[0] == "reply":
+            raise orca.OrcaError("orca orchestration reply: consumer_fenced: This caller is bound to Run run_other")
+        return {}
+
+    monkeypatch.setattr(orca, "call", orca_call)
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, stdout="{}", stderr=""))
+    orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
+    with pytest.raises(orca.OrcaError):
+        orca.reply(remote, RUN, "msg_1", "an answer")
+    assert calls == [
+        ("run-use", "--id", RUN),
+        ("run-create", "--objective", f"drive {remote}: the coordinator's own Run, which no lane mails"),
+        ("run-use", "--id", DRIVE_RUN),
+        ("run-use", "--id", RUN),
+        ("reply", "--id", "msg_1"),
+        ("run-use", "--id", DRIVE_RUN),
+    ]
+    assert state.load(remote)["run"] == DRIVE_RUN

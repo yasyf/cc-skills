@@ -220,7 +220,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         with state.edit(watcher.name) as data:
             seen = data.setdefault("lane_mail", {})
             for run, handles, message in messages:
-                if not unseen(seen.get(run), message):
+                if message["sequence"] <= seen.get(run, 0):
                     continue
                 seen[run] = message["sequence"]
                 job_id = handles.get(message["from_handle"])
@@ -243,11 +243,6 @@ def live_lanes(data: dict) -> dict[str, dict]:
         for job_id, job in data["jobs"].items()
         if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES
     }
-
-
-def unseen(last: int | None, message: dict) -> bool:
-    """Whether the watch has yet to act on a lane's message: past its last one in this Run, or, before it has one, any message `check` left unread."""
-    return message["sequence"] > last if last is not None else not message["read"]
 
 
 def track_lane_prs(data: dict, job_id: str, body: str) -> None:
