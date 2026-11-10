@@ -22,6 +22,7 @@ STACK_HEADING = "the stack"
 STACK_CHARS = 700
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
+HIS_WORDS_HEADING = "his words, step by step"
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -52,6 +53,7 @@ PARENTHETICAL = re.compile(r"\s*\([^()\n]*\)")
 NOTHING = re.compile(
     r"(?:none|nothing(?: differ(?:s|ed))?|no (?:departures?|deviations?)(?: from the plan)?|n/a)[.!]?", re.IGNORECASE
 )
+NO_ORDER = re.compile(r"(?:none|nothing|n/a)\b", re.IGNORECASE)
 RECORD_ID = re.compile(
     r"\b(?:cc-notes|ccn|cci)\s+(?:task|note|answer|doc|plan|log|record|seq|row)s?\b"
     r"|\bcci\s+#?\d+"
@@ -282,6 +284,11 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
     return card
 
 
+def names_his_order(pr: dict) -> bool:
+    words = first_paragraph(sections(body_of(pr)).get(HIS_WORDS_HEADING, ""))
+    return bool(words) and not NO_ORDER.match(words.lstrip("-*+ "))
+
+
 def stack_words(pr: dict) -> tuple[str, str]:
     """The stack's one-line title and its summary, from the `## The stack` section of its bottom PR's body."""
     text = without_records(HTML_TAG.sub("", sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
@@ -413,10 +420,16 @@ def cards(asked: list[dict]) -> dict:
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = render_stack(shown) if len(group) > 1 else render(*shown[0])
         bare = [row["url"] for (pr, entry, _), row in zip(shown, card["prs"]) if offers_approval(pr, entry) and not row["hate_most"]]
+        unordered = [pr["url"] for pr, entry, _ in shown if offers_approval(pr, entry) and not names_his_order(pr)]
         if len(group) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
             reason = f"its stack card needs a \"The stack\" section, a one-line title then a summary, in the body of its bottom PR {shown[0][0]['url']}"
         elif bare:
             reason = f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
+        elif unordered:
+            reason = (
+                f"no order of his names {', '.join(unordered)}: its \"His words, step by step\" list is missing, empty or says"
+                " none, so it is a port, which lands with no card, or the drive's to drop, never his to tap"
+            )
         else:
             reason = ""
         if reason:

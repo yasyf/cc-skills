@@ -46,7 +46,10 @@ body or option points at another option by number or position, such as "as 1", "
 does, such as "Own process plus a memory cap per script". cc-slack refuses a card that breaks this
 and quotes the words, and the coordinator writes an `ask` record's options the same way.
 
-**A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record.
+**A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record,
+and only for a PR that carries out an order of his. The line above it quotes that order. A port
+never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for every
+class that lands with no tap.
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
@@ -113,8 +116,22 @@ first, then each feature by state. Nothing to post; a line that says where thing
 - **Plain words.** No record ids, row numbers, card ids, hashes, test ids, lane or job names,
   plan step numbers, file paths, or code identifiers. Product and tool names in backticks are
   fine. Gloss anything he has not used lately in a few plain words.
-- **Name every PR by its title, linked**, once: `<url|the run page shows its history>`. Link
-  every build, alert, time, and earlier decision you mention.
+- **It stands alone.** He reads every line with no other context, so assume he has none. His
+  words, Nov 9 9:12 PM: "What is the sixteenth? You say it with no context you always have to
+  assume I don't have any other context". A number, fraction, size or ratio says what it
+  measures, why that value, and gives one concrete example. A mechanism gets one plain sentence
+  before it is used. Nothing points at a list, finding, thread or PR he cannot see in that same
+  message: no "the third finding", "the remaining two" or "as above". Not "reads each journal
+  file's page index sized to the file (a sixteenth of it, at most 64 KiB)", but:
+
+  ```
+  To open a run's page the browser first fetches a small index from the end of every journal file.
+  It used to fetch the last 64 KiB of every file; now it fetches the last one-sixteenth of each file
+  (about 6 KiB of a 97 KiB file), never more than 64 KiB.
+  ```
+- **Name every PR by its title, linked**, once: `<url|the run page shows its history>`, and say
+  what it serves: the order of his it carries out, in his words, or "port of #N" with the old PR
+  linked. Link every build, alert, time, and earlier decision you mention.
 - **Numbers over adjectives.** "129 of 476 passed, up from 100" beats "much better".
 - **Answer his next question in the same message**: why, did he already decide this, is it a
   port, what comes after, why it is held.
@@ -178,4 +195,5 @@ The other four are in review and land by 11:10 PM; each goes live within minutes
 A handler passes every message it posts through `cc-slack check-post -` and fixes every line it
 prints; the ack alone skips it, being one sentence the communicator already knows. Then the
 handler reads it as he will, on a phone, with no context: does he know what changed, whether he
-must act, and when he hears next?
+must act, and when he hears next, and does every number, term and reference in it make sense with
+nothing else open?

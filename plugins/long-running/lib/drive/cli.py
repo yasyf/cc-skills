@@ -398,8 +398,18 @@ def pr_add(args: argparse.Namespace) -> int:
 def pr_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
+    if args.tap and not args.serves:
+        raise DriveError("--tap needs --serves <order>: the order of his whose words ask for this PR")
+    if args.tap and args.port_of:
+        raise DriveError("a port lands with no tap: pass --port-of alone")
+    served = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
+        if args.serves:
+            served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
+            pr["serves"] = args.serves
+        if args.port_of:
+            pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
         if args.tap is not None:
             pr["wants_tap"] = args.tap
         if args.fundamental:
@@ -414,7 +424,7 @@ def pr_set(args: argparse.Namespace) -> int:
             pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
             pr["fundamental"] = None
         pr["updated"] = state.stamp()
-    return emit(args, render.pr_line(key, pr), {"key": key, **pr})
+    return emit(args, render.pr_line(key, pr) + served, {"key": key, **pr})
 
 
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:
@@ -691,10 +701,14 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=both)
     verb.add_argument("url")
-    verb.add_argument("--tap", action=argparse.BooleanOptionalAction)
+    verb.add_argument("--tap", action=argparse.BooleanOptionalAction, help="it waits on his tap; needs --serves")
+    verb.add_argument("--serves", metavar="ORDER", help="the order of his whose words ask for this PR; prints them back")
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     exemption.add_argument("--no-exempt", action="store_true", help="clear the exemption")
+    exemption.add_argument(
+        "--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card"
+    )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
     verb.add_argument("--tap-source", default="recorded", help="where that tap came from")

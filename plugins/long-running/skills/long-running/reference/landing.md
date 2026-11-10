@@ -14,7 +14,14 @@ itself.
   whose title check demands `fix:` or `feat:` keeps it; the card reads either.
 - Body sections, in this order. His card is drawn from them: fix the body, never the card. Each is
   plain words for him: no record ids (cc-notes, cci, job or order ids), hashes, file paths or code
-  identifiers; a sentence carrying a record id is dropped from his card.
+  identifiers; a sentence carrying a record id is dropped from his card. Each stands alone, since he
+  reads it with no other context: a number, fraction, size or ratio says what it measures, why that
+  value, and gives one example; a mechanism gets one plain sentence before it is used; nothing
+  points at a list, finding, thread or PR the card does not show. Not "reads each journal file's
+  page index sized to the file (a sixteenth of it, at most 64 KiB)", but "to open a run's page the
+  browser first fetches a small index from the end of every journal file. It used to fetch the last
+  64 KiB of every file; now it fetches the last one-sixteenth of each file (about 6 KiB of a 97 KiB
+  file), never more than 64 KiB."
   - `## The stack`: only on the bottom PR of a stack. Its first line is the stack's title, one readable
     line saying what the whole stack does; then a short paragraph explaining the whole stack in the
     Refresher's register. They head his stack card, and `drive card` refuses a stack card waiting on his
@@ -36,13 +43,19 @@ itself.
     diagram beside the example when a mechanism needs one. At most one short sentence of caption: the
     card shows the pictures, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
-  - `## Port`: only on a port: the old PR it ports, linked, and anything it does past it.
+  - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to
+    run it. A PR with behaviour of its own past that is not a port.
   - `## His words, step by step`: each step his words in the brief name, quoted, beside the
     file and line that does it (`path:line`). The coordinator checks this list against his words
     before his card is drawn, so a step with no code returns the PR to you. It stays off his card.
+    A PR that is not a port and whose list would be empty or say none is not his order and never
+    becomes a card: return `BLOCKED no order of his names this` instead of `READY`, and `drive card`
+    refuses its card.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
-  tap. Return `READY <url>` when only his tap is left, naming every PR of a stack bottom first
-  (`READY <url> <url> …`) so he gets one card for it, and `WAITING <what>` while CI or a queue runs.
+  tap. Return `READY <url>` when only his tap is left, or a port only its check against #N, naming
+  every PR of a stack bottom first (`READY <url> <url> …`) so he gets one card for it, with a
+  `SERVES:` line saying what it is: `port of #N`, or the order of his it carries out, quoted. Return
+  `WAITING <what>` while CI or a queue runs.
 
 ## yasyf/* repositories
 
@@ -74,11 +87,15 @@ restack his own in-flight branches. A PR lands only when all of these hold at it
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
 - he tapped Approve on its card, or it is an exempt class.
 
-**Exempt classes land with no tap.** Record one with `drive pr set <url> --exempt "<class>"` and clear it
-with `--no-exempt`; the landing guard reads it. **Pure port**: a `Port:` PR that does what its old-tree PR does, line for line, with that
-PR's tests, and nothing more. **Test-only**: only test and fixture files. **CI-only**: only CI
-configuration and CI tooling. **Flake fix**: the whole change fixes one named flaking test, in test or
-fixture code, and adds no timeout. Anything else waits for his tap.
+**Exempt classes land with no tap, and he never sees a tap card for one.** Each is marked as its class
+wherever he sees it, lands once green, and he reads one line in its order's thread naming the class and
+the PR, such as "port of #N landed". **Pure port**: a `Port:` PR that does what its old-tree PR #N does,
+line for line, with that PR's tests, and nothing more; the coordinator reads it against #N's diff and
+records it with `drive pr set <url> --port-of <N>`. **Test-only**: only test and fixture files.
+**CI-only**: only CI configuration and CI tooling. **Flake fix**: the whole change fixes one named
+flaking test, in test or fixture code, and adds no timeout. **Incident fix**: the fix an incident's order
+ships, by [incidents.md](incidents.md). Record any other class with `drive pr set <url> --exempt
+"<class>"` and clear it with `--no-exempt`; the landing guard reads it. Anything else waits for his tap.
 
 **His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle.
 Only a push that changes what he approved ends it: `drive pr set <url> --fundamental "<what changed>"`

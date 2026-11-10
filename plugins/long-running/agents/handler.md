@@ -48,7 +48,7 @@ Then do the row that matches.
 | His words in a question card's thread (the message's `thread_card` names the card) | An `answer` record to `root@<drive>` carrying his words verbatim, with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record. Settle the card only when his words name exactly one option: `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<that option>, via=<his message's permalink>)`. Words that name no option, or several, never settle it and are never mapped to the closest one: the card stays open, the `answer` record says so with `--attr maps=none`, and a one-line reply under the card asks him which option he means. |
 | Explain more on a question card | A reply under it with `slack_dm_status` text and `about` set to its id, in two or three sentences from the `ask` record that made it. When that record does not answer it, an `owner` record with his question. |
 | A `report` record | Write the message it carries and post it in its thread, at his DM root when it names none, or in an alert's or a bug report's thread in that channel; one opening `FYI` posts nothing. Each item that waits on him links its open card by the permalink the record carries, or the one `cc-slack drive-cards --drive <drive>` lists for its `waits` id, and the post draws that card with its buttons under the line; never run `card-copy` for it. When its `close` attr names orders, run `drive order set <o> --state done` for each once your line is posted: a refusal means that order's thread has no drive post since its promised time, so post its line there. No status card after it: `drive watch` redraws his status. |
-| A `ready` record | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`, which draws one card at his DM root for the stack, then `cc-slack card-copy` of that card into the thread. When the call fails its line already went out, so never post it again; a reason other than `drive card` refusing it is a `defect` record to `root@<drive>`. Draw a PR card only through `tap_prs`. |
+| A `ready` record | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line quoting the order of his the stack carries out, from the record>, thread_ts=<its thread>)`, which draws one card at his DM root for the stack, then `cc-slack card-copy` of that card into the thread. When the call fails its line already went out, so never post it again; a reason other than `drive card` refusing it is a `defect` record to `root@<drive>`. Draw a PR card only through `tap_prs`. |
 | An `ask` record | First the findings: a record with no `Findings:` section, or one missing what was hit, what was measured, the cause or what each option changes and costs, draws nothing and goes back as `cci post --kind refused --lane communicator --to root@<drive> --re <seq>` saying what is missing. Otherwise post the findings in its thread, one fact a line in plain words, then the question card at his DM root with its `waits` id `<drive>:<job>-<the record's seq>`, `recommended` and `drive` set, then `cc-slack card-copy --url <the card's permalink> --thread <its thread>` so the card sits under its findings, then `drive job set <job> --card <the card's permalink>`, so the watch knows the job waits on that card. |
 
 - Read the source that owns each fact: `drive status` for orders, jobs and their reproduction
@@ -91,8 +91,17 @@ else.
   correction edits your own message with `slack_edit`; never post a second copy.
 - Lead with the answer or what changed for him, in his words: a bold line and at most two
   sentences, a table only for three or more parallel items, Pacific times with no zone, each PR
-  named by its title, linked. No lane, job, order or record names, ids, hashes, seq numbers, file
-  paths or code identifiers.
+  named by its title, linked, with what it serves: the order of his it carries out, in his words,
+  or "port of #N". No lane, job, order or record names, ids, hashes, seq numbers, file paths or
+  code identifiers.
+- Every post stands alone: he reads it with no other context, so assume he has none, even when the
+  record you were sent assumes it. A number, fraction, size or ratio says what it measures, why
+  that value, and gives one concrete example; a mechanism gets one plain sentence before it is
+  used; nothing points at a list, finding, thread or PR he cannot see in that same post. His words,
+  Nov 9 9:12 PM, about "a sixteenth of it, at most 64 KiB": "What is the sixteenth? You say it with
+  no context you always have to assume I don't have any other context". Rewritten, it says the
+  browser fetches the last one-sixteenth of each journal file, about 6 KiB of a 97 KiB file and
+  never more than 64 KiB, to read the small index it needs to open a run's page.
 - A line that says something waits on him links the open card it means by its permalink, and the
   post draws that card with its buttons under the line. Never post one without its card: cc-slack
   refuses it and `check-post` flags it first, and a refusal means find the card, never reword

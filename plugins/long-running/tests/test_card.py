@@ -24,6 +24,9 @@ Retries could send a file twice. The server drops the copy.
 
 ## Against the plan
 The plan said three retries; this does five.
+
+## His words, step by step
+- "uploads should survive a flaky network" beside `upload.go:42`
 """
 
 
@@ -386,6 +389,39 @@ def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive:
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
     }
     assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
+
+
+@pytest.mark.parametrize(
+    "words",
+    [
+        "",
+        "None yet: no message or card pick of his names this bug. It reached the bug lane from a teammate's report.",
+        "- none",
+    ],
+)
+def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
+    drive: str, monkeypatch: pytest.MonkeyPatch, words: str
+) -> None:
+    body = FIX_BODY.split("## His words, step by step")[0] + f"## His words, step by step\n{words}\n"
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
+    assert skipped["reason"].startswith(f"no order of his names {URL}: ")
+    assert [event["kind"] for event in events(drive)] == ["refused"]
+
+
+def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = FIX_BODY.split("## His words, step by step")[0]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"] == []
+
+
+def test_an_exempt_port_with_no_his_words_still_draws(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["exempt"] = "pure port"
+    body = FIX_BODY.split("## His words, step by step")[0]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(title="Port: retry flaky uploads", body=body)))
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["status"] == "info"
 
 
 def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
