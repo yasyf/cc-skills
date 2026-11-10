@@ -19,7 +19,9 @@ FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 ASKS_FOR_MORE = re.compile(
-    r"\b(?:explain\w*|details?|detailed|why|show me|more|elaborate|expand|walk me through|in full)\b", re.IGNORECASE
+    r"\b(?:explain\w*|details?|detailed|why|show me|more|elaborate|expand|walk me through|in full"
+    r"|compar\w*|differ\w*|vs|versus|pros|cons|trade-?offs?)\b",
+    re.IGNORECASE,
 )
 NOT_PLAIN = (
     ("a file path", re.compile(r"(?<!\S)(?:~|\.{1,2})?/[\w.-]+/[\w./-]*")),
@@ -55,21 +57,28 @@ def block_text(node: object) -> str:
     return ""
 
 
-def post_refusal(post: dict) -> str | None:
-    """Why a post to his DM is over the length he reads, or None when it fits."""
+def post_refusal(post: dict, asked: bool = False) -> str | None:
+    """Why a post to his DM is over the length he reads, or None when it fits; a post answering his words asking for more has a card's length."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
     text = post.get("text") or ""
     count = max(words(text), words(block_text(post.get("blocks") or [])))
     features = len(FEATURE.findall(text))
-    limit = SUMMARY_WORDS if features >= 2 else LINE_WORDS
+    if asked:
+        limit, shape = QUESTION_WORDS, "an answer to his own words asking for an explanation or a comparison"
+    elif features >= 2:
+        limit, shape = SUMMARY_WORDS, f"a summary of {features} features"
+    else:
+        limit, shape = LINE_WORDS, "a line in his thread"
     if count <= limit:
         return None
-    shape = f"a summary of {features} features" if features >= 2 else "a line in his thread"
-    return (
-        f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). Say what changed for"
-        " him and what happens next, in plain words; everything else stays on disk until he asks for it."
+    rest = (
+        "Answer what he asked in plain words; the rest goes behind the card's Explain more or into a write-up attached"
+        " as a file, never a second line."
+        if asked
+        else "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
     )
+    return f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). {rest}"
 
 
 def card_refusal(card: dict, beside: str) -> str | None:

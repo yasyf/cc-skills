@@ -1,3 +1,4 @@
+import html
 import json
 import re
 import sys
@@ -5,17 +6,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import limits, state
+from drive import limits, slack, state
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 DM_POST = SLACK + "slack_dm_status"
 CHANNEL_POSTS = {SLACK + "slack_reply", SLACK + "slack_send", SLACK + "slack_edit"}
 PERMALINK_CHANNEL = re.compile(r"/archives/([A-Z0-9]+)")
 SPACE = re.compile(r"\s+")
-LIFT = " Only his own message asking for more lifts it: pass his words, quoted, as asked."
+ELIDED = re.compile(r"…|\.{3}")
+LIFT = (
+    f" Only his own words asking for an explanation or a comparison raise it to {limits.QUESTION_WORDS}: pass them,"
+    " quoted, as asked."
+)
 NOT_HIS = (
-    " The asked words lift the limit only when they ask for more and stand, word for word, in his message as your"
-    " brief quotes it; these do not."
+    " The asked words raise the limit only when they ask for an explanation or a comparison and stand, word for word,"
+    " in a message of his in the thread this post goes to or in your brief; these do not."
 )
 
 
@@ -48,24 +53,47 @@ def brief(payload: dict) -> str:
     return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
 
 
+def his_messages(payload: dict, dm: str) -> str:
+    """What he wrote in the thread the post goes to, read from Slack; in his DM with the app every message not the bot's is his."""
+    tool_input = payload["tool_input"]
+    if tool_input.get("thread_ts"):
+        where = ("--channel", dm, "--thread", tool_input["thread_ts"])
+    elif tool_input.get("url"):
+        where = ("--url", tool_input["url"])
+    else:
+        return ""
+    return " ".join(message["text"] for message in slack.thread(*where, "--limit", str(slack.WHOLE_THREAD)) if not message.get("from_bot"))
+
+
 def squashed(text: str) -> str:
-    return SPACE.sub(" ", text).strip().casefold()
+    return SPACE.sub(" ", html.unescape(text)).strip().casefold()
 
 
-def asked_for_more(payload: dict) -> bool:
-    asked = payload["tool_input"].get("asked") or ""
-    return bool(limits.ASKS_FOR_MORE.search(asked)) and squashed(asked) in squashed(brief(payload))
+def quotes(asked: str, said: str) -> bool:
+    """Whether every part of the asked words, split where a quote elides his, stands word for word in what he said."""
+    said = squashed(said)
+    return all(part.strip() in said for part in ELIDED.split(squashed(asked)) if part.strip())
+
+
+def his_request(payload: dict, dm: str, asked: str) -> bool:
+    return bool(limits.ASKS_FOR_MORE.search(asked)) and (quotes(asked, brief(payload)) or quotes(asked, his_messages(payload, dm)))
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM goes out longer than he reads: none but his own words asking for more lift the limit."""
+    """Why a post to his DM goes out longer than he reads: his own words asking for an explanation or a comparison raise it to a card's length, and nothing else does."""
     dm = his_dm(payload.get("session_id") or "")
     if dm is None or not posts_to(payload, dm):
         return None
-    refusal = limits.post_refusal(payload["tool_input"])
-    if refusal is None or asked_for_more(payload):
+    tool_input = payload["tool_input"]
+    if (refusal := limits.post_refusal(tool_input)) is None:
         return None
-    return refusal + (NOT_HIS if payload["tool_input"].get("asked") else LIFT)
+    if not (asked := tool_input.get("asked") or ""):
+        return refusal + LIFT
+    try:
+        his = his_request(payload, dm, asked)
+    except slack.SlackError as error:
+        return refusal + f" His thread could not be read to check the asked words: {error}."
+    return limits.post_refusal(tool_input, asked=True) if his else refusal + NOT_HIS
 
 
 def denial(reason: str) -> dict:

@@ -6,11 +6,21 @@ from pathlib import Path
 
 import message_limits
 import pytest
+from drive import slack
 
 Run = Callable[..., tuple[int, str]]
 DM = "D123"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
+HIS_QUESTION = (
+    "What the runner should save: it says I answered it but I don't. I think we want one row per program line, explain"
+    " how that's different than the step logs form before (it should be different and better), and what the pros/cons"
+    " are of that vs deriving it live from the journal (and speed / bandwidth implications of both)"
+)
+QUOTED = (
+    "explain how that's different than the step logs form before… and what the pros/cons are… (and speed / bandwidth"
+    " implications of both)"
+)
 
 
 def said(count: int) -> str:
@@ -47,7 +57,7 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_and_limit(
     reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(61), thread_ts="1.2"))
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
     assert "way shorter" in reason
-    assert reason.endswith("pass his words, quoted, as asked.")
+    assert reason.endswith("raise it to 150: pass them, quoted, as asked.")
     assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(60), thread_ts="1.2")) is None
 
 
@@ -79,15 +89,52 @@ def test_a_question_card_holds_150_words_and_options_of_25(talker: str, transcri
 
 
 @pytest.mark.parametrize("asked", ["explain the layout in full", "Why does the browser   guess at the page map"])
-def test_his_words_asking_for_more_lift_the_limit(talker: str, transcript: Path, asked: str) -> None:
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(400), asked=asked)) is None
+def test_his_words_asking_for_more_raise_the_limit_to_a_cards_150(talker: str, transcript: Path, asked: str) -> None:
+    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(150), asked=asked)) is None
+    reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(151), asked=asked))
+    assert reason.startswith(
+        "refused: this post is 151 words, and an answer to his own words asking for an explanation or a comparison is at most 150 words"
+    )
+    assert reason.endswith("the rest goes behind the card's Explain more or into a write-up attached as a file, never a second line.")
 
 
 @pytest.mark.parametrize("asked", ["explain everything about the snapshot", "the page map"])
 def test_words_he_did_not_write_or_that_ask_for_nothing_lift_nothing(talker: str, transcript: Path, asked: str) -> None:
     reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(400), asked=asked))
-    assert reason.startswith("refused: this post is 400 words")
-    assert reason.endswith("in his message as your brief quotes it; these do not.")
+    assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
+    assert reason.endswith("in the thread this post goes to or in your brief; these do not.")
+
+
+def briefed_with_a_record(transcript: Path) -> Path:
+    lane = transcript.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
+    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Record: 658274"}}) + "\n")
+    return transcript
+
+
+def test_his_question_in_the_thread_raises_the_limit_when_the_brief_only_names_a_record(
+    talker: str, transcript: Path, slack_thread: "Thread"
+) -> None:
+    slack_thread.messages += [{"ts": "1.3", "user": "U1", "text": HIS_QUESTION}, {"ts": "1.4", "from_bot": True, "text": "the card"}]
+    briefed = briefed_with_a_record(transcript)
+    assert message_limits.deny_reason(call("slack_dm_status", briefed, text=said(150), thread_ts="1.2", asked=QUOTED)) is None
+    assert slack_thread.reads == [("--channel", DM, "--thread", "1.2", "--limit", "1000")]
+    assert "is 151 words" in message_limits.deny_reason(call("slack_dm_status", briefed, text=said(151), thread_ts="1.2", asked=QUOTED))
+
+
+def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, transcript: Path, slack_thread: "Thread") -> None:
+    slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": HIS_QUESTION})
+    reason = message_limits.deny_reason(call("slack_dm_status", briefed_with_a_record(transcript), text=said(100), thread_ts="1.2", asked=QUOTED))
+    assert reason.startswith("refused: this post is 100 words, and a line in his thread is at most 60 words")
+    assert reason.endswith("these do not.")
+
+
+def test_an_unreadable_thread_refuses_with_why(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def unreadable(*where: str) -> list[dict]:
+        raise slack.SlackError("daemon not running")
+
+    monkeypatch.setattr(slack, "thread", unreadable)
+    reason = message_limits.deny_reason(call("slack_dm_status", briefed_with_a_record(transcript), text=said(100), thread_ts="1.2", asked=QUOTED))
+    assert reason.endswith("His thread could not be read to check the asked words: daemon not running.")
 
 
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
