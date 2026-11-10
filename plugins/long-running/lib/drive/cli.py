@@ -14,6 +14,7 @@ DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
@@ -296,7 +297,7 @@ def job_launch(args: argparse.Namespace) -> int:
         data["jobs"][args.id]["run"] = run
     brief = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     brief.parent.mkdir(exist_ok=True)
-    brief.write_text(orca.vm_brief(name, args.id, Path(args.brief).read_text()))
+    brief.write_text(orca.vm_brief(name, args.id, sys.stdin.read() if args.brief == "-" else Path(args.brief).read_text()))
     receipt = orca.launch(name, orca.lane_name(name, args.id), brief, root, run)
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
@@ -615,6 +616,11 @@ def context(args: argparse.Namespace) -> int:
     return 0
 
 
+def manual(args: argparse.Namespace) -> int:
+    sys.stdout.write((PAGES / f"{args.page}.md").read_text())
+    return 0
+
+
 def view_command(args: argparse.Namespace) -> int:
     from drive import page, view
 
@@ -762,7 +768,9 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=job_ask)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
     verb.add_argument("id")
-    verb.add_argument("brief", help="the job's brief, the same one a background agent gets")
+    verb.add_argument(
+        "brief", help="the file holding the job's brief, the same one a background agent gets, or - to read it from stdin"
+    )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
         "resume",
@@ -778,7 +786,11 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("text", help="his answer, or the event the lane acts on next")
+    verb.add_argument(
+        "text",
+        type=lambda value: sys.stdin.read() if value == "-" else value,
+        help="his answer, or the event the lane acts on next, or - to read it from stdin",
+    )
     verb.set_defaults(run=job_resume)
     verb = job.add_parser(
         "replies", parents=both, help="every result and question a remote lane sent, oldest first, with when it sent each"
@@ -837,6 +849,9 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("status", parents=both)
     verb.add_argument("ids", nargs="*", help="orders, jobs or PRs to read; default: every open order")
     verb.set_defaults(run=status)
+    verb = verbs.add_parser("manual", help="print one page of the long-running skill")
+    verb.add_argument("page", choices=sorted(path.stem for path in PAGES.glob("*.md")))
+    verb.set_defaults(run=manual)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
     verb.set_defaults(run=context)

@@ -26,6 +26,67 @@ over it. Only his own message asking for more, such as "explain", "details", "wh
 lifts a post's limit. The handler quotes his words as `asked` in the call, and the hook checks that
 they ask for more and stand in its brief. His tap on Explain more is such a message.
 
+## The short form
+
+- Lead with what changed for him, in his words, never with how the machinery got there.
+- Ack each of his messages inside 5 to 10 seconds, alone in the communicator's first message;
+  cc-slack has put the eyes on it already, and acks it itself while the communicator compacts. A
+  question of his that reaches the coordinator gets a `report` of what it has in the same time, and
+  the read follows in a second `report`. Every other post is a handler's, a summary at most every 30
+  minutes per thread, grouped by feature. While he is away only cards post, and his next message
+  gets one catch-up.
+- Short, held there by the tooling. These limits are the coordinator's reading of his Nov 9 9:33 PM
+  words, "your messages need to be way shorter rewrite this for a human": a line in his thread is
+  at most 60 words, a summary of two or more features at most 120, a question card with its options
+  at most 150 in all, each option one line of at most 25 words saying what he gets and what it
+  costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
+  limit, from the communicator or any handler, with the count and the limit, and `drive job ask`
+  refuses an `ASK` that would draw a card over it. Only his own message asking for more
+  ("explain", "details", "why", "show me"), quoted as `asked` in the call, lifts a post's limit.
+- A bold line and at most two sentences. A table only for three or more parallel items.
+- Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
+  his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, table
+  or function names, code identifiers, PRs past the one being decided, or mechanism he did not ask
+  about.
+- Every line stands alone, since he has no other context. A number, fraction, size or ratio says
+  what it measures, why that value, and gives one concrete example; a mechanism gets one plain
+  sentence before it is used; nothing points at a list, finding, thread or PR he cannot see in
+  that same message, such as "the third finding" or "as above". His ruling, Nov 9 9:12 PM, about
+  a ready line that said "a sixteenth of it, at most 64 KiB": "What is the sixteenth? You say it
+  with no context you always have to assume I don't have any other context". The coordinator's
+  `report`, `ready` and `ask` records are written the same way, since a handler copies their words.
+- Done means live and checked; say how in a few words, with the link. A line to him, and every
+  `report` body behind one, says what was observed and never lists what is not proven, under any
+  label: each unknown gets a job, and he gets its result or nothing. A job's `UNPROVEN:` list is the
+  coordinator's input, never copy for him. An incident line carries only a step of the fix with its
+  time, its proof on a real machine and users having it, or what is running and when the next line
+  lands, plus one cause line once a test machine reproduces it: no side facts about a release.
+- A report is one record per thread per coordinator turn, opening `POST` or `FYI`, never a burst:
+  everything a turn has for a thread goes in that one record. Each item in it that waits on him
+  carries its card's permalink or `waits` id, so the handler never searches for the card.
+- Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
+  card with its buttons right under it in the same thread: the line links the open card by its
+  permalink and cc-slack draws the card there, answerable, a tap on either answering both. A link
+  is never the embed, since Slack shows a link to a DM card with no buttons. cc-slack refuses a
+  line that says something waits on him with no open card linked, and `check-post` flags it first.
+  His rulings, Nov 9 1:49 PM: "Anything that says waiting on me you always need to embed the card
+  with the buttons", and 6:19 PM: "if u are ever asking for my pick it has to embed and unfirl the
+  link to the card that has buittons to action". Nothing else has buttons.
+- In a bug report's thread the drive posts once, after the fix ships: plain English, no jargon, and
+  no asks such as "please retry" or "please confirm". His ruling, Nov 9 1:53 PM: "we have
+  authorization to message once in bug fix threads after we ship the fix … it needs to be in plain
+  simple English no jargon, no crazy shit, and no asks". No card option offers to ask a reporter
+  anything.
+- One copy of everything. A correction edits the message in place.
+- A time promised to him is set with `--due` by the coordinator in the same turn, so the watch
+  holds the drive to it, from Slack's own record and never a session's word: `drive order add --due`
+  counts from the ack that named the time, `drive order set --due` from the next line in the order's
+  thread, and `DUE` repeats every 10 minutes until a drive post is in that thread. His ruling, Nov 9
+  5:24 PM: "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at
+  the whims of an agent".
+- A handler runs `cc-slack check-post` on every line it posts and fixes what it flags; the ack, one
+  sentence the communicator already knows, goes out unchecked.
+
 ## The shapes
 
 **An ack**, in the thread of his message, posted alone in the communicator's first message,

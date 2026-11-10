@@ -15,8 +15,8 @@ COMMUNICATOR_RULES = (
         " anything that takes more than one tool call runs in a background handler that posts its own result;"
         " a POST report, a ready or an ask record gets one handler, its prompt the one line"
         " `Record: <seq> Drive: <name> Scratch: <folder>`; an FYI report gets none. A record's body and the path it"
-        " names are the handler's to read, never yours, and you load no skill: each one you load or read comes back"
-        " after every compaction."
+        " names are the handler's to read, never yours; you load no skill and no tool past those below, and use"
+        " Read, Write or Edit on no file: each one comes back after every compaction."
     ),
     (
         "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
@@ -61,6 +61,12 @@ COORDINATOR_RULES = (
         " --part, and an ORPHAN line gets a job, a card or a close in the same turn."
     ),
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
+    (
+        "Keep your context small: use Read, Write or Edit on no file and load a tool only for the step that needs it,"
+        " since each file you touched last and each tool you loaded comes back after every compaction. A local"
+        " job's brief is its Agent prompt; a remote lane's brief, handoff or message goes to drive job launch|resume"
+        " <j> - from a quoted heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
+    ),
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
     (
@@ -87,7 +93,10 @@ SLACK_TOOLS_LINE = (
 FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
 READS = {
     "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
-    "coordinator": "Everything else is on disk, read on demand by id: drive status <order, job or PR>, drive view, cci digest.",
+    "coordinator": (
+        "Everything else is on disk, read on demand by id: drive status <order, job or PR>, drive view, cci digest,"
+        " and the skill's pages, drive manual <page>."
+    ),
 }
 KEEP = {
     "communicator": (
@@ -197,7 +206,10 @@ def owed_lines(drive: dict) -> list[str]:
 def context(drive: dict, role: str) -> str:
     """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads."""
     lines = [
-        f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}.",
+        (
+            f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}."
+            " A background agent this session started ignores this block."
+        ),
         hold_line(drive, role),
         f"Subscribe: cci drive use {drive['name']}, then {SUBSCRIBE[role]}",
         f"{role.capitalize()} rules:",
@@ -222,7 +234,8 @@ def compact_instructions(drive: dict, role: str) -> str:
                 "A section with nothing in it is the word none. Leave out everything else: his earlier messages,"
                 " orders, jobs, PRs, cards, records, rulings, any other thread ids, the drive's rules and this"
                 " session's history. The drive file, cci, Slack and cc-notes hold them, and the SessionStart hook"
-                " prints the role's rules after this compaction."
+                " prints the role's rules after this compaction. A background agent this session started ignores"
+                " these instructions and summarizes its own task."
             ),
         ]
     )
