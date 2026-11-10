@@ -2,6 +2,7 @@ from datetime import timedelta
 
 import pytest
 from drive import page, state, view, watch
+from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
@@ -143,20 +144,100 @@ def test_status_drops_dropped_orders_and_old_done_ones_and_says_the_latest_line_
     assert model["counts"] == {"queue": 1, "blocked": 0, "running": 1, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
 
 
-def test_page_leads_with_his_queue_and_tables_each_state() -> None:
-    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running", "drawing it")}, [pr(1, "o1", wants_tap=True)])
-    markdown = page.render(view.build(data, found([question("Release now?", -20)]), T0))
+DASHBOARD = "http://mac:41234/"
+
+
+def test_a_small_drive_draws_whole_queue_first_then_one_line_per_feature_and_the_dashboard_last() -> None:
+    data = drive_of(
+        {
+            "o1": order("ship the page", ["j1"]),
+            "o2": order("wait for CI", ["j2"]),
+            "o3": order("shipped", [], state="done", proof="installed 1.0.12", updated=at(-5)),
+        },
+        {"j1": job("o1", "running", "drawing it"), "j2": job("o2", "waiting", "CI runs")},
+        [pr(1, "o1", wants_tap=True), pr(2, "o2", state="merged"), pr(3, "o2", checks="fail", wants_tap=False)],
+    )
+    markdown = page.render(view.build(data, found([question("Release now?", -20)]), T0), DASHBOARD)
     head, _, rest = markdown.partition("## Running (1)")
     assert "## Waiting on you" in head
     assert "1. **Question:** [Release now?]" in head
     assert "2. **Your tap:** [change 1](https://github.com/yasyf/cc-skills/pull/1)" in head
-    assert "| Feature | Now | Pull requests |" in rest
-    assert ":large_green_circle: [change 1](https://github.com/yasyf/cc-skills/pull/1)" in rest
+    assert "- [ship the page](https://acme.slack.com/archives/D123/p1794200000000100) · drawing it · :large_green_circle: [#1](https://github.com/yasyf/cc-skills/pull/1)" in rest
+    assert "## Blocked (1)" in head
+    assert "· CI runs · :red_circle: [#3](https://github.com/yasyf/cc-skills/pull/3) 1 merged" in head
+    assert "## Finished (1 live in the last day)" in rest
+    assert "- [shipped](https://acme.slack.com/archives/D123/p1794200000000100) · live · installed 1.0.12" in rest
+    assert "Left out" not in markdown
+    assert markdown.endswith(f"The [dashboard]({DASHBOARD}) has everything else.\n")
 
 
 def test_page_says_when_nothing_waits_on_him() -> None:
     data = drive_of({}, {}, [])
-    assert "Nothing waits on you." in page.render(view.build(data, found(), T0))
+    assert "Nothing waits on you." in page.render(view.build(data, found(), T0), DASHBOARD)
+
+
+def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> tuple[dict, dict]:
+    states = ("working", "waiting", "done", "open")
+    job_states = ("running", "waiting", "done", "failed")
+    words = "Clean up the stale worktree records that keep the release lane far too slow to use every morning"
+    drive_orders = {
+        f"o{n}": order(
+            f"{n}: {words}",
+            [f"j{n}", f"j{n + orders}"],
+            state=states[n % 4],
+            due=at(-30) if n < late else None,
+            note="Waiting on CI for the second PR, then the install on this Mac and a live check of the page " * 2,
+            updated=at(-n),
+        )
+        for n in range(orders)
+    }
+    drive_jobs = {
+        f"j{n}": job(f"o{n % orders}", job_states[n % 4], "PR open, CI running on the head, the review bots read it next; lands after his tap " * 2)
+        for n in range(jobs)
+    }
+    prs = [pr(n, f"o{n % orders}", wants_tap=n < taps, state="open" if n < taps or n % 3 else "merged", title=f"New: {words} {n}") for n in range(1, orders)]
+    asked = [
+        question(f"{words}, now or after the release cut tonight? {n}", -n) | {"url": f"{TEAM}archives/D0C4HQWPLCC/p17942{n:08d}?thread_ts=1794224280.936909&cid=D0C4HQWPLCC"}
+        for n in range(questions)
+    ]
+    return drive_of(drive_orders, drive_jobs, prs), found(asked)
+
+
+def test_a_drive_of_500_orders_and_1000_jobs_fits_and_still_shows_everything_that_waits_on_him() -> None:
+    data, cards = big_drive(orders=500, jobs=1000, questions=60, taps=30, late=15)
+    model = view.build(data, cards, T0)
+    markdown = page.render(model, DASHBOARD)
+    assert page.size(markdown) <= page.PAGE_BYTES
+    assert len(model["queue"]) == 100
+    assert all(page.queue_line(number, item) in markdown for number, item in enumerate(model["queue"], 1))
+    assert "more waiting on you" not in markdown
+    assert "Left out to fit Slack's canvas limit: " in markdown
+    assert markdown.endswith(f"The [dashboard]({DASHBOARD}) has everything else.\n")
+
+
+def test_a_queue_too_long_for_the_page_names_how_many_more_wait_on_him() -> None:
+    data, cards = big_drive(orders=500, jobs=1000, questions=400, taps=30, late=15)
+    model = view.build(data, cards, T0)
+    markdown = page.render(model, DASHBOARD)
+    lines = [page.queue_line(number, item) for number, item in enumerate(model["queue"], 1)]
+    shown = sum(line in markdown for line in lines)
+    assert page.size(markdown) <= page.PAGE_BYTES
+    assert f"Left out to fit Slack's canvas limit: {len(lines) - shown} more waiting on you, " in markdown
+    assert all(line in markdown for line in lines[:shown])
+    assert "## Blocked" not in markdown
+
+
+def test_a_page_over_the_limit_leaves_out_its_lowest_priority_section_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    data, cards = big_drive(orders=20, jobs=40, questions=2, taps=1, late=1)
+    model = view.build(data, cards, T0)
+    whole = page.render(model, DASHBOARD)
+    assert "## Finished (" in whole
+    monkeypatch.setattr(page, "PAGE_BYTES", page.size(whole) - 1)
+    markdown = page.render(model, DASHBOARD)
+    finished = model["counts"]["merged"] + model["counts"]["live"]
+    assert "## Finished (" not in markdown
+    assert all(f"## {page.GROUP_TITLES[name]} (" in markdown for name in page.OPEN_STATES if model["counts"][name])
+    assert f"Left out to fit Slack's canvas limit: {finished} finished." in markdown
 
 
 def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -172,17 +253,18 @@ def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: li
     assert "a new order" in drawn[-1]
 
 
-def test_a_failed_draw_is_said_at_most_every_ten_minutes_and_retried(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_refused_draw_says_since_when_the_page_is_stale_at_most_every_ten_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
 
     def refused(name: str, markdown: str) -> str:
-        raise page.PageError("missing_scope")
+        raise page.PageError("Slack refused the redraw (canvas_too_large)")
 
     monkeypatch.setattr(page, "draw", refused)
     watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == ["WATCH status page draw failed: missing_scope"]
+    stale = f"WATCH status page stale since {when(state.stamp(T0))}: Slack refused the redraw (canvas_too_large)"
+    assert watch.run_pass(watching, T0) == [stale]
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["WATCH status page draw failed: missing_scope"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [stale]
 
 
 def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:

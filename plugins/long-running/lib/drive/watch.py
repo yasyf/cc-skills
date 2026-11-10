@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import github, orca, page, reads, slack, state, view
+from drive import dashboard, github, orca, page, reads, slack, state, view
 from drive.install import config_dir
 from drive.render import cut, when
 from drive.state import DriveError
@@ -43,6 +43,7 @@ class Watcher:
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
     page_shape: str | None = None
+    page_stale_since: datetime | None = None
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
 
@@ -236,20 +237,22 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when its model changed since the last drawing."""
+    """Redraw the drive's Slack status page when its model changed since the last drawing; while Slack refuses, say at most every ten minutes since when the page he sees is stale, and why."""
     model = view.read(watcher.name, moment)
     shape = json.dumps(model | {"at": None}, sort_keys=True)
     if shape == watcher.page_shape:
         return []
     try:
-        page.draw(watcher.name, page.render(model))
+        page.draw(watcher.name, page.render(model, dashboard.link(watcher.name)))
     except page.PageError as error:
+        watcher.page_stale_since = watcher.page_stale_since or moment
         said = watcher.failure_said.get("status page")
         if said and moment - said < FAILURE_EVERY:
             return []
         watcher.failure_said["status page"] = moment
-        return [f"WATCH status page draw failed: {error}"]
+        return [f"WATCH status page stale since {when(state.stamp(watcher.page_stale_since))}: {error}"]
     watcher.page_shape = shape
+    watcher.page_stale_since = None
     return []
 
 

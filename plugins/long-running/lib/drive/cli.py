@@ -622,12 +622,12 @@ def manual(args: argparse.Namespace) -> int:
 
 
 def view_command(args: argparse.Namespace) -> int:
-    from drive import page, view
+    from drive import dashboard, page, view
 
     name = state.resolve(args.drive)
     view.refresh_cards(name)
     model = view.read(name, state.now())
-    return emit(args, page.render(model), model)
+    return emit(args, page.render(model, dashboard.link(name)), model)
 
 
 def dashboard_command(args: argparse.Namespace) -> int:
