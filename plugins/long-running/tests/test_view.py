@@ -211,7 +211,7 @@ def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiti
     model = view.build(data, found(questions), T0)
     assert [(item["title"], item["holds"]) for item in model["queue"]] == [("Busy one?", 3), ("Old one?", 1), ("Idle one?", 0)]
     markdown = page.render(model, DASHBOARD)
-    assert "1. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 3 finished · since" in markdown
+    assert "1. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 3 finished · blocks rank the cards · since" in markdown
     assert "3. **Question:** [Idle one?](https://acme.slack.com/archives/D123/p-20) · since" in markdown
 
 
