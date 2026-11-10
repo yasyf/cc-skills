@@ -559,6 +559,26 @@ def test_a_pr_added_to_the_stack_later_gets_its_own_card(stacked: list[list[str]
     assert "stack" not in state.load("demo")["prs"]["Forge-AI/monorepo#44"]
 
 
+def test_a_pr_added_on_top_joins_the_stack_card_when_asked_with_it(stacked: list[list[str]]) -> None:
+    ask(asks(41, 42, 43))
+    [drawn] = ask(asks(41, 42, 43, 44))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (41, 42, 43, 44)]
+    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43, 44)]
+    assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+    [again] = ask(asks(43))["cards"]
+    assert again["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+
+
+def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whole(stacked: list[list[str]]) -> None:
+    ask(asks(41, 43, 44))
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#43"]["stack"] == ["Forge-AI/monorepo#43", "Forge-AI/monorepo#44"]
+    [drawn] = ask(asks(41, 42, 43, 44))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (41, 42, 43, 44)]
+    assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-44"
+    assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43, 44))
+
+
 def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     with state.edit("demo") as data:
