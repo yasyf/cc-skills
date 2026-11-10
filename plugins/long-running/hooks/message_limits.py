@@ -17,6 +17,7 @@ SPACE = re.compile(r"\s+")
 BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
+PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
@@ -93,9 +94,16 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 def deny_reason(payload: dict) -> str | None:
     """Why a post to his DM goes out longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer quoting any message of his word for word as asked goes out whole."""
     dm = his_dm(payload.get("session_id") or "")
-    if dm is None or not posts_to(payload, dm):
+    if dm is None:
         return None
     tool_input = payload["tool_input"]
+    if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
+        return (
+            f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text,"
+            " the exact words `cc-slack check-post -` passed."
+        )
+    if not posts_to(payload, dm):
+        return None
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
     try:

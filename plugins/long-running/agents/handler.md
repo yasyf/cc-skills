@@ -86,8 +86,11 @@ else.
 
 ## Every post
 
-- Run `cc-slack check-post -` on every line before it goes out and fix what it prints; a silent
-  exit 0 is a pass.
+- Write each post once and pass the same words twice: first to `cc-slack check-post -` on a quoted
+  heredoc (`cc-slack check-post - <<'EOF'`, the post, `EOF`), fixing what it prints until it exits 0
+  silently, then as the post call's `text`. Slack sends `text` exactly as you write it, so never
+  pass `$(cat)`, a file path or a placeholder such as `<see file>`. This plugin's hook refuses
+  them, because a placeholder notification reaches his phone before any edit can fix it.
 - Read a thread with `slack_thread`, `limit` 1000, within ten minutes before you reply in it.
 - In his DM, `slack_dm_status(thread_ts=<his thread>, agent="claude", text=<text>)`. A
   correction edits your own message with `slack_edit`; never post a second copy.
