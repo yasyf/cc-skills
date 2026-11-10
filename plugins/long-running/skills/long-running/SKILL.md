@@ -32,7 +32,7 @@ the user early and often".
   post reaches only the session that posted it, so his answer to a card the coordinator posted
   waits on its bookkeeping.
 
-The drive's state lives in one file, written only by the `drive` CLI on your PATH and read by both
+The drive's state lives in one file, written only by the `drive` CLI and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
 which outlive a compaction or a restart. An agent answers only to the session that started it, so
 every handler is the communicator's and every job is the coordinator's. Other sessions reach the
@@ -41,9 +41,8 @@ drive through cci, addressed to `root`, the coordinator.
 ## Pages
 
 The rest of this skill is pages, each printed whole by `drive manual <page>`. Both sessions read a
-page that way and use Read, Write or Edit on no file. After every compaction Claude Code reads back
-into context the five files a session last read or wrote, this body and every tool the session
-loaded; a command's output does not come back. His ruling, Nov 9 9:28 PM: "make sure we
+page that way and use Read, Write or Edit on no file: a compaction reads back the files a session
+last read or wrote, never a command's output. His ruling, Nov 9 9:28 PM: "make sure we
 asap install something that makes compactions result in very minimal context, and even the state on
 disk needs to be maximally compact and very token efficient".
 
@@ -64,11 +63,11 @@ disk needs to be maximally compact and very token efficient".
 
 ## Tooling
 
-A tool defect either session hits gets a builder job on that tool's repo in the same turn: the
-coordinator starts it, from a `defect` record when the communicator hit it, and the work it
-blocked moves to a route that works meanwhile. It is never an excuse and never a question to him.
-Before a fix, search cc-notes papercuts for the same symptom: the third fix for one symptom is a
-class fix whose PR deletes the earlier patches.
+A tool defect either session hits gets a builder job on that tool's repo in the same turn, under
+its own "Drive tooling:" order (`scope`): the coordinator starts it, from a `defect` record when the
+communicator hit it, and the work it blocked moves to a route that works meanwhile. It is never an
+excuse and never a question to him. Before a fix, search cc-notes papercuts for the same symptom:
+the third fix for one symptom is a class fix whose PR deletes the earlier patches.
 
 ## Never
 
@@ -79,19 +78,21 @@ class fix whose PR deletes the earlier patches.
   record does not answer go to the coordinator.
 - Neither session treats his correction about how the drive works as a one-off: it is a ruling,
   recorded and sent for a skill rewrite in the turn it arrives.
-- Never build, polish or card a PR that is neither a port nor his order, and never draw a tap
-  card for a port.
+- Never build, polish or card a PR that is neither a port, his order nor drive tooling, and never
+  draw a tap card for a port.
 - Never start a builder on a tricky design before a design lane has drawn it and its questions are
   on cards; the builder may build the recommendation, but no PR goes up or draws his Approve until
   he has answered each, and never card a PR that makes a design decision he never answered.
-- The coordinator never posts to Slack, and never does an order's work itself, a past-due order's
-  included: every order goes to a background job. Its own shell calls are reads of `drive`, `cci`
-  and one `gh` call, beside the transcript reads and the remote-lane `drive job` verbs this skill
-  names. A loop, any other `orca` call, a build, a close, a thread read, a draft, and anything else
-  runs in a background job, so its turn never blocks. His read-only questions are the
-  communicator's, never the coordinator's.
+- The coordinator never does an order's work itself, a past-due order's included: every order
+  goes to a background job. Its own shell calls are reads of `drive`, `cci` and one `gh` call,
+  beside the transcript reads and the remote-lane `drive job` verbs this skill names. A loop, any
+  other `orca` call, a build, a close, a thread read, a draft, and anything else runs in a
+  background job, so its turn never blocks. His read-only questions are the communicator's, never
+  the coordinator's.
 - Never send a record or post a line per event: events feed the next summary, and nothing but
   cards and incident lines goes out while he is away.
+- Never run a pass over a team's data as a person: a service account in its cluster runs it
+  (`jobs`).
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
 - Never hold, freeze, or reorder work he did not hold, freeze, or reorder. A build or release he

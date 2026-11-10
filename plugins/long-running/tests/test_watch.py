@@ -226,6 +226,27 @@ def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_
     assert slack_thread.reads == [("--channel", "D123", "--thread", "1794200000.000100", "--limit", "50")] * 8
 
 
+@pytest.mark.parametrize(
+    ("source", "thread", "where"),
+    [
+        ("slack:C0B75AL4XEW/1794304978.209219", "1794292846.190589", ("D123", "1794292846.190589")),
+        ("slack:C0822AHFY3G/1794223506.402269", "1794223506.402269", ("C0822AHFY3G", "1794223506.402269")),
+        ("slack:C0822AHFY3G/1794223506.402269", None, ("C0822AHFY3G", "1794223506.402269")),
+    ],
+)
+def test_a_due_order_from_another_channel_reads_its_thread_in_the_channel_the_thread_is_in(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, thread: str | None, where: tuple[str, str]
+) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(
+            {"from": source, "thread": thread, "due": state.stamp(T0 - timedelta(minutes=30)), "promised": state.stamp(T0 - timedelta(minutes=60))}
+        )
+    [line] = said_due(watcher(demo), T0)
+    assert line.startswith('DUE o1 "ship the watch" was due ')
+    assert slack_thread.reads == [("--channel", where[0], "--thread", where[1], "--limit", "50")]
+
+
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:

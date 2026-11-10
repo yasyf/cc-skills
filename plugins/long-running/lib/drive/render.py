@@ -61,8 +61,10 @@ COORDINATOR_RULES = (
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
         " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line, never"
-        " while a design card it carries is open), or neither, which is not built, polished or carded: another lane's"
-        " PR goes back to it, an unordered finding becomes a question card."
+        " while a design card it carries is open), drive tooling (its own order, drive order add \"Drive tooling: …\""
+        " --from cci:<seq> with no --thread, never a job of or --serves to his feature order; its lines and question card"
+        " go at his DM root), or neither, which is not built, polished or carded: another lane's PR goes back to it, an"
+        " unordered finding becomes a question card."
     ),
     (
         "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"

@@ -8,14 +8,15 @@ from drive import install
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
+SHOW_MARKETPLACE = ["show", f"{install.DEFAULT_BRANCH}:.claude-plugin/marketplace.json"]
 
 
-class FakeGitHub:
-    def __init__(self, config: Path, refs: list[str], statuses: dict[str, str], call_seconds: float, path: str | None) -> None:
+class FakeGit:
+    def __init__(self, config: Path, refs: list[str], holding: set[str], call_seconds: float, path: str | None) -> None:
         self.config = config
         self.refs = refs
         self.path = path
-        self.statuses = statuses
+        self.holding = holding
         self.call_seconds = call_seconds
         self.now = 1000.0
         self.calls: list[list[str]] = []
@@ -36,25 +37,31 @@ class FakeGitHub:
             self.now += options["timeout"]
             raise subprocess.TimeoutExpired(cmd, options["timeout"])
         self.now += self.call_seconds
+        if cmd[0] == "gh":
+            return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
         return subprocess.CompletedProcess(cmd, 0, self.answer(cmd), "")
 
     def next_ref(self) -> str:
         return self.refs.pop(0) if len(self.refs) > 1 else self.refs[0]
 
     def answer(self, cmd: list[str]) -> str:
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("marketplace.json"):
+        verb = cmd[3:] if cmd[:2] == ["git", "-C"] else []
+        if verb == SHOW_MARKETPLACE:
             source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "ref": self.next_ref()}
             return json.dumps({"name": "skills", "plugins": [{"name": "long-running", "source": source}]})
-        if cmd[:2] == ["gh", "api"] and "/commits?" in cmd[2]:
+        if verb[:1] == ["log"]:
             return self.next_ref() + "\n"
-        if cmd[:2] == ["gh", "api"] and "/compare/" in cmd[2]:
-            return self.statuses[cmd[2].rpartition("...")[2]] + "\n"
+        if verb[:2] == ["rev-list", "--count"]:
+            return "0\n" if verb[3].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
             entry = {"scope": "user", "version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z"}
             stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z"}
             installed = {"version": 2, "plugins": {"long-running@skills": [stale, entry]}}
             (self.config / "plugins" / "installed_plugins.json").write_text(json.dumps(installed))
         return ""
+
+    def git_calls(self) -> list[list[str]]:
+        return [call[3:] for call in self.calls if call[:2] == ["git", "-C"]]
 
     def claude_calls(self) -> list[list[str]]:
         return [call for call in self.calls if call[0] == "claude"]
@@ -75,55 +82,63 @@ def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGitHub]:
-    def make(refs: list[str], statuses: dict[str, str], call_seconds: float = 0, path: str | None = None) -> FakeGitHub:
-        github = FakeGitHub(config, refs, statuses, call_seconds, path)
-        monkeypatch.setattr(install.subprocess, "run", github.run)
-        monkeypatch.setattr(install, "clock", github.clock)
-        monkeypatch.setattr(install, "sleep", github.sleep)
-        return github
+def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit]:
+    def make(refs: list[str], holding: set[str], call_seconds: float = 0, path: str | None = None) -> FakeGit:
+        git = FakeGit(config, refs, holding, call_seconds, path)
+        monkeypatch.setattr(install.subprocess, "run", git.run)
+        monkeypatch.setattr(install, "clock", git.clock)
+        monkeypatch.setattr(install, "sleep", git.sleep)
+        return git
 
     return make
 
 
 def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    github = fake(["long-running--v1.0.3"], {"long-running--v1.0.3": "ahead"})
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     code = install.main("long-running@skills", SHA, None, 900)
     assert code == 0
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
-    assert github.sleeps == []
-    assert ["gh", "api", f"repos/{REPO}/compare/{SHA}...long-running--v1.0.3", "--jq", ".status"] in github.calls
-    assert github.claude_calls() == [
+    assert git.sleeps == []
+    assert git.git_calls() == [
+        ["remote", "add", "origin", f"https://github.com/{REPO}"],
+        [*install.FETCH, f"+HEAD:{install.DEFAULT_BRANCH}"],
+        SHOW_MARKETPLACE,
+        [*install.FETCH, "+refs/tags/long-running--v1.0.3:refs/tags/long-running--v1.0.3"],
+        ["rev-list", "--count", SHA, "^long-running--v1.0.3"],
+    ]
+    assert git.claude_calls() == [
         ["claude", "plugin", "marketplace", "update", "skills"],
         ["claude", "plugin", "update", "long-running@skills"],
     ]
 
 
+def test_a_github_api_rate_limit_cannot_stall_an_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    assert install.main("long-running@skills", SHA, None, 540) == 0
+    assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
+    assert (git.sleeps, [call for call in git.calls if call[0] == "gh"]) == ([], [])
+
+
 def test_a_tag_behind_the_sha_is_polled_until_a_new_tag_catches_up(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    github = fake(
-        ["long-running--v1.0.2", "long-running--v1.0.2", "long-running--v1.0.3"],
-        {"long-running--v1.0.2": "behind", "long-running--v1.0.3": "identical"},
-    )
+    git = fake(["long-running--v1.0.2", "long-running--v1.0.2", "long-running--v1.0.3"], {"long-running--v1.0.3"})
     code = install.main("long-running@skills", SHA, None, 900)
     assert code == 0
-    assert github.sleeps == [20, 20]
+    assert git.sleeps == [20, 20]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
-    assert len(github.claude_calls()) == 2
+    assert len(git.claude_calls()) == 2
 
 
-def test_a_timeout_names_the_last_ref_and_installs_nothing(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]
-) -> None:
-    github = fake(["long-running--v1.0.1", "long-running--v1.0.2"], {"long-running--v1.0.1": "behind", "long-running--v1.0.2": "diverged"})
+def test_a_timeout_names_the_last_ref_and_installs_nothing(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["long-running--v1.0.1", "long-running--v1.0.2"], set())
     code = install.main("long-running@skills", SHA, None, 60)
     assert code == 1
-    assert github.sleeps == [20, 20, 20]
+    assert git.sleeps == [20, 20, 20]
     assert "last ref long-running--v1.0.2" in capsys.readouterr().err
-    assert github.claude_calls() == []
+    assert git.claude_calls() == []
 
 
 @pytest.mark.parametrize(
@@ -131,54 +146,55 @@ def test_a_timeout_names_the_last_ref_and_installs_nothing(
     [("./captain_hook", "captain_hook/.claude-plugin/plugin.json"), ("./", ".claude-plugin/plugin.json")],
 )
 def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str], path: str, manifest: str
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], path: str, manifest: str
 ) -> None:
-    github = fake(["0ld5ync", "n3w5ync"], {"0ld5ync": "behind", "n3w5ync": "ahead"}, path=path)
+    git = fake(["0ld5ync", "n3w5ync"], {"n3w5ync"}, path=path)
     assert install.main("long-running@skills", SHA, None, 900) == 0
-    assert ["gh", "api", f"repos/{REPO}/commits?path={manifest}&per_page=1", "--jq", ".[0].sha"] in github.calls
-    assert ["gh", "api", f"repos/{REPO}/compare/{SHA}...n3w5ync", "--jq", ".status"] in github.calls
-    assert github.sleeps == [20]
+    assert ["log", "-1", "--format=%H", install.DEFAULT_BRANCH, "--", manifest] in git.git_calls()
+    assert ["rev-list", "--count", SHA, "^n3w5ync"] in git.git_calls()
+    assert not [call for call in git.git_calls() if "refs/tags/" in call[-1]]
+    assert git.sleeps == [20]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
-    assert len(github.claude_calls()) == 2
+    assert len(git.claude_calls()) == 2
 
 
-def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]) -> None:
-    github = fake(["long-running--v1.0.2"], {"long-running--v1.0.2": "behind"}, call_seconds=25)
+def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["long-running--v1.0.2"], set(), call_seconds=8)
     assert install.main("long-running@skills", SHA, None, 60) == 1
-    assert github.now == 1060
-    assert github.timeouts == [60, 35]
-    assert github.sleeps == [10]
+    assert git.now == 1060
+    assert git.timeouts == [60, 52, 44, 36, 28, 20]
+    assert git.sleeps == [12]
     assert "timed out after 60s" in capsys.readouterr().err
-    assert github.claude_calls() == []
+    assert git.claude_calls() == []
 
 
-def test_a_hung_read_is_cut_at_the_deadline(fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]) -> None:
-    github = fake(["long-running--v1.0.3"], {"long-running--v1.0.3": "ahead"}, call_seconds=3600)
+def test_a_hung_read_is_cut_at_the_deadline(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"}, call_seconds=3600)
     assert install.main("long-running@skills", SHA, None, 60) == 1
-    assert github.now == 1060
+    assert git.now == 1060
     assert "ran past the deadline" in capsys.readouterr().err
-    assert github.claude_calls() == []
+    assert git.claude_calls() == []
 
 
-def test_each_update_gets_only_the_time_left(fake: Callable[..., FakeGitHub]) -> None:
-    github = fake(["unused"], {}, call_seconds=5)
+def test_each_update_gets_only_the_time_left(fake: Callable[..., FakeGit]) -> None:
+    git = fake(["unused"], set(), call_seconds=5)
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert github.timeouts == [900, 895]
+    assert git.timeouts == [900, 895]
 
 
 def test_without_a_sha_it_installs_what_the_marketplace_names_now(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
-    github = fake(["unused"], {})
+    git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert [call[0] for call in github.calls] == ["claude", "claude"]
+    assert [call[0] for call in git.calls] == ["claude", "claude"]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
 
 
-def test_an_explicit_repo_wins_over_the_known_marketplace(fake: Callable[..., FakeGitHub]) -> None:
-    github = fake(["long-running--v1.0.3"], {"long-running--v1.0.3": "ahead"})
+def test_an_explicit_repo_wins_over_the_known_marketplace(fake: Callable[..., FakeGit]) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
     assert install.main("long-running@skills", SHA, "someone/fork", 900) == 0
-    assert github.calls[0][2] == "repos/someone/fork/contents/.claude-plugin/marketplace.json"
+    assert git.git_calls()[0] == ["remote", "add", "origin", "https://github.com/someone/fork"]
 
 
 @pytest.mark.parametrize(("marketplace", "repo"), [("skills", REPO), ("revdiff", "umputun/revdiff")])
@@ -186,9 +202,7 @@ def test_the_repo_resolves_from_known_marketplaces(config: Path, marketplace: st
     assert install.marketplace_repo(marketplace) == repo
 
 
-def test_a_marketplace_with_no_github_repo_asks_for_repo(
-    fake: Callable[..., FakeGitHub], capsys: pytest.CaptureFixture[str]
-) -> None:
-    fake(["unused"], {})
+def test_a_marketplace_with_no_github_repo_asks_for_repo(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    fake(["unused"], set())
     assert install.main("plugin@forge", SHA, None, 900) == 1
     assert "pass --repo" in capsys.readouterr().err

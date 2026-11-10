@@ -111,6 +111,13 @@ also sends him a line in that turn, before he asks: what is late and the new tim
 - Roll back only when the previous build provably lacks the failing path; the rollback job proves or
   disproves that inside its clock.
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts.
+- A repair of a team's data is a pass like any other, however urgent: it runs as a service account
+  inside the cluster that serves that team and starts from a pipeline or an in-cluster job, never
+  from break-glass, an admin `kubectl exec` into a pod, or anyone's own sign-in, and never from
+  another cluster with credentials copied in. A repair whose writes use the service account but
+  that a person's admin access started inside the pod breaks this. His ruling, Nov 10 3:38 AM:
+  "And remember any passes MUST be done with a service account in the cluster of the respective
+  team never form a user role".
 - Claim, fence, hold, or freeze nothing unless he asks.
 
 ## After live

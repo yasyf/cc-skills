@@ -409,7 +409,9 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
     if unordered:
         return (
             f"no order of his names {', '.join(unordered)}: its \"His words, step by step\" list is missing, empty or says"
-            " none, so it is a port, which lands with no card, or the drive's to drop, never his to tap"
+            " none, so it is a port, which lands with no card; drive tooling, which goes to him as a question of its own at his"
+            " DM root opening \"Drive tooling:\" and saying what it unblocks, or lands under an exempt class; or the drive's to"
+            " drop. Never edit its body to quote his words for another change"
         )
     return ""
 
