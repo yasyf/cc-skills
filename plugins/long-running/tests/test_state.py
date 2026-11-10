@@ -177,3 +177,15 @@ def test_pr_key_rejects_non_pr_urls() -> None:
 
 def test_pr_url_round_trips() -> None:
     assert state.pr_url("yasyf/cc-skills#9") == "https://github.com/yasyf/cc-skills/pull/9"
+
+
+def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
+    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
+    order = {"due": state.stamp(at(0)), "promised": state.stamp(at(-60)), "kept": None, "withdrawn": None, "next_due": None, "next_set": None}
+    state.promise(order, state.stamp(at(120)), at(30))
+    state.keep(order, [at(-10), at(10)])
+    assert (order["due"], order["promised"], order["kept"]) == (state.stamp(at(120)), state.stamp(at(30)), None)
+    state.keep(order, [at(-10), at(10), at(40)])
+    assert (order["promised"], order["kept"]) == (at(40).isoformat(), None)
+    state.keep(order, [at(-10), at(10), at(40), at(50)])
+    assert order["kept"] == at(50).isoformat()
