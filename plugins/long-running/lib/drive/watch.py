@@ -15,6 +15,7 @@ from drive.state import DriveError
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
+ANSWERED_ELSEWHERE = "answer_conflict"
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
@@ -263,7 +264,7 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records. A question leaves its job's queue only once its answer goes through, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
+    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records. A question leaves its job's queue only once its answer goes through, or Orca says it already holds another answer, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines = []
     for job_id, job in live_lanes(data).items():
@@ -272,8 +273,10 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
             try:
                 orca.reply(watcher.name, job["run"], message_id, reads.answer(question, checkout))
             except orca.OrcaError as error:
-                lines += read_failed(watcher, source, error, moment)
-                continue
+                if error.code != ANSWERED_ELSEWHERE:
+                    lines += read_failed(watcher, source, error, moment)
+                    continue
+                lines.append(f"WATCH {job_id}'s read {message_id} was answered outside the watch, so the watch stops answering it")
             watcher.failures.pop(source, None)
             with state.edit(watcher.name) as fresh:
                 fresh["jobs"][job_id]["reads"].pop(message_id, None)

@@ -553,6 +553,43 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
+def test_a_read_someone_already_answered_is_dropped_and_said_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", "READ ccn answer search x", id="relay_6779eb1e29a6")])
+    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    replies = []
+
+    def answered(*args: str) -> dict:
+        replies.append(args)
+        if args[0] == "reply":
+            done = subprocess.CompletedProcess(
+                ["orca"],
+                0,
+                json.dumps(
+                    {
+                        "ok": False,
+                        "error": {
+                            "code": "answer_conflict",
+                            "message": "Question relay_6779eb1e29a6 already has a different answer.",
+                        },
+                    }
+                ),
+                "",
+            )
+            return orca.result_of("orchestration reply", done)
+        return {}
+
+    monkeypatch.setattr(orca, "call", answered)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        "WATCH j1's read relay_6779eb1e29a6 was answered outside the watch, so the watch stops answering it"
+    ]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
+    assert [args for args in replies if args[0] == "reply"] == [
+        ("reply", "--id", "relay_6779eb1e29a6", "--run", RUN, "--body", "x")
+    ]
+
+
 def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch(
     remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
