@@ -63,6 +63,7 @@ def order_add(args: argparse.Namespace) -> int:
             "due_said": None,
             "promised": created if args.due else None,
             "next_due": None,
+            "next_set": None,
             "kept": None,
             "withdrawn": None,
             "jobs": [],
@@ -122,7 +123,8 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
-    posts, unread = slack.order_posts(data, order) if closing and state.owed(order) else ([], None)
+    destination = order | {"thread": args.thread or order["thread"]}
+    posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
     changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
     moment = state.now()
     with state.edit(name) as data:

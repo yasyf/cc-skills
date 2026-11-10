@@ -140,7 +140,8 @@ def load(name: str) -> dict:
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
         if "promised" not in order:
-            order.update(promised=order.get("due") and order["created"], next_due=None, kept=None, withdrawn=None)
+            order.update(promised=order.get("due") and order["updated"], next_due=None, kept=None, withdrawn=None)
+        order.setdefault("next_set", None)
     return data
 
 
@@ -305,7 +306,7 @@ def promise(order: dict, due: str, moment: datetime) -> None:
     """Promise a line by due, owed from the next line in the order's thread, the one that tells him the time; a time already owed holds until that line lands."""
     if not owed(order):
         order.update(due=due, promised=stamp(moment), kept=None, withdrawn=None, due_said=None)
-    order["next_due"] = due
+    order.update(next_due=due, next_set=stamp(moment))
 
 
 def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
@@ -313,11 +314,16 @@ def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
     kept = next((post for post in posts if post > parse_time(order["promised"])), None)
     if kept is None:
         return
-    upcoming, order["next_due"] = order["next_due"], None
-    order["kept"] = kept.isoformat()
-    if announced and upcoming and kept < parse_time(upcoming):
-        order.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
-        keep(order, posts, announced=False)
+    upcoming, set_at = order["next_due"], order["next_set"]
+    order.update(kept=kept.isoformat(), next_due=None, next_set=None)
+    if not announced or not upcoming or kept >= parse_time(upcoming):
+        return
+    if set_at and kept < parse_time(set_at):
+        order.update(due=upcoming, promised=set_at, kept=None, due_said=None, next_due=upcoming)
+        keep(order, posts)
+        return
+    order.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
+    keep(order, posts, announced=False)
 
 
 def open_pr_keys(data: dict) -> list[str]:

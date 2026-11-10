@@ -207,6 +207,7 @@ def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_
     assert line.startswith('DUE o1 "ship the watch" was due ') and ": no line in its thread since " in line
     assert said_due(watching, T0 + timedelta(minutes=5)) == []
     assert said_due(watching, T0 + timedelta(minutes=10))[0].startswith("DUE o1")
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=11))
     assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
     assert cli.main(["order", "set", "o1", "--due", state.stamp(T0 + timedelta(hours=2)), "--drive", demo]) == 0
     assert said_due(watching, T0 + timedelta(minutes=20))[0].startswith("DUE o1")

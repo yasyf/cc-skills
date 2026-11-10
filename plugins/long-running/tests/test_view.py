@@ -20,6 +20,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "due": None,
         "due_said": None,
         "next_due": None,
+        "next_set": None,
         "kept": None,
         "withdrawn": None,
         "jobs": jobs,
