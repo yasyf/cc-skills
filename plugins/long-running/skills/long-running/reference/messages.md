@@ -82,8 +82,13 @@ its 150 words whatever it quotes.
   time, its proof on a real machine and users having it, or what is running and when the next line
   lands, plus one cause line once a test machine reproduces it: no side facts about a release.
 - A report is one record per thread per coordinator turn, opening `POST` or `FYI`, never a burst:
-  everything a turn has for a thread goes in that one record. Each item in it that waits on him
-  carries its card's permalink or `waits` id, so the handler never searches for the card.
+  everything a turn has for a thread goes in that one record, written at the length of the post it
+  becomes, a line of 60 words or a summary of 120, so the handler posts it as written. The
+  coordinator cuts what does not fit, keeping each item that waits on him first, and never sends
+  the rest as a second record: four posts of 60 words are the same wall as one of 240. On Nov 10
+  the handler's cut took lines out of five reports written longer, an incident line among them.
+  Each item in it that waits on him carries its card's permalink or `waits` id, so the handler
+  never searches for the card.
 - Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
   card with its buttons right under it in the same thread: the line links the open card by its
   permalink and cc-slack draws the card there, answerable, a tap on either answering both. A link
