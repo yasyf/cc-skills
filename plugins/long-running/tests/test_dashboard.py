@@ -89,3 +89,20 @@ def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> 
         connection.close()
     server.shutdown()
     assert statuses == {"drawn.png": (200, b"png"), "other.png": (404, b"")}
+
+
+def test_a_thread_is_read_only_for_an_ask_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+    board = dashboard.Board("demo", [])
+    board.threads, board.channel = {"1794257898.401849"}, "D123"
+    read = []
+    monkeypatch.setattr(dashboard, "cc_slack", lambda *args: read.append(args) or {"messages": []})
+    server, port = serving(board)
+    statuses = {}
+    for ts in ("1794257898.401849", "1794000000.000001"):
+        connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
+        connection.request("GET", f"/api/thread/{ts}", headers={"Host": f"box:{port}"})
+        statuses[ts] = connection.getresponse().status
+        connection.close()
+    server.shutdown()
+    assert statuses == {"1794257898.401849": 200, "1794000000.000001": 404}
+    assert read == [("thread", "--channel", "D123", "--thread", "1794257898.401849", "--limit", dashboard.THREAD_MESSAGES)]

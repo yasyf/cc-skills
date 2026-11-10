@@ -197,6 +197,28 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 
 .pics { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .pics img { display: block; max-width: min(100%, 520px); max-height: 360px; border-radius: 6px; border: 1px solid var(--line-2); background: #fff; }
+.chat-cols { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; }
+.owed { display: inline-block; margin-bottom: 12px; color: var(--bad); font-weight: 600; font-size: 13.5px; }
+.asks { margin-top: 4px; }
+.ask { border-top: 1px solid var(--line); }
+.ask:first-child { border-top: 0; }
+.ask-open { display: flex; width: 100%; align-items: flex-start; gap: 12px; padding: 12px 16px; border: 0; background: none; text-align: left; cursor: pointer; }
+.ask-open:hover { background: var(--panel-2); }
+.ask-open > .dot { flex: none; margin-top: 7px; }
+.ask.open .dot, .ask.working .dot { background: var(--accent); }
+.ask.waiting .dot { background: var(--you); }
+.ask.done .dot { background: var(--ok); }
+.ask-body { display: grid; gap: 2px; min-width: 0; flex: 1; }
+.ask-body b { font-weight: 600; }
+.rail { padding-top: 6px; }
+.rl { display: grid; gap: 2px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 13.5px; font-weight: 550; }
+.rl em { color: var(--you); font-style: normal; font-size: 11.5px; font-weight: 700; }
+.rl:hover { text-decoration: none; color: #fff; }
+.thread { display: grid; gap: 10px; }
+.msg { max-width: 88%; padding: 10px 14px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.msg.you { justify-self: end; background: #132036; border-color: #22406b; }
+.msg .who { margin-bottom: 4px; color: var(--ink-3); font-size: 12px; font-weight: 600; }
+.said-text { color: var(--ink); overflow-wrap: anywhere; }
 .linkish { padding: 0; border: 0; background: none; color: #8ab8ff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
 .acts { display: inline-flex; flex: none; align-items: baseline; gap: 14px; }
@@ -287,7 +309,9 @@ th { background: var(--panel-3); color: var(--ink); font-weight: 650; }
   .kbtn { display: none; }
   .alerts { padding: 10px 12px 0; }
   .wk summary .newest { display: none; }
-  .cols { grid-template-columns: minmax(0, 1fr); }
+  .cols, .chat-cols { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .msg { max-width: 100%; }
   .needs { flex-direction: column; gap: 8px; }
   .drawer { width: 100vw; max-height: 100vh; height: 100vh; margin: 0; border-radius: 0; }
   body { display: block; }

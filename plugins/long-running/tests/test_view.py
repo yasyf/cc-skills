@@ -278,3 +278,16 @@ def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
     )
     finished = view.board(data, found(), "live", [], T0)["finished"]
     assert [(entry["id"], entry["state"]) for entry in finished] == [("j2", "failed"), ("j1", "done")]
+
+
+def test_asks_list_every_order_newest_first_with_its_thread() -> None:
+    data = drive_of(
+        {"o1": order("older ask", [], created=at(-300)), "o2": order("newer ask", ["j1"], created=at(-10), state="done", thread=None)},
+        {"j1": job("o2", "done")},
+        [],
+    )
+    asks = view.board(data, found(), "live", [], T0)["asks"]
+    assert [(ask["id"], ask["title"], ask["state"], ask["thread"], ask["jobs"]) for ask in asks] == [
+        ("o2", "newer ask", "done", None, 1),
+        ("o1", "older ask", "working", "1794200000.000100", 0),
+    ]

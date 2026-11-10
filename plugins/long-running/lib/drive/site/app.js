@@ -41,6 +41,7 @@ const ICONS = {
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   status: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   review: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7"/>',
+  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
 };
@@ -352,6 +353,75 @@ async function openPR(key) {
     </div>`;
 }
 
+const ASK_TABS = [
+  ['all', 'All asks', () => true],
+  ['open', 'In progress', (ask) => ['open', 'working'].includes(ask.state)],
+  ['waiting', 'Waiting', (ask) => ask.state === 'waiting'],
+  ['done', 'Completed', (ask) => ask.state === 'done'],
+];
+const ASK_WORD = { open: 'In progress', working: 'In progress', waiting: 'Waiting', done: 'Done', dropped: 'Dropped' };
+
+function askRow(ask) {
+  const due = ask.due ? `<span class="due${ask.late ? ' late' : ''}">${ask.late ? 'late, was due' : 'due'} ${clock(ask.due)}</span>` : '';
+  return `<li class="ask ${esc(ask.state)}" data-find="${esc(ask.text.toLowerCase())}">
+    <button class="ask-open" data-ask="${esc(ask.id)}">
+      <span class="dot"></span>
+      <span class="ask-body"><b>${esc(ask.title)}</b><span class="meta">${ASK_WORD[ask.state] ?? esc(ask.state)} · asked ${clock(ask.created)}${ask.jobs ? ` · ${ask.jobs} ${ask.jobs === 1 ? 'job' : 'jobs'}` : ''}${ask.proof ? ` · ${esc(ask.proof)}` : ''}</span></span>
+      ${due}
+    </button>
+  </li>`;
+}
+
+function chatScreen(tab) {
+  const current = ASK_TABS.some(([id]) => id === tab) ? tab : 'all';
+  const [, , keep] = ASK_TABS.find(([id]) => id === current);
+  const tabs = ASK_TABS.map(([id, label, test]) => `<a class="${id === current ? 'on' : ''}" href="#/chat/${id}">${label}<span class="n">${model.asks.filter(test).length}</span></a>`).join('');
+  const owed = model.queue.filter((item) => item.kind === 'late').length;
+  const rail = model.queue.filter((item) => item.kind !== 'late').slice(0, 6).map((item) => `<a class="rl" href="#/queue/${item.kind}"><em>${item.kind === 'tap' ? 'Landing approval' : 'Decision'}</em>${esc(item.title)}</a>`).join('');
+  return `<div class="chat-cols">
+    <div>
+      <h1 class="h1">Chat <span class="count">your asks, and what came back</span></h1>
+      ${owed ? `<a class="owed" href="#/queue/late">${owed} ${owed === 1 ? 'thing' : 'things'} owed to you</a>` : ''}
+      <div class="subtabs">${tabs}</div>
+      <ul class="asks card">${model.asks.filter(keep).map(askRow).join('') || '<li class="empty">Nothing here.</li>'}</ul>
+    </div>
+    <aside class="rail"><h2 class="sec">Needs your decision <span class="count">${model.queue.length}</span></h2>${rail}<a class="more" href="#/">All ${model.queue.length} in Your queue ›</a></aside>
+  </div>`;
+}
+
+function slackTime(ts) {
+  return clock(new Date(parseFloat(ts) * 1000).toISOString());
+}
+
+function message(said, waiting) {
+  const item = waiting.get(said.ts);
+  const buttons = item ? choices(item) : said.buttons?.length ? `<div class="chips">${said.buttons.map((label) => `<span class="chip settled">${esc(label)}</span>`).join('')}</div>` : '';
+  return `<div class="msg${said.from_claude ? '' : ' you'}">
+    <div class="who">${said.from_claude ? esc(said.user_name) : 'You'} · ${slackTime(said.ts)}</div>
+    <div class="said-text">${prose(said.text)}</div>
+    ${buttons}
+  </div>`;
+}
+
+async function openAsk(id) {
+  const ask = model.asks.find((candidate) => candidate.id === id);
+  const drawer = $('#drawer');
+  const head = `<div class="dr-bar"><b>${esc(ask.title)}</b><button class="linkish" data-close>Close</button></div>`;
+  const words = `<blockquote class="said">${esc(ask.text)}</blockquote>`;
+  drawer.innerHTML = `${head}<div class="dr-body">${words}${ask.thread ? '<p class="empty small">Reading the thread…</p>' : '<p class="meta">This ask came from the terminal, so it has no thread.</p>'}</div>`;
+  if (!drawer.open) drawer.showModal();
+  if (!ask.thread) return;
+  const reply = await fetch(`/api/thread/${ask.thread}`);
+  const thread = await reply.json();
+  if (!reply.ok) {
+    drawer.querySelector('.empty').textContent = thread.error;
+    return;
+  }
+  const waiting = new Map(model.queue.filter((item) => item.answer).map((item) => [item.answer.match(/\/p(\d+)(\d{6})(?:\?|$)/).slice(1).join('.'), item]));
+  const messages = thread.messages.filter((said) => said.ts !== ask.thread);
+  drawer.innerHTML = `${head}<div class="dr-body">${words}<div class="thread">${messages.map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has come back in this thread yet.</p>'}</div></div>`;
+}
+
 function features() {
   return model.status.flatMap((group) => group.features);
 }
@@ -478,13 +548,14 @@ function workScreen() {
 }
 
 function jumpItems() {
-  const screens = [['Your queue', '#/'], ['Now', '#/now'], ['Status', '#/status'], ['Review', '#/review'], ['Work', '#/work'], ['History', '#/history']];
+  const screens = [['Your queue', '#/'], ['Now', '#/now'], ['Status', '#/status'], ['Review', '#/review'], ['Chat', '#/chat'], ['Work', '#/work'], ['History', '#/history']];
   return [
     ...screens.map(([title, href]) => ({ kind: 'Screen', title, href })),
     ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: `#/queue/${item.kind}` })),
     ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
     ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
     ...model.work.map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
+    ...model.asks.map((ask) => ({ kind: 'Ask', title: ask.title, ask: ask.id })),
   ];
 }
 
@@ -494,7 +565,7 @@ function drawJump() {
   const words = $('#jumpfind').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title}`.toLowerCase().includes(word))).slice(0, 40);
   jumpAt = Math.min(jumpAt, Math.max(0, found.length - 1));
-  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
+  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : item.ask ? `data-ask-jump="${esc(item.ask)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
 }
 
 function openJump() {
@@ -510,6 +581,7 @@ function openJump() {
 function goJump(row) {
   $('#jump').close();
   if (row.dataset.prJump) return openPR(row.dataset.prJump);
+  if (row.dataset.askJump) return openAsk(row.dataset.askJump);
   location.hash = row.dataset.href;
 }
 
@@ -572,7 +644,7 @@ function featureScreen(id) {
 
 function find() {
   const words = $('#find').value.trim().toLowerCase();
-  for (const row of document.querySelectorAll('.feature[data-find]')) row.hidden = Boolean(words) && !row.dataset.find.includes(words);
+  for (const row of document.querySelectorAll('.feature[data-find], .ask[data-find]')) row.hidden = Boolean(words) && !row.dataset.find.includes(words);
   for (const group of document.querySelectorAll('.group')) group.hidden = Boolean(words) && !group.querySelector('.feature:not([hidden])');
   if (words) for (const group of document.querySelectorAll('.group:not([hidden])')) group.open = true;
 }
@@ -591,17 +663,18 @@ function render() {
     return `<a class="tab${on ? ' on' : ''}" href="${href}">${icon(name)}<span>${label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
   };
   const waiting = model.review.filter((entry) => entry.group === 'you').length;
-  $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
+  $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('chat', '#/chat', 'Chat', model.asks.filter((ask) => ask.state === 'waiting').length) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
   const raised = screen === 'now' ? '' : alerts();
   $('#alerts').innerHTML = raised;
   $('#alerts').hidden = !raised;
-  const screens = { queue: () => queueScreen(id), now: nowScreen, status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
-  $('#findbar').hidden = screen !== 'status';
+  const screens = { queue: () => queueScreen(id), now: nowScreen, status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), chat: () => chatScreen(id), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  $('#findbar').hidden = !['status', 'chat'].includes(screen);
+  $('#find').placeholder = screen === 'chat' ? 'Search your asks' : 'Find a feature or pull request';
   const y = window.scrollY;
   $('#main').innerHTML = (screens[screen] ?? queueScreen)();
   if ($('#jump').open) drawJump();
   window.scrollTo(0, y);
-  if (screen === 'status') find();
+  if (['status', 'chat'].includes(screen)) find();
   measure();
   fresh();
 }
@@ -614,6 +687,7 @@ function fresh() {
 }
 
 async function answer(card, label) {
+  const asked = [...model.queue, ...model.review].find((candidate) => candidate.answer === card);
   answers.set(card, { label });
   render();
   try {
@@ -625,9 +699,9 @@ async function answer(card, label) {
     answers.set(card, { label, error: error.message });
   }
   render();
-  const shown = $('#drawer[open] .picks');
-  const entry = model.review.find((candidate) => candidate.answer === card);
-  if (shown && entry) shown.outerHTML = choices({ ...entry, kind: 'tap' });
+  const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.picks');
+  shown?.nextElementSibling?.classList.contains('refused') && shown.nextElementSibling.remove();
+  if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
 }
 
 function connect() {
@@ -657,6 +731,8 @@ document.addEventListener('click', (event) => {
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  const asked = event.target.closest('button[data-ask]');
+  if (asked) return openAsk(asked.dataset.ask);
   if (event.target.closest('#kbtn')) return openJump();
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
