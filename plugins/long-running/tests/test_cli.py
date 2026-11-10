@@ -688,7 +688,7 @@ LIVE = {
     "isDraft": False,
     "headRefOid": "fff0000",
     "mergeCommit": None,
-    "checks": "SUCCESS",
+    "checks": [{"name": "test", "conclusion": "SUCCESS"}],
     "reviewDecision": "APPROVED",
     "mergeable": "MERGEABLE",
     "title": "Fix: the live title",

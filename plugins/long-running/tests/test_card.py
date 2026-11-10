@@ -69,6 +69,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "title": "Fix: retry flaky uploads",
         "head": HEAD,
         "checks": "pending",
+        "failed_checks": [],
         "review": "none",
         "draft": False,
         "merged_sha": None,
@@ -139,6 +140,12 @@ def test_a_closed_pr_says_it_closed_without_merging() -> None:
         "title": "Fix: retry flaky uploads",
         "prs": [row(blocks="Closed without merging")],
     }
+
+
+def test_a_check_that_failed_on_this_head_and_is_missing_mid_rerun_does_not_read_as_passed() -> None:
+    rerun = {**entry(tap="Approve"), "failed_checks": ["LTX Behavioral Gate (short)"]}
+    assert card.render(pr_json(rollup=PASSING), rerun)["prs"][0]["blocks"] == "Lands once CI passes"
+    assert card.render(pr_json(rollup=PASSING), {**rerun, "head": "f" * 40})["prs"][0]["blocks"] == "CI passed; the agent is landing it"
 
 
 def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:

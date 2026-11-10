@@ -4,7 +4,7 @@ import sys
 import unicodedata
 from typing import TextIO
 
-from drive import picture, state
+from drive import github, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
 
@@ -33,8 +33,6 @@ GITMOJI_KINDS = {
     **dict.fromkeys("🐛🚑🩹🔒💚", "Fix"),
     **dict.fromkeys("♻🔥⚡📝✅🔧🏷🚚🧹👷📌⬆", "Cleanup"),
 }
-FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
-PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 
 KIND_WORD = re.compile(rf"({'|'.join(KINDS)}):\s*", re.IGNORECASE)
 CONVENTIONAL = re.compile(r"([a-z]+)(?:\([^)]*\))?!?:\s*")
@@ -184,13 +182,8 @@ def description(body: str) -> str:
     return text if len(text) <= DESCRIPTION_CHARS else text[: DESCRIPTION_CHARS - 1].rstrip() + "…"
 
 
-def checks(rollup: list[dict] | None) -> str:
-    outcomes = {check.get("conclusion") or check.get("state") or "" for check in rollup or []}
-    if not outcomes:
-        return "none"
-    if outcomes & FAILED:
-        return "fail"
-    return "pass" if outcomes <= PASSED else "pending"
+def checks(pr: dict, entry: dict) -> str:
+    return github.checks(pr["statusCheckRollup"], github.failed_before(entry, pr["headRefOid"]))
 
 
 def tap_label(entry: dict) -> str | None:
@@ -203,7 +196,7 @@ def offers_approval(pr: dict, entry: dict) -> bool:
 
 def waits_on(pr: dict, entry: dict) -> str:
     approved = tap_label(entry) == "Approve"
-    match pr["state"], checks(pr["statusCheckRollup"]):
+    match pr["state"], checks(pr, entry):
         case "MERGED", _:
             return "Merged"
         case "CLOSED", _:
@@ -224,8 +217,8 @@ def waits_on(pr: dict, entry: dict) -> str:
             return "CI passed; the agent is landing it"
 
 
-def lands_after_tap(pr: dict) -> str:
-    return "you approve" if checks(pr["statusCheckRollup"]) == "pass" else "you approve and CI passes"
+def lands_after_tap(pr: dict, entry: dict) -> str:
+    return "you approve" if checks(pr, entry) == "pass" else "you approve and CI passes"
 
 
 def merge_waits(url: str) -> str:
@@ -268,7 +261,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
     card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
     if offers_approval(pr, entry):
         row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else ""
-        row["lands"] = lands_after_tap(pr)
+        row["lands"] = lands_after_tap(pr, entry)
         card |= {
             "status": "needs_you",
             "title": framed(f"{kind}: approve ", plain, "?"),
@@ -502,7 +495,7 @@ def shown(asks: list[dict]) -> dict:
 def refused(asks: list[dict]) -> dict:
     known = drive_prs()
     told = 0
-    for ask, key in zip(asks, keys_of(asks, known)):
+    for ask, key in zip(asks, keys_of(asks, known), strict=True):
         if key not in known:
             continue
         name = known[key][0]

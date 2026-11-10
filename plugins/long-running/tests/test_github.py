@@ -4,6 +4,9 @@ import subprocess
 import pytest
 from drive import github
 
+GATE = "LTX Behavioral Gate (short)"
+GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
+
 
 def node(**overrides: object) -> dict:
     base = {
@@ -14,9 +17,17 @@ def node(**overrides: object) -> dict:
         "reviewDecision": None,
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
-        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"state": "SUCCESS"}}}]},
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
     }
     return {**base, **overrides}
+
+
+def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
+    return {"head": head, "failed_checks": failed or []}
+
+
+def pr_read(rollup: list[dict], **overrides: object) -> dict:
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -47,7 +58,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "isDraft": False,
             "headRefOid": "abc1234def",
             "mergeCommit": None,
-            "checks": "SUCCESS",
+            "checks": GREEN,
             "reviewDecision": None,
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
@@ -57,7 +68,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "isDraft": False,
             "headRefOid": "abc1234def",
             "mergeCommit": "fff000",
-            "checks": None,
+            "checks": [],
             "reviewDecision": "APPROVED",
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
@@ -102,10 +113,57 @@ def test_fetch_raises_a_github_error_on_an_unreadable_reply(monkeypatch: pytest.
 
 
 def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
-    read = {"state": "OPEN", "checks": "ERROR", "reviewDecision": "CHANGES_REQUESTED", "mergeable": "CONFLICTING", "headRefOid": "abc", "title": "T"}
-    assert github.live(read) == {"state": "open", "checks": "fail", "review": "changes", "head": "abc", "title": "T", "conflict": True}
+    read = pr_read([*GREEN, {"context": "buildkite/deploy", "state": "ERROR"}], reviewDecision="CHANGES_REQUESTED", mergeable="CONFLICTING")
+    assert github.live(read, stored()) == {
+        "state": "open",
+        "checks": "fail",
+        "failed_checks": ["buildkite/deploy"],
+        "review": "changes",
+        "head": "abc",
+        "title": "T",
+        "conflict": True,
+    }
 
 
 def test_live_leaves_conflict_out_while_github_has_not_worked_it_out() -> None:
-    read = {"state": "OPEN", "checks": "SUCCESS", "reviewDecision": None, "mergeable": "UNKNOWN", "headRefOid": "abc", "title": "T"}
-    assert "conflict" not in github.live(read)
+    assert "conflict" not in github.live(pr_read(GREEN, mergeable="UNKNOWN"), stored())
+
+
+@pytest.mark.parametrize(
+    ("rollup", "failed", "verdict"),
+    [
+        ([], [], "none"),
+        (GREEN, [], "pass"),
+        ([*GREEN, {"name": "Lint", "conclusion": "NEUTRAL"}, {"name": "S3", "conclusion": "SKIPPED"}], [], "pass"),
+        ([*GREEN, {"name": GATE, "conclusion": None}], [], "pending"),
+        ([*GREEN, {"name": GATE, "conclusion": ""}], [GATE], "pending"),
+        ([*GREEN, {"context": "buildkite/deploy", "state": "PENDING"}], [], "pending"),
+        ([*GREEN, {"name": GATE, "conclusion": None}, {"name": "Docker", "conclusion": "CANCELLED"}], [], "fail"),
+        ([*GREEN, {"name": GATE, "conclusion": "FAILURE"}], [GATE], "fail"),
+        (GREEN, [GATE], "pending"),
+        ([], [GATE], "pending"),
+        ([*GREEN, {"name": GATE, "conclusion": "SUCCESS"}], [GATE], "pass"),
+    ],
+)
+def test_checks_reads_a_queued_running_or_missing_rerun_as_pending(rollup: list[dict], failed: list[str], verdict: str) -> None:
+    assert github.checks(rollup, failed) == verdict
+
+
+def test_a_check_that_failed_then_dropped_out_for_its_rerun_reads_pending_until_its_new_run_passes() -> None:
+    row = stored()
+    said = []
+    for rollup in (
+        [*GREEN, {"name": GATE, "conclusion": "FAILURE"}],
+        GREEN,
+        [*GREEN, {"name": GATE, "conclusion": None}],
+        [*GREEN, {"name": GATE, "conclusion": "SUCCESS"}],
+    ):
+        row |= github.live(pr_read(rollup), row)
+        said.append(row["checks"])
+    assert said == ["fail", "pending", "pending", "pass"]
+    assert row["failed_checks"] == [GATE]
+
+
+def test_a_new_head_forgets_the_checks_that_failed_on_the_old_one() -> None:
+    fresh = github.live(pr_read(GREEN, headRefOid="def"), stored("abc", [GATE]))
+    assert (fresh["checks"], fresh["failed_checks"]) == ("pass", [])

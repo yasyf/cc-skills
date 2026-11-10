@@ -9,6 +9,10 @@ from drive import cli, github, state, watch
 
 KEY = "Forge-AI/monorepo#42"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
+GATE = "LTX Behavioral Gate (short)"
+RUNNING = [{"name": "test", "conclusion": None}]
+GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
+RED = [{"name": "test", "conclusion": "FAILURE"}]
 
 
 def order(**overrides: object) -> dict:
@@ -50,7 +54,7 @@ def read(**overrides: object) -> dict:
         "isDraft": False,
         "headRefOid": "aaaaaaa111",
         "mergeCommit": None,
-        "checks": "PENDING",
+        "checks": RUNNING,
         "reviewDecision": None,
         "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
@@ -74,7 +78,7 @@ def watcher(name: str, moment: datetime = T0) -> watch.Watcher:
 
 
 def test_github_pass_emits_one_line_per_change_and_stores_fields(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks="SUCCESS", reviewDecision="APPROVED")})
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     lines = watch.run_pass(watcher(demo), T0)
     assert lines == [
         f'PR {KEY}: new head bbbbbbb [o1 j1]',
@@ -95,6 +99,19 @@ def test_a_pr_that_starts_to_conflict_with_its_base_is_said_once_per_conflict(de
         said.append(watch.run_pass(watching, T0 + timedelta(minutes=2 * minute)))
     conflict = [f"PR {KEY}: conflicts with its base [o1 j1]"]
     assert said == [conflict, [], [], [], [], conflict]
+
+
+def test_a_failed_check_being_rerun_never_reads_as_passed(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    reads = {KEY: read()}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    said = []
+    for minute, gate in enumerate([[{"name": GATE, "conclusion": "FAILURE"}], [], [{"name": GATE, "conclusion": None}], [{"name": GATE, "conclusion": "FAILURE"}]]):
+        reads[KEY] = read(checks=[*GREEN, *gate])
+        said.append(watch.run_pass(watching, T0 + timedelta(minutes=minute)))
+    failed = [f"PR {KEY}: checks failed [o1 j1]"]
+    assert said == [failed, [], [], failed]
+    assert state.load(demo)["prs"][KEY]["failed_checks"] == [GATE]
 
 
 def test_unchanged_pr_emits_nothing(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -624,7 +641,7 @@ def test_a_remote_lane_is_judged_by_its_dispatch(shown: dict, gap: str | None) -
 
 
 def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    serve(monkeypatch, {KEY: read(checks="FAILURE")})
+    serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [f'PR {KEY}: checks failed [o1 j1]']
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
@@ -637,7 +654,7 @@ def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.Monk
 @pytest.mark.parametrize(
     ("change", "said"),
     [
-        (lambda reads, data: reads.update({KEY: read(checks="FAILURE", reviewDecision="CHANGES_REQUESTED")}), ["changes requested"]),
+        (lambda reads, data: reads.update({KEY: read(checks=RED, reviewDecision="CHANGES_REQUESTED")}), ["changes requested"]),
         (lambda reads, data: data["jobs"]["j1"].update(state="waiting"), []),
         (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), []),
     ],
@@ -645,7 +662,7 @@ def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.Monk
 def test_a_red_pr_is_said_again_on_each_change_and_only_then(
     demo: str, monkeypatch: pytest.MonkeyPatch, change: Callable[[dict, dict], None], said: list[str]
 ) -> None:
-    reads = {KEY: read(checks="FAILURE")}
+    reads = {KEY: read(checks=RED)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -674,7 +691,7 @@ def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
 def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_he_answers_the_last(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
     waits_on(demo, "demo:j1-7-a", "demo:j1-7-b")
-    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
@@ -692,7 +709,7 @@ def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_end
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="real run")
     waits_on(demo, "j2")
-    serve(monkeypatch, {KEY: read(checks="FAILURE")})
+    serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     pr = f"PR {KEY}:"
@@ -768,7 +785,7 @@ def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
-    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
@@ -778,19 +795,19 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
 
 @pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
 def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_but_its_changes_are(demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str) -> None:
-    reads = {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")}
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED")}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     pr = f'PR {KEY}:'
     assert watch.run_pass(watching, T0) == [f"{pr} checks passed [o1 j1]", f"{pr} approved [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
-    reads[KEY] = read(checks="FAILURE", reviewDecision="APPROVED")
+    reads[KEY] = read(checks=RED, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=301)) == [f"{pr} checks failed [o1 j1]"]
-    reads[KEY] = read(checks="SUCCESS", reviewDecision="APPROVED")
+    reads[KEY] = read(checks=GREEN, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=302)) == [f"{pr} checks passed [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
-    reads[KEY] = read(state=ended, checks="SUCCESS", reviewDecision="APPROVED")
+    reads[KEY] = read(state=ended, checks=GREEN, reviewDecision="APPROVED")
     assert watch.run_pass(watching, T0 + timedelta(minutes=401)) == [f"{pr} {said} [o1 j1]"]
 
 
@@ -801,7 +818,7 @@ def hold(name: str) -> None:
 
 def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     hold(demo)
-    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
@@ -810,7 +827,7 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
 
 def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     hold(demo)
-    reads = {KEY: read(checks="FAILURE")}
+    reads = {KEY: read(checks=RED)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -818,7 +835,7 @@ def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo:
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{still} 30 minutes [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=90)) == []
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=247)) == []
-    reads[KEY] = read(checks="FAILURE", headRefOid="bbbbbbb222")
+    reads[KEY] = read(checks=RED, headRefOid="bbbbbbb222")
     assert watch.run_pass(watching, T0 + timedelta(minutes=250)) == [f'PR {KEY}: new head bbbbbbb [o1 j1]', f"{still} 250 minutes [o1 j1]"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
     with state.edit(demo) as data:

@@ -174,6 +174,7 @@ def load(name: str) -> dict:
         waits = pr.get("waits")
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
         pr.setdefault("conflict", False)
+        pr.setdefault("failed_checks", [])
     return data
 
 
@@ -431,6 +432,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "title": "",
         "head": "",
         "checks": "pending",
+        "failed_checks": [],
         "review": "none",
         "conflict": False,
         "draft": False,

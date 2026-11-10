@@ -68,7 +68,7 @@ def ids(pr: dict) -> str:
 
 
 def pr_changes(pr: dict, read: dict) -> list[str]:
-    fresh = github.live(read)
+    fresh = github.live(read, pr)
     changes = []
     if fresh["head"] != pr["head"] and pr["head"]:
         changes.append(f"new head {fresh['head'][:7]}")
