@@ -422,8 +422,8 @@ def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: dat
         return True
     if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
         return True
-    due = data["orders"][job["order"]]["due"]
-    return bool(due) and state.parse_time(due) > moment
+    dues = [data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]]]
+    return any(due and state.parse_time(due) > moment for due in dues)
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -440,8 +440,9 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     return f"{job_id} {job['state']}"
 
 
-def part_gap(watcher: Watcher, data: dict, order: dict, part: str, moment: datetime) -> str | None:
-    jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in data["jobs"][job_id]["parts"]]
+def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
+    order = data["orders"][order_id]
+    jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
     if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
         return None
     if not jobs:
@@ -452,7 +453,7 @@ def part_gap(watcher: Watcher, data: dict, order: dict, part: str, moment: datet
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
     return {
-        (order_id, part): part_gap(watcher, data, order, part, moment)
+        (order_id, part): part_gap(watcher, data, order_id, part, moment)
         for order_id, order in state.open_orders(data).items()
         for part in order["parts"]
     }

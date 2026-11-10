@@ -142,7 +142,29 @@ def load(name: str) -> dict:
         if "promised" not in order:
             order.update(promised=order.get("due") and order["updated"], next_due=None, kept=None, withdrawn=None)
         order.setdefault("next_set", None)
+    for job in data["jobs"].values():
+        job.setdefault("carries", {})
     return data
+
+
+def job_parts(job: dict, order_id: str) -> list[str]:
+    """The parts of an order a job delivers: its own order's, or those it carries for another."""
+    return job["parts"] if job["order"] == order_id else job["carries"].get(order_id, [])
+
+
+def carry(data: dict, job_id: str, order_id: str, parts: list[str]) -> None:
+    job, order = data["jobs"][job_id], data["orders"][order_id]
+    job["carries"][order_id] = list(dict.fromkeys([*job["carries"].get(order_id, []), *parts]))
+    if job_id not in order["jobs"]:
+        order["jobs"].append(job_id)
+    order["updated"] = stamp()
+
+
+def drop_carries(data: dict, job_id: str) -> None:
+    """A done job stops carrying other orders' parts, so a part it leaves undelivered reads as nobody's again."""
+    for order_id in data["jobs"][job_id]["carries"]:
+        data["orders"][order_id]["jobs"].remove(job_id)
+    data["jobs"][job_id]["carries"] = {}
 
 
 def whole_order(text: str) -> str:
