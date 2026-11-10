@@ -4,14 +4,14 @@
       {
         "matcher": "startup|resume|compact",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/session_start.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" session_start.py" }
         ]
       }
     ],
     "PreCompact": [
       {
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_compact.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" pre_compact.py" }
         ]
       }
     ],
@@ -19,19 +19,19 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/landing_guard.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" landing_guard.py" }
         ]
       },
       {
         "matcher": "Agent",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/scratch_folder.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" scratch_folder.py" }
         ]
       },
       {
         "matcher": "mcp__plugin_cc-slack_cc-slack__slack_(dm_status|reply|send|edit)",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/message_limits.py\"" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" message_limits.py" }
         ]
       }
     ]

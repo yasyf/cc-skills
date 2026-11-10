@@ -99,8 +99,10 @@ else.
   exactly from his message in the thread you post in or from your brief, with `…` where you skip
   words. The installed confirmation of a ruling of his gets 150 words too. Pass the ruling, quoted
   the same way, as `asked`. Pass `installed` as the plugin and version the coordinator's report
-  names, such as `long-running 1.0.76`, and say that version in the post. Whatever does not fit
-  goes behind the card's Explain more or in a write-up attached with `files`, never a second post.
+  names, such as `long-running 1.0.76`, and say that version in the post. Pass both on a
+  `slack_edit` too: the tool lists neither, but takes them, and the hook reads them from any call.
+  Whatever does not fit goes behind the card's Explain more or in a write-up attached with `files`,
+  never a second post.
 - Lead with the answer or what changed for him, in his words: a bold line and at most two
   sentences, a table only for three or more parallel items, Pacific times with no zone, each PR
   named by its title, linked, with what it serves: the order of his it carries out, in his words,
