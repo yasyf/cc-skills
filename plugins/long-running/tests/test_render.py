@@ -149,18 +149,18 @@ def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
 
 
 def test_status_text_counts_open_orders() -> None:
-    text = render.status_text(sample(), "live")
+    text = render.status_text(sample(), "live", {"coordinator": "in no Orca terminal"})
     assert text.splitlines()[:3] == [
         "demo: 2 open of 3 orders; PR fields live",
         "communicator: not started; Hold with slack_watch: his DM D123",
-        "coordinator: session s1; Hold no Slack channel.",
+        "coordinator: session s1, in no Orca terminal; Hold no Slack channel.",
     ]
     assert "o1 working" in text
     assert "o2" not in text
 
 
 def test_status_data_keeps_only_open_work() -> None:
-    data = render.status_data(sample(), "stored")
+    data = render.status_data(sample(), "stored", {"coordinator": "in no Orca terminal"})
     assert data["pr_fields"] == "stored"
     assert set(data["roles"]) == {"coordinator"}
     assert set(data["orders"]) == {"o1", "o3"}

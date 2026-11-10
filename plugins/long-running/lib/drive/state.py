@@ -111,10 +111,12 @@ def pr_url(key: str) -> str:
     return f"https://github.com/{repo}/pull/{number}"
 
 
-def new_drive(name: str, role: str, session: str | None, cwd: str, channel: str | None) -> dict:
+def new_drive(
+    name: str, role: str, session: str | None, cwd: str, channel: str | None, terminal: str | None = None
+) -> dict:
     return {
         "name": name,
-        "roles": {role: {"session": session, "cwd": cwd, "started": stamp()}},
+        "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
         "slack": {"channel": channel, "page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},

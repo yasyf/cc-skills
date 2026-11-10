@@ -41,15 +41,43 @@ drive through cci, addressed to `root`, the coordinator.
 
 ## Start or resume
 
-Each session runs these steps for its role. A restart, a resume and a compaction land here too; the
-`SessionStart` hook prints the role's block after a compaction.
+Each session runs in its own Orca terminal, so he finds both in Orca and opens either with one
+command. His ruling, Nov 9 4:42 PM: "ok so fix the fucking skil, also open the communicator in orca I
+cant find it, thers a CLI to open it". A bare tmux session, `nohup`, `claude --bg` or any other
+headless start is forbidden: Orca shows nothing for it.
 
-1. A new session starts as `claude --model claude-fable-5-2`; a live one on another model switches
-   with `/model claude-fable-5-2` at an idle prompt.
+Whoever starts the drive starts both sessions with these three commands, `<worktree>` being the
+drive's checkout, which for a monorepo drive is the monorepo checkout's root. `orca worktree show --worktree
+path:<worktree>` must find it; a repository Orca does not list is added first with `orca repo add
+--path <its main checkout>`. The first command names the worktree after the drive in Orca's sidebar.
+
+```sh
+orca worktree set --worktree path:<worktree> --display-name <drive>
+orca terminal create --worktree path:<worktree> --title <drive>-coordinator --command "claude -n <drive>-coordinator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the coordinator: run Start or resume for that role'" --json
+orca terminal create --worktree path:<worktree> --title <drive>-communicator --command "claude -n <drive>-communicator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the communicator: run Start or resume for that role'" --json
+```
+
+For a drive that does not exist yet, the coordinator's prompt ends `; his DM is <channel id>`, which
+its `drive start` passes as `--channel`. Each session's `drive start` records the Orca terminal it
+runs in, and the start ends with the proof. `drive status` checks, read only, that Orca has a pane
+for that terminal (`orca diagnostics memory` lists it with a pane key) and that the terminal's
+process tree holds the session's Claude Code process (`~/.claude/sessions/<pid>.json` names the
+session); only then does that role's line read `open it with: orca terminal switch --terminal
+<handle>`, the command that brings the session forward in Orca. He gets a switch command from that
+line alone, never from a create's output, an environment variable or a record. A line that reads
+`not visible in Orca until restarted into a terminal` (a terminal with no pane) or `in no Orca
+terminal` (tmux included) gets no switch command: he hears it in those words, and the session moves
+into a fresh Orca terminal by [reference/migration.md](reference/migration.md#into-an-orca-terminal),
+only on his word.
+
+Then each session runs these steps for its role. A restart, a resume and a compaction land here
+too; the `SessionStart` hook prints the role's block after a compaction.
+
+1. A live session on another model switches with `/model claude-fable-5-2` at an idle prompt.
    `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
-   creates the drive or binds that role to this session, and prints the role's block. His DM is the
-   communicator's. Each alert channel the drive reads is a `--watch`, kept in the drive across
-   restarts and held by the coordinator; a later `--watch` adds one.
+   creates the drive or binds that role to this session and its Orca terminal, and prints the
+   role's block. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
+   kept in the drive across restarts and held by the coordinator; a later `--watch` adds one.
 2. Hold every channel the block's `Hold with slack_watch` line names: one
    `slack_watch(channel_id=<id>)` each, with no thread. One session holds a channel at a time, so a
    channel another session holds is not yours until that session runs `cc-slack unfollow`
@@ -95,7 +123,7 @@ go out together in one message, none waits on another, and the turn ends.
 
 | Input | Do, in one step |
 |---|---|
-| A message from him | `slack_pickup` on it, a one-line ack in the thread he wrote in restating what he asked and what happens next, `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away), and a handler for it, all together. The ack never waits behind a read, and the handler never waits behind the ack. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. |
+| A message from him | `slack_pickup` on it, a one-line ack in the thread he wrote in, `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away), and a handler for it, all together. The ack goes out inside 30 seconds of his message and before any read: what he asked, what is known now and what is being read. The details are the handler's answer, the second post. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. |
 | A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same step. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". |
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack and run `drive heard --thread <his thread>`, with no handler. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. |
@@ -300,9 +328,13 @@ CI fixes, cleanups, tool fixes.
 Every message follows [reference/messages.md](reference/messages.md). The short form:
 
 - Lead with what changed for him, in his words, never with how the machinery got there.
-- Ack each of his messages at once; everything else is a summary at most every 30 minutes per
-  thread, grouped by feature. While he is away only cards post, and his next message gets one
-  catch-up.
+- Answer each of his messages inside 30 seconds, before any read: the communicator's ack says what
+  he asked, what is known now and what is being read, and the details follow in a second post. A
+  question of his that reaches the coordinator gets the same in the turn it arrives: a `report` of
+  what it has now, then the read in a job, whose result is the second `report`. His words, Nov 9
+  4:33 PM: "anfd tgaking 5 mins to respoind what should be a 30 second response". Everything else
+  is a summary at most every 30 minutes per thread, grouped by feature. While he is away only cards
+  post, and his next message gets one catch-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
