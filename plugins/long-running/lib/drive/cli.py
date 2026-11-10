@@ -396,11 +396,22 @@ def pr_add(args: argparse.Namespace) -> int:
     return emit(args, key, {"key": key, **pr})
 
 
+def design_basis(text: str) -> str:
+    if text == "none" or (text.startswith("asked:") and text.removeprefix("asked:").strip()):
+        return text
+    raise argparse.ArgumentTypeError("say asked:<his answer id or card permalink>, or none")
+
+
 def pr_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     if args.tap and not args.serves:
         raise DriveError("--tap needs --serves <order>: the order of his whose words ask for this PR")
+    if args.tap and not args.design:
+        raise DriveError(
+            "--tap needs --design asked:<his answer id or card permalink> for each design decision the PR makes,"
+            " or --design none: a design he never answered goes back as a question, never on a card"
+        )
     if args.tap and args.port_of:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     served = ""
@@ -409,6 +420,8 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
             pr["serves"] = args.serves
+        if args.design:
+            pr["design"] = args.design
         if args.port_of:
             pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
         if args.tap is not None:
@@ -708,8 +721,14 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=both)
     verb.add_argument("url")
-    verb.add_argument("--tap", action=argparse.BooleanOptionalAction, help="it waits on his tap; needs --serves")
+    verb.add_argument("--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design")
     verb.add_argument("--serves", metavar="ORDER", help="the order of his whose words ask for this PR; prints them back")
+    verb.add_argument(
+        "--design",
+        type=design_basis,
+        metavar="asked:<answer>|none",
+        help="his answer or card that settled each design decision the PR makes, or none; --tap needs it",
+    )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
     exemption.add_argument("--no-exempt", action="store_true", help="clear the exemption")

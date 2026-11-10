@@ -40,8 +40,15 @@ COORDINATOR_RULES = (
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
-        " (drive pr set --tap --serves <o>, his words quoted in its ready line), or neither, which is not built,"
-        " polished or carded: another lane's PR goes back to it, an unordered finding becomes a question card."
+        " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line), or"
+        " neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered finding"
+        " becomes a question card."
+    ),
+    (
+        "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
+        " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
+        " long-running:designer on Fable; each fork it returns is a short question card, and no builder starts on"
+        " the part until he answers them."
     ),
     (
         "A ruling travels by its words: briefs, handoffs and SendMessage carry what he wrote and what it implies, never"
