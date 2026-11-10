@@ -596,6 +596,78 @@ def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.Monk
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f'PR {KEY} "Fix: the watch": still red for 30 minutes [o1 j1]']
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=301)) == []
+
+
+@pytest.mark.parametrize(
+    ("change", "said"),
+    [
+        (lambda reads, data: reads.update({KEY: read(checks="FAILURE", reviewDecision="CHANGES_REQUESTED")}), ["changes requested"]),
+        (lambda reads, data: data["jobs"]["j1"].update(state="waiting"), []),
+        (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), []),
+    ],
+)
+def test_a_red_pr_is_said_again_on_each_change_and_only_then(
+    demo: str, monkeypatch: pytest.MonkeyPatch, change: Callable[[dict, dict], None], said: list[str]
+) -> None:
+    reads = {KEY: read(checks="FAILURE")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    pr = f'PR {KEY} "Fix: the watch":'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} still red for 30 minutes [o1 j1]"]
+    with state.edit(demo) as data:
+        change(reads, data)
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=45)) == [*(f"{pr} {line} [o1 j1]" for line in said), f"{pr} still red for 45 minutes [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=200)) == []
+
+
+def waits_on(name: str, waits: str) -> None:
+    with state.edit(name) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "waits": waits}
+
+
+def test_a_pr_waiting_on_his_open_card_is_said_once_and_again_when_he_answers(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    question = {"question": "Approve buttons?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Approve buttons?", "waits": "demo:approve-buttons-7"}}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": []})
+    waits_on(demo, "demo:approve-buttons-7")
+    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    pr = f'PR {KEY} "Fix: the watch": green and approved with no card drawn for'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} 30 minutes, waiting on demo:approve-buttons-7 (open) [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=61)) == []
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=90)) == [f"{pr} 90 minutes, and demo:approve-buttons-7 is answered: free to card [o1 j1]"]
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=200)) == []
+
+
+def test_a_pr_waiting_on_a_running_job_is_said_once_and_again_when_the_job_ends(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="real run")
+    waits_on(demo, "j2")
+    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    pr = f'PR {KEY} "Fix: the watch": green and approved with no card drawn for'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} 30 minutes, waiting on j2 (running) [o1 j1]"]
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=90)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=120)) == [f"{pr} 120 minutes, and j2 is done: free to card [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
+    assert state.load(demo)["prs"][KEY]["stuck"]["seen"]["waits"] == "done"
+
+
+def test_pr_set_waits_takes_a_job_or_his_card_and_refuses_anything_else(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["pr", "set", KEY, "--waits", "j9", "--drive", demo]) == 2
+    assert "--waits j9" in capsys.readouterr().err
+    assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
+    assert capsys.readouterr().out.strip().endswith(", waits on j1")
+    assert cli.main(["pr", "set", KEY, "--waits", CARD, "--drive", demo]) == 0
+    assert state.load(demo)["prs"][KEY]["waits"] == CARD
 
 
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

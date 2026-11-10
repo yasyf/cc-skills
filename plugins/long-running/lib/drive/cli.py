@@ -11,6 +11,7 @@ from drive import github, limits, orca, place, render, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
@@ -440,6 +441,8 @@ def pr_set(args: argparse.Namespace) -> int:
     served = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
+        if args.waits and args.waits not in data["jobs"] and not WAITS_CARD.fullmatch(args.waits):
+            raise DriveError(f"--waits {args.waits}: name a job of this drive, or his question card's Slack link or waits id")
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
@@ -475,6 +478,8 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.tapped:
         pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
         pr["fundamental"] = None
+    if args.waits:
+        pr["waits"] = args.waits
     pr["updated"] = state.stamp()
 
 
@@ -829,6 +834,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
     verb.add_argument("--tap-source", default="recorded", help="where that tap came from")
+    verb.add_argument(
+        "--waits",
+        metavar="CARD|JOB",
+        help="what it waits on before a card: his open question card's Slack link or waits id, or a job; the watch says it stuck once while that holds and once when it ends",
+    )
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")

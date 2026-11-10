@@ -253,18 +253,25 @@ def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: li
     assert "a new order" in drawn[-1]
 
 
-def test_a_refused_draw_says_since_when_the_page_is_stale_at_most_every_ten_minutes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a_redraw_again(
+    demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
     monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
+    accept = page.draw
 
     def refused(name: str, markdown: str) -> str:
         raise page.PageError("Slack refused the redraw (canvas_too_large)")
 
     monkeypatch.setattr(page, "draw", refused)
     watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
-    stale = f"WATCH status page stale since {when(state.stamp(T0))}: Slack refused the redraw (canvas_too_large)"
-    assert watch.run_pass(watching, T0) == [stale]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [stale]
+    assert watch.run_pass(watching, T0) == [f"WATCH status page stale since {when(state.stamp(T0))}: Slack refused the redraw (canvas_too_large)"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == []
+    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0 + timedelta(minutes=40)) == []
+    monkeypatch.setattr(page, "draw", accept)
+    redrawn = f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(state.stamp(T0))}"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=50)) == [redrawn]
+    assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0 + timedelta(minutes=60)) == []
+    assert len(drawn) == 2
 
 
 def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
