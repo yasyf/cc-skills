@@ -84,7 +84,7 @@ live session reads here can land on another drive. Each record names the thread 
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
 | `report` | `root` | `communicator@<drive>` | the facts of one message: the thread or alert link it goes in, what changed for him, links and proof | writes the message and posts it |
 | `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first | draws the stack's PR card |
-| `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, `--attr job=<j>` | posts the question card, its `waits` id `<drive>:<j>-<the record's seq>` |
+| `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the question card, its `waits` id `<drive>:<j>-<the record's seq>` |
 
 ## The communicator
 

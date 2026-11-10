@@ -97,7 +97,8 @@ him in plain words, `CHECK:` how you proved it, `NEXT:` what you do when resumed
   bottom first, so it gets one card.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <one question>`, followed by 2 to 4 options with what each does and the one you
-  recommend: only for a change of scope or a line he holds. Decide everything else.
+  recommend: only for a change of scope or a line he holds. Each option stands alone in full
+  words and never points at another by number or position. Decide everything else.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 
