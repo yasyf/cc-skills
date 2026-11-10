@@ -613,7 +613,7 @@ def overlay_live(data: dict) -> str:
     except github.GithubError as error:
         return f"stored (GitHub read failed: {error})"
     for key, read in reads.items():
-        data["prs"][key].update(github.live(read))
+        data["prs"][key].update(github.live(read, data["prs"][key]))
     missing = [key for key in keys if key not in reads]
     return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
 

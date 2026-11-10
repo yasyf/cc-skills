@@ -5,10 +5,12 @@ from itertools import groupby
 BATCH = 50
 FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } "
-    "commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }"
+    "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
+    "... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }"
 )
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
-CHECKS = {"SUCCESS": "pass", "FAILURE": "fail", "ERROR": "fail", "PENDING": "pending", "EXPECTED": "pending"}
+FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
 
@@ -55,18 +57,44 @@ def flatten(node: dict) -> dict:
         "isDraft": node["isDraft"],
         "headRefOid": node["headRefOid"],
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
-        "checks": rollup["state"] if rollup else None,
+        "checks": rollup["contexts"]["nodes"] if rollup else [],
         "reviewDecision": node["reviewDecision"],
         "mergeable": node["mergeable"],
         "title": node["title"],
     }
 
 
-def live(read: dict) -> dict:
-    """The drive's stored fields (state, checks, review, head, title, conflict) of one fetched PR; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+def outcome(check: dict) -> str:
+    return check.get("conclusion") or check.get("state") or ""
+
+
+def check_name(check: dict) -> str:
+    return check.get("name") or check["context"]
+
+
+def failed_before(stored: dict, head: str) -> list[str]:
+    return stored["failed_checks"] if stored["head"] == head else []
+
+
+def checks(rollup: list[dict], failed: list[str]) -> str:
+    """pass, fail, pending or none for one head's check runs and statuses, given the checks that failed on that head before: one queued or running reads pending, and so does one that failed before and is missing now, as a rerun drops it until its new run starts."""
+    outcomes = {outcome(check) for check in rollup}
+    if outcomes & FAILED:
+        return "fail"
+    if set(failed) - {check_name(check) for check in rollup}:
+        return "pending"
+    if not outcomes:
+        return "none"
+    return "pass" if outcomes <= PASSED else "pending"
+
+
+def live(read: dict, stored: dict) -> dict:
+    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in read["checks"] if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
-        "checks": CHECKS.get(read["checks"], "none"),
+        "checks": checks(read["checks"], failed),
+        "failed_checks": failed,
         "review": REVIEWS.get(read["reviewDecision"], "none"),
         "head": read["headRefOid"],
         "title": read["title"],
