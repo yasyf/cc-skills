@@ -17,6 +17,8 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LONG_RUNNING_STATE", str(root))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     monkeypatch.delenv("LONG_RUNNING_DRIVE", raising=False)
+    monkeypatch.delenv("ORCA_TERMINAL_HANDLE", raising=False)
+    monkeypatch.delenv("TMUX", raising=False)
     monkeypatch.chdir(tmp_path)
     return root
 
@@ -48,4 +50,3 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)
     monkeypatch.setattr(orca, "worker", lambda dispatch: LIVE_WORKER)
-

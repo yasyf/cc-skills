@@ -8,7 +8,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from drive import cli, github, state
+from drive import cli, github, orca, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -22,6 +22,7 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
     assert data["roles"] == {
         "communicator": {
             "session": os.environ["CLAUDE_CODE_SESSION_ID"],
+            "terminal": None,
             "cwd": str(tmp_path),
             "started": data["roles"]["communicator"]["started"],
         }
@@ -96,7 +97,7 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
     assert code == 0
     assert out.splitlines()[1:3] == [
         "communicator: not started; Hold with slack_watch: his DM D123",
-        f"coordinator: session {session}; Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G",
+        f"coordinator: session {session}, in no Orca terminal; Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G",
     ]
     code, out = run("status", "--json")
     assert json.loads(out)["slack"] == {"channel": "D123", "watch": ["C0B75AL4XEW", "C0822AHFY3G"]}
@@ -104,6 +105,51 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
     assert "Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G" in out.splitlines()
     code, out = run("context", "--role", "communicator")
     assert "Hold with slack_watch: his DM D123" in out.splitlines()
+
+
+def test_status_gives_a_switch_command_only_once_orca_shows_that_session(
+    run: Run, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    shown = {"term_abc": True}
+    monkeypatch.setattr(orca, "showing", lambda handle, held: shown[handle] and held == session)
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
+    run("start", "demo", "--role", "coordinator")
+    assert state.load("demo")["roles"]["coordinator"]["terminal"] == "term_abc"
+    line = f"coordinator: session {session}, open it with: orca terminal switch --terminal term_abc; Hold no Slack channel."
+    assert run("status")[1].splitlines()[2] == line
+    shown["term_abc"] = False
+    assert run("status")[1].splitlines()[2] == (
+        f"coordinator: session {session}, not visible in Orca until restarted into a terminal; Hold no Slack channel."
+    )
+    monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
+    run("start", "demo", "--role", "coordinator")
+    assert state.load("demo")["roles"]["coordinator"]["terminal"] is None
+    assert run("status")[1].splitlines()[2] == f"coordinator: session {session}, in no Orca terminal; Hold no Slack channel."
+
+
+def test_orca_shows_a_session_only_from_a_pane_whose_process_tree_holds_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sessions = tmp_path / "config" / "sessions"
+    sessions.mkdir(parents=True)
+    (sessions / "7807.json").write_text(json.dumps({"pid": 7807, "sessionId": "s-comm"}))
+    (sessions / "9102.json").write_text(json.dumps({"pid": 9102, "sessionId": "s-coord"}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setattr(orca, "parents", lambda: {7807: 7333, 7333: 7330, 7330: 1, 9102: 99962, 99962: 1})
+    pane = {"paneKey": "tab:leaf"}
+
+    def orca_reads(*args: str) -> dict:
+        if args[:2] == ("terminal", "show"):
+            return {"terminal": {"ptyId": "pty-1", "orphaned": pane["paneKey"] is None}}
+        return {"worktrees": [{"sessions": [{"sessionId": "pty-1", "pid": 7330, "paneKey": pane["paneKey"]}]}]}
+
+    monkeypatch.setattr(orca, "request", orca_reads)
+    assert orca.showing("term_abc", "s-comm")
+    assert not orca.showing("term_abc", "s-coord")
+    pane["paneKey"] = None
+    assert not orca.showing("term_abc", "s-comm")
 
 
 def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

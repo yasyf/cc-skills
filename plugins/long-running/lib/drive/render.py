@@ -4,9 +4,9 @@ from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
 
 COMMUNICATOR_RULES = (
     (
-        "One step per message of his: slack_pickup, a one-line ack in its thread, drive heard and a"
-        " long-running:handler for it go out together, so the ack never waits behind a read and the handler"
-        " never waits behind the ack."
+        "One step per message of his, inside 30 seconds and before any read: slack_pickup, a one-line ack in its"
+        " thread saying what he asked, what is known now and what is being read, drive heard and a"
+        " long-running:handler for it go out together; the details are the handler's second post."
     ),
     (
         "Do no work in your own turn: the handler reads, answers him, shares in the thread he named, records rulings"
@@ -29,6 +29,10 @@ COMMUNICATOR_RULES = (
 )
 COORDINATOR_RULES = (
     "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
+    (
+        "A question of his that reaches you is answered in the turn it arrives: a report of what you have now,"
+        " then the read in a job, whose result is the second report."
+    ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
         "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"
@@ -113,8 +117,9 @@ def who(drive: dict, role: str) -> str:
     return f"session {held['session']}" if held else "not started"
 
 
-def role_line(drive: dict, role: str) -> str:
-    return f"{role}: {who(drive, role)}; {hold_line(drive, role)}"
+def role_line(drive: dict, role: str, seen: dict[str, str]) -> str:
+    place = f", {seen[role]}" if role in seen else ""
+    return f"{role}: {who(drive, role)}{place}; {hold_line(drive, role)}"
 
 
 def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
@@ -150,13 +155,14 @@ def context(drive: dict, role: str) -> str:
     return "\n".join(lines)
 
 
-def status_data(drive: dict, pr_fields: str) -> dict:
+def status_data(drive: dict, pr_fields: str, seen: dict[str, str]) -> dict:
     orders = open_orders(drive)
     job_ids = [job_id for order in orders.values() for job_id in order["jobs"]]
     return {
         "name": drive["name"],
         "pr_fields": pr_fields,
         "roles": drive["roles"],
+        "orca": seen,
         "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
@@ -164,11 +170,11 @@ def status_data(drive: dict, pr_fields: str) -> dict:
     }
 
 
-def status_text(drive: dict, pr_fields: str) -> str:
+def status_text(drive: dict, pr_fields: str, seen: dict[str, str]) -> str:
     orders = open_orders(drive)
     lines = [
         f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}",
-        *(role_line(drive, role) for role in ROLES),
+        *(role_line(drive, role, seen) for role in ROLES),
     ]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))

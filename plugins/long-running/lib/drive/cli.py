@@ -39,7 +39,7 @@ def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel)
+    fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
         data["roles"][args.role] = fresh["roles"][args.role]
         if args.channel:
@@ -346,10 +346,24 @@ def overlay_live(data: dict) -> str:
     return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
 
 
+def orca_place(held: dict) -> str:
+    """Where he opens a role's session in Orca: a switch command only once Orca proves it lands on that session."""
+    if not (terminal := held.get("terminal")):
+        return "in no Orca terminal"
+    try:
+        shown = orca.showing(terminal, held["session"])
+    except orca.OrcaError as error:
+        return f"Orca terminal {terminal} unproven: {error}"
+    if shown:
+        return f"open it with: orca terminal switch --terminal {terminal}"
+    return "not visible in Orca until restarted into a terminal"
+
+
 def status(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
     pr_fields = overlay_live(data)
-    return emit(args, render.status_text(data, pr_fields), render.status_data(data, pr_fields))
+    seen = {role: orca_place(held) for role, held in data["roles"].items()}
+    return emit(args, render.status_text(data, pr_fields, seen), render.status_data(data, pr_fields, seen))
 
 
 def context(args: argparse.Namespace) -> int:

@@ -24,27 +24,64 @@ class OrcaError(DriveError):
     pass
 
 
-def call(*args: str) -> dict:
-    """One `orca orchestration` call: its result, or OrcaError carrying Orca's own reason."""
+def request(*args: str) -> dict:
+    """One `orca` call: its result, or OrcaError carrying Orca's own reason."""
+    verb = " ".join(args[:2])
     try:
         done = subprocess.run(
-            ["orca", "orchestration", *args, "--full", "--json"],
+            ["orca", *args, "--json"],
             capture_output=True,
             text=True,
             timeout=CALL_SECONDS,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
-        raise OrcaError(f"orca orchestration {args[0]}: {error}") from None
+        raise OrcaError(f"orca {verb}: {error}") from None
     try:
         reply = json.loads(done.stdout)
     except json.JSONDecodeError:
         said = " ".join((done.stderr or done.stdout).split()) or f"exited {done.returncode}"
-        raise OrcaError(f"orca orchestration {args[0]}: {said}") from None
+        raise OrcaError(f"orca {verb}: {said}") from None
     if not reply.get("ok"):
         error = reply.get("error") or {}
-        raise OrcaError(f"orca orchestration {args[0]}: {error.get('code')}: {error.get('message')}")
+        raise OrcaError(f"orca {verb}: {error.get('code')}: {error.get('message')}")
     return reply["result"]
+
+
+def call(*args: str) -> dict:
+    return request("orchestration", *args, "--full")
+
+
+def own_terminal() -> str | None:
+    """This session's Orca terminal, or None outside one; tmux inherits the handle of the terminal it started in."""
+    return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
+
+
+def showing(handle: str, session: str) -> bool:
+    """Whether Orca has a pane for the terminal, so switching to it lands there, and its process tree holds the session."""
+    terminal = request("terminal", "show", "--terminal", handle)["terminal"]
+    sweep = request("diagnostics", "memory")["worktrees"]
+    pty = next((pty for worktree in sweep for pty in worktree["sessions"] if pty["sessionId"] == terminal["ptyId"]), None)
+    if terminal["orphaned"] or not pty or not pty["paneKey"]:
+        return False
+    tree = parents()
+    return any(holds(tree, pty["pid"], pid) for pid in claude_pids(session))
+
+
+def claude_pids(session: str) -> list[int]:
+    sessions = Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude") / "sessions"
+    return [int(path.stem) for path in sessions.glob("*.json") if json.loads(path.read_text())["sessionId"] == session]
+
+
+def parents() -> dict[int, int]:
+    listing = subprocess.run(["ps", "-axo", "pid=,ppid="], capture_output=True, text=True, check=True).stdout
+    return {pid: ppid for pid, ppid in (map(int, line.split()) for line in listing.splitlines())}
+
+
+def holds(tree: dict[int, int], root: int, pid: int) -> bool:
+    while pid > 1 and pid != root:
+        pid = tree.get(pid, 0)
+    return pid == root
 
 
 def new_run(objective: str) -> str:

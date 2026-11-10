@@ -1,9 +1,10 @@
 # Migrate an old drive
 
-Two one-time moves, by hand. A drive run by one driver session moves to two sessions in place
-([From one driver to two sessions](#from-one-driver-to-two-sessions)). A long-running 0.7.x drive
-moves into a new drive: carry what is still open, write down what is not, and leave every old
-session running for him to close.
+Three moves, by hand. A drive run by one driver session moves to two sessions in place
+([From one driver to two sessions](#from-one-driver-to-two-sessions)). A session running outside
+Orca moves into an Orca terminal of its own ([Into an Orca terminal](#into-an-orca-terminal)). A
+long-running 0.7.x drive moves into a new drive: carry what is still open, write down what is not,
+and leave every old session running for him to close.
 
 ## From one driver to two sessions
 
@@ -18,17 +19,54 @@ communicator.
    watch on one of its threads. Those are the threads the driver posted in, and his reply there
    reaches only the session that posted, until it lets go. Keep the alert channels' watches.
 3. `cci subscribe --reader root --cursor coordinator`, which replaces the driver's subscription.
-4. Open a new Claude Code session the way the driver was opened, with `--channels` carrying
-   `plugin:cc-inbox@cc-inbox` and `plugin:cc-slack@cc-slack` so records and his messages wake it,
-   and run `/long-running <name>`. It starts as the communicator (Start steps 1 to 4): `drive start
-   <name> --role communicator`, `slack_watch` his DM, `cci drive use <name>`, `cci subscribe
-   --reader communicator --cursor communicator`, and an answer for each reply `cc-slack dm-owed`
-   lists.
+4. Start the communicator in its own Orca terminal with the communicator's command in
+   [Start or resume](../SKILL.md#start-or-resume), whose `--channels` let records and his messages
+   wake it. It runs Start steps 1 to 4 for its role: `drive start <name> --role communicator`,
+   `slack_watch` his DM, `cci drive use <name>`, `cci subscribe --reader communicator --cursor
+   communicator`, and an answer for each reply `cc-slack dm-owed` lists. A driver running outside
+   Orca shows `in no Orca terminal` on the coordinator's `drive status` line and moves by
+   [Into an Orca terminal](#into-an-orca-terminal) on his word.
 5. A question card he has not answered yet keeps its id, which names no job: the communicator
    forwards his answer with that id in the text, and the coordinator, which asked it, resumes the
    job that waits on it.
 6. Check it: `drive status` names both sessions, and his next message gets the communicator's ack
    within seconds while the coordinator receives its `owner` record.
+
+## Into an Orca terminal
+
+A drive session Orca cannot show, one in tmux, under `nohup`, headless, or in an Orca terminal with
+no pane, moves into a fresh Orca terminal of its own, resuming the same session. Only on his word naming that session, and never while an incident order
+is open: the move waits until its fix is live. Moving the coordinator is a restart: its background
+agents end with the old process, and Start step 5 gives each job that needs one a fresh agent.
+
+1. Read the role's `session`, `terminal` and `cwd` from `drive status --json` under `roles`. Under
+   tmux, find the old pane: `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}
+   #{pane_start_command}'` lists each pane with the `claude` line that started it.
+2. Ask the old session to let go, and wait for its reply: `cci post --lane <your lane> --kind ask
+   --to <root or communicator>@<drive> --text "Moving you into an Orca terminal on his word: run
+   cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor
+   if you run one, reply released, and take no more work."` His messages in the gap wait in
+   `cc-slack dm-owed`, and records wait on the role's cci cursor.
+3. Start the new terminal, resuming that session:
+
+   ```sh
+   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
+   ```
+
+   Its prompt runs Start or resume, so `drive start` records the new terminal and the role takes
+   back its watches, its cursor and, for the coordinator, `drive watch`. When Claude Code resumes
+   into a copy under a new id because the old process still runs, `drive start` binds the role to
+   the copy, which is the session the drive keeps.
+4. Check that the new one answers before the old one ends: the role's `drive status` line reads
+   `open it with: orca terminal switch --terminal <the handle the create printed>`, which it prints
+   only once Orca has a pane for that terminal and its process tree holds the session, and
+   `orca terminal read --terminal <handle> --screen --json` shows it at its prompt with its Start
+   steps done. A line still reading `not visible in Orca until restarted into a terminal` stops the
+   move here: the old one keeps running and he hears that in those words.
+5. Then end the old one, which his word for the move covers: `tmux send-keys -t <pane> /exit Enter`
+   under tmux, `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca
+   terminal with no pane, `claude stop <id>` for a `claude --bg` session.
+6. The coordinator's next `report` tells him which session moved and the command that opens it.
 
 ## Read a 0.7.x drive
 
@@ -40,10 +78,12 @@ in cc-notes answers.
 
 ## Carry
 
-1. In the new coordinator's session, run `drive setup`, then `drive start <name> --role coordinator
-   --channel <his DM>` with a `--watch <channel id>` for every channel the old drive watched beside
-   his DM, its alert channels above all. `cc-slack follows --session <old holder's session id>` lists
-   them. In the new communicator's session, run `drive start <name> --role communicator`.
+1. Start the new drive's two sessions, each in its own Orca terminal, with the commands in
+   [Start or resume](../SKILL.md#start-or-resume). In the coordinator's session, run `drive setup`,
+   then `drive start <name> --role coordinator --channel <his DM>` with a `--watch <channel id>` for
+   every channel the old drive watched beside his DM, its alert channels above all.
+   `cc-slack follows --session <old holder's session id>` lists them. In the communicator's
+   session, run `drive start <name> --role communicator`.
 2. Hand the watches over. cc-slack lets one session hold a DM or channel watch at a time, and stopping
    the old holder's Monitor releases nothing. The old holder runs `cc-slack unfollow <watch id>` for
    each watch, finding the ids with `cc-slack follows --session <its session id>`; ask it with
