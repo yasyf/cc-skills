@@ -33,6 +33,8 @@ if [ ${#worker_env[@]} -gt 0 ]; then
   lane_env="$lane_env ${worker_env[*]}"
 fi
 
+read -ra bind <<<"${WORKER_BIND:-}"
+
 repo_value() {
   [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
 }
@@ -107,18 +109,27 @@ fi
 orchestration() {
   orca orchestration "$@" --full --json
 }
-bound=$(orchestration run-current |
-  jq -rs 'select(length == 1) | .[0] | select(.ok == true and .error == null) | .result.run.id // empty' 2>/dev/null) || bound=
-[ "$bound" = "$run" ] ||
-  die "terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${bound:-no Run}, not $run, so nothing launched; launch from the coordinator that already owns Run $run"
+if [ ${#bind[@]} -eq 0 ]; then
+  bound=$(orchestration run-current |
+    jq -rs 'select(length == 1) | .[0] | select(.ok == true and .error == null) | .result.run.id // empty' 2>/dev/null) || bound=
+  [ "$bound" = "$run" ] ||
+    die "terminal ${ORCA_TERMINAL_HANDLE:-unset} coordinates ${bound:-no Run}, not $run, so nothing launched; launch from the coordinator that already owns Run $run"
+fi
 
 legacy=$dir/${name%.*}.dispatch.json
 [ ! -e "$legacy" ] && [ ! -L "$legacy" ] ||
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
-[ ! -e "$attempt" ] && [ ! -L "$attempt" ] ||
-  die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
-mkdir "$attempt"
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
+fenced=
+if [ -e "$attempt" ] || [ -L "$attempt" ]; then
+  [ "$route" = sprite ] && [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
+    die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
+  [ "$(jq -r .brief.sha256 "$attempt/prepared.json")" = "$sha" ] ||
+    die "$attempt prepared a Sprite for another version of this brief, and its worker-start was fenced; launch the brief it prepared"
+  fenced=1
+else
+  mkdir "$attempt"
+fi
 bytes=$(wc -c <"$brief" | tr -d ' ')
 jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" \
   --arg tier "$tier" --arg ref "$ref" --arg expect "$expect" --arg path "$brief" --arg sha "$sha" --argjson bytes "$bytes" \
@@ -132,8 +143,8 @@ jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind
 start_worker() {
   local spec=$1 status=0 error
   shift
-  orchestration worker-start --run "$run" --spec "$spec" --task-title "$lane" "$@" \
-    --timeout-ms 600000 >"$attempt/worker-start.json" 2>"$attempt/worker-start.err" || status=$?
+  ${bind[@]+"${bind[@]}"} orca orchestration worker-start --run "$run" --spec "$spec" --task-title "$lane" "$@" \
+    --timeout-ms 600000 --full --json >"$attempt/worker-start.json" 2>"$attempt/worker-start.err" || status=$?
   echo "$status" >"$attempt/worker-start.status"
   if [ "$status" -ne 0 ]; then
     error=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message)"' "$attempt/worker-start.json" 2>/dev/null) || error=
@@ -153,8 +164,8 @@ if [ "$route" = sprite ]; then
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
   status=0
-  "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
-  echo "$status" >"$attempt/prepare.status"
+  [ -n "$fenced" ] || "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
+  [ -n "$fenced" ] || echo "$status" >"$attempt/prepare.status"
   [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, and nothing was attached or retried"
 
   verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \

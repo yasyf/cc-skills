@@ -183,7 +183,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
             track_lane_prs(data, job_id, message["body"] or "")
     checkout = Path(data["roles"]["coordinator"]["cwd"])
-    lines += [answer_read(*asked, checkout) for asked in reads_asked]
+    lines += [answer_read(watcher.name, *asked, checkout) for asked in reads_asked]
     return [line for line in lines if line]
 
 
@@ -205,10 +205,10 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
                 job["prs"].append(url)
 
 
-def answer_read(job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
+def answer_read(drive: str, job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
     """Answer a remote lane's `LOG` or `READ` question here, since a Sprite holds no CI credentials or drive records."""
     try:
-        orca.reply(run, message_id, reads.answer(question, checkout))
+        orca.reply(drive, run, message_id, reads.answer(question, checkout))
     except orca.OrcaError as error:
         return f"WATCH read answer to {job_id} failed: {error}; its lane asks again when its wait ends"
     return None
