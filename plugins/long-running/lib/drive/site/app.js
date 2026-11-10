@@ -704,6 +704,31 @@ async function answer(card, label) {
   if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
 }
 
+let heard = null;
+
+function noticeKey(item) {
+  return item.answer ?? `${item.kind}:${item.title}:${item.due ?? ''}`;
+}
+
+function notify() {
+  const fresh = model.queue.filter((item) => heard && !heard.has(noticeKey(item)));
+  heard = new Set(model.queue.map(noticeKey));
+  noticeButton();
+  if (!fresh.length || !window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const [first] = fresh;
+  const title = fresh.length === 1 ? `${LABEL[first.kind]}: ${first.title}` : `${fresh.length} new things wait on you`;
+  const notice = new Notification(title, { body: fresh.length === 1 ? first.detail : fresh.map((item) => item.title).join('\n'), tag: `drive-${model.drive}`, requireInteraction: fresh.some((item) => item.kind !== 'late') });
+  notice.onclick = () => {
+    window.focus();
+    location.hash = `#/queue/${first.kind}`;
+    notice.close();
+  };
+}
+
+function noticeButton() {
+  $('#notices').hidden = !window.isSecureContext || !('Notification' in window) || Notification.permission !== 'default';
+}
+
 function connect() {
   const stream = new EventSource('/api/stream');
   stream.onopen = () => {
@@ -714,6 +739,7 @@ function connect() {
     model = JSON.parse(message.data);
     connected = true;
     render();
+    notify();
   };
   stream.onerror = () => {
     if (connected) lostAt = new Date().toISOString();
@@ -734,6 +760,7 @@ document.addEventListener('click', (event) => {
   const asked = event.target.closest('button[data-ask]');
   if (asked) return openAsk(asked.dataset.ask);
   if (event.target.closest('#kbtn')) return openJump();
+  if (event.target.closest('#notices')) return Notification.requestPermission().then(noticeButton);
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
