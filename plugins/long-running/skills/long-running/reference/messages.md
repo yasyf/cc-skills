@@ -16,7 +16,7 @@ one sentence the communicator already knows, restating what he asked and what ha
 never read for, drafted or checked. It names no time:
 the coordinator sets the order's due time, and the first summary says it.
 
-**A summary**, in a thread, which a handler writes from a `report` and posts with
+**A summary**, in a thread, which a handler writes from a `POST` report and posts with
 `slack_dm_status(text=…, thread_ts=<his thread>)`: what changed for him since the last one, grouped
 by feature, one bold line per feature and at most two sentences under it.
 
@@ -96,8 +96,11 @@ first, then each feature by state. Nothing to post; a line that says where thing
   every order that changed while he was away, and it sends one `report` for his thread covering
   them, grouped by feature, with what waits on him last, then `--lined` each.
 - **Anything that says it waits on him carries its card.** A summary, a catch-up, a TICK line or a
-  line linking a card is followed in the same thread by `cc-slack card-copy` of each card it names,
-  so his buttons are there; a link alone is not enough.
+  link line links each open card it names by permalink, and cc-slack draws that card with its
+  buttons right under the line, in the same thread, so he answers it there without clicking away;
+  a tap on either copy answers both. A link is never the embed: Slack shows a link to a DM card with
+  no buttons. cc-slack refuses a line that says something waits on him with no open card linked,
+  and `check-post` flags it before it is sent.
 - **His read-only question gets its answer within minutes** from the handler, which reads the
   source that owns the fact; the communicator reads nothing itself.
 

@@ -13,7 +13,8 @@ COMMUNICATOR_RULES = (
     (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
         " anything that takes more than one tool call runs in a background handler that posts its own result;"
-        " a report, ready or ask record gets a handler too."
+        " a POST report, a ready or an ask record gets one handler, its prompt the one line"
+        " `Record: <seq> Drive: <name> Scratch: <folder>`; an FYI report gets none."
     ),
     (
         "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
