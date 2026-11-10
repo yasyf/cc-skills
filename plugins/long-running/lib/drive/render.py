@@ -20,7 +20,9 @@ COMMUNICATOR_RULES = (
     (
         "A question-card tap (waits: true): an answer record with its label and --re the ask seq its id ends in, or"
         " --topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
-        " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:): nothing."
+        " `Message (his words): Explain more` with the card's waits id and permalink. An Undo (undo: true) takes back"
+        " his answer, which was never given: the same answer record with --attr undone=<label> and the text"
+        " undone: <label>. A PR-card tap (merge:): nothing."
     ),
     (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
