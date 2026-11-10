@@ -406,6 +406,18 @@ def test_a_reply_counts_only_in_his_dm(talker: str, transcript: Path) -> None:
     assert message_limits.deny_reason(share) is None
 
 
+@pytest.mark.parametrize("text", ["$(cat)", "<see file>", "$(cat post.txt)"])
+def test_a_placeholder_in_place_of_the_post_is_refused_wherever_it_goes(talker: str, transcript: Path, text: str) -> None:
+    assert f"The text {text} is a placeholder" in posted(transcript, thread_ts="1.2", text=text)
+    share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text=text)
+    assert "is a placeholder" in message_limits.deny_reason(share)
+
+
+def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:
+    assert posted(transcript, thread_ts="1.2", text="<https://github.com/yasyf/cc-skills/pull/1|the fix>") is None
+    assert posted(transcript, thread_ts="1.2", text="<@U123>") is None
+
+
 def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo: str, transcript: Path) -> None:
     assert posted(transcript, text=said(300)) is None
     assert message_limits.deny_reason(call("slack_dm_status", transcript, session="elsewhere", text=said(300))) is None
