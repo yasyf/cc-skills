@@ -4,12 +4,14 @@ import os
 import re
 import shutil
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 from drive import github, orca, place, render, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
@@ -46,7 +48,9 @@ def start(args: argparse.Namespace) -> int:
             data["slack"]["channel"] = args.channel
         watch = data["slack"].setdefault("watch", [])
         watch.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watch)
-    return emit(args, render.context(data, args.role), data)
+    seen = orca_place(data["roles"][args.role], run_show)
+    text = f"{render.context(data, args.role)}\n\n{args.role}: {render.who(data, args.role)}, {seen}"
+    return emit(args, text, {**data, "orca": {args.role: seen}})
 
 
 def order_add(args: argparse.Namespace) -> int:
@@ -413,23 +417,43 @@ def overlay_live(data: dict) -> str:
     return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
 
 
-def orca_place(held: dict) -> str:
+def orca_place(held: dict, hidden: Callable[[Path], str]) -> str:
     """Where he opens a role's session in Orca: a switch command only once Orca proves it lands on that session."""
-    if not (terminal := held.get("terminal")):
+    if not (handle := held.get("terminal")):
         return "in no Orca terminal"
     try:
-        shown = orca.showing(terminal, held["session"])
+        terminal = orca.terminal(handle)
+        if terminal["orphaned"]:
+            return hidden(orca.main_checkout(terminal["worktreePath"]))
+        shown = orca.holds_session(terminal, held["session"])
     except orca.OrcaError as error:
-        return f"Orca terminal {terminal} unproven: {error}"
+        return f"Orca terminal {handle} unproven: {error}"
     if shown:
-        return f"open it with: orca terminal switch --terminal {terminal}"
+        return f"open it with: orca terminal switch --terminal {handle}"
     return "not visible in Orca until restarted into a terminal"
+
+
+def show_command(checkout: Path) -> str:
+    return f"orca repo set --repo path:{checkout} --external-worktree-visibility show"
+
+
+def name_show(checkout: Path) -> str:
+    return f"{HIDDEN}; show them, with no restart of the session, with: {show_command(checkout)}"
+
+
+def run_show(checkout: Path) -> str:
+    orca.show_worktrees(checkout)
+    return (
+        f"{HIDDEN}, so drive start ran {show_command(checkout)} for this drive's repository alone, which lists that "
+        "repository's other worktrees in Orca too; drive status gives the switch command once Orca shows this terminal, "
+        "with no restart of the session"
+    )
 
 
 def status(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
     pr_fields = overlay_live(data)
-    seen = {role: orca_place(held) for role, held in data["roles"].items()}
+    seen = {role: orca_place(held, name_show) for role, held in data["roles"].items()}
     return emit(args, render.status_text(data, pr_fields, seen), render.status_data(data, pr_fields, seen))
 
 

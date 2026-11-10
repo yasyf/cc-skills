@@ -108,29 +108,54 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
     assert "Hold with slack_watch: his DM D123" in out.splitlines()
 
 
-def test_status_gives_a_switch_command_only_once_orca_shows_that_session(
+def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(github, "fetch", lambda keys: {})
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    shown = {"term_abc": True}
-    monkeypatch.setattr(orca, "showing", lambda handle, held: shown[handle] and held == session)
+    shown = {"orphaned": True, "holds": True}
+    settings: list[tuple[str, ...]] = []
+
+    def orca_calls(*args: str) -> dict:
+        if args[:2] == ("repo", "set"):
+            settings.append(args)
+            return {}
+        return {"terminal": {"ptyId": "pty-1", "orphaned": shown["orphaned"], "worktreePath": "/repos/acme/.worktrees/demo"}}
+
+    monkeypatch.setattr(orca, "request", orca_calls)
+    monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repos/acme"))
+    monkeypatch.setattr(orca, "holds_session", lambda terminal, held: shown["holds"] and held == session)
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
-    run("start", "demo", "--role", "coordinator")
+    setting = "orca repo set --repo path:/repos/acme --external-worktree-visibility show"
+    hidden = "not visible in Orca, which hides the worktrees it did not make for this repository"
+
+    started = run("start", "demo", "--role", "coordinator")[1].splitlines()[-1]
     assert state.load("demo")["roles"]["coordinator"]["terminal"] == "term_abc"
-    line = f"coordinator: session {session}, open it with: orca terminal switch --terminal term_abc; Hold no Slack channel."
-    assert run("status")[1].splitlines()[2] == line
-    shown["term_abc"] = False
+    assert started.startswith(f"coordinator: session {session}, {hidden}, so drive start ran {setting} ")
+    assert settings == [("repo", "set", "--repo", "path:/repos/acme", "--external-worktree-visibility", "show")]
+    assert run("status")[1].splitlines()[2] == (
+        f"coordinator: session {session}, {hidden}; show them, with no restart of the session, with: {setting}; "
+        "Hold no Slack channel."
+    )
+    assert len(settings) == 1
+
+    shown["orphaned"] = False
+    switch = f"coordinator: session {session}, open it with: orca terminal switch --terminal term_abc"
+    assert run("start", "demo", "--role", "coordinator")[1].splitlines()[-1] == switch
+    assert run("status")[1].splitlines()[2] == f"{switch}; Hold no Slack channel."
+    shown["holds"] = False
     assert run("status")[1].splitlines()[2] == (
         f"coordinator: session {session}, not visible in Orca until restarted into a terminal; Hold no Slack channel."
     )
+    assert len(settings) == 1
+
     monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
     run("start", "demo", "--role", "coordinator")
     assert state.load("demo")["roles"]["coordinator"]["terminal"] is None
     assert run("status")[1].splitlines()[2] == f"coordinator: session {session}, in no Orca terminal; Hold no Slack channel."
 
 
-def test_orca_shows_a_session_only_from_a_pane_whose_process_tree_holds_it(
+def test_a_terminal_holds_a_session_only_when_its_process_tree_does_with_or_without_a_pane_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     sessions = tmp_path / "config" / "sessions"
@@ -139,18 +164,13 @@ def test_orca_shows_a_session_only_from_a_pane_whose_process_tree_holds_it(
     (sessions / "9102.json").write_text(json.dumps({"pid": 9102, "sessionId": "s-coord"}))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     monkeypatch.setattr(orca, "parents", lambda: {7807: 7333, 7333: 7330, 7330: 1, 9102: 99962, 99962: 1})
-    pane = {"paneKey": "tab:leaf"}
-
-    def orca_reads(*args: str) -> dict:
-        if args[:2] == ("terminal", "show"):
-            return {"terminal": {"ptyId": "pty-1", "orphaned": pane["paneKey"] is None}}
-        return {"worktrees": [{"sessions": [{"sessionId": "pty-1", "pid": 7330, "paneKey": pane["paneKey"]}]}]}
-
-    monkeypatch.setattr(orca, "request", orca_reads)
-    assert orca.showing("term_abc", "s-comm")
-    assert not orca.showing("term_abc", "s-coord")
+    pane = {"sessionId": "pty-1", "pid": 7330, "paneKey": "tab:leaf"}
+    monkeypatch.setattr(orca, "request", lambda *args: {"worktrees": [{"sessions": [pane]}]})
+    assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
+    assert not orca.holds_session({"ptyId": "pty-1"}, "s-coord")
+    assert not orca.holds_session({"ptyId": "pty-2"}, "s-comm")
     pane["paneKey"] = None
-    assert not orca.showing("term_abc", "s-comm")
+    assert orca.holds_session({"ptyId": "pty-1"}, "s-comm")
 
 
 def test_context_refuses_a_session_with_no_role(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

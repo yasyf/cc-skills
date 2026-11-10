@@ -34,10 +34,14 @@ communicator.
 
 ## Into an Orca terminal
 
-A drive session Orca cannot show, one in tmux, under `nohup`, headless, or in an Orca terminal with
-no pane, moves into a fresh Orca terminal of its own, resuming the same session. Only on his word naming that session, and never while an incident order
-is open: the move waits until its fix is live. Moving the coordinator is a restart: its background
-agents end with the old process, and Start step 5 gives each job that needs one a fresh agent.
+A drive session in no Orca terminal, one in tmux, under `nohup` or headless, or one whose Orca
+terminal no longer holds it, moves into a fresh Orca terminal of its own, resuming the same session.
+Only on his word naming that session, and never while an incident order is open: the move waits
+until its fix is live. A session whose line reads `not visible in Orca, which hides the worktrees it
+did not make for this repository` never moves: the repository setting in
+[Start or resume](../SKILL.md#start-or-resume) shows it where it runs, with no restart. Moving the
+coordinator is a restart: its background agents end with the old process, and Start step 5 gives
+each job that needs one a fresh agent.
 
 1. Read the role's `session`, `terminal` and `cwd` from `drive status --json` under `roles`. Under
    tmux, find the old pane: `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index}
@@ -47,28 +51,31 @@ agents end with the old process, and Start step 5 gives each job that needs one 
    cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor
    if you run one, reply released, and take no more work."` His messages in the gap wait in
    `cc-slack dm-owed`, and records wait on the role's cci cursor.
-3. Start the new terminal, resuming that session:
+3. End the old one, which his word for the move covers: `tmux send-keys -t <pane> /exit Enter`
+   under tmux, `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca
+   terminal, `claude stop <id>` for a `claude --bg` session. Then wait until its process has
+   exited: `ps -p <pid>` lists nothing, `<pid>` being the one whose `~/.claude/sessions/<pid>.json`
+   names the session. A resume while the old process runs makes a copy under a new id, and two
+   sessions then answer for one role.
+4. Only then start the new terminal, resuming that session:
 
    ```sh
    orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
    For the coordinator, open the command with `env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h`
-   before `claude`, as [Start or resume](../SKILL.md#start-or-resume) does.
+   before `claude`, as [Start or resume](../SKILL.md#start-or-resume) does. The command is the
+   session and nothing after it: it never ends in `exec zsh -l` or any other shell, which would
+   keep a login shell running in the terminal once the session ends.
 
    Its prompt runs Start or resume, so `drive start` records the new terminal and the role takes
-   back its watches, its cursor and, for the coordinator, `drive watch`. When Claude Code resumes
-   into a copy under a new id because the old process still runs, `drive start` binds the role to
-   the copy, which is the session the drive keeps.
-4. Check that the new one answers before the old one ends: the role's `drive status` line reads
-   `open it with: orca terminal switch --terminal <the handle the create printed>`, which it prints
-   only once Orca has a pane for that terminal and its process tree holds the session, and
-   `orca terminal read --terminal <handle> --screen --json` shows it at its prompt with its Start
-   steps done. A line still reading `not visible in Orca until restarted into a terminal` stops the
-   move here: the old one keeps running and he hears that in those words.
-5. Then end the old one, which his word for the move covers: `tmux send-keys -t <pane> /exit Enter`
-   under tmux, `orca terminal send --terminal <old handle> --text /exit --enter` for an Orca
-   terminal with no pane, `claude stop <id>` for a `claude --bg` session.
+   back its watches, its cursor and, for the coordinator, `drive watch`.
+5. Check it: 10 seconds after the create, `orca terminal show --terminal <the handle the create
+   printed> --json` reads `"orphaned": false`, and the repository setting in
+   [Start or resume](../SKILL.md#start-or-resume) is the fix when it reads true. Then the role's
+   `drive status` line reads `open it with: orca terminal switch --terminal <that handle>`, and
+   `orca terminal read --terminal <handle> --screen --json` shows the session at its prompt with
+   its Start steps done.
 6. The coordinator's next `report` tells him which session moved and the command that opens it.
 
 ## Read a 0.7.x drive
