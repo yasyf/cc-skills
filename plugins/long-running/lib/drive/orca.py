@@ -1,11 +1,11 @@
 import json
 import os
 import re
-import shutil
 import subprocess
 from pathlib import Path
 
 from drive import state
+from drive.install import config_dir
 from drive.state import DriveError
 
 LAUNCHER = "orca-worker-launch.sh"
@@ -115,10 +115,13 @@ def vm_brief(drive: str, job_id: str, brief: str) -> str:
 
 
 def tool(name: str) -> str:
-    path = shutil.which(name)
-    if not path:
-        raise OrcaError(f"{name} is not on PATH; install the orca plugin (orca@skills)")
-    return path
+    """A script of the newest installed orca plugin, never the one this session's PATH picked up when it started."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    installs = [entry for key, entries in plugins.items() if key.startswith("orca@") for entry in entries]
+    if not installs:
+        raise OrcaError(f"{name} comes with the orca plugin, which is not installed; install orca@skills")
+    newest = max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
+    return str(Path(newest["installPath"]) / "bin" / name)
 
 
 def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str) -> dict:
