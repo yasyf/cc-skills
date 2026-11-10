@@ -195,6 +195,8 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .prlist a { display: inline-flex; align-items: center; gap: 8px; font-weight: 560; }
 .prlist em { color: var(--ink-3); font-style: normal; font-size: 13px; }
 
+.pics { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.pics img { display: block; max-width: min(100%, 520px); max-height: 360px; border-radius: 6px; border: 1px solid var(--line-2); background: #fff; }
 .linkish { padding: 0; border: 0; background: none; color: #8ab8ff; font-size: 12.5px; font-weight: 600; cursor: pointer; }
 .linkish:hover { text-decoration: underline; }
 .acts { display: inline-flex; flex: none; align-items: baseline; gap: 14px; }

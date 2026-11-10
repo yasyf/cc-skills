@@ -1,7 +1,9 @@
 import http.client
 import json
 import threading
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 
 import pytest
 from drive import dashboard
@@ -69,3 +71,21 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     assert gone == (409, {"error": dashboard.GONE})
     assert taken == (200, {"answered": True, "label": "Approve"})
     assert asked == [(card, "Approve", f"http://box:{port}/")]
+
+
+def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:
+    drawn, other = tmp_path / "drawn.png", tmp_path / "other.png"
+    drawn.write_bytes(b"png")
+    other.write_bytes(b"secret")
+    board = dashboard.Board("demo", [])
+    board.pictures = {str(drawn)}
+    server, port = serving(board)
+    statuses = {}
+    for path in (drawn, other):
+        connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
+        connection.request("GET", f"/api/picture?path={urllib.parse.quote(str(path))}", headers={"Host": f"box:{port}"})
+        reply = connection.getresponse()
+        statuses[path.name] = (reply.status, reply.read() if reply.status == 200 else b"")
+        connection.close()
+    server.shutdown()
+    assert statuses == {"drawn.png": (200, b"png"), "other.png": (404, b"")}

@@ -1,4 +1,5 @@
 import json
+import mimetypes
 import os
 import re
 import select
@@ -9,6 +10,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import zlib
 from collections.abc import Callable, Iterator
@@ -141,6 +143,7 @@ class Board:
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
         self.prs: set[str] = set()
+        self.pictures: set[str] = set()
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -158,10 +161,13 @@ class Board:
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         prs = {entry["key"] for entry in model["review"]}
+        cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
+        pictures = {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
         with self.changed:
             self.body = body
             self.answers = answers
             self.prs = prs
+            self.pictures = pictures
             self.version += 1
             self.changed.notify_all()
 
@@ -193,6 +199,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.stream()
             elif found := PR_PATH.fullmatch(self.path):
                 self.pull_request(f"{found[1]}#{found[2]}")
+            elif self.path.startswith("/api/picture?"):
+                self.picture(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)["path"][0])
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind)
@@ -209,6 +217,14 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(403, {"error": NOT_OWNER})
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"http://{host}/")
+
+        def picture(self, path: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.send_error(403)
+            elif path not in board.pictures or not Path(path).is_file():
+                self.send_error(404)
+            else:
+                self.reply(Path(path).read_bytes(), mimetypes.guess_type(path)[0] or "application/octet-stream")
 
         def pull_request(self, key: str) -> None:
             if not owner_calling(self.client_address[0], net):

@@ -160,6 +160,10 @@ function choices(item) {
   return `<div class="picks${item.kind === 'tap' ? ' row' : ''}">${buttons.join('')}</div>${failed}`;
 }
 
+function pictures(paths) {
+  return paths?.length ? `<div class="pics">${paths.map((path) => `<a href="/api/picture?path=${encodeURIComponent(path)}" target="_blank" rel="noopener"><img loading="lazy" src="/api/picture?path=${encodeURIComponent(path)}" alt=""></a>`).join('')}</div>` : '';
+}
+
 function fold(id, html, lines) {
   const open = expanded.has(id);
   return `<div class="fold${open ? ' open' : ''}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div>`;
@@ -170,6 +174,7 @@ function questionCard(item) {
   const facts = (card.facts ?? []).map((fact) => `<dt>${esc(fact.label)}</dt><dd>${inline(fact.value)}</dd>`).join('');
   const rows = (card.rows ?? []).map((row) => `<li>${inline(row.text)}</li>`).join('');
   const body = [card.body ? prose(card.body) : '', facts ? `<dl class="facts">${facts}</dl>` : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
+  const figures = pictures(card.pictures);
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => link(each.label, each.url)).join(' · ');
   return `<article class="item question">
     <span class="label">${LABEL.question}</span>
@@ -177,6 +182,7 @@ function questionCard(item) {
       <h3>${inline(card.title || item.title)}</h3>
       <div class="meta">${esc(waited(item))}</div>
       ${body ? fold(`q:${item.answer}`, body, 4) : ''}
+      ${figures}
       ${links ? `<div class="links">${links}</div>` : ''}
       ${choices(item)}
     </div>
@@ -191,6 +197,7 @@ function prRow(pr, cardId, alone) {
   return `<section class="pr">
     <div class="pr-head"><b>${alone ? '' : esc(bare(pr.title))}</b><span class="acts"><button class="linkish" data-pr="${esc(prKey(pr.url))}">View change</button><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a></span></div>
     ${fields ? `<dl class="fields">${fields}</dl>` : ''}
+    ${pictures(pr.pictures)}
     ${waits ? `<div class="meta">${waits}</div>` : ''}
   </section>`;
 }
