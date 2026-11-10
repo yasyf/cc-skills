@@ -114,9 +114,12 @@ do when resumed, plus any exact quote, number or path the message needs.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
   bottom first, so it gets one card.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
-- `ASK <one question>`, followed by 2 to 4 options with what each does and the one you
-  recommend: only for a change of scope or a line he holds. Each option stands alone in full
-  words and never points at another by number or position. Decide everything else.
+- `ASK <one question>`, then a `Findings:` section, then 2 to 4 options with what each does and
+  the one you recommend: only for a change of scope or a line he holds. The findings are what
+  his pick rests on, one fact a line: what was hit, what was measured with its numbers, the
+  cause, and what each option changes and costs. An `ASK` with no findings goes back to you
+  unasked. Each option stands alone in full words and never points at another by number or
+  position. Decide everything else.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 

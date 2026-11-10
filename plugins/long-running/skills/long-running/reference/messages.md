@@ -24,9 +24,12 @@ by feature, one bold line per feature and at most two sentences under it.
 <one or two sentences: what it means and what happens next, by when>
 ```
 
-**A question card**, which a handler writes from an `ask` record, at his DM root with
+**A question card**, which a handler writes from an `ask` record, only after the findings it
+rests on are in his thread: what was hit, what was measured, the cause, and what each option
+changes and costs, from the record's `Findings:` section. Then the card at his DM root with
 `slack_dm_status(card=…)` and no thread, then `cc-slack card-copy --url <its permalink> --thread
-<his thread>`, so the card and its buttons sit in his thread too. Title: one question in one
+<his thread>`, so the card and its buttons sit in his thread under the findings. A record with no
+findings draws no card. Title: one question in one
 sentence. Body: at most three sentences saying why it matters and what the drive is doing meanwhile.
 Two to four options, each saying in full words what picking it does. No option asks a reporter or
 anyone else to retry, confirm or check: the drive proves a fix itself. When something waits on his
