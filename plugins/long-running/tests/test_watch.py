@@ -30,7 +30,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "state": "running", "said": None, "updated": state.stamp(T0)}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "state": "running", "said": None, "updated": state.stamp(T0)}
     return {**base, **overrides}
 
 
@@ -623,51 +623,112 @@ def test_a_red_pr_is_said_again_on_each_change_and_only_then(
     assert watch.run_pass(watching, T0 + timedelta(minutes=200)) == []
 
 
-def waits_on(name: str, waits: str) -> None:
+def waits_on(name: str, *waits: str) -> None:
     with state.edit(name) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "waits": waits}
+        data["prs"][KEY] |= {"wants_tap": True, "waits": list(waits)}
 
 
-def test_a_pr_waiting_on_his_open_card_is_said_once_and_again_when_he_answers(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    question = {"question": "Approve buttons?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Approve buttons?", "waits": "demo:approve-buttons-7"}}
-    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": []})
-    waits_on(demo, "demo:approve-buttons-7")
+def question(waits: str) -> dict:
+    return {"question": f"Pick {waits}?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": f"Pick {waits}?", "waits": waits}}
+
+
+def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question(waits) for waits in waits], "pr_cards": []})
+    watch.view.refresh_cards(name)
+
+
+def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_he_answers_the_last(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
+    waits_on(demo, "demo:j1-7-a", "demo:j1-7-b")
     serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    asking(monkeypatch, demo, "demo:j1-7-b")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
+    assert state.load(demo)["prs"][KEY]["waits"] == ["demo:j1-7-b"]
+    asking(monkeypatch, demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=32)) == [f"FREE {KEY} j1 o1: demo:j1-7-b answered or done, nothing else holds it"]
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=33)) == []
     pr = f'PR {KEY} "Fix: the watch": green and approved with no card drawn for'
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} 30 minutes, waiting on demo:approve-buttons-7 (open) [o1 j1]"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
-    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=61)) == []
-    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=90)) == [f"{pr} 90 minutes, and demo:approve-buttons-7 is answered: free to card [o1 j1]"]
-    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=200)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == [f"{pr} 30 minutes [o1 j1]"]
 
 
-def test_a_pr_waiting_on_a_running_job_is_said_once_and_again_when_the_job_ends(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_ends(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="real run")
     waits_on(demo, "j2")
-    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    serve(monkeypatch, {KEY: read(checks="FAILURE")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    pr = f'PR {KEY} "Fix: the watch": green and approved with no card drawn for'
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} 30 minutes, waiting on j2 (running) [o1 j1]"]
+    pr = f'PR {KEY} "Fix: the watch":'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} still red for 30 minutes, waiting on j2 [o1 j1]"]
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=90)) == []
     with state.edit(demo) as data:
         data["jobs"]["j2"]["state"] = "done"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=120)) == [f"{pr} 120 minutes, and j2 is done: free to card [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=120)) == [f"{pr} still red for 120 minutes [o1 j1]", f"FREE {KEY} j1 o1: j2 answered or done, nothing else holds it"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
-    assert state.load(demo)["prs"][KEY]["stuck"]["seen"]["waits"] == "done"
 
 
-def test_pr_set_waits_takes_a_job_or_his_card_and_refuses_anything_else(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a", "demo:j1-7-b"]}
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    asking(monkeypatch, demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
+
+
+def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_waits_clears_them(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     assert cli.main(["pr", "set", KEY, "--waits", "j9", "--drive", demo]) == 2
     assert "--waits j9" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
     assert capsys.readouterr().out.strip().endswith(", waits on j1")
-    assert cli.main(["pr", "set", KEY, "--waits", CARD, "--drive", demo]) == 0
-    assert state.load(demo)["prs"][KEY]["waits"] == CARD
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    assert cli.main(["pr", "set", KEY, "--waits", "demo:gone-1", "--drive", demo]) == 2
+    assert "--waits demo:gone-1" in capsys.readouterr().err
+    assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--waits", CARD, "--drive", demo]) == 0
+    assert state.load(demo)["prs"][KEY]["waits"] == ["j1", "demo:j1-7-a", CARD]
+    assert cli.main(["pr", "set", KEY, "--no-waits", "--drive", demo]) == 0
+    assert state.load(demo)["prs"][KEY]["waits"] == []
+
+
+def test_a_wait_added_to_a_pr_withdraws_his_open_card_and_a_tap_is_refused_while_it_holds(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    withdrawn = []
+    monkeypatch.setattr(cli.slack, "withdraw_pr_card", lambda url, why: withdrawn.append((url, why)) or ["1794200000.000200"])
+    assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
+    assert withdrawn == [(state.pr_url(KEY), "it waits on demo:j1-7-a before his tap")]
+    assert cli.main(["pr", "set", KEY, "--tap", "--serves", "o1", "--design", "none", "--drive", demo]) == 2
+    assert "it waits on demo:j1-7-a, so it draws no Approve" in capsys.readouterr().err
+    assert state.load(demo)["prs"][KEY]["wants_tap"] is False
+
+
+def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    url = "https://github.com/Forge-AI/monorepo/pull/43"
+    assert cli.main(["job", "set", "j1", "--state", "built", "--waits", "demo:j1-7-a", "--drive", demo]) == 2
+    assert "--branch" in capsys.readouterr().err
+    assert cli.main(["job", "set", "j1", "--state", "built", "--branch", "lane/built", "--waits", "demo:j1-7-a", "--drive", demo]) == 0
+    assert capsys.readouterr().out.strip() == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
+    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 2
+    assert "j1 waits on his answer to demo:j1-7-a" in capsys.readouterr().err
+    assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
+    asking(monkeypatch, demo)
+    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
 
 
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

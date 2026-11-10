@@ -58,15 +58,16 @@ COORDINATOR_RULES = (
     ),
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
-        " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line), or"
-        " neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered finding"
-        " becomes a question card."
+        " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line, never"
+        " while a design card it carries is open), or neither, which is not built, polished or carded: another lane's"
+        " PR goes back to it, an unordered finding becomes a question card."
     ),
     (
         "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
         " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
-        " long-running:designer on Fable; each fork it returns is a short question card, and no builder starts on"
-        " the part until he answers them."
+        " long-running:designer on Fable; each fork it returns is a short question card. A builder may build the"
+        " recommended option meanwhile and return BUILT: drive job set <j> --state built --branch <b> --waits <card>"
+        " for each card. It opens no PR until he answers them all: drive pr add refuses, and FREE says when."
     ),
     (
         "A ruling travels by its words: briefs, handoffs and SendMessage carry what he wrote and what it implies, never"
@@ -164,7 +165,7 @@ def pr_line(key: str, pr: dict) -> str:
     tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if pr["wants_tap"] else "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
-    waits = f", waits on {pr['waits']}" if pr.get("waits") else ""
+    waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
     return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}{waits}"
 
 
@@ -175,7 +176,9 @@ def job_line(job_id: str, job: dict) -> str:
         handle = f" agent {job['agent']}" if job.get("agent") else ""
     repro = f"; repro {job['repro']}" if job.get("repro") else ""
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
-    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}{repro}{carries}"
+    built = f" on {job['branch']}" if job["state"] == "built" else ""
+    waits = f"; waits on {', '.join(job['waits'])}" if job.get("waits") else ""
+    return f"{job_id} {job['kind']} {job['state']}{built}{handle}: {cut(job['goal'], 100)}{repro}{carries}{waits}"
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:

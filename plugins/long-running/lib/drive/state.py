@@ -10,7 +10,8 @@ from pathlib import Path
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
-JOB_STATES = ("running", "waiting", "done", "failed", "stopped")
+JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
+FINISHED_JOB_STATES = ("done", "failed", "stopped")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
 ROLES = ("communicator", "coordinator")
@@ -164,6 +165,10 @@ def load(name: str) -> dict:
         order.setdefault("next_set", None)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
+        job.setdefault("waits", [])
+    for pr in data["prs"].values():
+        waits = pr.get("waits")
+        pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
     return data
 
 
@@ -412,5 +417,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "draft": False,
         "merged_sha": None,
         "stuck": None,
+        "waits": [],
         "updated": stamp(),
     }

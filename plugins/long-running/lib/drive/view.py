@@ -2,15 +2,18 @@
 
 `build` returns:
 
-- `queue`: what waits on him, highest priority first: his open question cards, then PRs ready for his tap,
-  then promised times that passed. Each item has `kind` (`question`, `tap`, `late`), `title`, `detail`,
+- `queue`: what waits on him, highest priority first: his open question cards, those holding up the most finished
+  work first, then PRs ready for his tap, then promised times that passed. Each item has `kind` (`question`,
+  `tap`, `late`), `title`, `detail`,
   `since` (when it started waiting, when known), `due`, `url` (where he acts), `links`, and for a question or a
   tap with a Slack card, `card` (the whole card cc-slack draws) and `answer` (the card's permalink, which takes his
-  answer from any surface).
+  answer from any surface). A question also has `holds`: how many green approved open PRs and built jobs wait on
+  it, alone or beside other cards of his.
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
-  `blocked`, `running`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`, `now`
-  (its latest job line), `due`, `late`, `proof`, `updated`, `url` and `prs`, each PR with `title`, `url`,
-  `state`, `checks`, `review` and `tap`.
+  `blocked`, `running`, `built`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`,
+  `now` (its latest job line), `due`, `late`, `proof`, `updated`, `url`, `prs`, each PR with `title`, `url`,
+  `state`, `checks`, `review` and `tap`, and `built`, each of its jobs built on the recommended design and
+  waiting on his answers before it opens a PR, with its `job`, `branch` and `waits` (each with `title` and `url`).
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
@@ -32,9 +35,10 @@ from drive import state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut
 
-STATES = ("blocked", "running", "waiting", "merged", "live", "not started")
+STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
 LIVE_FOR = timedelta(days=1)
 SLACK_LINK = re.compile(r"<(?:[^|>]*\|)?([^>]*)>")
+SLACK_TS = re.compile(r"/p(\d+)")
 BOARD_PICK = re.compile(r"^Owner on board \w+, ")
 COMMAS = re.compile(r"\s*,(?:\s*,)*")
 SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
@@ -85,6 +89,32 @@ def stored_cards(name: str) -> tuple[dict, str]:
         return NO_CARDS, UNREAD
     found = json.loads(path.read_text())
     return found, found.pop("source")
+
+
+def live_cards(name: str) -> dict | None:
+    """His cards as last stored, or None when they could not be read."""
+    found, source = stored_cards(name)
+    return found if source == "live" else None
+
+
+def message_key(url: str) -> str:
+    match = SLACK_TS.search(url)
+    return match[1] if match else url
+
+
+def card_open(url: str, found: dict | None) -> bool:
+    """Whether his card, by its Slack link or waits id, is still open; with his cards unread, every card counts as open."""
+    if found is None:
+        return True
+    shown = {message_key(card["url"]) for card in [*found["questions"], *found["pr_cards"]]}
+    waits = {card["card"].get("waits") for card in found["questions"]}
+    return message_key(url) in shown or url in waits
+
+
+def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
+    """The waits of a job or PR that still hold: each of his cards still open, each job not finished."""
+    jobs = drive["jobs"]
+    return [wait for wait in waits if (jobs[wait]["state"] not in state.FINISHED_JOB_STATES if wait in jobs else card_open(wait, found))]
 
 
 def read(name: str, moment: datetime) -> dict:
@@ -138,7 +168,7 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
 
 
 def waits_on_tap(pr: dict, card: dict | None) -> bool:
-    asked = pr["wants_tap"] and not pr.get("tap") and not pr.get("exempt") and pr["state"] == "open"
+    asked = pr["wants_tap"] and not pr.get("tap") and not pr.get("exempt") and not pr["waits"] and pr["state"] == "open"
     return asked and (pr["checks"] == "pass" or card is not None)
 
 
@@ -149,10 +179,11 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}"
 
 
-def question_item(card: dict) -> dict:
+def question_item(drive: dict, card: dict) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
     return {
         "kind": "question",
+        "holds": held_up(drive, card),
         "title": card["question"],
         "detail": pick,
         "since": card["asked"],
@@ -162,6 +193,14 @@ def question_item(card: dict) -> dict:
         "card": card["card"],
         "answer": card["url"],
     }
+
+
+def held_up(drive: dict, card: dict) -> int:
+    """How many green approved open PRs and built jobs wait on his question card."""
+    names = {card["card"].get("waits"), message_key(card["url"])}
+    finished = [pr for pr in drive["prs"].values() if pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved"]
+    built = [job for job in drive["jobs"].values() if job["state"] == "built"]
+    return sum(any(message_key(wait) in names for wait in owner["waits"]) for owner in [*finished, *built])
 
 
 def tap_item(pr: dict, card: dict | None) -> dict:
@@ -201,7 +240,7 @@ def queue(drive: dict, found: dict, moment: datetime) -> list[dict]:
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     return [
-        *map(question_item, found["questions"]),
+        *sorted((question_item(drive, card) for card in found["questions"]), key=lambda item: -item["holds"]),
         *(tap_item(pr, card) for pr, card in taps),
         *(late_item(drive, order, found["team_url"]) for order in late),
     ]
@@ -216,6 +255,8 @@ def feature_state(order: dict, jobs: list[dict], prs: list[dict]) -> str:
         return "blocked"
     if running:
         return "running"
+    if any(job["state"] == "built" for job in jobs):
+        return "built"
     if any(pr["state"] == "merged" for pr in prs) and all(pr["state"] != "open" for pr in prs):
         return "merged"
     if order["state"] == "waiting" or any(job["state"] == "waiting" for job in jobs):
@@ -237,7 +278,21 @@ def shown(order: dict, moment: datetime) -> bool:
     return order["state"] != "dropped"
 
 
-def feature(drive: dict, order_id: str, order: dict, moment: datetime, team_url: str) -> dict:
+def wait_entry(drive: dict, wait: str, found: dict) -> dict:
+    if wait in drive["jobs"]:
+        return {"title": f"{wait}: {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)}", "url": None}
+    asked = (card for card in found["questions"] if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait))
+    if card := next(asked, None):
+        return {"title": card["question"], "url": card["url"]}
+    return {"title": "his question card", "url": wait if wait.startswith("https://") else None}
+
+
+def built_entry(drive: dict, job_id: str, found: dict) -> dict:
+    job = drive["jobs"][job_id]
+    return {"job": job_id, "branch": job["branch"], "waits": [wait_entry(drive, wait, found) for wait in job["waits"]]}
+
+
+def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: dict) -> dict:
     jobs = [drive["jobs"][job_id] for job_id in order["jobs"]]
     prs = [pr for pr in drive["prs"].values() if pr["order"] == order_id]
     return {
@@ -249,13 +304,14 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, team_url:
         "late": is_late(order, moment),
         "proof": order.get("proof"),
         "updated": order["updated"],
-        "url": thread_url(drive, team_url, order.get("thread")),
+        "url": thread_url(drive, found["team_url"], order.get("thread")),
         "prs": [pr_entry(pr) for pr in prs],
+        "built": [built_entry(drive, job_id, found) for job_id in order["jobs"] if drive["jobs"][job_id]["state"] == "built"],
     }
 
 
-def status(drive: dict, moment: datetime, team_url: str) -> list[dict]:
-    features = [feature(drive, order_id, order, moment, team_url) for order_id, order in drive["orders"].items() if shown(order, moment)]
+def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
+    features = [feature(drive, order_id, order, moment, found) for order_id, order in drive["orders"].items() if shown(order, moment)]
     features.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     features.sort(key=lambda entry: (entry["due"] is None, entry["due"] and state.parse_time(entry["due"])))
     return [{"state": name, "features": [entry for entry in features if entry["state"] == name]} for name in STATES]
@@ -264,7 +320,7 @@ def status(drive: dict, moment: datetime, team_url: str) -> list[dict]:
 def build(drive: dict, found: dict, moment: datetime) -> dict:
     """The drive's model from its stored state, his open cards as cc-slack lists them, and the time it is drawn for."""
     waiting = queue(drive, found, moment)
-    groups = status(drive, moment, found["team_url"])
+    groups = status(drive, moment, found)
     counts = {"queue": len(waiting), **{group["state"]: len(group["features"]) for group in groups}}
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
 
@@ -280,6 +336,8 @@ def job_entry(job_id: str, job: dict) -> dict:
         "said": said(job["said"]),
         "updated": job["updated"],
         "prs": len(job["prs"]),
+        "branch": job["branch"],
+        "waits": len(job["waits"]),
     }
 
 
@@ -382,12 +440,12 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
                 "created": order["created"],
                 "jobs": [job_entry(job_id, drive["jobs"][job_id]) for job_id in order["jobs"]],
             }
-    active = [job_entry(job_id, job) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] in ("running", "waiting")]
+    active = [job_entry(job_id, job) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
     finished = [
         job_entry(job_id, job)
         for job_id, job in drive["jobs"].items()
-        if job["state"] in ("done", "failed", "stopped") and moment - state.parse_time(job["updated"]) <= HISTORY_FOR
+        if job["state"] in state.FINISHED_JOB_STATES and moment - state.parse_time(job["updated"]) <= HISTORY_FOR
     ]
     finished.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     return model | {

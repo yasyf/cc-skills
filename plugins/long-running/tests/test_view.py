@@ -37,8 +37,9 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
     return base | overrides
 
 
-def job(order_id: str, job_state: str, said: str | None = None, updated: int = -30) -> dict:
-    return {"order": order_id, "kind": "builder", "goal": "g", "prs": [], "state": job_state, "said": said, "updated": at(updated)}
+def job(order_id: str, job_state: str, said: str | None = None, updated: int = -30, **overrides: object) -> dict:
+    base = {"order": order_id, "kind": "builder", "goal": "g", "prs": [], "state": job_state, "said": said, "updated": at(updated)}
+    return base | {"branch": None, "waits": []} | overrides
 
 
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
@@ -57,8 +58,8 @@ def found(questions: list[dict] = (), pr_cards: list[dict] = ()) -> dict:
     return {"team_url": TEAM, "questions": list(questions), "pr_cards": list(pr_cards)}
 
 
-def question(title: str, minutes: int) -> dict:
-    drawn = {"title": title, "body": "Why it matters", "options": ["Yes", "No"], "recommended": "Yes"}
+def question(title: str, minutes: int, waits: str | None = None) -> dict:
+    drawn = {"title": title, "body": "Why it matters", "options": ["Yes", "No"], "recommended": "Yes", "waits": waits}
     return {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": at(minutes), "url": f"{TEAM}archives/D123/p{minutes}", "card": drawn}
 
 
@@ -112,6 +113,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
         ("waiting", {"j1": "waiting"}, {"checks": "fail"}, "blocked"),
         ("working", {"j1": "failed", "j2": "running"}, {}, "blocked"),
         ("waiting", {"j1": "waiting"}, {"state": "merged"}, "merged"),
+        ("waiting", {"j1": "built", "j2": "waiting"}, {}, "built"),
         ("waiting", {"j1": "waiting"}, {}, "waiting"),
         ("open", {}, {}, "not started"),
         ("done", {"j1": "done"}, {"state": "merged"}, "live"),
@@ -144,10 +146,43 @@ def test_status_drops_dropped_orders_and_old_done_ones_and_says_the_latest_line_
     assert features["the page lands today"]["now"] == "CI runs. Lands next."
     assert features["the page lands today"]["late"] is True
     assert features["shipped"]["now"] == "installed 1.0.12; the page shows the drive"
-    assert model["counts"] == {"queue": 1, "blocked": 0, "running": 1, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
+    assert model["counts"] == {"queue": 1, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
 
 
 DASHBOARD = "http://mac:41234/"
+
+
+def test_a_built_job_shows_its_branch_and_the_cards_it_waits_on_in_status_and_on_the_page() -> None:
+    data = drive_of(
+        {"o1": order("rank the cards", ["j1"])},
+        {"j1": job("o1", "built", "BUILT lane/built", branch="lane/built", waits=["demo:j1-7-a"])},
+        [],
+    )
+    asked = question("Which layout?", -20, "demo:j1-7-a")
+    model = view.build(data, found([asked]), T0)
+    [entry] = next(group["features"] for group in model["status"] if group["state"] == "built")
+    assert entry["built"] == [{"job": "j1", "branch": "lane/built", "waits": [{"title": "Which layout?", "url": asked["url"]}]}]
+    markdown = page.render(model, DASHBOARD)
+    assert "## Built, waiting on your design answers (1)" in markdown
+    assert f"built on `lane/built`, no PR until you answer [Which layout?]({asked['url']})" in markdown
+
+
+def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiting_on_one_asks_no_tap() -> None:
+    data = drive_of(
+        {"o1": order("rank the cards", ["j1", "j2"])},
+        {"j1": job("o1", "waiting"), "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-b"])},
+        [
+            pr(1, "o1", waits=["demo:j2-7-b", "demo:j2-7-a"], wants_tap=True),
+            pr(2, "o1", waits=[f"{TEAM}archives/D123/p-10"]),
+            pr(3, "o1", waits=["demo:j2-7-b"], checks="fail"),
+        ],
+    )
+    questions = [question("Old one?", -30, "demo:j2-7-a"), question("Busy one?", -10, "demo:j2-7-b"), question("Idle one?", -20)]
+    model = view.build(data, found(questions), T0)
+    assert [(item["title"], item["holds"]) for item in model["queue"]] == [("Busy one?", 3), ("Old one?", 1), ("Idle one?", 0)]
+    markdown = page.render(model, DASHBOARD)
+    assert "1. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 3 finished · since" in markdown
+    assert "3. **Question:** [Idle one?](https://acme.slack.com/archives/D123/p-20) · since" in markdown
 
 
 def test_a_small_drive_draws_whole_queue_first_then_one_line_per_feature_and_the_dashboard_last() -> None:

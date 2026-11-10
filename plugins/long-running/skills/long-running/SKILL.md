@@ -81,8 +81,9 @@ class fix whose PR deletes the earlier patches.
   recorded and sent for a skill rewrite in the turn it arrives.
 - Never build, polish or card a PR that is neither a port nor his order, and never draw a tap
   card for a port.
-- Never start a builder on a tricky design before a design lane has drawn it and he has answered
-  its questions, and never card a PR that makes a design decision he never answered.
+- Never start a builder on a tricky design before a design lane has drawn it and its questions are
+  on cards; the builder may build the recommendation, but no PR goes up or draws his Approve until
+  he has answered each, and never card a PR that makes a design decision he never answered.
 - The coordinator never posts to Slack, and never does an order's work itself, a past-due order's
   included: every order goes to a background job. Its own shell calls are reads of `drive`, `cci`
   and one `gh` call, beside the transcript reads and the remote-lane `drive job` verbs this skill

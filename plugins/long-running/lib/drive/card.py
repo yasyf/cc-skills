@@ -414,6 +414,19 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
     return ""
 
 
+def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why no Approve is drawn for the members yet: each design card of his still open, or job not finished, one of them waits on."""
+    from drive import view
+
+    held = []
+    for key in members:
+        name, entry = known[key]
+        held += view.holding(state.load(name), entry["waits"], view.live_cards(name))
+    if not held:
+        return ""
+    return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"
+
+
 def tap_refusal(members: list[tuple[str, dict]]) -> str:
     shown = []
     for key, entry in members:
@@ -448,7 +461,7 @@ def cards(asked: list[dict]) -> dict:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = drawn_card(shown)
-        if reason := refusal(shown, card):
+        if reason := waiting(known, members) or refusal(shown, card):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

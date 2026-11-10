@@ -193,6 +193,7 @@ def job_add(args: argparse.Namespace) -> int:
             "branch": args.branch,
             "worktree": args.worktree,
             "prs": [],
+            "waits": [],
             "state": "running",
             "said": None,
             "created": created,
@@ -205,11 +206,18 @@ def job_add(args: argparse.Namespace) -> int:
 
 def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said, "card": args.card}
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "card": args.card, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
+    check_waits(name, args.waits)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
+        job["waits"] = merged_waits(job, args)
+        if args.state == "built" and not (job["branch"] and job["waits"]):
+            raise DriveError(
+                f"{args.id} built needs --branch <the pushed branch it built> and --waits <each design card it waits on>:"
+                " a built job opens no PR until he answers them"
+            )
         if args.carries:
             if args.part and len(args.carries) > 1:
                 raise DriveError("--part names the parts of one carried order; carry one order a call to name its parts")
@@ -402,11 +410,19 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def pr_add(args: argparse.Namespace) -> int:
+    from drive import view
+
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     url = state.pr_url(key)
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
+        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"]]
+        if cards and key not in data["prs"]:
+            raise DriveError(
+                f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
+                " the watch says FREE when the last is answered"
+            )
         pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]))
         pr.update(job=args.job, order=job["order"], wants_tap=pr["wants_tap"] or args.tap)
         if url not in job["prs"]:
@@ -436,26 +452,53 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
+    check_waits(name, args.waits)
     if args.tap:
         refuse_an_undrawable_tap(key, args)
     served = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
-        if args.waits and args.waits not in data["jobs"] and not WAITS_CARD.fullmatch(args.waits):
-            raise DriveError(f"--waits {args.waits}: name a job of this drive, or his question card's Slack link or waits id")
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
     withdrawn: list[str] = []
-    why = args.why or f"port of #{args.port_of}, which lands with no tap"
-    if args.tap is False or args.port_of:
+    if why := withdrawal(args, view.holding(data, args.waits, view.live_cards(name))):
         try:
             withdrawn = slack.withdraw_pr_card(pr["url"], why)
         except slack.SlackError as error:
-            raise DriveError(f"{key} no longer waits on his tap, but its card is still open: {error}; run this again") from None
+            raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
         view.refresh_cards(name)
     line = render.pr_line(key, pr) + served + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def withdrawal(args: argparse.Namespace, held: list[str]) -> str | None:
+    """Why his open card for the PR is withdrawn: it no longer waits on his tap, it is a port, or it now waits on something that holds."""
+    if args.tap is False:
+        return args.why
+    if args.port_of:
+        return f"port of #{args.port_of}, which lands with no tap"
+    if held:
+        return f"it waits on {', '.join(held)} before his tap"
+    return None
+
+
+def check_waits(name: str, waits: list[str]) -> None:
+    from drive import view
+
+    jobs = state.load(name)["jobs"]
+    cards = [wait for wait in waits if wait not in jobs]
+    found = view.live_cards(name)
+    if not all(view.card_open(wait, found) for wait in cards):
+        view.refresh_cards(name)
+        found = view.live_cards(name)
+    for wait in cards:
+        if not (WAITS_CARD.fullmatch(wait) and view.card_open(wait, found)):
+            raise DriveError(f"--waits {wait}: name a job of this drive, or the Slack link or waits id of a card of his still open")
+
+
+def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
+    return list(dict.fromkeys([*([] if args.no_waits else owner["waits"]), *args.waits]))
 
 
 def set_pr(pr: dict, args: argparse.Namespace) -> None:
@@ -478,19 +521,20 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.tapped:
         pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
         pr["fundamental"] = None
-    if args.waits:
-        pr["waits"] = args.waits
+    pr["waits"] = merged_waits(pr, args)
     pr["updated"] = state.stamp()
 
 
 def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
     from drive import card
 
-    entries = {member: entry for member, (_, entry) in card.drive_prs().items()}
-    after = dict(find(entries, key, "drive PR"))
+    known = card.drive_prs()
+    name, entry = find(known, key, "drive PR")
+    after = dict(entry)
     set_pr(after, args)
-    entries[key] = after
-    if reason := card.tap_refusal([(member, entries[member]) for member in after.get("stack") or [key]]):
+    known[key] = (name, after)
+    members = after.get("stack") or [key]
+    if reason := card.waiting(known, members) or card.tap_refusal([(member, known[member][1]) for member in members]):
         raise DriveError(f"{key}: {reason}")
 
 
@@ -688,6 +732,18 @@ def parser() -> argparse.ArgumentParser:
     json_opt = argparse.ArgumentParser(add_help=False)
     json_opt.add_argument("--json", action="store_true", help="print JSON")
     both = [drive_opt, json_opt]
+    waits_opt = argparse.ArgumentParser(add_help=False)
+    waits_opt.add_argument(
+        "--waits",
+        action="append",
+        default=[],
+        metavar="CARD|JOB",
+        help=(
+            "a design card of his still open, by its Slack link or waits id, or a job, it waits on; repeat for each."
+            " The watch drops each as he answers it or the job ends, and says FREE once when the last is gone"
+        ),
+    )
+    waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
     root.add_argument("--version", action="version", version=f"drive {json.loads(PLUGIN_JSON.read_text())['version']}")
@@ -743,10 +799,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.set_defaults(run=job_add)
-    verb = job.add_parser("set", parents=both)
+    verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id")
     verb.add_argument("--agent")
-    verb.add_argument("--state", choices=state.JOB_STATES)
+    verb.add_argument(
+        "--state", choices=state.JOB_STATES, help="built: it built the recommended design on --branch and opens no PR until each --waits card is answered"
+    )
+    verb.add_argument("--branch", help="the pushed branch it works or built on")
     verb.add_argument("--said")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[])
@@ -812,7 +871,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--job", required=True)
     verb.add_argument("--tap", action="store_true")
     verb.set_defaults(run=pr_add)
-    verb = pr.add_parser("set", parents=both)
+    verb = pr.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("url")
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design; --no-tap withdraws his open card for it, needs --why"
@@ -834,11 +893,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
     verb.add_argument("--tap-source", default="recorded", help="where that tap came from")
-    verb.add_argument(
-        "--waits",
-        metavar="CARD|JOB",
-        help="what it waits on before a card: his open question card's Slack link or waits id, or a job; the watch says it stuck once while that holds and once when it ends",
-    )
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
