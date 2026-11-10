@@ -32,7 +32,7 @@ import subprocess
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from drive import state
+from drive import slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut
 
@@ -59,7 +59,7 @@ def cards(name: str) -> dict:
     """His open question cards for the drive and the PR cards waiting on his tap, from cc-slack's stored state."""
     try:
         result = subprocess.run(
-            ["cc-slack", "drive-cards", "--drive", name], check=False, capture_output=True, text=True, timeout=30
+            [slack.launcher(), "drive-cards", "--drive", name], check=False, capture_output=True, text=True, timeout=30
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise CardsError(str(error)) from None

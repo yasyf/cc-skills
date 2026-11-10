@@ -4,7 +4,7 @@ import subprocess
 from itertools import accumulate, takewhile
 from typing import NamedTuple
 
-from drive import state
+from drive import slack, state
 from drive.render import cut, when
 
 PAGE_BYTES = 40_000
@@ -150,11 +150,11 @@ def render(model: dict, dashboard: str) -> str:
 def draw(name: str, markdown: str) -> Drawn:
     """Draw the page on the drive's canvas, creating it as a tab in his DM the first time, and again when the stored canvas is gone or Slack calls it full; returns the page's URL and whether it moved to a new tab."""
     canvas = state.load(name)["slack"].get("page")
-    argv = ["cc-slack", "canvas", "--title", f"{name}: where it stands"]
+    argv = ["canvas", "--title", f"{name}: where it stands"]
     if canvas:
         argv += ["--canvas", canvas]
     try:
-        result = subprocess.run(argv, input=markdown, check=False, capture_output=True, text=True, timeout=60)
+        result = subprocess.run([slack.launcher(), *argv], input=markdown, check=False, capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise PageError(str(error)) from None
     if result.returncode:

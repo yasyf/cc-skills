@@ -10,6 +10,8 @@ from conftest import Thread
 from drive import slack
 
 Run = Callable[..., tuple[int, str]]
+READ_THREAD = slack.thread
+LAUNCHER = slack.launcher
 DM = "D123"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
@@ -350,6 +352,43 @@ def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monke
     monkeypatch.setattr(slack, "thread", unreadable)
     assert posted(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
         "His thread could not be read to check asked, so it is not yet an answer: daemon not running."
+    )
+
+
+def installed_cc_slack(config: Path, messages: list[dict]) -> None:
+    install = config / "plugins" / "cache" / "cc-slack" / "cc-slack" / "0.19.62"
+    (install / "bin").mkdir(parents=True)
+    (install / "thread.json").write_text(json.dumps({"messages": messages}))
+    launcher = install / "bin" / "cc-slack"
+    launcher.write_text(f"#!/bin/sh\nexec /bin/cat '{install / 'thread.json'}'\n")
+    launcher.chmod(0o755)
+    entry = {"installPath": str(install), "version": "0.19.62", "lastUpdated": "2026-11-10T12:00:00Z"}
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"cc-slack@cc-slack": [entry]}}))
+
+
+def test_the_hook_reads_his_thread_through_the_cc_slack_plugins_launcher_with_an_empty_path(
+    talker: str, briefed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config"
+    installed_cc_slack(config, [{"ts": "1794310000.000000", "user": "U1", "text": CHECK_SIMPLE}])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(slack, "thread", READ_THREAD)
+    monkeypatch.setattr(slack, "launcher", LAUNCHER)
+    assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE) is None
+
+
+def test_no_cc_slack_plugin_refuses_saying_his_thread_could_not_be_read(
+    talker: str, briefed: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = tmp_path / "config"
+    (config / "plugins").mkdir(parents=True)
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    monkeypatch.setattr(slack, "thread", READ_THREAD)
+    monkeypatch.setattr(slack, "launcher", LAUNCHER)
+    assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE).endswith(
+        "His thread could not be read to check asked, so it is not yet an answer: the cc-slack@cc-slack plugin is not installed."
     )
 
 

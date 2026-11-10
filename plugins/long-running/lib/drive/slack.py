@@ -2,9 +2,12 @@ import json
 import re
 import subprocess
 from datetime import datetime
+from pathlib import Path
 
 from drive import state
+from drive.install import config_dir
 
+PLUGIN = "cc-slack@cc-slack"
 MESSAGE_LINK = re.compile(r"/archives/[A-Z0-9]+/p(\d{10})(\d{6})")
 RECENT = 50
 WHOLE_THREAD = 1000
@@ -14,9 +17,18 @@ class SlackError(Exception):
     pass
 
 
+def launcher() -> str:
+    """The newest installed cc-slack plugin's launcher, which runs on any PATH, a hook's included, where a bare cc-slack may not."""
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    if not (installs := plugins.get(PLUGIN)):
+        raise FileNotFoundError(f"the {PLUGIN} plugin is not installed")
+    newest = max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
+    return str(Path(newest["installPath"]) / "bin" / "cc-slack")
+
+
 def cc_slack(*args: str) -> dict:
     try:
-        result = subprocess.run(["cc-slack", *args], check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise SlackError(str(error)) from None
     if result.returncode:
