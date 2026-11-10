@@ -42,11 +42,12 @@ you read.
    it live. Done means the owner can see it working, not that it merged.
 8. Remove your worktree once the change is merged; leave nothing running behind you.
 
-Never pass `--order` to `tools/ci release start`: his order or pick to release authorizes the
-start only, and a gate holding a migration, delete or replace comes back to him as `ASK`. The one
-exception is an incident: its brief's incident order approves the cut that ships its fix, the default
-branch's head included when its first check proved that build works, so pass
-`--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
+His order or pick to release approves that release, its approve gate included, whatever migration,
+delete or replace it holds: pass `--order <his answer id>` to `tools/ci release start`, or run
+`tools/ci release approve <id> --via <agent>` the moment it holds, with no `ASK`, check or question
+in between. Never approve a release he has not approved. An incident's brief's incident order approves
+the cut that ships its fix, the default branch's head included when its first check proved that build
+works, so pass `--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
 no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,
 no question. Start the build at the fix commit with the cut the incident reference names, report its
 link, and run any read while it builds; the release's approve gate is the only check. Never cut a

@@ -72,6 +72,20 @@ def test_place_counts_only_running_builders_on_this_mac(
     assert run("place")[1] == "remote: 8 builders already run on this Mac, its cap of 8"
 
 
+def test_place_skips_a_running_builder_whose_agent_is_gone(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(place, "busy", lambda: 0.2)
+    monkeypatch.setenv(place.LIMIT_ENV, "0.5")
+    monkeypatch.setattr(
+        watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session" if job_id == "j1" else None
+    )
+    run("order", "add", "two")
+    run("job", "add", "builder", "--order", "o1", "--goal", "gone", "--agent", "a")
+    run("job", "add", "builder", "--order", "o1", "--goal", "alive", "--agent", "b")
+    assert json.loads(run("place", "--json")[1])["local_builders"] == 1
+
+
 def test_an_agent_id_moves_a_remote_job_to_this_mac_and_off_its_mail(
     run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

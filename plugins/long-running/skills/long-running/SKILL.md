@@ -298,12 +298,15 @@ the inputs to their would-be wriute ups".
   verbatim, and so does every cc-notes answer: never a paraphrase, a bot's summary, or a card
   option's label standing in for words he wrote. A tap's label is his answer only to that card's
   question.
-- **A release pick starts a release, nothing more.** His order or card pick to start or ship a
-  release authorizes the start; its approve gate, with its migrations, deletes and replaces, is his
-  separate decision once he has seen it. A job never passes `--order` to `tools/ci release start`
-  from a pick or an order: `--order` answers the gate by itself, and on Nov 9 at 2:33 PM it approved
-  a release carrying a table drop in his name. The one exception is an incident: its order's words
-  approve that incident's own cut and rollback, by [reference/incidents.md](reference/incidents.md).
+- **His approval of a release approves it, right then.** His order or card pick to ship, release or
+  approve a release approves that release and its approve gate at once, migrations, deletes and
+  replaces included: the job passes `--order <his answer id>` to `tools/ci release start`, or runs
+  `tools/ci release approve <id> --via <agent>` the moment it holds at approve, with no second card,
+  check or question in between. His words, Nov 9 5:25 PM: "what? no we want he oposite if I apprtove
+  a release dont fuckl around kjust appriove it". No agent approves a release or its gate without an
+  approval of his for that release, and a release he started himself is his: never cancel, retry,
+  reorder or approve it. An incident's order approves its own cut and rollback, by
+  [reference/incidents.md](reference/incidents.md).
 - **Resume, never respawn.** Send the next event or answer to the job: `SendMessage` to its
   agent id here, `drive job resume <j> "<event or answer>"` to a remote lane, which answers the
   question it is waiting on. A finished agent resumes with its history. Start a fresh job only

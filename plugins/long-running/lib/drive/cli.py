@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from drive import github, orca, place, render, state
+from drive import github, orca, place, render, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -181,9 +181,13 @@ def keep_repro(name: str, job_id: str, source: str) -> str:
 
 
 def place_job(args: argparse.Namespace) -> int:
-    jobs = state.load(state.resolve(args.drive))["jobs"].values()
+    data, moment = state.load(state.resolve(args.drive)), state.now()
     local_builders = sum(
-        job["kind"] == "builder" and job["state"] == "running" and job.get("where") != "remote" for job in jobs
+        job["kind"] == "builder"
+        and job["state"] == "running"
+        and job.get("where") != "remote"
+        and watch.local_gap(job_id, job, data, moment) is None
+        for job_id, job in data["jobs"].items()
     )
     share, ceiling = place.busy(), place.limit()
     where, why = place.verdict(share, ceiling, local_builders)
