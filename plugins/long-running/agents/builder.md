@@ -43,7 +43,9 @@ you read.
 8. Remove your worktree once the change is merged; leave nothing running behind you.
 
 Never pass `--order` to `tools/ci release start`: his order or pick to release authorizes the
-start only, and a gate holding a migration, delete or replace comes back to him as `ASK`.
+start only, and a gate holding a migration, delete or replace comes back to him as `ASK`. The one
+exception is an incident fix: its brief's incident order approves that fix's own cut, so pass
+`--order <the incident's answer id>` and start the release the turn it merges.
 
 Nobody watches the coordinator's terminal, so a permission prompt there stalls you until morning. Keep each
 Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script

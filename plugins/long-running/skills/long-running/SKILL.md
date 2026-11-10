@@ -128,7 +128,7 @@ answers and defects.
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
 | A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
-| An alert in a held channel | The drive's own release or change caused it, or he sent it in an `owner` record: [reference/incidents.md](reference/incidents.md), before anything else. Any other alert gets nothing: no record, no job. |
+| An incident: his order with incident priority, an alert he sent in an `owner` record, or an alert in a held channel the drive's own release or change caused | [reference/incidents.md](reference/incidents.md), before anything else: in that turn a fix job whose first change stops users being blocked, a rollback job and a cause job that gates neither, the order due in 10 minutes. Any other alert gets nothing: no record, no job. |
 | A record from another session | Answer it on cci as its kind asks. |
 
 | Job result | Do |
@@ -223,7 +223,8 @@ Drive: <name>, order <o>, job <j>
   release authorizes the start; its approve gate, with its migrations, deletes and replaces, is his
   separate decision once he has seen it. A job never passes `--order` to `tools/ci release start`
   from a pick or an order: `--order` answers the gate by itself, and on Nov 9 at 2:33 PM it approved
-  a release carrying a table drop in his name.
+  a release carrying a table drop in his name. The one exception is an incident: its order's words
+  approve that incident's own cut and rollback, by [reference/incidents.md](reference/incidents.md).
 - **Resume, never respawn.** Send the next event or answer to the job: `SendMessage` to its
   agent id here, `drive job resume <j> "<event or answer>"` to a remote lane, which answers the
   question it is waiting on. A finished agent resumes with its history. Start a fresh job only
