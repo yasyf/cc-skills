@@ -131,3 +131,9 @@ def test_a_long_record_read_keeps_its_head(monkeypatch: pytest.MonkeyPatch, tmp_
     monkeypatch.setattr(reads, "BUDGET", 5)
     monkeypatch.setattr(reads, "run", lambda argv, checkout: "HEAD-and-more")
     assert reads.answer("READ ccn search x", tmp_path) == "[first 5 of 13 characters]\nHEAD-"
+
+
+def test_an_empty_read_says_it_was_empty(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: "\n")
+    question = 'READ ccn answer search "cloud agent new pod start"'
+    assert reads.answer(question, tmp_path) == f"{question}: empty, the read printed nothing"
