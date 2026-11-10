@@ -30,7 +30,7 @@ silently: start it with the Agent tool, record it with `drive job set <j> --agen
 say so in the order's next report. A failure after worker-start ran may have left the lane
 live, so a reader checks its attempt before anything starts it again. The lane reports through
 Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
-the `DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED` a background agent returns; `drive status --json`
+the `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED` a background agent returns; `drive status --json`
 holds the whole latest report. `drive job replies <j>` prints every result and question the lane
 sent, oldest first, each with its time, for a line that points at an earlier reply. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
 ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with
@@ -62,7 +62,7 @@ Serves: <"port of #N", or "his order" when the Order line asks for this build; a
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it, e.g. installed and the installed version contains the merge>
 Where: <repo, base branch, existing branch or PR to adopt>
-Handoff: <a PR event only: the PR URLs, branch and head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
+Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <every ruling of his that touches this, his words verbatim with their time and what they imply here, from answer_search; never an id alone>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>
@@ -72,7 +72,7 @@ Drive: <name>, order <o>, job <j>
 ```
 
 A job's result goes to another agent, never to him, so it is never a write-up: its first line is
-`DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED`, or a design lane's `DESIGN`, and the rest is the inputs to the message he would
+`DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED`, or a design lane's `DESIGN`, and the rest is the inputs to the message he would
 get, one fact a line: links, numbers, paths, exact quotes, and what it could not prove. Only the
 handler that writes to him writes prose. His words, Nov 9 4:14 PM: "agents that are responding to
 agents shoudnt do full himan-quality write ups they just need to dump their context back … I mean
@@ -99,7 +99,9 @@ the inputs to their would-be wriute ups".
   event after a builder has returned gets a fresh builder instead: `drive job add builder` for the
   same order and parts, `drive pr add <url> --job <new>` for each PR it takes over, then the brief
   with its `Handoff:` line and every earlier job's transcript under `Transcripts:`, and
-  `drive job set <old> --state stopped --said "handed to <new>"`. An incident's job is the one
+  `drive job set <old> --state stopped --said "handed to <new>"`. A built job's `FREE` line is a
+  PR event too: the fresh builder's `Handoff:` names the built branch, and `Decisions that bind`
+  carries his answer to each card it waited on, verbatim. An incident's job is the one
   exception: it is resumed for every event, since minutes to users matter more there than tokens,
   by [reference/incidents.md](incidents.md). A resumed builder re-reads everything it
   ever did on every event; on Nov 8 and 9, 64% of builder spend came after the PR opened, at 288k

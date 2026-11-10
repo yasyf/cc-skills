@@ -118,6 +118,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .tile.you b { color: var(--you); }
 .tile.blocked b { color: var(--bad); }
 .tile.running b { color: var(--accent); }
+.tile.built b { color: var(--you); }
 .tile.merged b { color: var(--violet); }
 .tile.live b { color: var(--ok); }
 
@@ -129,7 +130,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); }
 .blocked .dot, .kick .dot.blocked { background: var(--bad); }
 .running .dot, .kick .dot.running { background: var(--accent); }
-.waiting .dot, .kick .dot.waiting { background: var(--you); }
+.waiting .dot, .kick .dot.waiting, .built .dot, .kick .dot.built { background: var(--you); }
 .merged .dot, .kick .dot.merged { background: var(--violet); }
 .live .dot, .kick .dot.live { background: var(--ok); }
 .features { list-style: none; margin: 0; padding: 0; }
@@ -138,6 +139,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .due { margin-left: 6px; font-size: 12px; color: var(--ink-3); font-weight: 500; white-space: nowrap; }
 .due.late { color: var(--bad); font-weight: 650; }
 .now { color: var(--ink-2); font-size: 13.5px; margin-top: 2px; }
+.card.built { padding: 10px 16px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
 .chip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--line-2); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--ink-3); }
@@ -172,7 +174,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .job:first-child, .happened:first-child { border-top: none; }
 .job > .dot, .happened > .dot { flex: none; margin-top: 7px; }
 .job.running > .dot { background: var(--accent); }
-.job.waiting > .dot { background: var(--you); }
+.job.waiting > .dot, .job.built > .dot { background: var(--you); }
 .job.failed > .dot { background: var(--bad); }
 .job.done > .dot { background: var(--ok); }
 .job .title { font-weight: 560; }
@@ -301,7 +303,7 @@ th { background: var(--panel-3); color: var(--ink); font-weight: 650; }
 .wk.stalled { border-color: color-mix(in srgb, var(--bad) 55%, var(--line)); }
 .wk.stalled .dot { background: var(--bad); }
 .wk.running .dot { background: var(--accent); }
-.wk.waiting .dot { background: var(--you); }
+.wk.waiting .dot, .wk.built .dot { background: var(--you); }
 .wk.finished .dot { background: var(--ok); }
 .wk .jobs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
 

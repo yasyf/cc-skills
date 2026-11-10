@@ -31,7 +31,10 @@ you built up.
    shape, a lock, queue or scheduler, a public or Sand-facing API shape, or a new background
    process. Stop before building either and return `ASK` with it, even mid-build; never pick
    one and build on it. His ruling, Nov 9 9:38 PM: "it's incorrect that you went ahead and
-   built a jank solution without consulting me on the design".
+   built a jank solution without consulting me on the design". A fork whose card is still open,
+   which `Decisions that bind` names with the option to build, is the exception, by his ruling
+   of Nov 10 1:26 AM: "it can proactively build the recommended but can't put up a PR until I
+   answer design Qs". Build that option, push the branch, open no PR and return `BUILT`.
 3. Write the change. Build and typecheck what you touched before you push; never run tests
    locally, CI grades them. When this Mac's load gate refuses a Rust or Go check in
    Forge-AI/monorepo, run that check on the remote builder instead, from the package's
@@ -75,6 +78,9 @@ jobs' transcripts the brief lists only for what the event needs.
 
 - A failing check: read its log, fix, push. A review: answer or fix every finding; a non-critical
   bot finding you judge wrong gets a one-line reply saying why. Then return as step 6 says.
+- His answers to the design cards a built branch or open PR waited on, quoted in the brief: rebuild
+  wherever his pick differs from the option built, open the PR if none is open, and return as step
+  6 says.
 - His tap to land: land it by the landing reference for its repository, `drive manual landing`.
 - A merge: install or deploy it and prove it live with the brief's `INSTALL:` and `PROVE:` lines.
   Done means the owner can see it working, not that it merged. Remove the worktree once it is
@@ -127,7 +133,7 @@ with these changes.
   itself, in the shape Return gives, which the coordinator checks with `drive job ask`.
 - Report through Orca, never in a final message. `ASK` goes out as
   `orca orchestration ask --question "<your report>"`; then end your turn, and his answer wakes
-  you. `DONE`, `READY` and `WAITING` go out as `orca orchestration send --type worker_done
+  you. `DONE`, `READY`, `BUILT` and `WAITING` go out as `orca orchestration send --type worker_done
   --outcome succeeded --subject "<first line>" --body "<your report>"`, and `BLOCKED` the same way
   with `--outcome failed`: the next PR event starts a fresh lane with a handoff.
 - Leave the Sprite as it is when you finish; the coordinator frees it.
@@ -159,6 +165,9 @@ number or path the message needs.
 - `DONE <proof link or one-line proof>`: live and checked.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
   bottom first, so it gets one card.
+- `BUILT <branch>, waits on <cards>`: the recommended options built and pushed on `<branch>`, no
+  PR open, waiting on his answer to each design card the brief names, by its waits id or Slack
+  link. Its lines name the option built for each card and what his other picks would change.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <path>`: only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. Write the
   block to a file under your scratch directory in this shape, run `drive job ask <your job>

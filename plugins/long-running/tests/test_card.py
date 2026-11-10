@@ -391,6 +391,17 @@ def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive:
     assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
 
 
+def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
+    reason = "it waits on demo:j1-7-a, so it draws no Approve until each is answered or done"
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
+        "cards": [],
+        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
+    }
+
+
 @pytest.mark.parametrize(
     "words",
     [

@@ -5,6 +5,7 @@ const SLACK = /^https:\/\/[\w-]+\.slack\.com\//;
 const GROUPS = {
   blocked: 'Blocked',
   running: 'Running',
+  built: 'Built, waiting on your design answers',
   waiting: 'Waiting',
   merged: 'Merged, not live yet',
   live: 'Live in the last day',
@@ -12,7 +13,7 @@ const GROUPS = {
 };
 const FOLDED = new Set(['waiting', 'not started']);
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
-const JOB_STATES = { running: 'Running', waiting: 'Waiting', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
+const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
 const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
@@ -181,7 +182,7 @@ function questionCard(item) {
     <span class="label">${LABEL.question}</span>
     <div class="body">
       <h3>${inline(card.title || item.title)}</h3>
-      <div class="meta">${esc(waited(item))}</div>
+      <div class="meta">${esc([waited(item), item.holds ? `holds up ${item.holds} finished` : ''].filter(Boolean).join(' · '))}</div>
       ${body ? fold(`q:${item.answer}`, body, 4) : ''}
       ${figures}
       ${links ? `<div class="links">${links}</div>` : ''}
@@ -235,7 +236,7 @@ function queueScreen(filter) {
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === queueFilter);
   const shown = model.queue.filter(keep);
   const count = model.queue.length;
-  const head = count ? `${count} ${count === 1 ? 'thing waits' : 'things wait'} on you, oldest first` : 'Nothing waits on you';
+  const head = count ? `${count} ${count === 1 ? 'thing waits' : 'things wait'} on you` : 'Nothing waits on you';
   const filters = QUEUE_FILTERS.map(([id, label, test]) => {
     const n = model.queue.filter(test).length;
     return `<button data-queue="${id}" class="${id === queueFilter ? 'on' : ''}">${label}<span class="n">${n}</span></button>`;
@@ -468,7 +469,14 @@ function feature(entry) {
     <div class="title"><a href="#/feature/${esc(entry.id)}">${esc(entry.title)}</a> ${due(entry)} ${prBar(entry.prs)}</div>
     ${entry.now ? `<div class="now">${esc(entry.now)}</div>` : ''}
     ${entry.prs.length ? `<div class="chips">${prChips(entry.prs)}</div>` : ''}
+    ${entry.built.map(builtLine).join('')}
   </li>`;
+}
+
+function builtLine(built) {
+  const asks = built.waits.map((wait) => (wait.url ? `<a href="${esc(wait.url)}" target="_blank" rel="noopener">${esc(wait.title)}</a>` : esc(wait.title)));
+  const next = asks.length ? `no PR until you answer ${asks.join(', ')}` : 'its PR opens next';
+  return `<div class="now">Built on <code>${esc(built.branch)}</code>, ${next}</div>`;
 }
 
 function progress() {
@@ -510,7 +518,7 @@ function jobRow(job, withFeature) {
   const quiet = minutesSince(job.updated);
   const stall = isStalled(job) ? `<span class="badge red">quiet ${ago(job.updated)}</span>` : '';
   const owner = withFeature ? features().find((entry) => entry.id === job.feature) : null;
-  const facts = [JOB_STATES[job.state] ?? job.state, job.kind, job.where, `last word ${quiet < 1 ? 'just now' : `${ago(job.updated)} ago`}`, job.prs ? `${job.prs} PRs` : ''];
+  const facts = [JOB_STATES[job.state] ?? job.state, job.kind, job.where, `last word ${quiet < 1 ? 'just now' : `${ago(job.updated)} ago`}`, job.state === 'built' ? `built on ${job.branch}` : '', job.waits ? `waits on ${job.waits} ${job.waits === 1 ? 'card or job' : 'cards or jobs'}` : '', job.prs ? `${job.prs} PRs` : ''];
   return `<li class="job ${esc(job.state)}">
     <span class="dot"></span>
     <div class="body">
@@ -533,6 +541,7 @@ function workScreen() {
   const groups = [
     ['stalled', `Quiet ${STALL_MINUTES} minutes or more`, stalled, true],
     ['running', 'Running', running.filter((job) => !isStalled(job)), true],
+    ['built', 'Built, no PR until you answer', model.work.filter((job) => job.state === 'built'), true],
     ['waiting', 'Waiting', model.work.filter((job) => job.state === 'waiting'), false],
     ['finished', 'Finished in the last day', model.finished, false],
   ].filter(([, , jobs]) => jobs.length);
@@ -639,6 +648,7 @@ function featureScreen(id) {
     <blockquote class="said">${esc(entry.text)}</blockquote>
     <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
     ${prs ? `<h3 class="sec">Pull requests</h3><ul class="prlist card">${prs}</ul>` : ''}
+    ${entry.built.length ? `<h3 class="sec">Built, waiting on your design answers</h3><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
     ${entry.jobs.length ? `<h3 class="sec">Jobs</h3><ul class="jobs card">${entry.jobs.map((job) => jobRow(job, false)).join('')}</ul>` : ''}`;
 }
 

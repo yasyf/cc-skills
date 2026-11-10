@@ -38,9 +38,10 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
 - A trust line waits for him: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](landing.md)), posting as him to anyone else,
   changing production, and stopping or closing sessions he did not name.
-- A design question goes to him before anything is built on it, by [Design first](design.md):
-  a short card with two to four one-line options, recommendation first, and a picture when the
-  shape matters. Nothing is built on the recommendation before his pick.
+- A design question goes to him before any PR carries it, by [Design first](design.md): a short
+  card with two to four one-line options, recommendation first, and a picture when the shape
+  matters. A job may build the recommendation meanwhile on a pushed branch, built in the ledger,
+  but puts up no PR and draws no Approve until he has answered every card it waits on.
 - A question card is the job's `ASK` as `drive job ask` kept it: the question; a summary of one to
   three lines, what was found and what is being decided, the recommendation, and what happens
   meanwhile; and two to four options, one line each, saying what he gets and what it costs. The

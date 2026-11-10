@@ -11,12 +11,13 @@ PAGE_BYTES = 40_000
 GROUP_TITLES = {
     "blocked": "Blocked",
     "running": "Running",
+    "built": "Built, waiting on your design answers",
     "waiting": "Waiting",
     "merged": "Merged, not live yet",
     "live": "Live in the last day",
     "not started": "Not started",
 }
-OPEN_STATES = ("blocked", "running", "waiting", "not started")
+OPEN_STATES = ("blocked", "running", "built", "waiting", "not started")
 FINISHED_STATES = ("merged", "live")
 FINISHED_NAMED = 5
 KIND_WORDS = {"question": "Question", "tap": "Your tap", "late": "Late"}
@@ -52,6 +53,8 @@ def link(title: str, url: str | None) -> str:
 
 def queue_line(number: int, item: dict) -> str:
     parts = [f"**{KIND_WORDS[item['kind']]}:** {link(item['title'], item['url'])}"]
+    if item.get("holds"):
+        parts.append(f"holds up {item['holds']} finished")
     if item["kind"] == "late":
         parts.append(f"promised {when(item['due'])}")
     elif item["since"]:
@@ -81,7 +84,14 @@ def feature_line(entry: dict) -> str:
         parts.append(cut(entry["now"], NOW_CHARS))
     if marks := pr_marks(entry["prs"]):
         parts.append(marks)
+    parts.extend(map(built_line, entry["built"]))
     return "- " + " · ".join(parts)
+
+
+def built_line(built: dict) -> str:
+    if not built["waits"]:
+        return f"built on `{built['branch']}`, its PR opens next"
+    return f"built on `{built['branch']}`, no PR until you answer {', '.join(link(wait['title'], wait['url']) for wait in built['waits'])}"
 
 
 def finished_line(entry: dict) -> str:
