@@ -7,6 +7,7 @@ LINE_WORDS = 60
 SUMMARY_WORDS = 120
 QUESTION_WORDS = 150
 OPTION_WORDS = 25
+REWORDING_WORDS = 10
 SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
@@ -53,17 +54,21 @@ def block_text(node: object) -> str:
     return ""
 
 
-def post_refusal(post: dict) -> str | None:
-    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits."""
+def post_words(post: dict) -> int:
+    return max(words(post.get("text") or ""), words(block_text(post.get("blocks") or [])))
+
+
+def post_refusal(post: dict, edited: int = 0) -> str | None:
+    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
-    text = post.get("text") or ""
-    count = max(words(text), words(block_text(post.get("blocks") or [])))
-    features = len(FEATURE.findall(text))
+    count = post_words(post)
+    features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
-    if count <= limit:
+    if count <= max(limit, edited + REWORDING_WORDS if edited else 0):
         return None
-    return f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). {LINE_REST}"
+    edit = f", or {REWORDING_WORDS} past the {edited} words of the post it edits" if edited else ""
+    return f"refused: this post is {count} words, and {shape} is at most {limit} words{edit} ({READING}). {LINE_REST}"
 
 
 def card_refusal(card: dict, beside: str) -> str | None:

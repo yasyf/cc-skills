@@ -20,6 +20,7 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
+| An edit that rewords a line already posted | that line's own length and 10 words more, or the line's limit when that is longer |
 
 The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
 any handler, with the count, the limit and what would pass, and `drive job ask` refuses a job's
@@ -29,8 +30,14 @@ or his tap on Explain more, which the handler's brief quotes. On Nov 10 between 
 "figure out how it got into a bad state" lost its answer four times to the 60-word cap. The call
 passes as `asked` each message of his the post answers, word for word, one per line or one list
 entry each, with `…` where it skips words. The hook finds each in a message of his in the thread
-the post goes to, read from Slack, or in the handler's brief, and a refusal names any quote it could
-not find. A question card keeps its 150 words whatever it quotes.
+the post goes to, read from Slack, or in the handler's brief, with curly and straight quote marks
+alike, and one found quote is enough: on Nov 10 at 4:37 AM the 236-word answer to "What’s wrong
+with how it is now?" was cut to 59 words, and that question stood in another thread than his
+follow-up the post went to. A refusal says which limit applied and why: no `asked`, so not an
+answer; quotes it could not find, named; or an edit's own length. An edit that rewords a line is
+held to that line's length and 10 words more, since putting the proper terms into three 55 to 70
+word lines on Nov 10 grew them by 2 to 6 words and the cap cut what they said. A question card keeps
+its 150 words whatever it quotes.
 
 ## The short form
 
