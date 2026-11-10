@@ -212,6 +212,7 @@ Done when: <the check that proves it, e.g. installed and the installed version c
 Where: <repo, base branch, existing branch or PR to adopt>
 Decisions that bind: <every ruling of his that touches this, his words verbatim with their time, from answer_search>
 Plan: <the plan section this implements, quoted>
+Incident: <an incident job only: from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>
 Drive: <name>, order <o>, job <j>
 ```
 
