@@ -406,7 +406,7 @@ def review(drive: dict, found: dict) -> list[dict]:
     return entries
 
 
-def ask_entry(order_id: str, order: dict, moment: datetime) -> dict:
+def ask_entry(order_id: str, order: dict, moment: datetime, url: str | None) -> dict:
     return {
         "id": order_id,
         "title": plain(order["text"], TITLE_CHARS),
@@ -418,12 +418,13 @@ def ask_entry(order_id: str, order: dict, moment: datetime) -> dict:
         "late": is_late(order, moment),
         "proof": order.get("proof"),
         "thread": order.get("thread"),
+        "url": url,
         "jobs": len(order["jobs"]),
     }
 
 
-def asks(drive: dict, moment: datetime) -> list[dict]:
-    entries = [ask_entry(order_id, order, moment) for order_id, order in drive["orders"].items()]
+def asks(drive: dict, moment: datetime, team_url: str) -> list[dict]:
+    entries = [ask_entry(order_id, order, moment, thread_url(drive, team_url, order.get("thread"))) for order_id, order in drive["orders"].items()]
     return sorted(entries, key=lambda entry: state.parse_time(entry["created"]), reverse=True)
 
 
@@ -454,6 +455,6 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "finished": finished,
         "history": history(drive, events, moment, found["team_url"]),
         "review": review(drive, found),
-        "asks": asks(drive, moment),
+        "asks": asks(drive, moment, found["team_url"]),
         "channel": drive["slack"]["channel"],
     }

@@ -5,6 +5,7 @@ import re
 import select
 import signal
 import socket
+import ssl
 import subprocess
 import sys
 import threading
@@ -35,6 +36,8 @@ PORT_BASE = 41000
 PORT_SPAN = 1000
 START_SECONDS = 10
 ANSWER_SECONDS = 60
+CERT_SECONDS = 120
+CERT_REFRESH_SECONDS = 24 * 60 * 60
 PR_FIELDS = "title,body,url,state,isDraft,additions,deletions,changedFiles,headRefName,baseRefName,reviewDecision"
 DIFF_LINES = 6000
 THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
@@ -42,12 +45,15 @@ THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
+ELSEWHERE = "that is not a card or ask thread of this drive"
 
 
 class Tailnet(NamedTuple):
     label: str
+    name: str
     ips: list[str]
     login: str
+    https: bool
 
 
 def port_of(name: str) -> int:
@@ -60,7 +66,7 @@ def url_of(port: int) -> str:
 
 
 def tailnet() -> Tailnet | None:
-    """This machine's bare MagicDNS label, its tailnet addresses and the login it is signed in as, or None when tailscale is not running here."""
+    """This machine's MagicDNS label and name, its tailnet addresses, the login it is signed in as and whether the tailnet issues it HTTPS certificates, or None when tailscale is not running here."""
     try:
         done = subprocess.run(
             ["tailscale", "status", "--self", "--peers=false", "--json"], capture_output=True, text=True, timeout=10, check=False
@@ -73,12 +79,14 @@ def tailnet() -> Tailnet | None:
     if status["BackendState"] != "Running":
         return None
     me = status["Self"]
-    return Tailnet(me["DNSName"].split(".")[0], me["TailscaleIPs"], status["User"][str(me["UserID"])]["LoginName"])
+    name = me["DNSName"].rstrip(".")
+    return Tailnet(name.split(".")[0], name, me["TailscaleIPs"], status["User"][str(me["UserID"])]["LoginName"], name in (status.get("CertDomains") or []))
 
 
 def links_of(port: int, net: Tailnet | None) -> list[str]:
-    """The tailnet link on the bare label first, since ts.net is HSTS-preloaded and an http link on the full name cannot load, then loopback."""
-    return ([f"http://{net.label}:{port}/"] if net else []) + [url_of(port)]
+    """The tailnet link first, then loopback: https on the full name when the tailnet issues certificates, so browsers there allow notifications, else http on the bare label, since ts.net is HSTS-preloaded and an http link on the full name cannot load."""
+    tailnet_link = (f"https://{net.name}:{port}/" if net.https else f"http://{net.label}:{port}/") if net else None
+    return [link for link in (tailnet_link, url_of(port)) if link]
 
 
 def link(name: str) -> str:
@@ -109,6 +117,11 @@ def answer_card(card: str, label: str, via: str) -> dict:
     return cc_slack("card-answer", "--card", card, "--label", label, "--via", via, "--surface", "dashboard")
 
 
+def relay(text: str, under: str) -> dict:
+    """Post his words in his DM, marked as typed on the dashboard, under the card or ask thread named, or as a new message; the drive hears them as his DM."""
+    return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []))
+
+
 def pr_read(key: str) -> dict:
     repo, number = key.split("#")
     read = json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
@@ -131,8 +144,46 @@ def changes(name: str) -> Iterator[None]:
         queue.control(None, 1)
 
 
-class Server6(ThreadingHTTPServer):
-    address_family = socket.AF_INET6
+class Certificate:
+    """This machine's Tailscale certificate, fetched again once a day so `tailscale cert` renews it before it expires."""
+
+    def __init__(self, name: str) -> None:
+        self.name = name
+        self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        self.lock = threading.Lock()
+        self.fetched = 0.0
+        self.fetch()
+
+    def fetch(self) -> None:
+        folder = state.root() / "tls"
+        folder.mkdir(parents=True, exist_ok=True)
+        cert, key = folder / f"{self.name}.crt", folder / f"{self.name}.key"
+        subprocess.run(["tailscale", "cert", "--cert-file", str(cert), "--key-file", str(key), self.name], capture_output=True, timeout=CERT_SECONDS, check=True)
+        self.context.load_cert_chain(cert, key)
+        self.fetched = time.monotonic()
+
+    def wrap(self, request: socket.socket) -> ssl.SSLSocket:
+        with self.lock:
+            if time.monotonic() - self.fetched > CERT_REFRESH_SECONDS:
+                try:
+                    self.fetch()
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ssl.SSLError) as error:
+                    print(f"renewing the certificate for {self.name} failed, so the current one stays: {error}", file=sys.stderr, flush=True)
+                    self.fetched = time.monotonic()
+        return self.context.wrap_socket(request, server_side=True, do_handshake_on_connect=False)
+
+
+class Server(ThreadingHTTPServer):
+    """One address's server, speaking TLS with the certificate when given one; the handshake runs in the request's own thread."""
+
+    def __init__(self, address: str, port: int, page: type[BaseHTTPRequestHandler], certificate: Certificate | None) -> None:
+        self.address_family = socket.AF_INET6 if ":" in address else socket.AF_INET
+        self.certificate = certificate
+        super().__init__((address, port), page)
+
+    def get_request(self) -> tuple[socket.socket, object]:
+        request, client = super().get_request()
+        return (self.certificate.wrap(request) if self.certificate else request), client
 
 
 class Board:
@@ -147,6 +198,7 @@ class Board:
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
+        self.unders: set[str] = set()
         self.prs: set[str] = set()
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
@@ -173,6 +225,7 @@ class Board:
         with self.changed:
             self.body = body
             self.answers = answers
+            self.unders = set(answers) | {ask["url"] for ask in model["asks"] if ask["url"]}
             self.prs = prs
             self.pictures = pictures
             self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]}
@@ -195,7 +248,7 @@ class Board:
 
 
 def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPRequestHandler]:
-    names = [LOOPBACK, "localhost"] + ([net.label] + [f"[{ip}]" if ":" in ip else ip for ip in net.ips] if net else [])
+    names = [LOOPBACK, "localhost"] + ([net.label, *([net.name] if net.https else []), *(f"[{ip}]" if ":" in ip else ip for ip in net.ips)] if net else [])
     hosts = {f"{host}:{port}" for host in names}
 
     class Page(BaseHTTPRequestHandler):
@@ -220,14 +273,17 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 
         def do_POST(self) -> None:
             host = self.headers.get("Host")
-            if host not in hosts or self.headers.get("Origin") != f"http://{host}":
+            page = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{host}"
+            if host not in hosts or self.headers.get("Origin") != page:
                 self.send_error(403)
-            elif self.path != "/api/answer":
+            elif self.path not in ("/api/answer", "/api/say"):
                 self.send_error(404)
             elif not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
+            elif self.path == "/api/say":
+                self.say(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             else:
-                self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"http://{host}/")
+                self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"{page}/")
 
         def thread(self, ts: str) -> None:
             if not owner_calling(self.client_address[0], net):
@@ -271,6 +327,19 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             view.refresh_cards(board.name)
             self.answered(200, said)
 
+        def say(self, typed: dict) -> None:
+            text, under = typed["text"].strip(), typed["under"]
+            if not text:
+                self.answered(400, {"error": "there are no words to send"})
+                return
+            if under and under not in board.unders:
+                self.answered(409, {"error": ELSEWHERE})
+                return
+            try:
+                self.answered(200, relay(text, under))
+            except (DriveError, subprocess.TimeoutExpired) as error:
+                self.answered(502, {"error": str(error)})
+
         def answered(self, status: int, said: dict) -> None:
             body = json.dumps(said).encode()
             self.send_response(status)
@@ -309,12 +378,13 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
 
 
 def serve(name: str, port: int) -> None:
-    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, until following the drive's files fails, so a broken build ends the server rather than freezing its page."""
+    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, the tailnet ones over HTTPS when the tailnet issues certificates, until following the drive's files fails, so a broken build ends the server rather than freezing its page."""
     net = tailnet()
     board = Board(name, links_of(port, net))
     page = handler(port, net, board)
+    certificate = Certificate(net.name) if net and net.https else None
     for address in [LOOPBACK] + (net.ips if net else []):
-        server = (Server6 if ":" in address else ThreadingHTTPServer)((address, port), page)
+        server = Server(address, port, page, certificate if address != LOOPBACK else None)
         threading.Thread(target=server.serve_forever, daemon=True).start()
     board.follow()
 

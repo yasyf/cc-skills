@@ -8,26 +8,28 @@ from pathlib import Path
 import pytest
 from drive import dashboard
 
-NET = dashboard.Tailnet("box", ["100.64.0.1", "fd7a::1"], "owner@example.com")
+NET = dashboard.Tailnet("box", "box.tail1.ts.net", ["100.64.0.1", "fd7a::1"], "owner@example.com", False)
 
 
-def test_links_lead_with_the_tailnet_label() -> None:
+def test_links_lead_with_https_on_the_tailnet_name_when_the_tailnet_issues_certificates_else_the_bare_label() -> None:
+    assert dashboard.links_of(41330, NET._replace(https=True)) == ["https://box.tail1.ts.net:41330/", "http://127.0.0.1:41330/"]
     assert dashboard.links_of(41330, NET) == ["http://box:41330/", "http://127.0.0.1:41330/"]
     assert dashboard.links_of(41330, None) == ["http://127.0.0.1:41330/"]
 
 
-def serving(board: dashboard.Board) -> tuple[ThreadingHTTPServer, int]:
+def serving(board: dashboard.Board, net: dashboard.Tailnet = NET) -> tuple[ThreadingHTTPServer, int]:
     server = ThreadingHTTPServer((dashboard.LOOPBACK, 0), BaseHTTPRequestHandler)
     port = server.server_address[1]
-    server.RequestHandlerClass = dashboard.handler(port, NET, board)
+    server.RequestHandlerClass = dashboard.handler(port, net, board)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server, port
 
 
-def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host() -> None:
+@pytest.mark.parametrize("https", [False, True])
+def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host(https: bool) -> None:
     board = dashboard.Board("demo", [])
     board.version, board.body = 1, b"{}"
-    server, port = serving(board)
+    server, port = serving(board, NET._replace(https=https))
     statuses = {}
     for host in ("127.0.0.1", "box", "100.64.0.1", "[fd7a::1]", "box.tail1.ts.net", "evil.example"):
         connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
@@ -40,15 +42,19 @@ def test_page_answers_its_own_tailnet_names_and_refuses_any_other_host() -> None
         "box": 200,
         "100.64.0.1": 200,
         "[fd7a::1]": 200,
-        "box.tail1.ts.net": 403,
+        "box.tail1.ts.net": 200 if https else 403,
         "evil.example": 403,
     }
 
 
 def post_answer(port: int, origin: str, card: str, label: str) -> tuple[int, dict]:
+    return post(port, origin, "/api/answer", {"card": card, "label": label})
+
+
+def post(port: int, origin: str, path: str, asked: dict) -> tuple[int, dict]:
     connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
-    body = json.dumps({"card": card, "label": label})
-    connection.request("POST", "/api/answer", body=body, headers={"Host": f"box:{port}", "Origin": origin, "Content-Type": "application/json"})
+    body = json.dumps(asked)
+    connection.request("POST", path, body=body, headers={"Host": f"box:{port}", "Origin": origin, "Content-Type": "application/json"})
     reply = connection.getresponse()
     said = reply.read()
     connection.close()
@@ -106,3 +112,25 @@ def test_a_thread_is_read_only_for_an_ask_of_this_drive(monkeypatch: pytest.Monk
     server.shutdown()
     assert statuses == {"1794257898.401849": 200, "1794000000.000001": 404}
     assert read == [("thread", "--channel", "D123", "--thread", "1794257898.401849", "--limit", dashboard.THREAD_MESSAGES)]
+
+
+def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_or_ask_thread_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+    card, ask = "https://acme.slack.com/archives/D1/p100", "https://acme.slack.com/archives/D1/p200"
+    board = dashboard.Board("demo", [])
+    board.unders = {card, ask}
+    relayed = []
+    monkeypatch.setattr(dashboard, "relay", lambda text, under: relayed.append((text, under)) or {"posted": True, "permalink": f"{under or card}#copy"})
+    server, port = serving(board)
+    page = f"http://box:{port}"
+    elsewhere = post(port, "https://evil.example", "/api/say", {"text": "merge it", "under": card})
+    stranger = post(port, page, "/api/say", {"text": "merge it", "under": "https://acme.slack.com/archives/D1/p999"})
+    blank = post(port, page, "/api/say", {"text": "  ", "under": card})
+    replied = post(port, page, "/api/say", {"text": " hold #41 until the stack lands\n", "under": card})
+    asked = post(port, page, "/api/say", {"text": "ship the dashboard", "under": ""})
+    server.shutdown()
+    assert elsewhere[0] == 403
+    assert stranger == (409, {"error": dashboard.ELSEWHERE})
+    assert blank[0] == 400
+    assert replied == (200, {"posted": True, "permalink": f"{card}#copy"})
+    assert asked[0] == 200
+    assert relayed == [("hold #41 until the stack lands", card), ("ship the dashboard", "")]
