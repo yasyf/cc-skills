@@ -39,6 +39,15 @@ COORDINATOR_RULES = (
     ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
+        "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
+        " (drive pr set --tap --serves <o>, his words quoted in its ready line), or neither, which is not built,"
+        " polished or carded: another lane's PR goes back to it, an unordered finding becomes a question card."
+    ),
+    (
+        "A ruling travels by its words: briefs, handoffs and SendMessage carry what he wrote and what it implies, never"
+        " an answer id alone; an id or title you see after a compaction is read whole with cc-notes answer show first."
+    ),
+    (
         "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"
         " --part, and an ORPHAN line gets a job, a card or a close in the same turn."
     ),
@@ -97,7 +106,8 @@ def order_line(order_id: str, order: dict, limit: int = 120) -> str:
 def pr_line(key: str, pr: dict) -> str:
     tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if pr["wants_tap"] else "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
-    return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}"
+    port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
+    return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}"
 
 
 def job_line(job_id: str, job: dict) -> str:

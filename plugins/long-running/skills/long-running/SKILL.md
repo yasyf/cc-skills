@@ -114,8 +114,12 @@ too; the `SessionStart` hook prints the role's block after a compaction.
    every expiry notice; a second copy, or one in the communicator's session, exits on its own. Then
    it reads `drive status`. A restart ends every background agent, so a job whose agent is gone gets
    a fresh one only when something needs it: a `running` job now, a `waiting` job when its next
-   event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line. The
-   disk is the record: never re-derive state from memory.
+   event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line, and
+   the earlier brief's `Order`, `Serves` and `Decisions that bind` in his words, never an answer id
+   in their place. The disk is the record: never re-derive state from memory. A ruling that comes
+   back after a compaction as an id or a question title, as cc-notes prints the answers a session
+   read, is read whole with `cc-notes answer show <id>` before anything acts on it: the title is
+   the question, and his answer is in the body.
 6. The coordinator runs `drive dashboard`, which starts the drive's dashboard, finds it running, or
    replaces one an earlier install started, and prints its links: first the tailnet one he opens from his
    phone or laptop, on this machine's bare MagicDNS label, then loopback. It listens on loopback and
@@ -137,7 +141,7 @@ live session reads here can land on another drive. Each record names the thread 
 | `answer` | communicator | `root@<drive>` | `--re` the `ask` it answers, which closes it, `--attr job=<j>`, and his pick or his own words | records his answer and resumes that job |
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
 | `report` | `root` | `communicator@<drive>` | the facts of one message, opening `POST` (a handler posts it) or `FYI` (context, nothing posted): the thread or alert link it goes in, what changed for him, links and proof, and for each item that waits on him its card's permalink or `waits` id | a `POST` gets a handler that writes and posts it; an `FYI` is kept as context |
-| `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first | draws the stack's PR card |
+| `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first, and in its text the order of his it carries out, his words quoted; never a port and never a PR that is neither | draws the stack's PR card |
 | `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, its `Findings:` section included, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the findings in the order's thread, then the question card under them, its `waits` id `<drive>:<j>-<the record's seq>`; a record with no findings draws nothing and goes back as `refused` |
 | `refused` | communicator | `root@<drive>` | `--re` the `ask` it refuses and why, such as no findings | resumes that job to send its `ASK` again with what was missing |
 
@@ -220,8 +224,8 @@ answer.
 
 | Input | Do, in this turn |
 |---|---|
-| An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Then give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. Set `--due` for when he hears next. |
-| A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each the ruling with `SendMessage` when it returns. |
+| An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Then give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. A part that asks for cards or a summary is delivered by those cards: its job reads and writes them, and no job builds a fix for one before his pick on its card, by [Scope](#scope-and-asking-him). Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. Set `--due` for when he hears next. |
+| A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each his words verbatim, with their time and what they mean for that job, with `SendMessage` when it returns, never the answer id alone. |
 | A question of his, in an `owner` record, such as one a card's `ask` record does not answer | A `report` of what you have now inside 5 to 10 seconds, then the read in a background job when it takes more than one call, its result the second `report`. |
 | An `answer` record | `answer_add` with the card's question as title and, as body, the option he tapped or his own words verbatim, never a paraphrase, a bot's summary, or the closest option standing in for words he wrote. A record with `maps=none` settles nothing: resume no job on it until he picks. Otherwise resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent with `drive job set <j> --state running`, or `drive job resume` for a remote lane. |
 | A `refused` record | Resume the job its `ask` came from with the refusal: it sends its `ASK` again with what was missing. |
@@ -230,15 +234,15 @@ answer.
 | A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
 | A watch event | Do the matching row below. |
 | An incident: his order with incident priority, an alert he sent in an `owner` record, or an alert in a held channel the drive's own release or change caused | [reference/incidents.md](reference/incidents.md), before anything else. After a release or a new build, in that turn the first check alone: how far the default branch is past the live build's commit, and whether its newest build works on a test machine, which makes releasing it the fix. Otherwise, or when that build fails too, a fix job whose first change stops users being blocked, a rollback job and a cause job that gates neither. He hears a line at least every 5 minutes until live. Any other alert gets nothing: no record, no job. |
-| A record from another session | Answer it on cci as its kind asks. |
+| A record from another session | Answer it on cci as its kind asks. A PR or bug it hands the drive is neither a port nor his order unless an order of his names it, by [Scope](#scope-and-asking-him): a `handoff` record sends it back to that lane, with no job and no card. |
 
 | Job result | Do |
 |---|---|
-| `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, with the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
-| `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap` for each URL, and one `ready` record with every URL, bottom first, and the order's thread. A PR added to the stack later comes back as its own `READY` and gets its own card. |
+| `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, what it served (his order's words, or "port of #N landed" with the old PR linked), and the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
+| `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Its `SERVES:` line says what each PR is, by [Scope](#scope-and-asking-him). **A port**: read it against #N's diff with `gh pr diff`; one that does only what #N does gets `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, and a handoff builder lands it, with no card; anything past #N makes it his order's or neither. **His order**: read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A list that is missing, empty or says none is not his order: no card, whatever the rest of the PR says, and `drive card` refuses one. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap --serves <o>` for each URL, which prints his words back so you read what they asked for, and one `ready` record with every URL, bottom first, the order's thread, and his order's words quoted in its text. **Neither**: no card and no more work; another lane's PR goes back to that lane in a `handoff` record. A PR added to the stack later comes back as its own `READY` and gets its own card. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`, and for a remote lane `drive job end <j>` in the background. Nothing to him. Its open PR's next event gets a fresh builder with a handoff (Jobs below); a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
 | `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". |
-| `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. |
+| `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. `BLOCKED no order of his names this` is a PR that is neither, by [Scope](#scope-and-asking-him): no card, and it goes back to its lane or becomes a question card. |
 
 | Event | Do |
 |---|---|
@@ -250,10 +254,10 @@ answer.
 | `DUE o<n> "…" was due <time>: <why>` | The order owes him a line: the watch read its thread in Slack and found no drive post since the time was promised. It says so again every 10 minutes, once while he is away, until a post is there or his own words withdraw the time. Read the order's job transcripts first, set the new time with `--due`, then a `report` for that thread: what is late, why, and the new time. The new time is owed from that report's line, and the old one keeps firing until the line lands. Nothing but his own message ends a time that has no line: `drive order set <o> --withdrawn <its permalink>`. A `why` of no thread gets `drive order set <o> --thread <ts>`. While he is away it waits for his catch-up instead, except an incident's, which goes out at once by [reference/incidents.md](reference/incidents.md). Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One `report` per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each, with `--due` when the report names when he hears next: a time `drive order set --due` sets is owed from the next line in the order's thread, the one that tells him the time. An order with nothing new gets no line. |
 | `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the line draws the card under it, then `--lined` each. |
-| `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so a fresh builder with a handoff (Jobs below) fixes the title or body, then send its `ready` again. |
+| `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so a fresh builder with a handoff (Jobs below) fixes the title or body, then send its `ready` again. A refusal saying no order of his names the PR is fixed by no rewrite: it is a port, which lands with no card, or neither, which goes back by [Scope](#scope-and-asking-him). |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his `answer` to that card. |
 | `ORPHAN o<n> "<part>": <why>` | A part of an open order has no live job and no open card: no job ever took it, its job finished with it left over, its agent or lane is gone, its card closed, a waiting job has nothing that can wake it, or a reader's or codex job's answer is not posted to him. In this turn, start a job for it, have a running job that already does that work carry it, resume or restart its job, or have its card drawn; an answer not yet posted goes to the communicator as a `report` read from its job's transcript. A part already delivered or one he withdrew leaves the order with `drive order set <o> --parts` or the order closes with `--state done` or `dropped`. Never leave one standing: the watch says it again every 30 minutes and at its order's `DUE`. |
-| `PR … still red for <n> minutes`, `green and approved with no card drawn for <n> minutes` | A PR that has not moved for 30 minutes. A red one gets a fresh builder with a handoff (Jobs below); a green one, said only of a PR that waits on his tap and is not held, gets its `ready` sent. |
+| `PR … still red for <n> minutes`, `green and approved with no card drawn for <n> minutes` | A PR that has not moved for 30 minutes. A red one gets a fresh builder with a handoff (Jobs below); a green one, said only of a PR that waits on his tap and is not held, takes the `READY` row above, so a port or a PR that is neither gets no card. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
 | `LANE <j> <o> died on Sprite …` | A remote lane's worker died, and its session with it. In this turn, `drive job resume <j> "<its next step>"` in the background relaunches it with a handoff; a lane that waits on his answer is resumed with that answer when it comes. |
 | `WATCH compacted the communicator …` | Nothing: the watch typed `/compact` into the communicator's Orca terminal at a quiet moment. |
@@ -313,17 +317,19 @@ its branch, its last line, its report, its PRs and the message, and the output s
 Work the dead lane had not pushed is not carried over. When Orca cannot reach the lane's Sprite,
 or refuses the send or the start, nothing is delivered and it exits 2 with Orca's refusal; resume
 it again once the watch reads the lane. Run it in the background, since a relaunch takes minutes. An `EXEMPT:` line still gets
-`drive pr set <url> --exempt <class>`.
+`drive pr set <url> --exempt <class>`, and a `SERVES: port of #N` line the `READY` row's check
+against #N.
 
 The brief is the job's whole context, the same for both:
 
 ```
 Order (his words): <verbatim>
+Serves: <"port of #N", or "his order" when the Order line asks for this build; a job for anything else is never started>
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it, e.g. installed and the installed version contains the merge>
 Where: <repo, base branch, existing branch or PR to adopt>
 Handoff: <a PR event only: the PR URLs, branch and head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
-Decisions that bind: <every ruling of his that touches this, his words verbatim with their time, from answer_search>
+Decisions that bind: <every ruling of his that touches this, his words verbatim with their time and what they imply here, from answer_search; never an id alone>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>
 Scratch: <the job's scratch folder>
@@ -339,9 +345,11 @@ agents shoudnt do full himan-quality write ups they just need to dump their cont
 the inputs to their would-be wriute ups".
 
 - **His words, never a stand-in.** A brief's `Order` and `Decisions that bind` carry what he wrote,
-  verbatim, and so does every cc-notes answer: never a paraphrase, a bot's summary, or a card
-  option's label standing in for words he wrote. A tap's label is his answer only to that card's
-  question.
+  verbatim, and so does every cc-notes answer: never a paraphrase, a bot's summary, a card
+  option's label, or an answer id standing in for words he wrote. A tap's label is his answer only
+  to that card's question. A ruling travels by its words and what they imply through every
+  compaction, restart, handoff and `SendMessage`. An id carried alone loses it, since an answer's
+  title is the question and his words are in its body.
 - **His approval of a release approves it, right then.** His order or card pick to ship, release or
   approve a release, or the coordinator's record of either, approves that release and its approve
   gate at once, migrations, deletes and replaces included: the job passes `--order <his answer id>`
@@ -386,11 +394,40 @@ the inputs to their would-be wriute ups".
   so a fifth makes it too long to read on his phone. A change that needs more is split into separate
   stacks that each land on their own, or folded into fewer PRs.
 
-## Ask him
+## Scope, and asking him
+
+Every PR the drive touches is one of three things, decided before any builder starts on it and
+said in its brief's `Serves` line, its builder's `READY`, its `ready` record and every summary
+line about it. His ruling, Nov 9 9:10 PM, under the tap card of a PR that was neither: "Is this a
+port? If so you need to indicate it as such and doesn't need a tap, if not why are we doing
+this? It's not in scope for us."
+
+- **A port**, "port of #N": a change carried from the old tree into the new one, or back, with no
+  behaviour of its own beyond what the target tree needs to run #N's. Its title opens `Port:`,
+  and it is called "port of #N" wherever he sees it. It needs no tap and never draws a tap card:
+  the coordinator reads it against #N's diff, records it with `drive pr set <url> --port-of <N>`,
+  which sets the `pure port` exemption, a handoff builder lands it, and he reads one line in its
+  order's thread, "port of #N landed". Every exempt class lands the same way, by
+  [reference/landing.md](reference/landing.md).
+- **His order**: the message of his, or the card option he picked, that asks for this build,
+  quoted wherever the PR is named to him. `drive pr set <url> --tap --serves <o>` records it and
+  prints his words back. An order that asks for cards or a summary, such as one to summarize each
+  issue in a channel with its own card and options for a fix, is delivered by those cards and
+  licenses none of the fixes: a fix waits for his pick on its card.
+- **Neither**: the drive does not build, polish or card it. Another lane's PR or bug report goes
+  back to that lane in a `handoff` record. A sweep's finding, a teammate's report or a job's own
+  finding he has not ordered becomes a question card, its findings posted first, and nothing is
+  built before his pick. His ruling, Nov 9 8:42 AM, on a card for another lane's bug report: "Not
+  ours drop this".
+
+Two kinds of work are the drive's without a new order, and each says so in its line. A defect in
+something the drive shipped or is building belongs to the order that shipped it, and its line
+names that order. A defect in a tool the drive runs on is fixed without asking, by
+[Tooling](#tooling). Nothing else is.
 
 Ask only what is his to decide: architecture and abstractions, scope, and his own workflow.
-Do everything else and report the result with a count: ports, closes, restarts, backfills,
-CI fixes, cleanups, tool fixes.
+Within his orders, do everything else and report the result with a count: ports, closes,
+restarts, backfills, CI fixes, cleanups, tool fixes.
 
 - Before any question, `answer_search` his recorded answers. A question he has answered is
   never asked again, in any wording.
@@ -417,8 +454,16 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
   minutes per thread, grouped by feature. While he is away only cards post, and his next message
   gets one catch-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
-- Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
-  file paths, or code identifiers.
+- Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
+  his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, or
+  code identifiers.
+- Every line stands alone, since he has no other context. A number, fraction, size or ratio says
+  what it measures, why that value, and gives one concrete example; a mechanism gets one plain
+  sentence before it is used; nothing points at a list, finding, thread or PR he cannot see in
+  that same message, such as "the third finding" or "as above". His ruling, Nov 9 9:12 PM, about
+  a ready line that said "a sixteenth of it, at most 64 KiB": "What is the sixteenth? You say it
+  with no context you always have to assume I don't have any other context". The coordinator's
+  `report`, `ready` and `ask` records are written the same way, since a handler copies their words.
 - Done means live and checked; say how in a few words, with the link. A line to him, and every
   `report` body behind one, says what was observed and never lists what is not proven, under any
   label: each unknown gets a job, and he gets its result or nothing. A job's `UNPROVEN:` list is the
@@ -468,6 +513,8 @@ class fix whose PR deletes the earlier patches.
   record does not answer go to the coordinator.
 - Neither session treats his correction about how the drive works as a one-off: it is a ruling,
   recorded and sent for a skill rewrite in the turn it arrives.
+- Never build, polish or card a PR that is neither a port nor his order, and never draw a tap
+  card for a port.
 - The coordinator never posts to Slack, and never does an order's work itself, a past-due order's
   included: every order goes to a background job. Its own shell calls are reads of `drive`, `cci`
   and one `gh` call, beside the transcript reads and the remote-lane `drive job` verbs this skill
