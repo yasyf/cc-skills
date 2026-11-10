@@ -577,7 +577,9 @@ def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.Monk
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
 
 
-def test_a_green_approved_pr_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -586,9 +588,27 @@ def test_a_green_approved_pr_with_no_card_for_thirty_minutes_is_said(demo: str, 
     ]
 
 
+@pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
+def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_but_its_changes_are(demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str) -> None:
+    reads = {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    pr = f'PR {KEY} "Fix: the watch":'
+    assert watch.run_pass(watching, T0) == [f"{pr} checks passed [o1 j1]", f"{pr} approved [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
+    reads[KEY] = read(checks="FAILURE", reviewDecision="APPROVED")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=301)) == [f"{pr} checks failed [o1 j1]"]
+    reads[KEY] = read(checks="SUCCESS", reviewDecision="APPROVED")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=302)) == [f"{pr} checks passed [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
+    reads[KEY] = read(state=ended, checks="SUCCESS", reviewDecision="APPROVED")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=401)) == [f"{pr} {said} [o1 j1]"]
+
+
 def hold(name: str) -> None:
     with state.edit(name) as data:
-        data["prs"][KEY]["tap"] = {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}
+        data["prs"][KEY] |= {"wants_tap": True, "tap": {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
 
 
 def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
