@@ -1,3 +1,4 @@
+import itertools
 import json
 from collections.abc import Callable
 from datetime import timedelta
@@ -10,6 +11,7 @@ Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
 RUN = "run_drive0001"
 DISPATCH = "ctx_lane0001"
+SEQUENCE = itertools.count(1)
 
 
 def message(kind: str, text: str, **overrides: str | None) -> dict:
@@ -20,6 +22,8 @@ def message(kind: str, text: str, **overrides: str | None) -> dict:
         "subject": text.splitlines()[0],
         "body": text,
         "type": kind,
+        "sequence": next(SEQUENCE),
+        "read": 0,
     }
     return {**base, **overrides}
 
@@ -312,3 +316,16 @@ def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: 
     assert list(data["prs"]) == ["Forge-AI/monorepo#8"]
     assert (data["prs"]["Forge-AI/monorepo#8"]["job"], data["prs"]["Forge-AI/monorepo#8"]["wants_tap"]) == ("j1", True)
     assert data["jobs"]["j1"]["prs"] == ["https://github.com/Forge-AI/monorepo/pull/8"]
+
+
+def test_the_inbox_turns_each_message_into_one_event_and_skips_what_check_already_took(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    taken = message("question", "READY taken by check", id="msg_old", read=1)
+    first = message("status", "building", id="msg_1")
+    second = message("question", "READY https://github.com/Forge-AI/monorepo/pull/7", id="msg_2")
+    deliver(monkeypatch, [taken, first], [taken, first, second], [taken, first, second])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    passes = [watch.run_pass(watching, T0 + timedelta(minutes=m)) for m in (0, 1, 2)]
+    assert passes == [[], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
+    assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}

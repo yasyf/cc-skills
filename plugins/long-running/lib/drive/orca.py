@@ -17,6 +17,7 @@ PLUGIN = Path(__file__).resolve().parents[2]
 BUILDER = PLUGIN / "agents" / "builder.md"
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LAUNCH_SECONDS = 1800
+MAIL_LIMIT = "100"
 CALL_SECONDS = 60
 
 
@@ -163,8 +164,9 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
 
 
 def mail(run: str) -> list[dict]:
-    """Take the Run's unread mail: the coordinator's watch is its one consumer."""
-    return call("check", "--run", run)["messages"]
+    """The Run's newest mail, oldest first, read without binding or consuming: this terminal binds one Run at a time, and the watch reads every lane's."""
+    messages = call("inbox", "--terminal", f"run:{run}", "--limit", MAIL_LIMIT)["messages"]
+    return sorted((message for message in messages if message["to_handle"] == f"run:{run}"), key=lambda message: message["sequence"])
 
 
 def worker(dispatch: str) -> dict:
