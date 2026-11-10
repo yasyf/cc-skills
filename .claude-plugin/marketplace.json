@@ -154,10 +154,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/long-running",
-        "ref": "long-running--v1.0.68"
+        "ref": "long-running--v1.0.69"
       },
       "description": "Run a long drive as two Claude Code sessions: a communicator that acks every message of the owner's within seconds and writes everything he sees, and a coordinator that turns each order into a background agent shipping it end to end while one watcher turns CI, merges, taps and promised times into events.",
-      "version": "1.0.68"
+      "version": "1.0.69"
     },
     {
       "name": "live-dashboard",
