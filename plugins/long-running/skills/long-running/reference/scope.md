@@ -1,6 +1,6 @@
 # Scope, and asking him
 
-Every PR the drive touches is one of three things, decided before any builder starts on it and
+Every PR the drive touches is one of four things, decided before any builder starts on it and
 said in its brief's `Serves` line, its builder's `READY`, its `ready` record and every summary
 line about it. His ruling, Nov 9 9:10 PM, under the tap card of a PR that was neither: "Is this a
 port? If so you need to indicate it as such and doesn't need a tap, if not why are we doing
@@ -17,17 +17,30 @@ this? It's not in scope for us."
   quoted wherever the PR is named to him. `drive pr set <url> --tap --serves <o>` records it and
   prints his words back. An order that asks for cards or a summary, such as one to summarize each
   issue in a channel with its own card and options for a fix, is delivered by those cards and
-  licenses none of the fixes: a fix waits for his pick on its card.
+  licenses none of the fixes: a fix waits for his pick on its card. A PR is registered under an
+  order only when that order's words ask for it, never because the jobs it unblocks serve it.
+- **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards or
+  CI plumbing, by [Tooling](../SKILL.md#tooling). It is an order of its own, `drive order add
+  "Drive tooling: <what it fixes>" --from cci:<seq>` with no `--thread`, never a job of his feature
+  order, never `--serves` one, and its PR's His words list says none. A `yasyf/*` PR lands with no
+  tap. A `Forge-AI/*` one lands under an exempt class, or goes to him as a question card of its own
+  at his DM root, its title opening `Drive tooling:` and saying what it unblocks. His pick to land
+  it is recorded with `drive pr set <url> --tapped Approve --tap-source <card permalink>`. A card
+  refusal saying no order of his names it is answered that way, never by writing his words for
+  another change into its body. His ruling, Nov 10 3:21 AM, on a Sprite launcher fix carded in his
+  journal thread as journal work: "What the fuck? Why are you talking about sprites and dev
+  tooling for run journals? This makes no sense at all?"
 - **Neither**: the drive does not build, polish or card it. Another lane's PR or bug report goes
   back to that lane in a `handoff` record. A sweep's finding, a teammate's report or a job's own
   finding he has not ordered becomes a question card whose summary says what was found, and nothing
   is built before his pick. His ruling, Nov 9 8:42 AM, on a card for another lane's bug report: "Not
   ours drop this".
 
-Two kinds of work are the drive's without a new order, and each says so in its line. A defect in
-something the drive shipped or is building belongs to the order that shipped it, and its line
-names that order. A defect in a tool the drive runs on is fixed without asking, by
-[Tooling](../SKILL.md#tooling). Nothing else is.
+Two kinds of work are the drive's without a new order of his, and each says so in its line. A
+defect in something the drive shipped or is building belongs to the order that shipped it, and
+its line names that order. A defect in a tool the drive runs on is drive tooling, fixed without
+asking under its own order, and its lines go at his DM root, never in the thread of a feature it
+unblocks. Nothing else is.
 
 Ask only what is his to decide: architecture and abstractions, scope, and his own workflow.
 Within his orders, do everything else and report the result with a count: ports, closes,

@@ -57,9 +57,14 @@ handler's brief; a quote elides with `…` where it skips some.
   the card's Explain more or in an attached write-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
-  his words, or "port of #N". No ids, hashes, record numbers, lane or job names, file paths, table
-  or function names, code identifiers, PRs past the one being decided, or mechanism he did not ask
-  about.
+  his words, "port of #N", or "Drive tooling:" and what it unblocks. No ids, hashes, record
+  numbers, lane or job names, file paths, table or function names, code identifiers, PRs past the
+  one being decided, or mechanism he did not ask about.
+- Every card and line in a feature's thread is about that feature. Drive tooling, such as a fix to
+  the launcher its builders start from, goes at his DM root under its own words, never in the
+  thread of a feature it unblocks and never under his words for that feature. His ruling, Nov 10
+  3:21 AM, on a launcher fix carded in his journal thread: "Why are you talking about sprites and
+  dev tooling for run journals? This makes no sense at all?"
 - Every line stands alone, since he has no other context. A number, fraction, size or ratio says
   what it measures, why that value, and gives one concrete example; a mechanism gets one plain
   sentence before it is used; nothing points at a list, finding, thread or PR he cannot see in
@@ -129,7 +134,8 @@ reach him.
 
 The card goes at his DM root with `slack_dm_status(card=…)` and no thread, then `cc-slack
 card-copy --url <its permalink> --thread <his thread>`, so the card and its buttons sit in his
-thread. The handler then closes the `ask` record with a `posted` record carrying the card's
+thread; a drive tooling card, whose order has no thread, stays at his DM root with no copy. The
+handler then closes the `ask` record with a `posted` record carrying the card's
 permalink and `waits` id. His tap still comes back as an `answer` record, so card posted and he
 answered stay two states. To change the words of a card he has not answered, draw it again under
 its `waits` id: that one call edits the card where it sits, redraws every copy of it already in a
@@ -149,9 +155,11 @@ does, such as "Own process plus a memory cap per script". cc-slack refuses a car
 and quotes the words, and the coordinator writes an `ask` record's options the same way.
 
 **A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record,
-and only for a PR that carries out an order of his. The line above it quotes that order. A port
-never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for every
-class that lands with no tap.
+and only for a PR that carries out an order of his whose words ask for it. The line above it quotes
+that order. A port never gets one: he reads "port of #N landed" in its order's thread once it
+lands, and so for every class that lands with no tap. Drive tooling never gets one either: a
+`Forge-AI/*` fix no exempt class covers is a question card at his DM root, by
+[Scope](scope.md).
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later

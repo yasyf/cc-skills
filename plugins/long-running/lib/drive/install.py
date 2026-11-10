@@ -3,12 +3,14 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path, PurePosixPath
 
 POLL_SECONDS = 20
-CONTAINS = {"ahead", "identical"}
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
+DEFAULT_BRANCH = "refs/heads/default"
+FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 
 
 class InstallError(Exception):
@@ -52,41 +54,49 @@ def marketplace_repo(marketplace: str) -> str:
     raise InstallError(f"marketplace {marketplace} has no GitHub repo ({source.get('source')}); pass --repo")
 
 
-def release_ref(repo: str, plugin: str, deadline: float) -> str | None:
-    raw = run(
-        ["gh", "api", f"repos/{repo}/contents/.claude-plugin/marketplace.json", "-H", "Accept: application/vnd.github.raw"],
-        deadline,
-    )
-    entry = next((entry for entry in json.loads(raw)["plugins"] if entry["name"] == plugin), None)
+def git(clone: str, *args: str, deadline: float) -> str:
+    return run(["git", "-C", clone, *args], deadline)
+
+
+def release_ref(clone: str, plugin: str, deadline: float) -> str | None:
+    """The release the marketplace's default branch names for the plugin, read over git, which the GitHub API's rate limit does not reach."""
+    git(clone, *FETCH, f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
+    marketplace = json.loads(git(clone, "show", f"{DEFAULT_BRANCH}:.claude-plugin/marketplace.json", deadline=deadline))
+    entry = next((entry for entry in marketplace["plugins"] if entry["name"] == plugin), None)
     if entry is None:
-        raise InstallError(f"{repo} marketplace names no plugin {plugin}")
+        raise InstallError(f"the {marketplace['name']} marketplace names no plugin {plugin}")
     source = entry["source"]
     if isinstance(source, dict):
-        return source.get("ref")
+        if tag := source.get("ref"):
+            git(clone, *FETCH, f"+refs/tags/{tag}:refs/tags/{tag}", deadline=deadline)
+        return tag
     manifest = PurePosixPath(source) / ".claude-plugin" / "plugin.json"
-    return run(["gh", "api", f"repos/{repo}/commits?path={manifest}&per_page=1", "--jq", ".[0].sha"], deadline).strip()
+    return git(clone, "log", "-1", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
 
 
-def contains(repo: str, ref: str, sha: str, deadline: float) -> bool:
-    return run(["gh", "api", f"repos/{repo}/compare/{sha}...{ref}", "--jq", ".status"], deadline).strip() in CONTAINS
+def contains(clone: str, ref: str, sha: str, deadline: float) -> bool:
+    return git(clone, "rev-list", "--count", sha, f"^{ref}", deadline=deadline).strip() == "0"
 
 
 def await_release(repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> str:
     last = "none read"
     failure = ""
-    while True:
-        try:
-            ref = release_ref(repo, plugin, deadline)
-            last = ref or "none named"
-            failure = ""
-            if ref and contains(repo, ref, sha, deadline):
-                return ref
-        except InstallError as error:
-            failure = f" (last read failed: {error})"
-        left = deadline - clock()
-        if left <= 0:
-            raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release containing {sha[:12]}; last ref {last}{failure}")
-        sleep(min(POLL_SECONDS, left))
+    with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
+        run(["git", "init", "--bare", "--quiet", clone], deadline)
+        git(clone, "remote", "add", "origin", f"https://github.com/{repo}", deadline=deadline)
+        while True:
+            try:
+                ref = release_ref(clone, plugin, deadline)
+                last = ref or "none named"
+                failure = ""
+                if ref and contains(clone, ref, sha, deadline):
+                    return ref
+            except InstallError as error:
+                failure = f" (last read failed: {error})"
+            left = deadline - clock()
+            if left <= 0:
+                raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release containing {sha[:12]}; last ref {last}{failure}")
+            sleep(min(POLL_SECONDS, left))
 
 
 def installed_version(key: str) -> str:

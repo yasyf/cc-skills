@@ -53,12 +53,15 @@ itself.
     file and line that does it (`path:line`). The coordinator checks this list against his words
     before his card is drawn, so a step with no code returns the PR to you. It stays off his card.
     A PR that is not a port and whose list would be empty or say none is not his order and never
-    becomes a card: return `BLOCKED no order of his names this` instead of `READY`, and `drive card`
-    refuses its card.
+    becomes a PR card: drive tooling says none and lands by [Scope](scope.md), and anything else
+    returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its
+    card. Never quote his words for another change, such as the order whose jobs a tool fix
+    unblocks, to fill this list.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
   tap. Return `READY <url>` when only his tap is left, or a port only its check against #N, naming
   every PR of a stack bottom first (`READY <url> <url> …`) so he gets one card for it, with a
-  `SERVES:` line saying what it is: `port of #N`, or the order of his it carries out, quoted. Return
+  `SERVES:` line saying what it is: `port of #N`, `drive tooling: <what it unblocks>`, or the order
+  of his it carries out, quoted. Return
   `WAITING <what>` while CI or a queue runs.
 
 ## yasyf/* repositories
