@@ -9,7 +9,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from drive import cli, github, orca, state
+from drive import cli, github, orca, slack, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -483,14 +483,14 @@ def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
 
 
 def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap")
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
     run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
 
 def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap")
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--design", "none")[0] == 2
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
     assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2
@@ -501,7 +501,7 @@ def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, wit
 
 
 def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap")
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
     for unsaid in ("maybe", "asked:", "asked: "):
@@ -514,20 +514,40 @@ def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: s
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
 
 
-def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str) -> None:
+def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, withdrawals: "Withdrawals") -> None:
     code, out = run("pr", "set", PR, "--port-of", "51234")
     pr = state.load("demo")["prs"][with_pr]
     assert code == 0
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"]) == (51234, "pure port", False)
     assert out.endswith("no tap needed, exempt: pure port of #51234")
+    assert withdrawals.asked == [(PR, "port of #51234, which lands with no tap")]
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: pure port")
     assert run("pr", "set", PR, "--port-of", "51234", "--tap", "--serves", "o1", "--design", "none")[0] == 2
     with pytest.raises(SystemExit):
         run("pr", "set", PR, "--port-of", "51234", "--exempt", "test-only")
 
 
-def test_pr_set_unknown_pr_fails(run: Run, demo: str) -> None:
+def test_pr_set_no_tap_withdraws_his_open_card_showing_why(
+    run: Run, with_pr: str, withdrawals: "Withdrawals", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    card = "https://acme.slack.com/archives/D123/p1794286637698859"
     assert run("pr", "set", PR, "--no-tap")[0] == 2
+    assert (state.load("demo")["prs"][with_pr]["wants_tap"], withdrawals.asked) == (True, [])
+    withdrawals.cards = [card]
+    code, out = run("pr", "set", PR, "--no-tap", "--why", "not this drive's order")
+    assert (code, withdrawals.asked) == (0, [(PR, "not this drive's order")])
+    assert out.splitlines()[-1] == f"withdrew his card {card}: not this drive's order"
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
+
+    def refuse(url: str, reason: str) -> list[str]:
+        raise slack.SlackError("cc-slack exited 1")
+
+    monkeypatch.setattr(slack, "withdraw_pr_card", refuse)
+    assert run("pr", "set", PR, "--no-tap", "--why", "not this drive's order")[0] == 2
+
+
+def test_pr_set_unknown_pr_fails(run: Run, demo: str) -> None:
+    assert run("pr", "set", PR, "--no-tap", "--why", "not his order")[0] == 2
 
 
 def test_pr_tapped_unknown_pr_may_land(run: Run, demo: str) -> None:

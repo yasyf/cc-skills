@@ -419,6 +419,8 @@ def design_basis(text: str) -> str:
 
 
 def pr_set(args: argparse.Namespace) -> int:
+    from drive import view
+
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     if args.tap and not args.serves:
@@ -430,6 +432,8 @@ def pr_set(args: argparse.Namespace) -> int:
         )
     if args.tap and args.port_of:
         raise DriveError("a port lands with no tap: pass --port-of alone")
+    if args.tap is False and not args.why:
+        raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     served = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
@@ -454,7 +458,16 @@ def pr_set(args: argparse.Namespace) -> int:
             pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
             pr["fundamental"] = None
         pr["updated"] = state.stamp()
-    return emit(args, render.pr_line(key, pr) + served, {"key": key, **pr})
+    withdrawn: list[str] = []
+    why = args.why or f"port of #{args.port_of}, which lands with no tap"
+    if args.tap is False or args.port_of:
+        try:
+            withdrawn = slack.withdraw_pr_card(pr["url"], why)
+        except slack.SlackError as error:
+            raise DriveError(f"{key} no longer waits on his tap, but its card is still open: {error}; run this again") from None
+        view.refresh_cards(name)
+    line = render.pr_line(key, pr) + served + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
+    return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:
@@ -766,7 +779,10 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=both)
     verb.add_argument("url")
-    verb.add_argument("--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design")
+    verb.add_argument(
+        "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design; --no-tap withdraws his open card for it, needs --why"
+    )
+    verb.add_argument("--why", help="with --no-tap, the reason his withdrawn card shows")
     verb.add_argument("--serves", metavar="ORDER", help="the order of his whose words ask for this PR; prints them back")
     verb.add_argument(
         "--design",
