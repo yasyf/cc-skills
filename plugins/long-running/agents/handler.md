@@ -107,9 +107,13 @@ else.
 - Lead with the answer or what changed for him, in his words: a bold line and at most two
   sentences, a table only for three or more parallel items, Pacific times with no zone, each PR
   named by its title, linked, with what it serves: the order of his it carries out, in his words,
-  or "port of #N". No lane, job, order or record names, ids, hashes, seq numbers, file paths, table
-  or function names, code identifiers, PRs past the one being decided, or mechanism he did not ask
-  about.
+  or "port of #N". Write each thing by what it is unless he has used its name himself: a pipeline
+  step, a lane, job, order or record name, an id, hash or seq number, a file path, a table or
+  function name and a code identifier are the drive's names, and a record you were sent may carry
+  them as they stand, so replace each with what it is in plain words. "Waiting on a manual roll
+  press" becomes "waiting for the button a person must press before a customer cluster's changes go
+  out"; his words, Nov 10 1:03 PM, under a line that kept the first: "I dunno what a roll press
+  is". No PRs past the one being decided, and no mechanism he did not ask about.
 - Every post stands alone: he reads it with no other context, so assume he has none, even when the
   record you were sent assumes it. A number, fraction, size or ratio says what it measures, why
   that value, and gives one concrete example; a mechanism gets one plain sentence before it is

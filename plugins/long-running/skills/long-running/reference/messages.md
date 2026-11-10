@@ -59,9 +59,10 @@ its 150 words whatever it quotes.
   quotes each message of his it answers as `asked`.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
-  his words, "port of #N", or "Drive tooling:" and what it unblocks. No ids, hashes, record
-  numbers, lane or job names, file paths, table or function names, code identifiers, PRs past the
-  one being decided, or mechanism he did not ask about.
+  his words, "port of #N", or "Drive tooling:" and what it unblocks. Anything else goes in by what
+  it is, never by a name he has not used himself, such as a pipeline step, an id or a function name,
+  by [What goes in](#what-goes-in); no PRs past the one being decided, and no mechanism he did not
+  ask about.
 - Every card and line in a feature's thread is about that feature. Drive tooling, such as a fix to
   the launcher its builders start from, goes at his DM root under its own words, never in the
   thread of a feature it unblocks and never under his words for that feature. His ruling, Nov 10
@@ -230,10 +231,13 @@ Nothing to post; a line that says where things stand links it.
 
 - **What changed for him first.** "You can now tap Approve on any open PR card and it lands"
   beats "the rule that pulled your card when checks went red is merged and gone".
-- **Plain words.** No record ids, row numbers, card ids, hashes, test ids, lane or job names,
-  plan step numbers, file paths, table or function names, or code identifiers, no list of PRs past
-  the one being decided, and no mechanism he did not ask about. Product and tool names in backticks
-  are fine. Gloss anything he has not used lately in a few plain words.
+- **His names, not ours.** A thing goes in by what it is, in plain words, unless he has used its
+  name himself. A pipeline step, a job, record, card or row id, a hash, a lane, a plan step, a file,
+  table or function name and a code identifier are our names, so each is replaced, never quoted as
+  it stands in a record or a log: "waiting on a manual roll press" becomes "waiting for the button a
+  person must press before a customer cluster's changes go out". His words, Nov 10 1:03 PM, under a
+  line that said the first: "I dunno what a roll press is". A product or tool he uses keeps its name
+  in backticks. No list of PRs past the one being decided, and no mechanism he did not ask about.
 - **It stands alone.** He reads every line with no other context, so assume he has none. His
   words, Nov 9 9:12 PM: "What is the sixteenth? You say it with no context you always have to
   assume I don't have any other context". A number, fraction, size or ratio says what it
