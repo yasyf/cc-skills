@@ -24,6 +24,15 @@ matches() {
   jq -ne --arg value "$1" --arg pattern "$2" '$value | test($pattern)' >/dev/null
 }
 
+read -ra worker_env <<<"${WORKER_ENV:-}"
+if [ ${#worker_env[@]} -gt 0 ]; then
+  for pair in "${worker_env[@]}"; do
+    matches "$pair" '\A[A-Z_][A-Z0-9_]*=\S*\z' ||
+      die "WORKER_ENV holds $pair, and each of its words is NAME=VALUE with no spaces; nothing launched"
+  done
+  lane_env="$lane_env ${worker_env[*]}"
+fi
+
 repo_value() {
   [ ! -f .orca.json ] || jq -r --arg key "$1" '.[$key] // empty | if type == "array" then join(" ") else . end' .orca.json
 }
@@ -142,6 +151,7 @@ if [ "$route" = sprite ]; then
   [ -z "$ref" ] || prepare+=(--ref "$ref")
   [ -z "$tier" ] || prepare+=(--service-tier "$tier")
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
+  [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
   status=0
   "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
   echo "$status" >"$attempt/prepare.status"

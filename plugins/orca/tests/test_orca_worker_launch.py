@@ -187,8 +187,8 @@ class Launch:
         placement = ["--on", prepared["environment"], "--worktree", f"id:{prepared['worktreeId']}", "--terminal", prepared["terminal"]]
         return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
 
-    def local_calls(self, model: str = "claude-fable-5-2", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE) -> list[list[str]]:
-        claude = f"env {LANE_ENV} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools {LANE_DENIED_TOOLS} --strict-mcp-config --no-chrome --model {model} --effort {effort} --settings '{LANE_SETTINGS}'"
+    def local_calls(self, model: str = "claude-fable-5-2", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE, lane_env: str = LANE_ENV) -> list[list[str]]:
+        claude = f"env {lane_env} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools {LANE_DENIED_TOOLS} --strict-mcp-config --no-chrome --model {model} --effort {effort} --settings '{LANE_SETTINGS}'"
         pointer = f"Lane '{LANE}'. Your full brief is the file {self.brief}: read it in full with the Read tool before anything else and execute it exactly (Orca truncates pasted specs). Your Orca worktree is {LOCAL_WORKTREE}.{f" This lane is sparse: widen with `{WIDEN}` before reading outside it." if cone else ""} You run in bypass-permissions mode; the brief's Escalate rules still hold."
         return [
             CURRENT,
@@ -531,6 +531,16 @@ class SpriteTest(LaunchTest):
         request = json.loads(self.launch.receipt("request.json"))
         self.assertEqual((request["agent"], request["ref"]), ({"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast"}, "release/2026.10"))
 
+    def test_worker_env_reaches_prepare_as_one_env_flag_per_word(self):
+        self.launch.sprite()
+        result = self.launch.run(WORKER_ENV="CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        expected = self.launch.prepare("--env", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000", "--env", "ENABLE_PROMPT_CACHING_1H=1")
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, self.launch.start()])
+
+    def test_a_worker_env_word_that_is_not_name_value_refuses_before_any_call(self):
+        self.assert_refused(self.launch, self.launch.run(WORKER_ENV="ENABLE_PROMPT_CACHING_1H=1 stray"), "WORKER_ENV holds stray, and each of its words is NAME=VALUE with no spaces; nothing launched", [])
+
     def test_a_hex_spelled_branch_passes_unchanged_as_a_ref(self):
         self.launch.sprite(allocated=allocation(ref="deadbeef"))
         result = self.launch.run(WORKER_REF="deadbeef")
@@ -684,6 +694,12 @@ class LocalTest(LaunchTest):
         self.assertEqual(self.launch.kept(), LOCAL_KEPT)
         self.assertEqual(self.launch.receipt("worker-start.status"), "0\n")
         self.assertEqual(json.loads(self.launch.receipt("request.json"))["route"], "local")
+
+    def test_explicit_local_exports_worker_env_to_claude(self):
+        self.launch.local()
+        result = self.launch.run(model="fable", WORKER_LOCAL="1", WORKER_ENV="CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), self.launch.local_calls(lane_env=f"{LANE_ENV} CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000"))
 
     def test_explicit_local_passes_the_requested_repository(self):
         self.launch.local()

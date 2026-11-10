@@ -16,6 +16,7 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 BUILDER = PLUGIN / "agents" / "builder.md"
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
+LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1"
 LAUNCH_SECONDS = 1800
 MAIL_LIMIT = "100"
 CALL_SECONDS = 60
@@ -123,7 +124,7 @@ def launch(lane: str, brief: Path, checkout: Path, run: str) -> dict:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
             cwd=checkout,
-            env={**os.environ, "WORKER_RUN": run},
+            env={**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV},
             capture_output=True,
             text=True,
             timeout=LAUNCH_SECONDS,
