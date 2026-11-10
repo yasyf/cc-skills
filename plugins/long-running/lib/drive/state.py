@@ -167,6 +167,16 @@ def drop_carries(data: dict, job_id: str) -> None:
     data["jobs"][job_id]["carries"] = {}
 
 
+def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
+    """Record once that the remote lane on this dispatch died; whether this call recorded it."""
+    deaths = job.setdefault("deaths", [])
+    if job["dispatch"] != dispatch or any(death["dispatch"] == dispatch for death in deaths):
+        return False
+    deaths.append({"dispatch": dispatch, "workspace": job["workspace"], "why": why, "at": stamp(moment)})
+    job["updated"] = stamp(moment)
+    return True
+
+
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
 

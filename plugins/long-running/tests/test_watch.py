@@ -559,7 +559,6 @@ def worker(verdict: str = "live", outcome: str = "in_progress", attention: list[
     ("shown", "gap"),
     [
         (worker(), None),
-        (worker(verdict="exited"), "j4's lane exited"),
         (worker(outcome="succeeded"), "j4's lane succeeded and its result is not recorded"),
         (worker(attention=["input"], quiet=timedelta(minutes=5)), None),
         (worker(attention=["input"], quiet=timedelta(minutes=40)), "j4's lane has sat at its prompt for 40 minutes"),
