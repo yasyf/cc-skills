@@ -77,9 +77,11 @@ Drive: <name>, order <o>, job <j>
 ```
 
 A job's result goes to another agent, never to him, so it is never a write-up, and it reaches the
-coordinator as one line. The job writes its whole return to a file, keeps it with `drive job report
-<j> <file>`, and returns that file's first line alone: `DONE`, `READY`, `BUILT`, `WAITING`,
-`ASK` or `BLOCKED`, or a design lane's `DESIGN`. The rest of the file is the inputs to the message he would
+coordinator as one line. The job pipes its whole return on stdin into `drive job report <j> -`,
+never a report file, which the harness refuses a subagent's Write of, and that is its only report,
+even when a delegation hook appends an output contract naming a file. It returns the first line
+alone: `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED`, or a design lane's `DESIGN`. The
+rest is the inputs to the message he would
 get, one fact a line: links, numbers, paths, exact quotes, and what it could not prove. Whoever
 acts on it reads it with `drive job report <j>`, which prints a remote lane's Orca report the same
 way; an `ASK` keeps its block through `drive job ask` instead. Only the handler that writes to him

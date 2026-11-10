@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import subprocess
@@ -460,14 +461,24 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / "j1.md"))
 
 
-def test_job_report_keeps_a_jobs_whole_return_and_prints_it_back(run: Run, demo: str, tmp_path: Path, state_root: Path) -> None:
+def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
+    run: Run, demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     assert run("job", "report", "j1")[0] == 2
-    whole = tmp_path / "return.md"
-    whole.write_text("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n")
-    assert run("job", "report", "j1", str(whole)) == (0, str(state_root / "demo" / "reports" / "j1.md"))
+    monkeypatch.setattr("sys.stdin", io.StringIO("READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none\n"))
+    assert run("job", "report", "j1", "-") == (0, str(state_root / "demo" / "reports" / "j1.md"))
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
+
+
+def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    monkeypatch.setattr("sys.stdin", io.StringIO("\n"))
+    assert cli.main(["job", "report", "j1", "-"]) == 2
+    assert "stdin held no report for j1" in capsys.readouterr().err
+    assert run("job", "report", "j1")[0] == 2
 
 
 def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:

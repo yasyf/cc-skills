@@ -30,7 +30,8 @@ lists it, so a share reads that file instead of rebuilding the steps from your t
 Your answer goes to another agent, never to him, so it is not a write-up: it is the inputs the one
 writing to him needs, one fact a line, with no polish. The first line answers the question; then
 each fact with its link, number, path or exact quote, `REPRO:` the reproduction file's path when
-you saved one, and `UNPROVEN:` what you could not show, never a guess. Write it with a heredoc to a
-file under your scratch directory and keep it with `drive job report <your job> <file>`; your final message is
-its first line alone, since it lands whole in the coordinator's context, and whoever acts on the
+you saved one, and `UNPROVEN:` what you could not show, never a guess. Keep it by piping it with a
+heredoc into `drive job report <your job> -`, never a report file, which the harness refuses a
+subagent; your final message is its first line alone, since it lands whole in the coordinator's
+context, and whoever acts on the
 rest reads it with `drive job report <your job>`. Never message the owner yourself.

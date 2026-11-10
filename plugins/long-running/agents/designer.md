@@ -26,10 +26,10 @@ consulting me on the design".
   expansions and multi-step logic in a script file under your scratch directory and run that file.
 
 Your design goes to the handler that turns each fork into a question card for him, so it is short
-and every line stands alone for a reader with no other context. Write it with a heredoc to a file
-under your scratch directory, under 400 words, and keep it with `drive job report <your job> <file>`; your
-final message is its first line alone, since it lands whole in the coordinator's context, and the
-handler reads the rest with `drive job report <your job>`:
+and every line stands alone for a reader with no other context. Keep it, under 400 words, by piping
+it with a heredoc into `drive job report <your job> -`, never a report file, which the harness
+refuses a subagent; your final message is its first line alone, since it lands whole in the
+coordinator's context, and the handler reads the rest with `drive job report <your job>`:
 
 ```
 DESIGN <the part, in a few words>
