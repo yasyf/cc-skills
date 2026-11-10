@@ -67,6 +67,19 @@ def slack_thread(monkeypatch: pytest.MonkeyPatch) -> Thread:
     return thread
 
 
+@dataclass
+class Withdrawals:
+    cards: list[str] = field(default_factory=list)
+    asked: list[tuple[str, str]] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
+    withdrawn = Withdrawals()
+    monkeypatch.setattr(slack, "withdraw_pr_card", lambda url, reason: withdrawn.asked.append((url, reason)) or list(withdrawn.cards))
+    return withdrawn
+
+
 @pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)

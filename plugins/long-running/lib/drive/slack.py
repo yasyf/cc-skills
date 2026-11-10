@@ -14,14 +14,22 @@ class SlackError(Exception):
     pass
 
 
-def thread(*where: str) -> list[dict]:
+def cc_slack(*args: str) -> dict:
     try:
-        result = subprocess.run(["cc-slack", "thread", *where], check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(["cc-slack", *args], check=False, capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise SlackError(str(error)) from None
     if result.returncode:
         raise SlackError(" ".join(result.stderr.split()) or f"cc-slack exited {result.returncode}")
-    return json.loads(result.stdout)["messages"]
+    return json.loads(result.stdout)
+
+
+def thread(*where: str) -> list[dict]:
+    return cc_slack("thread", *where)["messages"]
+
+
+def withdraw_pr_card(url: str, reason: str) -> list[str]:
+    return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason)["withdrawn"]
 
 
 def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
