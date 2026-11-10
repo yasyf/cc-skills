@@ -193,3 +193,14 @@ def test_status_data_keeps_only_open_work() -> None:
 def test_when_names_the_day_for_other_days() -> None:
     tomorrow = state.now() + timedelta(days=1)
     assert render.when(state.stamp(tomorrow)).startswith(tomorrow.strftime("%b %-d"))
+
+
+def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
+    drive = sample()
+    drive["orders"]["o1"]["thread"] = "1794307360.614569"
+    lines = render.status_text(drive, "live", {}).splitlines()
+    due = render.when(drive["orders"]["o1"]["due"])
+    assert next(line for line in lines if line.startswith("- o1 ")).startswith(
+        f"- o1 working due {due}, its lines go in D123 thread 1794307360.614569: "
+    )
+    assert next(line for line in lines if line.startswith("- o3 ")).startswith("- o3 open: ")
