@@ -168,7 +168,11 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
         return lines
     reads_asked = []
     with state.edit(watcher.name) as data:
+        seen = data.setdefault("lane_mail", {})
         for run, handles, message in messages:
+            if not unseen(seen.get(run), message):
+                continue
+            seen[run] = message["sequence"]
             job_id = handles.get(message["from_handle"])
             if not job_id:
                 continue
@@ -180,6 +184,11 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines += [answer_read(*asked, checkout) for asked in reads_asked]
     return [line for line in lines if line]
+
+
+def unseen(last: int | None, message: dict) -> bool:
+    """Whether the watch has yet to act on a lane's message: past its last one in this Run, or, before it has one, any message `check` left unread."""
+    return message["sequence"] > last if last is not None else not message["read"]
 
 
 def track_lane_prs(data: dict, job_id: str, body: str) -> None:
