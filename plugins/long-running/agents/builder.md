@@ -81,7 +81,9 @@ jobs' transcripts the brief lists only for what the event needs.
 - His answers to the design cards a built branch or open PR waited on, quoted in the brief: rebuild
   wherever his pick differs from the option built, open the PR if none is open, and return as step
   6 says.
-- His tap to land: land it by the landing reference for its repository, `drive manual landing`.
+- His tap or order to land: land it by the landing reference for its repository, `drive manual
+  landing`. While a question card of his on the change is still open, land and enqueue nothing and
+  return `WAITING` naming the card: neither his order to land nor its recommended option answers it.
 - A merge: install or deploy it and prove it live with the brief's `INSTALL:` and `PROVE:` lines.
   Done means the owner can see it working, not that it merged. Remove the worktree once it is
   merged; leave nothing running behind you.

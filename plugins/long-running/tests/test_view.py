@@ -164,7 +164,37 @@ def test_a_built_job_shows_its_branch_and_the_cards_it_waits_on_in_status_and_on
     assert entry["built"] == [{"job": "j1", "branch": "lane/built", "waits": [{"title": "Which layout?", "url": asked["url"]}]}]
     markdown = page.render(model, DASHBOARD)
     assert "## Built, waiting on your design answers (1)" in markdown
-    assert f"built on `lane/built`, no PR until you answer [Which layout?]({asked['url']})" in markdown
+    assert f"built on `lane/built`, no PR yet · waits on your answer to [Which layout?]({asked['url']}), asked {when(asked['asked'])}" in markdown
+
+
+def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_the_features_it_blocks() -> None:
+    data = drive_of(
+        {"o1": order("rank the cards", ["j1", "j2"]), "o2": order("ship the page", ["j3"]), "o3": order("free to go", ["j4"])},
+        {
+            "j1": job("o1", "waiting", card=f"{TEAM}archives/D123/p-40"),
+            "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-a", "j1"]),
+            "j3": job("o2", "waiting"),
+            "j4": job("o3", "waiting", card=f"{TEAM}archives/D123/p-90"),
+        },
+        [pr(1, "o2", waits=["demo:j2-7-a"]), pr(2, "o3", waits=["demo:j9-1-a"], state="merged")],
+    )
+    layout, rename, other = question("Which layout?", -20, "demo:j2-7-a"), question("Rename it?", -40), question("Release now?", -10)
+    model = view.build(data, found([layout, rename, other]), T0)
+    features = {entry["title"]: entry for group in model["status"] for entry in group["features"]}
+    assert features["rank the cards"]["cards"] == [
+        {"title": "Which layout?", "url": layout["url"], "asked": layout["asked"]},
+        {"title": "Rename it?", "url": rename["url"], "asked": rename["asked"]},
+    ]
+    assert features["ship the page"]["cards"] == [{"title": "Which layout?", "url": layout["url"], "asked": layout["asked"]}]
+    assert features["free to go"]["cards"] == []
+    assert {item["title"]: item["blocks"] for item in model["queue"]} == {
+        "Which layout?": ["rank the cards", "ship the page"],
+        "Rename it?": ["rank the cards"],
+        "Release now?": [],
+    }
+    markdown = page.render(model, DASHBOARD)
+    assert f"waits on your answer to [Which layout?]({layout['url']}), asked {when(layout['asked'])}; [Rename it?]({rename['url']})" in markdown
+    assert "· blocks rank the cards; ship the page ·" in markdown
 
 
 def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiting_on_one_asks_no_tap() -> None:

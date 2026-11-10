@@ -8,7 +8,8 @@ it's incorrect that you went ahead and built a jank solution without consulting 
 Fix that now, fix the skill, and apply it to any other pending things you've sent me recently".
 And Nov 10 1:26 AM, on whether PRs that wait on a design pick of his get Approve buttons: "2, it can
 proactively build the recommended but can't put up a PR until I answer design Qs, and make that state a
-first class thing in our ledger".
+first class thing in our ledger". And Nov 10 2:53 AM, after finished work sat behind his open cards and
+was then to land on their recommended options: "Did I answer those question cards they were blocked on or did you just skip them? You should surface them to me if I ask and they are blocking, not skip them".
 
 Before any builder starts on a part, the coordinator decides whether the part carries a tricky
 design: a choice with two reasonable shapes that cost a lot to switch between once built. It
@@ -37,12 +38,15 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    The watch drops each card as he answers it and says `FREE <j>` once, when the last is answered.
    A handoff builder then opens the PR, rebuilding first wherever his pick differs from the
    recommended option it built.
-4. **No Approve while a card it carries is open.** A PR already open that carries a design card
-   he has not answered gets `drive pr set <url> --waits <card>`, one for each card, which withdraws
-   any Approve card drawn for it. `drive pr set --tap` and `drive card` refuse while one holds, and
-   the watch says `FREE <pr>` once, when the last is answered; nothing is closed for this. His
-   question cards in his queue show how many green approved PRs and built branches wait on each,
-   and come most first.
+4. **Nothing lands around an open card.** A PR already open that carries a design card he has
+   not answered gets `drive pr set <url> --waits <card>`, one for each card, which withdraws any
+   Approve card drawn for it. `drive pr set --tap` and `drive card` refuse while one holds, and the
+   watch says `FREE <pr>` once, when the last is answered; nothing is closed for this. No change is
+   landed, enqueued or decided on a recommended option while his card on it is open, and his order
+   to land a change does not answer a design question still open on it: that card is redrawn in
+   front of him at once, in the thread of his order, and the change lands after he answers. His
+   question cards in his queue show how many green approved PRs and built branches wait on each and
+   which features they block, and come most first; each feature names the cards that block it.
 5. **The builder carries the design.** Its brief's `Plan:` is the design, and `Decisions that
    bind` holds his answer to each fork, verbatim. A builder that meets a new fork mid-build stops
    and returns `ASK` with it rather than choosing.

@@ -8,12 +8,13 @@
   `since` (when it started waiting, when known), `due`, `url` (where he acts), `links`, and for a question or a
   tap with a Slack card, `card` (the whole card cc-slack draws) and `answer` (the card's permalink, which takes his
   answer from any surface). A question also has `holds`: how many green approved open PRs and built jobs wait on
-  it, alone or beside other cards of his.
+  it, alone or beside other cards of his, and `blocks`: the title of each feature it holds up.
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
   `blocked`, `running`, `built`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`,
   `now` (its latest job line), `due`, `late`, `proof`, `updated`, `url`, `prs`, each PR with `title`, `url`,
-  `state`, `checks`, `review` and `tap`, and `built`, each of its jobs built on the recommended design and
-  waiting on his answers before it opens a PR, with its `job`, `branch` and `waits` (each with `title` and `url`).
+  `state`, `checks`, `review` and `tap`, `built`, each of its jobs built on the recommended design and
+  waiting on his answers before it opens a PR, with its `job`, `branch` and `waits` (each with `title` and `url`),
+  and `cards`, each open question card of his it waits on, with its `title`, `url` and `asked`.
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
@@ -179,11 +180,12 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}"
 
 
-def question_item(drive: dict, card: dict) -> dict:
+def question_item(drive: dict, card: dict, features: list[dict]) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
     return {
         "kind": "question",
         "holds": held_up(drive, card),
+        "blocks": [entry["title"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])],
         "title": card["question"],
         "detail": pick,
         "since": card["asked"],
@@ -235,12 +237,12 @@ def is_late(order: dict, moment: datetime) -> bool:
     return order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(state.owed_at(order)) <= moment
 
 
-def queue(drive: dict, found: dict, moment: datetime) -> list[dict]:
+def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> list[dict]:
     taps = [(pr, card) for pr in drive["prs"].values() if waits_on_tap(pr, card := card_for(found["pr_cards"], pr["url"]))]
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     return [
-        *sorted((question_item(drive, card) for card in found["questions"]), key=lambda item: -item["holds"]),
+        *sorted((question_item(drive, card, features) for card in found["questions"]), key=lambda item: -item["holds"]),
         *(tap_item(pr, card) for pr, card in taps),
         *(late_item(drive, order, found["team_url"]) for order in late),
     ]
@@ -292,6 +294,15 @@ def built_entry(drive: dict, job_id: str, found: dict) -> dict:
     return {"job": job_id, "branch": job["branch"], "waits": [wait_entry(drive, wait, found) for wait in job["waits"]]}
 
 
+def blocking(drive: dict, jobs: list[dict], prs: list[dict], found: dict) -> list[dict]:
+    """His open question cards a feature waits on: each its jobs and open PRs wait on, and each a job of it asked."""
+    owners = [*jobs, *(pr for pr in prs if pr["state"] == "open")]
+    named = {message_key(wait) for owner in owners for wait in owner["waits"] if wait not in drive["jobs"]}
+    named |= {message_key(job["card"]) for job in jobs if job.get("card")}
+    held = (card for card in found["questions"] if {message_key(card["url"]), card["card"].get("waits")} & named)
+    return [{"title": card["question"], "url": card["url"], "asked": card["asked"]} for card in held]
+
+
 def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: dict) -> dict:
     jobs = [drive["jobs"][job_id] for job_id in order["jobs"]]
     prs = [pr for pr in drive["prs"].values() if pr["order"] == order_id]
@@ -307,6 +318,7 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "url": thread_url(drive, found["team_url"], order.get("thread")),
         "prs": [pr_entry(pr) for pr in prs],
         "built": [built_entry(drive, job_id, found) for job_id in order["jobs"] if drive["jobs"][job_id]["state"] == "built"],
+        "cards": blocking(drive, jobs, prs, found),
     }
 
 
@@ -319,8 +331,8 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
 
 def build(drive: dict, found: dict, moment: datetime) -> dict:
     """The drive's model from its stored state, his open cards as cc-slack lists them, and the time it is drawn for."""
-    waiting = queue(drive, found, moment)
     groups = status(drive, moment, found)
+    waiting = queue(drive, found, moment, [entry for group in groups for entry in group["features"]])
     counts = {"queue": len(waiting), **{group["state"]: len(group["features"]) for group in groups}}
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
 

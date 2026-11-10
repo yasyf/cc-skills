@@ -280,7 +280,8 @@ def keep_repro(name: str, job_id: str, source: str) -> str:
         raise DriveError(f"no reproduction file at {source}")
     kept = state.drive_dir(name) / "repro" / f"{job_id}{path.suffix}"
     kept.parent.mkdir(exist_ok=True)
-    shutil.copyfile(path, kept)
+    if not kept.exists() or not kept.samefile(path):
+        shutil.copyfile(path, kept)
     return str(kept)
 
 

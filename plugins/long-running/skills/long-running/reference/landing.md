@@ -8,6 +8,10 @@ itself.
 
 - One PR is one feature-sized unit; review fixes and follow-ups amend it (`ccx vcs ship --amend`). Open a
   second PR only when another job waits on part of the work or a review asks for the split.
+- Nothing lands around his open card. A PR whose change carries a question card of his not yet
+  answered is not landed or enqueued, whatever order to land arrived, and its recommended option never
+  stands in for his answer: return `WAITING` naming the card, and the coordinator puts it in front of
+  him, by [Design first](design.md).
 - A stack is at most four PRs, since his card shows every PR of a stack in its own section with its
   pictures. A change that needs more is split into stacks that land on their own, or folded into fewer PRs.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A repository
