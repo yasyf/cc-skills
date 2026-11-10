@@ -169,21 +169,20 @@ def late_item(drive: dict, order: dict, team_url: str) -> dict:
         "title": plain(order["text"], TITLE_CHARS),
         "detail": said(order.get("note")),
         "since": order["created"],
-        "due": order["due"],
+        "due": state.owed_at(order),
         "url": thread_url(drive, team_url, order.get("thread")),
         "links": [],
     }
 
 
 def is_late(order: dict, moment: datetime) -> bool:
-    due = order.get("due")
-    return bool(due) and order["state"] not in state.CLOSED_ORDER_STATES and state.parse_time(due) <= moment
+    return order["state"] not in state.CLOSED_ORDER_STATES and state.owed(order) and state.parse_time(state.owed_at(order)) <= moment
 
 
 def queue(drive: dict, found: dict, moment: datetime) -> list[dict]:
     taps = [(pr, card) for pr in drive["prs"].values() if waits_on_tap(pr, card := card_for(found["pr_cards"], pr["url"]))]
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
-    late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(order["due"]))
+    late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     return [
         *map(question_item, found["questions"]),
         *(tap_item(pr, card) for pr, card in taps),

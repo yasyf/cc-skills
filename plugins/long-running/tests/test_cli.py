@@ -4,6 +4,7 @@ import subprocess
 import sys
 import types
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import drive
@@ -184,7 +185,8 @@ def test_start_rejects_a_name_that_is_not_a_directory_name(run: Run) -> None:
 
 def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) -> None:
     assert run("order", "add", "first  words", "--from", "slack:D123/1.2", "--thread", "1.2") == (0, "o1")
-    assert run("order", "add", "second", "--due", "+30m") == (0, "o2")
+    assert run("order", "add", "second", "--due", "+30m")[0] == 2
+    assert run("order", "add", "second", "--due", "+30m", "--thread", "1.3") == (0, "o2")
     orders = state.load("demo")["orders"]
     assert orders["o1"]["text"] == "first  words"
     assert orders["o1"]["from"] == "slack:D123/1.2"
@@ -587,17 +589,31 @@ def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: R
     assert data["jobs"]["j1"]["session"] == os.environ["CLAUDE_CODE_SESSION_ID"]
 
 
-def test_setting_parts_keeps_what_a_kept_part_recorded(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_setting_parts_keeps_what_a_kept_part_recorded(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
     run("order", "add", "two answers", "--parts", "why", "how")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
-    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2", "--part", "why")[0] == 0
+    answer = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "posted", "o1", answer)[0] == 2
+    assert run("order", "posted", "o1", answer, "--part", "why")[0] == 0
     run("order", "set", "o1", "--parts", "why", "what")
     parts = state.load("demo")["orders"]["o1"]["parts"]
-    assert parts == {"why": {"posted": "https://acme.slack.com/archives/D1/p2", "orphan_said": None}, "what": state.new_part()}
+    assert parts == {"why": {"posted": answer, "orphan_said": None}, "what": state.new_part()}
+
+
+def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
+    run("order", "add", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
+    ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
+    his = slack_thread.post(state.now() - timedelta(minutes=59), from_user=True)
+    assert run("order", "set", "o1", "--state", "dropped")[0] == 2
+    assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", ours)[0] == 2
+    assert run("order", "set", "o1", "--state", "dropped", "--withdrawn", his)[0] == 0
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["state"], order["withdrawn"]) == ("dropped", his)
 
 
 def test_only_the_communicator_marks_an_answer_posted(run: Run, demo: str) -> None:

@@ -6,7 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from drive import github, orca, place, render, state, watch
+from drive import github, orca, place, render, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -61,6 +61,10 @@ def order_add(args: argparse.Namespace) -> int:
             "state": "open",
             "due": due_stamp(args.due) if args.due else None,
             "due_said": None,
+            "promised": created if args.due else None,
+            "next_due": None,
+            "kept": None,
+            "withdrawn": None,
             "jobs": [],
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "proof": None,
@@ -69,13 +73,35 @@ def order_add(args: argparse.Namespace) -> int:
             "updated": created,
             "last_line": None,
         }
+        if args.due:
+            need_thread(data, order_id, order)
     return emit(args, order_id, {"id": order_id, **order})
+
+
+def need_thread(data: dict, order_id: str, order: dict) -> None:
+    if not state.promise_thread(data, order):
+        raise DriveError(f"{order_id}: a promised time needs the thread its line goes in; pass --thread <ts>")
 
 
 def find(records: dict, key: str, label: str) -> dict:
     if key not in records:
         raise DriveError(f"no {label} {key}")
     return records[key]
+
+
+def his_words(link: str) -> str:
+    if not slack.message(link).get("from_user"):
+        raise DriveError(f"{link} is not his message; only his own words withdraw a promised line")
+    return link
+
+
+def drive_post(link: str, thread: tuple[str, str] | None) -> str:
+    posted = slack.message(link)
+    if not posted.get("from_claude"):
+        raise DriveError(f"{link} is not the drive's post")
+    if thread and posted.get("thread_ts") != thread[1]:
+        raise DriveError(f"{link} is not in the order's thread {thread[1]}")
+    return link
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -90,20 +116,35 @@ def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
 
 
 def order_set(args: argparse.Namespace) -> int:
+    """Change an order; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time."""
     name = state.resolve(args.drive)
-    changes = {
-        "state": args.state,
-        "due": due_stamp(args.due) if args.due else None,
-        "note": args.note,
-        "proof": args.proof,
-        "thread": args.thread,
-    }
+    withdrawn = his_words(args.withdrawn) if args.withdrawn else None
+    data = state.load(name)
+    closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
+    order = find(data["orders"], args.id, "order")
+    posts, unread = slack.order_posts(data, order) if closing and state.owed(order) else ([], None)
+    changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
+    moment = state.now()
     with state.edit(name) as data:
-        order = find(data["orders"], args.id, "order")
+        order = data["orders"][args.id]
         order.update({field: value for field, value in changes.items() if value is not None})
+        if args.due:
+            need_thread(data, args.id, order)
+            state.promise(order, due_stamp(args.due), moment)
+        if closing and state.owed(order):
+            state.keep(order, posts, announced=False)
+            if state.owed(order):
+                why = f" ({unread})" if unread else ""
+                raise DriveError(
+                    f"{args.id} owes him the line promised for {render.when(state.owed_at(order))}, and no drive post is in"
+                    f" its thread since {render.when(order['promised'])}{why}: post it there first, or pass"
+                    " --withdrawn <his message> when he called it off"
+                )
+        if args.state:
+            order["state"] = args.state
         if args.parts:
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
-        order["updated"] = state.stamp()
+        order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, render.order_line(args.id, order), {"id": args.id, **order})
@@ -111,12 +152,13 @@ def order_set(args: argparse.Namespace) -> int:
 
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
+    data = state.load(name)
+    if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
+        raise DriveError("only the communicator marks an answer posted, once the answer is in his thread")
+    [part] = pick_parts(args.id, find(data["orders"], args.id, "order"), [args.part] if args.part else [])
+    drive_post(args.link, state.promise_thread(data, data["orders"][args.id]))
     with state.edit(name) as data:
-        if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
-            raise DriveError("only the communicator marks an answer posted, once the answer is in his thread")
-        order = find(data["orders"], args.id, "order")
-        [part] = pick_parts(args.id, order, [args.part] if args.part else [])
-        order["parts"][part]["posted"] = args.link
+        data["orders"][args.id]["parts"][part]["posted"] = args.link
     return emit(args, f'{args.id} "{part}": posted {args.link}', {"id": args.id, "part": part, "posted": args.link})
 
 
@@ -463,17 +505,20 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("words")
     verb.add_argument("--from", dest="source", default="terminal")
     verb.add_argument("--thread")
-    verb.add_argument("--due")
+    verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id")
-    verb.add_argument("--state", choices=state.ORDER_STATES)
-    verb.add_argument("--due")
+    verb.add_argument("--state", choices=state.ORDER_STATES, help="done or dropped refuses while a promised line is not posted")
+    verb.add_argument("--due", help="when he hears next, owed from the next line in the order's thread")
     verb.add_argument("--note")
     verb.add_argument("--proof")
     verb.add_argument("--thread")
     verb.add_argument("--lined", action="store_true")
+    verb.add_argument(
+        "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
+    )
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
     verb.set_defaults(run=order_set)
     verb = order.add_parser("posted", parents=both, help="the communicator posted the answer a part owes him")
@@ -575,6 +620,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return args.run(args)
-    except DriveError as error:
+    except (DriveError, slack.SlackError) as error:
         print(f"drive: {error}", file=sys.stderr)
         return 2

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import github, orca, page, reads, state, view
+from drive import github, orca, page, reads, slack, state, view
 from drive.install import config_dir
 from drive.render import cut, when
 from drive.state import DriveError
@@ -16,6 +16,7 @@ READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
+DUE_EVERY = timedelta(minutes=10)
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -249,23 +250,30 @@ def event_lines(watcher: Watcher) -> list[str]:
     return [event_line(event, prs) for event, _ in events]
 
 
-def overdue(order: dict, moment: datetime) -> bool:
-    if order["state"] in state.CLOSED_ORDER_STATES or not order["due"]:
+def overdue(order: dict, moment: datetime, away: bool) -> bool:
+    if order["state"] in state.CLOSED_ORDER_STATES or not state.owed(order) or state.parse_time(state.owed_at(order)) > moment:
         return False
-    due = state.parse_time(order["due"])
     said = order["due_said"]
-    return due <= moment and (said is None or state.parse_time(said) < due)
+    return said is None or not away and moment - state.parse_time(said) >= DUE_EVERY
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    if not any(overdue(order, moment) for order in state.load(watcher.name)["orders"].values()):
+    """Each promised time that passed with no drive post in its order's thread since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away."""
+    data = state.load(watcher.name)
+    away = state.owner_away(data, moment)
+    threads = {order_id: slack.order_posts(data, order) for order_id, order in state.open_orders(data).items() if overdue(order, moment, away)}
+    if not threads:
         return []
     lines = []
     with state.edit(watcher.name) as data:
-        for order_id, order in data["orders"].items():
-            if overdue(order, moment):
+        for order_id, (posts, unread) in threads.items():
+            order = data["orders"][order_id]
+            if overdue(order, moment, away):
+                state.keep(order, posts)
+            if overdue(order, moment, away):
                 order["due_said"] = state.stamp(moment)
-                lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(order["due"])}'))
+                why = unread or f"no line in its thread since {when(order['promised'])}"
+                lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
     return lines
 
 
@@ -434,7 +442,7 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
 
 def part_gap(watcher: Watcher, data: dict, order: dict, part: str, moment: datetime) -> str | None:
     jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in data["jobs"][job_id]["parts"]]
-    if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] != "reader" for _, job in jobs):
+    if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
         return None
     if not jobs:
         return "no job"
@@ -503,7 +511,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, passed due times, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment

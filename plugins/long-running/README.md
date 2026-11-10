@@ -36,7 +36,7 @@ Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR car
 | Coordinator | The session that runs the drive. It turns your messages into orders and jobs, routes events, lands and installs, and sends the communicator what to post. It never posts to Slack. |
 | Order | One thing you asked for, in your words, with a state, an optional due time, its jobs, and its proof. |
 | Job | One background agent owning one deliverable: a `builder` ships one change from code through merge and install, a `reader` answers one question an order needs, a `codex` lane reviews or diagnoses. A job that reproduces a bug saves one pick-up-and-run file that `drive status` lists. While your Mac is over its load limit, a builder on the monorepo starts as a remote lane on a Sprite instead, so its builds and checks run there. |
-| Event | A line from `drive watch`: a PR's CI or merge state changed, you tapped a PR card, a remote lane reported, a promised time passed, or open work owes a summary (every 30 minutes, never while you are away). |
+| Event | A line from `drive watch`: a PR's CI or merge state changed, you tapped a PR card, a remote lane reported, a promised time passed with no line in its thread (again every 10 minutes until one is posted), or open work owes a summary (every 30 minutes, never while you are away). |
 | Message | An ack or a summary in your thread, a question card at your DM root, or one PR card per stack with Approve and Hold. |
 
 State lives in one file per drive under `~/.local/state/long-running/<drive>/`, written only by the `drive` CLI. Your rulings live in cc-notes answers, and cross-session records go through cci.
