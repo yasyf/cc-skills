@@ -52,9 +52,13 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
   one that settles it is his answer, and the work goes ahead on it. Only when none does, the ask
   goes out with one `--unsettled` string, or the record's `unsettled` attr, naming every id and why
   that answer does not settle this question, such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`.
-- A trust line waits for him: landing a change in a `Forge-AI/*` repo that is not an exempt
+- A trust line waits for his word: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](landing.md)), posting as him to anyone else,
-  changing production, and stopping or closing sessions he did not name.
+  changing production, and stopping or closing sessions he did not name. His order to post, in his
+  DM, in a terminal or by a tap on a card, is that word for the one post it names, and nothing asks
+  him to approve it again. A post nobody ordered, such as a reply offered to someone who reported a
+  bug or a line for a teammate, is a question card asking whether to tell them, never a card asking
+  him to approve a post.
 - A design question goes to him before any PR carries it, by [Design first](design.md): a short
   card with two to four one-line options, recommendation first, and a picture when the shape
   matters. A job may build the recommendation meanwhile on a pushed branch, built in the ledger,

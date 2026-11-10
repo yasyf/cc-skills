@@ -31,7 +31,7 @@ spent drafting, checking or drawing holds his next message behind it.
 | A handler returned | Keep the line it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
 | A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. | The same. |
-| A tool defect you hit | A `defect` record. | Nothing. |
+| A tool defect you hit | A `defect` record quoting the refusal. A hook that refuses a post he ordered is one: never a card asking him to approve that post, and never the hook as a reason to him. | Nothing. |
 
 Start a handler with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background:
 true`, a short `description`, and never a `name`. Its `prompt` is at most three lines. For a record
@@ -63,13 +63,19 @@ that owns the fact, never through the coordinator; his ruling, Nov 9 2:06 PM: "s
 mins to spawn read only sonnet lanes". An order or an alert becomes an `owner` record, and a ruling
 an `answer_add` and an `owner` record with `--attr ruling=<answer id>`.
 
-A share is his order to post something in a thread he names, and that order is his permission for
-one post there and nowhere else. The handler reads the path in its brief, or the reproduction file
-`drive status` lists, directly, in at most 60 seconds and a handful of reads, posts once in that
-thread, and puts the permalink in his thread. A missing file comes back as `MISSING <path>`, never a
-rebuild from a transcript, and a share brief carries the thread and the paths, never a request for
-a write-up. His ruling, Nov 9 3:50 PM: "all it should be is spawn a sonnet subagent tht does a
-couiple reads and sends the slack mesage".
+A share is his order to post something in a place he names, in his DM, in a terminal or by a tap on
+a card, and that order is his permission for one post there and nowhere else. Nobody asks him to
+approve it again, on any surface: not the communicator, a handler or the coordinator. The handler
+reads the path in its brief, or the reproduction file `drive status` lists, directly, in at most 60
+seconds and a handful of reads, posts once in that thread, and puts the permalink in his thread. A
+hook that refuses the post is a tool defect: the handler sends a `defect` record, tells him in one
+line that the post goes out once the fix is installed, and closes any card already asking him to
+approve it. A missing file comes back as `MISSING <path>`, never a rebuild from a transcript, and a
+share brief carries the thread and the paths, never a request for a write-up. His rulings, Nov 9
+3:50 PM: "all it should be is spawn a sonnet subagent tht does a couiple reads and sends the slack
+mesage", and Nov 10 2:17 PM, after a card asked him to approve an update he had ordered: "Fix the
+hook Iuoi had permission because I fucking told you to post don't ever use that as an excuse
+again".
 
 `drive heard` prints `CATCH-UP` when he is back after being away; the coordinator hears it as an
 event and sends his catch-up as a `report`. A thread read, a transcript, a search, or anything
