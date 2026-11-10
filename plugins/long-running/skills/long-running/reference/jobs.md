@@ -20,7 +20,7 @@ parts `ORPHAN`s.
 
 **Remote.** `drive job add builder --order <o> --goal "<one line>" --remote`, then run
 `drive job launch <j> - <<'BRIEF'`, the brief, and `BRIEF` from the monorepo checkout's root with
-`run_in_background: true`. A brief, handoff or message for a lane always goes on stdin that way,
+`run_in_background: true`; a job added with neither `--remote` nor `--agent` launches the same way, since no agent of this Mac holds it. A brief, handoff or message for a lane always goes on stdin that way,
 `drive job resume <j> -` included, never through a file the coordinator writes: Claude Code reads the
 files a session wrote back into its context after every compaction. It starts the builder through the
 `orca` skill's launcher as an Orca worker on a Sprite, on an Orca Run of its own that only this
