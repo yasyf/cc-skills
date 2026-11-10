@@ -49,9 +49,11 @@ and quotes the words, and the coordinator writes an `ask` record's options the s
 **A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record.
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
-Hold while it waits on him. His Approve lands exactly those PRs, bottom first, and a PR added later
-gets its own card. The line in his thread is followed by `cc-slack card-copy` of the card, so that
-thread carries its buttons. Each PR on it gets its own section, opened by its title, link and Open
+Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
+gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
+them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
+The line in his thread is followed by `cc-slack card-copy` of the card, so that thread carries its
+buttons. Each PR on it gets its own section, opened by its title, link and Open
 button, then its Refresher, its biggest surprise, what he will hate most, where it stands and what
 it waits on only when that is not green and his tap, how it differs from the plan when it does, and
 its Show me with its pictures inline. A stack card's title and opening summary come from `## The
