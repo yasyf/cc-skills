@@ -293,22 +293,26 @@ say so in the order's next report. A failure after worker-start ran may have lef
 live, so a reader checks its attempt before anything starts it again. The lane reports through
 Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
 the `DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED` a background agent returns; `drive status --json`
-holds the whole report. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
+holds the whole latest report. `drive job replies <j>` prints every result and question the lane
+sent, oldest first, each with its time, for a line that points at an earlier reply. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
 ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with
 a blocking question: `LOG <url>` for a red Buildkite or GitHub Actions check, `READ <command>` for
 a `cci` or `ccn` read the builder agent lists. The watch answers it itself, with no event: it runs
 `tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in the directory the coordinator started the
 drive from and replies with the output, cut to 12,000 characters. A command off that list gets a
-refusal naming the list. Its `WATCH read answer … failed` line needs nothing from you, since the
-lane asks again when its wait ends. The watch registers each PR a lane's `READY` or `PR:` line
+refusal naming the list. A lane whose wait ends waits again on the same question, so the watch
+keeps each question queued on its job until the answer goes through, past a refused reply or a
+watch restart. Its `WATCH the answer to <j>'s read failed` line needs nothing from you. The watch registers each PR a lane's `READY` or `PR:` line
 links as that job's, wanting his tap, and reads the lane's Dispatch from Orca each minute: a
 lane that finished or sat at its prompt for 30 minutes makes its parts `ORPHAN`s, and a lane whose
 worker died, running or waiting, is one `LANE … died` line. `drive job resume` checks the worker
-before it sends: to a live one it sends, to a dead one it relaunches the job on a fresh Sprite on
-the same Run with a handoff carrying its brief, its last line, its PRs and the message, and its
-output says which. Work the dead lane had not pushed is not carried over. When Orca cannot reach
-the lane's Sprite it sends nothing and exits 2; resume it again once the watch reads the lane. Run
-it in the background, since a relaunch takes minutes. An `EXEMPT:` line still gets
+before it sends. A live one gets the message. Orca sends nothing to one that finished, so on a
+Sprite still up resume starts the job's next worker in its terminal. A dead one is relaunched on a
+fresh Sprite on the same Run. Either new worker gets a handoff carrying the job's brief,
+its branch, its last line, its report, its PRs and the message, and the output says which ran.
+Work the dead lane had not pushed is not carried over. When Orca cannot reach the lane's Sprite,
+or refuses the send or the start, nothing is delivered and it exits 2 with Orca's refusal; resume
+it again once the watch reads the lane. Run it in the background, since a relaunch takes minutes. An `EXEMPT:` line still gets
 `drive pr set <url> --exempt <class>`.
 
 The brief is the job's whole context, the same for both:

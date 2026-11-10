@@ -60,6 +60,26 @@ def cards_path(name: str) -> Path:
     return drive_dir(name) / "cards.json"
 
 
+def replies_path(name: str, job_id: str) -> Path:
+    return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
+
+
+def keep_reply(name: str, job_id: str, message: dict) -> None:
+    """Append one message a remote lane sent to its job's history, which a later result never replaces."""
+    path = replies_path(name, job_id)
+    path.parent.mkdir(exist_ok=True)
+    fields = ("created_at", "id", "type", "subject", "body")
+    with open(path, "a") as handle:
+        handle.write(json.dumps({field: message[field] for field in fields}) + "\n")
+
+
+def replies(name: str, job_id: str) -> list[dict]:
+    """The job's kept messages, oldest first, each once: a watch stopped between keeping a message and saving its cursor keeps it again."""
+    path = replies_path(name, job_id)
+    kept = [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+    return list({reply["id"]: reply for reply in kept}.values())
+
+
 def names() -> list[str]:
     base = root()
     if not base.is_dir():
@@ -168,7 +188,7 @@ def drop_carries(data: dict, job_id: str) -> None:
 
 
 def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
-    """Record once that the remote lane on this dispatch died; whether this call recorded it."""
+    """Record once that the remote lane on this dispatch died or finished, so it takes no more messages; whether this call recorded it."""
     deaths = job.setdefault("deaths", [])
     if job["dispatch"] != dispatch or any(death["dispatch"] == dispatch for death in deaths):
         return False

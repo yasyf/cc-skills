@@ -8,6 +8,7 @@ from drive import cli, orca, page, slack, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
+    "worker": {"state": "ready"},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"lastOutputAt": None},
 }

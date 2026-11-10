@@ -138,8 +138,6 @@ def first_line(text: str) -> str:
 def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | None:
     """Record one message from a remote lane on its job; the event line it wakes the coordinator with, if any."""
     kind = message["type"]
-    if kind == "heartbeat":
-        return None
     body = message["body"] or ""
     job["updated"] = state.stamp(moment)
     if kind == "escalation":
@@ -156,12 +154,12 @@ def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | 
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run: reports become JOB lines, read questions are answered here."""
+    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions queue on their job to be answered here, and mail from a worker the job has since replaced is only kept."""
     data = state.load(watcher.name)
     lanes: dict[str, dict[str, str]] = {}
-    for job_id, job in data["jobs"].items():
-        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES:
-            lanes.setdefault(job["run"], {})[f"dispatch:{job['dispatch']}"] = job_id
+    for job_id, job in live_lanes(data).items():
+        for dispatch in [job["dispatch"], *(ended["dispatch"] for ended in job.get("deaths", []))]:
+            lanes.setdefault(job["run"], {})[f"dispatch:{dispatch}"] = job_id
     lines, messages = [], []
     for run, handles in lanes.items():
         source = f"lane mail of {run}"
@@ -171,26 +169,33 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
-    if not messages:
-        return lines
-    reads_asked = []
-    with state.edit(watcher.name) as data:
-        seen = data.setdefault("lane_mail", {})
-        for run, handles, message in messages:
-            if not unseen(seen.get(run), message):
-                continue
-            seen[run] = message["sequence"]
-            job_id = handles.get(message["from_handle"])
-            if not job_id:
-                continue
-            if message["type"] == "question" and (question := reads.request(message["body"] or "")):
-                reads_asked.append((job_id, run, message["id"], question))
-                continue
-            lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
-            track_lane_prs(data, job_id, message["body"] or "")
-    checkout = Path(data["roles"]["coordinator"]["cwd"])
-    lines += [answer_read(watcher.name, *asked, checkout) for asked in reads_asked]
-    return [line for line in lines if line]
+    if messages:
+        with state.edit(watcher.name) as data:
+            seen = data.setdefault("lane_mail", {})
+            for run, handles, message in messages:
+                if not unseen(seen.get(run), message):
+                    continue
+                seen[run] = message["sequence"]
+                job_id = handles.get(message["from_handle"])
+                if not job_id or message["type"] == "heartbeat":
+                    continue
+                state.keep_reply(watcher.name, job_id, message)
+                if message["from_handle"] != f"dispatch:{data['jobs'][job_id]['dispatch']}":
+                    continue
+                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
+                    data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
+                    continue
+                lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+                track_lane_prs(data, job_id, message["body"] or "")
+    return [line for line in lines + read_lines(watcher, data, moment) if line]
+
+
+def live_lanes(data: dict) -> dict[str, dict]:
+    return {
+        job_id: job
+        for job_id, job in data["jobs"].items()
+        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES
+    }
 
 
 def unseen(last: int | None, message: dict) -> bool:
@@ -211,13 +216,22 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
                 job["prs"].append(url)
 
 
-def answer_read(drive: str, job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
-    """Answer a remote lane's `LOG` or `READ` question here, since a Sprite holds no CI credentials or drive records."""
-    try:
-        orca.reply(drive, run, message_id, reads.answer(question, checkout))
-    except orca.OrcaError as error:
-        return f"WATCH read answer to {job_id} failed: {error}; its lane asks again when its wait ends"
-    return None
+def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
+    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records. A question leaves its job's queue only once its answer goes through, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
+    checkout = Path(data["roles"]["coordinator"]["cwd"])
+    lines = []
+    for job_id, job in live_lanes(data).items():
+        for message_id, question in job.get("reads", {}).items():
+            source = f"the answer to {job_id}'s"
+            try:
+                orca.reply(watcher.name, job["run"], message_id, reads.answer(question, checkout))
+            except orca.OrcaError as error:
+                lines += read_failed(watcher, source, error, moment)
+                continue
+            watcher.failures.pop(source, None)
+            with state.edit(watcher.name) as fresh:
+                fresh["jobs"][job_id]["reads"].pop(message_id, None)
+    return lines
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
