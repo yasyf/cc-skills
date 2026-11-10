@@ -187,20 +187,41 @@ def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest
     assert watch.run_pass(watching, T0) == ["EVENT note"]
 
 
-def test_due_fires_once_and_stamps_due_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def said_due(watching: watch.Watcher, moment: datetime) -> list[str]:
+    return [line for line in watch.run_pass(watching, moment) if line.startswith("DUE")]
+
+
+def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_thread_and_holds_the_order_open(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        data["orders"]["o1"]["due"] = state.stamp(T0 - timedelta(minutes=30))
-        data["orders"]["o2"] = order(text="later", jobs=["j2"], due=state.stamp(T0 + timedelta(hours=1)))
-        data["jobs"]["j2"] = job(order="o2")
+        data["orders"]["o1"].update(
+            thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
+        )
         data["orders"]["o3"] = order(state="done", due=state.stamp(T0 - timedelta(hours=1)))
+    slack_thread.post(T0 - timedelta(minutes=90), from_claude=True)
+    slack_thread.post(T0 - timedelta(minutes=61), from_user=True)
     watching = watcher(demo)
-    lines = watch.run_pass(watching, T0)
-    assert len(lines) == 1
-    assert lines[0].startswith('DUE o1 "ship the watch" was due ')
-    assert lines[0].endswith("9:30 AM")
-    assert state.load(demo)["orders"]["o1"]["due_said"] == state.stamp(T0)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    [line] = said_due(watching, T0)
+    assert line.startswith('DUE o1 "ship the watch" was due ') and ": no line in its thread since " in line
+    assert said_due(watching, T0 + timedelta(minutes=5)) == []
+    assert said_due(watching, T0 + timedelta(minutes=10))[0].startswith("DUE o1")
+    assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
+    assert cli.main(["order", "set", "o1", "--due", state.stamp(T0 + timedelta(hours=2)), "--drive", demo]) == 0
+    assert said_due(watching, T0 + timedelta(minutes=20))[0].startswith("DUE o1")
+    late_line = T0 + timedelta(minutes=21)
+    slack_thread.post(late_line, from_claude=True)
+    assert said_due(watching, T0 + timedelta(minutes=30)) == []
+    moved = state.load(demo)["orders"]["o1"]
+    assert (moved["due"], state.parse_time(moved["promised"]), moved["kept"]) == (state.stamp(T0 + timedelta(hours=2)), late_line, None)
+    assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 2
+    assert said_due(watching, T0 + timedelta(hours=2))[0].startswith("DUE o1")
+    slack_thread.post(T0 + timedelta(hours=2, minutes=1), from_claude=True)
+    assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 0
+    assert state.load(demo)["orders"]["o1"]["state"] == "done"
+    assert said_due(watching, T0 + timedelta(hours=3)) == []
+    assert slack_thread.reads == [("--channel", "D123", "--thread", "1794200000.000100", "--limit", "50")] * 8
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -353,25 +374,29 @@ def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.Monke
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
-def test_a_done_builder_delivers_its_part_and_a_done_reader_waits_for_the_posted_answer(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("kind", ["reader", "codex"])
+def test_a_done_builder_delivers_its_part_and_a_done_reader_or_codex_job_waits_for_the_posted_answer(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: "Thread", kind: str
 ) -> None:
     serve(monkeypatch, {})
     earlier = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(state="done", updated=earlier)
         data["orders"]["o2"] = order(text="why do old runs fail?", jobs=["j2"])
-        data["jobs"]["j2"] = job(order="o2", kind="reader", state="done", updated=earlier)
+        data["jobs"]["j2"] = job(order="o2", kind=kind, state="done", updated=earlier)
+    his = slack_thread.post(T0, from_user=True)
+    answer = slack_thread.post(T0 + timedelta(seconds=1), from_claude=True)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == ['ORPHAN o2 "why do old runs fail?": j2 answered and the answer is not posted to him']
-    assert cli.main(["order", "posted", "o2", "https://slack.example/p1", "--drive", demo]) == 2
+    assert cli.main(["order", "posted", "o2", answer, "--drive", demo]) == 2
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     assert cli.main(["start", demo, "--role", "communicator"]) == 0
-    assert cli.main(["order", "posted", "o2", "https://slack.example/p1", "--drive", demo]) == 0
+    assert cli.main(["order", "posted", "o2", his, "--drive", demo]) == 2
+    assert cli.main(["order", "posted", "o2", answer, "--drive", demo]) == 0
     capsys.readouterr()
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     part = state.load(demo)["orders"]["o2"]["parts"]["why do old runs fail?"]
-    assert part == {"posted": "https://slack.example/p1", "orphan_said": None}
+    assert part == {"posted": answer, "orphan_said": None}
 
 
 def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(

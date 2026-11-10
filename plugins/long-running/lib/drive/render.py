@@ -43,7 +43,10 @@ COORDINATOR_RULES = (
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
-    "A promise is --due: a time he is promised is recorded with drive order set <id> --due.",
+    (
+        "A promise is --due: a time he is promised is recorded with drive order set <id> --due; DUE repeats every"
+        " 10 minutes until a drive post is in the order's thread, and done or dropped refuses until then."
+    ),
     "Batch: job results and events feed the next TICK's report; while he is away only cards and incident lines go.",
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}

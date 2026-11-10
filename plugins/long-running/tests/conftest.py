@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, orca, page, view, watch
+from drive import cli, orca, page, slack, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -44,6 +46,24 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or "https://slack.example/docs/T1/F1")
     return pages
+
+
+@dataclass
+class Thread:
+    messages: list[dict] = field(default_factory=list)
+    reads: list[tuple[str, ...]] = field(default_factory=list)
+
+    def post(self, moment: datetime, **fields: object) -> str:
+        ts = f"{moment.timestamp():.6f}"
+        self.messages.append({"ts": ts, "thread_ts": "1794200000.000100", **fields})
+        return f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts=1794200000.000100"
+
+
+@pytest.fixture(autouse=True)
+def slack_thread(monkeypatch: pytest.MonkeyPatch) -> Thread:
+    thread = Thread()
+    monkeypatch.setattr(slack, "thread", lambda *where: thread.reads.append(where) or list(thread.messages))
+    return thread
 
 
 @pytest.fixture(autouse=True)

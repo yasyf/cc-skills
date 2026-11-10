@@ -139,6 +139,8 @@ def load(name: str) -> dict:
             order["parts"] = {whole: new_part()}
             for job_id in order["jobs"]:
                 data["jobs"][job_id].setdefault("parts", [whole])
+        if "promised" not in order:
+            order.update(promised=order.get("due") and order["created"], next_due=None, kept=None, withdrawn=None)
     return data
 
 
@@ -280,6 +282,42 @@ def owner_away(data: dict, moment: datetime) -> bool:
 
 def open_orders(data: dict) -> dict[str, dict]:
     return {key: order for key, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES}
+
+
+def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
+    """The channel and thread an order's promised line goes in: its thread, else the Slack message it came from."""
+    source = order["from"].removeprefix("slack:").split("/") if order["from"].startswith("slack:") else None
+    channel = source[0] if source else data["slack"]["channel"]
+    thread = order["thread"] or (source[1] if source else None)
+    return (channel, thread) if channel and thread else None
+
+
+def owed(order: dict) -> bool:
+    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it."""
+    return bool(order["due"]) and not order["kept"] and not order["withdrawn"]
+
+
+def owed_at(order: dict) -> str:
+    return min((due for due in (order["due"], order["next_due"]) if due), key=parse_time)
+
+
+def promise(order: dict, due: str, moment: datetime) -> None:
+    """Promise a line by due, owed from the next line in the order's thread, the one that tells him the time; a time already owed holds until that line lands."""
+    if not owed(order):
+        order.update(due=due, promised=stamp(moment), kept=None, withdrawn=None, due_said=None)
+    order["next_due"] = due
+
+
+def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
+    """Record the first drive post after the promise as keeping it; a post that lands before the next time starts that time from it."""
+    kept = next((post for post in posts if post > parse_time(order["promised"])), None)
+    if kept is None:
+        return
+    upcoming, order["next_due"] = order["next_due"], None
+    order["kept"] = kept.isoformat()
+    if announced and upcoming and kept < parse_time(upcoming):
+        order.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
+        keep(order, posts, announced=False)
 
 
 def open_pr_keys(data: dict) -> list[str]:

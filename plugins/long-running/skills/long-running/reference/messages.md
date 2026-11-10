@@ -126,8 +126,9 @@ first, then each feature by state. Nothing to post; a line that says where thing
   card for the same thing.
 - **Promises without a timer.** A time a message promises is one the coordinator set with
   `drive order set <o> --due` in the same turn, and its `report` names it; an ack promises no
-  time of its own. When it passes unmet, the watch says so and the coordinator reports what is
-  late and why before he notices.
+  time of its own. When it passes with no drive post in the order's thread, the watch says `DUE`
+  every 10 minutes until one is there and the order cannot close before, so the coordinator
+  reports what is late and why before he notices.
 - **The current time, and any time you estimated.** Slack already stamps every post. A time
   you promise is computed from `date` (or written as `+30m` to `--due` and read back from
   `drive status`), never from your sense of how long the turn has run, which drifts by an hour.
