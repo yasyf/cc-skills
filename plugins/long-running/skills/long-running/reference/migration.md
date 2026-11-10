@@ -20,7 +20,7 @@ communicator.
    reaches only the session that posted, until it lets go. Keep the alert channels' watches.
 3. `cci subscribe --reader root --cursor coordinator`, which replaces the driver's subscription.
 4. Start the communicator in its own Orca terminal with the communicator's command in
-   [Start or resume](../SKILL.md#start-or-resume), whose `--channels` let records and his messages
+   [Start or resume](start.md), whose `--channels` let records and his messages
    wake it. It runs Start steps 1 to 4 for its role: `drive start <name> --role communicator`,
    `slack_watch` his DM, `cci drive use <name>`, `cci subscribe --reader communicator --cursor
    communicator`, and an answer for each reply `cc-slack dm-owed` lists. A driver running outside
@@ -39,7 +39,7 @@ terminal no longer holds it, moves into a fresh Orca terminal of its own, resumi
 Only on his word naming that session, and never while an incident order is open: the move waits
 until its fix is live. A session whose line reads `not visible in Orca, which hides the worktrees it
 did not make for this repository` never moves: the repository setting in
-[Start or resume](../SKILL.md#start-or-resume) shows it where it runs, with no restart. Moving the
+[Start or resume](start.md) shows it where it runs, with no restart. Moving the
 coordinator is a restart: its background agents end with the old process, and Start step 5 gives
 each job that needs one a fresh agent.
 
@@ -64,7 +64,7 @@ each job that needs one a fresh agent.
    ```
 
    For the coordinator, open the command with `env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h`
-   before `claude`, as [Start or resume](../SKILL.md#start-or-resume) does. The command is the
+   before `claude`, as [Start or resume](start.md) does. The command is the
    session and nothing after it: it never ends in `exec zsh -l` or any other shell, which would
    keep a login shell running in the terminal once the session ends.
 
@@ -72,7 +72,7 @@ each job that needs one a fresh agent.
    back its watches, its cursor and, for the coordinator, `drive watch`.
 5. Check it: 10 seconds after the create, `orca terminal show --terminal <the handle the create
    printed> --json` reads `"orphaned": false`, and the repository setting in
-   [Start or resume](../SKILL.md#start-or-resume) is the fix when it reads true. Then the role's
+   [Start or resume](start.md) is the fix when it reads true. Then the role's
    `drive status` line reads `open it with: orca terminal switch --terminal <that handle>`, and
    `orca terminal read --terminal <handle> --screen --json` shows the session at its prompt with
    its Start steps done.
@@ -89,7 +89,7 @@ in cc-notes answers.
 ## Carry
 
 1. Start the new drive's two sessions, each in its own Orca terminal, with the commands in
-   [Start or resume](../SKILL.md#start-or-resume). In the coordinator's session, run `drive setup`,
+   [Start or resume](start.md). In the coordinator's session, run `drive setup`,
    then `drive start <name> --role coordinator --channel <his DM>` with a `--watch <channel id>` for
    every channel the old drive watched beside his DM, its alert channels above all.
    `cc-slack follows --session <old holder's session id>` lists them. In the communicator's

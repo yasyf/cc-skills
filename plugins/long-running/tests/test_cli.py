@@ -881,3 +881,13 @@ def test_version_names_the_plugin_version(capsys: pytest.CaptureFixture[str]) ->
         cli.main(["--version"])
     plugin = json.loads((Path(drive.__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json").read_text())
     assert capsys.readouterr().out.strip() == f"drive {plugin['version']}"
+
+
+def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run) -> None:
+    skill = (cli.PAGES.parent / "SKILL.md").read_text()
+    named = {line.split("`")[1] for line in skill.splitlines() if line.startswith("| `")}
+    assert named == {path.stem for path in cli.PAGES.glob("*.md")}
+    assert len(skill) < 8_000
+    code, out = run("manual", "jobs")
+    assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
+
