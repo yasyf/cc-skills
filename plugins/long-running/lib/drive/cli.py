@@ -531,8 +531,22 @@ def run_show(checkout: Path) -> str:
     )
 
 
+def only(data: dict, ids: list[str]) -> None:
+    """Narrow data, never saved, to the orders the ids name, directly or through one of their jobs or PRs."""
+    keys = {state.pr_key(key) if "#" in key or "/pull/" in key else key for key in ids}
+    if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
+        raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}")
+    orders = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
+    data["orders"] = {key: order for key, order in data["orders"].items() if key in orders}
+    jobs = {job_id for order in data["orders"].values() for job_id in order["jobs"]}
+    data["jobs"] = {key: job for key, job in data["jobs"].items() if key in jobs or job["order"] in orders}
+    data["prs"] = {key: pr for key, pr in data["prs"].items() if pr["order"] in orders}
+
+
 def status(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
+    if args.ids:
+        only(data, args.ids)
     pr_fields = overlay_live(data)
     seen = {role: with_build(orca_place(held, name_show), held) for role, held in data["roles"].items()}
     return emit(args, render.status_text(data, pr_fields, seen), render.status_data(data, pr_fields, seen))
@@ -755,7 +769,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.set_defaults(run=heard)
 
-    verbs.add_parser("status", parents=both).set_defaults(run=status)
+    verb = verbs.add_parser("status", parents=both)
+    verb.add_argument("ids", nargs="*", help="orders, jobs or PRs to read; default: every open order")
+    verb.set_defaults(run=status)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
     verb.set_defaults(run=context)

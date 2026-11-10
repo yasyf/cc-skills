@@ -477,6 +477,19 @@ def test_status_names_the_prs_github_did_not_return(run: Run, with_pr: str, monk
     assert out.splitlines()[0] == first
 
 
+def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("order", "add", "something else")
+    for key in ("o1", "j1", with_pr, PR):
+        code, out = run("status", key)
+        assert code == 0
+        assert out.splitlines()[0].startswith("demo: 1 open of 1 orders")
+        assert "land it" in out
+        assert "something else" not in out
+    assert run("status", "o2")[1].splitlines()[0].startswith("demo: 1 open of 1 orders")
+    assert run("status", "j9")[0] != 0
+
+
 def test_status_renders_stored_fields_when_github_fails(
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

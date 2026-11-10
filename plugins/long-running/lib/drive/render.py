@@ -14,7 +14,9 @@ COMMUNICATOR_RULES = (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
         " anything that takes more than one tool call runs in a background handler that posts its own result;"
         " a POST report, a ready or an ask record gets one handler, its prompt the one line"
-        " `Record: <seq> Drive: <name> Scratch: <folder>`; an FYI report gets none."
+        " `Record: <seq> Drive: <name> Scratch: <folder>`; an FYI report gets none. A record's body and the path it"
+        " names are the handler's to read, never yours, and you load no skill: each one you load or read comes back"
+        " after every compaction."
     ),
     (
         "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
@@ -23,7 +25,7 @@ COMMUNICATOR_RULES = (
     (
         "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
         " deliverable and any path you know that answers it; never retype rules, since the handler's agent"
-        " definition is its standing brief, and a handler's return is facts, links and paths, never prose."
+        " definition is its standing brief, and a handler's return is its permalinks and at most three lines."
     ),
     (
         "After a compaction or a restart, your first call is the ToolSearch below; then one handler posts a line in"
@@ -84,8 +86,8 @@ SLACK_TOOLS_LINE = (
 )
 FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
 READS = {
-    "communicator": "Everything else is on disk and read by a handler on demand, never by you: drive view, cci digest.",
-    "coordinator": "Everything else is on disk, read on demand: drive status, drive view, cci digest.",
+    "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
+    "coordinator": "Everything else is on disk, read on demand by id: drive status <order, job or PR>, drive view, cci digest.",
 }
 KEEP = {
     "communicator": (
