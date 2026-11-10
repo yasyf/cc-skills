@@ -321,6 +321,35 @@ def last_turn(path: Path) -> dict | None:
             span *= 4
 
 
+def running_build(path: Path) -> str | None:
+    """The Claude Code version the session's newest API request reports."""
+    with open(path, "rb") as handle:
+        end = handle.seek(0, os.SEEK_END)
+        span = TAIL_BYTES
+        while True:
+            start = max(0, end - span)
+            handle.seek(start)
+            for line in reversed(handle.read().splitlines()[1 if start else 0 :]):
+                if b'"api-request-shape"' in line:
+                    return json.loads(line).get("version")
+            if not start:
+                return None
+            span *= 4
+
+
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", version)[:3])
+
+
+def older_build(running: str | None, installed: str | None) -> str | None:
+    """What his line says when a session runs an older Claude Code than the one installed, which can lack its model's context window."""
+    if not running or not installed:
+        return None
+    if version_key(running) >= version_key(installed):
+        return None
+    return f"runs Claude Code {running}, older than the installed {installed}, so it can run its model at the wrong context window: restart it on his word"
+
+
 def context_tokens(entry: dict) -> int:
     usage = entry["message"].get("usage") or {}
     return sum(usage.get(key, 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))

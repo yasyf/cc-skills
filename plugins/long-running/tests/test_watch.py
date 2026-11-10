@@ -636,3 +636,17 @@ def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo:
     with state.edit(demo) as data:
         data["prs"][KEY]["tap"] = None
     assert watch.run_pass(watching, T0 + timedelta(minutes=430)) == [f"{still} 430 minutes [o1 j1]"]
+
+
+def test_running_build_reads_the_newest_request_shape(tmp_path: Path) -> None:
+    path = tmp_path / "session.jsonl"
+    shapes = [json.dumps({"type": "api-request-shape", "version": version}) for version in ("2.1.319", "2.1.321")]
+    path.write_text("\n".join([shapes[0], json.dumps({"type": "assistant"}), shapes[1], json.dumps({"type": "user"})]) + "\n")
+    assert watch.running_build(path) == "2.1.321"
+
+
+def test_older_build_flags_only_a_session_behind_the_installed_claude() -> None:
+    assert watch.older_build("2.1.319", "2.1.322").startswith("runs Claude Code 2.1.319, older than the installed 2.1.322")
+    assert watch.older_build("2.1.322", "2.1.322") is None
+    assert watch.older_build("2.1.330", "2.1.322") is None
+    assert watch.older_build(None, "2.1.322") is None
