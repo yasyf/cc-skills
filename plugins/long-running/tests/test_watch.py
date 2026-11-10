@@ -393,8 +393,8 @@ def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.Monke
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
-@pytest.mark.parametrize("kind", ["reader", "codex"])
-def test_a_done_builder_delivers_its_part_and_a_done_reader_or_codex_job_waits_for_the_posted_answer(
+@pytest.mark.parametrize("kind", ["reader", "codex", "design"])
+def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_waits_for_the_posted_answer(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], slack_thread: "Thread", kind: str
 ) -> None:
     serve(monkeypatch, {})
@@ -432,6 +432,27 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
         'ORPHAN o1 "ship the watch": j1 waits on "ASK which store?" and no open PR, card or due time can wake it'
     ]
+
+
+def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_once_he_answers(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    card = {"question": "Which Mac owns a chat?", "options": ["First", "Last"], "recommended": "First", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which Mac owns a chat?", "waits": "demo:j2-7-a"}}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", kind="design", state="done", card=CARD, updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
+        'ORPHAN o2 "options: only the owning machine writes": j2\'s card is answered and no job carries his answer'
+    ]
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j3")
+        data["jobs"]["j3"] = job(order="o2", kind="builder", parts=["options: only the owning machine writes"])
+    assert watch.run_pass(watching, T0 + timedelta(seconds=120)) == []
 
 
 def test_a_job_changed_in_the_last_two_minutes_is_still_being_handed_over(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
