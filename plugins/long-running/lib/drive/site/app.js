@@ -453,9 +453,69 @@ function workScreen() {
   const running = model.work.filter((job) => job.state === 'running');
   const stalled = running.filter(isStalled);
   const head = `<h1 class="h1">Work <span class="count">${running.length} running, ${model.work.length - running.length} waiting</span>${stalled.length ? `<span class="badge red">${stalled.length} quiet ${STALL_MINUTES} minutes or more</span>` : ''}</h1>`;
-  if (!model.work.length) return `${head}<p class="empty">No job is running or waiting.</p>`;
-  const ordered = [...stalled, ...model.work.filter((job) => !isStalled(job))];
-  return `${head}<ul class="jobs card">${ordered.map((job) => jobRow(job, true)).join('')}</ul>`;
+  const groups = [
+    ['stalled', `Quiet ${STALL_MINUTES} minutes or more`, stalled, true],
+    ['running', 'Running', running.filter((job) => !isStalled(job)), true],
+    ['waiting', 'Waiting', model.work.filter((job) => job.state === 'waiting'), false],
+    ['finished', 'Finished in the last day', model.finished, false],
+  ].filter(([, , jobs]) => jobs.length);
+  if (!groups.length) return `${head}<p class="empty">No job is running, waiting or finished today.</p>`;
+  return head + groups.map(([id, label, jobs, open]) => {
+    const isOpen = opened.get(`work-${id}`) ?? open;
+    const newest = jobs.reduce((a, b) => (new Date(a.updated) > new Date(b.updated) ? a : b));
+    return `<details class="group wk ${id}" data-group="work-${id}"${isOpen ? ' open' : ''}>
+      <summary><span class="dot"></span>${label} <span class="count">${jobs.length}</span><span class="newest">newest: ${esc(newest.goal)}</span></summary>
+      <ul class="jobs">${jobs.map((job) => jobRow(job, true)).join('')}</ul>
+    </details>`;
+  }).join('');
+}
+
+function jumpItems() {
+  const screens = [['Your queue', '#/'], ['Now', '#/now'], ['Status', '#/status'], ['Review', '#/review'], ['Work', '#/work'], ['History', '#/history']];
+  return [
+    ...screens.map(([title, href]) => ({ kind: 'Screen', title, href })),
+    ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: `#/queue/${item.kind}` })),
+    ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
+    ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
+    ...model.work.map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
+  ];
+}
+
+let jumpAt = 0;
+
+function drawJump() {
+  const words = $('#jumpfind').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title}`.toLowerCase().includes(word))).slice(0, 40);
+  jumpAt = Math.min(jumpAt, Math.max(0, found.length - 1));
+  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
+}
+
+function openJump() {
+  if (!model) return;
+  const jump = $('#jump');
+  $('#jumpfind').value = '';
+  jumpAt = 0;
+  drawJump();
+  if (!jump.open) jump.showModal();
+  $('#jumpfind').focus();
+}
+
+function goJump(row) {
+  $('#jump').close();
+  if (row.dataset.prJump) return openPR(row.dataset.prJump);
+  location.hash = row.dataset.href;
+}
+
+function alerts() {
+  const stalled = model.work.filter(isStalled).length;
+  const late = model.queue.filter((item) => item.kind === 'late').length;
+  const red = model.progress.red;
+  return [
+    model.cards === 'live' ? '' : `<span class="al warn">Your questions are not listed here: cc-slack ${esc(model.cards)}</span>`,
+    stalled ? `<a class="al bad" href="#/work">${stalled} ${stalled === 1 ? 'job has' : 'jobs have'} been quiet ${STALL_MINUTES} minutes or more</a>` : '',
+    late ? `<a class="al bad" href="#/queue/late">${late} promised ${late === 1 ? 'time has' : 'times have'} passed</a>` : '',
+    red ? `<a class="al bad" href="#/review/not%20ready">${red} open ${red === 1 ? 'PR is' : 'PRs are'} red</a>` : '',
+  ].filter(Boolean).join('');
 }
 
 function historyRow(entry) {
@@ -525,11 +585,14 @@ function render() {
   };
   const waiting = model.review.filter((entry) => entry.group === 'you').length;
   $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
-  const warning = model.cards === 'live' ? '' : `<p class="warn">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
+  const raised = screen === 'now' ? '' : alerts();
+  $('#alerts').innerHTML = raised;
+  $('#alerts').hidden = !raised;
   const screens = { queue: () => queueScreen(id), now: nowScreen, status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
   $('#findbar').hidden = screen !== 'status';
   const y = window.scrollY;
-  $('#main').innerHTML = warning + (screens[screen] ?? queueScreen)();
+  $('#main').innerHTML = (screens[screen] ?? queueScreen)();
+  if ($('#jump').open) drawJump();
   window.scrollTo(0, y);
   if (screen === 'status') find();
   measure();
@@ -587,6 +650,10 @@ document.addEventListener('click', (event) => {
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  if (event.target.closest('#kbtn')) return openJump();
+  const jumped = event.target.closest('#jumplist [data-jump]');
+  if (jumped) return goJump(jumped);
+  if (event.target.id === 'jump') return $('#jump').close();
   if (event.target.closest('[data-close]') || event.target.id === 'drawer') return $('#drawer').close();
   const drtab = event.target.closest('[data-drtab]');
   if (drtab) {
@@ -616,8 +683,29 @@ window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
   render();
 });
+document.addEventListener('keydown', (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+    event.preventDefault();
+    return openJump();
+  }
+  if (!$('#jump').open) return;
+  const rows = [...document.querySelectorAll('#jumplist [data-jump]')];
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault();
+    jumpAt = Math.max(0, Math.min(rows.length - 1, jumpAt + (event.key === 'ArrowDown' ? 1 : -1)));
+    drawJump();
+    document.querySelector('#jumplist .on')?.scrollIntoView({ block: 'nearest' });
+  } else if (event.key === 'Enter' && rows[jumpAt]) {
+    event.preventDefault();
+    goJump(rows[jumpAt]);
+  }
+});
 window.addEventListener('DOMContentLoaded', () => {
   $('#find').addEventListener('input', find);
+  $('#jumpfind').addEventListener('input', () => {
+    jumpAt = 0;
+    drawJump();
+  });
   setInterval(render, 60000);
   connect();
 });

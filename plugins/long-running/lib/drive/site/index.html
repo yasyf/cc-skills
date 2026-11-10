@@ -11,13 +11,16 @@
 <aside class="side">
   <a class="brand" href="#/"><span class="brandmark"><i></i><i></i><i></i><i></i></span><b id="brand"></b></a>
   <nav class="tabs" id="tabs"></nav>
+  <button class="kbtn" id="kbtn" type="button">⌕ <span>Jump to anything</span><kbd>⌘K</kbd></button>
   <span class="fresh" id="fresh"></span>
 </aside>
 <div class="content">
+  <div id="alerts" class="alerts" hidden></div>
   <div id="findbar" class="findbar" hidden><input id="find" type="search" placeholder="Find a feature or pull request" autocomplete="off"></div>
   <main id="main"></main>
 </div>
 <dialog id="drawer" class="drawer"></dialog>
+<dialog id="jump" class="jump"><input id="jumpfind" type="search" placeholder="Jump to a question, change, feature or job" autocomplete="off"><ul id="jumplist"></ul></dialog>
 <script src="/app.js"></script>
 </body>
 </html>

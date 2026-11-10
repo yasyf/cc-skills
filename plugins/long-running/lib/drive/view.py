@@ -14,7 +14,8 @@
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
-`work` (each running or waiting job of a shown feature), `history` (the last day, newest first), `review` (every
+`work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
+newest first), `history` (the last day, newest first), `review` (every
 open PR, in `you`, `not ready` or `decided`, with its Slack card when it has one) and each feature's `text`, `note`,
 `created` and `jobs`.
 """
@@ -361,9 +362,16 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
             }
     active = [job_entry(job_id, job) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] in ("running", "waiting")]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
+    finished = [
+        job_entry(job_id, job)
+        for job_id, job in drive["jobs"].items()
+        if job["state"] in ("done", "failed", "stopped") and moment - state.parse_time(job["updated"]) <= HISTORY_FOR
+    ]
+    finished.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     return model | {
         "progress": progress(drive),
         "work": active,
+        "finished": finished,
         "history": history(drive, events, moment, found["team_url"]),
         "review": review(drive, found),
     }

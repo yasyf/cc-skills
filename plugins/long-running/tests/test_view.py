@@ -263,3 +263,18 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     ]
     assert (entries[0]["card"], entries[0]["answer"], entries[0]["since"]) == (drawn, card["url"], card["asked"])
     assert all(entry["card"] is None for entry in entries[1:])
+
+
+def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
+    data = drive_of(
+        {"o1": order("ship the page", ["j1", "j2", "j3", "j4"])},
+        {
+            "j1": job("o1", "done", updated=-30),
+            "j2": job("o1", "failed", updated=-10),
+            "j3": job("o1", "done", updated=-2000),
+            "j4": job("o1", "running"),
+        },
+        [],
+    )
+    finished = view.board(data, found(), "live", [], T0)["finished"]
+    assert [(entry["id"], entry["state"]) for entry in finished] == [("j2", "failed"), ("j1", "done")]
