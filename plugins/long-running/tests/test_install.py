@@ -54,9 +54,10 @@ class FakeGit:
         if verb[:2] == ["rev-list", "--count"]:
             return "0\n" if verb[3].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
-            entry = {"scope": "user", "version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z"}
-            stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z"}
-            installed = {"version": 2, "plugins": {"long-running@skills": [stale, entry]}}
+            plugin = cmd[3].partition("@")[0]
+            entry = {"scope": "user", "version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": f"/cache/{plugin}/1.0.3"}
+            stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z", "installPath": "/cache/old"}
+            installed = {"version": 2, "plugins": {cmd[3]: [stale, entry]}}
             (self.config / "plugins" / "installed_plugins.json").write_text(json.dumps(installed))
         return ""
 
@@ -65,6 +66,9 @@ class FakeGit:
 
     def claude_calls(self) -> list[list[str]]:
         return [call for call in self.calls if call[0] == "claude"]
+
+    def other_calls(self) -> list[list[str]]:
+        return [call for call in self.calls if call[0] not in ("git", "claude")]
 
 
 @pytest.fixture
@@ -150,7 +154,7 @@ def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
 ) -> None:
     git = fake(["0ld5ync", "n3w5ync"], {"n3w5ync"}, path=path)
     assert install.main("long-running@skills", SHA, None, 900) == 0
-    assert ["log", "-1", "--format=%H", install.DEFAULT_BRANCH, "--", manifest] in git.git_calls()
+    assert ["log", "-1", "--first-parent", "--format=%H", install.DEFAULT_BRANCH, "--", manifest] in git.git_calls()
     assert ["rev-list", "--count", SHA, "^n3w5ync"] in git.git_calls()
     assert not [call for call in git.git_calls() if "refs/tags/" in call[-1]]
     assert git.sleeps == [20]
@@ -206,3 +210,59 @@ def test_a_marketplace_with_no_github_repo_asks_for_repo(fake: Callable[..., Fak
     fake(["unused"], set())
     assert install.main("plugin@forge", SHA, None, 900) == 1
     assert "pass --repo" in capsys.readouterr().err
+
+
+def test_a_plugin_the_marketplace_does_not_name_fails_at_once(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    assert install.main("cci@skills", SHA, None, 900) == 1
+    assert "the skills marketplace names no plugin cci" in capsys.readouterr().err
+    assert (git.sleeps, git.claude_calls()) == ([], [])
+
+
+def git_in(repo: Path, *args: str) -> str:
+    identity = ["-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"]
+    return subprocess.run(["git", "-C", str(repo), *identity, *args], check=True, capture_output=True, text=True).stdout.strip()
+
+
+def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
+    for name, text in files.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    git_in(repo, "add", "-A")
+    git_in(repo, "commit", "-q", "-m", message)
+    return git_in(repo, "rev-parse", "HEAD")
+
+
+def test_a_release_merged_into_the_default_branch_contains_its_merge_commit(tmp_path: Path) -> None:
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    git_in(origin, "init", "-q", "-b", "main")
+    marketplace = {"name": "cc-inbox", "plugins": [{"name": "cc-inbox", "source": "./plugin"}]}
+    manifest = "plugin/.claude-plugin/plugin.json"
+    commit_files(origin, "base", {".claude-plugin/marketplace.json": json.dumps(marketplace), manifest: '{"version": "1"}'})
+    commit_files(origin, "code", {"code.go": "package main"})
+    git_in(origin, "checkout", "-q", "-b", "sync")
+    commit_files(origin, "sync to 2", {manifest: '{"version": "2"}'})
+    git_in(origin, "checkout", "-q", "main")
+    git_in(origin, "merge", "-q", "--no-ff", "-m", "merge sync", "sync")
+    merge = git_in(origin, "rev-parse", "HEAD")
+    clone = str(tmp_path / "clone")
+    deadline = install.clock() + 120
+    install.run(["git", "init", "--bare", "--quiet", clone], deadline)
+    install.git(clone, "remote", "add", "origin", origin.as_uri(), deadline=deadline)
+    ref = install.release_ref(clone, "cc-inbox", deadline)
+    assert ref == merge
+    assert install.contains(clone, ref, merge, deadline)
+
+
+def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    git = fake(["unused"], set())
+    assert install.main("cc-inbox@skills", None, None, 900) == 0
+    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"]]
+    assert capsys.readouterr().out.strip() == "installed cc-inbox@skills 1.0.3"
+
+
+def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]) -> None:
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.other_calls() == []

@@ -11,9 +11,14 @@ POLL_SECONDS = 20
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
 DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
+AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
 
 
 class InstallError(Exception):
+    pass
+
+
+class UnknownPlugin(InstallError):
     pass
 
 
@@ -64,14 +69,14 @@ def release_ref(clone: str, plugin: str, deadline: float) -> str | None:
     marketplace = json.loads(git(clone, "show", f"{DEFAULT_BRANCH}:.claude-plugin/marketplace.json", deadline=deadline))
     entry = next((entry for entry in marketplace["plugins"] if entry["name"] == plugin), None)
     if entry is None:
-        raise InstallError(f"the {marketplace['name']} marketplace names no plugin {plugin}")
+        raise UnknownPlugin(f"the {marketplace['name']} marketplace names no plugin {plugin}")
     source = entry["source"]
     if isinstance(source, dict):
         if tag := source.get("ref"):
             git(clone, *FETCH, f"+refs/tags/{tag}:refs/tags/{tag}", deadline=deadline)
         return tag
     manifest = PurePosixPath(source) / ".claude-plugin" / "plugin.json"
-    return git(clone, "log", "-1", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
+    return git(clone, "log", "-1", "--first-parent", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
 
 
 def contains(clone: str, ref: str, sha: str, deadline: float) -> bool:
@@ -91,6 +96,8 @@ def await_release(repo: str, plugin: str, sha: str, deadline: float, timeout: in
                 failure = ""
                 if ref and contains(clone, ref, sha, deadline):
                     return ref
+            except UnknownPlugin:
+                raise
             except InstallError as error:
                 failure = f" (last read failed: {error})"
             left = deadline - clock()
@@ -99,12 +106,11 @@ def await_release(repo: str, plugin: str, sha: str, deadline: float, timeout: in
             sleep(min(POLL_SECONDS, left))
 
 
-def installed_version(key: str) -> str:
+def installed(key: str) -> dict:
     plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
     if not plugins.get(key):
         raise InstallError(f"{key} is not in installed_plugins.json after the update")
-    newest = max(plugins[key], key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
-    return newest["version"]
+    return max(plugins[key], key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
 
 
 def install(key: str, sha: str | None, repo: str | None, timeout: int) -> str:
@@ -114,7 +120,10 @@ def install(key: str, sha: str | None, repo: str | None, timeout: int) -> str:
         await_release(repo or marketplace_repo(marketplace), plugin, sha, deadline, timeout)
     run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
     run(["claude", "plugin", "update", key], deadline)
-    return installed_version(key)
+    entry = installed(key)
+    if after := AFTER_UPDATE.get(plugin):
+        run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
+    return entry["version"]
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
