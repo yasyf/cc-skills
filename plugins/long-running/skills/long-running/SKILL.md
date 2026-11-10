@@ -118,7 +118,8 @@ live session reads here can land on another drive. Each record names the thread 
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
 | `report` | `root` | `communicator@<drive>` | the facts of one message: the thread or alert link it goes in, what changed for him, links and proof | writes the message and posts it |
 | `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first | draws the stack's PR card |
-| `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the question card, its `waits` id `<drive>:<j>-<the record's seq>` |
+| `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, its `Findings:` section included, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the findings in the order's thread, then the question card under them, its `waits` id `<drive>:<j>-<the record's seq>`; a record with no findings draws nothing and goes back as `refused` |
+| `refused` | communicator | `root@<drive>` | `--re` the `ask` it refuses and why, such as no findings | resumes that job to send its `ASK` again with what was missing |
 
 ## The communicator
 
@@ -195,6 +196,7 @@ answer.
 | A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each the ruling with `SendMessage` when it returns. |
 | A question of his, in an `owner` record, such as one a card's `ask` record does not answer | A `report` of what you have now inside 5 to 10 seconds, then the read in a background job when it takes more than one call, its result the second `report`. |
 | An `answer` record | `answer_add` with the card's question as title and, as body, the option he tapped or his own words verbatim, never a paraphrase, a bot's summary, or the closest option standing in for words he wrote. A record with `maps=none` settles nothing: resume no job on it until he picks. Otherwise resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent with `drive job set <j> --state running`, or `drive job resume` for a remote lane. |
+| A `refused` record | Resume the job its `ask` came from with the refusal: it sends its `ASK` again with what was missing. |
 | A `defect` record | A builder on that tool's repository, by [Tooling](#tooling). |
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
 | A job finished, or a `JOB …` event | Read the first line of its result and do the matching row below. |
@@ -207,7 +209,7 @@ answer.
 | `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, with the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
 | `READY <pr url>...` | Read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap` for each URL, and one `ready` record with every URL, bottom first, and the order's thread. A PR added to the stack later comes back as its own `READY` and gets its own card. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`. Nothing to him. The watch wakes a job through its open PR, its card or the order's due time; a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
-| `ASK <question>` | `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives. |
+| `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". |
 | `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. |
 
 | Event | Do |
@@ -348,6 +350,8 @@ CI fixes, cleanups, tool fixes.
   changing production, and stopping or closing sessions he did not name.
 - A design question gets two to four options with what each does, a recommendation, and a
   picture when the shape matters. Keep building on the recommendation; his tap steers.
+- No question card goes up before the findings it rests on are posted in its thread: what was
+  hit, what was measured, the cause, and what each option changes and costs.
 - His answer is the option he tapped, or his own words when he writes one: a written reply that
   names no single option settles nothing, is never mapped to the closest option, and goes back to
   him under the card. No option asks a reporter or anyone else to retry or confirm.
