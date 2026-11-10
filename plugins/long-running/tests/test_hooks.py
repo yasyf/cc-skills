@@ -2,10 +2,12 @@ import io
 import json
 import os
 from collections.abc import Callable
+from pathlib import Path
 
 import landing_guard
 import pre_compact
 import pytest
+import scratch_folder
 import session_start
 from drive import state
 
@@ -106,6 +108,34 @@ def test_pre_compact_prints_each_roles_summary_instructions(
     out = hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "talker", "trigger": "manual"}))
     assert "summary of the communicator of drive demo is at most 1500 characters" in out
     assert hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "someone-else"})) == ""
+
+
+def agent_call(subagent_type: str, prompt: str) -> str:
+    return json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": subagent_type, "prompt": prompt, "description": "d"}})
+
+
+def test_scratch_folder_exists_before_a_drive_agent_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    record = tmp_path / "scratch" / "drive-communicator"
+    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:handler", f"Record: 658250 Drive: demo Scratch: {record}"))
+    assert record.is_dir()
+    message = tmp_path / "scratch" / "handler-2"
+    prompt = f'Message (his words): "ship it"\nDrive: demo. Scratch: {message}. Deliverable: an owner record'
+    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:handler", prompt))
+    assert message.is_dir()
+    job = tmp_path / "jobs" / "j7"
+    hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:builder", f"Order: o1\nScratch: {job}\nDrive: demo"))
+    assert job.is_dir()
+
+
+def test_scratch_folder_leaves_other_agents_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    folder = tmp_path / "elsewhere"
+    assert hook_output(scratch_folder, monkeypatch, capsys, agent_call("Explore", f"Scratch: {folder}")) == ""
+    assert hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:reader", "no folder named")) == ""
+    assert not folder.exists()
 
 
 def test_guard_denies_an_untapped_drive_pr(
