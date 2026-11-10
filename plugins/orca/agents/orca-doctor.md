@@ -147,7 +147,8 @@ Pick `next step` from the state:
 - `never-launched`: launch it with `orca-worker-launch.sh`, as the orca skill shows,
   from the coordinator that owns the Run.
 - `launch-failed`: quote the failing step and say the attempt directory keeps
-  its receipts; a brief gets one attempt, so a relaunch needs a new brief.
+  its receipts. A Sprite attempt whose prepare exited nonzero relaunches from
+  the same brief once its cause is fixed; any later failure needs a new brief.
 - `idle-shell`: the startup command never reached the shell; type it into the
   kept terminal, or relaunch from a new brief.
 - `waiting-for-input`: answer with

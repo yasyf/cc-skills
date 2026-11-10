@@ -269,7 +269,7 @@ class PreAllocationTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite()
                 launch.reply("cc-remote orca prepare", {"rc": 1})
-                self.assert_failed(launch, launch.run(lane=lane), f"cc-remote orca prepare exited 1; {launch.attempt} keeps its output, and nothing was attached or retried", [VERSION, CURRENT, launch.prepare(lane=lane)])
+                self.assert_failed(launch, launch.run(lane=lane), f"cc-remote orca prepare exited 1; {launch.attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh", [VERSION, CURRENT, launch.prepare(lane=lane)])
 
     def test_a_local_repository_refuses_the_sprite_route(self):
         self.launch.sprite()
@@ -362,7 +362,7 @@ class PreAllocationTest(LaunchTest):
 
 class AttemptTest(LaunchTest):
     def test_an_earlier_attempt_refuses_replay_before_prepare(self):
-        for shape in ("empty", "failed", "link"):
+        for shape in ("empty", "prepared", "started", "link"):
             with self.subTest(shape=shape):
                 launch = self.fresh()
                 launch.sprite()
@@ -370,10 +370,11 @@ class AttemptTest(LaunchTest):
                     launch.attempt.symlink_to(launch.briefs / "gone")
                 else:
                     launch.attempt.mkdir()
-                if shape == "failed":
-                    (launch.attempt / "prepare.status").write_text("1\n")
+                kept = {"prepared": {"prepare.status": "0\n"}, "started": {"prepare.status": "1\n", "worker-start.status": "1\n"}}.get(shape, {})
+                for receipt, text in kept.items():
+                    (launch.attempt / receipt).write_text(text)
                 self.assert_failed(launch, launch.run(), f"{launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead", [VERSION, CURRENT])
-                self.assertEqual(launch.kept(), ["prepare.status"] if shape == "failed" else [])
+                self.assertEqual(launch.kept(), sorted(kept))
 
     def test_a_legacy_dispatch_receipt_refuses_instead_of_retrying(self):
         for local in (False, True):
@@ -397,16 +398,22 @@ class AttemptTest(LaunchTest):
                     else:
                         self.assertEqual(os.readlink(legacy), str(gone))
 
-    def test_a_second_launch_after_a_failed_prepare_prepares_nothing(self):
+    def test_a_launch_after_failed_prepares_keeps_each_and_prepares_again(self):
+        failures = []
+        for _ in range(2):
+            self.launch.sprite()
+            self.launch.reply("cc-remote orca prepare", {"rc": 1, "out": ""})
+            failures.append(self.launch.run())
         self.launch.sprite()
-        self.launch.reply("cc-remote orca prepare", {"rc": 1, "out": ""})
-        first = self.launch.run()
-        self.launch.sprite()
-        second = self.launch.run()
-        self.assertEqual(first.returncode, 1)
-        self.assertEqual((second.returncode, second.stdout, second.stderr), (1, "", f"{self.launch.attempt} holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead\n"))
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), VERSION, CURRENT])
-        self.assertEqual(self.launch.kept(), ALLOCATION_KEPT)
+        third = self.launch.run()
+        self.assertEqual([failure.returncode for failure in failures], [1, 1])
+        retired = [self.launch.attempt.with_name(f"{self.launch.attempt.name}.{n}") for n in (1, 2)]
+        self.assertIn(f"{retired[0]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", failures[1].stderr)
+        self.assertEqual(third.returncode, 0, third.stderr)
+        self.assertIn(f"{retired[1]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", third.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare()] * 3 + [self.launch.start()])
+        self.assertEqual([sorted(path.name for path in attempt.iterdir()) for attempt in retired], [ALLOCATION_KEPT, ALLOCATION_KEPT])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_an_earlier_local_attempt_refuses_instead_of_retrying(self):
         self.launch.local()
@@ -574,7 +581,7 @@ class SpriteTest(LaunchTest):
         self.launch.sprite()
         self.launch.reply("cc-remote orca prepare", {"rc": 1, "out": partial, "err": "cc-remote: provider timed out\n"})
         result = self.launch.run()
-        self.assert_failed(self.launch, result, f"cc-remote orca prepare exited 1; {self.launch.attempt} keeps its output, and nothing was attached or retried", [VERSION, CURRENT, self.launch.prepare()])
+        self.assert_failed(self.launch, result, f"cc-remote orca prepare exited 1; {self.launch.attempt} keeps its output, nothing was attached, and launching this brief again prepares afresh", [VERSION, CURRENT, self.launch.prepare()])
         self.assertEqual(self.launch.kept(), ALLOCATION_KEPT)
         self.assertEqual(self.launch.receipt("allocation.json"), partial)
         self.assertEqual(self.launch.receipt("prepare.err"), "cc-remote: provider timed out\n")

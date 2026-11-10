@@ -120,6 +120,13 @@ legacy=$dir/${name%.*}.dispatch.json
 [ ! -e "$legacy" ] && [ ! -L "$legacy" ] ||
   die "$legacy holds an earlier launch of this brief, and a brief gets one attempt; inspect it instead"
 sha=$(shasum -a 256 "$brief" | cut -d' ' -f1)
+if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ ! -e "$attempt/worker-start.status" ] &&
+  read -r failed 2>/dev/null <"$attempt/prepare.status" && [[ $failed =~ ^[1-9][0-9]*$ ]]; then
+  retired=$attempt.1
+  while [ -e "$retired" ] || [ -L "$retired" ]; do retired=$attempt.$((${retired##*.} + 1)); done
+  mv "$attempt" "$retired"
+  echo "$retired keeps the earlier attempt, whose prepare exited $failed before any worker started; preparing again" >&2
+fi
 fenced=
 if [ -e "$attempt" ] || [ -L "$attempt" ]; then
   [ "$route" = sprite ] && [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
@@ -166,7 +173,7 @@ if [ "$route" = sprite ]; then
   status=0
   [ -n "$fenced" ] || "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
   [ -n "$fenced" ] || echo "$status" >"$attempt/prepare.status"
-  [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, and nothing was attached or retried"
+  [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, nothing was attached, and launching this brief again prepares afresh"
 
   verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \
     --arg sha "$sha" --argjson bytes "$bytes" '

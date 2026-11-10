@@ -213,7 +213,10 @@ authentication caches to a worker.
 Each brief claims `<brief-stem>.worker` beside the brief. For
 `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. An existing directory,
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
-The directory records `request.json` with the requested route, model, effort,
+The one exception is a Sprite attempt whose prepare exited nonzero and that
+never ran `worker-start`: no task reached any worker, so launching the brief
+again moves that attempt to `<brief-stem>.worker.<n>`, keeping its files, and
+prepares afresh. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains the raw `allocation.json`, `prepare.err`, and
