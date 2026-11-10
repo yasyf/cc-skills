@@ -27,7 +27,7 @@ mute as a resolution.
 2. `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts>
    --parts "stop the harm" "rollback" "cause" --due +10m`.
 3. In one message, start three `codex:codex-wrapper` jobs, each running `codex-ask --incident`, each
-   brief carrying the answer id from step 1:
+   brief carrying the answer id from step 1 and the brief template's `Incident:` line written out in full:
    - **fix**, with apply authority. Its first deliverable is the smallest change that stops users
      being blocked: degrade, disable, or revert the failing path, starting at the code path the
      alert or his words name. The real fix comes later.
@@ -61,12 +61,23 @@ also sends him a line in that turn, before he asks: what is late and the new tim
 - Codex edits and Claude ships: the turn the fix job has its change, a `long-running:builder` ships it
   from that worktree, lands it and proves it live.
 - The fix PR carries the code change alone; its tests follow in a second PR once the fix is live.
-- An approved and green incident PR lands, and its release starts, in the same turn the watch reports
-  it: on its `checks passed` or `approved` event, resume its job with "land it and start its release
-  now". In the monorepo the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`,
-  then `gh pr merge <n> -R Forge-AI/monorepo --squash`. Never `--admin`. Accept a reviewer-bot
-  finding with `submit-pr`'s `pr-reviews accept <slug> --why "incident: <why the fix is right>"`
-  unless it says the fix is wrong.
+- An approved and green incident PR lands in the same turn the watch reports it: on its `checks
+  passed` or `approved` event, resume its job with "land it and start its build now". In the monorepo
+  the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then `gh pr merge <n>
+  -R Forge-AI/monorepo --squash`. Never `--admin`. Accept a reviewer-bot finding with `submit-pr`'s
+  `pr-reviews accept <slug> --why "incident: <why the fix is right>"` unless it says the fix is wrong.
+- Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers or
+  what caused the break, no comparison of open builds, no question. The job shipping the fix starts the build at
+  the fix commit and reports its link. The release's own approve gate is the only check, and every
+  read runs while it builds.
+- The cut is named here, never derived mid-incident. An incident fix for sand or sand-next ships
+  alone, never through the normal start, which pulls in the whole platform release and waits on the
+  fix's dev test:
+  - a merged fix: `tools/ci release start sand --only sand --emergency`;
+  - a fix cherry-picked onto the live commit on a pushed branch: `tools/ci release start --manual
+    sand-next --env core-usw2-auto --commit <sha> --emergency`, since Platy refuses a commit off `dev`.
+
+  Every other form is in the monorepo `release` skill.
 - The incident order's words approve its own release's gate and its rollback, and only those: the job
   that starts the release answers the gate with `--order <the answer id>`, or `tools/ci release
   approve <id> --via <agent>` where it holds at approve. Every other release follows
@@ -84,8 +95,8 @@ order, started on the fix's `DONE`, and the cause in plain words goes into the o
 ## What he hears
 
 Five lines, nothing between them but a missed clock's line, each a `report` to the communicator, which
-posts it in his thread or the alert's thread with the alert's Slack link and its Sentry or Datadog
-link, bare so they unfurl. They go out while he is away too.
+posts it in his thread or the alert's thread. They go out while he is away too. No links pile up under
+a line: a link appears once, inline, where the sentence names the thing it points at.
 
 1. **Jobs started:** the fix, the rollback check and the cause hunt are running.
 2. **PR open:** the fix's title, linked, and what it stops.

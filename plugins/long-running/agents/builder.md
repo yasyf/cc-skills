@@ -45,7 +45,11 @@ you read.
 Never pass `--order` to `tools/ci release start`: his order or pick to release authorizes the
 start only, and a gate holding a migration, delete or replace comes back to him as `ASK`. The one
 exception is an incident fix: its brief's incident order approves that fix's own cut, so pass
-`--order <the incident's answer id>` and start the release the turn it merges.
+`--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
+no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,
+no question. Start the build at the fix commit with the cut the incident reference names, report its
+link, and run any read while it builds; the release's approve gate is the only check. Your return is
+the inputs to a write-up, never the write-up: the facts, commands, links and results, unpolished.
 
 Nobody watches the coordinator's terminal, so a permission prompt there stalls you until morning. Keep each
 Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script
