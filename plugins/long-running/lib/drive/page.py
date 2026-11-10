@@ -31,6 +31,11 @@ class PageError(Exception):
     pass
 
 
+class Drawn(NamedTuple):
+    url: str
+    new_tab: bool
+
+
 class Section(NamedTuple):
     named: str
     lines: list[str]
@@ -130,8 +135,8 @@ def render(model: dict, dashboard: str) -> str:
     return compose([*head, *queue[:shown], *note], [], [f"{len(queue) - shown} more waiting on you", *left], dashboard)
 
 
-def draw(name: str, markdown: str) -> str:
-    """Draw the page on the drive's canvas, creating it as a tab in his DM the first time; returns the page's URL."""
+def draw(name: str, markdown: str) -> Drawn:
+    """Draw the page on the drive's canvas, creating it as a tab in his DM the first time, and again when the stored canvas is gone or Slack calls it full; returns the page's URL and whether it moved to a new tab."""
     canvas = state.load(name)["slack"].get("page")
     argv = ["cc-slack", "canvas", "--title", f"{name}: where it stands"]
     if canvas:
@@ -148,4 +153,4 @@ def draw(name: str, markdown: str) -> str:
     if drawn["canvas_id"] != canvas:
         with state.edit(name) as data:
             data["slack"]["page"] = drawn["canvas_id"]
-    return drawn["url"]
+    return Drawn(drawn["url"], bool(canvas) and drawn["canvas_id"] != canvas)

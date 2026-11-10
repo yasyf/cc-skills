@@ -42,6 +42,7 @@
 | `WATCH compacted the communicator …` | Nothing: the watch typed `/compact` into the communicator's Orca terminal at a quiet moment. |
 | `WATCH … failed` | GitHub or Orca did not answer; the watch keeps trying and says so again in ten minutes. Nothing to him. |
 | `WATCH status page stale since …` | Slack refused the status page's redraw, so his canvas still shows that time's state; the line names Slack's reason. The watch retries each change and says it once, kept in the drive across watch restarts, then `WATCH status page redrawn …` once when Slack takes a redraw again. Nothing to him; one that persists gets a builder on cc-slack. |
+| `WATCH status page redrawn on a new tab: <url>` | The drive's status tab moved: Slack called the old one full, or it was gone, so the watch drew the page on a fresh tab of the same name in his DM. The next line to him that says where things stand links the new tab. |
 
 While he is away, send only `ready` and `ask` records and the incident lines
 [reference/incidents.md](incidents.md) calls for; everything else waits for his catch-up.

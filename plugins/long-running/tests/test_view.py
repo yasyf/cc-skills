@@ -1,3 +1,5 @@
+import json
+import subprocess
 from datetime import timedelta
 
 import pytest
@@ -6,6 +8,7 @@ from drive.render import when
 
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
+DRAW = page.draw
 
 
 def at(minutes: int) -> str:
@@ -259,7 +262,7 @@ def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a
     monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
     accept = page.draw
 
-    def refused(name: str, markdown: str) -> str:
+    def refused(name: str, markdown: str) -> page.Drawn:
         raise page.PageError("Slack refused the redraw (canvas_too_large)")
 
     monkeypatch.setattr(page, "draw", refused)
@@ -272,6 +275,26 @@ def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a
     assert watch.run_pass(watching, T0 + timedelta(minutes=50)) == [redrawn]
     assert watch.run_pass(watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0), T0 + timedelta(minutes=60)) == []
     assert len(drawn) == 2
+
+
+def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
+    monkeypatch.setattr(page, "draw", DRAW)
+    answers = iter(["F1", "F1", "F2"])
+
+    def canvas(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        canvas_id = next(answers)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"canvas_id": canvas_id, "url": f"https://slack.example/docs/T1/{canvas_id}"}), "")
+
+    monkeypatch.setattr(page.subprocess, "run", canvas)
+    watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    for text, minutes in (("a new order", 10), ("another order", 20)):
+        with state.edit(demo) as data:
+            data["orders"][f"o{minutes}"] = order(text, [])
+        said = watch.run_pass(watching, T0 + timedelta(minutes=minutes))
+    assert [line for line in said if line.startswith("WATCH status page")] == ["WATCH status page redrawn on a new tab: https://slack.example/docs/T1/F2"]
+    assert state.load(demo)["slack"]["page"] == "F2"
 
 
 def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
