@@ -12,7 +12,7 @@ worktree after the drive in Orca's sidebar.
 
 ```sh
 orca worktree set --worktree path:<worktree> --display-name <drive>
-orca terminal create --worktree path:<worktree> --title <drive>-coordinator --command "env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h claude -n <drive>-coordinator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the coordinator: run Start or resume for that role'" --json
+orca terminal create --worktree path:<worktree> --title <drive>-coordinator --command "claude -n <drive>-coordinator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the coordinator: run Start or resume for that role'" --json
 orca terminal create --worktree path:<worktree> --title <drive>-communicator --command "claude -n <drive>-communicator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the communicator: run Start or resume for that role'" --json
 ```
 
@@ -25,10 +25,6 @@ restart: `orca repo set --repo path:<main checkout> --external-worktree-visibili
 sessions keep running and their terminals read `"orphaned": false` once it is set. It changes what
 his Orca sidebar lists for that repository, so it runs for the drive's own repository alone, and
 whoever runs it says so.
-
-The coordinator's `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` keeps a 1-hour prompt cache for the
-jobs it starts, which Claude Code otherwise cuts to 5 minutes, so a job back from a CI wait reads
-its context instead of writing all of it again; the coordinator's own cache and model are as before.
 
 For a drive that does not exist yet, the coordinator's prompt ends `; his DM is <channel id>`, which
 its `drive start` passes as `--channel`. Each session's `drive start` records the Orca terminal it
