@@ -63,10 +63,16 @@ def check_run(
 
 
 def check_suite(
-    *, status: str = "completed", check_runs: int = 1, app: str = "github-actions", suite_id: int = 1
+    *,
+    status: str = "completed",
+    check_runs: int = 1,
+    app: str = "github-actions",
+    suite_id: int = 1,
+    created_at: str = EPOCH,
 ) -> dict:
     return {
         "id": suite_id,
+        "created_at": created_at,
         "app": {"slug": app},
         "status": status,
         "conclusion": "success" if status == "completed" else None,
@@ -110,6 +116,7 @@ def surface(
     reviews: list[dict] | None = None,
     commits: list[dict] | None = None,
     stacked_on: int | None = None,
+    required: list[str] | None = None,
 ) -> dict[str, object]:
     head = pr["head"]["sha"]
     runs = [check_run("build")] if runs is None else runs
@@ -118,6 +125,11 @@ def surface(
         f"commits/{head}/check-runs": {"total_count": len(runs), "check_runs": runs},
         f"commits/{head}/status": {"state": "success", "statuses": []},
         f"commits/{head}/check-suites": {"total_count": len(suites or []), "check_suites": suites or []},
+        f"rules/branches/{pr['base']['ref']}": [
+            {"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": c} for c in required]}}
+        ]
+        if required
+        else [],
         f"issues/{PR}/events": events or [],
         f"issues/{PR}/comments": comments or [],
         f"pulls/{PR}/comments": [],

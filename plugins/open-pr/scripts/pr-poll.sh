@@ -67,6 +67,7 @@ set -euo pipefail
 
 STATE_SCHEMA=4
 EMPTY_PASSES_BEFORE_GREEN=3
+SUITES_SETTLE=120
 MERGEABLE_FALSE_READS=2
 INTERVAL_MIN=120
 INTERVAL_FLOOR_PER_PR=10
@@ -182,7 +183,11 @@ usage: pr-poll.sh <owner/repo> <pr-number> <state-file>
   the head has completed: a workflow run registers its suite before its
   jobs, so a partial list can read green while a run is still queued.
   Other apps' suites are not consulted, since an installed app that never
-  runs leaves its suite queued with no check runs.
+  runs leaves its suite queued with no check runs. A suite can also
+  register seconds after a fast app's check has passed, so nothing is ready
+  until SUITES_SETTLE seconds (120) after the head's first suite appeared.
+  A required status check the base branch's rulesets name counts as
+  pending until it reports, so a missing required check is never ready.
 
   A round ends with DONE window-elapsed after PR_POLL_WINDOW seconds (1500,
   under the harness's 30-minute Monitor cap); re-run on the same state file
@@ -432,17 +437,20 @@ eviction_reason() {
   printf 'unknown label removed by %s\n' "$actor"
 }
 
-actions_completed() {
-  local open
-  open=$(get "repos/$REPO/commits/$1/check-suites?per_page=100" \
-    '[.check_suites[] | select(.app.slug == "github-actions" and .status != "completed")] | length') || return 1
-  [ "$(jq -s 'add // 0' <<<"$open")" = 0 ]
+suites_settled() {
+  local suites
+  suites=$(get "repos/$REPO/commits/$1/check-suites?per_page=100" '.check_suites') || return 1
+  jq -se --argjson now "$(date +%s)" --argjson settle "$SUITES_SETTLE" '
+    add // [] |
+    all(.[]; .app.slug != "github-actions" or .status == "completed") and
+      ((map(.created_at | fromdate) | min // 0) <= $now - $settle)
+  ' <<<"$suites" >/dev/null
 }
 
 green() {
   local head=$1 merge_state=$2 reviews_ok=$3 changes_requested=$4 downstack=$5
   [ "$reviews_ok" = 1 ] || return 0
-  actions_completed "$head" || return 0
+  suites_settled "$head" || return 0
   if [ "$merge_state" != blocked ] && [ "$changes_requested" = false ]; then
     finish "ready-to-merge${downstack:+ downstack #$downstack}"
   fi
@@ -458,7 +466,7 @@ native_queue() {
 
 poll() {
   local view head prev base default_branch stacked_on="" downstack="" pr_state merged mergeable merge_state present
-  local checks checks_ok=1 events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
+  local checks checks_ok=1 required='[]' events comments items reviews_ok=1 changes_requested seen wm_c wm_r next_c next_r queue
   local activity act_id act_author act_seen act_n bullets latest latest_kind requeued history reads
   local last_event last_bot last_actor stint committed
   local evicted="" conflicted=0 settled n_checks verdict closed_as authoritative="" authoritative_queue=""
@@ -482,7 +490,13 @@ poll() {
         get "repos/$REPO/commits/$head/status?per_page=100" "$STATUSES"
     } 2>/dev/null | jq -cs .
   ) || checks_ok=0
+  if [ "$checks_ok" = 1 ]; then
+    required=$(get "repos/$REPO/rules/branches/$(jq -rn --arg b "$base" '$b | @uri')" \
+      '[.[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context]' |
+      jq -cs 'add // [] | unique') || checks_ok=0
+  fi
   [ "$checks_ok" = 1 ] || checks='[]'
+  checks=$(jq -c --argjson required "$required" '. + [$required[] as $c | select(all(.[]; .name != $c)) | { name: $c, bucket: "pending", link: "" }]' <<<"$checks")
 
   if native_queue; then
     if ! authoritative=$(ccx vcs pr status "$PR" --json -R "$REPO" | jq -ce --argjson n "$PR" '.[] | select(.number == $n)'); then
