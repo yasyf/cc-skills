@@ -141,13 +141,36 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
-def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(run: Run, demo: str) -> None:
+def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
-    assert run("job", "launch", "j1", "brief.md")[0] == 2
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == "drive: j1 runs on this Mac as agent a; resume it with SendMessage\n"
     assert run("job", "launch", "j2", "brief.md")[0] == 2
     assert "dispatch" not in state.load(demo)["jobs"]["j2"]
+
+
+def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    assert cli.main(["job", "resume", "j1", "next"]) == 2
+    assert capsys.readouterr().err == (
+        "drive: j1 has no agent and no lane yet: start it on a Sprite with drive job launch j1 <brief>,"
+        " or record the agent you started here with drive job set j1 --agent <id>\n"
+    )
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda *args: {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH})
+    assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
 
 
 def test_resume_answers_the_open_question_then_sends_to_the_dispatch(

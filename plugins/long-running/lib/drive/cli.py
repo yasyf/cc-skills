@@ -325,9 +325,14 @@ def place_job(args: argparse.Namespace) -> int:
 
 def remote_job(data: dict, job_id: str) -> dict:
     job = find(data["jobs"], job_id, "job")
-    if job.get("where") != "remote":
-        raise DriveError(f"{job_id} runs on this Mac; resume it with SendMessage")
-    return job
+    if job.get("where") == "remote":
+        return job
+    if job.get("agent"):
+        raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage")
+    raise DriveError(
+        f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>,"
+        f" or record the agent you started here with drive job set {job_id} --agent <id>"
+    )
 
 
 def checkout() -> Path:
@@ -339,7 +344,11 @@ def checkout() -> Path:
 
 def job_launch(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    job = remote_job(state.load(name), args.id)
+    with state.edit(name) as data:
+        unstarted = find(data["jobs"], args.id, "job")
+        if not unstarted.get("agent"):
+            unstarted["where"] = "remote"
+        job = remote_job(data, args.id)
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     root = checkout()
