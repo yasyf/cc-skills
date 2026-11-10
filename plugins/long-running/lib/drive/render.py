@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_key, pr_url
+from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_key, pr_url, promise_thread
 
 COMMUNICATOR_RULES = (
     (
@@ -160,9 +160,10 @@ def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
     return {key: pr for key, pr in drive["prs"].items() if pr["job"] == job_id}
 
 
-def order_line(order_id: str, order: dict, limit: int = 120) -> str:
+def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, str] | None = None) -> str:
     due = f" due {when(order['due'])}" if order.get("due") else ""
-    return f"{order_id} {order['state']}{due}: {cut(order['text'], limit)}"
+    where = f", its lines go in {thread[0]} thread {thread[1]}" if thread else ""
+    return f"{order_id} {order['state']}{due}{where}: {cut(order['text'], limit)}"
 
 
 def pr_line(key: str, pr: dict) -> str:
@@ -213,7 +214,7 @@ def role_line(drive: dict, role: str, seen: dict[str, str]) -> str:
 
 
 def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
-    lines = [f"- {order_line(order_id, order, limit)}"]
+    lines = [f"- {order_line(order_id, order, limit, promise_thread(drive, order))}"]
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job)}")
