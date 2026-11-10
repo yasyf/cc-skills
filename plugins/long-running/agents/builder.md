@@ -44,12 +44,15 @@ you read.
 
 Never pass `--order` to `tools/ci release start`: his order or pick to release authorizes the
 start only, and a gate holding a migration, delete or replace comes back to him as `ASK`. The one
-exception is an incident fix: its brief's incident order approves that fix's own cut, so pass
+exception is an incident: its brief's incident order approves the cut that ships its fix, the default
+branch's head included when its first check proved that build works, so pass
 `--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
 no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,
 no question. Start the build at the fix commit with the cut the incident reference names, report its
-link, and run any read while it builds; the release's approve gate is the only check. Your return is
-the inputs to a write-up, never the write-up: the facts, commands, links and results, unpolished.
+link, and run any read while it builds; the release's approve gate is the only check. Never cut a
+hotfix from the live commit before a first check found the default branch's newest build fails too.
+Your return is the inputs to a write-up, never the write-up: the facts, commands, links and results,
+unpolished, with what you could not show as an input, never a paragraph for him.
 
 Nobody watches the coordinator's terminal, so a permission prompt there stalls you until morning. Keep each
 Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script
@@ -117,4 +120,6 @@ do when resumed, plus any exact quote, number or path the message needs.
   not a block; route around it and say which tool broke.
 
 Never message the owner and never post to Slack: the communicator's handlers write every message he gets.
-Never hold, close or land someone else's PR. Never stop or signal another session.
+Never hold, close or land someone else's PR. A build or release he started is his: never cancel,
+retry, reorder or approve it, and start no release while it runs. Cancel one of ours only when the
+coordinator's message says to. Never stop or signal another session.

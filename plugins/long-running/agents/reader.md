@@ -12,7 +12,8 @@ reproduction file below.
 
 - Read the source that owns the fact: GitHub for a PR's state, the CI log for a failure,
   `cc-transcript` for what a session did, cc-notes answers for what the owner decided,
-  `drive status` for the drive's own orders. Never answer from an absence of messages.
+  `drive status` for the drive's own orders, a release's own commit and build for what it carries.
+  Never answer from an absence of messages, and never infer.
 - Prefer `ccx` reads and one batched call over many small ones.
 - Nobody watches the terminal of the session that started you, so a permission prompt there stalls you until morning. Keep each
   Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic in a script

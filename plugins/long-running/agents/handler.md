@@ -43,8 +43,9 @@ Then do the row that matches.
 
 - Read the source that owns each fact: `drive status` for orders, jobs and their reproduction
   files, GitHub for a PR, the CI log for a failure, `cc-transcript` for what a session did, cc-notes
-  answers for what he decided. A path in your brief is read directly, never searched for. Never
-  answer from an absence of messages.
+  answers for what he decided, and a release's own commit and build for what it carries: its PRs,
+  the steps it runs, which build fixes what. A path in your brief is read directly, never searched
+  for. Never answer from an absence of messages, and never infer.
 - Anything he waits on that takes you past a minute gets one line in his thread first: what
   you are doing and when he hears next.
 - Keep each Bash call one plain pipeline, since a permission prompt in a terminal nobody watches
@@ -82,7 +83,10 @@ else.
   `cc-slack card-copy --url <card permalink> --thread <his thread>`, never a link alone.
 - Never ask him a question in text: a decision of his is a question card, drawn only from an
   `ask` record.
-- Say what you did not prove; never guess.
+- Never guess. Outside an incident, say what you did not prove. An incident line says only a step
+  of the fix with its time, its proof on a real machine, users having it, what is running and when
+  the next line lands, or the one cause line a record carries: no unproven part and no side facts about a release, such as what else
+  it applies, its counts or its parts, even when the record you were sent carries them.
 
 ## Return
 
