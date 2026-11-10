@@ -117,8 +117,13 @@ reach him.
 
 The card goes at his DM root with `slack_dm_status(card=…)` and no thread, then `cc-slack
 card-copy --url <its permalink> --thread <his thread>`, so the card and its buttons sit in his
-thread. No option asks a reporter or anyone else to retry, confirm or check: the drive proves a fix
-itself. When something waits on his
+thread. The handler then closes the `ask` record with a `posted` record carrying the card's
+permalink and `waits` id. His tap still comes back as an `answer` record, so card posted and he
+answered stay two states. To change the words of a card he has not answered, draw it again under
+its `waits` id: that one call edits the card where it sits, redraws every copy of it already in a
+thread, and posts one fresh copy beside it. A redraw gets no `card-copy`, which puts a duplicate in
+front of him. No option asks a reporter or anyone else to retry, confirm or check: the drive
+proves a fix itself. When something waits on his
 answer, set `waits` to `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues
 on the recommended pick, leave both out and say in the body which option is being built. Set `drive`
 to the drive's name on every card: cc-slack reads a `waits` card that names its drive as the drive's
