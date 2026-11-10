@@ -68,6 +68,18 @@ copies the complete brief to the VM and records its hash, length, and actual
 checkout HEAD. The first task is a pointer telling the worker to read and
 verify that file.
 
+Between prepare and `worker-start`, the launcher runs `orca-sprite-tools.sh`
+on the prepared task. The Sprite's payload bakes the `ccx` and `cc-notes`
+releases its inventory pinned when it was built, so without this step a lane
+runs whatever those were, such as ccx 0.89.18 while this Mac runs 0.95.43. The
+script reads the latest GitHub release of each, installs its `linux_amd64`
+asset into the Sprite's `~/.local/bin` after checking the release's SHA-256
+digest, links `ccn`, and checks that a login shell there runs the new binary
+and prints the release tag. `~/.local/bin` leads the PATH the Sprite's Orca
+runtime gives its agents, ahead of the baked `/usr/local/bin`. When any step
+fails, the launcher starts no worker, leaves the prepared one idle, and prints
+the reason from the attempt's `tools.err`.
+
 A coordinator whose terminal answers other Runs between launches sets
 `WORKER_BIND` to a command prefix that binds the Run and runs the command it is
 given, such as `drive bound --drive <drive> <run> --`. The script then skips
@@ -257,6 +269,14 @@ task. Require command exit zero, `prepared:true`, the requested model/effort,
 actual `baseCommit`, and exact brief hash and length before attachment. For a
 Codex assignment, preserve its requested agent kind, model, effort, and explicit
 service tier. Keep API credentials in the configured process-only callbacks.
+
+Put the released tools on the Sprite before attaching, from the prepared
+record's `task` object, and require exit zero:
+
+```sh
+jq .task "<new-prepared.json>" >"<task.json>"
+orca-sprite-tools.sh "<task.json>"
+```
 
 From the coordinator that already owns the Run, attach once with the prepared
 record's fields and a new receipt file:

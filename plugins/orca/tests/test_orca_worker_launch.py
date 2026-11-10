@@ -29,7 +29,7 @@ LOCAL_NAME = f"{LANE}-{hashlib.sha256(RUN.encode()).hexdigest()[:8]}"
 LOCAL_TERMINAL = "term_local_1"
 WIDEN = f"git -C {LOCAL_WORKTREE} sparse-checkout add <dir>"
 SPARSE = f"{LOCAL_WORKTREE} is sparse: widen with {WIDEN}"
-TOOLS = ("orca", "cc-remote", "git")
+TOOLS = ("orca", "cc-remote", "git", "gh", "ssh")
 PIN = "9.8.7"
 
 VERSION = ["cc-remote", "version"]
@@ -51,16 +51,19 @@ PREPARED = {
     "worktreeId": f"repo-1::{ROOT}",
     "agent": AGENT,
     "terminal": TERMINAL,
+    "forward": {"host": WORKSPACE, "config": f"/state/ssh/{WORKSPACE}.ssh"},
     "bootstrap": ["trust"],
     "prepared": True,
     "brief": {"path": f"/home/sprite/.cc-remote/orca/tasks/{WORKSPACE}/brief.md", "sha256": SHA, "bytes": BYTES},
     "baseCommit": BASE,
 }
+RELEASES = (("ccx", "yasyf/cc-context", "v0.95.43", "a" * 64, ""), ("cc-notes", "yasyf/cc-notes", "v0.76.7", "b" * 64, "ccn"))
 RECEIPT = {"ok": True, "result": {"runId": RUN, "taskId": "task_a", "dispatchId": "ctx_a", "state": "ready", "stage": "remote_input_accepted"}}
 ALLOCATION_KEPT = ["allocation.json", "prepare.err", "prepare.status", "request.json"]
 PREPARE_KEPT = sorted([*ALLOCATION_KEPT, "prepared.json"])
 START_KEPT = ["worker-start.err", "worker-start.json", "worker-start.status"]
-SPRITE_KEPT = sorted([*PREPARE_KEPT, *START_KEPT])
+TOOLS_KEPT = sorted([*PREPARE_KEPT, "tools.err", "tools.out"])
+SPRITE_KEPT = sorted([*TOOLS_KEPT, *START_KEPT])
 LOCAL_KEPT = sorted(["request.json", "worktree", *START_KEPT])
 UNREADY = "orca orchestration worker-start exited 0 without a ready receipt for Run {run}; kept terminal {terminal}, worktree {worktree}, and the receipt in {attempt}"
 
@@ -81,6 +84,10 @@ sys.stdout.write(out if isinstance(out, str) else json.dumps(out))
 sys.stderr.write(reply.get("err", ""))
 sys.exit(reply.get("rc", 0))
 """
+
+def download(repo: str, tag: str, bin: str) -> str:
+    return f"https://github.com/{repo}/releases/download/{tag}/{bin}_linux_amd64"
+
 
 def fake(path: Path) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -146,6 +153,8 @@ class Launch:
         self.reply("orca orchestration run-current", BOUND)
         response = allocated if allocated is not None else prepared if isinstance(prepared, str) else allocation(prepared)
         self.reply("cc-remote orca prepare", {"out": response if isinstance(response, str) else json.dumps(response), "err": "prepared on sprites\n"})
+        self.reply("gh api", *({"out": f"{tag}\t{download(repo, tag, bin)}\tsha256:{sha}\n"} for bin, repo, tag, sha, _ in RELEASES))
+        self.reply("ssh", {"out": "ccx v0.95.43\ncc-notes v0.76.7\nccn v0.76.7\n"})
         self.reply("orca orchestration worker-start", started or {"out": RECEIPT})
 
     def local(self, wait: dict | None = None, started: dict | None = None) -> None:
@@ -181,6 +190,11 @@ class Launch:
 
     def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE) -> list[str]:
         return ["cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
+
+    def tools(self) -> list[list[str]]:
+        latest = [["gh", "api", f"repos/{repo}/releases/latest", "--jq", f'[.tag_name, (.assets[] | select(.name == "{bin}_linux_amd64") | .browser_download_url, .digest)] | @tsv'] for bin, repo, *_ in RELEASES]
+        words = " ".join(f"{bin} {tag} {download(repo, tag, bin)} {sha} {alias or "''"}" for bin, repo, tag, sha, alias in RELEASES)
+        return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {words}"]]
 
     def start(self, prepared: dict = PREPARED) -> list[str]:
         spec = f"Lane {LANE}: read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {SHA} and its size is {BYTES} bytes, then follow it exactly."
@@ -339,7 +353,7 @@ class PreAllocationTest(LaunchTest):
                 launch.sprite(version=version)
                 result = launch.run()
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), launch.start()])
+                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start()])
 
     def test_a_missing_or_different_run_owner_refuses_before_prepare(self):
         cases = (
@@ -411,7 +425,7 @@ class AttemptTest(LaunchTest):
         self.assertIn(f"{retired[0]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", failures[1].stderr)
         self.assertEqual(third.returncode, 0, third.stderr)
         self.assertIn(f"{retired[1]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", third.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare()] * 3 + [self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare()] * 3 + [*self.launch.tools(), self.launch.start()])
         self.assertEqual([sorted(path.name for path in attempt.iterdir()) for attempt in retired], [ALLOCATION_KEPT, ALLOCATION_KEPT])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
@@ -431,7 +445,7 @@ class SpriteTest(LaunchTest):
         self.assertEqual(result.stderr, "")
         self.assertEqual(result.stdout.count("\n"), 1)
         self.assertEqual(json.loads(result.stdout), {"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": TERMINAL, "worktree": ROOT, "lane": LANE, "workspace": WORKSPACE, "allocation": "warm"})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_the_attempt_keeps_every_raw_output_and_the_request(self):
@@ -467,7 +481,7 @@ class SpriteTest(LaunchTest):
         self.launch.sprite()
         self.assertEqual(self.launch.run().returncode, 0)
         self.assertEqual(self.launch.cc_remote(), {(str(self.launch.cli), str(self.launch.config))})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertFalse(any("--config" in argv for argv in self.launch.calls()))
 
     def test_a_sprite_launch_without_a_config_refuses_before_any_call(self):
@@ -480,7 +494,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(WORKER_CC_REMOTE=str(selected))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launch.cc_remote(), {(str(selected), str(self.launch.config))})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
 
     def test_an_explicit_cli_off_the_helper_pin_refuses_before_allocation(self):
         for route in ("unset", "path", "link"):
@@ -507,7 +521,7 @@ class SpriteTest(LaunchTest):
                 result = launch.run(cwd=cwd, CC_REMOTE_CONFIG=relative)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(launch.cc_remote(), {(str(launch.cli), str(config))})
-                self.assertEqual(launch.calls(), [*([VERSION] if own else []), CURRENT, launch.prepare(), launch.start()])
+                self.assertEqual(launch.calls(), [*([VERSION] if own else []), CURRENT, launch.prepare(), *launch.tools(), launch.start()])
 
     def test_an_explicit_config_of_another_checkout_leaves_the_version_to_cc_remote(self):
         other = self.launch.root / "other" / "config.yaml"
@@ -517,7 +531,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(CC_REMOTE_CONFIG=str(other))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launch.cc_remote(), {(str(self.launch.cli), str(other))})
-        self.assertEqual(self.launch.calls(), [CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
 
     def test_aliases_and_full_claude_ids_reach_prepare_unchanged(self):
         for model, model_id in (("opus", "claude-opus-5-5"), ("sonnet", "claude-sonnet-5-5"), ("claude-opus-5-5", "claude-opus-5-5"), ("claude-haiku-4-5-20251001", "claude-haiku-4-5-20251001")):
@@ -526,7 +540,7 @@ class SpriteTest(LaunchTest):
                 launch.sprite(prepared={**PREPARED, "agent": {**AGENT, "model": model_id, "effort": "max"}})
                 result = launch.run(model=model, effort="max")
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(model=model_id, effort="max"), launch.start()])
+                self.assertEqual(launch.calls(), [VERSION, CURRENT, launch.prepare(model=model_id, effort="max"), *launch.tools(), launch.start()])
 
     def test_a_codex_model_keeps_its_effort_tier_ref_and_mcp(self):
         agent = {"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast", "mcp": ["{}"]}
@@ -534,7 +548,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(model="gpt-6.1-sol", WORKER_SERVICE_TIER="fast", WORKER_INCIDENT="1", WORKER_REF="release/2026.10", WORKER_MCP_CONFIG="{}")
         self.assertEqual(result.returncode, 0, result.stderr)
         expected = self.launch.prepare("--ref", "release/2026.10", "--service-tier", "fast", "--mcp-config", "{}", model="gpt-6.1-sol", kind="codex")
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, *self.launch.tools(), self.launch.start()])
         request = json.loads(self.launch.receipt("request.json"))
         self.assertEqual((request["agent"], request["ref"]), ({"kind": "codex", "model": "gpt-6.1-sol", "effort": "xhigh", "serviceTier": "fast"}, "release/2026.10"))
 
@@ -543,7 +557,7 @@ class SpriteTest(LaunchTest):
         result = self.launch.run(WORKER_ENV="CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1")
         self.assertEqual(result.returncode, 0, result.stderr)
         expected = self.launch.prepare("--env", "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000", "--env", "ENABLE_PROMPT_CACHING_1H=1")
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, expected, *self.launch.tools(), self.launch.start()])
 
     def test_a_worker_env_word_that_is_not_name_value_refuses_before_any_call(self):
         self.assert_refused(self.launch, self.launch.run(WORKER_ENV="ENABLE_PROMPT_CACHING_1H=1 stray"), "WORKER_ENV holds stray, and each of its words is NAME=VALUE with no spaces; nothing launched", [])
@@ -552,21 +566,21 @@ class SpriteTest(LaunchTest):
         self.launch.sprite(allocated=allocation(ref="deadbeef"))
         result = self.launch.run(WORKER_REF="deadbeef")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "deadbeef"), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "deadbeef"), *self.launch.tools(), self.launch.start()])
 
     def test_a_moved_branch_attaches_on_its_actual_base(self):
         moved = "2" * 40
         self.launch.sprite(prepared={**PREPARED, "baseCommit": moved})
         result = self.launch.run(WORKER_REF="dev")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "dev"), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare("--ref", "dev"), *self.launch.tools(), self.launch.start()])
         self.assertEqual(json.loads(self.launch.receipt("prepared.json"))["baseCommit"], moved)
 
     def test_an_expected_base_that_matches_attaches(self):
         self.launch.sprite()
         result = self.launch.run(WORKER_EXPECT_BASE=BASE)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(json.loads(self.launch.receipt("request.json"))["expectBase"], BASE)
 
     def test_an_expected_base_mismatch_leaves_the_prepared_worker_idle(self):
@@ -630,7 +644,7 @@ class SpriteTest(LaunchTest):
         self.assertEqual(json.loads(result.stdout)["workspace"], LANE)
         self.assertEqual(json.loads(result.stdout)["allocation"], "created")
         self.assertEqual(json.loads(self.launch.receipt("prepared.json")), prepared)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start(prepared)])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start(prepared)])
 
     def test_an_allocation_must_bind_the_requested_lane_and_actual_task(self):
         cases = (
@@ -659,15 +673,31 @@ class SpriteTest(LaunchTest):
         result = self.launch.run()
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(self.launch.receipt("allocation.json"))["replenish"], refill)
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
 
     def test_a_failed_sprite_start_keeps_its_prepared_worker_and_receipts(self):
         refused = {"rc": 1, "out": {"ok": False, "error": {"code": "consumer_fenced", "message": "fenced"}, "result": {"taskId": "task_a", "dispatchId": "ctx_a"}}}
         self.launch.sprite(started=refused)
         result = self.launch.run()
-        self.assert_failed(self.launch, result, f"orca orchestration worker-start exited 1: consumer_fenced: fenced; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {self.launch.attempt}", [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assert_failed(self.launch, result, f"orca orchestration worker-start exited 1: consumer_fenced: fenced; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {self.launch.attempt}", [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(self.launch.receipt("worker-start.status"), "1\n")
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_unattached(self):
+        unreleased = {"out": "v0.95.43\n"}
+        refused = {"rc": 1, "err": "a login shell runs ccx from /usr/local/bin/ccx, printing 'v0.89.18', not v0.95.43 from /home/sprite/.local/bin/ccx\n"}
+        cases = (
+            ("gh api", (unreleased,), "the latest yasyf/cc-context release reads 'v0.95.43', not a version tag with a ccx_linux_amd64 asset and its sha256 digest, so no tool was installed", 1),
+            ("ssh", (refused,), refused["err"].strip(), 3),
+        )
+        for command, replies, reason, reached in cases:
+            with self.subTest(command=command):
+                launch = self.fresh()
+                launch.sprite()
+                launch.reply(command, *replies)
+                line = f"the Sprite did not take the released ccx and cc-notes: {reason}; the prepared worker stays idle and unattached, and {launch.attempt} keeps tools.err"
+                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools()[:reached]])
+                self.assertEqual(launch.kept(), TOOLS_KEPT)
 
     def test_an_unproven_ready_never_prints_success_or_retries(self):
         result = RECEIPT["result"]
@@ -687,7 +717,7 @@ class SpriteTest(LaunchTest):
                 launch = self.fresh()
                 launch.sprite(started={"out": receipt})
                 line = UNREADY.format(run=RUN, terminal=TERMINAL, worktree=ROOT, attempt=launch.attempt)
-                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), launch.start()])
+                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start()])
                 self.assertEqual(launch.kept(), SPRITE_KEPT)
 
 
@@ -827,7 +857,7 @@ class LocalTest(LaunchTest):
         result = self.launch.run(cwd=self.launch.checkout, CC_REMOTE_CONFIG="")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.launch.cc_remote(), {(str(selected), str(self.launch.config))})
-        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), self.launch.start()])
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
 
     def test_the_environment_outranks_a_checkouts_orca_json(self):
         fake(self.launch.checkout / "tools" / "cc-remote")
