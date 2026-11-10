@@ -240,3 +240,26 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
     monkeypatch.setattr(view, "cards", refused)
     view.refresh_cards(demo)
     assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
+
+
+def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card() -> None:
+    data = drive_of(
+        {"o1": order("ship the page", ["j1"])},
+        {"j1": job("o1", "running")},
+        [
+            pr(1, "o1", wants_tap=True),
+            pr(2, "o1", wants_tap=True, checks="fail"),
+            pr(3, "o1", wants_tap=True, tap={"label": "Hold", "at": at(-5), "head": "", "source": "pressed"}),
+            pr(4, "o1", state="merged"),
+        ],
+    )
+    drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
+    card = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1", "card": drawn}
+    entries = view.board(data, found(pr_cards=[card]), "live", [], T0)["review"]
+    assert [(entry["key"], entry["group"], entry["feature_title"]) for entry in entries] == [
+        ("yasyf/cc-skills#1", "you", "ship the page"),
+        ("yasyf/cc-skills#2", "not ready", "ship the page"),
+        ("yasyf/cc-skills#3", "decided", "ship the page"),
+    ]
+    assert (entries[0]["card"], entries[0]["answer"], entries[0]["since"]) == (drawn, card["url"], card["asked"])
+    assert all(entry["card"] is None for entry in entries[1:])
