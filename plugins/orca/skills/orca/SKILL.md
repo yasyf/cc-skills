@@ -397,6 +397,37 @@ another Dispatch, and nobody uses `pkill`, signals, `run-stop`, or bulk
 terminal closes. The captain-hook sessions guard allows a bare
 `orca orchestration worker-stop --dispatch <ctx>` only from that root.
 
+A scheduler, not a root, runs the recurring pass:
+
+```sh
+orca-reclaim.py --new --shells
+```
+
+Each pass sweeps up to 40 settled Dispatches: first those no pass has swept,
+newest first, then those swept longest ago. It records each Dispatch under
+`$XDG_STATE_HOME/orca-gc` once its last step finishes, so a pass killed partway
+starts where it stopped. Without `--run` it reads every Run, and skips:
+
+- a Run whose coordinator terminal is open
+- a legacy Run
+- the unbound Run
+- any Run that `git config --global --get-all orca.reclaimSkipRun` names
+
+A pass closes at most 12 terminals and removes at most 3 local worktrees. It
+never waits on the removal lock, so a hand `--done` never queues behind it.
+What a pass defers stays first in line for the next one.
+
+Every Orca call gets 60 seconds. Once a read takes more than 5 seconds, the
+pass makes no further Orca call. The next pass then waits 15 minutes, doubling
+each time up to 4 hours, until a pass finishes with Orca answering in time.
+`--shells` also closes an Orca shell that meets all of these, checked again
+right before the close:
+
+- it runs in a worktree that holds no agent
+- its one process is a login shell with no child
+- it printed nothing for three days
+- nobody read or wrote its tty for three days
+
 A settled Sprite worker frees its Sprite through the same `orca-reclaim.py`
 call. The Sprite must be one whose cc-remote task record names the Dispatch's
 worktree and terminal, and whose workspace record still exists. The reclaimer

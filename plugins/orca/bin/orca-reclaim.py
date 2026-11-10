@@ -11,9 +11,10 @@ import shlex
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
-from collections.abc import Container, Iterator
+from collections.abc import Callable, Container, Iterator
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -50,6 +51,7 @@ UNSCANNED_CWDS = (Path.home() / "Library", Path("/private/var/folders"))
 HOOK_DAEMON = "capt-hookd serve"
 HOOK_WORKER = "-m captain_hook.worker"
 PANE_KEY = re.compile(r"\bORCA_PANE_KEY=(\S+)")
+TERMINAL_KEY = re.compile(r"\bORCA_TERMINAL_HANDLE=(\S+)")
 SQUASH = re.compile(r" \(#(?P<number>\d+)\)$")
 GITHUB_ORIGIN = re.compile(r"github\.com[:/](?P<slug>[^/\s]+/[^/\s]+?)(?:\.git)?/?$")
 UNKNOWN_TO_GITHUB = re.compile(r"HTTP 4(04|22)")
@@ -61,6 +63,22 @@ STATE_HOME = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "
 CC_REMOTE_STATE = STATE_HOME / "cc-remote"
 RESUMED = STATE_HOME / "orca-gc" / "resumed"
 REMOVING = STATE_HOME / "orca-gc" / "remove.lock"
+SWEPT = STATE_HOME / "orca-gc"
+BACKOFF = STATE_HOME / "orca-gc" / "backoff.json"
+SWEPT_BATCH = 40
+REMOVALS_PER_PASS = 3
+CLOSES_PER_PASS = 12
+SHELL_QUIET_MS = 3 * 24 * 60 * 60 * 1000
+SLOW_READ_S = 5.0
+CALL_TIMEOUT_S = 60
+BACKOFF_FIRST_S = 15 * 60
+BACKOFF_MOST_S = 4 * 60 * 60
+MUTATIONS = {("terminal", "close"), ("worktree", "rm"), ("environment", "rm"), *(("orchestration", verb) for verb in ("worker-stop", "worker-abandon", "worker-release"))}
+SKIP_RUNS = "orca.reclaimSkipRun"
+UNBOUND_RUN = "run_unbound"
+DEFERRED_REMOVAL = "this pass spent its removals or another reclaim holds the removal lock; a later pass takes it"
+DEFERRED_CLOSE = "this pass spent its closes; a later pass takes it"
+REMOVING_HERE = threading.Lock()
 CC_REMOTE_TASK_SCHEMA = 1
 
 
@@ -76,6 +94,7 @@ class Worker:
     worktree: str | None
     environment: str | None = None
     host_gone: bool = False
+    run: str | None = None
 
     @classmethod
     def of(cls, row: dict) -> Worker:
@@ -93,6 +112,7 @@ class Worker:
             worktree=(workspace or "").partition("::")[2] or None,
             environment=host["id"] if host.get("kind") == "remote" else None,
             host_gone=(row["projection"].get("liveness") or {}).get("reason") == HOST_UNAVAILABLE,
+            run=row.get("runId"),
         )
 
     @property
@@ -108,10 +128,11 @@ class Terminal:
     last_output_ms: int
     tab: str | None = None
     leaf: str | None = None
+    worktree: str | None = None
 
     @classmethod
     def of(cls, row: dict) -> Terminal:
-        return cls(row["handle"], row.get("agentIdentity"), row.get("title") or "", row.get("lastOutputAt") or 0, row.get("tabId"), row.get("leafId"))
+        return cls(row["handle"], row.get("agentIdentity"), row.get("title") or "", row.get("lastOutputAt") or 0, row.get("tabId"), row.get("leafId"), row.get("worktreePath"))
 
     @property
     def pane(self) -> str:
@@ -125,6 +146,22 @@ def idle_login_shells() -> set[str]:
     rows = [line.split(None, 4) for line in subprocess.run(["ps", "-axo", "pid=,ppid=,pgid=,tpgid=,comm="], capture_output=True, text=True).stdout.splitlines()]
     parents = {row[1] for row in rows}
     return {pid for pid, _, pgid, tpgid, command in rows if command.startswith("-") and pid == pgid == tpgid and pid not in parents}
+
+
+def empty_shells() -> set[str]:
+    childless = idle_login_shells()
+    quiet_since = time.time() - SHELL_QUIET_MS / 1000
+    rows = [line.split() for line in subprocess.run(["ps", "-axo", "pid=,tty="], capture_output=True, text=True).stdout.splitlines()]
+    return {pid for pid, tty in rows if pid in childless and tty != "??" and (device := Path("/dev") / tty).exists() and max(device.stat().st_mtime, device.stat().st_atime) < quiet_since}
+
+
+def terminal_processes() -> dict[str, list[str]]:
+    listed = subprocess.run(["ps", "-axE", "-ww", "-o", "pid=,command="], capture_output=True, text=True).stdout
+    bearers: dict[str, list[str]] = {}
+    for pid, command in (line.split(None, 1) for line in listed.splitlines() if len(line.split(None, 1)) == 2):
+        if key := TERMINAL_KEY.search(command):
+            bearers.setdefault(key[1], []).append(pid)
+    return bearers
 
 
 def hook_workers() -> set[str]:
@@ -161,6 +198,7 @@ class Action:
     agents: frozenset[Action] = frozenset()
     error: str = ""
     environment: str | None = None
+    deferred: bool = False
 
     def line(self) -> str:
         said = " ".join(part for part in (self.verb, self.target, self.reason) if part)
@@ -176,6 +214,72 @@ class Pause:
 
     def skip(self, target: str, verb: str) -> Action:
         return Action("skip", target, f"{verb}: cleanup paused until {self.resumed} exists")
+
+
+class OrcaSlow(Exception):
+    pass
+
+
+class RemovalDeferred(Exception):
+    pass
+
+
+class Budget:
+    def __init__(self, closes: int = CLOSES_PER_PASS, removals: int = REMOVALS_PER_PASS):
+        self.left = {"close": closes, "removal": removals}
+        self.lock = threading.Lock()
+
+    def spent(self, kind: str) -> bool:
+        with self.lock:
+            return self.left[kind] <= 0
+
+    def take(self, kind: str) -> bool:
+        with self.lock:
+            if self.left[kind] <= 0:
+                return False
+            self.left[kind] -= 1
+            return True
+
+
+@dataclass(frozen=True)
+class Swept:
+    path: Path
+
+    def read(self) -> list[str]:
+        return json.loads(self.path.read_text()) if self.path.is_file() else []
+
+    def record(self, dispatches: list[str]) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.with_suffix(".lock").open("w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            order = [dispatch for dispatch in self.read() if dispatch not in dispatches]
+            staged = self.path.with_suffix(".tmp")
+            staged.write_text(json.dumps(order + dispatches))
+            staged.replace(self.path)
+
+
+@dataclass(frozen=True)
+class Backoff:
+    path: Path
+
+    def read(self) -> dict:
+        return json.loads(self.path.read_text()) if self.path.is_file() else {}
+
+    def waiting_until(self, now: float) -> float | None:
+        until = self.read().get("until", 0)
+        return until if until > now else None
+
+    def extend(self, now: float) -> int:
+        delay = min(max(self.read().get("delay", 0) * 2, BACKOFF_FIRST_S), BACKOFF_MOST_S)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.write_text(json.dumps({"until": now + delay, "delay": delay}))
+        return delay
+
+    def clear(self) -> None:
+        self.path.unlink(missing_ok=True)
+
+
+PACING = Backoff(BACKOFF)
 
 
 class GitHubRefusal(Exception):
@@ -266,24 +370,58 @@ def on(environment: str | None) -> tuple[str, ...]:
 
 
 class Orca:
+    bounded = False
+    slowed: str | None = None
+
     def call(self, *args: str) -> dict:
+        if self.slowed:
+            raise OrcaSlow(self.slowed)
         orchestration = args[0] == "orchestration"
-        done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True)
+        started = time.monotonic()
+        try:
+            done = subprocess.run([*ORCA, *args, *(("--full",) if orchestration else ()), "--json"], capture_output=True, text=True, timeout=CALL_TIMEOUT_S if self.bounded else None)
+        except subprocess.TimeoutExpired:
+            self.slowed = f"orca {' '.join(args[:2])} gave no answer in {CALL_TIMEOUT_S} s"
+            raise OrcaSlow(self.slowed) from None
+        took = time.monotonic() - started
+        if self.bounded and tuple(args[:2]) not in MUTATIONS and took > SLOW_READ_S:
+            self.slowed = f"orca {' '.join(args[:2])} took {took:.1f} s, over the {SLOW_READ_S:.0f} s a read may take"
         reply = json.loads(done.stdout or done.stderr)
         if orchestration and reply.get("ok") and "_meta" not in reply:
             raise RuntimeError(f"orca {' '.join(args[:2])} printed its concise view, not the full record")
         return reply
 
-    def workers(self, run: str) -> list[Worker]:
+    def workers(self, run: str | None) -> list[Worker]:
         rows: list[dict] = []
         cursor: list[str] = []
+        scope = ("--run", run) if run else ()
         while True:
-            page = self.call("orchestration", "worker-list", "--run", run, "--include-remote", "--limit", "100", "--full", *cursor)["result"]
+            page = self.call("orchestration", "worker-list", *scope, "--include-remote", "--limit", "100", "--full", *cursor)["result"]
+            if run is None and page["scope"]["run"] is not None:
+                raise RuntimeError(f"worker-list answered for Run {page['scope']['run']}, the calling terminal's, not every Run: run --new without --run outside an Orca terminal")
             rows += page["workers"]
             after = (page.get("page") or {}).get("nextCursor")
             if not after:
                 return [Worker.of(row) for row in rows]
             cursor = ["--cursor", after]
+
+    def runs(self) -> list[dict]:
+        runs: list[dict] = []
+        cursor: list[str] = []
+        while True:
+            page = self.call("orchestration", "run-list", "--limit", "100", *cursor)["result"]
+            runs += page["runs"]
+            if not page.get("nextCursor"):
+                return runs
+            cursor = ["--cursor", page["nextCursor"]]
+
+    def terminals(self) -> list[Terminal]:
+        listed = self.call("terminal", "list", "--limit", "1000")
+        if not listed["ok"]:
+            raise RuntimeError(f"orca terminal list {listed['error']['code']}")
+        if listed["result"].get("truncated"):
+            raise RuntimeError("orca terminal list truncated its answer at 1000 terminals")
+        return [Terminal.of(row) for row in listed["result"]["terminals"] if row["connected"]]
 
     def idle(self, terminal: str, environment: str | None = None) -> bool | None:
         scope = on(environment)
@@ -588,16 +726,32 @@ def worktree_action(checkout: Checkout, terminals: list[Terminal] | str, closing
 
 
 @contextmanager
-def one_removal() -> Iterator[None]:
-    REMOVING.parent.mkdir(parents=True, exist_ok=True)
-    with REMOVING.open("w") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield
+def one_removal(budget: Budget | None) -> Iterator[None]:
+    with REMOVING_HERE:
+        if budget is not None and budget.spent("removal"):
+            raise RemovalDeferred
+        REMOVING.parent.mkdir(parents=True, exist_ok=True)
+        with REMOVING.open("w") as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | (fcntl.LOCK_NB if budget is not None else 0))
+            except BlockingIOError:
+                raise RemovalDeferred from None
+            if budget is not None:
+                budget.take("removal")
+            yield
 
 
-def apply(action: Action, orca: Orca, git: Git, pause: Pause) -> Action:
+def deferred(target: str, reason: str) -> Action:
+    return Action("keep", target, reason, deferred=True)
+
+
+def apply(action: Action, orca: Orca, git: Git, pause: Pause, budget: Budget | None = None) -> Action:
     if action.verb != "keep" and pause.held():
         return pause.skip(action.target, action.verb)
+    if action.verb in ("end", "close") and budget is not None and not budget.take("close"):
+        return deferred(action.target, DEFERRED_CLOSE)
+    if action.verb == "remove" and action.environment is None and budget is not None and budget.spent("removal"):
+        return deferred(action.target, DEFERRED_REMOVAL)
     if action.verb == "release":
         state, reason = orca.release(action.target)
         return Action("released", action.target) if state in RELEASED else Action("keep", action.target, f"worker-release {state} {reason}".strip())
@@ -627,12 +781,15 @@ def apply(action: Action, orca: Orca, git: Git, pause: Pause) -> Action:
         if action.environment is not None:
             refusal = orca.remove(action.target, action.environment)
             return Action("removed", action.target, action.reason, action.shells, action.agents) if refusal is None else Action("keep", action.target, refusal)
-        with one_removal():
-            refusal = orca.remove(action.target)
-            if refusal is not None and refusal.startswith(UNREGISTERED) and Path(action.target).is_dir():
-                if refusal := git.remove(action.target):
-                    return Action("keep", action.target, f"Orca no longer tracks it and git worktree remove refused: {refusal}")
-                return Action("removed", action.target, ", ".join(filter(None, (action.reason, "Orca no longer tracks it, so git worktree remove removed it"))), action.shells, action.agents)
+        try:
+            with one_removal(budget):
+                refusal = orca.remove(action.target)
+                if refusal is not None and refusal.startswith(UNREGISTERED) and Path(action.target).is_dir():
+                    if refusal := git.remove(action.target):
+                        return Action("keep", action.target, f"Orca no longer tracks it and git worktree remove refused: {refusal}")
+                    return Action("removed", action.target, ", ".join(filter(None, (action.reason, "Orca no longer tracks it, so git worktree remove removed it"))), action.shells, action.agents)
+        except RemovalDeferred:
+            return deferred(action.target, DEFERRED_REMOVAL)
         if refusal is not None and Path(action.target).is_dir():
             return Action("keep", action.target, refusal)
         error = f"orca worktree rm answered {refusal}, but its directory is gone" if refusal else ""
@@ -664,7 +821,20 @@ def stop(dispatch: str, dry_run: bool, down: Container[str], orca: Orca, pause: 
     return done, None if state is None else detail
 
 
-def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_remote: CcRemote, pause: Pause, out=sys.stdout, ending: frozenset[str] = frozenset()) -> Counter:
+def gc(
+    run: str | None,
+    dispatches: set[str],
+    dry_run: bool,
+    orca: Orca,
+    git: Git,
+    cc_remote: CcRemote,
+    pause: Pause,
+    out=sys.stdout,
+    ending: frozenset[str] = frozenset(),
+    budget: Budget | None = None,
+    record: Callable[[list[str]], None] | None = None,
+    listed: list[Worker] | None = None,
+) -> Counter:
     if not dry_run and pause.held():
         skipped = pause.skip(run, "gc")
         print(skipped.line(), file=out, flush=True)
@@ -673,7 +843,7 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
     stops = [stop(dispatch, dry_run, down, orca, pause, out) for dispatch in sorted(ending)]
     ended = {action.target: detail for action, detail in stops if detail is not None}
     scope = dispatches | ending
-    workers = orca.workers(run)
+    workers = listed if listed is not None else orca.workers(run)
     settled = {worker.dispatch for worker in workers if worker.settled or worker.dispatch in ended}
     live_terminals = {worker.terminal for worker in workers if worker.dispatch not in settled and worker.terminal}
     live_worktrees = {(worker.environment, worker.worktree) for worker in workers if worker.dispatch not in settled}
@@ -691,7 +861,30 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
     def act(action: Action | None) -> Action | None:
         if action is None:
             return None
-        return report(action if dry_run else apply(action, orca, git, pause))
+        return report(action if dry_run else apply(action, orca, git, pause, budget))
+
+    batch = [worker for worker in finished + list(hosted.values()) if worker.dispatch in dispatches] if record else []
+    postponed: set[str] = set()
+    recording = threading.Lock()
+
+    def settle(done: Action | None, owns: Callable[[Worker], bool]) -> Action | None:
+        if record is None or done is None or pause.held():
+            return done
+        with recording:
+            mine = [worker.dispatch for worker in batch if owns(worker)]
+            if done.deferred:
+                postponed.update(mine)
+            elif swept := [dispatch for dispatch in mine if dispatch not in postponed]:
+                record(swept)
+        return done
+
+    def closes_after(worker: Worker, done: Action) -> bool:
+        pending = closing.get(worker.terminal)
+        stopped_here = done.verb in ("remove", "removed") and worker.terminal in {agent.target for agent in done.agents}
+        return pending is not None and pending.verb == "close" and not stopped_here
+
+    def in_tree(path: str, environment: str | None, done: Action | None) -> Action | None:
+        return settle(done, lambda worker: (worker.environment, worker.worktree) == (environment, path) and (done.deferred or not closes_after(worker, done)))
 
     def reap_sprite(sprite: Sprite, worker: Worker) -> Action:
         action = sprite_action(worker, sprite, live_workspaces, ended, orca, cc_remote)
@@ -699,27 +892,111 @@ def gc(run: str, dispatches: set[str], dry_run: bool, orca: Orca, git: Git, cc_r
 
     unplaced = [report(Action("keep", worker.dispatch, "Orca records no workspace for it")) for worker in finished if worker.workspace is None]
     with ThreadPoolExecutor(PARALLEL) as pool:
-        verdicts = [action for action in pool.map(lambda worker: terminal_action(worker, live_terminals, orca, ended), finished) if action]
-        closing = {action.target: action for action in verdicts if action.verb in ("close", "end")}
-        terminals = list(pool.map(act, [action for action in verdicts if action.target not in closing or action.verb == "end"]))
-        trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree and worker.workspace not in sprite_checkouts} - live_worktrees
-        candidates = sorted(path for environment, path in trees if environment is None)
-        paired = sorted((environment, path) for environment, path in trees if environment is not None)
-        read = dict(zip(candidates, pool.map(git.checkout, candidates)))
-        reached = list(pool.map(lambda tree: orca.checkout(tree[1], tree[0], git), paired))
-        checkouts = [checkout for checkout in [*read.values(), *reached] if isinstance(checkout, Checkout)]
-        missing = [path for path, checkout in read.items() if checkout is None]
-        gone = [path for path, registered in zip(missing, pool.map(orca.registered, missing)) if registered]
-        worktrees = [report(Action("keep", path, checkout)) for path, checkout in read.items() if isinstance(checkout, str)]
-        worktrees += [report(Action("keep", path, checkout)) for (_, path), checkout in zip(paired, reached) if isinstance(checkout, str)]
-        worktrees += pool.map(act, [Action("drop", path, "its directory is gone") for path in gone])
-        repositories = sorted({checkout.repository for checkout in checkouts})
-        remotes = dict(zip(repositories, pool.map(git.remote, repositories)))
-        worktrees += pool.map(lambda checkout: act(worktree_action(checkout, orca.terminals_in(checkout.path, checkout.environment) or [], closing, remotes[checkout.repository], orca.now_ms())), checkouts)
-        stopped = {agent.target for done in worktrees if done.verb in ("remove", "removed") for agent in done.agents}
-        terminals += pool.map(act, [action for target, action in closing.items() if target not in stopped and action.verb == "close"])
-        reaped = list(pool.map(lambda pair: report(reap_sprite(*pair)), sorted(hosted.items(), key=lambda pair: pair[0].workspace)))
+        try:
+            verdicts = [action for action in pool.map(lambda worker: terminal_action(worker, live_terminals, orca, ended), finished) if action]
+            closing = {action.target: action for action in verdicts if action.verb in ("close", "end")}
+            terminals = list(pool.map(act, [action for action in verdicts if action.target not in closing or action.verb == "end"]))
+            trees = {(worker.environment, worker.worktree) for worker in finished if worker.worktree and worker.workspace not in sprite_checkouts} - live_worktrees
+            candidates = sorted(path for environment, path in trees if environment is None)
+            paired = sorted((environment, path) for environment, path in trees if environment is not None)
+            read = dict(zip(candidates, pool.map(git.checkout, candidates)))
+            reached = list(pool.map(lambda tree: orca.checkout(tree[1], tree[0], git), paired))
+            checkouts = [checkout for checkout in [*read.values(), *reached] if isinstance(checkout, Checkout)]
+            missing = [path for path, checkout in read.items() if checkout is None]
+            gone = [path for path, registered in zip(missing, pool.map(orca.registered, missing)) if registered]
+            worktrees = [in_tree(path, None, report(Action("keep", path, checkout))) for path, checkout in read.items() if isinstance(checkout, str)]
+            worktrees += [in_tree(path, environment, report(Action("keep", path, checkout))) for (environment, path), checkout in zip(paired, reached) if isinstance(checkout, str)]
+            worktrees += pool.map(lambda path: in_tree(path, None, act(Action("drop", path, "its directory is gone"))), gone)
+            repositories = sorted({checkout.repository for checkout in checkouts})
+            remotes = dict(zip(repositories, pool.map(git.remote, repositories)))
+            worktrees += pool.map(
+                lambda checkout: in_tree(checkout.path, checkout.environment, act(worktree_action(checkout, orca.terminals_in(checkout.path, checkout.environment) or [], closing, remotes[checkout.repository], orca.now_ms()))),
+                checkouts,
+            )
+            stopped = {agent.target for done in worktrees if done.verb in ("remove", "removed") for agent in done.agents}
+            closes = [action for target, action in closing.items() if target not in stopped and action.verb == "close"]
+            terminals += pool.map(lambda action: settle(act(action), lambda worker: worker.terminal == action.target), closes)
+            reaped = list(pool.map(lambda pair: settle(report(reap_sprite(*pair)), lambda worker: worker is pair[1]), sorted(hosted.items(), key=lambda pair: pair[0].workspace)))
+        except OrcaSlow:
+            pool.shutdown(cancel_futures=True)
+            raise
+    settle(Action("swept", run or "every Run"), lambda worker: True)
     return Counter(done.verb for done in [action for action, _ in stops] + unplaced + terminals + worktrees + reaped if done)
+
+
+def due(workers: list[Worker], swept: list[str]) -> list[str]:
+    position = {dispatch: index for index, dispatch in enumerate(swept)}
+    settled = list(dict.fromkeys(worker.dispatch for worker in workers if worker.settled and (worker.terminal_state != "released" or worker.environment or (worker.worktree and Path(worker.worktree).is_dir()))))
+    unswept = [dispatch for dispatch in settled if dispatch not in position]
+    return (unswept + sorted((dispatch for dispatch in settled if dispatch in position), key=position.__getitem__))[:SWEPT_BATCH]
+
+
+def skipped_runs(orca: Orca, terminals: list[Terminal]) -> set[str]:
+    configured = subprocess.run(["git", "config", "--global", "--get-all", SKIP_RUNS], capture_output=True, text=True).stdout.split()
+    open_handles = {terminal.handle for terminal in terminals}
+    owned = {run["id"] for run in orca.runs() if run["id"] == UNBOUND_RUN or run.get("legacy") or run.get("coordinator_handle") in open_handles}
+    return owned | set(configured)
+
+
+def shells(terminals: list[Terminal], workers: list[Worker], dry_run: bool, orca: Orca, git: Git, pause: Pause, budget: Budget, out) -> Counter:
+    if not dry_run and pause.held():
+        return Counter()
+    now = orca.now_ms()
+    live = [worker for worker in workers if not worker.settled]
+    live_terminals = {worker.terminal for worker in live}
+    live_worktrees = {worker.worktree for worker in live if worker.environment is None}
+    quiet = [
+        terminal
+        for terminal in terminals
+        if terminal.agent is None and terminal.worktree and terminal.handle not in live_terminals and terminal.worktree not in live_worktrees and now - terminal.last_output_ms > SHELL_QUIET_MS
+    ]
+    if not quiet:
+        return Counter()
+    bearers = terminal_processes()
+    empty = empty_shells()
+    agents = {terminal.worktree for terminal in terminals if terminal.agent or len(bearers.get(terminal.handle, [])) > 1}
+    tally: Counter = Counter()
+    for terminal in quiet:
+        pids = bearers.get(terminal.handle, [])
+        if len(pids) != 1 or pids[0] not in empty or terminal.worktree in agents:
+            continue
+        action = Action("end", terminal.handle, f"empty shell, quiet three days, in {terminal.worktree}")
+        if not dry_run:
+            if budget.spent("close"):
+                break
+            action = action if pids[0] in empty_shells() else Action("keep", terminal.handle, "changed since the first read")
+            action = apply(action, orca, git, pause, budget)
+        print(("would " if dry_run else "") + action.line(), file=out, flush=True)
+        tally[action.verb] += 1
+    return tally
+
+
+def sweep(run: str | None, with_shells: bool, dry_run: bool, orca: Orca, git: Git, cc_remote: CcRemote, pause: Pause, out=sys.stdout, backoff: Backoff = PACING) -> Counter:
+    if not dry_run and (until := backoff.waiting_until(time.time())):
+        print(f"backing off: Orca was slow, so no pass runs before {time.strftime('%H:%M', time.localtime(until))}", file=out, flush=True)
+        return Counter()
+    orca.bounded = True
+    budget = Budget()
+    ledger = Swept(SWEPT / f"swept-{run or 'all'}.json")
+    tally: Counter = Counter()
+    try:
+        workers = orca.workers(run)
+        terminals = orca.terminals()
+        if with_shells:
+            tally += shells(terminals, workers, dry_run, orca, git, pause, budget, out)
+        skipped = set() if run else skipped_runs(orca, terminals)
+        batch = due([worker for worker in workers if worker.run not in skipped], ledger.read())
+        if batch:
+            tally += gc(run, set(batch), dry_run, orca, git, cc_remote, pause, out, budget=budget, record=None if dry_run else ledger.record, listed=workers)
+        if orca.slowed:
+            raise OrcaSlow(orca.slowed)
+    except OrcaSlow as slow:
+        waits = "" if dry_run else f"; the next pass waits {backoff.extend(time.time()) // 60} minutes"
+        print(f"stopped: {slow}{waits}", file=out, flush=True)
+        return tally + Counter({"stopped": 1})
+    if not dry_run:
+        backoff.clear()
+    return tally
 
 
 def main() -> int:
@@ -749,14 +1026,35 @@ def main() -> int:
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
-        "--dry-run reads through a pause. Prints one line per action, skipped action, or kept resource, then the tally."
+        "--dry-run reads through a pause. "
+        f"--new is the recurring pass: it sweeps up to {SWEPT_BATCH} settled dispatches, those no pass has swept first, newest first, then those swept longest ago, "
+        "recording each one under $XDG_STATE_HOME/orca-gc as its last step finishes, so a pass killed partway does not repeat its work. Without --run it reads every Run "
+        f"and skips one whose coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
+        f"A --new pass closes at most {CLOSES_PER_PASS} terminals and removes at most {REMOVALS_PER_PASS} local worktrees, and never waits on the removal lock; "
+        "what it defers stays first in line for the next pass. Each Orca call gets "
+        f"{CALL_TIMEOUT_S} s, and once a read takes over {SLOW_READ_S:.0f} s the pass makes no further Orca call and the next pass waits, "
+        f"{BACKOFF_FIRST_S // 60} minutes at first, doubling to {BACKOFF_MOST_S // 3600} hours, until a pass finishes with Orca answering in time. "
+        "--shells also closes an Orca shell terminal with no agent in a worktree that holds no agent, whose one process is a login shell with no child, "
+        "and whose terminal printed nothing and whose tty was neither read nor written for three days, read again right before the close. "
+        "Prints one line per action, skipped action, or kept resource as it happens, then the tally."
     )
-    parser.add_argument("--run", required=True, help="the Orca Run id")
+    parser.add_argument("--run", help="the Orca Run id; --new without it reads every Run")
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
+    parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
+    parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
     args = parser.parse_args()
-    tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED), ending=frozenset(args.done))
+    if args.new and (args.dispatch or args.done):
+        parser.error("--new picks its own dispatches; drop --dispatch and --done")
+    if args.shells and not args.new:
+        parser.error("--shells runs only with --new")
+    if not args.new and not args.run:
+        parser.error("--run is required without --new")
+    if args.new:
+        tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED))
+    else:
+        tally = gc(args.run, set(args.dispatch), args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED), ending=frozenset(args.done))
     print(" ".join(f"{verb}={count}" for verb, count in sorted(tally.items())) or "nothing to reclaim")
     return 0
 
