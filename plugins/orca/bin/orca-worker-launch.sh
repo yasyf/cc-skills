@@ -198,6 +198,8 @@ if [ "$route" = sprite ]; then
   base=${verdict#ok }
   [ -z "$expect" ] || [ "$base" = "$expect" ] ||
     die "the Sprite checked out $base, not WORKER_EXPECT_BASE $expect, so the prepared worker stays idle and unattached, and nothing is prepared again"
+  "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/orca-sprite-tools.sh" "$attempt/prepared.json" >"$attempt/tools.out" 2>"$attempt/tools.err" ||
+    die "the Sprite did not take the released ccx and cc-notes: $(tail -n 1 "$attempt/tools.err"); the prepared worker stays idle and unattached, and $attempt keeps tools.err"
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")
