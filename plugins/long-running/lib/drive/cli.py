@@ -104,12 +104,12 @@ def his_words(link: str) -> str:
     return link
 
 
-def drive_post(link: str, thread: tuple[str, str] | None) -> str:
+def drive_post(link: str, threads: list[tuple[str, str]]) -> str:
     posted = slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
-    if thread and posted.get("thread_ts") != thread[1]:
-        raise DriveError(f"{link} is not in the order's thread {thread[1]}")
+    if threads and posted.get("thread_ts") not in {thread for _, thread in threads}:
+        raise DriveError(f"{link} is in none of the order's threads, its own or its cards': {', '.join(thread for _, thread in threads)}")
     return link
 
 
@@ -187,7 +187,7 @@ def order_posted(args: argparse.Namespace) -> int:
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError("only the communicator marks an answer posted, once the answer is in his thread")
     [part] = pick_parts(args.id, find(data["orders"], args.id, "order"), [args.part] if args.part else [])
-    drive_post(args.link, state.promise_thread(data, data["orders"][args.id]))
+    drive_post(args.link, slack.order_threads(data, data["orders"][args.id]))
     with state.edit(name) as data:
         data["orders"][args.id]["parts"][part]["posted"] = args.link
     return emit(args, f'{args.id} "{part}": posted {args.link}', {"id": args.id, "part": part, "posted": args.link})

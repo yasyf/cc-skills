@@ -332,7 +332,7 @@ def overdue(order: dict, moment: datetime, away: bool) -> bool:
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    """Each promised time that passed with no drive post in its order's thread since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away."""
+    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {order_id: slack.order_posts(data, order) for order_id, order in state.open_orders(data).items() if overdue(order, moment, away)}
