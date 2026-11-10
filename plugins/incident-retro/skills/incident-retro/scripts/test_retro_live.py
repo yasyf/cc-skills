@@ -448,6 +448,50 @@ class RefusedCell(unittest.TestCase):
         self.assertIn("Invalid query input", cell["reason"])
 
 
+class LegacyRequestCells(unittest.TestCase):
+    """A cell an agent wrote with Datadog's v1 log_query request is queried as a logs formula query, and a request shape
+    the snapshot cannot read leaves its cell unrendered rather than failing the sync (22idr3, Nov 10)."""
+
+    NOTEBOOK = {"data": {"attributes": {**DATADOG[("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}")]["data"]["attributes"], "cells": [
+        {"attributes": {"definition": {"type": "query_table", "title": "Failed runs by message", "requests": [{"log_query": {
+            "index": "*", "search": {"query": "@log_kind:forge_run_error"},
+            "compute": {"aggregation": "cardinality", "facet": "@run_metadata.workflow_run_id"},
+            "group_by": [{"facet": "@run_error.message", "limit": 10, "sort": {"aggregation": "count", "order": "desc"}}]}}]}}},
+        {"attributes": {"definition": {"type": "timeseries", "title": "Spans", "requests": [{"apm_query": {"index": "trace-search"}}]}}}]}}}
+
+    def setUp(self):
+        self.incident, self.docs = incident_dir(), docs_checkout()
+        run(retro_live.init, args(self.incident, self.docs))
+        self.root = self.docs / retro_live.RETRO_DIR / SLUG
+        self.scalar = []
+        with mock.patch.dict(DATADOG, {("GET", f"/api/v1/notebooks/{NOTEBOOK_ID}"): self.NOTEBOOK}), \
+                mock.patch.object(urllib.request, "urlopen", self.answer):
+            self.code = run(retro_live.sync, args(self.incident, self.docs))
+
+    def answer(self, request, timeout):
+        if request.full_url.endswith("/api/v2/query/scalar"):
+            self.scalar.append(json.loads(request.data))
+            return io.BytesIO(json.dumps({"data": {"attributes": {"columns": [
+                {"type": "group", "name": "@run_error.message", "values": [["tab not found"]]},
+                {"type": "number", "name": "query1", "values": [210], "meta": {"unit": None}}]}}}).encode())
+        return datadog(request, timeout)
+
+    def cells(self) -> list:
+        return json.loads((self.root / NOTEBOOK_FILE).read_text())["cells"]
+
+    def test_the_log_query_is_sent_as_a_logs_formula_query(self):
+        self.assertEqual(self.scalar[0]["data"]["attributes"]["queries"], [{
+            "data_source": "logs", "name": "query1", "indexes": ["*"], "search": {"query": "@log_kind:forge_run_error"},
+            "compute": {"aggregation": "cardinality", "metric": "@run_metadata.workflow_run_id"},
+            "group_by": [{"facet": "@run_error.message", "limit": 10, "sort": {"aggregation": "count", "order": "desc"}}]}])
+
+    def test_the_sync_renders_the_log_query_cell_and_leaves_the_unreadable_one_unrendered(self):
+        self.assertEqual(self.code, 0)
+        rendered, unread = self.cells()
+        self.assertEqual((rendered["status"], rendered["data"]["rows"][0]["value"]), ("rendered", 210))
+        self.assertEqual(unread["status"], "unrendered")
+
+
 class NotebookSnapshot(unittest.TestCase):
     """A registered notebook with no snapshot file is one the page marks failed, so render-check refuses the doc."""
 

@@ -141,9 +141,29 @@ def resource_id(value: str, pattern: re.Pattern, noun: str) -> int:
     return int(m.group(2))
 
 
+def legacy_measure(m: dict) -> dict:
+    return {k: v for k, v in {"aggregation": m["aggregation"], "order": m.get("order"), "metric": m.get("facet")}.items() if v is not None}
+
+
+def legacy_logs_query(q: dict) -> dict:
+    """Datadog keeps a logs request written in its v1 shape, {"log_query": ...}, as written, and the v2 query APIs take only formula queries."""
+    return {"data_source": "logs", "name": "query1", "indexes": [i.strip() for i in q.get("index", "*").split(",")],
+            "search": {"query": (q.get("search") or {}).get("query", "")},
+            "compute": legacy_measure(q["compute"]),
+            "group_by": [{"facet": g["facet"], "limit": g.get("limit", 10), **({"sort": legacy_measure(g["sort"])} if "sort" in g else {})}
+                         for g in q.get("group_by") or []]}
+
+
+def readable_request(r: dict) -> bool:
+    return "q" in r or "queries" in r or "compute" in (r.get("log_query") or {})
+
+
 def normalise_request(r: dict, scalar: bool) -> dict:
     if "q" in r:
         queries = [{"data_source": "metrics", "name": "query1", "query": r["q"]}]
+        formulas = [{"formula": "query1", "alias": None}]
+    elif "log_query" in r:
+        queries = [legacy_logs_query(r["log_query"])]
         formulas = [{"formula": "query1", "alias": None}]
     else:
         queries = r["queries"]
@@ -163,8 +183,10 @@ def cell_skeleton(index: int, cell: dict, fetched_at: datetime.datetime) -> dict
         out["text"] = d["text"]
         return out
     out.update(title=d.get("title"), graphSize=at.get("graph_size"), time=resolve_window(at.get("time"), fetched_at))
-    if kind == "timeseries" or kind in SCALAR_TYPES:
+    if (kind == "timeseries" or kind in SCALAR_TYPES) and all(readable_request(r) for r in d["requests"]):
         out["requests"] = [normalise_request(r, kind in SCALAR_TYPES) for r in d["requests"]]
+    elif kind == "timeseries" or kind in SCALAR_TYPES:
+        out.update(definition=d, status="unrendered", reason=f"a {kind} request in a shape the snapshot cannot query; open in Datadog")
     elif kind == "log_stream":
         out.update(query=d.get("query", ""), indexes=d.get("indexes") or [], columns=d.get("columns") or [])
     else:
@@ -301,6 +323,8 @@ def fetch_notebook(dd: Datadog, nid: int, args, fetched_at: datetime.datetime, d
         try:
             if dry_run:
                 print("  " + cell_plan(cell, cw, args.interval))
+            elif cell.get("status") == "unrendered":
+                pass
             elif cell["type"] == "timeseries":
                 cell["data"], cell["status"] = fetch_timeseries(dd, cell, cw, args.interval), "rendered"
             elif cell["type"] in SCALAR_TYPES:
