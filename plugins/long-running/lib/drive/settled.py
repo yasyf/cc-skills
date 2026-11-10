@@ -27,12 +27,16 @@ def answers(text: str, cwd: str) -> list[dict]:
 
 def refusal(text: str, cwd: str, why: str | None, override: str) -> str | None:
     """Why a question may not go to him: a recorded answer of his may settle it, and no reason names that answer and says why it does not."""
-    unnamed = [answer for answer in answers(text, cwd) if answer["id"][:7] not in (why or "")]
-    if not unnamed:
+    found = answers(text, cwd)
+    ids = [answer["id"][:7] for answer in found]
+    if not (unnamed := [short for short in ids if short not in (why or "")]):
         return None
-    found = "\n".join(f"- {answer['id'][:7]} {answer['title'].splitlines()[0]}" for answer in unnamed)
+    listed = "\n".join(f"- {answer['id'][:7]} {answer['title'].splitlines()[0]}" for answer in found)
+    example = "; ".join(f"{short}: <why it does not settle this>" for short in ids)
+    left_out = f" The reason given leaves out {', '.join(unnamed)}." if why else ""
     return (
         "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`:"
         " a question one settles is never asked again, in any wording, and the work goes ahead on that answer. Only when"
-        f' none does, ask with {override} "<id>: <why it does not settle this>", naming every id below.\n{found}'
+        f' none does, ask again with {override} one string that names every id below, such as {override} "{example}".'
+        f"{left_out}\n{listed}"
     )

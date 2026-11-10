@@ -410,6 +410,7 @@ IDLE_RULING = {
     "id": "ac6134849ff8a392c9f26294d4303635d1c27a58",
     "title": "Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking\nsecond line",
 }
+MERGE_RULING = {"id": "33eaad946c1f36dc438a3a04d443eb7d71573815", "title": "What should the revert of the merge rule cover?"}
 
 
 def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reason_names_it(
@@ -429,6 +430,27 @@ def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reaso
     why = "ac61348: it closes sessions; this asks how a run's files are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["unsettled"] == why
+
+
+def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_names(
+    asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    recorded.found = [IDLE_RULING, MERGE_RULING]
+    refusals = []
+    for why in ("33eaad9: a merge-rule revert, not a run's files", "ac61348: it closes sessions, not a run's files"):
+        assert cli.main(["job", "ask", asking, str(block), "--unsettled", why]) == 2
+        refusals.append(capsys.readouterr().err)
+    listed = [[line for line in refusal.splitlines() if line.startswith("- ")] for refusal in refusals]
+    assert listed[0] == listed[1] == [
+        "- ac61348 Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking",
+        "- 33eaad9 What should the revert of the merge rule cover?",
+    ]
+    form = '--unsettled one string that names every id below, such as --unsettled "ac61348: <why it does not settle this>; 33eaad9: <why it does not settle this>".'
+    assert all(form in refusal for refusal in refusals)
+    assert "The reason given leaves out ac61348." in refusals[0]
+    assert "The reason given leaves out 33eaad9." in refusals[1]
 
 
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:

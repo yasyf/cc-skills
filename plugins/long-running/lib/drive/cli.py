@@ -855,7 +855,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--unsettled",
         metavar="WHY",
-        help="each recorded answer of his the refusal named, by id, and why it does not settle this question",
+        help="one string naming every recorded answer of his the refusal listed, by id, and why it does not settle this question",
     )
     verb.set_defaults(run=job_ask)
     verb = job.add_parser(
