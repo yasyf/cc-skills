@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, state, view
+from drive import github, slack, state, view
 from drive.state import DriveError
 
 CODE = str(Path(__file__).resolve().parent)
@@ -107,7 +107,7 @@ def owner_calling(address: str, net: Tailnet | None) -> bool:
 
 
 def cc_slack(*args: str) -> dict:
-    done = subprocess.run(["cc-slack", *args], capture_output=True, text=True, timeout=ANSWER_SECONDS, check=False)
+    done = subprocess.run([slack.launcher(), *args], capture_output=True, text=True, timeout=ANSWER_SECONDS, check=False)
     if done.returncode:
         raise DriveError(" ".join(done.stderr.split()) or f"cc-slack {args[0]} exited {done.returncode}")
     return json.loads(done.stdout)

@@ -64,6 +64,7 @@ class Thread:
 @pytest.fixture(autouse=True)
 def slack_thread(monkeypatch: pytest.MonkeyPatch) -> Thread:
     thread = Thread()
+    monkeypatch.setattr(slack, "launcher", lambda: "cc-slack")
     monkeypatch.setattr(slack, "thread", lambda *where: thread.reads.append(where) or list(thread.messages))
     return thread
 
