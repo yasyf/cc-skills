@@ -83,6 +83,12 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     assert "Hold with slack_watch: his DM D123" in context
 
 
+def test_session_start_gives_a_subagent_of_a_role_no_role_context(demo: str) -> None:
+    payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"}
+    assert session_start.respond(payload) is not None
+    assert session_start.respond({**payload, "agent_id": "a64e718803d352214", "agent_type": "long-running:builder"}) is None
+
+
 def test_session_start_prints_nothing_for_another_session(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

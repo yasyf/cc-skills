@@ -18,7 +18,7 @@ NOT_LANE = re.compile(r"[^a-z0-9-]+")
 PLUGIN = Path(__file__).resolve().parents[2]
 BUILDER = PLUGIN / "agents" / "builder.md"
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
-LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1"
+LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000"
 LAUNCH_SECONDS = 1800
 MAIL_LIMIT = "100"
 FENCED = "consumer_fenced"

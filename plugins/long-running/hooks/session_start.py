@@ -16,6 +16,8 @@ def role_context(session: str) -> str | None:
 
 
 def respond(payload: dict) -> dict | None:
+    if payload.get("agent_id"):
+        return None
     session = payload.get("session_id")
     text = role_context(session) if session else None
     if text is None:

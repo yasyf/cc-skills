@@ -63,10 +63,8 @@ each job that needs one a fresh agent.
    orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
-   For the coordinator, open the command with `env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h`
-   before `claude`, as [Start or resume](start.md) does. The command is the
-   session and nothing after it: it never ends in `exec zsh -l` or any other shell, which would
-   keep a login shell running in the terminal once the session ends.
+   The command is the session and nothing after it: it never ends in `exec zsh -l` or any other
+   shell, which would keep a login shell running in the terminal once the session ends.
 
    Its prompt runs Start or resume, so `drive start` records the new terminal and the role takes
    back its watches, its cursor and, for the coordinator, `drive watch`.

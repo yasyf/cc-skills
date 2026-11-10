@@ -5,8 +5,6 @@ model: opus
 effort: xhigh
 background: true
 autoCompactWindow: 300000
-experimental:
-  cacheTtl: 1h
 disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
 ---
 
@@ -36,8 +34,8 @@ you built up.
    which `Decisions that bind` names with the option to build, is the exception, by his ruling
    of Nov 10 1:26 AM: "it can proactively build the recommended but can't put up a PR until I
    answer design Qs". Build that option, push the branch, open no PR and return `BUILT`.
-3. Write the change. Build and typecheck what you touched before you push; never run tests
-   locally, CI grades them. When this Mac's load gate refuses a Rust or Go check in
+3. Write the change. Before you push, compile the Go or Rust you touched and run nothing else:
+   tests, typechecks, linters and review bots are CI's, and a local run only repeats them. When this Mac's load gate refuses a Rust or Go check in
    Forge-AI/monorepo, run that check on the remote builder instead, from the package's
    directory: `remote-builder exec --lane cargo --machine linux -- check -p <crate>` or
    `remote-builder exec --lane go --machine mac -- vet ./...`. Push once it passes. A
@@ -69,8 +67,8 @@ you built up.
    nothing points at a list, finding, thread or PR the card does not show.
 5. Register it: `drive pr add <url> --job <your job id>`, adding `--tap` when the repository
    needs his tap before landing.
-6. Fix any red check or review finding that arrives while you wait inline (Waiting, below), then
-   return `READY` when the PR is green and waits only on his tap, or for a port only on the
+6. Return as soon as the PR is registered: `WAITING` naming the checks or review still out, or
+   `READY` when the PR is already green and waits only on his tap, or for a port only on the
    coordinator's check against the old PR, or `WAITING` naming the check or review still out.
    A PR that is not a port and whose his-words list is empty or says none is not his order and
    never becomes a PR card. Drive tooling is such a PR, and its list says none rather than quote
@@ -154,10 +152,17 @@ with these changes.
 
 ## Waiting
 
-Never poll and never sleep. Wait inline only when a check finishes within one 10-minute
-call; otherwise return `WAITING` and stop. When the watch sees the PR change or he taps, the
-coordinator starts a fresh builder with a handoff; it resumes you with `SendMessage` only to bring
-his answer to your `ASK`.
+Never wait on CI, a review or a merge: no `gh pr checks`, `gh run watch` or repeated
+`gh pr view`, and no sleeping. Once the PR is registered, return `WAITING`. The watch sees each
+change, and the coordinator starts a fresh builder with a handoff for it; it resumes you with
+`SendMessage` only to bring his answer to your `ASK`. A wait past 5 minutes also expires your
+prompt cache, so waiting costs a full rewrite of your context on top of the polling.
+
+## Reading
+
+Read a file whole, once, with Read, or one section of a large file with `ccx code read
+--section`, and work from what is in your context. Never page through a file in `sed -n`
+windows, and never read the same lines twice.
 
 ## Return
 
