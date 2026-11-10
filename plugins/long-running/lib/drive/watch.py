@@ -105,19 +105,25 @@ def stuck_as(pr: dict, cards: dict | None) -> str | None:
         return None
     if pr["checks"] == "fail":
         return "red"
-    carded = cards is None or view.card_for(cards["pr_cards"], pr["url"])
+    carded = cards is None or held(pr) or view.card_for(cards["pr_cards"], pr["url"])
     return "ready" if pr["checks"] == "pass" and pr["review"] == "approved" and not carded else None
 
 
+def held(pr: dict) -> bool:
+    return (pr.get("tap") or {}).get("label") == "Hold"
+
+
 def stuck_for(pr: dict, cards: dict | None, moment: datetime) -> str | None:
-    what, held = stuck_as(pr, cards), pr.get("stuck")
-    if what is None or not held or held["as"] != what:
+    what, stuck = stuck_as(pr, cards), pr.get("stuck")
+    if what is None or not stuck or stuck["as"] != what:
         pr["stuck"] = what and {"as": what, "since": state.stamp(moment), "said": None}
         return None
-    since = state.parse_time(held["since"])
-    if moment - since < STUCK_FOR or held["said"] and moment - state.parse_time(held["said"]) < STUCK_FOR:
+    if held(pr) and stuck["said"] and stuck.get("head", pr["head"]) == pr["head"]:
         return None
-    held["said"] = state.stamp(moment)
+    since = state.parse_time(stuck["since"])
+    if moment - since < STUCK_FOR or stuck["said"] and moment - state.parse_time(stuck["said"]) < STUCK_FOR:
+        return None
+    stuck.update(said=state.stamp(moment), head=pr["head"])
     return f"{STUCK_WORDS[what]} for {minutes(moment - since)} minutes"
 
 

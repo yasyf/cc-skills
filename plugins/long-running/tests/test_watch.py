@@ -584,3 +584,35 @@ def test_a_green_approved_pr_with_no_card_for_thirty_minutes_is_said(demo: str, 
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
         f'PR {KEY} "Fix: the watch": green and approved with no card drawn for 30 minutes [o1 j1]'
     ]
+
+
+def hold(name: str) -> None:
+    with state.edit(name) as data:
+        data["prs"][KEY]["tap"] = {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}
+
+
+def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    hold(demo)
+    serve(monkeypatch, {KEY: read(checks="SUCCESS", reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=300)) == []
+
+
+def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    hold(demo)
+    reads = {KEY: read(checks="FAILURE")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    still = f'PR {KEY} "Fix: the watch": still red for'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{still} 30 minutes [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=90)) == []
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=247)) == []
+    reads[KEY] = read(checks="FAILURE", headRefOid="bbbbbbb222")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=250)) == [f'PR {KEY} "Fix: the watch": new head bbbbbbb [o1 j1]', f"{still} 250 minutes [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=400)) == []
+    with state.edit(demo) as data:
+        data["prs"][KEY]["tap"] = None
+    assert watch.run_pass(watching, T0 + timedelta(minutes=430)) == [f"{still} 430 minutes [o1 j1]"]
