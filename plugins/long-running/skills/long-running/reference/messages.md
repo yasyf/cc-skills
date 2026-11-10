@@ -25,12 +25,19 @@ by feature, one bold line per feature and at most two sentences under it.
 no thread, then `cc-slack card-copy --url <its permalink> --thread <his thread>`, so the card and its
 buttons sit in his thread too. Title: one question in one sentence. Body: at most three
 sentences saying why it matters and what the drive is doing meanwhile. Two to four options, each
-saying what picking it does. No option asks a reporter or anyone else to retry, confirm or check:
-the drive proves a fix itself. When something waits on his answer, set `waits` to
+saying in full words what picking it does. No option asks a reporter or anyone else to retry,
+confirm or check: the drive proves a fix itself. When something waits on his answer, set `waits` to
 `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues on the recommended
 pick, leave both out and say in the body which option is being built. Set `drive` to the drive's name on every
 card: cc-slack reads a `waits` card that names its drive as the drive's question, whose home is
 Slack, and posts it with no cc-present board warning.
+
+Each option on a question card stands alone. cc-slack draws the recommended option first and
+numbers the rest after it, so the numbers in an `ask` record are not the ones he sees. No title,
+body or option points at another option by number or position, such as "as 1", "same as 2",
+"options 1 and 2" or "the first option". An option that builds on another repeats what that one
+does, such as "Own process plus a memory cap per script". cc-slack refuses a card that breaks this
+and quotes the words, and the coordinator writes an `ask` record's options the same way.
 
 **A PR card**, which nobody writes: one card per stack, from a `ready` record.
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
