@@ -121,7 +121,7 @@ live session reads here can land on another drive. Each record names the thread 
 | `owner` | communicator | `root@<drive>` | his words verbatim, his message's permalink as `--url`, his thread, and `--attr ruling=<answer id>` on a ruling | makes them orders, or starts a skill rewrite for a ruling, by its table |
 | `answer` | communicator | `root@<drive>` | `--re` the `ask` it answers, which closes it, `--attr job=<j>`, and his pick or his own words | records his answer and resumes that job |
 | `defect` | communicator | `root@<drive>` | a tool defect it hit, any refusal verbatim | starts a builder on that tool's repository |
-| `report` | `root` | `communicator@<drive>` | the facts of one message: the thread or alert link it goes in, what changed for him, links and proof | writes the message and posts it |
+| `report` | `root` | `communicator@<drive>` | the facts of one message, opening `POST` (a handler posts it) or `FYI` (context, nothing posted): the thread or alert link it goes in, what changed for him, links and proof, and for each item that waits on him its card's permalink or `waits` id | a `POST` gets a handler that writes and posts it; an `FYI` is kept as context |
 | `ready` | `root` | `communicator@<drive>` | a stack's PR URLs, bottom first | draws the stack's PR card |
 | `ask` | `root` | `communicator@<drive>` | a job's `ASK` block verbatim, its `Findings:` section included, `--attr job=<j>`; an option that points at another by number or position is rewritten to say that option's words | posts the findings in the order's thread, then the question card under them, its `waits` id `<drive>:<j>-<the record's seq>`; a record with no findings draws nothing and goes back as `refused` |
 | `refused` | communicator | `root@<drive>` | `--re` the `ask` it refuses and why, such as no findings | resumes that job to send its `ASK` again with what was missing |
@@ -153,7 +153,8 @@ spent drafting, checking or drawing holds his next message behind it.
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. | Nothing. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
-| A `report`, `ready` or `ask` record | A handler for each, with the record's seq as its brief. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
+| A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
+| An `FYI` report | Nothing: keep it as context for his next message. | Nothing. |
 | The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
 | A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
 | A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
@@ -161,9 +162,10 @@ spent drafting, checking or drawing holds his next message behind it.
 | A tool defect you hit | A `defect` record. | Nothing. |
 
 Start a handler with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background:
-true`, a short `description`, and never a `name`. Its `prompt` is a few lines: his words verbatim,
-the permalink, the thread, the handler's scratch folder, the deliverable, and any path you already
-know that answers it, such as a job's reproduction file. Never retype rules into it: the handler's
+true`, a short `description`, and never a `name`. Its `prompt` is at most three lines. For a record
+it is one: `Record: <seq> Drive: <name> Scratch: <folder>`. For his message it is his words verbatim,
+then his permalink and thread, then the deliverable and any path you already know that answers it,
+such as a job's reproduction file. Never retype rules into it: the handler's
 agent definition is its standing brief, ships with this skill and loads with the `subagent_type`.
 The communicator's own calls are the ack, a `+1`, `drive heard`, a cci post for a
 tap, a defect or a `MISSING`, the Agent tool, the one `drive` call that records a read-only
@@ -232,7 +234,7 @@ answer.
 | `TAP Hold …` | Nothing lands: start no handoff for that PR until he says otherwise. |
 | `DUE o<n> "…" was due <time>: <why>` | The order owes him a line: the watch read its thread in Slack and found no drive post since the time was promised. It says so again every 10 minutes, once while he is away, until a post is there or his own words withdraw the time. Read the order's job transcripts first, set the new time with `--due`, then a `report` for that thread: what is late, why, and the new time. The new time is owed from that report's line, and the old one keeps firing until the line lands. Nothing but his own message ends a time that has no line: `drive order set <o> --withdrawn <its permalink>`. A `why` of no thread gets `drive order set <o> --thread <ts>`. While he is away it waits for his catch-up instead, except an incident's, which goes out at once by [reference/incidents.md](reference/incidents.md). Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One `report` per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each, with `--due` when the report names when he hears next: a time `drive order set --due` sets is owed from the next line in the order's thread, the one that tells him the time. An order with nothing new gets no line. |
-| `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the communicator copies the card in, then `--lined` each. |
+| `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the line draws the card under it, then `--lined` each. |
 | `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so a fresh builder with a handoff (Jobs below) fixes the title or body, then send its `ready` again. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his `answer` to that card. |
 | `ORPHAN o<n> "<part>": <why>` | A part of an open order has no live job and no open card: no job ever took it, its job finished with it left over, its agent or lane is gone, its card closed, a waiting job has nothing that can wake it, or a reader's or codex job's answer is not posted to him. In this turn, start a job for it, have a running job that already does that work carry it, resume or restart its job, or have its card drawn; an answer not yet posted goes to the communicator as a `report` read from its job's transcript. A part already delivered or one he withdrew leaves the order with `drive order set <o> --parts` or the order closes with `--state done` or `dropped`. Never leave one standing: the watch says it again every 30 minutes and at its order's `DUE`. |
@@ -394,10 +396,17 @@ Every message follows [reference/messages.md](reference/messages.md). The short 
   a step of the fix with its time, its proof on a real machine and users having it, or what is
   running and when the next line lands, plus one cause line once a test machine reproduces it:
   nothing unproven and no side facts about a release.
+- A report is one record per thread per coordinator turn, opening `POST` or `FYI`, never a burst:
+  everything a turn has for a thread goes in that one record. Each item in it that waits on him
+  carries its card's permalink or `waits` id, so the handler never searches for the card.
 - Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
-  card with its buttons in the same thread, never a link alone. His ruling, Nov 9 1:49 PM: "Anything
-  that says waiting on me you always need to embed the card with the buttons". Nothing else has
-  buttons.
+  card with its buttons right under it in the same thread: the line links the open card by its
+  permalink and cc-slack draws the card there, answerable, a tap on either answering both. A link
+  is never the embed, since Slack shows a link to a DM card with no buttons. cc-slack refuses a
+  line that says something waits on him with no open card linked, and `check-post` flags it first.
+  His rulings, Nov 9 1:49 PM: "Anything that says waiting on me you always need to embed the card
+  with the buttons", and 6:19 PM: "if u are ever asking for my pick it has to embed and unfirl the
+  link to the card that has buittons to action". Nothing else has buttons.
 - In a bug report's thread the drive posts once, after the fix ships: plain English, no jargon, and
   no asks such as "please retry" or "please confirm". His ruling, Nov 9 1:53 PM: "we have
   authorization to message once in bug fix threads after we ship the fix … it needs to be in plain

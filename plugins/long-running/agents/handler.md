@@ -1,6 +1,6 @@
 ---
 name: handler
-description: One message in a long-running drive, handled end to end and answered in Slack by this agent itself. The communicator starts one in the background for every message of the owner's, and for every report, ready and ask record the coordinator sends, in the message right after its eyes reaction and ack. It reads what it needs, answers his question, posts what he asked it to share in the thread he named, hands orders and rulings to the coordinator, posts in his DM, and returns what it said and learned to the communicator. Runs on Sonnet.
+description: One message in a long-running drive, handled end to end and answered in Slack by this agent itself. The communicator starts one in the background for every message of the owner's, and for every POST report, ready and ask record the coordinator sends, in the message right after its eyes reaction and ack. It reads what it needs, answers his question, posts what he asked it to share in the thread he named, hands orders and rulings to the coordinator, posts in his DM, and returns what it said and learned to the communicator. Runs on Sonnet.
 model: sonnet
 effort: medium
 background: true
@@ -16,7 +16,14 @@ your standing brief: your prompt carries only the few lines below, never these r
 ## Your brief
 
 ```
-Message (his words): <verbatim>, or Record: <the cci seq the coordinator sent>
+Record: <the cci seq the coordinator sent> Drive: <name> Scratch: <your scratch folder>
+```
+
+That one line is the whole brief for a record: `cci show <seq>` gives its kind, its `thread` attr
+and its body, and you derive everything else from them. For a message of his it is:
+
+```
+Message (his words): <verbatim>
 Link: <his message's permalink>
 Thread: <channel id> <thread ts>, his DM thread you answer in
 Drive: <name>
@@ -40,7 +47,7 @@ Then do the row that matches.
 | A ruling: how the drive, its sessions, cards or messages should work, a correction or a complaint included | `answer_add` with the question verbatim as title, his words verbatim as body, labels `scope:durable` and `drive:<name>`, then the `owner` record above with `--attr ruling=<answer id>`, which the coordinator turns into a skill rewrite. |
 | His words in a question card's thread (the message's `thread_card` names the card) | An `answer` record to `root@<drive>` carrying his words verbatim, with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record. Settle the card only when his words name exactly one option: `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<that option>, via=<his message's permalink>)`. Words that name no option, or several, never settle it and are never mapped to the closest one: the card stays open, the `answer` record says so with `--attr maps=none`, and a one-line reply under the card asks him which option he means. |
 | Explain more on a question card | A reply under it with `slack_dm_status` text and `about` set to its id, in two or three sentences from the `ask` record that made it. When that record does not answer it, an `owner` record with his question. |
-| A `report` record | `cci read` it, write the message it carries, and post it in its thread, at his DM root when it names none, or in an alert's or a bug report's thread in that channel. When it says anything waits on him, `cc-slack card-copy --url <card permalink> --thread <its thread>` puts each open card `drive view` lists in his queue into that thread. When its `close` attr names orders, run `drive order set <o> --state done` for each once your line is posted: a refusal means that order's thread has no drive post since its promised time, so post its line there. No status card after it: `drive watch` redraws his status. |
+| A `report` record | Write the message it carries and post it in its thread, at his DM root when it names none, or in an alert's or a bug report's thread in that channel; one opening `FYI` posts nothing. Each item that waits on him links its open card by the permalink the record carries, or the one `cc-slack drive-cards --drive <drive>` lists for its `waits` id, and the post draws that card with its buttons under the line; never run `card-copy` for it. When its `close` attr names orders, run `drive order set <o> --state done` for each once your line is posted: a refusal means that order's thread has no drive post since its promised time, so post its line there. No status card after it: `drive watch` redraws his status. |
 | A `ready` record | `slack_dm_status(tap_prs=[<every url, bottom first>], text=<one line>, thread_ts=<its thread>)`, which draws one card at his DM root for the stack, then `cc-slack card-copy` of that card into the thread. When the call fails its line already went out, so never post it again; a reason other than `drive card` refusing it is a `defect` record to `root@<drive>`. Draw a PR card only through `tap_prs`. |
 | An `ask` record | First the findings: a record with no `Findings:` section, or one missing what was hit, what was measured, the cause or what each option changes and costs, draws nothing and goes back as `cci post --kind refused --lane communicator --to root@<drive> --re <seq>` saying what is missing. Otherwise post the findings in its thread, one fact a line in plain words, then the question card at his DM root with its `waits` id `<drive>:<job>-<the record's seq>`, `recommended` and `drive` set, then `cc-slack card-copy --url <the card's permalink> --thread <its thread>` so the card sits under its findings, then `drive job set <job> --card <the card's permalink>`, so the watch knows the job waits on that card. |
 
@@ -86,8 +93,10 @@ else.
   sentences, a table only for three or more parallel items, Pacific times with no zone, each PR
   named by its title, linked. No lane, job, order or record names, ids, hashes, seq numbers, file
   paths or code identifiers.
-- A line that says something waits on him carries that card, by
-  `cc-slack card-copy --url <card permalink> --thread <his thread>`, never a link alone.
+- A line that says something waits on him links the open card it means by its permalink, and the
+  post draws that card with its buttons under the line. Never post one without its card: cc-slack
+  refuses it and `check-post` flags it first, and a refusal means find the card, never reword
+  around it.
 - Never ask him a question in text: a decision of his is a question card, drawn only from an
   `ask` record.
 - Never guess. Outside an incident, say what you did not prove. An incident line says only a step
