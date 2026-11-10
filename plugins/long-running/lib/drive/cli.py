@@ -725,7 +725,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--carries", action="append", default=[], metavar="ORDER", help="another order whose part this job delivers, until it is done"
     )
-    verb.add_argument("--card", help="the Slack link of the question card this job waits on")
+    verb.add_argument("--card", help="the Slack link of the question card that carries this job's parts until he answers it")
     verb.set_defaults(run=job_set)
     verb = job.add_parser(
         "ask",

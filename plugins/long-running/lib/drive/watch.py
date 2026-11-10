@@ -514,7 +514,9 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
             return None
         return f'{job_id} waits on "{cut(job["said"] or "nothing named", 80)}" and no open PR, card or due time can wake it'
     if job["state"] == "done":
-        return f"{job_id} answered and the answer is not posted to him"
+        if not job.get("card"):
+            return f"{job_id} answered and the answer is not posted to him"
+        return None if card_open(job["card"], watcher.cards) else f"{job_id}'s card is answered and no job carries his answer"
     return f"{job_id} {job['state']}"
 
 
