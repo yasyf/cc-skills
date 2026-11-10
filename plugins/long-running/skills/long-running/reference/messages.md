@@ -10,9 +10,10 @@ something waits on him.
 
 ## The shapes
 
-**An ack**, in the thread of his message, posted in the same message as `slack_pickup` and nothing
-else, inside 5 to 10 seconds. It is at most one sentence the communicator already knows, restating
-what he asked and what happens next, and is never read for, drafted or checked. It names no time:
+**An ack**, in the thread of his message, posted alone in the communicator's first message,
+inside 5 to 10 seconds; cc-slack put the eyes on his message the moment it landed. It is at most
+one sentence the communicator already knows, restating what he asked and what happens next, and is
+never read for, drafted or checked. It names no time:
 the coordinator sets the order's due time, and the first summary says it.
 
 **A summary**, in a thread, which a handler writes from a `report` and posts with
@@ -77,10 +78,11 @@ first, then each feature by state. Nothing to post; a line that says where thing
 
 ## When it goes out
 
-- **His message gets its ack inside 5 to 10 seconds**, whatever else is running. The pickup and
-  the ack go alone in the communicator's first message, so no handler brief, record, report, card,
+- **His message gets its ack inside 5 to 10 seconds**, whatever else is running. The ack goes
+  alone in the communicator's first message, so no handler brief, record, report, card,
   due line, draft or `check-post` holds the ack. The handler it starts answers in that thread when
-  it is done.
+  it is done. While the communicator compacts, cc-slack posts "Got it, back in a minute." under
+  each of his messages itself, and the message arrives with `acked`, so it gets no second ack.
 - **Everything else waits for a summary.** No line per event: a job result, a merge, a CI turn or
   a promised time feeds the next summary of its thread. The watch's `TICK` comes every 30 minutes
   and names the orders with news; the coordinator sends at most one `report` per thread per tick,

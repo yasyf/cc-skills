@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; for each of his messages it puts on the eyes and acks inside 5 to 10 seconds, alone in one message, starts a Sonnet handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a Sonnet handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -11,10 +11,11 @@ and nothing else in the drive runs Fable: builders, readers, codex lanes and eve
 the model their agent names. His ruling, Nov 9 1:32 PM: "Our coordinator and communicator lanes
 should switch to fable 5.2, released today (still no other lanes should be fable)".
 
-- **The communicator** is the only session he talks to, and its turn is two messages: the eyes and a
+- **The communicator** is the only session he talks to, and its turn is two messages: a
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
-  and nothing else. The handler reads what it needs, does the work or hands it to the coordinator,
-  answers him itself in his thread, and returns what it said and learned. Reports, cards, due lines,
+  and nothing else; cc-slack has put the eyes on his message by then. The handler reads what it
+  needs, does the work or hands it to the coordinator, answers him itself in his thread, and
+  returns what it said and learned. Reports, cards, due lines,
   drafts and `check-post` all run in handlers, so his next message never sits behind the
   communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
   job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to
@@ -128,9 +129,12 @@ whatot shouild be in parallel to starting", 5:02 PM: "you should be responding i
 simple things liek that", and 5:29 PM: "that took you 5 mins to respond sot hats unnaceptable
 agian, figure out what regresdsed".
 
-1. **Pickup and ack, alone**, inside 5 to 10 seconds: `slack_pickup` and the ack, and nothing else
-   in that message. Calls in one message run only once the whole message is written, so a handler
-   brief or a record beside the ack holds the ack behind its writing.
+1. **The ack, alone**, inside 5 to 10 seconds, and nothing else in that message. The cc-slack
+   daemon put the eyes and Slack's working line on his message the moment it landed, so there is no
+   `slack_pickup`. A message whose delivery carries `acked` has its ack already, posted by cc-slack
+   while this session compacted: it gets no first message, only the next. Calls in one message run
+   only once the whole message is written, so a handler brief or a record beside the ack holds the
+   ack behind its writing.
 2. **The rest, in the next message**: `drive heard`, any record its row names, and the handler.
    Then the turn ends.
 
@@ -140,7 +144,7 @@ spent drafting, checking or drawing holds his next message behind it.
 
 | Input | First message | Next message |
 |---|---|---|
-| A message from him | `slack_pickup` on it and an ack in the thread he wrote in: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
+| A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
 | A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | The same. |
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. | Nothing. |
@@ -148,7 +152,7 @@ spent drafting, checking or drawing holds his next message behind it.
 | A `report`, `ready` or `ask` record | A handler for each, with the record's seq as its brief. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
 | The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
 | A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
-| A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the pickup costs his ack a round trip. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
+| A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. | The same. |
 | A tool defect you hit | A `defect` record. | Nothing. |
 
@@ -157,7 +161,7 @@ true`, a short `description`, and never a `name`. Its `prompt` is a few lines: h
 the permalink, the thread, the handler's scratch folder, the deliverable, and any path you already
 know that answers it, such as a job's reproduction file. Never retype rules into it: the handler's
 agent definition is its standing brief, ships with this skill and loads with the `subagent_type`.
-The communicator's own calls are `slack_pickup`, the ack, a `+1`, `drive heard`, a cci post for a
+The communicator's own calls are the ack, a `+1`, `drive heard`, a cci post for a
 tap, a defect or a `MISSING`, the Agent tool, the one `drive` call that records a read-only
 question's handler, and the `ToolSearch` after a compaction. Everything else is a handler's, so his
 next message is picked up inside 5 to 10 seconds while earlier ones are still being handled.
@@ -165,7 +169,10 @@ next message is picked up inside 5 to 10 seconds while earlier ones are still be
 It compacts only at a quiet moment, never at its context limit mid-conversation, since a compaction
 as his message lands holds the ack for minutes. The coordinator's `drive watch` does it: once the
 communicator's context passes 120,000 tokens and both it and he have been quiet for 10 minutes, the
-watch types `/compact` into the communicator's Orca terminal.
+watch types `/compact` into the communicator's Orca terminal. A compaction that comes anyway, such
+as one forced at its context limit, still acks him: cc-slack's compaction hook marks the session,
+and until it starts again the cc-slack daemon posts "Got it, back in a minute." under each of his
+messages beside the eyes, and each arrives with `acked`, so the communicator adds no second ack.
 
 A handler reads what it needs, writes, checks and posts every line, card and share itself, and
 returns what it said and learned, by its agent definition. Anything he waits on that takes it past
@@ -361,12 +368,12 @@ CI fixes, cleanups, tool fixes.
 Every message follows [reference/messages.md](reference/messages.md). The short form:
 
 - Lead with what changed for him, in his words, never with how the machinery got there.
-- Ack each of his messages inside 5 to 10 seconds, alone with the pickup in the communicator's
-  first message. A question of
-  his that reaches the coordinator gets a `report` of what it has in the same time, and the read
-  follows in a second `report`. Every other post is a handler's, a summary at most every 30 minutes
-  per thread, grouped by feature. While he is away only cards post, and his next message gets one
-  catch-up.
+- Ack each of his messages inside 5 to 10 seconds, alone in the communicator's first message;
+  cc-slack has put the eyes on it already, and acks it itself while the communicator compacts. A
+  question of his that reaches the coordinator gets a `report` of what it has in the same time, and
+  the read follows in a second `report`. Every other post is a handler's, a summary at most every 30
+  minutes per thread, grouped by feature. While he is away only cards post, and his next message
+  gets one catch-up.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked. No ids, hashes, record numbers, lane or job names,
   file paths, or code identifiers.
@@ -403,7 +410,7 @@ class fix whose PR deletes the earlier patches.
 
 ## Never
 
-- The communicator's turn is two messages: the eyes and the ack alone inside 5 to 10 seconds,
+- The communicator's turn is two messages: the ack alone inside 5 to 10 seconds,
   then `drive heard` and the handler. Every read, report, card, due line, draft, `check-post`,
   share and post past the ack belongs to a handler. It never starts a builder or waits on
   anything, and only orders, alerts, rulings, his answers, defects and a question a card's `ask`
