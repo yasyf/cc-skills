@@ -17,23 +17,20 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
-| An answer to his own words asking for an explanation or a comparison | 150 words, the rest behind the card's Explain more or in a write-up attached as a file, never a second line |
-| The installed confirmation of a ruling of his, listing each rule now in the installed skill | 150 words, one short line a rule |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
+| An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
 
 The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
-any handler, with the count and the limit, and `drive job ask` refuses a job's `ASK` whose card runs
-over it. Two posts get a card's 150 words, and only when the call quotes his own words as `asked`.
-The hook finds them in a message of his in the thread the post goes to, read from Slack, or in the
-handler's brief; a quote elides with `…` where it skips some.
-
-- An answer to his words asking for an explanation or a comparison, such as "explain", "why", "show
-  me", "how is that different" or "pros/cons". His tap on Explain more is such a message.
-- The second confirmation of a ruling of his, once the skill update is installed. `asked` quotes the
-  ruling, and `installed` names the plugin and the version installed now, such as `long-running
-  1.0.76`. The hook checks that version against the plugins this machine has installed and that the
-  post says it, so only a real install, stated to him, lifts the limit.
+any handler, with the count, the limit and what would pass, and `drive job ask` refuses a job's
+`ASK` whose card runs over it. Routine lines and summaries stay short. A line that answers a
+question or order of his carries the whole answer, at any length: what he asked, a ruling he gave,
+or his tap on Explain more, which the handler's brief quotes. On Nov 10 between 3:50 and 3:56 AM his
+"figure out how it got into a bad state" lost its answer four times to the 60-word cap. The call
+passes as `asked` each message of his the post answers, word for word, one per line or one list
+entry each, with `…` where it skips words. The hook finds each in a message of his in the thread
+the post goes to, read from Slack, or in the handler's brief, and a refusal names any quote it could
+not find. A question card keeps its 150 words whatever it quotes.
 
 ## The short form
 
@@ -49,12 +46,10 @@ handler's brief; a quote elides with `…` where it skips some.
   at most 60 words, a summary of two or more features at most 120, a question card with its options
   at most 150 in all, each option one line of at most 25 words saying what he gets and what it
   costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
-  limit, from the communicator or any handler, with the count and the limit, and `drive job ask`
-  refuses an `ASK` that would draw a card over it. Two posts get 150 words. One answers his own
-  words asking for an explanation or a comparison, such as "explain", "why" or "pros/cons", quoted
-  as `asked`. The other confirms a ruling of his is installed, with the ruling quoted as `asked` and
-  `installed` naming the plugin version installed now, which the post says. The rest goes behind
-  the card's Explain more or in an attached write-up.
+  limit, from the communicator or any handler, with the count, the limit and what would pass, and
+  `drive job ask` refuses an `ASK` that would draw a card over it. An answer to a question or order
+  of his in that thread, a ruling's installed confirmation included, goes out whole once the call
+  quotes each message of his it answers as `asked`.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
   his words, "port of #N", or "Drive tooling:" and what it unblocks. No ids, hashes, record

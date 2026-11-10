@@ -6,21 +6,82 @@ from pathlib import Path
 
 import message_limits
 import pytest
+from conftest import Thread
 from drive import slack
 
 Run = Callable[..., tuple[int, str]]
 DM = "D123"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
-HIS_QUESTION = (
-    "What the runner should save: it says I answered it but I don't. I think we want one row per program line, explain"
-    " how that's different than the step logs form before (it should be different and better), and what the pros/cons"
-    " are of that vs deriving it live from the journal (and speed / bandwidth implications of both)"
+WHOLE = "pass as asked each message of his it answers, word for word, one per line."
+NOT_HIS = "Copy each message of his this post answers word for word, one per line, with … where you skip words."
+
+BAD_STATE_THREAD = "1794292846.190589"
+LOOK_INTO = "Also look into how it got into this bad state "
+FIGURE_OUT = "Get the release out but also figure out how it got into a bad state "
+HOW_IT_GOT_THERE = (
+    "*How it got into this state: the cause is not found, but the chain that kept it hidden is.*\n\n*Observed:* Acme's"
+    " database was backed up to Acme's bucket at 1:23 AM Nov 9, and its folder there was empty by 3:15 AM Nov 10. Two"
+    " more Acme databases have empty folders. Our own cleanup always keeps the newest backup, so it does not explain an"
+    " empty folder.\n\n*Not known:* who removed the files. A rule on Acme's bucket or a direct delete is what is left;"
+    " the logs that would tell them apart need Acme's bucket-owner access.\n\n*Why nobody noticed:* a sleeping"
+    " database is trusted as backed up at server start, with no look at the bucket.\n\n*Why the rollout stayed aborted:*"
+    " the release refuses to switch while an old abort exists, and nothing clears it; the retry at 3:31 AM did.\n\n*Now:*"
+    " the new replica of <https://ci.example.com/builds/14185|build #14185> is still not ready 18 minutes in,"
+    " held by Acme's registry database, which is behind. A fix is on it; the rollout gives up at about 3:51 AM unless"
+    " it catches up. Next line 3:55 AM."
 )
-QUOTED = (
-    "explain how that's different than the step logs form before… and what the pros/cons are… (and speed / bandwidth"
-    " implications of both)"
+SWITCH_LINE = (
+    "*The release switch failed again at 3:51 AM; production still serves from the old version.* Acme's registry"
+    " database has uploaded no LTX files since Nov 9 5:09 PM, so the new SandSQL replica never became ready. Its"
+    " snapshot is being rewritten, then the switch retries. Next line by 4:10 AM.\n\n*How it got into this state:* the"
+    " LTX files under three Acme databases' bucket prefixes were removed after upload; our epoch cleanup keeps the"
+    " newest populated epoch, so it was not that. Not known yet: who removed them, which Acme's bucket audit log"
+    " would show; why only Acme, since Globex and Initech use the same kind of bucket; and why the registry's local LTX"
+    " file 1 is gone. Next, a code fix so one stuck database cannot hold up the replica's readiness."
 )
+NOT_KNOWN_YET = (
+    "*How it got into this state.* Acme's LTX files were uploaded to its bucket prefix at 1:23 AM Nov 9, and the"
+    " prefix was empty by 3:15 AM Nov 10, like two more Acme prefixes. Our epoch cleanup keeps the newest populated"
+    " epoch, so it did not remove them.\n\nNot known yet, each with what would show it: who removed them, which"
+    " Acme's bucket audit log shows and which needs their bucket-owner access; why only Acme, which their bucket"
+    " rules beside Globex's would show; and why the registry's local LTX file 1 is gone, which that pod's disk history"
+    " would show.\n\nThe registry's uploader has failed since 5:09 PM Nov 9. A code fix so one stuck database cannot"
+    " block the replica's readiness is being built."
+)
+
+DB_THREAD = "1794310240.807179"
+WHY_TWO_PLACES = "Why would each db dats live in two place? Which db? wtf are you talking about?"
+STILL_NO_SENSE = "And the db one still makes no sense "
+WHICH_DB = (
+    "*Your data is not stored twice, and the card's \"two places\" was bad wording.* It never should have been asked:"
+    " your Nov 5 1:25 AM answer already settled it, and that card is withdrawn.\n\n*Which databases:* every database a"
+    " cloud SandSQL server keeps. That is each chat's own database and each project environment's tables, on the"
+    " SandSQL servers in the main production cluster and in each customer cluster.\n\n*What is stored where:* each"
+    " server keeps the live database on its own disk and a backup in the cluster's storage bucket, as it always"
+    " has.\n\n*What \"two places\" meant:* today the backup gets a new numbered folder each time a database moves to a"
+    " new server or disk, and a cleanup job deletes the old folders later. The card meant those old numbered folders"
+    " sitting next to the current one.\n\n*The change:* every backup goes to one fixed folder with no number.\n\n*How"
+    " existing databases move:* you decided this on Nov 5 at 1:25 AM: \"no copy job, it just always falls back to the"
+    " old one, and make sure in new tree all writeers are using the one with no generation\".\n\nSo nothing is copied."
+    " A restore reads the fixed folder and falls back to the newest old folder when the fixed one is empty. Each server"
+    " fills the fixed folder by writing a full fresh backup of its own database.\n\n*What went wrong:* the open change"
+    " copies old backups into the new folder each time a server restarts. That contradicts your Nov 5 words and came"
+    " from a misreading on our side.\n\nIt is being removed, and the changes come back for your tap once rebuilt. No"
+    " new card follows."
+)
+
+AUDIT_THREAD = "1794206636.946169"
+CHECK_SIMPLE = "Check if we've done any other complex changes when a simple change like this would have sufficed "
+AUDIT = (
+    "*Audit done: 3 over-built changes are being removed, 1 simplified.* I checked about 320 items for complex changes"
+    " where a simple one would do.\n\n*Browser tier (open PRs):* one builder is removing the per-team anti-bot"
+    " permission, the per-browser-type warm counts (only normal browsers stay warm), and a second saved list of"
+    " browser types in every deploy file.\n\n*Drive tooling (merged):* a follow-up is starting to go back to one"
+    " mailbox per drive instead of one per worker.\n\n*Left as is:* two exception paths for the 60-word limit. One"
+    " 150-word limit would let routine messages run longer.\n\nYour two card picks since then leave nothing to build."
+)
+
 HIS_RULING = (
     "2, it can proactively build the recommended but can’t put up a PR until I answer design Qs, and make that state a"
     " first class thing in our ledger"
@@ -52,6 +113,13 @@ def transcript(tmp_path: Path) -> Path:
     return parent
 
 
+@pytest.fixture
+def briefed(transcript: Path) -> Path:
+    lane = transcript.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
+    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Record: 658738"}}) + "\n")
+    return transcript
+
+
 def call(tool: str, transcript: Path, session: str | None = None, **tool_input: object) -> dict:
     return {
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
@@ -63,150 +131,133 @@ def call(tool: str, transcript: Path, session: str | None = None, **tool_input: 
     }
 
 
-def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_and_limit(talker: str, transcript: Path) -> None:
-    reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(61), thread_ts="1.2"))
+def posted(transcript: Path, **tool_input: object) -> str | None:
+    return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input))
+
+
+def his(slack_thread: Thread, *messages: str) -> None:
+    slack_thread.messages += [{"ts": f"1794310000.{index:06d}", "user": "U1", "text": text} for index, text in enumerate(messages)]
+    slack_thread.messages.append({"ts": "1794319999.000000", "from_bot": True, "text": "Got it."})
+
+
+def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_limit_and_what_would_pass(talker: str, transcript: Path) -> None:
+    reason = posted(transcript, text=said(61), thread_ts="1.2")
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
     assert "way shorter" in reason
-    assert reason.endswith('installed naming the plugin and the version now installed, such as "long-running 1.0.76", which the post states.')
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(60), thread_ts="1.2")) is None
+    assert reason.endswith(WHOLE)
+    assert posted(transcript, text=said(60), thread_ts="1.2") is None
 
 
 def test_link_labels_count_as_the_words_he_reads(talker: str, transcript: Path) -> None:
     text = said(57) + " <https://github.com/yasyf/cc-skills/pull/1|the run page shows its history>"
-    assert "63 words" in message_limits.deny_reason(call("slack_dm_status", transcript, text=text))
+    assert "63 words" in posted(transcript, text=text)
 
 
 def test_a_summary_of_several_features_runs_to_120_words(talker: str, transcript: Path) -> None:
     summary = f"*Run page: opens in 3 requests*\n{said(50)}\n*Cards: shorter*\n{said(60)}"
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=summary)) is None
-    reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=summary + " " + said(10)))
-    assert "is 128 words, and a summary of 2 features is at most 120 words" in reason
+    assert posted(transcript, text=summary) is None
+    assert "is 128 words, and a summary of 2 features is at most 120 words" in posted(transcript, text=summary + " " + said(10))
 
 
 def test_blocks_count_as_much_as_the_text(talker: str, transcript: Path) -> None:
     blocks = [{"type": "section", "text": {"type": "mrkdwn", "text": said(70)}}]
-    assert "70 words" in message_limits.deny_reason(call("slack_dm_status", transcript, text="short", blocks=blocks))
+    assert "70 words" in posted(transcript, text="short", blocks=blocks)
 
 
-def test_a_question_card_holds_150_words_and_options_of_25(talker: str, transcript: Path) -> None:
+def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(talker: str, transcript: Path) -> None:
     card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, card=card)) is None
-    long_option = message_limits.deny_reason(call("slack_dm_status", transcript, card=card | {"options": [said(26), "No"]}))
+    assert posted(transcript, card=card) is None
+    long_option = posted(transcript, card=card | {"options": [said(26), "No"]})
     assert "each option is one line of at most 25 words" in long_option
     assert "is 26 words" in long_option
-    too_long = message_limits.deny_reason(call("slack_dm_status", transcript, card=card, text=said(26)))
-    assert "this card is 151 words, and a question with its options is at most 150 words in all" in too_long
-
-
-@pytest.mark.parametrize("asked", ["explain the layout in full", "Why does the browser   guess at the page map"])
-def test_his_words_asking_for_more_raise_the_limit_to_a_cards_150(talker: str, transcript: Path, asked: str) -> None:
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(150), asked=asked)) is None
-    reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(151), asked=asked))
-    assert reason.startswith(
-        "refused: this post is 151 words, and an answer to his own words asking for an explanation or a comparison is at most 150 words"
+    too_long = posted(transcript, card=card, text=said(26), asked="explain the layout in full")
+    assert too_long == (
+        "refused: this card is 151 words, and a question with its options is at most 150 words in all (the coordinator's"
+        ' reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human").'
     )
-    assert reason.endswith("the rest goes behind the card's Explain more or into a write-up attached as a file, never a second line.")
 
 
-@pytest.mark.parametrize("asked", ["explain everything about the snapshot", "the page map"])
-def test_words_he_did_not_write_or_that_ask_for_nothing_lift_nothing(talker: str, transcript: Path, asked: str) -> None:
-    reason = message_limits.deny_reason(call("slack_dm_status", transcript, text=said(400), asked=asked))
-    assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
-    assert reason.endswith("in the thread this post goes to or in your brief; these do not.")
-
-
-def briefed_with_a_record(transcript: Path) -> Path:
-    lane = transcript.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
-    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Record: 658274"}}) + "\n")
-    return transcript
-
-
-def test_his_question_in_the_thread_raises_the_limit_when_the_brief_only_names_a_record(
-    talker: str, transcript: Path, slack_thread: "Thread"
-) -> None:
-    slack_thread.messages += [{"ts": "1.3", "user": "U1", "text": HIS_QUESTION}, {"ts": "1.4", "from_bot": True, "text": "the card"}]
-    briefed = briefed_with_a_record(transcript)
-    assert message_limits.deny_reason(call("slack_dm_status", briefed, text=said(150), thread_ts="1.2", asked=QUOTED)) is None
-    assert slack_thread.reads == [("--channel", DM, "--thread", "1.2", "--limit", "1000")]
-    assert "is 151 words" in message_limits.deny_reason(call("slack_dm_status", briefed, text=said(151), thread_ts="1.2", asked=QUOTED))
-
-
-def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, transcript: Path, slack_thread: "Thread") -> None:
-    slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": HIS_QUESTION})
-    reason = message_limits.deny_reason(call("slack_dm_status", briefed_with_a_record(transcript), text=said(100), thread_ts="1.2", asked=QUOTED))
-    assert reason.startswith("refused: this post is 100 words, and a line in his thread is at most 60 words")
-    assert reason.endswith("these do not.")
-
-
-@pytest.fixture
-def ruled(slack_thread: "Thread", tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    slack_thread.messages += [{"ts": "1.3", "user": "U1", "text": HIS_RULING}, {"ts": "1.4", "from_bot": True, "text": "Updating the skill."}]
-    config = tmp_path / "config"
-    (config / "plugins").mkdir(parents=True)
-    entries = {
-        "long-running@skills": [
-            {"version": "1.0.75", "lastUpdated": "2026-11-10T09:58:00Z"},
-            {"version": "1.0.76", "lastUpdated": "2026-11-10T10:16:00Z"},
-        ],
-        "cc-slack@forge": [{"version": "0.19.50", "lastUpdated": "2026-11-10T09:00:00Z"}],
-    }
-    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": entries}))
-    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
-
-
-def test_the_installed_confirmation_of_his_ruling_gets_150_words(talker: str, transcript: Path, ruled: None) -> None:
-    briefed = briefed_with_a_record(transcript)
-    ruling = {"text": CONFIRMATION, "thread_ts": "1.2", "asked": HIS_RULING}
-    confirmed = ruling | {"installed": "long-running 1.0.76"}
-    assert message_limits.deny_reason(call("slack_dm_status", briefed, **ruling)).startswith(
-        "refused: this post is 134 words, and a line in his thread is at most 60 words"
+def test_the_answer_to_how_it_got_into_a_bad_state_goes_out_whole(talker: str, briefed: Path, slack_thread: Thread) -> None:
+    his(slack_thread, LOOK_INTO, FIGURE_OUT)
+    assert posted(briefed, text=HOW_IT_GOT_THERE, thread_ts=BAD_STATE_THREAD).startswith(
+        "refused: this post is 185 words, and a line in his thread is at most 60 words"
     )
-    assert message_limits.deny_reason(call("slack_dm_status", briefed, **confirmed)) is None
-    reason = message_limits.deny_reason(call("slack_dm_status", briefed, **confirmed | {"text": CONFIRMATION + " " + said(17)}))
-    assert reason.startswith("refused: this post is 151 words, and the installed confirmation of a ruling of his is at most 150 words")
-    assert reason.endswith("List each rule now in the installed skill in plain words, one short line each; everything else stays on disk.")
+    assert posted(briefed, text=HOW_IT_GOT_THERE, thread_ts=BAD_STATE_THREAD, asked=FIGURE_OUT.strip()) is None
+    assert slack_thread.reads == [("--channel", DM, "--thread", BAD_STATE_THREAD, "--limit", "1000")]
 
 
 @pytest.mark.parametrize(
-    ("installed", "text", "why"),
+    "asked",
     [
-        ("long-running 1.0.75", CONFIRMATION.replace("1.0.76", "1.0.75"), "but this machine has long-running at 1.0.76."),
-        ("long-running 1.0.77", CONFIRMATION.replace("1.0.76", "1.0.77"), "but this machine has long-running at 1.0.76."),
-        ("long-running 1.0.76", CONFIRMATION.replace("long-running 1.0.76", "the update"), "never says the version it confirms, 1.0.76."),
+        f"{WHY_TWO_PLACES} / {STILL_NO_SENSE.strip()}",
+        f'"{WHY_TWO_PLACES}"\n"{STILL_NO_SENSE.strip()}"',
+        [WHY_TWO_PLACES, STILL_NO_SENSE],
     ],
 )
-def test_a_confirmation_lifts_nothing_unless_the_version_it_states_is_installed_now(
-    talker: str, transcript: Path, ruled: None, installed: str, text: str, why: str
+def test_an_answer_to_two_of_his_messages_names_both_as_asked(
+    talker: str, briefed: Path, slack_thread: Thread, asked: str | list[str]
 ) -> None:
-    payload = call("slack_dm_status", briefed_with_a_record(transcript), text=text, thread_ts="1.2", asked=HIS_RULING, installed=installed)
-    reason = message_limits.deny_reason(payload)
-    assert reason.startswith("refused: this post is 134 words, and a line in his thread is at most 60 words")
-    assert reason.endswith(why)
+    his(slack_thread, WHY_TWO_PLACES, STILL_NO_SENSE)
+    assert posted(briefed, text=WHICH_DB, thread_ts=DB_THREAD, asked=asked) is None
 
 
-def test_an_ordinary_61_word_line_is_still_refused_with_his_ruling_as_asked(talker: str, transcript: Path, ruled: None) -> None:
-    briefed = briefed_with_a_record(transcript)
-    status = "Two builders are on the run page and three pull requests wait on CI. " + said(47)
-    reason = message_limits.deny_reason(call("slack_dm_status", briefed, text=status, thread_ts="1.2", asked=HIS_RULING))
-    assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
-    assert reason.endswith("in the thread this post goes to or in your brief; these do not.")
-    plain = message_limits.deny_reason(call("slack_dm_status", briefed, text=status, thread_ts="1.2"))
-    assert plain.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words")
+def test_the_answer_to_his_audit_order_goes_out_whole_and_its_refusal_says_how(talker: str, briefed: Path, slack_thread: Thread) -> None:
+    his(slack_thread, CHECK_SIMPLE)
+    reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD)
+    assert reason.startswith("refused: this post is 106 words, and a line in his thread is at most 60 words")
+    assert reason.endswith(WHOLE)
+    assert posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE) is None
 
 
-def test_installed_lifts_nothing_without_his_ruling_in_the_thread(talker: str, transcript: Path, ruled: None) -> None:
-    confirmed = {"text": CONFIRMATION, "thread_ts": "1.2", "asked": "make the skill better", "installed": "long-running 1.0.76"}
-    payload = call("slack_dm_status", briefed_with_a_record(transcript), **confirmed)
-    assert message_limits.deny_reason(payload).endswith("in the thread this post goes to or in your brief; these do not.")
+@pytest.mark.parametrize(("text", "asked"), [(SWITCH_LINE, FIGURE_OUT), (NOT_KNOWN_YET, LOOK_INTO)])
+def test_a_line_that_also_answers_his_question_carries_what_is_not_known_yet(
+    talker: str, briefed: Path, slack_thread: Thread, text: str, asked: str
+) -> None:
+    his(slack_thread, LOOK_INTO, FIGURE_OUT)
+    assert posted(briefed, text=text, thread_ts=BAD_STATE_THREAD).startswith("refused: this post is")
+    assert posted(briefed, text=text, thread_ts=BAD_STATE_THREAD, asked=asked) is None
 
 
-def test_an_unreadable_thread_refuses_with_why(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_the_installed_confirmation_quoting_his_ruling_goes_out_whole(talker: str, briefed: Path, slack_thread: Thread) -> None:
+    his(slack_thread, HIS_RULING)
+    assert posted(briefed, text=CONFIRMATION + "\n" + said(40), thread_ts="1.2", asked=HIS_RULING) is None
+
+
+def test_his_words_in_the_brief_lift_the_limit_with_no_thread_read(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    assert posted(transcript, text=said(400), thread_ts="1.2", asked="Explain the layout in   full") is None
+    assert slack_thread.reads == []
+
+
+@pytest.mark.parametrize(
+    ("asked", "named"),
+    [
+        ("explain everything about the snapshot", '"explain everything about the snapshot"'),
+        (["the page map", "and the bucket history…"], '"and the bucket history"'),
+    ],
+)
+def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
+    talker: str, transcript: Path, asked: str | list[str], named: str
+) -> None:
+    reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
+    assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
+    assert f"nor in your brief: {named}. {NOT_HIS}" in reason
+
+
+def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
+    slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": CHECK_SIMPLE})
+    reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE)
+    assert reason.startswith("refused: this post is 106 words, and a line in his thread is at most 60 words")
+    assert reason.endswith(NOT_HIS)
+
+
+def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def unreadable(*where: str) -> list[dict]:
         raise slack.SlackError("daemon not running")
 
     monkeypatch.setattr(slack, "thread", unreadable)
-    reason = message_limits.deny_reason(call("slack_dm_status", briefed_with_a_record(transcript), text=said(100), thread_ts="1.2", asked=QUOTED))
-    assert reason.endswith("His thread could not be read to check the asked words: daemon not running.")
+    assert posted(briefed, text=said(100), thread_ts="1.2", asked=CHECK_SIMPLE).endswith(
+        "His thread could not be read to check asked: daemon not running."
+    )
 
 
 def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcript: Path) -> None:
@@ -224,7 +275,7 @@ def test_a_reply_counts_only_in_his_dm(talker: str, transcript: Path) -> None:
 
 
 def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo: str, transcript: Path) -> None:
-    assert message_limits.deny_reason(call("slack_dm_status", transcript, text=said(300))) is None
+    assert posted(transcript, text=said(300)) is None
     assert message_limits.deny_reason(call("slack_dm_status", transcript, session="elsewhere", text=said(300))) is None
 
 

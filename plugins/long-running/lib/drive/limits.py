@@ -11,11 +11,6 @@ SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
-ANSWER_REST = (
-    "Answer what he asked in plain words; the rest goes behind the card's Explain more or into a write-up attached as a file,"
-    " never a second line."
-)
-CONFIRMATION_REST = "List each rule now in the installed skill in plain words, one short line each; everything else stays on disk."
 
 WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
@@ -24,11 +19,6 @@ URL = re.compile(r"https?://\S+")
 FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
-ASKS_FOR_MORE = re.compile(
-    r"\b(?:explain\w*|details?|detailed|why|show me|more|elaborate|expand|walk me through|in full"
-    r"|compar\w*|differ\w*|vs|versus|pros|cons|trade-?offs?)\b",
-    re.IGNORECASE,
-)
 NOT_PLAIN = (
     ("a file path", re.compile(r"(?<!\S)(?:~|\.{1,2})?/[\w.-]+/[\w./-]*")),
     ("a file name", re.compile(r"\b[\w-]+\.(?:py|go|tsx|rs|md|json|jsonl|ya?ml|sql|toml|sh|txt)\b")),
@@ -63,24 +53,17 @@ def block_text(node: object) -> str:
     return ""
 
 
-def post_refusal(post: dict, lift: str = "") -> str | None:
-    """Why a post to his DM is over the length he reads, or None when it fits; a post answering his words asking for more, or confirming his ruling is installed, has a card's length."""
+def post_refusal(post: dict) -> str | None:
+    """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits."""
     if card := post.get("card"):
         return card_refusal(card, post.get("text") or "")
     text = post.get("text") or ""
     count = max(words(text), words(block_text(post.get("blocks") or [])))
     features = len(FEATURE.findall(text))
-    if lift == "asked":
-        limit, shape, rest = QUESTION_WORDS, "an answer to his own words asking for an explanation or a comparison", ANSWER_REST
-    elif lift == "installed":
-        limit, shape, rest = QUESTION_WORDS, "the installed confirmation of a ruling of his", CONFIRMATION_REST
-    elif features >= 2:
-        limit, shape, rest = SUMMARY_WORDS, f"a summary of {features} features", LINE_REST
-    else:
-        limit, shape, rest = LINE_WORDS, "a line in his thread", LINE_REST
+    limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
     if count <= limit:
         return None
-    return f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). {rest}"
+    return f"refused: this post is {count} words, and {shape} is at most {limit} words ({READING}). {LINE_REST}"
 
 
 def card_refusal(card: dict, beside: str) -> str | None:
