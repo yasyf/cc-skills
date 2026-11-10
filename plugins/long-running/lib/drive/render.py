@@ -48,7 +48,11 @@ COMMUNICATOR_RULES = (
     "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
 )
 COORDINATOR_RULES = (
-    "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
+    (
+        "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record,"
+        " written at its post's length: one report per thread per turn, a line of at most 60 words or a summary of"
+        " 120, its first sentence what changed for him, and never a second record for the rest."
+    ),
     (
         "A question of his in an owner record gets a report of what you have inside 5 to 10 seconds; the read,"
         " in a job when it takes more than one call, follows in a second report."
@@ -95,7 +99,11 @@ COORDINATOR_RULES = (
         "A promise is --due: a time he is promised is recorded with drive order set <id> --due; DUE repeats every"
         " 10 minutes until a drive post is in the order's thread, and done or dropped refuses until then."
     ),
-    "Batch: job results and events feed the next TICK's report; while he is away only cards and incident lines go.",
+    (
+        "Batch: job results and events feed the next TICK's report; while he is away only cards and incident lines go."
+        " A report says what was observed: never a not-proven or not-confirmed paragraph under any label and never a"
+        " side fact; each unknown gets a job, and he gets its result or nothing."
+    ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}
 SUBSCRIBE = {
