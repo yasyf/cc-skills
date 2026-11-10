@@ -37,6 +37,8 @@ START_SECONDS = 10
 ANSWER_SECONDS = 60
 PR_FIELDS = "title,body,url,state,isDraft,additions,deletions,changedFiles,headRefName,baseRefName,reviewDecision"
 DIFF_LINES = 6000
+THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
+THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
@@ -91,17 +93,15 @@ def owner_calling(address: str, net: Tailnet | None) -> bool:
     return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == net.login
 
 
-def answer_card(card: str, label: str, via: str) -> dict:
-    done = subprocess.run(
-        ["cc-slack", "card-answer", "--card", card, "--label", label, "--via", via, "--surface", "dashboard"],
-        capture_output=True,
-        text=True,
-        timeout=ANSWER_SECONDS,
-        check=False,
-    )
+def cc_slack(*args: str) -> dict:
+    done = subprocess.run(["cc-slack", *args], capture_output=True, text=True, timeout=ANSWER_SECONDS, check=False)
     if done.returncode:
-        raise DriveError(" ".join(done.stderr.split()) or f"cc-slack card-answer exited {done.returncode}")
+        raise DriveError(" ".join(done.stderr.split()) or f"cc-slack {args[0]} exited {done.returncode}")
     return json.loads(done.stdout)
+
+
+def answer_card(card: str, label: str, via: str) -> dict:
+    return cc_slack("card-answer", "--card", card, "--label", label, "--via", via, "--surface", "dashboard")
 
 
 def pr_read(key: str) -> dict:
@@ -144,6 +144,8 @@ class Board:
         self.answers: dict[str, list[str]] = {}
         self.prs: set[str] = set()
         self.pictures: set[str] = set()
+        self.threads: set[str] = set()
+        self.channel = ""
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -168,6 +170,8 @@ class Board:
             self.answers = answers
             self.prs = prs
             self.pictures = pictures
+            self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]}
+            self.channel = model["channel"]
             self.version += 1
             self.changed.notify_all()
 
@@ -199,6 +203,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.stream()
             elif found := PR_PATH.fullmatch(self.path):
                 self.pull_request(f"{found[1]}#{found[2]}")
+            elif found := THREAD_PATH.fullmatch(self.path):
+                self.thread(found[1])
             elif self.path.startswith("/api/picture?"):
                 self.picture(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)["path"][0])
             elif self.path in FILES:
@@ -217,6 +223,17 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(403, {"error": NOT_OWNER})
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"http://{host}/")
+
+        def thread(self, ts: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            elif ts not in board.threads:
+                self.answered(404, {"error": f"{ts} is not the thread of an ask of this drive"})
+            else:
+                try:
+                    self.answered(200, cc_slack("thread", "--channel", board.channel, "--thread", ts, "--limit", THREAD_MESSAGES))
+                except (DriveError, subprocess.TimeoutExpired) as error:
+                    self.answered(502, {"error": str(error)})
 
         def picture(self, path: str) -> None:
             if not owner_calling(self.client_address[0], net):
