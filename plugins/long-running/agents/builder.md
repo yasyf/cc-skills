@@ -58,8 +58,10 @@ you built up.
    `## Against the plan`, only when there is a departure; `## Port`, for ports; and
    `## His words, step by step`, each step beside the `path:line` that does it; with no
    record ids anywhere. A PR that waits on his tap gets no card without
-   `## What you'll hate most` and `## His words, step by step`, which `drive pr set --tap`
-   refuses it for, nor a stack without `## The stack` on its bottom PR. The title opens
+   `## What you'll hate most` and `## His words, step by step`, nor a stack without
+   `## The stack` on its bottom PR. `drive pr set` refuses `--tap`, `--serves` or `--design`
+   on such a PR in one message naming every section each body lacks, so one edit fixes them
+   all. The title opens
    with Fix:, New:, Cleanup: or Port: in plain words. Keep a stack to four PRs at most;
    split or fold anything bigger. Every section stands alone, since he reads the card with
    no other context: a number, fraction, size or ratio says what it measures, why that

@@ -474,7 +474,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     check_waits(name, args.waits)
-    if args.tap:
+    if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
     served = ""
     with state.edit(name) as data:
@@ -553,6 +553,8 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
     name, entry = find(known, key, "drive PR")
     after = dict(entry)
     set_pr(after, args)
+    if not after["wants_tap"]:
+        return
     known[key] = (name, after)
     members = after.get("stack") or [key]
     if reason := card.waiting(known, members) or card.tap_refusal([(member, known[member][1]) for member in members]):
