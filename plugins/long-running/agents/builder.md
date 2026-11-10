@@ -59,10 +59,12 @@ jobs' transcripts the brief lists only for what the event needs.
   Done means the owner can see it working, not that it merged. Remove the worktree once it is
   merged; leave nothing running behind you.
 
-His order or pick to release approves that release, its approve gate included, whatever migration,
-delete or replace it holds: pass `--order <his answer id>` to `tools/ci release start`, or run
-`tools/ci release approve <id> --via <agent>` the moment it holds, with no `ASK`, check or question
-in between. Never approve a release he has not approved. An incident's brief's incident order approves
+His order or his pick on a card to release, or the coordinator's record of either, approves that
+release, its approve gate included, whatever migration, delete or replace it holds. Pass
+`--order <his answer id>` to `tools/ci release start`, or run `tools/ci release approve <id> --via
+<agent>` the moment it holds, with no `ASK`, check or question in between; nobody asks him again.
+A resume or re-plan of a release he ordered keeps his order: pass the same `--order` again. Never
+approve a release he has not approved, and never touch a release he started himself. An incident's brief's incident order approves
 the cut that ships its fix, the default branch's head included when its first check proved that build
 works, so pass `--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
 no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,

@@ -99,10 +99,12 @@ else.
   around it.
 - Never ask him a question in text: a decision of his is a question card, drawn only from an
   `ask` record.
-- Never guess. Outside an incident, say what you did not prove. An incident line says only a step
-  of the fix with its time, its proof on a real machine, users having it, what is running and when
-  the next line lands, or the one cause line a record carries: no unproven part and no side facts about a release, such as what else
-  it applies, its counts or its parts, even when the record you were sent carries them.
+- Never guess, and never list what is not proven, under any label, even when the record you were
+  sent lists it: say what was observed, with its link. An unknown is a job's, and he gets its result
+  or nothing. His words, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst fucking fix the actual isue". An incident line says only a step of the fix with
+  its time, its proof on a real machine, users having it, what is running and when the next line
+  lands, or the one cause line a record carries: no side facts about a release, such as what else it
+  applies, its counts or its parts, even when the record you were sent carries them.
 
 ## Return
 
