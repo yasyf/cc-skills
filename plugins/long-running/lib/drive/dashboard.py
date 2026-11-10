@@ -13,6 +13,7 @@ import zlib
 from collections.abc import Callable, Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import NamedTuple
 
 from drive import state, view
 from drive.state import DriveError
@@ -26,9 +27,19 @@ FILES = {
     "/app.css": ("app.css", "text/css; charset=utf-8"),
 }
 LOOPBACK = "127.0.0.1"
+LOCAL_CALLERS = {LOOPBACK, "::1", "::ffff:127.0.0.1"}
 PORT_BASE = 41000
 PORT_SPAN = 1000
 START_SECONDS = 10
+ANSWER_SECONDS = 60
+NOT_OWNER = "only the drive's owner can answer here, and this device is not signed in to the tailnet as him"
+GONE = "this card no longer waits on that answer"
+
+
+class Tailnet(NamedTuple):
+    label: str
+    ips: list[str]
+    login: str
 
 
 def port_of(name: str) -> int:
@@ -40,8 +51,8 @@ def url_of(port: int) -> str:
     return f"http://{LOOPBACK}:{port}/"
 
 
-def tailnet() -> tuple[str, list[str]] | None:
-    """This machine's bare MagicDNS label and its tailnet addresses, or None when tailscale is not running here."""
+def tailnet() -> Tailnet | None:
+    """This machine's bare MagicDNS label, its tailnet addresses and the login it is signed in as, or None when tailscale is not running here."""
     try:
         done = subprocess.run(
             ["tailscale", "status", "--self", "--peers=false", "--json"], capture_output=True, text=True, timeout=10, check=False
@@ -53,12 +64,38 @@ def tailnet() -> tuple[str, list[str]] | None:
     status = json.loads(done.stdout)
     if status["BackendState"] != "Running":
         return None
-    return status["Self"]["DNSName"].split(".")[0], status["Self"]["TailscaleIPs"]
+    me = status["Self"]
+    return Tailnet(me["DNSName"].split(".")[0], me["TailscaleIPs"], status["User"][str(me["UserID"])]["LoginName"])
 
 
-def links_of(port: int, net: tuple[str, list[str]] | None) -> list[str]:
+def links_of(port: int, net: Tailnet | None) -> list[str]:
     """The tailnet link on the bare label first, since ts.net is HSTS-preloaded and an http link on the full name cannot load, then loopback."""
-    return ([f"http://{net[0]}:{port}/"] if net else []) + [url_of(port)]
+    return ([f"http://{net.label}:{port}/"] if net else []) + [url_of(port)]
+
+
+def owner_calling(address: str, net: Tailnet | None) -> bool:
+    if address in LOCAL_CALLERS:
+        return True
+    if not net:
+        return False
+    done = subprocess.run(["tailscale", "whois", "--json", address], capture_output=True, text=True, timeout=10, check=False)
+    if done.returncode:
+        return False
+    who = json.loads(done.stdout)
+    return not who["Node"].get("Tags") and who["UserProfile"]["LoginName"] == net.login
+
+
+def answer_card(card: str, label: str, via: str) -> dict:
+    done = subprocess.run(
+        ["cc-slack", "card-answer", "--card", card, "--label", label, "--via", via, "--surface", "dashboard"],
+        capture_output=True,
+        text=True,
+        timeout=ANSWER_SECONDS,
+        check=False,
+    )
+    if done.returncode:
+        raise DriveError(" ".join(done.stderr.split()) or f"cc-slack card-answer exited {done.returncode}")
+    return json.loads(done.stdout)
 
 
 def changes(name: str) -> Iterator[None]:
@@ -90,6 +127,7 @@ class Board:
         self.body = b""
         self.events: list[dict] = []
         self.offset = 0
+        self.answers: dict[str, list[str]] = {}
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -105,8 +143,10 @@ class Board:
         found, source = view.stored_cards(self.name)
         model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links}
         body = json.dumps(model).encode()
+        answers = {item["answer"]: item["card"]["options"] for item in model["queue"] if item.get("answer")}
         with self.changed:
             self.body = body
+            self.answers = answers
             self.version += 1
             self.changed.notify_all()
 
@@ -124,8 +164,8 @@ class Board:
             return self.version, self.body
 
 
-def handler(port: int, net: tuple[str, list[str]] | None, board: Board) -> type[BaseHTTPRequestHandler]:
-    names = [LOOPBACK, "localhost"] + ([net[0]] + [f"[{ip}]" if ":" in ip else ip for ip in net[1]] if net else [])
+def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPRequestHandler]:
+    names = [LOOPBACK, "localhost"] + ([net.label] + [f"[{ip}]" if ":" in ip else ip for ip in net.ips] if net else [])
     hosts = {f"{host}:{port}" for host in names}
 
     class Page(BaseHTTPRequestHandler):
@@ -141,6 +181,38 @@ def handler(port: int, net: tuple[str, list[str]] | None, board: Board) -> type[
                 self.reply((SITE / file).read_bytes(), kind)
             else:
                 self.send_error(404)
+
+        def do_POST(self) -> None:
+            host = self.headers.get("Host")
+            if host not in hosts or self.headers.get("Origin") != f"http://{host}":
+                self.send_error(403)
+            elif self.path != "/api/answer":
+                self.send_error(404)
+            elif not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            else:
+                self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"http://{host}/")
+
+        def answer(self, asked: dict, via: str) -> None:
+            if asked["label"] not in board.answers.get(asked["card"], []):
+                self.answered(409, {"error": GONE})
+                return
+            try:
+                said = answer_card(asked["card"], asked["label"], via)
+            except (DriveError, subprocess.TimeoutExpired) as error:
+                self.answered(502, {"error": str(error)})
+                return
+            view.refresh_cards(board.name)
+            self.answered(200, said)
+
+        def answered(self, status: int, said: dict) -> None:
+            body = json.dumps(said).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def stream(self) -> None:
             self.send_response(200)
@@ -175,7 +247,7 @@ def serve(name: str, port: int) -> None:
     net = tailnet()
     board = Board(name, links_of(port, net))
     page = handler(port, net, board)
-    for address in [LOOPBACK] + (net[1] if net else []):
+    for address in [LOOPBACK] + (net.ips if net else []):
         server = (Server6 if ":" in address else ThreadingHTTPServer)((address, port), page)
         threading.Thread(target=server.serve_forever, daemon=True).start()
     board.follow()
