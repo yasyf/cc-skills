@@ -27,6 +27,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
+RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
@@ -188,7 +189,7 @@ def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | 
     if kind == "escalation":
         last = first_line(body.split("Last output:")[-1])
         return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
-    job["said"] = first_line(body) or message["subject"]
+    job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
     if kind == "status":
         return None
     job["report"] = body
@@ -480,15 +481,26 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
     return None
 
 
+def ended_gap(job_id: str, ended: dict, moment: datetime) -> str | None:
+    """A running job whose lane died or finished and was not resumed in the time a relaunch takes."""
+    gone = moment - state.parse_time(ended["at"])
+    if gone < RELAUNCH:
+        return None
+    return f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
+
+
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, and a remote lane, running or waiting, whose worker died."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died."""
     data = state.load(watcher.name)
-    gaps, deaths, lines = {}, {}, []
+    gaps, deaths, heads, lines = {}, {}, {}, []
     for order in state.open_orders(data).values():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
             running = job["state"] == "running"
-            if job.get("where") != "remote":
+            remote = job.get("where") == "remote"
+            if running and job.get("branch") and (job.get("repo") or remote):
+                heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
+            if not remote:
                 if running:
                     gaps[job_id] = local_gap(job_id, job, data, moment)
                 continue
@@ -496,7 +508,11 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if running:
                     gaps[job_id] = f"{job_id} never started on its Sprite"
                 continue
-            if job["state"] not in LIVE_JOB_STATES or any(death["dispatch"] == job["dispatch"] for death in job.get("deaths", [])):
+            if job["state"] not in LIVE_JOB_STATES:
+                continue
+            if ended := next((death for death in job.get("deaths", []) if death["dispatch"] == job["dispatch"]), None):
+                if running:
+                    gaps[job_id] = ended_gap(job_id, ended, moment)
                 continue
             source = f"lane of {job_id}"
             try:
@@ -512,8 +528,41 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
-    watcher.agent_gaps = gaps
-    return lines + death_lines(watcher.name, deaths, moment)
+                if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
+                    heads.setdefault(job_id, set()).add((job.get("repo"), branch))
+    unlisted, failed = untracked_prs(watcher, data, heads, moment)
+    watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
+    return lines + failed + death_lines(watcher.name, deaths, moment)
+
+
+def untracked_prs(watcher: Watcher, data: dict, heads: dict[str, set], moment: datetime) -> tuple[dict[str, dict], list[str]]:
+    """For each running job, the open PRs on its recorded branch or its lane's that the drive does not track, read from GitHub in one batch; a head with no repo is in the repo of the checkout remote lanes clone."""
+    if not heads:
+        return {}, []
+    try:
+        home = github.checkout_repo(data["roles"]["coordinator"]["cwd"]) if any(repo is None for both in heads.values() for repo, _ in both) else None
+        resolved = {job_id: {(repo or home, branch) for repo, branch in both} for job_id, both in heads.items()}
+        found = github.open_on(sorted(set().union(*resolved.values())))
+    except github.GithubError as error:
+        return {}, read_failed(watcher, "github branches", error, moment)
+    watcher.failures.pop("github branches", None)
+    return {
+        job_id: {key: pr for key, pr in found.items() if key not in data["prs"] and (github.repo_of(key), pr["branch"]) in both}
+        for job_id, both in resolved.items()
+    }, []
+
+
+def stranded(job_id: str, data: dict, gap: str | None, unlisted: dict[str, dict]) -> str | None:
+    """A running job's gap from its agent or lane, or an open PR of its the drive does not track, with the checks and review of every PR it has open."""
+    if not gap and not unlisted:
+        return None
+    tracked = [
+        f"its PR {key}: checks {pr['checks']}, review {pr['review']}"
+        for key in map(state.pr_key, data["jobs"][job_id]["prs"])
+        if (pr := data["prs"].get(key)) and pr["state"] == "open"
+    ]
+    untracked = [f"{key} on its branch {pr['branch']} is not in the drive: checks {pr['checks']}, review {pr['review']}" for key, pr in unlisted.items()]
+    return "; ".join([gap or f"{job_id} is running", *tracked, *untracked])
 
 
 def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
@@ -564,11 +613,13 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
     order = data["orders"][order_id]
     jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
+    gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
+    if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and job["state"] == "running"]:
+        return stuck[-1]
     if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
         return None
     if not jobs:
         return "no job"
-    gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     return None if None in gaps else gaps[-1]
 
 

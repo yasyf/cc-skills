@@ -1,4 +1,5 @@
 import json
+import re
 import subprocess
 from itertools import groupby
 
@@ -116,15 +117,60 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     return found
 
 
+def graphql(text: str) -> dict:
+    reply = run(["gh", "api", "graphql", "-f", f"query={text}"])
+    try:
+        return json.loads(reply)
+    except ValueError as error:
+        raise GithubError(f"unreadable GraphQL reply: {error}") from None
+
+
 def fetch(keys: list[str]) -> dict[str, dict]:
     """Read every PR key ("owner/name#123") in batches of 50, one `gh api graphql` call per batch."""
     found = {}
     for start in range(0, len(keys), BATCH):
         chunk = keys[start : start + BATCH]
-        reply = run(["gh", "api", "graphql", "-f", f"query={query(chunk)}"])
-        try:
-            payload = json.loads(reply)
-        except ValueError as error:
-            raise GithubError(f"unreadable GraphQL reply: {error}") from None
-        found.update(parse(payload, chunk))
+        found.update(parse(graphql(query(chunk)), chunk))
     return found
+
+
+def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
+    """One GraphQL query for the open PRs of every (owner/name, branch) head, aliased r<i> per repo and h<j> per head."""
+    blocks = []
+    for index, repo in enumerate(repos):
+        owner, name = repo.split("/")
+        pulls = " ".join(
+            f"h{slot}: pullRequests(headRefName: {json.dumps(branch)}, states: OPEN, first: 10) {{ nodes {{ number {FIELDS} }} }}"
+            for slot, (other, branch) in enumerate(heads)
+            if other == repo
+        )
+        blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {pulls} }}")
+    return "query { " + " ".join(blocks) + " }"
+
+
+def open_on(heads: list[tuple[str, str]]) -> dict[str, dict]:
+    """Every open PR whose head is one of the (owner/name, branch) heads, keyed "owner/name#123" with its branch, checks and review, one `gh api graphql` call per 50 heads."""
+    found = {}
+    for start in range(0, len(heads), BATCH):
+        chunk = heads[start : start + BATCH]
+        repos = sorted({repo for repo, _ in chunk})
+        data = graphql(heads_query(chunk, repos)).get("data") or {}
+        for slot, (repo, branch) in enumerate(chunk):
+            for node in ((data.get(f"r{repos.index(repo)}") or {}).get(f"h{slot}") or {}).get("nodes", []):
+                read = flatten(node)
+                found[f"{repo}#{node['number']}"] = {
+                    "branch": branch,
+                    "checks": checks(read["checks"], []),
+                    "review": REVIEWS.get(read["reviewDecision"], "none"),
+                }
+    return found
+
+
+def repo_name(remote: str) -> str:
+    owner, name = re.split(r"[/:]", remote.strip().removesuffix("/").removesuffix(".git"))[-2:]
+    return f"{owner}/{name}"
+
+
+def checkout_repo(checkout: str) -> str:
+    """The owner/name its origin remote names, of the checkout a drive's remote lanes clone."""
+    return repo_name(run(["git", "-C", checkout, "remote", "get-url", "origin"]))
