@@ -262,14 +262,14 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when its model changed since the last drawing; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, and once when it takes a redraw again."""
-    model = view.read(watcher.name, moment)
-    shape = json.dumps(model | {"at": None}, sort_keys=True)
+    """Redraw the drive's Slack status page when what it shows changed since the last drawing, its "Updated" line aside; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, once when it takes a redraw again, and with the link whenever the page moved to a new tab."""
+    markdown = page.render(view.read(watcher.name, moment), dashboard.link(watcher.name))
+    shape = markdown.split("\n", 1)[1]
     if shape == watcher.page_shape:
         return []
     stale = state.load(watcher.name)["slack"].get("page_stale")
     try:
-        page.draw(watcher.name, page.render(model, dashboard.link(watcher.name)))
+        drawn = page.draw(watcher.name, markdown)
     except page.PageError as error:
         if stale:
             return []
@@ -277,11 +277,14 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
             data["slack"]["page_stale"] = state.stamp(moment)
         return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
     watcher.page_shape = shape
-    if not stale:
-        return []
-    with state.edit(watcher.name) as data:
-        data["slack"].pop("page_stale")
-    return [f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(stale)}"]
+    if stale:
+        with state.edit(watcher.name) as data:
+            data["slack"].pop("page_stale")
+    if drawn.new_tab:
+        return [f"WATCH status page redrawn on a new tab: {drawn.url}"]
+    if stale:
+        return [f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(stale)}"]
+    return []
 
 
 def event_line(event: dict, prs: dict) -> str:

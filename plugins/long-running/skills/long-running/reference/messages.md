@@ -172,7 +172,9 @@ after the drive in his DM with the app, within a minute of any change. It lists 
 first and in full, then each open feature as one line by state, then finished work as counts with
 the newest five named, and ends with the dashboard link. It stays under 40,000 bytes: past that it
 leaves out finished work first, then each open state from the bottom, and says what it left out in
-one line. Nothing to post; a line that says where things stand links it.
+one line. Slack stops taking redraws of a canvas once it has been rewritten past a total it does not
+publish; the watch then deletes that tab and draws the page on a fresh one of the same name.
+Nothing to post; a line that says where things stand links it.
 
 ## When it goes out
 
