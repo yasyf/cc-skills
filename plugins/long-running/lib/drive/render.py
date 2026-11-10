@@ -4,39 +4,36 @@ from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
 
 COMMUNICATOR_RULES = (
     (
-        "Ack at once: each message of his gets slack_pickup, then a one-line ack in its thread, then drive heard,"
-        " before anything else."
+        "One step per message of his: slack_pickup, a one-line ack in its thread, drive heard and a"
+        " long-running:handler for it go out together, so the ack never waits behind a read and the handler"
+        " never waits behind the ack."
     ),
     (
-        "Hand the work over: an order or an alert goes to the coordinator as cci post --kind owner --to root@<drive>,"
-        " verbatim with its link; his answer to a question card as --kind answer."
+        "Do no work in your own turn: the handler reads, answers him, shares in the thread he named, records rulings"
+        " and hands orders to the coordinator; a report, ready or ask record gets a handler too."
     ),
     (
-        "A correction about how the drive works is a ruling on arrival: answer_add it, send it as an owner record for a"
-        " skill rewrite, and confirm in his thread when the rewrite starts and when it is installed, unasked."
+        "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
+        " the second comes when the rewrite is installed."
     ),
     (
-        "Answer read-only questions yourself: start a long-running:reader on the spot, in the background, and post its"
-        " answer in his thread; never send a read to the coordinator."
+        "Give each handler the message verbatim, its permalink and thread, its scratch folder and every path you"
+        " already know that answers it, such as a job's reproduction file; a share brief never asks for a write-up,"
+        " and a handler's return is facts, links and paths, never prose."
     ),
     (
-        "Never wait: your calls are Slack, cc-slack card-copy, cci posts, answer_add, readers, drive heard,"
-        " drive status, drive view, drive order posted, drive job set --card and cc-slack check-post, and each turn"
-        " ends in seconds."
-    ),
-    (
-        "Post what the coordinator sends: a report as a line in its thread, a ready as a PR card, an ask as a"
-        " question card, each by reference/messages.md; a line that says something waits on him carries that card's"
-        " copy, buttons and all, in the same thread. An ask's card goes on its job with drive job set <j> --card <link>;"
-        " a posted answer to his question is drive order posted <o> <link> --part <part>."
+        "After a compaction or a restart, first one line in each thread where he waits on a handler that has not"
+        " returned: what is happening and when he hears next."
     ),
     "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
 )
 COORDINATOR_RULES = (
     "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
-    "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its --part,"
-    " and an ORPHAN line gets a job, a card or a close in the same turn.",
+    (
+        "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"
+        " --part, and an ORPHAN line gets a job, a card or a close in the same turn."
+    ),
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
@@ -50,6 +47,7 @@ SUBSCRIBE = {
 }
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
+REPROS_SHOWN = 5
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
 
 
@@ -89,7 +87,8 @@ def job_line(job_id: str, job: dict) -> str:
         handle = f" remote dispatch {job['dispatch']}" if job.get("dispatch") else " remote, not started"
     else:
         handle = f" agent {job['agent']}" if job.get("agent") else ""
-    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}"
+    repro = f"; repro {job['repro']}" if job.get("repro") else ""
+    return f"{job_id} {job['kind']} {job['state']}{handle}: {cut(job['goal'], 100)}{repro}"
 
 
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
@@ -173,4 +172,10 @@ def status_text(drive: dict, pr_fields: str) -> str:
     ]
     for order_id, order in orders.items():
         lines.extend(order_block(drive, order_id, order, 80))
+    repros = sorted(
+        ((job["updated"], job_id, job) for job_id, job in drive["jobs"].items() if job.get("repro")), reverse=True
+    )[:REPROS_SHOWN]
+    if repros:
+        lines.append("Reproduction files, newest first:")
+        lines.extend(f"- {job_id} ({job['order']}): {job['repro']}" for _, job_id, job in repros)
     return "\n".join(lines)

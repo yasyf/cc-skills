@@ -217,6 +217,23 @@ def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> Non
     assert run("job", "set", "j1", "--pr", "https://example.com/not-a-pr")[0] == 2
 
 
+def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
+    run: Run, demo: str, tmp_path: Path, state_root: Path
+) -> None:
+    run("order", "add", "reproduce the bug")
+    run("job", "add", "builder", "--order", "o1", "--goal", "reproduce")
+    run("order", "set", "o1", "--state", "done")
+    steps = tmp_path / "steps.md"
+    steps.write_text("1. run it\n")
+    assert run("job", "set", "j1", "--repro", str(steps))[0] == 0
+    steps.unlink()
+    kept = state_root / "demo" / "repro" / "j1.md"
+    assert state.load("demo")["jobs"]["j1"]["repro"] == str(kept)
+    assert kept.read_text() == "1. run it\n"
+    assert f"- j1 (o1): {kept}" in run("status")[1]
+    assert run("job", "set", "j1", "--repro", str(steps))[0] == 2
+
+
 @pytest.fixture
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "land it")
