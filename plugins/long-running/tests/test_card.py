@@ -579,6 +579,26 @@ def test_a_stack_split_by_an_ask_missing_a_member_draws_one_card_once_asked_whol
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43, 44))
 
 
+def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(stacked: list[list[str]]) -> None:
+    ask(asks(41, 42))
+    with state.edit("demo") as data:
+        for n in (43, 44):
+            data["prs"][f"Forge-AI/monorepo#{n}"]["stack"] = ["Forge-AI/monorepo#43", "Forge-AI/monorepo#44"]
+    drawn = ask(asks(41, 42, 43))["cards"]
+    rows = [row["url"] for each in drawn for row in each["card"]["prs"]]
+    assert sorted(rows) == sorted(set(rows))
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == ["Forge-AI/monorepo#41", "Forge-AI/monorepo#42"]
+
+
+def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    ask(asks(41, 42, 43))
+    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    assert ask(asks(41, 42, 43, 44))["cards"] == []
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == keys
+    assert "stack" not in state.load("demo")["prs"]["Forge-AI/monorepo#44"]
+
+
 def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     with state.edit("demo") as data:

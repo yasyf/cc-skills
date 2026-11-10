@@ -362,6 +362,12 @@ def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
     return found + [[key] for key in keys if key not in placed]
 
 
+def grows(chain: list[str], stored: list[list[str]]) -> bool:
+    """Whether the chain takes in a stored stack and more, and every stored stack it touches whole, so no PR lands on two cards."""
+    touched = [stack for stack in stored if set(stack) & set(chain)]
+    return any(set(stack) < set(chain) for stack in touched) and all(set(stack) <= set(chain) for stack in touched)
+
+
 def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
     for key in stack:
         name = known[key][0]
@@ -392,17 +398,17 @@ def cards(asked: list[dict]) -> dict:
     reads = {key: pr for key in keys if (pr := read(key))}
     skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
     stored = list({tuple(stack): stack for key in reads if (stack := known[key][1].get("stack"))}.values())
-    grown = [chain for chain in chains(list(reads), reads) if any(set(stack) < set(chain) for stack in stored)]
+    grown = [chain for chain in chains(list(reads), reads) if grows(chain, stored)]
     kept = [stack for stack in stored if not any(set(stack) <= set(chain) for chain in grown)]
     covered = {key for group in grown + kept for key in group}
-    chained = grown + chains([key for key in reads if key not in covered], reads)
+    fresh = chains([key for key in reads if key not in covered], reads)
     found = []
-    for group in kept + chained:
+    for group in kept + grown + fresh:
         reads |= {key: pr for key in group if key not in reads and (pr := read(key))}
         members = [key for key in group if key in reads and key in known]
         if not members:
             continue
-        if len(group) > 1 and group in chained:
+        if len(group) > 1 and group in fresh:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = render_stack(shown) if len(group) > 1 else render(*shown[0])
@@ -418,6 +424,8 @@ def cards(asked: list[dict]) -> dict:
             refused(refusals)
             skipped += refusals
             continue
+        if group in grown:
+            remember(known, group)
         drawn(known, members)
         repo, number = members[0].split("#")
         found.append({"repo": repo, "number": int(number), "card": card})
