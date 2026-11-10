@@ -43,7 +43,6 @@ class Watcher:
     failures: dict[str, int] = field(default_factory=dict)
     failure_said: dict[str, datetime] = field(default_factory=dict)
     page_shape: str | None = None
-    page_stale_since: datetime | None = None
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
 
@@ -94,7 +93,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
-            if stuck := stuck_for(pr, watcher.cards, moment):
+            if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)
             title = cut(pr["title"], 120)
@@ -115,18 +114,44 @@ def held(pr: dict) -> bool:
     return (pr.get("tap") or {}).get("label") == "Hold"
 
 
-def stuck_for(pr: dict, cards: dict | None, moment: datetime) -> str | None:
+def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
+    """Say a PR stuck red, or green and approved with no card, once it has held 30 minutes, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
     what, stuck = stuck_as(pr, cards), pr.get("stuck")
     if what is None or not stuck or stuck["as"] != what:
         pr["stuck"] = what and {"as": what, "since": state.stamp(moment), "said": None}
         return None
-    if held(pr) and stuck["said"] and stuck.get("head", pr["head"]) == pr["head"]:
-        return None
     since = state.parse_time(stuck["since"])
-    if moment - since < STUCK_FOR or stuck["said"] and moment - state.parse_time(stuck["said"]) < STUCK_FOR:
+    seen = {
+        "head": pr["head"],
+        "checks": pr["checks"],
+        "review": pr["review"],
+        "tap": (pr.get("tap") or {}).get("label"),
+        "job": data["jobs"][pr["job"]]["state"],
+        "waits": wait_state(pr, data, cards),
+    }
+    if moment - since < STUCK_FOR or stuck["said"] and stuck.get("seen") == seen:
         return None
-    stuck.update(said=state.stamp(moment), head=pr["head"])
-    return f"{STUCK_WORDS[what]} for {minutes(moment - since)} minutes"
+    pr["stuck"] = {"as": what, "since": stuck["since"], "said": state.stamp(moment), "seen": seen}
+    return f"{STUCK_WORDS[what]} for {minutes(moment - since)} minutes{wait_clause(pr, what, seen['waits'])}"
+
+
+def wait_state(pr: dict, data: dict, cards: dict | None) -> str | None:
+    """Where what the PR waits on stands: its job's state, or whether his question card is still open."""
+    waits = pr.get("waits")
+    if not waits:
+        return None
+    if waits in data["jobs"]:
+        return data["jobs"][waits]["state"]
+    return "open" if card_open(waits, cards) else "answered"
+
+
+def wait_clause(pr: dict, what: str, status: str | None) -> str:
+    if status is None:
+        return ""
+    waits = pr["waits"].split("?")[0]
+    if status == "open" or status in LIVE_JOB_STATES:
+        return f", waiting on {waits} ({status})"
+    return f", and {waits} is {status}: free to {'card' if what == 'ready' else 'act on'}"
 
 
 def minutes(span: timedelta) -> int:
@@ -237,23 +262,26 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
 
 
 def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw the drive's Slack status page when its model changed since the last drawing; while Slack refuses, say at most every ten minutes since when the page he sees is stale, and why."""
+    """Redraw the drive's Slack status page when its model changed since the last drawing; say once, kept in the drive across watch restarts, when Slack starts refusing so the page he sees is stale, and once when it takes a redraw again."""
     model = view.read(watcher.name, moment)
     shape = json.dumps(model | {"at": None}, sort_keys=True)
     if shape == watcher.page_shape:
         return []
+    stale = state.load(watcher.name)["slack"].get("page_stale")
     try:
         page.draw(watcher.name, page.render(model, dashboard.link(watcher.name)))
     except page.PageError as error:
-        watcher.page_stale_since = watcher.page_stale_since or moment
-        said = watcher.failure_said.get("status page")
-        if said and moment - said < FAILURE_EVERY:
+        if stale:
             return []
-        watcher.failure_said["status page"] = moment
-        return [f"WATCH status page stale since {when(state.stamp(watcher.page_stale_since))}: {error}"]
+        with state.edit(watcher.name) as data:
+            data["slack"]["page_stale"] = state.stamp(moment)
+        return [f"WATCH status page stale since {when(state.stamp(moment))}: {error}"]
     watcher.page_shape = shape
-    watcher.page_stale_since = None
-    return []
+    if not stale:
+        return []
+    with state.edit(watcher.name) as data:
+        data["slack"].pop("page_stale")
+    return [f"WATCH status page redrawn: Slack takes its redraws again, after refusing them since {when(stale)}"]
 
 
 def event_line(event: dict, prs: dict) -> str:
@@ -490,7 +518,8 @@ def card_open(url: str, cards: dict | None) -> bool:
     if cards is None:
         return True
     shown = {message_key(card["url"]) for card in [*cards["questions"], *cards["pr_cards"]]}
-    return message_key(url) in shown
+    waits = {card["card"].get("waits") for card in cards["questions"]}
+    return message_key(url) in shown or url in waits
 
 
 def message_key(url: str) -> str:

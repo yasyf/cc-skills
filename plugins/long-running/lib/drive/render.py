@@ -147,7 +147,8 @@ def pr_line(key: str, pr: dict) -> str:
     tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if pr["wants_tap"] else "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
-    return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}"
+    waits = f", waits on {pr['waits']}" if pr.get("waits") else ""
+    return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}{waits}"
 
 
 def job_line(job_id: str, job: dict) -> str:
