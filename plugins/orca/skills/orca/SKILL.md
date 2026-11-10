@@ -403,22 +403,29 @@ A scheduler, not a root, runs the recurring pass:
 orca-reclaim.py --new --shells
 ```
 
-Each pass sweeps up to 40 settled Dispatches: first those no pass has swept,
-newest first, then those swept longest ago. It records each Dispatch under
-`$XDG_STATE_HOME/orca-gc` once its last step finishes, so a pass killed partway
-starts where it stopped. Without `--run` it reads every Run, and skips:
+Without `--run`, each pass takes one Run. It picks a Run no pass has swept
+first, then the one swept longest ago, and skips:
 
 - a Run whose coordinator terminal is open
 - a legacy Run
 - the unbound Run
 - any Run that `git config --global --get-all orca.reclaimSkipRun` names
 
+In that Run it sweeps up to 40 settled Dispatches that still have an open
+terminal or a worktree on disk. It takes those no pass has swept first, newest
+first, then those swept longest ago. It records each Dispatch under
+`$XDG_STATE_HOME/orca-gc` once its last step finishes, so a pass killed partway
+starts where it stopped.
+
 A pass closes at most 12 terminals and removes at most 3 local worktrees. It
 never waits on the removal lock, so a hand `--done` never queues behind it.
-What a pass defers stays first in line for the next one.
+What a pass defers stays first in line for the next one. It reads only this Mac's
+workers, because listing paired servers' workers takes Orca seconds a page, so
+paired-server and Sprite Dispatches still need a hand pass.
 
-Every Orca call gets 60 seconds. Once a read takes more than 5 seconds, the
-pass makes no further Orca call. The next pass then waits 15 minutes, doubling
+Every Orca call gets 60 seconds. Once a read takes more than 15 seconds, or
+the pass's reads add up to more than 180 seconds, the pass makes no further
+Orca call. The next pass then waits 15 minutes, doubling
 each time up to 4 hours, until a pass finishes with Orca answering in time.
 `--shells` also closes an Orca shell that meets all of these, checked again
 right before the close:

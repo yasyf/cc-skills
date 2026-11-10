@@ -1454,9 +1454,14 @@ class BoundedPassTest(unittest.TestCase):
         self.assertEqual(seen[0], [("remove", WT)])
 
     def test_due_takes_unswept_dispatches_newest_first_then_the_longest_swept(self):
-        workers = [orca_gc.Worker.of(row(dispatch)) for dispatch in ("ctx_a", "ctx_b", "ctx_c", "ctx_d")]
+        workers = [orca_gc.Worker.of(row(dispatch)) for dispatch in ("ctx_a", "ctx_b", "ctx_c", "ctx_d", "ctx_closed")]
         workers.append(orca_gc.Worker.of(row("ctx_live", status="dispatched")))
-        self.assertEqual(orca_gc.due(workers, ["ctx_c", "ctx_a"]), ["ctx_b", "ctx_d", "ctx_c", "ctx_a"])
+        open_handles = {f"term_ctx_{name}" for name in ("a", "b", "c", "d", "live")}
+        self.assertEqual(orca_gc.due(workers, ["ctx_c", "ctx_a"], open_handles), ["ctx_b", "ctx_d", "ctx_c", "ctx_a"])
+
+    def test_due_keeps_a_closed_lanes_tree_still_on_disk(self):
+        workers = [orca_gc.Worker.of(row("ctx_a", worktree=str(self.state)))]
+        self.assertEqual(orca_gc.due(workers, [], set()), ["ctx_a"])
 
     def test_the_ledger_moves_a_swept_dispatch_to_the_end(self):
         ledger = orca_gc.Swept(self.state / "swept-all.json")
@@ -1468,12 +1473,22 @@ class BoundedPassTest(unittest.TestCase):
         orca = orca_gc.Orca()
         orca.bounded = True
         answered = subprocess.CompletedProcess([], 0, stdout='{"ok": true, "result": {}}', stderr="")
-        with mock.patch.object(orca_gc.subprocess, "run", return_value=answered), mock.patch.object(orca_gc.time, "monotonic", side_effect=[0.0, 30.0, 0.0, 10.0]):
+        with mock.patch.object(orca_gc.subprocess, "run", return_value=answered), mock.patch.object(orca_gc.time, "monotonic", side_effect=[0.0, 30.0, 0.0, 20.0]):
             orca.call("terminal", "close", "--terminal", "term_a")
             self.assertIsNone(orca.slowed)
             orca.call("terminal", "list")
             with self.assertRaises(orca_gc.OrcaSlow):
                 orca.call("terminal", "list")
+
+    def test_reads_that_add_up_past_the_pass_budget_stop_the_pass(self):
+        orca = orca_gc.Orca()
+        orca.bounded = True
+        answered = subprocess.CompletedProcess([], 0, stdout='{"ok": true, "result": {}}', stderr="")
+        with mock.patch.object(orca_gc.subprocess, "run", return_value=answered), mock.patch.object(orca_gc.time, "monotonic", side_effect=[0.0, 10.0, 0.0, 10.0]), mock.patch.object(orca_gc, "PASS_ORCA_S", 15.0):
+            orca.call("terminal", "list")
+            self.assertIsNone(orca.slowed)
+            orca.call("terminal", "list")
+        self.assertIn("over its 15 s", orca.slowed)
 
     def test_a_slow_pass_backs_off_and_the_next_one_waits(self):
         class Slow(orca_gc.Orca):
@@ -1492,20 +1507,46 @@ class BoundedPassTest(unittest.TestCase):
         backoff = orca_gc.Backoff(self.state / "backoff.json")
         self.assertEqual([backoff.extend(0) for _ in range(6)], [900, 1800, 3600, 7200, 14400, 14400])
 
-    def test_every_run_refuses_an_answer_scoped_to_one_run(self):
-        orca = RecordingOrca({"ok": True, "result": {"workers": [], "page": {}, "scope": {"run": "run_x", "source": "binding"}}})
-        with self.assertRaises(RuntimeError):
-            orca.workers(None)
+    def test_a_bounded_pass_reads_only_this_macs_workers(self):
+        orca = RecordingOrca({"ok": True, "result": {"workers": [], "page": {}}})
+        orca.workers("run_x")
+        orca.bounded = True
+        orca.workers("run_x")
+        self.assertEqual(["--include-remote" in argv for argv in orca.argv], [True, False])
 
-    def test_runs_with_a_live_coordinator_or_named_in_config_are_skipped(self):
+    def test_a_pass_without_a_run_takes_the_next_run_in_turn(self):
+        class Runs(orca_gc.Orca):
+            def __init__(self):
+                self.read: list[str] = []
+
+            def runs(self) -> list[dict]:
+                return [{"id": "run_a"}, {"id": "run_b"}, {"id": "run_c"}]
+
+            def terminals(self) -> list:
+                return []
+
+            def workers(self, run: str) -> list:
+                self.read.append(run)
+                return []
+
+        orca = Runs()
+        rotation = orca_gc.Swept(self.state / "runs.json")
+        rotation.record(["run_b", "run_a"])
+        configured = subprocess.CompletedProcess([], 1, stdout="", stderr="")
+        with mock.patch.object(orca_gc, "SWEPT", self.state), mock.patch.object(orca_gc.subprocess, "run", return_value=configured):
+            for _ in range(3):
+                orca_gc.sweep(None, False, False, orca, FakeGit({}), FakeCcRemote(), UNPAUSED, io.StringIO(), orca_gc.Backoff(self.state / "backoff.json"))
+        self.assertEqual(orca.read, ["run_c", "run_b", "run_a"])
+
+    def test_runs_with_a_live_coordinator_or_named_in_config_are_not_eligible(self):
         class Runs(FakeOrca):
             def runs(self) -> list[dict]:
                 return [{"id": "run_a", "coordinator_handle": "term_live"}, {"id": "run_b", "coordinator_handle": "term_gone"}, {"id": "run_unbound"}, {"id": "run_c", "legacy": 1}, {"id": "run_skip"}]
 
         configured = subprocess.CompletedProcess([], 0, stdout="run_skip\n", stderr="")
         with mock.patch.object(orca_gc.subprocess, "run", return_value=configured):
-            skipped = orca_gc.skipped_runs(Runs([]), [orca_gc.Terminal("term_live", "claude", "", 0)])
-        self.assertEqual(skipped, {"run_a", "run_unbound", "run_c", "run_skip"})
+            eligible = orca_gc.eligible_runs(Runs([]), [orca_gc.Terminal("term_live", "claude", "", 0)])
+        self.assertEqual(eligible, ["run_b"])
 
     def test_only_an_empty_quiet_shell_away_from_agents_and_live_lanes_is_closed(self):
         old = NOW - orca_gc.SHELL_QUIET_MS - 1
