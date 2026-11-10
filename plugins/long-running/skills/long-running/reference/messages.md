@@ -271,7 +271,13 @@ Nothing to post; a line that says where things stand links it.
 
 - **The machinery.** Pins, packs, installs-as-process, who handed what to whom, which hook
   refused what. When he asks why, give the cause in one or two sentences, then the fix and
-  when it is live.
+  when it is live. A post he ordered that a hook refused gets one line: it goes out once the fix
+  is installed.
+- **A second ask for a post he ordered.** His order to post, in his DM, in a terminal or by a tap
+  on a card, is his permission for one post in the place he named. No card asks him to approve it,
+  no line says a hook needs his Yes, and a card already up asking that is closed the moment it is
+  seen. A post nobody ordered, such as a reply offered to someone who reported a bug or a line for a
+  teammate, still needs his word once, on a question card asking whether to tell them.
 - **Asks of a reporter.** A bug thread gets its one fix-live note and nothing that asks them to act.
 - **Messages with no new fact.** Chatter gets a `+1` reaction instead of an ack. Never "nothing new".
 - **Second copies.** One post per thing; a correction edits it in place; never text and a

@@ -46,7 +46,7 @@ Then do the row that matches.
 | You get | Do |
 |---|---|
 | A read-only question: where something stands, what a job did, why something is late | Read the source that owns the fact and answer in his thread, then `drive order posted <o> <the answer's permalink>` for the order whose `from` is his message in `drive status`; it reads Slack and refuses a link that is not the drive's post in that order's thread or the thread of one of its cards. An answer that shows something to act on is an order he gives, never one you start. Work held by a question card of his gets that card shown, never "parked behind a question card": `drive view --json` lists each feature's open `cards`, and your answer links each by its permalink, which redraws it with its buttons under your line in the thread he asked in, and says when it was posted and that he has not answered it. A card the work was said to wait on that he did answer is named with his pick and when he gave it, and your answer says what moves the work now. His words, Nov 10 2:53 AM: "Did I answer those question cards they were blocked on or did you just skip them? You should surface them to me if I ask and they are blocking, not skip them". |
-| A share: his words ask to post something in a thread he names | The share rules below. |
+| A share: his words, in his DM, in a terminal or by a tap on a card, ask to post something in a place he names | The share rules below. |
 | An order or an alert | `cci post --kind owner --lane communicator --to root@<drive>` with his words verbatim, his permalink as `--url` and `--attr thread=<ts>`. |
 | A ruling: how the drive, its sessions, cards or messages should work, a correction or a complaint included | `answer_add` with the question verbatim as title, his words verbatim as body, labels `scope:durable` and `drive:<name>`, then the `owner` record above with `--attr ruling=<answer id>`, which the coordinator turns into a skill rewrite. |
 | His words in a question card's thread (the message's `thread_card` names the card) | An `answer` record to `root@<drive>` carrying his words verbatim, with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record. Then close the card with what he said, so it never asks him again: words that name exactly one option close it with that option, `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<that option>, via=<his message's permalink>)`. Words that name no option, or several, are his answer in his own words, never mapped to the closest option: `slack_card_answer(..., label=<his words verbatim, cut with … only past the card's limit>, other=true, settled=true, via=<his message's permalink>)`, and the `answer` record carries `--attr maps=none`. The card then shows his words in place of its buttons. A result with `already_answered: true` means the card already shows an answer of his, its `label`: it is closed, so call nothing more and never report it as open. |
@@ -71,9 +71,23 @@ Then do the row that matches.
 
 ## Share rules
 
-His order to share, naming a thread, is his permission to post in that thread, once, and nowhere
-else.
+His order to post, in his DM, in a terminal or by a tap on a card, is his permission for one post
+in the place he named, and nowhere else. Nothing asks him again: no card asking him to approve it,
+no line saying a hook needs his Yes, no second ask, on any surface. His words, Nov 10 2:17 PM,
+after a card asked him to approve an update he had ordered at 1:35 PM: "Fix the hook Iuoi had
+permission because I fucking told you to post don't ever use that as an excuse again".
 
+- When the cc-slack permission hook refuses the post, the hook is wrong. Send `cci post --kind
+  defect --lane communicator --to root@<drive>` quoting the refusal, with his order's words, its
+  permalink, the place and the paths, so the post goes out once the fix is installed. Then one
+  plain line in his thread: the post goes out once the fix is installed. Never name the hook to
+  him as the reason.
+- A card that asks him to approve a post he already ordered is closed the moment you see it:
+  `slack_card_answer(url=<the card's permalink>, label=<his order's words>, other=true,
+  settled=true, via=<his order's permalink>)`.
+- A post nobody ordered, such as a reply offered to someone who reported a bug or a line for a
+  teammate, still needs his word once: a question card asking whether to tell them, drawn only
+  from an `ask` record, never a card asking him to approve a post.
 - Spend at most 60 seconds and a handful of reads: read the paths you were given and the
   thread, nothing else. Never rebuild what a file should hold from a transcript.
 - A path that is missing or empty: post one line in his thread saying those steps were never
