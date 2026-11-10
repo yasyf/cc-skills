@@ -51,9 +51,9 @@ cant find it, thers a CLI to open it". A bare tmux session, `nohup`, `claude --b
 headless start is forbidden: Orca shows nothing for it.
 
 Whoever starts the drive starts both sessions with these three commands, `<worktree>` being the
-drive's checkout, which for a monorepo drive is the monorepo checkout's root. `orca worktree show --worktree
-path:<worktree>` must find it; a repository Orca does not list is added first with `orca repo add
---path <its main checkout>`. The first command names the worktree after the drive in Orca's sidebar.
+drive's checkout, which for a monorepo drive is the monorepo checkout's root. A repository Orca does
+not list is added first with `orca repo add --path <its main checkout>`. The first command names the
+worktree after the drive in Orca's sidebar.
 
 ```sh
 orca worktree set --worktree path:<worktree> --display-name <drive>
@@ -61,22 +61,37 @@ orca terminal create --worktree path:<worktree> --title <drive>-coordinator --co
 orca terminal create --worktree path:<worktree> --title <drive>-communicator --command "claude -n <drive>-communicator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the communicator: run Start or resume for that role'" --json
 ```
 
+Then check each terminal 10 seconds after its create: `orca terminal show --terminal <the handle the
+create printed> --json` must read `"orphaned": false`. Orca draws every new terminal for about 5
+seconds, so an earlier read proves nothing. `"orphaned": true` means Orca dropped the terminal
+because it hides the worktrees it did not make for this repository; `orca worktree show` still finds
+such a worktree, so finding it proves nothing either. The fix is the repository's setting, never a
+restart: `orca repo set --repo path:<main checkout> --external-worktree-visibility show`. Both
+sessions keep running and their terminals read `"orphaned": false` once it is set. It changes what
+his Orca sidebar lists for that repository, so it runs for the drive's own repository alone, and
+whoever runs it says so.
+
 The coordinator's `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` keeps a 1-hour prompt cache for the
 jobs it starts, which Claude Code otherwise cuts to 5 minutes, so a job back from a CI wait reads
 its context instead of writing all of it again; the coordinator's own cache and model are as before.
 
 For a drive that does not exist yet, the coordinator's prompt ends `; his DM is <channel id>`, which
 its `drive start` passes as `--channel`. Each session's `drive start` records the Orca terminal it
-runs in, and the start ends with the proof. `drive status` checks, read only, that Orca has a pane
-for that terminal (`orca diagnostics memory` lists it with a pane key) and that the terminal's
-process tree holds the session's Claude Code process (`~/.claude/sessions/<pid>.json` names the
-session); only then does that role's line read `open it with: orca terminal switch --terminal
-<handle>`, the command that brings the session forward in Orca. He gets a switch command from that
-line alone, never from a create's output, an environment variable or a record. A line that reads
-`not visible in Orca until restarted into a terminal` (a terminal with no pane) or `in no Orca
-terminal` (tmux included) gets no switch command: he hears it in those words, and the session moves
-into a fresh Orca terminal by [reference/migration.md](reference/migration.md#into-an-orca-terminal),
-only on his word.
+runs in and ends with that role's line, the proof; `drive status` prints the line for both roles,
+read only. Each reads `orca terminal show` for the terminal, which must read `"orphaned": false`,
+and checks that its process tree holds the session's Claude Code process (`~/.claude/sessions/<pid>.json` names the session); only then
+does the line read `open it with: orca terminal switch --terminal <handle>`, the command that brings
+the session forward in Orca. He gets a switch command from that line alone, never from a create's
+output, an environment variable or a record. Any other line gets no switch command, and he hears it
+in its own words:
+
+- `not visible in Orca, which hides the worktrees it did not make for this repository`: Orca dropped
+  the terminal, and the repository setting above shows it with no restart. `drive status` prints the
+  command; `drive start` runs it for the drive's own repository and says so.
+- `not visible in Orca until restarted into a terminal`, where Orca shows the terminal but its
+  process tree no longer holds the session, or `in no Orca terminal`, tmux included: the session
+  moves into a fresh Orca terminal by
+  [reference/migration.md](reference/migration.md#into-an-orca-terminal), only on his word.
 
 Then each session runs these steps for its role. A restart, a resume and a compaction land here
 too; the `SessionStart` hook prints the role's block after a compaction.
@@ -84,7 +99,7 @@ too; the `SessionStart` hook prints the role's block after a compaction.
 1. A live session on another model switches with `/model claude-fable-5-2` at an idle prompt.
    `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
    creates the drive or binds that role to this session and its Orca terminal, and prints the
-   role's block. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
+   role's block, then the role's line above. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
    kept in the drive across restarts and held by the coordinator; a later `--watch` adds one.
 2. Hold every channel the block's `Hold with slack_watch` line names: one
    `slack_watch(channel_id=<id>)` each, with no thread. One session holds a channel at a time, so a

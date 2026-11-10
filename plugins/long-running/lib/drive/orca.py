@@ -62,15 +62,37 @@ def own_terminal() -> str | None:
     return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
 
 
-def showing(handle: str, session: str) -> bool:
-    """Whether Orca has a pane for the terminal, so switching to it lands there, and its process tree holds the session."""
-    terminal = request("terminal", "show", "--terminal", handle)["terminal"]
+def terminal(handle: str) -> dict:
+    """Orca's record of one terminal; `orphaned` there means Orca dropped its pane, so switching to it shows nothing."""
+    return request("terminal", "show", "--terminal", handle)["terminal"]
+
+
+def holds_session(terminal: dict, session: str) -> bool:
+    """Whether the terminal's process tree holds the session's Claude Code process, so switching to it lands there."""
     sweep = request("diagnostics", "memory")["worktrees"]
     pty = next((pty for worktree in sweep for pty in worktree["sessions"] if pty["sessionId"] == terminal["ptyId"]), None)
-    if terminal["orphaned"] or not pty or not pty["paneKey"]:
+    if not pty:
         return False
     tree = parents()
     return any(holds(tree, pty["pid"], pid) for pid in claude_pids(session))
+
+
+def main_checkout(worktree: str) -> Path:
+    """The main checkout of the worktree's repository, the path Orca registers that repository by."""
+    done = subprocess.run(
+        ["git", "-C", worktree, "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode:
+        raise OrcaError(f"{worktree} is in no git repository Orca can show: {done.stderr.strip()}")
+    return Path(done.stdout.strip()).parent
+
+
+def show_worktrees(checkout: Path) -> None:
+    """Have Orca list the repository's worktrees it did not make, which it otherwise hides along with their terminals."""
+    request("repo", "set", "--repo", f"path:{checkout}", "--external-worktree-visibility", "show")
 
 
 def claude_pids(session: str) -> list[int]:
