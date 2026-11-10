@@ -3,18 +3,20 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark">
 <title>Drive</title>
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<header class="top">
-  <span class="brand" id="brand"></span>
+<aside class="side">
+  <a class="brand" href="#/"><span class="brandmark"><i></i><i></i><i></i><i></i></span><b id="brand"></b></a>
   <nav class="tabs" id="tabs"></nav>
   <span class="fresh" id="fresh"></span>
-</header>
-<div id="findbar" class="wrap findbar" hidden><input id="find" type="search" placeholder="Find a feature or pull request" autocomplete="off"></div>
-<main id="main" class="wrap"></main>
+</aside>
+<div class="content">
+  <div id="findbar" class="findbar" hidden><input id="find" type="search" placeholder="Find a feature or pull request" autocomplete="off"></div>
+  <main id="main"></main>
+</div>
 <script src="/app.js"></script>
 </body>
 </html>

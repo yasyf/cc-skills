@@ -53,7 +53,8 @@ def found(questions: list[dict] = (), pr_cards: list[dict] = ()) -> dict:
 
 
 def question(title: str, minutes: int) -> dict:
-    return {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": at(minutes), "url": f"{TEAM}archives/D123/p{minutes}"}
+    drawn = {"title": title, "body": "Why it matters", "options": ["Yes", "No"], "recommended": "Yes"}
+    return {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": at(minutes), "url": f"{TEAM}archives/D123/p{minutes}", "card": drawn}
 
 
 def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
@@ -76,7 +77,8 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
             pr(7, "o1", wants_tap=True, fundamental="now deletes the old page"),
         ],
     )
-    card = {"prs": ["https://github.com/yasyf/cc-skills/pull/3"], "asked": at(-50), "url": f"{TEAM}archives/D123/p3"}
+    drawn = {"title": "Fix: approve change 3?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/3", "refresher": "One key"}]}
+    card = {"prs": ["https://github.com/yasyf/cc-skills/pull/3"], "asked": at(-50), "url": f"{TEAM}archives/D123/p3", "card": drawn}
     queue = view.build(data, found([question("Release now?", -20)], [card]), T0)["queue"]
     assert [(item["kind"], item["title"]) for item in queue] == [
         ("question", "Release now?"),
@@ -87,7 +89,10 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
         ("late", "promised later"),
     ]
     assert queue[0]["detail"] == "Recommended: Yes"
+    assert (queue[0]["card"]["body"], queue[0]["answer"]) == ("Why it matters", f"{TEAM}archives/D123/p-20")
     assert queue[1]["url"] == card["url"]
+    assert (queue[1]["card"], queue[1]["answer"]) == (drawn, card["url"])
+    assert "answer" not in queue[2]
     assert queue[1]["links"] == [{"label": "Pull request", "url": "https://github.com/yasyf/cc-skills/pull/3"}]
     assert (queue[2]["url"], queue[2]["since"], queue[2]["links"]) == ("https://github.com/yasyf/cc-skills/pull/1", None, [])
     assert queue[3]["detail"] == "green, approved; changed since your tap: now deletes the old page; no Slack card yet"

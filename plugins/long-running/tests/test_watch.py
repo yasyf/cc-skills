@@ -402,7 +402,7 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_or_codex_job_waits_f
 def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2"}
+    card = {"question": "Which store?", "options": ["Team", "Run"], "recommended": "Team", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": "Which store?"}}
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"

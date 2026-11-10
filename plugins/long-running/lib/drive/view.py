@@ -4,7 +4,9 @@
 
 - `queue`: what waits on him, highest priority first: his open question cards, then PRs ready for his tap,
   then promised times that passed. Each item has `kind` (`question`, `tap`, `late`), `title`, `detail`,
-  `since` (when it started waiting, when known), `due`, `url` (where he acts) and `links`.
+  `since` (when it started waiting, when known), `due`, `url` (where he acts), `links`, and for a question or a
+  tap with a Slack card, `card` (the whole card cc-slack draws) and `answer` (the card's permalink, which takes his
+  answer from any surface).
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
   `blocked`, `running`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`, `now`
   (its latest job line), `due`, `late`, `proof`, `updated`, `url` and `prs`, each PR with `title`, `url`,
@@ -68,7 +70,7 @@ def refresh_cards(name: str) -> None:
     text = json.dumps(found, indent=2, sort_keys=True) + "\n"
     if path.exists() and path.read_text() == text:
         return
-    tmp = path.with_name("cards.json.tmp")
+    tmp = path.with_name(f"cards.json.{os.getpid()}.tmp")
     tmp.write_text(text)
     os.replace(tmp, path)
 
@@ -146,7 +148,17 @@ def tap_detail(pr: dict) -> str:
 
 def question_item(card: dict) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
-    return {"kind": "question", "title": card["question"], "detail": pick, "since": card["asked"], "due": None, "url": card["url"], "links": []}
+    return {
+        "kind": "question",
+        "title": card["question"],
+        "detail": pick,
+        "since": card["asked"],
+        "due": None,
+        "url": card["url"],
+        "links": [],
+        "card": card["card"],
+        "answer": card["url"],
+    }
 
 
 def tap_item(pr: dict, card: dict | None) -> dict:
@@ -160,6 +172,8 @@ def tap_item(pr: dict, card: dict | None) -> dict:
         "due": None,
         "url": card["url"],
         "links": [{"label": "Pull request", "url": pr["url"]}],
+        "card": card["card"],
+        "answer": card["url"],
     }
 
 
