@@ -183,6 +183,10 @@ On Sprite, `WORKER_MCP_CONFIG` passes an inline JSON object for Claude or an
 inline TOML table for Codex to prepare's `--mcp-config`; it is not a local file
 path. On the local route, the value follows Claude's `--mcp-config` syntax.
 
+`WORKER_ENV` takes space-separated `NAME=VALUE` words with no spaces in a value. On Sprite
+each becomes one of prepare's `--env` flags; on the local route they join the lane's `env`
+prefix. A word of another shape refuses the launch.
+
 Remote Claude and Codex use dedicated API keys from cc-remote's configured
 callbacks. Claude uses normal API environment authentication; its ordinary tool
 processes may inherit those keys. For Codex, the pinned CLI excludes

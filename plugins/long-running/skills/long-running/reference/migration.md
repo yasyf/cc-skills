@@ -53,6 +53,9 @@ agents end with the old process, and Start step 5 gives each job that needs one 
    orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
+   For the coordinator, open the command with `env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h`
+   before `claude`, as [Start or resume](../SKILL.md#start-or-resume) does.
+
    Its prompt runs Start or resume, so `drive start` records the new terminal and the role takes
    back its watches, its cursor and, for the coordinator, `drive watch`. When Claude Code resumes
    into a copy under a new id because the old process still runs, `drive start` binds the role to

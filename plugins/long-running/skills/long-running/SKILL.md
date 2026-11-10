@@ -30,7 +30,7 @@ should switch to fable 5.2, released today (still no other lanes should be fable
 | Concept | What it is |
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its parts, its jobs, its proof. A part is one deliverable his words name, such as each stack of a design or each question; every part has a live job or a card he has yet to answer, until it is delivered. `drive order …` |
-| Job | One background agent owning one deliverable: `long-running:builder` (one change, code to installed), `long-running:reader` (one question an order needs, read only, on Sonnet), `codex:codex-wrapper` (review, diagnosis, incidents). The communicator's `long-running:handler`s, one per message of his, are not jobs. A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
+| Job | One background agent owning one deliverable: `long-running:builder` (one step of one change: the code and its open PR, or one event on that PR through a handoff, up to installed and proven), `long-running:reader` (one question an order needs, read only, on Sonnet), `codex:codex-wrapper` (review, diagnosis, incidents). The communicator's `long-running:handler`s, one per message of his, are not jobs. A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
 | Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `DUE …` from a promised time, every 10 minutes, until a drive post is in its order's thread, `ORPHAN …` the moment a part of an open order has nothing carrying it, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close, `EVENT catch-up …` when he is back. |
 | Record | A cci record on the drive between the two sessions, by [Between the two sessions](#between-the-two-sessions). |
 | Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
@@ -56,9 +56,13 @@ path:<worktree>` must find it; a repository Orca does not list is added first wi
 
 ```sh
 orca worktree set --worktree path:<worktree> --display-name <drive>
-orca terminal create --worktree path:<worktree> --title <drive>-coordinator --command "claude -n <drive>-coordinator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the coordinator: run Start or resume for that role'" --json
+orca terminal create --worktree path:<worktree> --title <drive>-coordinator --command "env CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h claude -n <drive>-coordinator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the coordinator: run Start or resume for that role'" --json
 orca terminal create --worktree path:<worktree> --title <drive>-communicator --command "claude -n <drive>-communicator --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the communicator: run Start or resume for that role'" --json
 ```
+
+The coordinator's `CLAUDE_CODE_SUBAGENT_PROMPT_CACHE_TTL=1h` keeps a 1-hour prompt cache for the
+jobs it starts, which Claude Code otherwise cuts to 5 minutes, so a job back from a CI wait reads
+its context instead of writing all of it again; the coordinator's own cache and model are as before.
 
 For a drive that does not exist yet, the coordinator's prompt ends `; his DM is <channel id>`, which
 its `drive start` passes as `--channel`. Each session's `drive start` records the Orca terminal it
@@ -207,25 +211,25 @@ answer.
 | Job result | Do |
 |---|---|
 | `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, with the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
-| `READY <pr url>...` | Read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap` for each URL, and one `ready` record with every URL, bottom first, and the order's thread. A PR added to the stack later comes back as its own `READY` and gets its own card. |
-| `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`. Nothing to him. The watch wakes a job through its open PR, its card or the order's due time; a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
+| `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap` for each URL, and one `ready` record with every URL, bottom first, and the order's thread. A PR added to the stack later comes back as its own `READY` and gets its own card. |
+| `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`, and for a remote lane `drive job end <j>` in the background. Nothing to him. Its open PR's next event gets a fresh builder with a handoff (Jobs below); a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
 | `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". |
 | `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. |
 
 | Event | Do |
 |---|---|
-| `PR … checks failed`, `changes requested`, `new head` | Resume the PR's job with the event line. |
-| `PR … merged` | Resume the PR's job to install and prove it live, or mark the order done when nothing is left to install. |
-| `PR … closed` | Resume the job; if he closed it, the order's work on it ends. |
-| `TAP Approve …` | Resume the PR's job: land it. A stack card's Approve arrives as one `TAP Approve` per PR, bottom first; resume the job once with all of them. |
-| `TAP Hold …` | Resume the PR's job: hold it until he says otherwise. |
+| `PR … checks failed`, `changes requested` | A fresh builder with a handoff (Jobs below) carrying the event line. A `new head`, `checks passed` or `approved` alone is the job's own push or CI moving: nothing, unless the PR is now green and waits only on his tap, which takes the `READY` row for it. |
+| `PR … merged` | A fresh builder with a handoff (Jobs below) to install and prove it live, or mark the order done when nothing is left to install. |
+| `PR … closed` | If he closed it, the order's work on it ends. Otherwise a fresh builder with a handoff (Jobs below) to reopen or replace it. |
+| `TAP Approve …` | A fresh builder with a handoff (Jobs below): land it. A stack card's Approve arrives as one `TAP Approve` per PR, bottom first; one handoff carries all of them. |
+| `TAP Hold …` | Nothing lands: start no handoff for that PR until he says otherwise. |
 | `DUE o<n> "…" was due <time>: <why>` | The order owes him a line: the watch read its thread in Slack and found no drive post since the time was promised. It says so again every 10 minutes, once while he is away, until a post is there or his own words withdraw the time. Read the order's job transcripts first, set the new time with `--due`, then a `report` for that thread: what is late, why, and the new time. The new time is owed from that report's line, and the old one keeps firing until the line lands. Nothing but his own message ends a time that has no line: `drive order set <o> --withdrawn <its permalink>`. A `why` of no thread gets `drive order set <o> --thread <ts>`. While he is away it waits for his catch-up instead, except an incident's, which goes out at once by [reference/incidents.md](reference/incidents.md). Never call a job silent, stuck or done without reading its transcript. |
 | `TICK o<n> …` | The watch ticks every 30 minutes, never while he is away, and lists only orders with news: the order or one of its jobs changed since its last line, or its promised time falls before the next tick. One `report` per thread, grouped by feature, covering every listed order in that thread (his main thread for orders with none): what is done since the last line and what is next, or that the promised time holds. Then `drive order set <o> --lined` for each, with `--due` when the report names when he hears next: a time `drive order set --due` sets is owed from the next line in the order's thread, the one that tells him the time. An order with nothing new gets no line. |
 | `EVENT catch-up thread=… orders=…` | He is back. One `report` for that thread covering those orders, grouped by feature, with what waits on him last, each with its card's permalink so the communicator copies the card in, then `--lined` each. |
-| `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so resume the PR's job to fix the title or body, then send its `ready` again. |
+| `EVENT refused …` | cc-slack would not draw that PR's card, for the reason the line gives. The card is drawn from the PR, so a fresh builder with a handoff (Jobs below) fixes the title or body, then send its `ready` again. |
 | `EVENT unheard …` | He answered a card no session was listening to; the line carries the question, his pick and its link. Treat it as his `answer` to that card. |
 | `ORPHAN o<n> "<part>": <why>` | A part of an open order has no live job and no open card: no job ever took it, its job finished with it left over, its agent or lane is gone, its card closed, a waiting job has nothing that can wake it, or a reader's or codex job's answer is not posted to him. In this turn, start a job for it, resume or restart its job, or have its card drawn; an answer not yet posted goes to the communicator as a `report` read from its job's transcript. A part already delivered or one he withdrew leaves the order with `drive order set <o> --parts` or the order closes with `--state done` or `dropped`. Never leave one standing: the watch says it again every 30 minutes and at its order's `DUE`. |
-| `PR … still red for <n> minutes`, `green and approved with no card drawn for <n> minutes` | A PR that has not moved for 30 minutes. Resume its job with the line: a red one gets fixed, a green one gets its `ready` sent or, needing no tap, gets landed. |
+| `PR … still red for <n> minutes`, `green and approved with no card drawn for <n> minutes` | A PR that has not moved for 30 minutes. A red one gets a fresh builder with a handoff (Jobs below); a green one gets its `ready` sent or, needing no tap, a handoff that lands it. |
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (Jobs below), then resume it with what to do next. |
 | `WATCH compacted the communicator …` | Nothing: the watch typed `/compact` into the communicator's Orca terminal at a quiet moment. |
 | `WATCH … failed` | GitHub or Orca did not answer, or cc-slack could not draw the status page; the watch keeps trying and says so again in ten minutes. Nothing to him; a failed page draw that persists gets a builder on cc-slack. |
@@ -283,6 +287,7 @@ Order (his words): <verbatim>
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it, e.g. installed and the installed version contains the merge>
 Where: <repo, base branch, existing branch or PR to adopt>
+Handoff: <a PR event only: the PR URLs, branch and head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <every ruling of his that touches this, his words verbatim with their time, from answer_search>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>
@@ -311,11 +316,19 @@ the inputs to their would-be wriute ups".
   approval of his for that release, and a release he started himself is his: never cancel, retry,
   reorder or approve it. An incident's order approves its own cut and rollback, by
   [reference/incidents.md](reference/incidents.md).
-- **Resume, never respawn.** Send the next event or answer to the job: `SendMessage` to its
-  agent id here, `drive job resume <j> "<event or answer>"` to a remote lane, which answers the
-  question it is waiting on. A finished agent resumes with its history. Start a fresh job only
-  when the agent is gone (a restart) or its context is spent, with a handoff of branch, PR, and
-  last line.
+- **Answers resume; PR events start fresh.** His answer to a job's `ASK` goes back to that job:
+  `SendMessage` to its agent id here, `drive job resume <j> "<answer>"` to a remote lane. A PR
+  event after a builder has returned gets a fresh builder instead: `drive job add builder` for the
+  same order and parts, `drive pr add <url> --job <new>` for each PR it takes over, then the brief
+  with its `Handoff:` line and every earlier job's transcript under `Transcripts:`, and
+  `drive job set <old> --state stopped --said "handed to <new>"`. An incident's job is the one
+  exception: it is resumed for every event, since minutes to users matter more there than tokens,
+  by [reference/incidents.md](reference/incidents.md). A resumed builder re-reads everything it
+  ever did on every event; on Nov 8 and 9, 64% of builder spend came after the PR opened, at 288k
+  tokens of context against 178k while writing the code. Each builder compacts at 300,000 tokens,
+  set in its own definition, and remote lanes get the same window at launch; neither session's
+  own window changes. His words, Nov 9: "it should be passing that as CLI arg to lanes its
+  spawning for implmenetaiton (nt comunicator or coordinatior)".
 - **A reproduction leaves one file.** A job that reproduces a bug, of any kind, saves one
   pick-up-and-run file before it returns: the steps in order, the exact prompt and code, the build
   and versions, and the numbers measured. It records it with `drive job set <j> --repro <file>`,
