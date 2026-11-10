@@ -515,11 +515,11 @@ def test_a_job_changed_in_the_last_two_minutes_is_still_being_handed_over(demo: 
     assert watch.run_pass(watching, T0 + timedelta(minutes=2))[0].startswith('ORPHAN o1 "ship the watch": j1 waits on')
 
 
-def test_a_running_job_whose_agent_is_gone_is_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_running_job_whose_agent_is_gone_is_an_orphan_naming_its_open_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session")
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=5)) == [
-        'ORPHAN o1 "ship the watch": j1\'s agent ended with an earlier session'
+        'ORPHAN o1 "ship the watch": j1\'s agent ended with an earlier session; its PR Forge-AI/monorepo#42: checks pending, review none'
     ]
 
 
