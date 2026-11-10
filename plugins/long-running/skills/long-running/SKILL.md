@@ -19,7 +19,7 @@ the user early and often".
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
   and nothing else; cc-slack has put the eyes on his message by then. The handler reads what it
   needs, does the work or hands it to the coordinator, answers him itself in his thread, and
-  returns what it said and learned. Reports, cards, due lines,
+  returns a pointer: its permalinks and at most three lines. Reports, cards, due lines,
   drafts and `check-post` all run in handlers, so his next message never sits behind the
   communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
   job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to
@@ -153,7 +153,9 @@ A drive saved by the earlier one-session driver reads as that session coordinati
 Post with the cci `post` tool or `cci post`, naming the writer with `--lane communicator` or
 `--lane root`, and address the other as `root@<drive>` or `communicator@<drive>`: a bare lane no
 live session reads here can land on another drive. Each record names the thread it is about with
-`--attr thread=<ts>`.
+`--attr thread=<ts>`. A record's text is one line of at most 300 characters, its ids and paths in
+place of prose, since the channel puts that line whole into the other session's context; the rest
+goes in its body, which only the handler or job that acts on it reads.
 
 | Record | From | To | Carries | The receiver |
 |---|---|---|---|---|
@@ -192,7 +194,7 @@ spent drafting, checking or drawing holds his next message behind it.
 | Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. A tap of Explain more answers nothing and gets no record. | Nothing; for Explain more, a handler briefed `Message (his words): Explain more` with the card's `waits` id and permalink. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
-| A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. The communicator never reads, writes, checks or draws what a record carries. | Nothing. |
+| A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. The communicator never reads, writes, checks or draws what a record carries, and never opens the body's path: a file it reads comes back after every compaction. | Nothing. |
 | An `FYI` report | Nothing: keep it as context for his next message. | Nothing. |
 | The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
 | A handler returned | Keep the lines it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. | Nothing. |
@@ -209,7 +211,10 @@ agent definition is its standing brief, ships with this skill and loads with the
 The communicator's own calls are the ack, a `+1`, `drive heard`, a cci post for a
 tap, a defect or a `MISSING`, the Agent tool, the one `drive` call that records a read-only
 question's handler, and the `ToolSearch` after a compaction. Everything else is a handler's, so his
-next message is picked up inside 5 to 10 seconds while earlier ones are still being handled.
+next message is picked up inside 5 to 10 seconds while earlier ones are still being handled. It
+loads no skill beyond this one, `cc-slack:slack` included: Claude Code re-attaches the first 5,000
+tokens of every skill a session invoked after each compaction, and Slack writes beyond the ack are
+the handler's.
 
 It compacts only at a quiet moment, never at its context limit mid-conversation, since a compaction
 as his message lands holds the ack for minutes. The coordinator's `drive watch` does it: once the
@@ -220,7 +225,8 @@ and until it starts again the cc-slack daemon posts "Got it, back in a minute." 
 messages beside the eyes, and each arrives with `acked`, so the communicator adds no second ack.
 
 A handler reads what it needs, writes, checks and posts every line, card and share itself, and
-returns what it said and learned, by its agent definition. Anything he waits on that takes it past
+returns a pointer, its permalinks and at most three lines, by its agent definition, since its whole
+return stays in the communicator's context until the next compaction. Anything he waits on that takes it past
 a minute gets one line in his thread first. A read-only question it answers itself, from the source
 that owns the fact, never through the coordinator; his ruling, Nov 9 2:06 PM: "should not take 30
 mins to spawn read only sonnet lanes". An order or an alert becomes an `owner` record, and a ruling
