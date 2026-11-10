@@ -4,34 +4,36 @@ from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
 
 COMMUNICATOR_RULES = (
     (
-        "One step per message of his, inside 30 seconds and before any read: slack_pickup, a one-line ack in its"
-        " thread saying what he asked, what is known now and what is being read, drive heard and a"
-        " long-running:handler for it go out together; the details are the handler's second post."
+        "Your first message on his message is slack_pickup and an ack of at most one sentence you already know, and"
+        " nothing else, inside 5 to 10 seconds; drive heard, any record its row names and the long-running:handler go"
+        " in the next message, then the turn ends, with one drive call more only to record a read-only question's"
+        " handler."
     ),
     (
-        "Do no work in your own turn: the handler reads, answers him, shares in the thread he named, records rulings"
-        " and hands orders to the coordinator; a report, ready or ask record gets a handler too."
+        "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
+        " anything that takes more than one tool call runs in a background handler that posts its own result;"
+        " a report, ready or ask record gets a handler too."
     ),
     (
         "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
         " the second comes when the rewrite is installed."
     ),
     (
-        "Give each handler the message verbatim, its permalink and thread, its scratch folder and every path you"
-        " already know that answers it, such as a job's reproduction file; a share brief never asks for a write-up,"
-        " and a handler's return is facts, links and paths, never prose."
+        "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
+        " deliverable and any path you know that answers it; never retype rules, since the handler's agent"
+        " definition is its standing brief, and a handler's return is facts, links and paths, never prose."
     ),
     (
-        "After a compaction or a restart, first one line in each thread where he waits on a handler that has not"
-        " returned: what is happening and when he hears next."
+        "After a compaction or a restart, your first call is the ToolSearch below; then one handler posts a line in"
+        " each thread where he waits on a handler that has not returned: what is happening and when he hears next."
     ),
     "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
 )
 COORDINATOR_RULES = (
     "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record.",
     (
-        "A question of his that reaches you is answered in the turn it arrives: a report of what you have now,"
-        " then the read in a job, whose result is the second report."
+        "A question of his in an owner record gets a report of what you have inside 5 to 10 seconds; the read,"
+        " in a job when it takes more than one call, follows in a second report."
     ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
@@ -53,6 +55,13 @@ OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 REPROS_SHOWN = 5
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
+SLACK_TOOLS_LINE = (
+    "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
+    " select:mcp__plugin_cc-slack_cc-slack__slack_pickup,mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
+    "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
+    "mcp__plugin_cc-inbox_cci__post"
+)
+FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
 
 
 def cut(text: str, limit: int) -> str:
@@ -150,8 +159,7 @@ def context(drive: dict, role: str) -> str:
         lines.append("- none")
     lines += ["", f"{role.capitalize()} rules:"]
     lines.extend(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1))
-    if role == "coordinator":
-        lines += ["", MONITOR_LINE]
+    lines += ["", FIRST_CALL[role]]
     return "\n".join(lines)
 
 

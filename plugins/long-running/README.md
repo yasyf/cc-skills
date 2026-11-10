@@ -1,6 +1,6 @@
 # long-running
 
-A drive that spans a night of orders loses track the moment one session tries to do the work, watch CI, and talk to you at once, and your messages sit for minutes while it does bookkeeping. `long-running` splits the drive into two sessions: the communicator only talks to you, acking each message within seconds, and the coordinator turns each order into a background agent that ships it end to end while one watcher turns every outside wait into an event.
+A drive that spans a night of orders loses track the moment one session tries to do the work, watch CI, and talk to you at once, and your messages sit for minutes while it does bookkeeping. `long-running` splits the drive into two sessions. The communicator only talks to you and acks each message inside 5 to 10 seconds; the coordinator turns each order into a background agent that ships it end to end while one watcher turns every outside wait into an event.
 
 ## Install
 
@@ -32,7 +32,7 @@ Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR car
 
 | Concept | What it is |
 | --- | --- |
-| Communicator | The session you talk to. For each of your messages it reacts, acks and starts a Sonnet handler in one step; the handler answers you itself, shares what you asked in the thread you named, and hands orders and rulings to the coordinator. The communicator does no work of its own, so your next message is picked up at once. |
+| Communicator | The session you talk to. For each of your messages it reacts and acks inside 5 to 10 seconds, with nothing else in that message, then starts a Sonnet handler; the handler answers you itself, shares what you asked in the thread you named, and hands orders and rulings to the coordinator. Reports, cards, drafts and checks all run in handlers, never in the communicator's own turn, so your next message is picked up within seconds too. |
 | Coordinator | The session that runs the drive. It turns your messages into orders and jobs, routes events, lands and installs, and sends the communicator what to post. It never posts to Slack. |
 | Order | One thing you asked for, in your words, with a state, an optional due time, its jobs, and its proof. |
 | Job | One background agent owning one deliverable: a `builder` ships one change from code through merge and install, a `reader` answers one question an order needs, a `codex` lane reviews or diagnoses. A job that reproduces a bug saves one pick-up-and-run file that `drive status` lists. While your Mac is over its load limit, a builder on the monorepo starts as a remote lane on a Sprite instead, so its builds and checks run there. |

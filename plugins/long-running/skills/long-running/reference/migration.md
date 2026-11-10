@@ -30,7 +30,7 @@ communicator.
    forwards his answer with that id in the text, and the coordinator, which asked it, resumes the
    job that waits on it.
 6. Check it: `drive status` names both sessions, and his next message gets the communicator's ack
-   within seconds while the coordinator receives its `owner` record.
+   inside 5 to 10 seconds while the coordinator receives its `owner` record.
 
 ## Into an Orca terminal
 

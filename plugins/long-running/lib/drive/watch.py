@@ -24,6 +24,8 @@ HANDOFF = timedelta(minutes=2)
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
 TAIL_BYTES = 65536
+COMPACT_PAST_TOKENS = 120_000
+COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 SLACK_TS = re.compile(r"/p(\d+)")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
@@ -282,6 +284,43 @@ def last_turn(path: Path) -> dict | None:
             span *= 4
 
 
+def context_tokens(entry: dict) -> int:
+    usage = entry["message"].get("usage") or {}
+    return sum(usage.get(key, 0) for key in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+
+
+def compact_due(data: dict, moment: datetime) -> str | None:
+    """Why the communicator should compact now: past the mark, and both it and he quiet, so no message lands mid-compaction."""
+    held = data["roles"].get("communicator")
+    if not held or not held.get("terminal"):
+        return None
+    path = config_dir() / "projects" / NOT_SLUG.sub("-", held["cwd"]) / f"{held['session']}.jsonl"
+    if not path.exists() or moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone() < COMPACT_WHEN_QUIET:
+        return None
+    heard = (data.get("owner") or {}).get("heard")
+    if heard and moment - state.parse_time(heard) < COMPACT_WHEN_QUIET:
+        return None
+    turn = last_turn(path)
+    if not turn or turn["type"] != "assistant" or turn["message"].get("stop_reason") != "end_turn":
+        return None
+    tokens = context_tokens(turn)
+    return f"at {tokens} tokens of context, quiet 10 minutes" if tokens >= COMPACT_PAST_TOKENS else None
+
+
+def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Type /compact into the communicator's Orca terminal at a quiet moment, never at its context limit mid-conversation."""
+    data = state.load(watcher.name)
+    if not (why := compact_due(data, moment)):
+        return []
+    try:
+        terminal = data["roles"]["communicator"]["terminal"]
+        orca.request("terminal", "send", "--terminal", terminal, "--text", "/compact", "--enter")
+    except orca.OrcaError as error:
+        return read_failed(watcher, "communicator compaction", error, moment)
+    watcher.failures.pop("communicator compaction", None)
+    return [f"WATCH compacted the communicator {why}"]
+
+
 def said_last(entry: dict) -> str:
     texts = [block["text"] for block in entry["message"]["content"] if block.get("type") == "text"]
     return cut(first_line(texts[-1]), 100) if texts else "nothing"
@@ -455,7 +494,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, lane mail, agents and the status page every 60 s, GitHub again next poll after a failure, new events, passed due times, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, passed due times, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -465,6 +504,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += github_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
+        lines += compact_lines(watcher, moment)
         lines += page_lines(watcher, moment)
     lines += event_lines(watcher)
     due = due_lines(watcher, moment)
