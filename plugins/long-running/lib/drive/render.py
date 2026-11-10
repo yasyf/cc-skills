@@ -4,10 +4,11 @@ from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
 
 COMMUNICATOR_RULES = (
     (
-        "Your first message on his message is slack_pickup and an ack of at most one sentence you already know, and"
-        " nothing else, inside 5 to 10 seconds; drive heard, any record its row names and the long-running:handler go"
-        " in the next message, then the turn ends, with one drive call more only to record a read-only question's"
-        " handler."
+        "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
+        " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
+        " cc-slack while you compacted and gets no ack of yours. drive heard, any record its row names and the"
+        " long-running:handler go in the next message, then the turn ends, with one drive call more only to record"
+        " a read-only question's handler."
     ),
     (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
@@ -60,7 +61,7 @@ REPROS_SHOWN = 5
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
 SLACK_TOOLS_LINE = (
     "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
-    " select:mcp__plugin_cc-slack_cc-slack__slack_pickup,mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
+    " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
     "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
     "mcp__plugin_cc-inbox_cci__post"
 )
