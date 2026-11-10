@@ -23,6 +23,12 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/scratch_folder.py\"" }
+        ]
+      },
+      {
         "matcher": "mcp__plugin_cc-slack_cc-slack__slack_(dm_status|reply|send|edit)",
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/message_limits.py\"" }
