@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -162,9 +163,21 @@ def job_set(args: argparse.Namespace) -> int:
         if args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
+        if args.repro:
+            job["repro"] = keep_repro(name, args.id, args.repro)
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def keep_repro(name: str, job_id: str, source: str) -> str:
+    path = Path(source).expanduser()
+    if not path.is_file():
+        raise DriveError(f"no reproduction file at {source}")
+    kept = state.drive_dir(name) / "repro" / f"{job_id}{path.suffix}"
+    kept.parent.mkdir(exist_ok=True)
+    shutil.copyfile(path, kept)
+    return str(kept)
 
 
 def place_job(args: argparse.Namespace) -> int:
@@ -468,6 +481,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--agent")
     verb.add_argument("--state", choices=state.JOB_STATES)
     verb.add_argument("--said")
+    verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[])
     verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers")
     verb.add_argument("--card", help="the Slack link of the question card this job waits on")

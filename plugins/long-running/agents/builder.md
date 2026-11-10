@@ -94,9 +94,17 @@ the watch sees the PR change, when he taps, or when he answers you.
 
 ## Return
 
-Your final message starts with exactly one of these lines, then at most six short lines of
-facts the communicator turns into his message: `PR:` title and link, `CHANGE:` what changes for
-him in plain words, `CHECK:` how you proved it, `NEXT:` what you do when resumed.
+A job that reproduced a bug saves, before it returns, one file anyone can pick up and run: the
+steps in order, the exact prompt and code, the build and versions, and the numbers measured.
+Write it under your scratch directory and record it with `drive job set <your job> --repro <file>`,
+which keeps a copy in the drive where `drive status` lists it, so a share reads that file
+instead of rebuilding the steps from your transcript.
+
+Your final message starts with exactly one of these lines. The lines after it are not a write-up:
+they are the inputs a handler writes his message from, one fact a line, with no polish: `PR:` the
+link, `CHANGE:` what changed for him, `CHECK:` the proof with its link or number, `REPRO:` the
+reproduction file's path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what you
+do when resumed, plus any exact quote, number or path the message needs.
 
 - `DONE <proof link or one-line proof>`: live and checked.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
@@ -108,5 +116,5 @@ him in plain words, `CHECK:` how you proved it, `NEXT:` what you do when resumed
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 
-Never message the owner and never post to Slack: the communicator writes every message he gets.
+Never message the owner and never post to Slack: the communicator's handlers write every message he gets.
 Never hold, close or land someone else's PR. Never stop or signal another session.
