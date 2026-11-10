@@ -394,6 +394,35 @@ def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
         entry.pop("refused")
 
 
+def drawn_card(shown: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
+    return render_stack(shown) if len(shown) > 1 else render(*shown[0])
+
+
+def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
+    asking = [(pr, row) for (pr, entry, _), row in zip(shown, card["prs"], strict=True) if offers_approval(pr, entry)]
+    bare = [row["url"] for _, row in asking if not row["hate_most"]]
+    unordered = [pr["url"] for pr, _ in asking if not names_his_order(pr)]
+    if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
+        return f"its stack card needs a \"The stack\" section, a one-line title then a summary, in the body of its bottom PR {shown[0][0]['url']}"
+    if bare:
+        return f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
+    if unordered:
+        return (
+            f"no order of his names {', '.join(unordered)}: its \"His words, step by step\" list is missing, empty or says"
+            " none, so it is a port, which lands with no card, or the drive's to drop, never his to tap"
+        )
+    return ""
+
+
+def tap_refusal(members: list[tuple[str, dict]]) -> str:
+    shown = []
+    for key, entry in members:
+        if not (pr := read(key)):
+            raise state.DriveError(f"{key}: could not read it from GitHub to check its tap card")
+        shown.append((pr, entry, ()))
+    return refusal(shown, drawn_card(shown))
+
+
 def cards(asked: list[dict]) -> dict:
     """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw, until the asked PRs chain into a longer stack around it."""
     known = drive_prs()
@@ -418,21 +447,8 @@ def cards(asked: list[dict]) -> dict:
         if len(group) > 1 and group in fresh:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
-        card = render_stack(shown) if len(group) > 1 else render(*shown[0])
-        bare = [row["url"] for (pr, entry, _), row in zip(shown, card["prs"]) if offers_approval(pr, entry) and not row["hate_most"]]
-        unordered = [pr["url"] for pr, entry, _ in shown if offers_approval(pr, entry) and not names_his_order(pr)]
-        if len(group) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
-            reason = f"its stack card needs a \"The stack\" section, a one-line title then a summary, in the body of its bottom PR {shown[0][0]['url']}"
-        elif bare:
-            reason = f"its tap card needs a \"What you'll hate most\" section in the body of {', '.join(bare)}"
-        elif unordered:
-            reason = (
-                f"no order of his names {', '.join(unordered)}: its \"His words, step by step\" list is missing, empty or says"
-                " none, so it is a port, which lands with no card, or the drive's to drop, never his to tap"
-            )
-        else:
-            reason = ""
-        if reason:
+        card = drawn_card(shown)
+        if reason := refusal(shown, card):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
