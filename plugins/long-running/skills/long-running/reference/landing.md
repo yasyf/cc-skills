@@ -118,6 +118,7 @@ A monorepo change's release is live on the targets it touches, shown by its card
 regular release (`tools/ci release start`) only when his order covers releasing; otherwise, it rides the
 next one and the job returns `WAITING release`. His order or pick to release authorizes the start only:
 never pass `--order`, which answers the approve gate by itself. A gate that holds a migration, delete
-or replace comes back as `ASK` with what it holds, and only his answer to that gate approves it. Then rerun the reporter's exact case on the live build.
+or replace comes back as `ASK` with what it holds, and only his answer to that gate approves it. An
+incident's own cut is the one exception, approved by its order's words as [incidents.md](incidents.md) says. Then rerun the reporter's exact case on the live build.
 
 Return `DONE <proof>`: one line on what changed for him, and the link or version that proves it.
