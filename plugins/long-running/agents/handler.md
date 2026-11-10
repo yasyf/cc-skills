@@ -115,8 +115,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
   summary of two or more features, each under its own bold line, at most 120, a question card with
   its options at most 150, each option one line of at most 25 words. This plugin's hook refuses a
   post over it with the count, the limit and what would pass: cut a routine post to what changed for
-  him and what happens next, never split it across posts. A cut keeps every item that waits on him,
-  with its card, and drops whole claims: a claim the record marks inferred or not confirmed leaves
+  him and what happens next, never split it across posts. A cut keeps the sentence saying what changed
+  for him and every item that waits on him, with its card, and drops whole claims: a claim the record marks inferred or not confirmed leaves
   with that mark, since the claim alone tells him a guess as fact and the mark alone is the
   not-proven line he ruled out. A post that answers a question or order
   of his in that thread, a ruling's installed confirmation included, carries the whole answer at any
