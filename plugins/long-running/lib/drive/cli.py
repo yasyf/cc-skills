@@ -7,7 +7,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-from drive import github, limits, orca, place, render, settled, slack, state, watch
+from drive import github, limits, orca, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -131,6 +131,8 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    if args.state in state.CLOSED_ORDER_STATES:
+        need_record_close(data, args.id, args.record)
     destination = order | {"thread": args.thread or order["thread"]}
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
     changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
@@ -158,6 +160,25 @@ def order_set(args: argparse.Namespace) -> int:
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, render.order_line(args.id, order), {"id": args.id, **order})
+
+
+def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
+    if seq is None:
+        if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
+            raise DriveError(
+                f"{order_id}: a handler closes only an order the report record it posted names in its close attr;"
+                " pass --record <that record's seq>"
+            )
+        return
+    try:
+        record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
+    except reads.ReadError as error:
+        raise DriveError(f"record {seq} could not be read: {error}") from None
+    closes = record["fields"].get("attrs", {}).get("close", "").split()
+    if not closes:
+        raise DriveError(f"record {seq} has no close attr, so it closes no order; an orders attr only says what its line is about")
+    if order_id not in closes:
+        raise DriveError(f"record {seq} does not close {order_id}: its close attr names only {', '.join(closes)}")
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -803,6 +824,11 @@ def parser() -> argparse.ArgumentParser:
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
+    verb.add_argument(
+        "--record",
+        metavar="SEQ",
+        help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
+    )
     verb.set_defaults(run=order_set)
     verb = order.add_parser("posted", parents=both, help="the communicator posted the answer a part owes him")
     verb.add_argument("id")
