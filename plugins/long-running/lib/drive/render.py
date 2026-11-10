@@ -6,9 +6,21 @@ COMMUNICATOR_RULES = (
     (
         "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
         " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
-        " cc-slack while you compacted and gets no ack of yours. drive heard, any record its row names and the"
-        " long-running:handler go in the next message, then the turn ends, with one drive call more only to record"
-        " a read-only question's handler."
+        " cc-slack while you compacted and gets no ack of yours. drive heard (--away when he says he is going to sleep"
+        " or away), any record its row names and the long-running:handler go in the next message, then the turn ends,"
+        " with one drive call more only to record a read-only question's handler: drive job add reader --order"
+        ' "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>"'
+        " --agent <id>."
+    ),
+    (
+        'Chatter ("ok", "thanks"): a +1 react for its ack, drive heard, no handler. Words typed in your terminal, or an'
+        " owner record from the coordinator, are his message, acked at his DM root. A handler's MISSING <path>: an"
+        " owner record to root@<drive> with his share words and that path. A tool defect you hit: a defect record."
+    ),
+    (
+        "A question-card tap (waits: true): an answer record with its label and --re the ask seq its id ends in, or"
+        " --topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
+        " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:): nothing."
     ),
     (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
@@ -41,6 +53,10 @@ COORDINATOR_RULES = (
     ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
+        "Every event line, record and job result has its row in drive manual coordinator: read the row there before"
+        " acting on one whose row these rules do not hold."
+    ),
+    (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
         " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line), or"
         " neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered finding"
@@ -63,9 +79,10 @@ COORDINATOR_RULES = (
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     (
         "Keep your context small: use Read, Write or Edit on no file and load a tool only for the step that needs it,"
-        " since each file you touched last and each tool you loaded comes back after every compaction. A local"
-        " job's brief is its Agent prompt; a remote lane's brief, handoff or message goes to drive job launch|resume"
-        " <j> - from a quoted heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
+        " since each file you touched last and each tool you loaded comes back after every compaction. Before you"
+        " start a job, read the shape of its brief and handoff in drive manual jobs. A local job's brief is its Agent"
+        " prompt; a remote lane's brief, handoff or message goes to drive job launch|resume <j> - from a quoted"
+        " heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
     ),
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
