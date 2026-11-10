@@ -78,6 +78,7 @@ def row(**fields: str) -> dict:
         "url": URL,
         "title": "retry flaky uploads",
         "head": HEAD,
+        "changed": "",
         "refresher": "When the network hiccups, we try again.",
         "surprise": "Uploads that fail once now retry instead of losing the file.",
         "show_me": "",
@@ -101,6 +102,16 @@ def test_a_monorepo_fix_waiting_on_his_tap_asks_for_approve() -> None:
         "recommended": "Approve",
         "waits": "merge:Forge-AI:monorepo:42",
     }
+
+
+def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
+    changed = {**entry(), "fundamental": "rewritten to do the opposite of the version he held"}
+    drawn = card.render(pr_json(rollup=PASSING), changed)
+    assert (drawn["status"], drawn["waits"], drawn["prs"][0]["changed"]) == (
+        "needs_you",
+        "merge:Forge-AI:monorepo:42",
+        "rewritten to do the opposite of the version he held",
+    )
 
 
 def test_after_his_approve_while_ci_runs_it_drops_the_buttons() -> None:
@@ -420,9 +431,12 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
         "action_ts": "1762700000.000100",
         "source": "slack",
     }
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["fundamental"] = "rewritten to do the opposite"
     assert ask({"answer": answer}) == {"ok": True}
-    tap = state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]
-    assert (tap["label"], tap["head"], tap["source"]) == ("Approve", HEAD, "slack")
+    stored = state.load(drive)["prs"]["Forge-AI/monorepo#42"]
+    tap = stored["tap"]
+    assert (tap["label"], tap["head"], tap["source"], stored["fundamental"]) == ("Approve", HEAD, "slack", None)
     [event] = events(drive)
     assert {key: event[key] for key in ("kind", "repo", "number", "label")} == {
         "kind": "tap",
