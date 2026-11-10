@@ -34,8 +34,8 @@ itself.
     sentences.
   - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
     plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take. A PR that
-    waits on his tap draws no card without it: `drive card` refuses the card and the coordinator
-    hears `EVENT refused`.
+    waits on his tap draws no card without it: `drive pr set --tap` refuses it with the words
+    `drive card` would refuse the card with, before any `ready` record goes out.
   - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
     or Sand call it changes, with what happened before and after, in a fenced block tagged with its
     language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a

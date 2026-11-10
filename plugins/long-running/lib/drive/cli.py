@@ -434,30 +434,14 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
+    if args.tap:
+        refuse_an_undrawable_tap(key, args)
     served = ""
     with state.edit(name) as data:
         pr = find(data["prs"], key, "drive PR")
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
-            pr["serves"] = args.serves
-        if args.design:
-            pr["design"] = args.design
-        if args.port_of:
-            pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
-        if args.tap is not None:
-            pr["wants_tap"] = args.tap
-        if args.fundamental:
-            pr["fundamental"] = args.fundamental
-            pr["tap"] = None
-            pr["exempt"] = None
-        if args.exempt:
-            pr["exempt"] = args.exempt
-        if args.no_exempt:
-            pr["exempt"] = None
-        if args.tapped:
-            pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
-            pr["fundamental"] = None
-        pr["updated"] = state.stamp()
+        set_pr(pr, args)
     withdrawn: list[str] = []
     why = args.why or f"port of #{args.port_of}, which lands with no tap"
     if args.tap is False or args.port_of:
@@ -468,6 +452,40 @@ def pr_set(args: argparse.Namespace) -> int:
         view.refresh_cards(name)
     line = render.pr_line(key, pr) + served + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def set_pr(pr: dict, args: argparse.Namespace) -> None:
+    if args.serves:
+        pr["serves"] = args.serves
+    if args.design:
+        pr["design"] = args.design
+    if args.port_of:
+        pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
+    if args.tap is not None:
+        pr["wants_tap"] = args.tap
+    if args.fundamental:
+        pr["fundamental"] = args.fundamental
+        pr["tap"] = None
+        pr["exempt"] = None
+    if args.exempt:
+        pr["exempt"] = args.exempt
+    if args.no_exempt:
+        pr["exempt"] = None
+    if args.tapped:
+        pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
+        pr["fundamental"] = None
+    pr["updated"] = state.stamp()
+
+
+def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
+    from drive import card
+
+    entries = {member: entry for member, (_, entry) in card.drive_prs().items()}
+    after = dict(find(entries, key, "drive PR"))
+    set_pr(after, args)
+    entries[key] = after
+    if reason := card.tap_refusal([(member, entries[member]) for member in after.get("stack") or [key]]):
+        raise DriveError(f"{key}: {reason}")
 
 
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:

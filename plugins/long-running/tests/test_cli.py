@@ -9,10 +9,16 @@ from pathlib import Path
 
 import drive
 import pytest
-from drive import cli, github, orca, slack, state
+from drive import card, cli, github, orca, slack, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+CARD_BODY = """## What you'll hate most
+It lands without a second look.
+
+## His words, step by step
+- "land it" beside `land.py:1`
+"""
 SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
@@ -404,6 +410,25 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / "j1.md"))
 
 
+@pytest.fixture(autouse=True)
+def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
+    pr = {
+        "title": "Fix: land it",
+        "body": CARD_BODY,
+        "comments": [],
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": "abc",
+        "baseRefName": "main",
+        "headRefName": "land-it",
+        "statusCheckRollup": [],
+        "reviewDecision": "REVIEW_REQUIRED",
+        "url": PR,
+    }
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr))
+    return pr
+
+
 @pytest.fixture
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "land it")
@@ -512,6 +537,42 @@ def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: s
     assert (pr["wants_tap"], pr["design"]) == (True, "asked:045b08d")
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
+
+
+def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_the_section(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    on_github["body"] = CARD_BODY.split("## His words")[0].replace("## What you'll hate most", "## Biggest surprise")
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {PR}"
+    assert capsys.readouterr().err.strip() == f"drive: {with_pr}: {reason}"
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["wants_tap"], pr.get("serves")) == (False, None)
+    on_github["body"] = CARD_BODY.split("## His words")[0]
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.startswith(f"drive: {with_pr}: no order of his names {PR}: ")
+
+
+def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
+
+
+def test_pr_set_tap_on_an_exempt_pr_draws_no_card_so_checks_none(run: Run, with_pr: str, on_github: dict) -> None:
+    run("pr", "set", PR, "--exempt", "test-only")
+    on_github["body"] = "## Summary\nTests only."
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+
+
+def test_pr_set_port_of_reads_no_body(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def unread(cmd: list[str]) -> str:
+        raise AssertionError("a port draws no card, so its body is never read")
+
+    monkeypatch.setattr(card, "run", unread)
+    assert run("pr", "set", PR, "--port-of", "51234")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["exempt"] == "pure port"
 
 
 def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, withdrawals: "Withdrawals") -> None:
