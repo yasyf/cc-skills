@@ -152,6 +152,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert run("job", "resume", "j1", "TAP Approve")[0] == 0
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
+        ("run-use", "--id", RUN),
         ("reply", "--id", "msg_q1", "--run", RUN, "--body", "TAP Approve"),
         (
             "send",
@@ -233,7 +234,7 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == []
     assert asked == [(f"LOG {url}", tmp_path)]
-    assert replies == [("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write")]
+    assert replies == [("run-use", "--id", RUN), ("reply", "--id", "msg_log", "--run", RUN, "--body", "ERROR: journal write")]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 

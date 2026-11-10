@@ -207,7 +207,7 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
 def answer_read(job_id: str, run: str, message_id: str, question: str, checkout: Path) -> str | None:
     """Answer a remote lane's `LOG` or `READ` question here, since a Sprite holds no CI credentials or drive records."""
     try:
-        orca.call("reply", "--id", message_id, "--run", run, "--body", reads.answer(question, checkout))
+        orca.reply(run, message_id, reads.answer(question, checkout))
     except orca.OrcaError as error:
         return f"WATCH read answer to {job_id} failed: {error}; its lane asks again when its wait ends"
     return None
