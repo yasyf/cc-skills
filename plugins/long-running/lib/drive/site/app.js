@@ -38,7 +38,9 @@ const PR_FIELDS = [
 ];
 const ICONS = {
   queue: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
+  now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   status: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
+  review: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
 };
@@ -105,7 +107,15 @@ function prose(text) {
     for (const para of part.split(/\n\s*\n/)) {
       const lines = para.split('\n').filter((line) => line.trim());
       if (!lines.length) continue;
-      if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
+      const heading = lines[0].match(/^(#{1,4})\s+(.*)$/);
+      if (heading) {
+        blocks.push(`<h4 class="hd">${inline(heading[2])}</h4>`);
+        lines.shift();
+        if (!lines.length) continue;
+      }
+      if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
+        blocks.push(table(lines));
+      } else if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
         blocks.push(`<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))}</li>`).join('')}</ul>`);
       } else {
         blocks.push(`<p>${lines.map(inline).join('<br>')}</p>`);
@@ -113,6 +123,20 @@ function prose(text) {
     }
   });
   return blocks.join('');
+}
+
+function table(lines) {
+  const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
+  const rows = lines.filter((line) => !/^\s*\|[\s:|-]+\|\s*$/.test(line)).map(cells);
+  const [head, ...body] = rows;
+  return `<div class="tablewrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>${body
+    .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell)}</td>`).join('')}</tr>`)
+    .join('')}</tbody></table></div>`;
+}
+
+function prKey(url) {
+  const found = String(url).match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/);
+  return found ? `${found[1]}#${found[2]}` : null;
 }
 
 function waited(item) {
@@ -165,7 +189,7 @@ function prRow(pr, cardId, alone) {
     .join('');
   const waits = [pr.blocks, pr.lands ? `Lands once ${pr.lands}` : ''].filter(Boolean).map(esc).join(' · ');
   return `<section class="pr">
-    <div class="pr-head"><b>${alone ? '' : esc(bare(pr.title))}</b><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">View change ↗</a></div>
+    <div class="pr-head"><b>${alone ? '' : esc(bare(pr.title))}</b><span class="acts"><button class="linkish" data-pr="${esc(prKey(pr.url))}">View change</button><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a></span></div>
     ${fields ? `<dl class="fields">${fields}</dl>` : ''}
     ${waits ? `<div class="meta">${waits}</div>` : ''}
   </section>`;
@@ -198,7 +222,8 @@ function lateCard(item) {
   </article>`;
 }
 
-function queueScreen() {
+function queueScreen(filter) {
+  if (filter) queueFilter = filter;
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === queueFilter);
   const shown = model.queue.filter(keep);
   const count = model.queue.length;
@@ -211,6 +236,113 @@ function queueScreen() {
   return `<h1 class="h1">${head}</h1>
     <div class="subtabs">${filters}</div>
     <div class="queue">${cards || '<p class="empty">Nothing here.</p>'}</div>`;
+}
+
+const REVIEW_TABS = [
+  ['you', 'Waiting on you'],
+  ['not ready', 'Not ready yet'],
+  ['decided', 'You approved or held'],
+];
+
+function band(entry) {
+  if (entry.tap === 'Approve') return ['ok', 'Approved, landing'];
+  if (entry.tap === 'Hold') return ['held', 'You held it'];
+  if (entry.group === 'you') return ['you', 'Waiting on you'];
+  if (entry.checks === 'fail') return ['bad', 'Tests failing'];
+  if (entry.checks === 'pending') return ['doing', 'Tests running'];
+  if (entry.stuck) return ['bad', `Stuck: ${entry.stuck.as}`];
+  return ['', entry.review === 'approved' ? 'Approved by review, waiting its turn' : 'Waiting on a review'];
+}
+
+function reviewCard(entry) {
+  const [tone, word] = band(entry);
+  const card = entry.card;
+  const rows = card ? (card.prs ?? []).map((pr, _, all) => prRow(pr, entry.answer, all.length === 1)).join('') : '';
+  const acts = `<span class="acts"><button class="linkish" data-pr="${esc(entry.key)}">Details</button><a class="ext" href="${esc(entry.url)}" target="_blank" rel="noopener">GitHub ↗</a></span>`;
+  return `<article class="mr ${tone}">
+    <div class="band">${esc(word)}</div>
+    <div class="mr-body">
+      <div class="pr-head"><h3>${esc(card ? bare(card.title.replace(/^\w+: approve (.*)\?$/, '$1')) : entry.title)}</h3>${card ? '' : acts}</div>
+      <div class="meta">${esc(entry.detail)}${entry.since ? ` · waiting ${ago(entry.since)}` : ''}</div>
+      ${rows}
+      ${card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : ''}
+    </div>
+  </article>`;
+}
+
+function reviewScreen(tab) {
+  const current = REVIEW_TABS.some(([id]) => id === tab) ? tab : 'you';
+  const tabs = REVIEW_TABS.map(([id, label]) => `<a class="${id === current ? 'on' : ''}" href="#/review/${encodeURIComponent(id)}">${label}<span class="n">${model.review.filter((entry) => entry.group === id).length}</span></a>`).join('');
+  const seen = new Set();
+  const shown = model.review.filter((entry) => entry.group === current && !(entry.answer && seen.has(entry.answer)) && (seen.add(entry.answer) || true));
+  const byFeature = Map.groupBy(shown, (entry) => entry.feature_title || 'No feature');
+  const groups = [...byFeature].map(([title, entries]) => `<h2 class="lane">${esc(title)}</h2>${entries.map(reviewCard).join('')}`).join('');
+  return `<h1 class="h1">Review <span class="count">every open change of this drive, as of ${clock(model.at)}</span></h1>
+    <div class="subtabs">${tabs}</div>
+    ${groups || '<p class="empty">Nothing here.</p>'}`;
+}
+
+function nowScreen() {
+  const taps = model.queue.filter((item) => item.kind === 'tap').length;
+  const picks = model.queue.filter((item) => item.kind === 'question').length;
+  const late = model.queue.filter((item) => item.kind === 'late').length;
+  const needs = [
+    taps && `<div class="nl"><span>${taps} ${taps === 1 ? 'change waits' : 'changes wait'} on your approval</span><a class="btn" href="#/queue/tap">Review them</a></div>`,
+    picks && `<div class="nl"><span>${picks} ${picks === 1 ? 'question waits' : 'questions wait'} on your answer</span><a class="btn" href="#/queue/question">Answer them</a></div>`,
+    late && `<div class="nl"><span>${late} promised ${late === 1 ? 'time has' : 'times have'} passed</span><a class="btn" href="#/queue/late">See them</a></div>`,
+  ].filter(Boolean);
+  const counts = model.counts;
+  const oldest = model.queue.find((item) => item.since);
+  const headline = `${counts.live} ${counts.live === 1 ? 'feature' : 'features'} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
+  const blocked = (model.status.find((group) => group.state === 'blocked')?.features ?? []).map((entry) => `<a class="hc bad" href="#/feature/${esc(entry.id)}">
+      <span class="bar-label">Blocked</span><b>${esc(entry.title)}</b>${entry.now ? `<span>${esc(entry.now)}</span>` : ''}
+      <em>since ${clock(entry.updated)}${entry.late ? ', late' : ''}</em></a>`).join('');
+  const running = model.work.filter((job) => job.state === 'running').slice(0, 12).map((job) => {
+    const quiet = isStalled(job);
+    return `<a class="hc ${quiet ? 'you' : 'doing'}" href="#/feature/${esc(job.feature)}">
+      <span class="bar-label">${quiet ? `Quiet ${ago(job.updated)}` : 'Running'}</span><b>${esc(job.goal)}</b>${job.said ? `<span>${esc(job.said)}</span>` : ''}
+      <em>last word ${ago(job.updated)} ago</em></a>`;
+  }).join('');
+  return `${needs.length ? `<section class="needs"><span class="tag">Needs you</span><div>${needs.join('')}</div></section>` : ''}
+    <h1 class="headline">${esc(headline)}</h1>
+    <p class="asof">As of ${clock(model.at)} · ${model.progress.merged} of ${model.progress.prs} pull requests merged since the drive began</p>
+    <div class="cols">
+      <section><h2 class="sec">What blocks it, nearest first</h2>${blocked || '<p class="empty small">Nothing is blocked.</p>'}</section>
+      <section><h2 class="sec">Work on it</h2>${running || '<p class="empty small">No job is running.</p>'}${model.work.length > 12 ? '<a class="more" href="#/work">All work ›</a>' : ''}</section>
+    </div>`;
+}
+
+function diffHtml(diff) {
+  return diff.split(/^(?=diff --git )/m).filter(Boolean).map((file) => {
+    const name = file.match(/^diff --git a\/(\S+)/)?.[1] ?? 'file';
+    const lines = file.split('\n').slice(1).filter((line) => !/^(?:index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(line));
+    const body = lines.map((line) => `<span class="${line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''}">${esc(line)}</span>`).join('\n');
+    return `<details class="file" open><summary>${esc(name)}</summary><pre class="diff">${body}</pre></details>`;
+  }).join('');
+}
+
+async function openPR(key) {
+  const drawer = $('#drawer');
+  const entry = model.review.find((candidate) => candidate.key === key);
+  drawer.innerHTML = `<div class="dr-bar"><b>${esc(entry?.title ?? key)}</b><button class="linkish" data-close>Close</button></div><p class="empty small">Reading the change…</p>`;
+  if (!drawer.open) drawer.showModal();
+  const [repo, number] = key.split('#');
+  const reply = await fetch(`/api/pr/${repo}/${number}`);
+  const pr = await reply.json();
+  if (!reply.ok) {
+    drawer.querySelector('.empty').textContent = pr.error;
+    return;
+  }
+  const more = pr.diff_lines > pr.diff.split('\n').length ? `<p class="meta">The diff runs ${pr.diff_lines} lines; the rest is on <a href="${esc(pr.url)}/files" target="_blank" rel="noopener">GitHub ↗</a>.</p>` : '';
+  const answerable = entry?.card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : '';
+  drawer.innerHTML = `<div class="dr-bar"><b>${esc(bare(pr.title))}</b><span class="acts"><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
+    <div class="dr-body">
+      <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
+      ${answerable}
+      <div class="dr-tabs"><button class="on" data-drtab="body">Description</button><button data-drtab="diff">Changes</button></div>
+      <div class="dr-pane" data-pane="body">${prose(pr.body)}</div>
+      <div class="dr-pane" data-pane="diff" hidden>${diffHtml(pr.diff)}${more}</div>
+    </div>`;
 }
 
 function features() {
@@ -391,9 +523,10 @@ function render() {
     const on = screen === name || (name === 'status' && screen === 'feature');
     return `<a class="tab${on ? ' on' : ''}" href="${href}">${icon(name)}<span>${label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
   };
-  $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('status', '#/status', 'Status') + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
+  const waiting = model.review.filter((entry) => entry.group === 'you').length;
+  $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
   const warning = model.cards === 'live' ? '' : `<p class="warn">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
-  const screens = { queue: queueScreen, status: statusScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
   $('#findbar').hidden = screen !== 'status';
   const y = window.scrollY;
   $('#main').innerHTML = warning + (screens[screen] ?? queueScreen)();
@@ -422,6 +555,9 @@ async function answer(card, label) {
     answers.set(card, { label, error: error.message });
   }
   render();
+  const shown = $('#drawer[open] .picks');
+  const entry = model.review.find((candidate) => candidate.answer === card);
+  if (shown && entry) shown.outerHTML = choices({ ...entry, kind: 'tap' });
 }
 
 function connect() {
@@ -449,6 +585,15 @@ document.addEventListener('toggle', (event) => {
 document.addEventListener('click', (event) => {
   const pick = event.target.closest('button[data-card]');
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
+  const pr = event.target.closest('button[data-pr]');
+  if (pr) return openPR(pr.dataset.pr);
+  if (event.target.closest('[data-close]') || event.target.id === 'drawer') return $('#drawer').close();
+  const drtab = event.target.closest('[data-drtab]');
+  if (drtab) {
+    for (const button of document.querySelectorAll('[data-drtab]')) button.classList.toggle('on', button === drtab);
+    for (const pane of document.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== drtab.dataset.drtab;
+    return;
+  }
   const folded = event.target.closest('.fold.long');
   if (folded && !event.target.closest('a')) {
     const id = folded.dataset.fold;

@@ -14,8 +14,9 @@
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
-`work` (each running or waiting job of a shown feature), `history` (the last day, newest first) and each
-feature's `text`, `note`, `created` and `jobs`.
+`work` (each running or waiting job of a shown feature), `history` (the last day, newest first), `review` (every
+open PR, in `you`, `not ready` or `decided`, with its Slack card when it has one) and each feature's `text`, `note`,
+`created` and `jobs`.
 """
 
 import json
@@ -315,6 +316,36 @@ def history(drive: dict, events: Iterable[dict], moment: datetime, team_url: str
     return sorted(recent, key=lambda entry: state.parse_time(entry["at"]), reverse=True)
 
 
+def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
+    card = card_for(found["pr_cards"], pr["url"])
+    order = drive["orders"].get(pr["order"]) or {}
+    group = "decided" if pr.get("tap") else "you" if waits_on_tap(pr, card) else "not ready"
+    return {
+        "key": key,
+        "title": pr_title(pr),
+        "url": pr["url"],
+        "group": group,
+        "feature": pr["order"],
+        "feature_title": plain(order.get("text", ""), TITLE_CHARS),
+        "detail": tap_detail(pr),
+        "checks": pr["checks"],
+        "review": pr["review"],
+        "tap": tap_of(pr),
+        "stuck": pr.get("stuck"),
+        "since": card["asked"] if card else None,
+        "updated": pr["updated"],
+        "card": card["card"] if card else None,
+        "answer": card["url"] if card else None,
+    }
+
+
+def review(drive: dict, found: dict) -> list[dict]:
+    entries = [review_entry(key, pr, drive, found) for key, pr in drive["prs"].items() if pr["state"] == "open"]
+    entries.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
+    entries.sort(key=lambda entry: (entry["since"] is None, entry["since"] and state.parse_time(entry["since"])))
+    return entries
+
+
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime) -> dict:
     """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs."""
     model = build(drive, found, moment) | {"cards": source}
@@ -334,4 +365,5 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "progress": progress(drive),
         "work": active,
         "history": history(drive, events, moment, found["team_url"]),
+        "review": review(drive, found),
     }

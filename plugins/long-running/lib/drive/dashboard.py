@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import select
 import signal
 import socket
@@ -15,7 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import state, view
+from drive import github, state, view
 from drive.state import DriveError
 
 CODE = str(Path(__file__).resolve().parent)
@@ -32,7 +33,10 @@ PORT_BASE = 41000
 PORT_SPAN = 1000
 START_SECONDS = 10
 ANSWER_SECONDS = 60
-NOT_OWNER = "only the drive's owner can answer here, and this device is not signed in to the tailnet as him"
+PR_FIELDS = "title,body,url,state,isDraft,additions,deletions,changedFiles,headRefName,baseRefName,reviewDecision"
+DIFF_LINES = 6000
+PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
+NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
 
 
@@ -98,6 +102,14 @@ def answer_card(card: str, label: str, via: str) -> dict:
     return json.loads(done.stdout)
 
 
+def pr_read(key: str) -> dict:
+    repo, number = key.split("#")
+    read = json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
+    diff = github.run(["gh", "pr", "diff", number, "-R", repo])
+    lines = diff.splitlines()
+    return read | {"diff": "\n".join(lines[:DIFF_LINES]), "diff_lines": len(lines)}
+
+
 def changes(name: str) -> Iterator[None]:
     """Yield at once, then after each write kqueue reports to the drive's state directory or its events log."""
     queue = select.kqueue()
@@ -128,6 +140,7 @@ class Board:
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
+        self.prs: set[str] = set()
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -143,10 +156,12 @@ class Board:
         found, source = view.stored_cards(self.name)
         model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links}
         body = json.dumps(model).encode()
-        answers = {item["answer"]: item["card"]["options"] for item in model["queue"] if item.get("answer")}
+        answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
+        prs = {entry["key"] for entry in model["review"]}
         with self.changed:
             self.body = body
             self.answers = answers
+            self.prs = prs
             self.version += 1
             self.changed.notify_all()
 
@@ -176,6 +191,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.reply(board.after(0)[1], "application/json")
             elif self.path == "/api/stream":
                 self.stream()
+            elif found := PR_PATH.fullmatch(self.path):
+                self.pull_request(f"{found[1]}#{found[2]}")
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind)
@@ -192,6 +209,17 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(403, {"error": NOT_OWNER})
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"http://{host}/")
+
+        def pull_request(self, key: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            elif key not in board.prs:
+                self.answered(404, {"error": f"{key} is not an open PR of this drive"})
+            else:
+                try:
+                    self.answered(200, pr_read(key))
+                except github.GithubError as error:
+                    self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
             if asked["label"] not in board.answers.get(asked["card"], []):
