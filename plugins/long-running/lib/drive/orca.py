@@ -4,7 +4,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from drive import state
+from drive import render, state
 from drive.install import config_dir
 from drive.state import DriveError
 
@@ -21,6 +21,8 @@ LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1"
 LAUNCH_SECONDS = 1800
 MAIL_LIMIT = "100"
 FENCED = "consumer_fenced"
+GONE = "dispatch_not_found"
+BRIEF_HEADING = "\n# Brief\n\n"
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 
@@ -131,8 +133,28 @@ def vm_brief(drive: str, job_id: str, brief: str) -> str:
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running builder below, running as an Orca "
         'worker on a Sprite, so its "On a Sprite" section applies.\n\n'
         f"{builder_body()}\n\n"
-        f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n\n"
-        f"# Brief\n\n{brief.strip()}\n"
+        f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
+        f"{BRIEF_HEADING}{brief.strip()}\n"
+    )
+
+
+def brief_of(vm_brief: str) -> str:
+    """The job's own brief inside the text a launch wrote to its Sprite."""
+    return vm_brief.rsplit(BRIEF_HEADING, 1)[1].strip()
+
+
+def handoff(brief: str, death: dict, job: dict, text: str) -> str:
+    """The brief of a lane taking over from one that died: the job's brief, then what the dead lane left and the message it never read."""
+    prs = ", ".join(job["prs"]) or "none yet"
+    return (
+        f"{brief}\n\n"
+        f"## Taking over from a lane that died\n\n"
+        f"The lane that held this job died on Sprite {death['workspace']} at {render.when(death['at'])}: {death['why']}. "
+        "You take the job over on a fresh Sprite from its pushed branches; work it had not committed and pushed "
+        "is not carried over. Commit and push before any long build.\n\n"
+        f"Its last line: {job['said'] or 'nothing yet'}\n"
+        f"Its PRs: {prs}\n\n"
+        f"The coordinator's message it never read, which you act on now:\n\n{text.strip()}\n"
     )
 
 
@@ -200,6 +222,26 @@ def mail(run: str) -> list[dict]:
 
 def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
+
+
+def death(worker: dict) -> str | None:
+    """Why a lane's worker is gone for good, from its worker-show, or None while Orca still holds it."""
+    return "its worker exited" if worker["projection"]["liveness"]["verdict"] == "exited" else None
+
+
+def lane_death(dispatch: str) -> str | None:
+    """Why the lane's worker is gone, or None while Orca shows it live; OrcaError when Orca cannot tell either way."""
+    try:
+        shown = worker(dispatch)
+    except OrcaError as error:
+        if GONE in str(error):
+            return "Orca no longer holds its worker"
+        raise
+    if why := death(shown):
+        return why
+    if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
+        raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
+    return None
 
 
 def reply(drive: str, run: str, message_id: str, body: str) -> None:

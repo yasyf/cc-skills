@@ -366,8 +366,6 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
 
 def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
     projection = worker["projection"]
-    if projection["liveness"]["verdict"] == "exited":
-        return f"{job_id}'s lane exited"
     if projection["outcome"] != "in_progress":
         return f"{job_id}'s lane {projection['outcome']} and its result is not recorded"
     output = (worker.get("terminal") or {}).get("lastOutputAt")
@@ -378,30 +376,57 @@ def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each running job's gap from its agent or lane, and a remote lane, running or waiting, whose worker died."""
     data = state.load(watcher.name)
-    gaps, lines = {}, []
+    gaps, deaths, lines = {}, {}, []
     for order in state.open_orders(data).values():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
-            if job["state"] != "running":
-                continue
+            running = job["state"] == "running"
             if job.get("where") != "remote":
-                gaps[job_id] = local_gap(job_id, job, data, moment)
+                if running:
+                    gaps[job_id] = local_gap(job_id, job, data, moment)
                 continue
             if not job.get("dispatch"):
-                gaps[job_id] = f"{job_id} never started on its Sprite"
+                if running:
+                    gaps[job_id] = f"{job_id} never started on its Sprite"
+                continue
+            if job["state"] not in LIVE_JOB_STATES or any(death["dispatch"] == job["dispatch"] for death in job.get("deaths", [])):
                 continue
             source = f"lane of {job_id}"
             try:
-                gaps[job_id] = remote_gap(job_id, orca.worker(job["dispatch"]), moment)
+                worker = orca.worker(job["dispatch"])
             except orca.OrcaError as error:
-                if "dispatch_not_found" in str(error):
-                    gaps[job_id] = f"{job_id}'s lane is gone from Orca"
+                if orca.GONE in str(error):
+                    deaths[job_id] = (job["dispatch"], "Orca no longer holds its worker")
                     continue
                 lines += read_failed(watcher, source, error, moment)
                 continue
             watcher.failures.pop(source, None)
+            if why := orca.death(worker):
+                deaths[job_id] = (job["dispatch"], why)
+            elif running:
+                gaps[job_id] = remote_gap(job_id, worker, moment)
     watcher.agent_gaps = gaps
+    return lines + death_lines(watcher.name, deaths, moment)
+
+
+def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime) -> list[str]:
+    """Record each remote lane's death on its job and say it once, with what the coordinator's next resume does."""
+    if not deaths:
+        return []
+    lines = []
+    with state.edit(name) as data:
+        for job_id, (dispatch, why) in deaths.items():
+            job = data["jobs"][job_id]
+            if not state.lane_died(job, dispatch, why, moment):
+                continue
+            doing = "waited on" if job["state"] == "waiting" else "worked on"
+            lines.append(
+                f'LANE {job_id} {job["order"]} died on Sprite {job["workspace"]}: {why}, while it {doing} '
+                f'"{cut(job["said"] or job["goal"], 60)}". A message sent to it reaches no one; drive job resume '
+                f'{job_id} "<its next step, or his answer>" relaunches it on a fresh Sprite with a handoff'
+            )
     return lines
 
 

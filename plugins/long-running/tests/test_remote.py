@@ -149,6 +149,7 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
 ) -> None:
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live lane is never relaunched"))
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(ask="msg_q1", state="waiting")
     assert run("job", "resume", "j1", "TAP Approve")[0] == 0
@@ -170,6 +171,108 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
+
+
+def dead(verdict: str = "exited") -> dict:
+    return {"projection": {"liveness": {"verdict": verdict}, "outcome": "in_progress", "attention": {"categories": []}}}
+
+
+def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_handoff(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1"))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(
+            brief=str(first),
+            workspace="sprite-old",
+            ask="msg_q1",
+            state="waiting",
+            said="ASK which npm name?",
+            prs=["https://github.com/Forge-AI/monorepo/pull/7"],
+        )
+    sent, launched = [], {}
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    monkeypatch.setattr(orca, "worker", lambda dispatch: dead())
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str) -> dict:
+        launched.update(lane=lane, brief=brief.read_text(), run=run_id)
+        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+        return {field: f"{field}-2" for field in fields}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    code, out = run("job", "resume", "j1", "Use @poeticapps/poetic")
+    assert (code, sent) == (0, [])
+    assert out == (
+        "j1: its lane on Sprite sprite-old was dead (its worker exited), so the message was not sent to it; relaunched the "
+        "job on Sprite workspace-2 as dispatch dispatch-2 with a handoff carrying its brief, its last line, its PRs and the "
+        "message; work not pushed from sprite-old is not carried over"
+    )
+    assert (launched["lane"], launched["run"]) == ("demo-j1-2", RUN)
+    brief = orca.brief_of(launched["brief"])
+    assert brief.startswith("Order (his words): ship it\nDrive: demo, order o1, job j1\n\n## Taking over from a lane that died")
+    assert "Commit and push before any long build." in brief
+    assert "Its last line: ASK which npm name?\nIts PRs: https://github.com/Forge-AI/monorepo/pull/7\n" in brief
+    assert brief.endswith("which you act on now:\n\nUse @poeticapps/poetic")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], job["state"], job["ask"], job["brief"]) == (
+        "dispatch-2",
+        "workspace-2",
+        "running",
+        None,
+        str(first),
+    )
+    assert [(death["dispatch"], death["workspace"], death["why"]) for death in job["deaths"]] == [
+        (DISPATCH, "sprite-old", "its worker exited")
+    ]
+
+
+@pytest.mark.parametrize("unknown", ["remote_runtime_unavailable", "unverifiable"])
+def test_resume_sends_nothing_while_orca_cannot_tell_whether_the_lane_lives(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, unknown: str
+) -> None:
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+
+    def show(dispatch: str) -> dict:
+        if unknown == "unverifiable":
+            return dead(unknown)
+        raise orca.OrcaError(f"orca orchestration worker-show: {unknown}: the host did not answer")
+
+    monkeypatch.setattr(orca, "worker", show)
+    monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a lane Orca cannot see is never relaunched"))
+    assert (run("job", "resume", "j1", "PR checks failed")[0], sent) == (2, [])
+    assert "deaths" not in state.load(remote)["jobs"]["j1"]
+
+
+def test_the_watch_says_a_dead_lane_once_whether_it_ran_or_waited(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(workspace="sprite-old", state="waiting", said="ASK which npm name?", ask="msg_q1")
+    shown = []
+    monkeypatch.setattr(orca, "worker", lambda dispatch: shown.append(dispatch) or dead())
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        'LANE j1 o1 died on Sprite sprite-old: its worker exited, while it waited on "ASK which npm name?". A message sent '
+        'to it reaches no one; drive job resume j1 "<its next step, or his answer>" relaunches it on a fresh Sprite with a handoff'
+    ]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert shown == [DISPATCH]
+    assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [DISPATCH]
+
+
+def test_the_watch_says_a_lane_orca_dropped_died(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["workspace"] = "sprite-old"
+
+    def gone(dispatch: str) -> dict:
+        raise orca.OrcaError("orca orchestration worker-show: dispatch_not_found: no such dispatch")
+
+    monkeypatch.setattr(orca, "worker", gone)
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0)[0].startswith("LANE j1 o1 died on Sprite sprite-old: Orca no longer holds its worker, while it worked on")
 
 
 def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(

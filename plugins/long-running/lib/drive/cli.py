@@ -13,6 +13,7 @@ from drive.state import DriveError
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -280,7 +281,7 @@ def job_launch(args: argparse.Namespace) -> int:
     brief.parent.mkdir(exist_ok=True)
     brief.write_text(orca.vm_brief(name, args.id, Path(args.brief).read_text()))
     receipt = orca.launch(name, orca.lane_name(name, args.id), brief, root, run)
-    started = {field: receipt[field] for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
+    started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         job.update(started, brief=str(brief), ask=None, report=None, updated=state.stamp())
@@ -303,8 +304,17 @@ def started_job(data: dict, job_id: str) -> dict:
 
 
 def job_resume(args: argparse.Namespace) -> int:
+    """Send the lane its next event, or, when its worker is dead, relaunch the job on a fresh Sprite with the event in its handoff."""
     name = state.resolve(args.drive)
     job = started_job(state.load(name), args.id)
+    try:
+        why = orca.lane_death(job["dispatch"])
+    except orca.OrcaError as error:
+        raise DriveError(
+            f"{args.id}'s lane cannot be checked, so nothing was sent: {error}; resume it again once Orca reaches its Sprite"
+        ) from None
+    if why:
+        return relaunch(args, name, job["dispatch"], why)
     how = orca.answer(name, job, args.text)
     with state.edit(name) as data:
         fresh = data["jobs"][args.id]
@@ -312,6 +322,29 @@ def job_resume(args: argparse.Namespace) -> int:
             fresh.update(ask=None, state="running")
         fresh["updated"] = state.stamp()
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
+
+
+def relaunch(args: argparse.Namespace, name: str, dispatch: str, why: str) -> int:
+    root = checkout()
+    with state.edit(name) as data:
+        job = data["jobs"][args.id]
+        state.lane_died(job, dispatch, why, state.now())
+    death = job["deaths"][-1]
+    attempt = f"{args.id}-{len(job['deaths']) + 1}"
+    brief = state.drive_dir(name) / "jobs" / f"{attempt}.md"
+    taking_over = orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), death, job, args.text)
+    brief.parent.mkdir(exist_ok=True)
+    brief.write_text(orca.vm_brief(name, args.id, taking_over))
+    receipt = orca.launch(name, orca.lane_name(name, attempt), brief, root, job["run"])
+    started = {field: receipt[field] for field in LAUNCHED}
+    with state.edit(name) as data:
+        data["jobs"][args.id].update(started, handoff=str(brief), ask=None, report=None, state="running", updated=state.stamp())
+    line = (
+        f"{args.id}: its lane on Sprite {death['workspace']} was dead ({why}), so the message was not sent to it; "
+        f"relaunched the job on Sprite {started['workspace']} as dispatch {started['dispatch']} with a handoff carrying "
+        f"its brief, its last line, its PRs and the message; work not pushed from {death['workspace']} is not carried over"
+    )
+    return emit(args, line, {"id": args.id, "how": "relaunched", "dead": death, **started})
 
 
 def job_end(args: argparse.Namespace) -> int:
@@ -601,9 +634,19 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("brief", help="the job's brief, the same one a background agent gets")
     verb.set_defaults(run=job_launch)
-    verb = job.add_parser("resume", parents=both, help="answer a remote lane's question, or send it the next event")
+    verb = job.add_parser(
+        "resume",
+        parents=both,
+        help="answer a remote lane's question, or send it the next event",
+        description=(
+            "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive. When its "
+            "worker is dead, relaunch the job on a fresh Sprite on the same Run, with a handoff carrying its brief, its "
+            "last line, its PRs and this text; work the dead lane had not pushed is not carried over. When Orca cannot "
+            "reach the lane's Sprite, send nothing and exit 2."
+        ),
+    )
     verb.add_argument("id")
-    verb.add_argument("text")
+    verb.add_argument("text", help="his answer, or the event the lane acts on next")
     verb.set_defaults(run=job_resume)
     verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite")
     verb.add_argument("id")
