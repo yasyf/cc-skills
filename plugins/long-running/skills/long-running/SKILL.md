@@ -94,7 +94,18 @@ in its own words:
   [reference/migration.md](reference/migration.md#into-an-orca-terminal), only on his word.
 
 Then each session runs these steps for its role. A restart, a resume and a compaction land here
-too; the `SessionStart` hook prints the role's block after a compaction.
+too. A compaction leaves almost nothing behind; his ruling, Nov 9 9:28 PM: "make sure we asap
+install something that makes compactions result in very minimal context, and even the state on
+disk needs to be maximally compact and very token efficient". The `PreCompact` hook gives the
+summary its instructions, so it keeps only what the disk does not hold: for the communicator, each
+handler still out and each acked message of his with no handler yet, in at most 1,500 characters;
+for the coordinator, each operation it owns that the drive file does not record, his words no order
+or answer holds yet, and the step it was in, in at most 3,000. The `SessionStart` hook then prints
+the role's block: its role, what it holds, its rules, for the coordinator one line per order whose
+promised line is owed, and the reads for the rest (`drive status`, `drive view`, `cci digest`),
+never the drive's orders, jobs or PRs. The block stays the same size however many orders are open,
+well under Claude Code's 10,000-character hook cap, past which Claude Code keeps a 2,000-character
+preview and drops the rules and the first call at the block's end.
 
 1. Never switch a live session's model with `/model`. A Claude Code build older than its model
    runs it at a 200k window it does not know is wrong: on Nov 9 the communicator, on 2.1.319, ran

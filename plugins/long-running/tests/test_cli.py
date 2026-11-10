@@ -476,10 +476,11 @@ def test_status_renders_stored_fields_when_github_fails(
     assert "Forge-AI/monorepo#42 open, checks pending, review none" in out
 
 
-def test_context_lists_open_orders(run: Run, with_pr: str) -> None:
+def test_context_prints_the_role_block_without_open_orders(run: Run, with_pr: str) -> None:
     code, out = run("context")
     assert code == 0
-    assert "o1 open: land it" in out
+    assert out.startswith("You are the coordinator of drive demo: ")
+    assert "land it" not in out
 
 
 def test_view_prints_the_model_and_its_page(run: Run, with_pr: str) -> None:
