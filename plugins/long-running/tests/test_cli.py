@@ -955,6 +955,25 @@ def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, sla
     assert (order["state"], order["withdrawn"]) == ("dropped", his)
 
 
+def test_a_handler_closes_only_an_order_its_report_record_closes(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    attrs = {"10": {"orders": "o1", "thread": "1794200000.000100"}, "11": {"orders": "o1", "close": "o2"}, "12": {"close": "o2 o1"}}
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": attrs[argv[2]]}}))
+    run("order", "add", "fix the watch")
+    run("order", "add", "fix the handler")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    assert run("order", "set", "o1", "--state", "done")[0] == 2
+    assert run("order", "set", "o1", "--state", "done", "--record", "10")[0] == 2
+    assert run("order", "set", "o1", "--state", "done", "--record", "11")[0] == 2
+    assert state.load("demo")["orders"]["o1"]["state"] == "open"
+    assert run("order", "set", "o1", "--state", "done", "--record", "12")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["state"] == "done"
+
+
 def test_only_the_communicator_marks_an_answer_posted(run: Run, demo: str) -> None:
     run("order", "add", "why?")
     assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
