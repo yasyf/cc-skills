@@ -251,6 +251,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
         "url": pr["url"],
         "title": plain,
         "head": pr["headRefOid"],
+        "changed": entry.get("fundamental") or "",
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
@@ -469,6 +470,7 @@ def answered(ask: dict) -> dict:
             if entry["state"] != "open":
                 continue
             entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": entry["head"], "source": ask["source"]}
+            entry["fundamental"] = None
             entry["updated"] = entry["tap"]["at"]
             repo, number = member.split("#")
             state.append_event(
