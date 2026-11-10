@@ -105,8 +105,8 @@ def stuck_as(pr: dict, cards: dict | None) -> str | None:
         return None
     if pr["checks"] == "fail":
         return "red"
-    carded = cards is None or held(pr) or view.card_for(cards["pr_cards"], pr["url"])
-    return "ready" if pr["checks"] == "pass" and pr["review"] == "approved" and not carded else None
+    card_owed = cards is not None and pr["wants_tap"] and not held(pr) and not view.card_for(cards["pr_cards"], pr["url"])
+    return "ready" if pr["checks"] == "pass" and pr["review"] == "approved" and card_owed else None
 
 
 def held(pr: dict) -> bool:
