@@ -173,10 +173,16 @@ def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 
 
+def reply(run: str, message_id: str, body: str) -> None:
+    """Answer a lane's question, binding its Run first: Orca takes a coordinator's reply only on the one Run its terminal is bound to, and each launch binds another."""
+    call("run-use", "--id", run)
+    call("reply", "--id", message_id, "--run", run, "--body", body)
+
+
 def answer(job: dict, text: str) -> str:
     """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
     if job.get("ask"):
-        call("reply", "--id", job["ask"], "--run", job["run"], "--body", text)
+        reply(job["run"], job["ask"], text)
         return f"answered its question {job['ask']}"
     call(
         "send",
