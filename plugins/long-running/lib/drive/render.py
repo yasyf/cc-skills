@@ -78,7 +78,10 @@ COORDINATOR_RULES = (
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}
 SUBSCRIBE = {
     "communicator": "cci subscribe --reader communicator --cursor communicator",
-    "coordinator": "cci subscribe --reader root --cursor coordinator",
+    "coordinator": (
+        "cci subscribe --reader root --cursor coordinator --to-kind incident,mechanism,fix-live,decide,ask,design,"
+        "blocker,blocked,urgent,answer,release,correction,defect,owner,refuse"
+    ),
 }
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
