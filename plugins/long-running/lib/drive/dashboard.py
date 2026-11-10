@@ -81,6 +81,11 @@ def links_of(port: int, net: Tailnet | None) -> list[str]:
     return ([f"http://{net.label}:{port}/"] if net else []) + [url_of(port)]
 
 
+def link(name: str) -> str:
+    """The drive's dashboard link the status page ends with, on the tailnet when tailscale runs here."""
+    return links_of(port_of(name), tailnet())[0]
+
+
 def owner_calling(address: str, net: Tailnet | None) -> bool:
     if address in LOCAL_CALLERS:
         return True

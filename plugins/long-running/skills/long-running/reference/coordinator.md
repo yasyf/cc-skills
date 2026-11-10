@@ -40,7 +40,8 @@
 | `JOB <j> <o> STOPPED …` | A remote lane ended its turn without a report. Read its screen (the `jobs` page), then resume it with what to do next. |
 | `LANE <j> <o> died on Sprite …` | A remote lane's worker died, and its session with it. In this turn, `drive job resume <j> -` with its next step on stdin in the background relaunches it with a handoff; a lane that waits on his answer is resumed with that answer when it comes. |
 | `WATCH compacted the communicator …` | Nothing: the watch typed `/compact` into the communicator's Orca terminal at a quiet moment. |
-| `WATCH … failed` | GitHub or Orca did not answer, or cc-slack could not draw the status page; the watch keeps trying and says so again in ten minutes. Nothing to him; a failed page draw that persists gets a builder on cc-slack. |
+| `WATCH … failed` | GitHub or Orca did not answer; the watch keeps trying and says so again in ten minutes. Nothing to him. |
+| `WATCH status page stale since …` | Slack refused the status page's redraw, so his canvas still shows that time's state; the line names Slack's reason, and the watch retries each change and says so again in ten minutes. Nothing to him; one that persists gets a builder on cc-slack. |
 
 While he is away, send only `ready` and `ask` records and the incident lines
 [reference/incidents.md](incidents.md) calls for; everything else waits for his catch-up.

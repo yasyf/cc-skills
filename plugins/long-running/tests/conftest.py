@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, orca, page, slack, view, watch
+from drive import cli, dashboard, orca, page, slack, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -45,6 +45,7 @@ def demo(run: Callable[..., tuple[int, str]]) -> str:
 def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     pages: list[str] = []
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    monkeypatch.setattr(dashboard, "tailnet", lambda: None)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or "https://slack.example/docs/T1/F1")
     return pages
 

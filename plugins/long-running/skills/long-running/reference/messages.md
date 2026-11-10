@@ -164,7 +164,10 @@ Fixed: Iris picks up again right after you answer its question, on today's build
 
 **The status page**, which you never write: `drive watch` redraws the drive's canvas, a tab named
 after the drive in his DM with the app, within a minute of any change. It lists what waits on him
-first, then each feature by state. Nothing to post; a line that says where things stand links it.
+first and in full, then each open feature as one line by state, then finished work as counts with
+the newest five named, and ends with the dashboard link. It stays under 40,000 bytes: past that it
+leaves out finished work first, then each open state from the bottom, and says what it left out in
+one line. Nothing to post; a line that says where things stand links it.
 
 ## When it goes out
 
