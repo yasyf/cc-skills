@@ -9,7 +9,7 @@ from pathlib import Path
 
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 CLOSED_ORDER_STATES = ("done", "dropped")
-JOB_KINDS = ("builder", "reader", "codex")
+JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "done", "failed", "stopped")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")

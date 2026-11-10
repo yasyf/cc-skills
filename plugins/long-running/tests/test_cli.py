@@ -383,19 +383,33 @@ def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
 def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap")
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
-    run("pr", "set", PR, "--tap", "--serves", "o1")
+    run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
 
 def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap")
-    assert run("pr", "set", PR, "--tap")[0] == 2
+    assert run("pr", "set", PR, "--tap", "--design", "none")[0] == 2
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
-    assert run("pr", "set", PR, "--tap", "--serves", "o9")[0] == 2
-    code, out = run("pr", "set", PR, "--tap", "--serves", "o1")
+    assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2
+    code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert code == 0
     assert out.splitlines()[-1] == "serves o1, his words: land it"
     assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
+
+
+def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--no-tap")
+    assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
+    for unsaid in ("maybe", "asked:", "asked: "):
+        with pytest.raises(SystemExit):
+            run("pr", "set", PR, "--tap", "--serves", "o1", "--design", unsaid)
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "asked:045b08d")[0] == 0
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["wants_tap"], pr["design"]) == (True, "asked:045b08d")
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["design"] == "none"
 
 
 def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str) -> None:
@@ -405,7 +419,7 @@ def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str) -> None:
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"]) == (51234, "pure port", False)
     assert out.endswith("no tap needed, exempt: pure port of #51234")
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: pure port")
-    assert run("pr", "set", PR, "--port-of", "51234", "--tap", "--serves", "o1")[0] == 2
+    assert run("pr", "set", PR, "--port-of", "51234", "--tap", "--serves", "o1", "--design", "none")[0] == 2
     with pytest.raises(SystemExit):
         run("pr", "set", PR, "--port-of", "51234", "--exempt", "test-only")
 

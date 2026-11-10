@@ -7,9 +7,13 @@ description: Run a long drive as two Claude Code sessions. The communicator is t
 
 A drive is two sessions and the background agents one of them starts. His ruling, Nov 9 7:46 AM:
 "We like the coordinator / communicator split". Both sessions run Fable 5.2, `claude-fable-5-2`,
-and nothing else in the drive runs Fable: builders, readers, codex lanes and every other job keep
-the model their agent names. His ruling, Nov 9 1:32 PM: "Our coordinator and communicator lanes
-should switch to fable 5.2, released today (still no other lanes should be fable)".
+and the only other Fable in the drive is the light design lane that designs a tricky order before
+any builder starts, by [Design first](#design-first): builders, readers, codex lanes and every
+other job keep the model their agent names. His rulings, Nov 9 1:32 PM: "Our coordinator and
+communicator lanes should switch to fable 5.2, released today (still no other lanes should be
+fable)", and 9:38 PM, which makes the design lane the one exception: "when you have a tricky design
+like this to make, you should 1) spawn a light fable lane just for the initial design and 2) ask
+the user early and often".
 
 - **The communicator** is the only session he talks to, and its turn is two messages: a
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
@@ -31,7 +35,7 @@ should switch to fable 5.2, released today (still no other lanes should be fable
 | Concept | What it is |
 |---|---|
 | Order | One thing he asked for: his words verbatim, a state, an optional due time, its parts, its jobs, its proof. A part is one deliverable his words name, such as each stack of a design or each question; every part has a live job or a card he has yet to answer, until it is delivered. Its jobs are those it started and those carrying one of its parts. `drive order …` |
-| Job | One background agent owning one deliverable, started by one order. When a later order of his asks for work a running job already owns, that job carries the later order's part too, `drive job set <j> --carries <o> [--part "<part>"]`, listed under both orders and counted as that part's live job until the job is done: `long-running:builder` (one step of one change: the code and its open PR, or one event on that PR through a handoff, up to installed and proven), `long-running:reader` (one question an order needs, read only, on Sonnet), `codex:codex-wrapper` (review, diagnosis, incidents). The communicator's `long-running:handler`s, one per message of his, are not jobs. A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
+| Job | One background agent owning one deliverable, started by one order. When a later order of his asks for work a running job already owns, that job carries the later order's part too, `drive job set <j> --carries <o> [--part "<part>"]`, listed under both orders and counted as that part's live job until the job is done: `long-running:builder` (one step of one change: the code and its open PR, or one event on that PR through a handoff, up to installed and proven), `long-running:reader` (one question an order needs, read only, on Sonnet), `long-running:designer` (the initial design of a part with a tricky design and its questions for him, read only, on Fable, by [Design first](#design-first)), `codex:codex-wrapper` (review, diagnosis, incidents). The communicator's `long-running:handler`s, one per message of his, are not jobs. A monorepo builder started while this Mac is over its load limit is a remote lane on a Sprite instead. `drive job …` |
 | Event | A line from `drive watch`: `PR …` state changes, `TAP …` on his PR cards, `JOB …` reports from remote lanes, `LANE … died` once when a remote lane's worker dies, `DUE …` from a promised time, every 10 minutes, until a drive post is in its order's thread, `ORPHAN …` the moment a part of an open order has nothing carrying it, `TICK …` every 30 minutes while he is here, naming the orders with news since their last line or a promised time close, `EVENT catch-up …` when he is back. |
 | Record | A cci record on the drive between the two sessions, by [Between the two sessions](#between-the-two-sessions). |
 | Message | An ack or a summary line in his thread, a question card at his DM root, or a PR card, one per stack, that cc-slack draws from the PRs. Nothing else. [reference/messages.md](reference/messages.md) |
@@ -240,10 +244,10 @@ answer.
 
 | Input | Do, in this turn |
 |---|---|
-| An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Then give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. A part that asks for cards or a summary is delivered by those cards: its job reads and writes them, and no job builds a fix for one before his pick on its card, by [Scope](#scope-and-asking-him). Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. Set `--due` for when he hears next. |
+| An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Then decide for each part whether it carries a tricky design, by [Design first](#design-first): such a part's first job is a design lane, and its builder starts only once he has answered the design's questions. Give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. A part that asks for cards or a summary is delivered by those cards: its job reads and writes them, and no job builds a fix for one before his pick on its card, by [Scope](#scope-and-asking-him). Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. Set `--due` for when he hears next. |
 | A ruling, in an `owner` record: any message of his that says how the drive, its two sessions, cards or messages should work, a correction included | A ruling on arrival, in the same turn and unasked. `answer_add` it as the communicator's row says, unless the record's `ruling` attr names the answer it already added. When it changes how drives work, start a builder on yasyf/cc-skills that rewrites the section of this skill it touches, merged and installed; its `DONE` becomes a `report` for his thread listing, in plain words, each rule now in the installed skill. A reader job started for it finds every live job the ruling touches; send each his words verbatim, with their time and what they mean for that job, with `SendMessage` when it returns, never the answer id alone. |
 | A question of his, in an `owner` record, such as one a card's `ask` record does not answer | A `report` of what you have now inside 5 to 10 seconds, then the read in a background job when it takes more than one call, its result the second `report`. |
-| An `answer` record | `answer_add` with the card's question as title and, as body, the option he tapped or his own words verbatim, never a paraphrase, a bot's summary, or the closest option standing in for words he wrote. A record with `maps=none` settles nothing: resume no job on it until he picks. Otherwise resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent with `drive job set <j> --state running`, or `drive job resume` for a remote lane. |
+| An `answer` record | `answer_add` with the card's question as title and, as body, the option he tapped or his own words verbatim, never a paraphrase, a bot's summary, or the closest option standing in for words he wrote. A record with `maps=none` settles nothing: resume no job on it until he picks. An answer to a design lane's question goes into the brief of that part's builder, started once he has answered every question of that design, by [Design first](#design-first); the design job is then `done`. Otherwise resume its job, or for a card from before the split the job that asked it: `SendMessage` to its agent with `drive job set <j> --state running`, or `drive job resume` for a remote lane. |
 | A `refused` record | Resume the job its `ask` came from with the refusal: it sends its `ASK` again with what was missing. |
 | A `defect` record | A builder on that tool's repository, by [Tooling](#tooling). |
 | A message he typed in this terminal | An `owner` record of his words to `communicator@<drive>`, which acks it, marks him present and sends it back as his message. |
@@ -255,9 +259,10 @@ answer.
 | Job result | Do |
 |---|---|
 | `DONE <proof>` | Once its last job is done, `drive order set <o> --proof <proof>`. The result goes into the next summary of his thread, or his catch-up when he is away: what changed for him, what it served (his order's words, or "port of #N landed" with the old PR linked), and the proof link, in a `report` carrying `--attr close=<o>` (several orders space-separated). The handler that posts it closes each order with `drive order set <o> --state done` once its line is in the thread: done and dropped refuse while the order owes a promised line not posted there, so no order closes before he hears. A remote lane also gets `drive job end <j>`, run in the background, which frees its Sprite. |
-| `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Its `SERVES:` line says what each PR is, by [Scope](#scope-and-asking-him). **A port**: read it against #N's diff with `gh pr diff`; one that does only what #N does gets `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, and a handoff builder lands it, with no card; anything past #N makes it his order's or neither. **His order**: read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A list that is missing, empty or says none is not his order: no card, whatever the rest of the PR says, and `drive card` refuses one. A step missing or unmatched goes back to the job, with no card. Then `drive pr set <url> --tap --serves <o>` for each URL, which prints his words back so you read what they asked for, and one `ready` record with every URL, bottom first, the order's thread, and his order's words quoted in its text. **Neither**: no card and no more work; another lane's PR goes back to that lane in a `handoff` record. A PR added to the stack later comes back as its own `READY` and gets its own card. |
+| `READY <pr url>...` | A remote lane also gets `drive job end <j>`, run in the background. Its `SERVES:` line says what each PR is, by [Scope](#scope-and-asking-him). **A port**: read it against #N's diff with `gh pr diff`; one that does only what #N does gets `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, and a handoff builder lands it, with no card; anything past #N makes it his order's or neither. **His order**: read each PR body's `His words, step by step` list against his words in the order: every step he named sits beside the code that does it. A list that is missing, empty or says none is not his order: no card, whatever the rest of the PR says, and `drive card` refuses one. A step missing or unmatched goes back to the job, with no card. Then read its `DESIGN:` line, which names each design decision the PR makes beside the answer or card of his that settled it, or says none: a decision he never answered draws no card, and goes back to the job to return as an `ASK`, a design question by [Design first](#design-first). Then `drive pr set <url> --tap --serves <o> --design asked:<his answer id or card permalink>` for each URL, or `--design none` when the PR makes no design decision, which prints his words back so you read what they asked for, and one `ready` record with every URL, bottom first, the order's thread, and his order's words quoted in its text. **Neither**: no card and no more work; another lane's PR goes back to that lane in a `handoff` record. A PR added to the stack later comes back as its own `READY` and gets its own card. |
 | `WAITING <what>` | `drive job set <j> --state waiting --said "<what>"`, and for a remote lane `drive job end <j>` in the background. Nothing to him. Its open PR's next event gets a fresh builder with a handoff (Jobs below); a wait on anything else, such as a release run, also gets `drive order set <o> --due` for when to look. |
-| `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". |
+| `ASK <question>` | An `ASK` with no `Findings:` section, or findings that leave out what was hit, what was measured, the cause or what each option changes and costs, goes back to its job with what is missing, and nothing goes to him. Otherwise `drive job set <j> --state waiting --said "<question>"`, then an `ask` record with the block verbatim, `--attr job=<j>` and the order's thread. Resume the job when his `answer` record arrives, or with the refusal when a `refused` record does. His ruling, Nov 9 6:22 PM: "you need to give me the results of the investigation etc before sahowing this to me". A design question rests on the design, not a measurement: its findings are the design in plain words, what his words already settle, and what each option changes and costs. |
+| `DESIGN <part>`, from a design lane | By [Design first](#design-first). Each `Fork:` in it becomes one `ask` record, `--attr job=<j>`, its question and options verbatim and its findings the `Design:` and `Settled:` lines, so each fork is its own short question card; then `drive job set <j> --state waiting --said "<the questions>"`. `Fork: none` starts the part's builder now, the design as its brief's `Plan:`. |
 | `BLOCKED <what>` | Decide. A broken tool gets a builder job on that tool's repo now, and the blocked work moves to a route that works. Never hand a broken tool to him. `BLOCKED no order of his names this` is a PR that is neither, by [Scope](#scope-and-asking-him): no card, and it goes back to its lane or becomes a question card. |
 
 | Event | Do |
@@ -295,7 +300,7 @@ this Mac, and any job that touches this Mac's processes always run here.
 
 **On this Mac.** Start the job with the Agent tool: `subagent_type` `long-running:builder`,
 `long-running:reader` or `codex:codex-wrapper`, `run_in_background: true`, a short
-`description`, and the brief as `prompt`. **Never pass `name`.** Agent teams are on here, and a
+`description`, and the brief as `prompt`; a design lane's call is in [Design first](#design-first). **Never pass `name`.** Agent teams are on here, and a
 named agent becomes a teammate that never wakes on events. Record the agent id the call
 returns: `drive job add <kind> --order <o> --goal "<one line>" --agent <id> [--part "<part>"]...`.
 The watch reads the agent's transcript, never the stored state: a running job whose agent ended
@@ -354,7 +359,7 @@ Drive: <name>, order <o>, job <j>
 ```
 
 A job's result goes to another agent, never to him, so it is never a write-up: its first line is
-`DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED`, and the rest is the inputs to the message he would
+`DONE`, `READY`, `WAITING`, `ASK` or `BLOCKED`, or a design lane's `DESIGN`, and the rest is the inputs to the message he would
 get, one fact a line: links, numbers, paths, exact quotes, and what it could not prove. Only the
 handler that writes to him writes prose. His words, Nov 9 4:14 PM: "agents that are responding to
 agents shoudnt do full himan-quality write ups they just need to dump their context back … I mean
@@ -450,13 +455,49 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
 - A trust line waits for him: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](reference/landing.md)), posting as him to anyone else,
   changing production, and stopping or closing sessions he did not name.
-- A design question gets two to four options with what each does, a recommendation, and a
-  picture when the shape matters. Keep building on the recommendation; his tap steers.
+- A design question goes to him before anything is built on it, by [Design first](#design-first):
+  a short card with two to four one-line options, recommendation first, and a picture when the
+  shape matters. Nothing is built on the recommendation before his pick.
 - No question card goes up before the findings it rests on are posted in its thread: what was
   hit, what was measured, the cause, and what each option changes and costs.
 - His answer is the option he tapped, or his own words when he writes one: a written reply that
   names no single option settles nothing, is never mapped to the closest option, and goes back to
   him under the card. No option asks a reporter or anyone else to retry or confirm.
+
+## Design first
+
+His ruling, Nov 9 9:38 PM, after a run-page order went straight to a builder that picked a journal
+file layout, a per-statement store and an API shape across three PRs he first saw as tap cards:
+"You can change the skill and apply this: when you have a tricky design like this to make, you
+should 1) spawn a light fable lane just for the initial design and 2) ask the user early and often,
+it's incorrect that you went ahead and built a jank solution without consulting me on the design.
+Fix that now, fix the skill, and apply it to any other pending things you've sent me recently".
+
+Before any builder starts on a part, the coordinator decides whether the part carries a tricky
+design: a choice with two reasonable shapes that cost a lot to switch between once built. It
+counts when the part settles a data layout or file format, such as where a journal keeps its
+index; a schema or the shape of a migration; a lock, queue, scheduler or other coordination; a
+public or Sand-facing API shape; or a new background process. When unsure, it counts.
+
+1. **One light design lane, first.** The part's first job is the drive's one Fable job: read only,
+   the initial design alone, no code and no PR, back in about 20 minutes with a few hundred words.
+   Start it with the Agent tool: `subagent_type` `long-running:designer`, `model` `fable`, `effort`
+   `medium`, `run_in_background: true`, a short `description`, never a `name`, and the brief as
+   `prompt`; record it with `drive job add design --order <o> --part "<part>" --goal "<one line>"
+   --agent <id>`. Its brief is the job brief in [Jobs](#jobs) with no `Serves`, `Done when` or
+   `Handoff` line, and a `Plan:` that names what exists: the files, PRs and findings it starts
+   from. Its return, by its agent definition, opens `DESIGN <part>` and carries the design in
+   plain words, what his words already settle, and each real fork as a short question with two
+   to four one-line options, recommendation first.
+2. **He is asked before any code.** Each fork goes to him as its own short question card by the
+   `DESIGN` row of the job results, never a wall of findings, and what his words settle is never
+   asked. No builder starts on the part until he has answered every fork.
+3. **The builder carries the design.** Its brief's `Plan:` is the design, and `Decisions that
+   bind` holds his answer to each fork, verbatim. A builder that meets a new fork mid-build stops
+   and returns `ASK` with it rather than choosing.
+4. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
+   answered goes back as a design question, and `drive pr set --tap` refuses without `--design
+   asked:<his answer id or card permalink>` or `--design none`.
 
 ## Messages
 
@@ -531,6 +572,8 @@ class fix whose PR deletes the earlier patches.
   recorded and sent for a skill rewrite in the turn it arrives.
 - Never build, polish or card a PR that is neither a port nor his order, and never draw a tap
   card for a port.
+- Never start a builder on a tricky design before a design lane has drawn it and he has answered
+  its questions, and never card a PR that makes a design decision he never answered.
 - The coordinator never posts to Slack, and never does an order's work itself, a past-due order's
   included: every order goes to a background job. Its own shell calls are reads of `drive`, `cci`
   and one `gh` call, beside the transcript reads and the remote-lane `drive job` verbs this skill

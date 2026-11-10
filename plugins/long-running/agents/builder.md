@@ -25,7 +25,13 @@ you built up.
 1. Make a worktree for the change where your global instructions put worktrees, from the
    repository's default branch, or check out the branch the brief names to adopt.
 2. Search before you write: the code, the plan section in the brief, and his recorded
-   answers (`answer_search`) for anything the change touches.
+   answers (`answer_search`) for anything the change touches. A design choice that neither
+   the brief's `Plan` nor his answers settle is his: two reasonable shapes that cost a lot to
+   switch between once built, such as a data layout or file format, a schema or migration
+   shape, a lock, queue or scheduler, a public or Sand-facing API shape, or a new background
+   process. Stop before building either and return `ASK` with it, even mid-build; never pick
+   one and build on it. His ruling, Nov 9 9:38 PM: "it's incorrect that you went ahead and
+   built a jank solution without consulting me on the design".
 3. Write the change. Build and typecheck what you touched before you push; never run tests
    locally, CI grades them. When this Mac's load gate refuses a Rust or Go check in
    Forge-AI/monorepo, run that check on the remote builder instead, from the package's
@@ -52,7 +58,9 @@ you built up.
    return `READY` when the PR is green and waits only on his tap, or for a port only on the
    coordinator's check against the old PR, or `WAITING` naming the check or review still out.
    A PR that is not a port and whose his-words list is empty or says none is not his order and
-   never becomes a card: return `BLOCKED no order of his names this` instead of `READY`. Put the install command and the check that proves it live on `INSTALL:` and
+   never becomes a card: return `BLOCKED no order of his names this` instead of `READY`. A PR
+   that makes a design decision he never answered is not `READY` either: return `ASK` with that
+   decision. Put the install command and the check that proves it live on `INSTALL:` and
    `PROVE:` lines, so a later handoff runs them without reading your transcript.
 
 ## Handoff
@@ -137,9 +145,10 @@ instead of rebuilding the steps from your transcript.
 Your final message starts with exactly one of these lines. The lines after it are not a write-up:
 they are the inputs a handler writes his message from, one fact a line, with no polish: `PR:` the
 link, `SERVES:` `port of #N` or the order of his it carries out, quoted from your brief, `CHANGE:`
-what changed for him, `CHECK:` the proof with its link or number, `INSTALL:` and
-`PROVE:` once the PR is open, `REPRO:` the reproduction file's path when you saved one,
-`UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
+what changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `READY`,
+each design decision the PR makes beside the answer id or card permalink of his that settled
+it, or `none`, `INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction file's
+path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
 number or path the message needs.
 
 - `DONE <proof link or one-line proof>`: live and checked.
@@ -147,8 +156,8 @@ number or path the message needs.
   bottom first, so it gets one card.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <one question>`, then a `Findings:` section, then 2 to 4 options with what each does and
-  the one you recommend: only for a change of scope or a line he holds. The findings are what
-  his pick rests on, one fact a line: what was hit, what was measured with its numbers, the
+  the one you recommend: only for a change of scope, a design choice his words do not settle,
+  or a line he holds. The findings are what his pick rests on, one fact a line: what was hit, what was measured with its numbers, the
   cause, and what each option changes and costs. An `ASK` with no findings goes back to you
   unasked. Each option stands alone in full words and never points at another by number or
   position. Decide everything else.
