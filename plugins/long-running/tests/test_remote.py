@@ -1,5 +1,7 @@
 import itertools
 import json
+import subprocess
+import threading
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -112,7 +114,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     monkeypatch.setattr(orca, "new_run", lambda objective: objectives.append(objective) or RUN)
     launched = {}
 
-    def fake_launch(lane: str, brief: Path, checkout: Path, run_id: str) -> dict:
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str) -> dict:
         launched.update(lane=lane, brief=brief.read_text(), checkout=checkout, run=run_id)
         fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
         return {field: f"{field}-1" for field in fields} | {"dispatch": DISPATCH}
@@ -330,3 +332,20 @@ def test_the_inbox_turns_each_message_into_one_event_and_skips_what_check_alread
     passes = [watch.run_pass(watching, T0 + timedelta(minutes=m)) for m in (0, 1, 2)]
     assert passes == [[], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
     assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}
+
+
+def test_a_reply_during_a_launch_waits_until_its_worker_start_is_done(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    binds = []
+    monkeypatch.setattr(orca, "call", lambda *args: binds.append(args[2]) if args[0] == "run-use" else {})
+    replying = threading.Thread(target=orca.reply, args=(remote, "run_other", "msg_1", "an answer"))
+
+    def worker_start(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        replying.start()
+        replying.join(timeout=0.5)
+        return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({"bound": binds[-1], "reply_waiting": replying.is_alive()}), stderr="")
+
+    monkeypatch.setattr(orca.subprocess, "run", worker_start)
+    done = orca.bound_command(remote, RUN, ["orca", "orchestration", "worker-start", "--run", RUN])
+    replying.join()
+    assert json.loads(done.stdout) == {"bound": RUN, "reply_waiting": True}
+    assert binds == [RUN, "run_other"]

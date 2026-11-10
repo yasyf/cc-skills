@@ -195,6 +195,19 @@ def locked(name: str) -> Iterator[None]:
 
 
 @contextmanager
+def binding(name: str) -> Iterator[None]:
+    """Hold the coordinator terminal's one Run binding for a bind and the call that needs it: a launch's worker-start, a reply."""
+    directory = drive_dir(name)
+    directory.mkdir(parents=True, exist_ok=True)
+    with open(directory / ".binding.lock", "a") as handle:
+        fcntl.flock(handle, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle, fcntl.LOCK_UN)
+
+
+@contextmanager
 def edit(name: str) -> Iterator[dict]:
     """Load the drive under its lock, yield it for changes, and save it atomically on exit."""
     with locked(name):

@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from drive import state
 from drive.state import DriveError
 
 LAUNCHER = "orca-worker-launch.sh"
@@ -19,6 +20,8 @@ LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000 ENABLE_PROMPT_CACHING_1H=1"
 LAUNCH_SECONDS = 1800
 MAIL_LIMIT = "100"
+FENCED = "consumer_fenced"
+DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 
 
@@ -118,13 +121,13 @@ def tool(name: str) -> str:
     return path
 
 
-def launch(lane: str, brief: Path, checkout: Path, run: str) -> dict:
+def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str) -> dict:
     """Start one remote builder through the orca plugin's launcher; its success line, with the prepared server."""
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
             cwd=checkout,
-            env={**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV},
+            env={**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"},
             capture_output=True,
             text=True,
             timeout=LAUNCH_SECONDS,
@@ -174,16 +177,28 @@ def worker(dispatch: str) -> dict:
     return call("worker-show", "--dispatch", dispatch)
 
 
-def reply(run: str, message_id: str, body: str) -> None:
-    """Answer a lane's question, binding its Run first: Orca takes a coordinator's reply only on the one Run its terminal is bound to, and each launch binds another."""
-    call("run-use", "--id", run)
-    call("reply", "--id", message_id, "--run", run, "--body", body)
+def reply(drive: str, run: str, message_id: str, body: str) -> None:
+    """Answer a lane's question on its Run: Orca takes a coordinator's reply only on the one Run its terminal is bound to, which a launch or another reply moves."""
+    with state.binding(drive):
+        call("run-use", "--id", run)
+        call("reply", "--id", message_id, "--run", run, "--body", body)
 
 
-def answer(job: dict, text: str) -> str:
+def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.CompletedProcess:
+    """Run a command that needs the Run bound, such as a launch's worker-start, binding it again once if something outside this drive moved the binding first."""
+    with state.binding(drive):
+        for _ in range(2):
+            call("run-use", "--id", run)
+            done = subprocess.run(argv, capture_output=True, text=True, check=False)
+            if FENCED not in done.stdout:
+                break
+    return done
+
+
+def answer(drive: str, job: dict, text: str) -> str:
     """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
     if job.get("ask"):
-        reply(job["run"], job["ask"], text)
+        reply(drive, job["run"], job["ask"], text)
         return f"answered its question {job['ask']}"
     call(
         "send",

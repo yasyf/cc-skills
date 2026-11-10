@@ -68,6 +68,14 @@ copies the complete brief to the VM and records its hash, length, and actual
 checkout HEAD. The first task is a pointer telling the worker to read and
 verify that file.
 
+A coordinator whose terminal answers other Runs between launches sets
+`WORKER_BIND` to a command prefix that binds the Run and runs the command it is
+given, such as `drive bound --drive <drive> <run> --`. The script then skips
+the binding check and runs `worker-start` through that prefix. A Sprite attempt
+whose `worker-start` came back `consumer_fenced` starts again from the same
+attempt with the same brief: it reuses the prepared Sprite and runs only
+`worker-start`.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`

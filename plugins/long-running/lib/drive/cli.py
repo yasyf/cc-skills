@@ -269,18 +269,26 @@ def job_launch(args: argparse.Namespace) -> int:
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     root = checkout()
-    run = orca.new_run(f"drive {name} {args.id}: {job['goal']}")
+    run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
     with state.edit(name) as data:
         data["jobs"][args.id]["run"] = run
     brief = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     brief.parent.mkdir(exist_ok=True)
     brief.write_text(orca.vm_brief(name, args.id, Path(args.brief).read_text()))
-    receipt = orca.launch(orca.lane_name(name, args.id), brief, root, run)
+    receipt = orca.launch(name, orca.lane_name(name, args.id), brief, root, run)
     started = {field: receipt[field] for field in ("dispatch", "task", "terminal", "workspace", "environment", "lane")}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         job.update(started, brief=str(brief), ask=None, report=None, updated=state.stamp())
     return emit(args, f"{args.id} started on Sprite {started['workspace']} as dispatch {started['dispatch']}", started)
+
+
+def bound(args: argparse.Namespace) -> int:
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    done = orca.bound_command(state.resolve(args.drive), args.lane_run, command)
+    sys.stdout.write(done.stdout)
+    sys.stderr.write(done.stderr)
+    return done.returncode
 
 
 def started_job(data: dict, job_id: str) -> dict:
@@ -293,7 +301,7 @@ def started_job(data: dict, job_id: str) -> dict:
 def job_resume(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     job = started_job(state.load(name), args.id)
-    how = orca.answer(job, args.text)
+    how = orca.answer(name, job, args.text)
     with state.edit(name) as data:
         fresh = data["jobs"][args.id]
         if fresh.get("ask") == job.get("ask"):
@@ -598,6 +606,10 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=pr_tapped)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
+    verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock")
+    verb.add_argument("lane_run", metavar="run")
+    verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command and its arguments")
+    verb.set_defaults(run=bound)
     verb = verbs.add_parser(
         "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up covers"
     )
