@@ -398,7 +398,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
         dashboard.serve(name, port)
         return 0
     view.refresh_cards(name)
-    print(dashboard.start(name, port))
+    print("\n".join(dashboard.start(name, port)))
     return 0
 
 

@@ -2,6 +2,7 @@ import json
 import os
 import select
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -24,7 +25,7 @@ FILES = {
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
 }
-HOST = "127.0.0.1"
+LOOPBACK = "127.0.0.1"
 PORT_BASE = 41000
 PORT_SPAN = 1000
 START_SECONDS = 10
@@ -36,7 +37,28 @@ def port_of(name: str) -> int:
 
 
 def url_of(port: int) -> str:
-    return f"http://{HOST}:{port}/"
+    return f"http://{LOOPBACK}:{port}/"
+
+
+def tailnet() -> tuple[str, list[str]] | None:
+    """This machine's bare MagicDNS label and its tailnet addresses, or None when tailscale is not running here."""
+    try:
+        done = subprocess.run(
+            ["tailscale", "status", "--self", "--peers=false", "--json"], capture_output=True, text=True, timeout=10, check=False
+        )
+    except FileNotFoundError:
+        return None
+    if done.returncode:
+        return None
+    status = json.loads(done.stdout)
+    if status["BackendState"] != "Running":
+        return None
+    return status["Self"]["DNSName"].split(".")[0], status["Self"]["TailscaleIPs"]
+
+
+def links_of(port: int, net: tuple[str, list[str]] | None) -> list[str]:
+    """The tailnet link on the bare label first, since ts.net is HSTS-preloaded and an http link on the full name cannot load, then loopback."""
+    return ([f"http://{net[0]}:{port}/"] if net else []) + [url_of(port)]
 
 
 def changes(name: str) -> Iterator[None]:
@@ -53,11 +75,16 @@ def changes(name: str) -> Iterator[None]:
         queue.control(None, 1)
 
 
+class Server6(ThreadingHTTPServer):
+    address_family = socket.AF_INET6
+
+
 class Board:
     """The drive's dashboard model, built once per change to its stored state and handed to every open page."""
 
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, links: list[str]) -> None:
         self.name = name
+        self.links = links
         self.changed = threading.Condition()
         self.version = 0
         self.body = b""
@@ -76,7 +103,7 @@ class Board:
                 self.events.append(event)
         self.events = [event for event in self.events if moment - state.parse_time(event["at"]) <= view.HISTORY_FOR]
         found, source = view.stored_cards(self.name)
-        model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid()}
+        model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links}
         body = json.dumps(model).encode()
         with self.changed:
             self.body = body
@@ -97,8 +124,9 @@ class Board:
             return self.version, self.body
 
 
-def handler(name: str, port: int, board: Board) -> type[BaseHTTPRequestHandler]:
-    hosts = {f"{HOST}:{port}", f"localhost:{port}"}
+def handler(port: int, net: tuple[str, list[str]] | None, board: Board) -> type[BaseHTTPRequestHandler]:
+    names = [LOOPBACK, "localhost"] + ([net[0]] + [f"[{ip}]" if ":" in ip else ip for ip in net[1]] if net else [])
+    hosts = {f"{host}:{port}" for host in names}
 
     class Page(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
@@ -143,10 +171,13 @@ def handler(name: str, port: int, board: Board) -> type[BaseHTTPRequestHandler]:
 
 
 def serve(name: str, port: int) -> None:
-    """Serve the dashboard until following the drive's files fails, so a broken build ends the server rather than freezing its page."""
-    board = Board(name)
-    server = ThreadingHTTPServer((HOST, port), handler(name, port, board))
-    threading.Thread(target=server.serve_forever, daemon=True).start()
+    """Serve the dashboard on loopback and this machine's own tailnet addresses, never a wildcard, until following the drive's files fails, so a broken build ends the server rather than freezing its page."""
+    net = tailnet()
+    board = Board(name, links_of(port, net))
+    page = handler(port, net, board)
+    for address in [LOOPBACK] + (net[1] if net else []):
+        server = (Server6 if ":" in address else ThreadingHTTPServer)((address, port), page)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
     board.follow()
 
 
@@ -170,12 +201,12 @@ def wait_until(ready: Callable[[], bool], log: Path) -> None:
         time.sleep(0.2)
 
 
-def start(name: str, port: int) -> str:
-    """The drive's dashboard link, starting its server in the background when none runs, or replacing one serving other code."""
+def start(name: str, port: int) -> list[str]:
+    """The drive's dashboard links, tailnet first, starting its server in the background when none runs, or replacing one serving other code or other addresses."""
     log = state.drive_dir(name) / "dashboard.log"
     drawn = serving(name, port)
-    if drawn and drawn["code"] == CODE:
-        return url_of(port)
+    if drawn and drawn["code"] == CODE and drawn["links"] == links_of(port, tailnet()):
+        return drawn["links"]
     if drawn:
         os.kill(drawn["pid"], signal.SIGTERM)
         wait_until(lambda: serving(name, port) is None, log)
@@ -188,4 +219,4 @@ def start(name: str, port: int) -> str:
             start_new_session=True,
         )
     wait_until(lambda: serving(name, port) is not None, log)
-    return url_of(port)
+    return serving(name, port)["links"]

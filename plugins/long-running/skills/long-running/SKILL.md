@@ -97,7 +97,9 @@ too; the `SessionStart` hook prints the role's block after a compaction.
    event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line. The
    disk is the record: never re-derive state from memory.
 6. The coordinator runs `drive dashboard`, which starts the drive's dashboard, finds it running, or
-   replaces one an earlier install started, and prints its link.
+   replaces one an earlier install started, and prints its links: first the tailnet one he opens from his
+   phone or laptop, on this machine's bare MagicDNS label, then loopback. It listens on loopback and
+   this machine's own tailnet addresses only, never the LAN or Funnel.
 
 A drive saved by the earlier one-session driver reads as that session coordinating;
 [reference/migration.md](reference/migration.md#from-one-driver-to-two-sessions) moves it to two.
