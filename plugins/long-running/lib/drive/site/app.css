@@ -69,6 +69,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .item { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 16px; padding: 18px 18px 18px 14px; background: var(--panel); border-top: 1px solid var(--line); border-left: 3px solid transparent; }
 .item:first-child { border-top: 0; }
 .item .label { padding-top: 2px; font-size: 12px; font-weight: 600; color: var(--you); }
+.item .rank { display: block; margin-bottom: 6px; font: 700 20px/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .item.tap .label { color: var(--ok); }
 .item.late { border-left-color: var(--bad); }
 .item.late .label { color: var(--bad); }
@@ -333,6 +334,7 @@ button.btn[disabled] { opacity: .5; cursor: default; }
   #main, .findbar { padding: 16px 12px 40px; }
   .findbar { padding-bottom: 0; }
   .item { grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 12px; }
+  .item .rank { display: inline; margin: 0 8px 0 0; font-size: 12px; }
   .facts, .fields { grid-template-columns: minmax(0, 1fr); gap: 2px; }
   .facts dd, .fields dd { margin-bottom: 6px; }
   .picks { grid-template-columns: minmax(0, 1fr); }

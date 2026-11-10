@@ -181,6 +181,10 @@ function pictures(paths) {
   return paths?.length ? `<div class="pics">${paths.map((path) => `<a href="/api/picture?path=${encodeURIComponent(path)}" target="_blank" rel="noopener"><img loading="lazy" src="/api/picture?path=${encodeURIComponent(path)}" alt=""></a>`).join('')}</div>` : '';
 }
 
+function ranked(item) {
+  return `<span class="label"><b class="rank">${item.rank}</b>${LABEL[item.kind]}</span>`;
+}
+
 function fold(id, html, lines) {
   const open = expanded.has(id);
   return `<div class="fold${open ? ' open' : ''}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div>`;
@@ -194,7 +198,7 @@ function questionCard(item) {
   const figures = pictures(card.pictures);
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => link(each.label, each.url)).join(' · ');
   return `<article class="item question">
-    <span class="label">${LABEL.question}</span>
+    ${ranked(item)}
     <div class="body">
       <h3>${inline(card.title || item.title)}</h3>
       <div class="meta">${esc([waited(item), item.holds ? `holds up ${item.holds} finished` : '', item.blocks.length ? `blocks ${item.blocks.join('; ')}` : ''].filter(Boolean).join(' · '))}</div>
@@ -223,13 +227,13 @@ function prRow(pr, cardId, alone) {
 function tapCard(item) {
   if (!item.card) {
     return `<article class="item tap bare">
-      <span class="label">${LABEL.tap}</span>
+      ${ranked(item)}
       <div class="body"><h3>${link(item.title, item.url)}</h3><div class="meta">${esc(item.detail)}</div>${sayBox(`r:${prKey(item.url)}`, '', 'Tell Claude what to change', `About ${item.url}`)}</div>
     </article>`;
   }
   const card = item.card;
   return `<article class="item tap">
-    <span class="label">${LABEL.tap}</span>
+    ${ranked(item)}
     <div class="body">
       <h3>${esc(bare(card.title.replace(/^\w+: approve (.*)\?$/, '$1')))}</h3>
       <div class="meta">${esc(waited(item))}${item.detail ? ` · ${esc(item.detail)}` : ''}</div>
@@ -243,7 +247,7 @@ function tapCard(item) {
 
 function lateCard(item) {
   return `<article class="item late">
-    <span class="label">${LABEL.late}</span>
+    ${ranked(item)}
     <div class="body"><h3>${esc(item.title)}</h3><div class="meta">${esc(waited(item))}</div>${item.detail ? `<p class="said">${esc(item.detail)}</p>` : ''}${item.url ? sayBox(`l:${item.url}`, item.url, 'Ask where it is, or change it') : ''}</div>
   </article>`;
 }
@@ -251,7 +255,7 @@ function lateCard(item) {
 function queueScreen(filter) {
   if (filter) queueFilter = filter;
   const [, , keep] = QUEUE_FILTERS.find(([id]) => id === queueFilter);
-  const shown = model.queue.filter(keep);
+  const shown = model.queue.map((item, at) => ({ ...item, rank: at + 1 })).filter(keep);
   const count = model.queue.length;
   const head = count ? `${count} ${count === 1 ? 'thing waits' : 'things wait'} on you` : 'Nothing waits on you';
   const filters = QUEUE_FILTERS.map(([id, label, test]) => {
