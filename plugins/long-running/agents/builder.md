@@ -177,10 +177,11 @@ which keeps a copy in the drive where `drive status` lists it, so a share reads 
 instead of rebuilding the steps from your transcript.
 
 Your final message is one line and nothing else, since it lands whole in the coordinator's context.
-Before it, write your whole return to a file under your scratch directory and keep it with `drive
-job report <your job> <file>`; the coordinator, or the handler it names, reads it with `drive job
-report <your job>` only when acting on it. The file's first line, and your final message, is
-exactly one of the lines below. The lines after it in the file are not a write-up: they are the
+Before it, keep your whole return by piping it on stdin, in one Bash call: `drive job report <your
+job> - <<'EOF'`, its lines, then `EOF`. Write no report file for it: the harness refuses a
+subagent's report file. The coordinator, or the handler it names, reads it with `drive job report
+<your job>` only when acting on it. Its first line, and your final message, is exactly one of the
+lines below. The lines after it are not a write-up: they are the
 inputs a handler writes his message from, one fact a line, with no polish: `PR:` the link,
 `SERVES:` `port of #N` or the order of his it carries out, quoted from your brief, `CHANGE:` what
 changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `READY`, each design

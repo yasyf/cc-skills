@@ -280,16 +280,16 @@ def job_ask(args: argparse.Namespace) -> int:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return in the drive, or print the one kept, or a remote lane's latest report."""
+    """Keep a job's whole return from stdin in the drive, or print the one kept, or a remote lane's latest report."""
     name = state.resolve(args.drive)
     job = find(state.load(name)["jobs"], args.id, "job")
     kept = state.drive_dir(name) / "reports" / f"{args.id}.md"
-    if args.file:
-        source = Path(args.file).expanduser()
-        if not source.is_file():
-            raise DriveError(f"no report file at {args.file}")
+    if args.stdin:
+        whole = sys.stdin.read()
+        if not whole.strip():
+            raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         kept.parent.mkdir(exist_ok=True)
-        shutil.copyfile(source, kept)
+        kept.write_text(whole)
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
     text = kept.read_text() if kept.exists() else job.get("report")
     if not text:
@@ -890,12 +890,12 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's whole return in the drive, or print it",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
-            " is kept here before it returns. With a file, keep it and print where; with none, print the kept report,"
-            " or a remote lane's latest one."
+            " is kept here before it returns, piped in on stdin. With -, keep stdin and print where; with nothing, print"
+            " the kept report, or a remote lane's latest one."
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("file", nargs="?", help="the file holding the job's whole return; default: print the kept one")
+    verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print the kept one")
     verb.set_defaults(run=job_report)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
     verb.add_argument("id")
