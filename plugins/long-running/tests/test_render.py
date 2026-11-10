@@ -17,6 +17,10 @@ def order(
         "state": order_state,
         "due": due,
         "due_said": None,
+        "promised": None,
+        "next_due": None,
+        "kept": None,
+        "withdrawn": None,
         "jobs": jobs or [],
         "proof": None,
         "note": None,
@@ -73,33 +77,58 @@ def sample() -> dict:
     return drive
 
 
-def test_coordinator_context_lists_open_orders_jobs_prs_rules_and_monitor() -> None:
+def test_coordinator_context_gives_rules_reads_and_monitor_but_no_order_list() -> None:
     text = render.context(sample(), "coordinator")
     assert text.startswith("You are the coordinator of drive demo: ")
     assert "The communicator: not started." in text.splitlines()[0]
     assert "cci subscribe --reader root --cursor coordinator" in text
-    assert "o1 working due " in text
-    assert "o3 open" in text
-    assert "o2" not in text
-    assert "j1 builder running agent agent-7: rewrite long-running" in text
-    assert "yasyf/cc-skills#9 open, checks pass, review none, wants tap" in text
     for rule in render.COORDINATOR_RULES:
         assert rule in text
+    assert "Ship the drive rewrite" not in text
+    assert "j1" not in text
+    assert render.READS["coordinator"] in text
     assert text.endswith(render.MONITOR_LINE)
 
 
-def test_communicator_context_lists_orders_without_jobs_and_arms_no_watch() -> None:
+def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     drive = sample()
     drive["roles"]["communicator"] = {"session": "s2", "cwd": "/work", "started": "2026-11-09T08:00:00-08:00"}
     text = render.context(drive, "communicator")
     assert text.startswith("You are the communicator of drive demo: you talk to him. The coordinator: session s1.")
     assert "cci subscribe --reader communicator --cursor communicator" in text
-    assert "- o1 working due " in text
-    assert "j1" not in text
+    assert "o1" not in text
     for rule in render.COMMUNICATOR_RULES:
         assert rule in text
     assert render.MONITOR_LINE not in text
     assert text.endswith(render.SLACK_TOOLS_LINE)
+
+
+def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> None:
+    drive = sample()
+    passed = state.now() - timedelta(minutes=30)
+    drive["orders"]["o3"]["due"] = state.stamp(passed)
+    lines = render.context(drive, "coordinator").splitlines()
+    assert f"- o3 line owed since {render.clock(passed)}" in lines
+    assert not any(line.startswith("- o1") for line in lines)
+    assert "- o3" not in render.context(drive, "communicator")
+
+
+def test_context_size_does_not_grow_with_open_orders() -> None:
+    few, many = sample(), sample()
+    many["orders"] |= {f"o{n}": order(f"order {n} " + "x" * 200, order_state="open") for n in range(10, 110)}
+    for role in ("communicator", "coordinator"):
+        assert len(render.context(many, role)) == len(render.context(few, role)) < 10_000
+
+
+def test_compact_instructions_keep_only_what_the_disk_does_not_hold() -> None:
+    drive = sample()
+    for role in ("communicator", "coordinator"):
+        text = render.compact_instructions(drive, role)
+        assert text.startswith("These instructions replace the default summary sections.")
+        assert f"is at most {render.KEEP_LIMIT[role]} characters" in text
+        for item in render.KEEP[role]:
+            assert item in text
+        assert "his earlier messages" in text
 
 
 def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> None:
@@ -120,18 +149,7 @@ def test_hold_line_says_when_no_dm_is_set() -> None:
     assert render.hold_line(drive, "communicator") == "Hold with slack_watch: no DM set"
 
 
-def test_context_cuts_words_to_120() -> None:
-    line = next(line for line in render.context(sample(), "coordinator").splitlines() if line.startswith("- o3"))
-    assert len(line.split(": ", 1)[1]) == 120
-    assert line.endswith("…")
-
-
-def test_context_with_no_open_orders_says_none() -> None:
-    drive = state.new_drive("empty", "coordinator", None, "/work", None)
-    assert "Open orders (0):\n- none" in render.context(drive, "communicator")
-
-
-def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
+def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     drive = sample()
     drive["jobs"]["j1"]["prs"] = [
         "https://github.com/yasyf/cc-skills/pull/10",
@@ -140,7 +158,7 @@ def test_context_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     drive["prs"]["yasyf/cc-skills#11"] = drive["prs"]["yasyf/cc-skills#9"] | {
         "url": "https://github.com/yasyf/cc-skills/pull/11"
     }
-    lines = render.context(drive, "coordinator").splitlines()
+    lines = render.status_text(drive, "live", {}).splitlines()
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",

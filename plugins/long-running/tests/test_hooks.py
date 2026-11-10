@@ -4,6 +4,7 @@ import os
 from collections.abc import Callable
 
 import landing_guard
+import pre_compact
 import pytest
 import session_start
 from drive import state
@@ -62,7 +63,7 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the coordinator of drive demo: ")
-    assert "ship the fix" in context
+    assert "ship the fix" not in context
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
@@ -92,6 +93,19 @@ def test_session_start_main_prints_hook_json(
 ) -> None:
     output = json.loads(hook_output(session_start, monkeypatch, capsys, json.dumps({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]})))
     assert "drive demo" in output["hookSpecificOutput"]["additionalContext"]
+
+
+def test_pre_compact_prints_each_roles_summary_instructions(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "trigger": "auto"}
+    out = hook_output(pre_compact, monkeypatch, capsys, json.dumps(payload))
+    assert "summary of the coordinator of drive demo is at most 3000 characters" in out
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    out = hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "talker", "trigger": "manual"}))
+    assert "summary of the communicator of drive demo is at most 1500 characters" in out
+    assert hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "someone-else"})) == ""
 
 
 def test_guard_denies_an_untapped_drive_pr(

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from drive.state import ROLES, now, open_orders, parse_time, pr_key, pr_url
+from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_key, pr_url
 
 COMMUNICATOR_RULES = (
     (
@@ -76,6 +76,25 @@ SLACK_TOOLS_LINE = (
     "mcp__plugin_cc-inbox_cci__post"
 )
 FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
+READS = {
+    "communicator": "Everything else is on disk and read by a handler on demand, never by you: drive view, cci digest.",
+    "coordinator": "Everything else is on disk, read on demand: drive status, drive view, cci digest.",
+}
+KEEP = {
+    "communicator": (
+        "Each handler still out: one line, `<his thread ts> <agent id> <his ask in at most 12 words>`.",
+        "Each message of his acked with no handler started yet: `<his thread ts> <permalink> <his words verbatim>`.",
+    ),
+    "coordinator": (
+        (
+            "Each operation you own that the drive file does not record, one line with its id: a release, a Monitor"
+            " or background task, a message you wait on."
+        ),
+        "His words no `drive order add` or cc-notes answer holds yet, verbatim, each with its permalink.",
+        "The step you were in the middle of, in one line.",
+    ),
+}
+KEEP_LIMIT = {"communicator": 1500, "coordinator": 3000}
 
 
 def cut(text: str, limit: int) -> str:
@@ -156,27 +175,48 @@ def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str
     return lines
 
 
+def owed_lines(drive: dict) -> list[str]:
+    moment = now()
+    owed_now = [
+        (parse_time(owed_at(order)), order_id)
+        for order_id, order in open_orders(drive).items()
+        if owed(order) and parse_time(owed_at(order)) <= moment
+    ]
+    return [f"- {order_id} line owed since {clock(due)}" for due, order_id in sorted(owed_now)]
+
+
 def context(drive: dict, role: str) -> str:
-    """The SessionStart block that tells a session its role in the drive, the drive's open orders and its rules."""
-    orders = open_orders(drive)
+    """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads."""
     lines = [
         f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}.",
         hold_line(drive, role),
         f"Subscribe: cci drive use {drive['name']}, then {SUBSCRIBE[role]}",
-        "",
-        f"Open orders ({len(orders)}):",
+        f"{role.capitalize()} rules:",
+        *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
     ]
-    for order_id, order in orders.items():
-        if role == "coordinator":
-            lines.extend(order_block(drive, order_id, order, 120))
-        else:
-            lines.append(f"- {order_line(order_id, order, 120)}")
-    if not orders:
-        lines.append("- none")
-    lines += ["", f"{role.capitalize()} rules:"]
-    lines.extend(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1))
-    lines += ["", FIRST_CALL[role]]
+    if role == "coordinator":
+        lines.extend(owed_lines(drive))
+    lines += [READS[role], FIRST_CALL[role]]
     return "\n".join(lines)
+
+
+def compact_instructions(drive: dict, role: str) -> str:
+    """The PreCompact hook's stdout, which Claude Code uses as the instructions for the compaction summary."""
+    return "\n".join(
+        [
+            (
+                f"These instructions replace the default summary sections. The summary of the {role} of drive"
+                f" {drive['name']} is at most {KEEP_LIMIT[role]} characters and holds only:"
+            ),
+            *(f"{number}. {item}" for number, item in enumerate(KEEP[role], 1)),
+            (
+                "A section with nothing in it is the word none. Leave out everything else: his earlier messages,"
+                " orders, jobs, PRs, cards, records, rulings, any other thread ids, the drive's rules and this"
+                " session's history. The drive file, cci, Slack and cc-notes hold them, and the SessionStart hook"
+                " prints the role's rules after this compaction."
+            ),
+        ]
+    )
 
 
 def status_data(drive: dict, pr_fields: str, seen: dict[str, str]) -> dict:
