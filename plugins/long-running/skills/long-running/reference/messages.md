@@ -96,14 +96,17 @@ limit".
   the handler's cut took lines out of five reports written longer, an incident line among them.
   Each item in it that waits on him carries its card's permalink or `waits` id, so the handler
   never searches for the card.
-- Any line that says something waits on him, in a summary, a catch-up or a link line, carries that
-  card with its buttons right under it in the same thread: the line links the open card by its
-  permalink and cc-slack draws the card there, answerable, a tap on either answering both. A link
-  is never the embed, since Slack shows a link to a DM card with no buttons. cc-slack refuses a
-  line that says something waits on him with no open card linked, and `check-post` flags it first.
-  His rulings, Nov 9 1:49 PM: "Anything that says waiting on me you always need to embed the card
-  with the buttons", and 6:19 PM: "if u are ever asking for my pick it has to embed and unfirl the
-  link to the card that has buittons to action". Nothing else has buttons.
+- Any line that names a card, in a summary, a catch-up or a link line, names it by the card's own
+  permalink: the bare URL on a line of its own, the form Slack unfurls. cc-slack shows the card
+  there with its buttons, answerable, and a tap on either copy answers both. Never a copy of the
+  card's words, never the permalink as link text (`<url|text>`), never `card-copy`. His words, Nov
+  10 7:31 PM, under "The first needs your tap: <permalink|permalink>": "this should have ben an
+  embeeded exopanded card, instad its just a random URL", and 7:32 PM: "you keep doing variants of
+  not just embeddingf htre card and havingf slack unfurl it: you copied it, yuoiu put the bare
+  link, but why not teh slack-native thing?". They repeat Nov 9 1:49 PM, "Anything that says waiting on me you always need to embed the card
+  with the buttons", and 6:19 PM, "if u are ever asking for my pick it has to embed and unfirl the
+  link to the card that has buittons to action". cc-slack refuses a line that says something waits
+  on him with no open card linked, and `check-post` flags it first. Nothing else has buttons.
 - In a bug report's thread the drive posts once, after the fix ships: plain English, no jargon, and
   no asks such as "please retry" or "please confirm". His ruling, Nov 9 1:53 PM: "we have
   authorization to message once in bug fix threads after we ship the fix … it needs to be in plain
@@ -151,7 +154,11 @@ Show me is the worked example he picks from, above the options: the real code, c
 the choice changes, before and after, or one example for each option. For an API question it is
 the calls themselves in code, such as an imperative API beside the declarative one. His words, Nov
 10 4:38 PM, under a design card that had none: "this would also satidyt the rtequriement you care
-curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Code goes
+curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Every
+row and cell holds real contents, measured or worked out from the code and marked as such, never
+the names of what will be measured later, and `drive job ask` refuses a table with one value in
+every cell. His words, Nov 10 7:35 PM, under a card whose table read "time, bytes, disk" in every
+row: "this table just says `time,bytes,disk` for everything". Code goes
 in ``` fences that name no language, since Slack shows a fence's language as the first line of the
 code, and each caption outside the fences is one line of at most 25 words. A comparison goes in as a
 markdown table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`.
@@ -256,15 +263,16 @@ Nothing to post; a line that says where things stand links it.
   he has written nothing for an hour. Then only cards post: PR cards and question cards that wait
   on him, and an incident line [incidents.md](incidents.md) calls for. Summaries, due-time lines
   and job results wait.
-- **His next message gets one catch-up**, right after its ack: `drive heard` tells the coordinator
-  every order that changed while he was away, and it sends one `report` for his thread covering
-  them, grouped by feature, with what waits on him last, then `--lined` each.
-- **Anything that says it waits on him carries its card.** A summary, a catch-up, a TICK line or a
-  link line links each open card it names by permalink, and cc-slack draws that card with its
-  buttons right under the line, in the same thread, so he answers it there without clicking away;
-  a tap on either copy answers both. A link is never the embed: Slack shows a link to a DM card with
-  no buttons. cc-slack refuses a line that says something waits on him with no open card linked,
-  and `check-post` flags it before it is sent.
+- **His next message gets one catch-up, at his DM root**, right after its ack. `drive heard` tells
+  the coordinator every order that changed while he was away. It sends one `report` for his DM root
+  covering them, grouped by feature, with what waits on him last, then `--lined` each. The catch-up
+  opens with the bold title `*Catch-up since <the time he was last heard>*`, and never goes in the
+  thread of the message that brought him back, since a thread gets only lines about its own order.
+  His words, Nov 10 6:43 PM, under a thread that got a catch-up's lines about other orders: "why
+  did all of these get sent in this thread?", and 6:47 PM: "this si the catch up post? it should be
+  tititled as such".
+- **Anything that says it waits on him carries its card**, named by its permalink on a line of its
+  own as [The short form](#the-short-form) says, so he answers it there without clicking away.
 - **His read-only question gets its answer within minutes** from the handler, which reads the
   source that owns the fact; the communicator reads nothing itself.
 
@@ -314,7 +322,12 @@ Nothing to post; a line that says where things stand links it.
   facts about a release, by [incidents.md](incidents.md).
 - **State comes from live reads** (`drive status`, GitHub, a transcript), never from memory. What a
   release carries, such as its PRs, the steps it runs or which build fixes what, is read from that
-  release's commit and build, never inferred.
+  release's commit and build, never inferred. A tap is asked for only when owed. Before any card or
+  line asks him to tap, approve or hold a PR, read `drive status <pr>`; when he tapped it already or
+  it merged or closed, say what happened to it instead. His words, Nov 10 6:46 PM, under a card
+  that asked him to tap a fix he had approved hours before: "its alrady approved".
+  `drive job ask` and this plugin's hooks refuse such a card, record or post, naming the PR and when
+  he tapped it.
 
 ## What stays out
 

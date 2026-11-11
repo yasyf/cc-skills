@@ -20,6 +20,9 @@ reproduction file below.
   file under your scratch directory and run that file, since Claude Code asks before running a command
   its parser cannot read.
 - Stop once the answer is proven; do not widen the question.
+- A number the answer gives, such as a time, a size or a count, is the number itself, measured or
+  worked out from the code and marked which, never the name of what would be measured. A question
+  card's Show me is drawn from your facts and holds real contents in every row and cell.
 
 A reader that reproduced a bug saves, before it returns, one file anyone can pick up and run:
 the steps in order, the exact prompt and code, the build and versions, and the numbers measured.

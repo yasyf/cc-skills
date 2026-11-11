@@ -172,7 +172,24 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
-    return unread(payload, dm) or over_length(payload, dm) or unshown(payload) or unlinked(payload) or unchecked(tool_input.get("text") or "")
+    return (
+        unread(payload, dm)
+        or over_length(payload, dm)
+        or unshown(payload)
+        or unlinked(payload)
+        or untapped(payload)
+        or unchecked(tool_input.get("text") or "")
+    )
+
+
+def untapped(payload: dict) -> str | None:
+    """Why the post asks him for a tap the drive owes on no PR it names: a PR card through `tap_prs`, or words asking him to tap, approve or hold, for a PR he tapped or that merged or closed."""
+    tool_input = payload["tool_input"]
+    prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
+    if tap_prs := tool_input.get("tap_prs"):
+        return limits.tap_refusal("\n".join(tap_prs), prs, asking=True)
+    card = tool_input.get("card") or {}
+    return limits.tap_refusal("\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])]), prs)
 
 
 def unshown(payload: dict) -> str | None:

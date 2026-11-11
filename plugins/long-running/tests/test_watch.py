@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread
-from drive import cli, github, slack, state, watch
+from drive import cli, github, render, slack, state, watch
 
 KEY = "Forge-AI/monorepo#42"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
@@ -348,12 +348,12 @@ def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
     serve(monkeypatch, {})
     watching = watcher(demo)
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
-    assert cli.main(["heard", "--drive", demo, "--thread", "1794.2"]) == 0
+    assert cli.main(["heard", "--drive", demo]) == 0
     said = capsys.readouterr().out.strip()
-    assert said.startswith("CATCH-UP since ") and said.endswith(": o1")
+    assert said == f"CATCH-UP since {render.when(state.stamp(T0))}: o1"
     assert state.load(demo)["owner"] == {"heard": state.stamp(T0 + timedelta(minutes=95)), "away": False}
-    assert watch.run_pass(watching, T0) == ["EVENT catch-up thread=1794.2 orders=o1"]
-    assert cli.main(["heard", "--drive", demo, "--thread", "1794.3"]) == 0
+    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1"]
+    assert cli.main(["heard", "--drive", demo]) == 0
     assert capsys.readouterr().out.strip() == "heard"
     assert watch.run_pass(watching, T0) == []
 
@@ -907,7 +907,7 @@ def test_promised_times_lane_reports_and_his_return_never_wait(demo: str) -> Non
         'DUE o1 "ship" was due 10:00 AM: no line in its thread since 9:00 AM',
         "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
         'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
-        "EVENT catch-up thread=1.2 orders=o1",
+        "EVENT catch-up dm=D123 since=9:00 AM orders=o1",
         "EVENT unheard question=Which? pick=Yes",
     ]
     for line in urgent:
@@ -930,7 +930,7 @@ def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_unt
     def said(minutes: int) -> list[str]:
         return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("ANSWER")]
 
-    line = 'ANSWER a1 "one new tool": 1 card still asking him, marked neither standing nor superseded by it; drive answer a1 lists them: demo:j1-7-a'
+    line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
     assert watch.delivered(watching, [line], T0 + timedelta(minutes=20)) == [line]
     with state.edit(demo) as data:

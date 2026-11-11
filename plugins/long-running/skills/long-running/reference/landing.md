@@ -8,6 +8,15 @@ itself.
 
 - One PR is one feature-sized unit; review fixes and follow-ups amend it (`ccx vcs ship --amend`). Open a
   second PR only when another job waits on part of the work or a review asks for the split.
+- **The default branch stays releasable.** His words, Nov 10 6:44 PM: "why would you merge something
+  that shouydlknt go out dev mustr always be releasable". A change lands only in a shape where a release
+  cut from the default branch at its merge commit is safe by itself, with its targets going out in any
+  order and nothing run after it. That rules out a fill, pass or backfill that must follow the release,
+  a command run by hand, a migration another release applies, and a target that must go out first with
+  only a footer to enforce it. Split such a change until each PR is safe alone: the readers first, the
+  writer once they are live, a backfill the code runs on its own. A design that needs a later step is
+  never offered to him as an option. On Nov 10 a PR landed whose release was safe only after a fill run
+  by hand. Its card never said so, and a later ruling of his made that fill impossible.
 - Nothing lands around his open card. A PR whose change carries a question card of his not yet
   answered is not landed or enqueued, whatever order to land arrived, and its recommended option never
   stands in for his answer: return `WAITING` naming the card, and the coordinator puts it in front of
@@ -40,6 +49,13 @@ itself.
     plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take. A PR that
     waits on his tap draws no card without it: `drive pr set --tap` refuses it with the words
     `drive card` would refuse the card with, before any `ready` record goes out.
+  - `## Releasable alone`: what a release cut at this PR's merge commit does with nothing else, and,
+    for each order its targets could go out in, what a person sees, by the rule above. `drive pr set
+    --tap` and his card refuse a PR without it. They also refuse one whose Releasable alone or risk
+    section, or whose install, risk or prove line, leaves a step for after the release: "then run", a
+    fill, a backfill, a pass box, or "after the deploy" followed by something to run. Words that rule a
+    step out pass ("no backfill"), and so does a check of what is live: "PROVE: after release, open the
+    run page" names nothing to run.
   - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
     or Sand call it changes, with what happened before and after, in a fenced block tagged with its
     language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a
@@ -135,7 +151,8 @@ ejection, restack, read the entry's history and verification build, fix the caus
 test that keeps failing is fixed at its root, never retried past with `--flake` or a rerun.
 
 **Readers first.** A PR that changes a format another build reads (a stored file, row, journal, or
-manifest) lands only after the PR teaching its readers is live on every client. Its body links that PR.
+manifest) lands only after the PR teaching its readers is live on every client, so a release at its
+merge commit is safe alone. Its body links that PR.
 
 ## Read-only repositories
 

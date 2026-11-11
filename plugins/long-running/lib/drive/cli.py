@@ -93,7 +93,7 @@ def order_add(args: argparse.Namespace) -> int:
 
 def need_thread(data: dict, order_id: str, order: dict) -> None:
     if not state.promise_thread(data, order):
-        raise DriveError(f"{order_id}: a promised time needs the thread its line goes in; pass --thread <ts>")
+        raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <ts>")
 
 
 def find(records: dict, key: str, label: str) -> dict:
@@ -108,13 +108,19 @@ def his_words(link: str) -> str:
     return link
 
 
-def drive_post_at(link: str, threads: list[tuple[str, str]]) -> datetime:
-    posted = slack.message(link)
+def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tuple[datetime, bool]:
+    """When the drive made the post, and whether it is in one of the order's threads: its own, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does."""
+    posted, root = slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
-    if threads and posted.get("thread_ts") not in {thread for _, thread in threads}:
-        raise DriveError(f"{link} is in none of the order's threads, its own or its cards': {', '.join(thread for _, thread in threads)}")
-    return slack.sent_at(posted)
+    threads = slack.order_threads(data, data["orders"][order_id])
+    ours = not threads or posted.get("thread_ts") in {thread for _, thread in threads} or slack.names_order_pr(data, order_id, root)
+    if not (ours or named_part):
+        raise DriveError(
+            f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
+            " a post that delivers a part somewhere else is recorded with --part <that part>"
+        )
+    return slack.sent_at(posted), ours
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -141,12 +147,18 @@ def order_set(args: argparse.Namespace) -> int:
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
     changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
     moment = state.now()
+    due = state.parse_due(args.due, moment) if args.due else None
+    if due and due <= moment:
+        raise DriveError(f"{args.id}: refused, no time stored: {render.when(state.stamp(due))} is already past; promise a time to come")
+    promised = ""
     with state.edit(name) as data:
         order = data["orders"][args.id]
         order.update({field: value for field, value in changes.items() if value is not None})
-        if args.due:
+        if due:
             need_thread(data, args.id, order)
-            state.promise(order, due_stamp(args.due), moment)
+            held = state.owed_at(order) if state.owed(order) else None
+            state.promise(order, state.stamp(due), moment)
+            promised = "\n" + promise_said(render.when(state.stamp(due)), held, state.promise_thread(data, order))
         if closing and state.owed(order):
             state.keep(order, posts, announced=False)
             if state.owed(order):
@@ -167,7 +179,18 @@ def order_set(args: argparse.Namespace) -> int:
         order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
-    return emit(args, render.order_line(args.id, order), {"id": args.id, **order})
+    return emit(args, render.order_line(args.id, order) + promised, {"id": args.id, **order})
+
+
+def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
+    """What --due did with the time: stored to start at the drive post that tells him it, or stored behind a line already owed, which keeps firing until a post lands."""
+    post = f"the next drive post in {where[0]} thread {where[1]}"
+    if held is None:
+        return f"stored {due}: it waits on {post}, which tells him the time; from that post he is owed a line by {due}"
+    return (
+        f"stored {due} behind the line already owed for {render.when(held)}: that time keeps firing DUE until {post} lands,"
+        f" which tells him {due} and makes it the time owed"
+    )
 
 
 def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
@@ -202,17 +225,19 @@ def order_posted(args: argparse.Namespace) -> int:
         return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
     parts = pick_parts(args.id, order, [args.part]) if args.part else list(order["parts"])
     part = parts[0] if len(parts) == 1 else None
-    at = drive_post_at(args.link, slack.order_threads(data, order))
+    at, ours = drive_post_at(args.link, data, args.id, bool(args.part))
     line = state.stamp(at)
     with state.edit(name) as data:
         order = data["orders"][args.id]
-        if state.owed(order):
-            state.keep(order, [at])
-        order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
+        if ours:
+            if state.owed(order):
+                state.keep(order, [at])
+            order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         if part:
             order["parts"][part]["posted"] = args.link
     said = f'"{part}": posted' if part else "progress line, no part delivered:"
-    return emit(args, f"{args.id} {said} {args.link}", {"id": args.id, "part": part, "posted": args.link, "due": order["due"]})
+    away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
+    return emit(args, f"{args.id} {said} {args.link}{away}", {"id": args.id, "part": part, "posted": args.link, "due": order["due"]})
 
 
 def job_add(args: argparse.Namespace) -> int:
@@ -221,6 +246,12 @@ def job_add(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
+        beside = [
+            f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
+            for other_id in order["jobs"]
+            if (other := data["jobs"][other_id])["state"] in ("running", "waiting")
+            and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
+        ]
         job_id = state.next_id(data["jobs"], "j")
         job = data["jobs"][job_id] = {
             "order": args.order,
@@ -244,7 +275,7 @@ def job_add(args: argparse.Namespace) -> int:
         }
         order["jobs"].append(job_id)
         order["updated"] = created
-    return emit(args, job_id, {"id": job_id, **job})
+    return emit(args, "\n".join([job_id, *beside]), {"id": job_id, **job, "beside": beside})
 
 
 def job_set(args: argparse.Namespace) -> int:
@@ -286,11 +317,14 @@ def job_set(args: argparse.Namespace) -> int:
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
     name = state.resolve(args.drive)
-    job = find(state.load(name)["jobs"], args.id, "job")
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
     text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text() if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.question(text)
+    if refused := limits.tap_refusal("\n".join([asked.title, *asked.summary, *asked.options]), data["prs"]):
+        raise DriveError(refused)
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), os.getcwd(), args.unsettled, "--unsettled"):
@@ -642,7 +676,7 @@ def pr_tapped(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against every card asking him when it came: refuse until each is marked standing or superseded by it, and settle each superseded card in place."""
+    """Record an answer or ruling of his against every card asking him and every PR not yet live when it came: refuse until each is marked standing, superseded or reopened by it, and settle each superseded or reopened card in place."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -652,22 +686,26 @@ def answer(args: argparse.Namespace) -> int:
     data = state.load(name)
     asked = superseded.asking(data, found)
     if args.id not in data["answers"]:
-        if args.stands or args.superseded or args.others_stand:
-            raise DriveError(f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him, and mark them once you have read it")
+        if args.stands or args.superseded or args.reopened or args.others_stand:
+            raise DriveError(
+                f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him"
+                " and each PR not yet live, and mark them once you have read it"
+            )
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         with state.edit(name) as data:
             data["answers"][args.id] = superseded.record(args.words, args.link, asked, state.stamp())
     kept = data["answers"][args.id]
     open_keys = superseded.unmarked(kept, asked)
-    named = [*args.stands, *(key for key, _ in args.superseded)]
+    named = [*args.stands, *(key for key, _ in [*args.superseded, *args.reopened])]
     if twice := sorted({key for key in named if named.count(key) > 1}):
-        raise DriveError(f"{', '.join(twice)}: marked twice; mark each card once, standing or superseded")
+        raise DriveError(f"{', '.join(twice)}: marked twice; mark each once, standing, superseded or reopened")
     if stray := [key for key in named if key not in open_keys]:
-        raise DriveError(f"{', '.join(stray)}: not a card still asking him that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked)}")
+        raise DriveError(f"{', '.join(stray)}: not a card or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked)}")
     refusals = [
-        superseded.stack_refusal(asked, [key for key, _ in args.superseded]),
+        superseded.stack_refusal(asked, [key for key, _ in [*args.superseded, *args.reopened]]),
         *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
+        *(superseded.reopen_refusal(data, key, asked[key], by) for key, by in args.reopened),
     ]
     if why := next((refusal for refusal in refusals if refusal), None):
         raise DriveError(why)
@@ -676,17 +714,22 @@ def answer(args: argparse.Namespace) -> int:
     done = []
     settled: set[str] = set()
     try:
-        for key, into in args.superseded:
+        for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
             if card and card not in settled:
                 superseded.settle(card, kept)
                 settled.add(card)
             with state.edit(name) as data:
-                data["answers"][args.id]["cards"][key] = {"mark": "superseded", "job": asked[key]["job"], "into": into, "card": card}
-                shown = f"{key}: its card {card} now shows his words and a link to them, with no buttons" if card else f"{key}: no card was drawn for it"
-                done += [shown, *superseded.supersede(data, args.id, key, asked[key], into)]
+                if card:
+                    done.append(f"{key}: its card {card} now shows his words and a link to them, with no buttons")
+                if mark == "reopened":
+                    data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
+                    done += superseded.reopen(data, args.id, key, job_id)
+                else:
+                    data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
+                    done += [*([] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
     finally:
-        if args.superseded:
+        if args.superseded or args.reopened:
             view.refresh_cards(name)
     with state.edit(name) as data:
         kept = data["answers"][args.id]
@@ -695,7 +738,7 @@ def answer(args: argparse.Namespace) -> int:
     if left := superseded.unmarked(kept, asked):
         raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked)]))
     marked = [mark["mark"] for mark in kept["cards"].values() if mark]
-    line = f"his answer {args.id} recorded: {marked.count('stands')} standing, {marked.count('superseded')} superseded by it"
+    line = f"his answer {args.id} recorded: {marked.count('stands')} standing, {marked.count('superseded')} superseded, {marked.count('reopened')} reopened by it"
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
 
 
@@ -704,6 +747,13 @@ def superseded_mark(text: str) -> tuple[str, str | None]:
     if not key or not how:
         raise argparse.ArgumentTypeError("say <key>=stop, or <key>=<the live job that carries its work on>")
     return key, None if how == "stop" else how
+
+
+def reopened_mark(text: str) -> tuple[str, str]:
+    key, _, job_id = text.rpartition("=")
+    if not key or not job_id:
+        raise argparse.ArgumentTypeError("say <PR key>=<the live job that reworks it to his words>")
+    return key, job_id
 
 
 def heard(args: argparse.Namespace) -> int:
@@ -722,7 +772,7 @@ def heard(args: argparse.Namespace) -> int:
                 if watch.changed_since(order, data["jobs"], last):
                     news.append(key)
     if news:
-        state.append_event(name, "catch-up", thread=args.thread, orders=" ".join(news))
+        state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news))
     line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
     return emit(args, line, {"away": args.away, "back": back, "since": since, "catch_up": news})
 
@@ -935,19 +985,23 @@ def parser() -> argparse.ArgumentParser:
         help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=order_set)
-    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread: a progress line, or the answer a part owes him")
+    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, or the answer a part owes him; a part delivered elsewhere, as a share in another channel, names --part")
     verb.add_argument("id")
     posted = verb.add_mutually_exclusive_group(required=True)
-    posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; it keeps a promised time and moves the order's last line")
+    posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; one in the order's threads keeps a promised time and moves the order's last line")
     posted.add_argument("--undo", action="store_true", help="take back the delivered mark of the part --part names, so it counts as undelivered again")
     verb.add_argument(
         "--part",
-        help="the part the post delivers; with none, the only part of an order of one, and no part of an order of several: a progress line",
+        help="the part the post delivers, which counts in any channel; with none, the only part of an order of one, and no part of an order of several: a progress line, both only in the order's threads",
     )
     verb.set_defaults(run=order_posted)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
-    verb = job.add_parser("add", parents=both)
+    verb = job.add_parser(
+        "add",
+        parents=both,
+        help="start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts",
+    )
     verb.add_argument("kind", choices=state.JOB_KINDS)
     verb.add_argument("--order", required=True)
     verb.add_argument("--goal", required=True)
@@ -1088,21 +1142,23 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser(
         "answer",
         parents=both,
-        help="record an answer or ruling of his against every card still asking him, each marked standing or superseded by it",
+        help="record an answer or ruling of his against every card still asking him and every PR not yet live, each marked standing, superseded or reopened by it",
         description=(
             "Run for every answer and ruling of his, once answer_add gives its id. The first call, with --words and"
-            " --link alone, records it, lists every question card of his still open and every PR waiting on his tap"
-            " (key, kind, job, order, title, link), and exits 2. Each later call marks cards: --stands for one this"
-            " answer leaves open, --superseded for one it replaces, which settles that card in place showing his words"
-            " and a link to them with no buttons, drops its PR's tap ask, and stops its job or folds what the job"
-            " carries into the live job named. It exits 2, listing the rest, until every card is marked; the watch says"
-            " ANSWER every 10 minutes while one is not."
+            " --link alone, records it, lists every question card of his still open, every PR waiting on his tap, every"
+            " other open PR and every merged PR whose job is still at work (key, kind, job, order, title, link), and"
+            " exits 2. Each later call marks them: --stands for one this answer leaves as it is, --superseded for one it"
+            " replaces, which settles its card in place showing his words and a link to them with no buttons, drops its"
+            " PR's tap ask, and stops its job or folds what the job carries into the live job named, and --reopened for a"
+            " PR his words change, which settles its card the same way, drops its tap ask, and names the live job that"
+            " reworks it. It exits 2, listing the rest, until every one is marked; the watch says ANSWER every 10 minutes"
+            " while one is not."
         ),
     )
     verb.add_argument("id", help="his answer's cc-notes id")
     verb.add_argument("--words", help="his words, verbatim, which a superseded card shows; the first call needs them")
     verb.add_argument("--link", help="the permalink of his message or of the card he tapped, which a superseded card links; the first call needs it")
-    verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card his answer leaves asking him")
+    verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card or PR his answer leaves as it is")
     verb.add_argument(
         "--superseded",
         action="extend",
@@ -1112,12 +1168,20 @@ def parser() -> argparse.ArgumentParser:
         metavar="KEY=stop|KEY=JOB",
         help="a card his answer replaces: settled in place, its PR's tap ask dropped, and its job stopped, or folded into the live job named",
     )
-    verb.add_argument("--others-stand", action="store_true", help="every card still unmarked after this call's marks stands")
+    verb.add_argument(
+        "--reopened",
+        action="extend",
+        nargs="+",
+        default=[],
+        type=reopened_mark,
+        metavar="KEY=JOB",
+        help="a PR his answer changes: its card settled in place, its tap ask dropped, and the live job named reworks it to his words",
+    )
+    verb.add_argument("--others-stand", action="store_true", help="every card and PR still unmarked after this call's marks stands")
     verb.set_defaults(run=answer)
     verb = verbs.add_parser(
-        "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up covers"
+        "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers"
     )
-    verb.add_argument("--thread", required=True, help="the thread his message is in, where his catch-up goes")
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.set_defaults(run=heard)
 

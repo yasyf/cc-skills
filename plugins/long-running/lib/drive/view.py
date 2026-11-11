@@ -23,8 +23,9 @@ newest first; each job in these and a feature's `jobs` has `files`, the files th
 `report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
 thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and the `thread` under that card when it has one), `incidents` (his
-open incident orders, each with `id`, `title` and `created`), `milestones` and each feature's `text`, `note`,
-`created` and `jobs`.
+open incident orders, each with `id`, `title` and `created`), `milestones`, `unplanned` (his orders open or done in
+the last day that name no milestone, drawn as one more milestone named "No milestone", or null when there are none)
+and each feature's `text`, `note`, `created` and `jobs`.
 
 Each of `milestones` is a name the coordinator gave some of his orders, in the order its first order came in, with
 its `state` rolled up from those orders' features, the `features` themselves, its `parts` (each part of those orders,
@@ -55,6 +56,7 @@ SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
 TITLE_CHARS = 100
 NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
+NO_MILESTONE = "No milestone"
 UNREAD = "not read yet: the drive's watch reads them every minute"
 HISTORY_FOR = timedelta(days=1)
 HISTORY_EVENTS = ("tap", "refused")
@@ -353,13 +355,28 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
 def milestones(drive: dict, found: dict, moment: datetime) -> list[dict]:
     """His orders under the milestones the coordinator named, each milestone in the order its first order came in; dropped orders leave it."""
     named: dict[str, list[str]] = {}
-    for order_id, order in sorted(drive["orders"].items(), key=lambda item: state.parse_time(item[1]["created"])):
+    for order_id, order in oldest_first(drive):
         if order["milestone"] and order["state"] != "dropped":
             named.setdefault(order["milestone"], []).append(order_id)
+    prs = prs_by_job(drive)
+    return [milestone(Chart(drive, found, prs), name, order_ids, moment) for name, order_ids in named.items()]
+
+
+def unplanned(drive: dict, found: dict, moment: datetime) -> dict | None:
+    """His orders with no milestone named, open or done in the last day, under "No milestone" so the plan hides none of them."""
+    order_ids = [order_id for order_id, order in oldest_first(drive) if not order["milestone"] and shown(order, moment)]
+    return milestone(Chart(drive, found, prs_by_job(drive)), NO_MILESTONE, order_ids, moment) if order_ids else None
+
+
+def oldest_first(drive: dict) -> list[tuple[str, dict]]:
+    return sorted(drive["orders"].items(), key=lambda item: state.parse_time(item[1]["created"]))
+
+
+def prs_by_job(drive: dict) -> dict[str, list[tuple[str, dict]]]:
     prs: dict[str, list[tuple[str, dict]]] = {}
     for key, pr in drive["prs"].items():
         prs.setdefault(pr["job"], []).append((key, pr))
-    return [milestone(Chart(drive, found, prs), name, order_ids, moment) for name, order_ids in named.items()]
+    return prs
 
 
 def milestone(chart: "Chart", name: str, order_ids: list[str], moment: datetime) -> dict:
@@ -579,8 +596,12 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
     """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose whole return the drive keeps."""
     model = build(drive, found, moment) | {"cards": source}
     plan = milestones(drive, found, moment)
+    loose = unplanned(drive, found, moment)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
-    for entry in [*(entry for group in model["status"] for entry in group["features"]), *(entry for stop in plan for entry in stop["features"])]:
+    for entry in [
+        *(entry for group in model["status"] for entry in group["features"]),
+        *(entry for stop in [*plan, *([loose] if loose else [])] for entry in stop["features"]),
+    ]:
         order = drive["orders"][entry["id"]]
         entry |= {
             "text": order["text"],
@@ -605,6 +626,7 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "asks": asks(drive, moment, found["team_url"]),
         "incidents": incidents(drive),
         "milestones": plan,
+        "unplanned": loose,
         "channel": drive["slack"]["channel"],
     }
 

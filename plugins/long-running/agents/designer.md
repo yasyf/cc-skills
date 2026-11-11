@@ -24,6 +24,12 @@ be lazy flash this out wayu more and od that for everyhtrfing in the future, bri
 - Give the smallest design that does what his words say. A fork is a choice with two reasonable
   shapes that cost a lot to switch between once built, and only he picks it; everything else you
   decide.
+- Every option lands releasable alone, by the landing reference's `Every PR` (`drive manual
+  landing`): a release cut at each PR's merge commit is safe by itself, its targets going out in
+  any order, with nothing run after it. A shape that needs a later step is split or left out: a
+  fill, backfill, pass, hand-run command, a migration another release applies, or one target out
+  before another. Split, each PR is safe alone, such as the readers first and the writer once they
+  are live.
 - Nobody watches the terminal of the session that started you, so a permission prompt there
   stalls you until morning. Keep each Bash call one plain pipeline; put loops, nested `${...}`
   expansions and multi-step logic in a script file under your scratch directory and run that file.
@@ -56,8 +62,11 @@ Findings:
 The question, summary and options are at most 150 words in plain words, and the Show me is drawn
 whole on his card outside that count, so it holds the whole example: never cut it to fit. Its
 fences name no language. A markdown table draws as a table, and a picture on a line of its own
-draws as an image where it sits. No option points at another by number or position, and no question asks
-what his words settle.
+draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
+the code and marked as such, never the names of what will be measured later, and `drive job ask`
+refuses a table with one value in every cell. No option points at another by number or position,
+none lands first and leaves a step for after, such as "land it now, then backfill", which `drive
+job ask` refuses, and no question asks what his words settle.
 
 Then keep the design by piping it with a heredoc into `drive job report <your job> -`, never a
 report file, which the harness refuses a subagent; your final message is its first line alone,

@@ -65,6 +65,14 @@ this again; you should have just rolle dback and done the proper fix".
        fundamental fixes".
      - **cause**, which reads Sentry, logs and code and sends what it finds to the fix job. It never
        gates the rollback.
+   - A codex lane cannot read Sentry: it has no Sentry sign-in, and Sentry's site asks for one.
+     So a first check or cause job that needs Sentry, such as the affected chats or the full error
+     an alert links, gets a `long-running:reader` beside it in the same message. Start it with the
+     Agent tool on `model` `opus` with `run_in_background: true`; it reads Sentry with this
+     session's Sentry tools. Record it with `drive job add reader --order <o> --goal "Sentry read:
+     <what>" --agent <id> --part "<its part>"`, and send its result to the codex job with
+     `SendMessage`. On Nov 10 two first checks came back blocked at "Sign in to Sentry", and a reader
+     with the Sentry tools answered the same question in six minutes.
 4. A `report` to the communicator for his first line: what is running.
 
 ## When the first check returns

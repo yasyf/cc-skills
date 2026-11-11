@@ -527,3 +527,22 @@ def test_plan_draws_each_milestone_with_its_parts_and_what_stands_before_each() 
         ("pr:yasyf/cc-skills#1", "part:o1:toast"),
         (card, "job:j2"),
     }
+
+
+def test_plan_lists_every_order_with_no_milestone_under_no_milestone_and_hides_none() -> None:
+    data = drive_of(
+        {
+            "o1": order("ship the plan", [], milestone="Plan"),
+            "o2": order("fix the watch", ["j1"], parts={"watch": state.new_part()}),
+            "o3": order("old fix", [], state="done", created=at(-3000), updated=at(-2000)),
+            "o4": order("dropped work", [], state="dropped"),
+            "o5": order("fresh fix", [], state="done", updated=at(-30)),
+        },
+        {"j1": job("o2", "running", "fixing it", parts=["watch"])},
+        [],
+    )
+    loose = view.board(data, found([]), "live", [], T0, set())["unplanned"]
+    assert (loose["name"], [entry["id"] for entry in loose["features"]]) == ("No milestone", ["o2", "o5"])
+    assert [(part["title"], part["state"], part["doing"]) for part in loose["parts"]] == [("fix the watch", "doing", "fixing it"), ("fresh fix", "done", "")]
+    with_none = drive_of({"o1": order("ship the plan", [], milestone="Plan")}, {}, [])
+    assert view.board(with_none, found([]), "live", [], T0, set())["unplanned"] is None

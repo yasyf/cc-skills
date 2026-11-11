@@ -20,9 +20,9 @@ spent drafting, checking or drawing holds his next message behind it.
 
 | Input | First message | Next message |
 |---|---|---|
-| A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard --thread <his thread>` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
+| A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
 | A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is the coordinator's `report` once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | The same. |
-| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard --thread <his thread>`, with no handler. |
+| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard`, with no handler. |
 | A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. A tap of Explain more answers nothing and gets no record. A tap of Undo, its payload setting `undo: true`, takes back the answer he gave on that card within the ten minutes before: an answer he undid was never given. It gets the same `answer` record, its `--re` or `--topic` read the same way, with `--attr undone=<the undone label>` and the text `undone: <label>`, so it threads beside the answer it takes back; the card already shows its options again. | Nothing; for Explain more, a handler briefed `Message (his words): Explain more` with the card's `waits` id and permalink. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
 | A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. For an `ask` it draws the card and, the moment the card is up, closes the ask with a `posted` record carrying the card's permalink and `waits` id, so the ask never reads as unanswered while the card waits on him; his tap is still his `answer`. An `ask` that redraws an open card is one call under that card's `waits` id, which edits it, redraws its copies and posts one fresh copy beside it, so the handler asks for no second copy. The communicator never reads, writes, checks or draws what a record carries, and never opens the body's path: a file it reads comes back after every compaction. | Nothing. |
@@ -77,8 +77,9 @@ mesage", and Nov 10 2:17 PM, after a card asked him to approve an update he had 
 hook Iuoi had permission because I fucking told you to post don't ever use that as an excuse
 again".
 
-`drive heard` prints `CATCH-UP` when he is back after being away; the coordinator hears it as an
-event and sends his catch-up as a `report`. A thread read, a transcript, a search, or anything
+`drive heard` prints `CATCH-UP` when he is back after being away. The coordinator hears it as an
+event naming his DM and the time he was last heard. It sends his catch-up as one `report` for his
+DM root titled with that time, never for the thread of the message that brought him back. A thread read, a transcript, a search, or anything
 past the communicator's two messages is a handler's, never the coordinator's: the coordinator gets
 only orders, alerts, rulings, his answers, defects and a question a card's `ask` record does not
 answer.

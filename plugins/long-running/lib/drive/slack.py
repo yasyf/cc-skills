@@ -75,6 +75,14 @@ def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
 
 
+def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
+    """Whether a thread hangs from the drive's own post naming a PR the drive holds on the order, as that PR's card does in every state, tapped or not."""
+    if not root or not root.get("from_claude"):
+        return False
+    named = {f"{owner}/{name}#{number}".casefold() for owner, name, number in state.PR_URL.findall(root.get("text") or "")}
+    return any(key.casefold() in named for key, pr in data["prs"].items() if pr["order"] == order_id)
+
+
 def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The threads a line for an order goes in: its own, then each of its cards'."""
     own = state.promise_thread(data, order)
@@ -108,10 +116,22 @@ def sent_at(message: dict) -> datetime:
 
 def message(link: str) -> dict:
     """The message a Slack permalink names, read from its thread."""
+    return message_and_root(link)[0]
+
+
+def message_and_root(link: str) -> tuple[dict, dict | None]:
+    """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call."""
     match = MESSAGE_LINK.search(link)
     if not match:
         raise SlackError(f"not a Slack message link: {link}")
-    return message_at(f"{match[1]}.{match[2]}", "--url", link)
+    messages = thread("--url", link, "--limit", str(WHOLE_THREAD))
+    ts = f"{match[1]}.{match[2]}"
+    found = next((message for message in messages if message["ts"] == ts), None)
+    if found is None:
+        raise SlackError(f"no message {ts} in the thread at --url {link}")
+    if (root := found.get("thread_ts")) in (None, ts):
+        return found, None
+    return found, next((message for message in messages if message["ts"] == root), None)
 
 
 def message_at(ts: str, *where: str) -> dict:

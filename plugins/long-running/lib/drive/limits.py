@@ -1,7 +1,8 @@
 import re
 from dataclasses import dataclass
 
-from drive.state import DriveError
+from drive.render import when
+from drive.state import PR_KEY, PR_URL, DriveError
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -17,6 +18,8 @@ SHOW_ME_RULING = (
     'his Nov 10 4:38 PM words "bring me the card while /after flehsing out more of the dfesign and then the optins'
     ' … the shw show-0me cvould be code snipeptrs"'
 )
+PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes,disk` for everything"'
+SEPARATOR_CELL = re.compile(r":?-+:?")
 
 WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
@@ -69,6 +72,29 @@ OPTION_POINTER = re.compile(
     r"|the\s+(?:first|second|third|fourth|last|other|previous)\s+(?:option|one|pick)\b)",
     re.IGNORECASE,
 )
+RELEASABLE_RULING = (
+    'his Nov 10 6:44 PM words "why would you merge something that shouydlknt go out dev mustr always be releasable"'
+)
+STEP = r"(?:run|re-?run|fill|back-?fill|migrate|apply|execute|trigger|kick\s+off|flip|enable|patch|repair)"
+LATER_STEP = re.compile(
+    rf"\b(?:then|afterwards|later)\s+(?:we\s+|you\s+|it\s+)?(?:{STEP}|fix)\b"
+    rf"|\b(?:after|once|when)\s+(?:the\s+|it\s+|this\s+)?(?:deploy|deployed|release|released|rollout|lands|merges|ships"
+    rf"|is\s+(?:live|released|deployed|merged|out))\b,?\s+(?:(?:we|you|i|someone|then)\s+(?:must\s+|should\s+|need\s+to\s+|will\s+)?)?{STEP}\b"
+    r"|\bback-?fill(?:s|ing)?\b|\bfill\b|\bpass[- ]box(?:es)?\b"
+    r"|\bfix(?:ed)?\s+(?:it\s+|them\s+)?(?:up|forward|later|afterwards)\b|\bfollow[- ]?up\s+(?:pr|fix|change|step)\b",
+    re.IGNORECASE,
+)
+LANDS = re.compile(r"\b(?:land|merge|ship|release|deploy)(?:s|ed|ing)?\b", re.IGNORECASE)
+NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
+CLAUSE_END = re.compile(r"[.;:,!?\n]")
+ASKS_TAP = re.compile(
+    r"\b(?:tap|press|hit|click)\s+(?:on\s+)?(?:its\s+|the\s+)?(?:approve|hold)\b"
+    r"|\b(?:needs?|wants?|waits?\s+(?:on|for)|waiting\s+(?:on|for)|awaits?|awaiting|asks?\s+for|asking\s+for|ready\s+for|pending)"
+    r"\s+(?:your\s+|his\s+|a\s+|an\s+|the\s+)?(?:tap|approval|approve|go-ahead)\b"
+    r"|\bapprove\s*(?:or|/)\s*hold\b|\b(?:please|can\s+you|could\s+you|to)\s+(?:approve|hold|tap)\b"
+    r"|\b(?:approve|hold)\s+(?:it|this|them|these|the\s+(?:pr|prs|fix|stack|change))\b|^[ \t]*(?:-[ \t]*)?(?:approve|hold)\b",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 @dataclass(frozen=True)
@@ -81,7 +107,7 @@ class Question:
 
     def card(self, drive: str, waits: str) -> dict:
         """The question card a handler draws from this block."""
-        body = "\n".join([*self.summary, "*Show me*", *self.show_me])
+        body = card_body(self.summary, self.show_me)
         return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, "waits": waits, "drive": drive}
 
 
@@ -114,18 +140,28 @@ def post_refusal(post: dict, edited: int = 0) -> str | None:
     return f"refused: this post is {count} words, and {shape} is at most {limit} words{edit} ({READING}). {LINE_REST}"
 
 
-def question_words(title: str, summary: list[str], options: list[str]) -> int:
-    """The words he reads on a question card, counted alike by `drive job ask` and the post hook: its question, summary and options."""
-    return sum(map(words, [title, *summary, *options]))
+def card_body(summary: list[str], show_me: list[str]) -> str:
+    return "\n".join([*summary, "*Show me*", *show_me])
+
+
+def card_words(card: dict) -> int:
+    """The words he reads on a question card, counted by `drive job ask` over the card it keeps and by the post hook over the card posted: its title, the body above its `*Show me*` line, and its options."""
+    summary = SHOWN.split(card.get("body") or "", maxsplit=1)[0]
+    return sum(map(words, [card.get("title") or "", *summary.splitlines(), *(card.get("options") or [])]))
 
 
 def card_refusal(card: dict, beside: str) -> str | None:
-    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it."""
+    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it, so a drive's question card, whose words `drive job ask` kept and counted, carries none."""
     options = card.get("options") or []
     long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     body = card.get("body") or ""
-    summary = SHOWN.split(body if beside.strip() in body else f"{beside}\n{body}", maxsplit=1)[0]
-    count = question_words(card.get("title") or "", summary.splitlines(), options)
+    drawn = beside.strip() not in body
+    if drawn and card.get("drive") and card.get("waits"):
+        return (
+            f"refused: this post's text is {words(beside)} words cc-slack draws atop the card, and a drive's question card carries"
+            " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text."
+        )
+    count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, what he gets and what it costs: {', '.join(long)}"] if long else []
     if count > QUESTION_WORDS:
         problems.append(
@@ -217,7 +253,7 @@ def question(text: str) -> Question:
         if words(option) > OPTION_WORDS
     ]
     shown = [title, *summary, *options]
-    if (count := question_words(title, summary, options)) > QUESTION_WORDS:
+    if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
     problems += [f'plain words only: "{found}" is {what}' for what, pattern in NOT_PLAIN for found in pattern.findall(plain)]
@@ -226,6 +262,13 @@ def question(text: str) -> Question:
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
     problems += unlinked([*summary, *captions(show_me)], [title, *options])
+    problems += [
+        f'option "{option}" lands first and leaves "{step}" for after: dev must always be releasable ({RELEASABLE_RULING}),'
+        " so no option lands a change a release cut at its merge commit cannot carry alone; offer a split whose every part"
+        " is safe to release by itself, or drop the option"
+        for option in options
+        if (step := lands_first(option))
+    ]
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     if problems:
@@ -276,6 +319,13 @@ def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
         for line in captions(show_me)
         if PICTURE.search(line) and not PICTURE.fullmatch(line)
     ]
+    problems += [
+        f'the Show me table headed "{" | ".join(table[0])}" holds "{value}" in every cell: a Show me shows real contents in'
+        " every row and cell, measured or worked out from the code and marked as such, never a table of what will be measured"
+        f" later ({PLACEHOLDER_RULING})"
+        for table in tables(show_me)
+        if (value := one_value(table)) is not None
+    ]
     fences = [line.strip() for line in show_me if FENCE.match(line)]
     problems += [
         f'"{fence}" names a language, which Slack draws as the first line of the code; open the fence with ``` alone'
@@ -285,6 +335,28 @@ def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
     return problems
+
+
+def tables(show_me: list[str]) -> list[list[list[str]]]:
+    """Each markdown table of a Show me outside its code fences, as rows of cells, its header row first."""
+    found, rows, fenced = [], [], False
+    for line in [*show_me, ""]:
+        fenced ^= bool(FENCE.match(line))
+        if not fenced and line.strip().startswith("|"):
+            rows.append([cell.strip() for cell in line.strip().strip("|").split("|")])
+        elif rows:
+            found.append(rows)
+            rows = []
+    return found
+
+
+def one_value(table: list[list[str]]) -> str | None:
+    """The one text every data cell of a table holds, its first column of row names aside, when it has at least two rows and two columns of them."""
+    data = [row[1:] for row in table[1:] if not all(SEPARATOR_CELL.fullmatch(cell) for cell in row)]
+    cells = {cell for row in data for cell in row}
+    if len(data) < 2 or min(map(len, data)) < 2 or len(cells) != 1:
+        return None
+    return cells.pop()
 
 
 def kind(found: str) -> str:
@@ -317,6 +389,50 @@ def unlinked(linked: list[str], plain: list[str]) -> list[str]:
                         f" or a Show me caption, its link text naming the {named} ({LINKS_RULING})"
                     )
     return problems
+
+
+def later_steps(text: str) -> list[tuple[str, str]]:
+    """Each step the text leaves for after a release, such as a backfill, a pass box or "then run", beside the line naming it; one the text rules out, as "no backfill" does, is none."""
+    found = []
+    for match in LATER_STEP.finditer(text):
+        if NEGATION.search(CLAUSE_END.split(text[: match.start()])[-1]):
+            continue
+        end = text.find("\n", match.end())
+        found.append((match[0], text[text.rfind("\n", 0, match.start()) + 1 : end if end >= 0 else None].strip()))
+    return found
+
+
+def lands_first(option: str) -> str | None:
+    """The step an option leaves until after it lands, as in "land it now, then backfill", or None when it lands nothing that needs one."""
+    if not (landed := LANDS.search(option)):
+        return None
+    return next((step for step, _ in later_steps(option[landed.end() :])), None)
+
+
+def tap_owed_not(pr: dict) -> str:
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, or it lands with no tap."""
+    tap = pr.get("tap")
+    reasons = [
+        f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
+        pr["state"] if pr["state"] in ("merged", "closed") else "",
+        f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
+    ]
+    return ", ".join(reason for reason in reasons if reason)
+
+
+def tap_refusal(text: str, prs: dict[str, dict], asking: bool = False) -> str | None:
+    """Why the text may not ask him to tap, approve or hold a PR it names that the drive records as owing no tap; asking says the text asks by what it is, as a PR card does."""
+    if not (asking or ASKS_TAP.search(text)):
+        return None
+    folded = {key.casefold(): (key, pr) for key, pr in prs.items()}
+    named = dict.fromkeys(f"{owner}/{name}#{number}".casefold() for owner, name, number in [*PR_URL.findall(text), *PR_KEY.findall(text)])
+    found = [f"{key}: {why}" for each in named if each in folded for key, pr in [folded[each]] if (why := tap_owed_not(pr))]
+    if not found:
+        return None
+    return (
+        f"refused: this asks him to tap, approve or hold a PR the drive owes no tap on: {'; '.join(found)}. A tap is asked"
+        " for only when owed: read drive status <pr> before a card or line names a tap, and say what happened to it instead."
+    )
 
 
 def link_refusal(post: dict) -> str | None:
