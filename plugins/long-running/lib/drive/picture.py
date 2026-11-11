@@ -1,5 +1,6 @@
 import hashlib
 import html
+import itertools
 import json
 import os
 import re
@@ -92,6 +93,7 @@ CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROME_SECONDS = 60
 DOWNLOAD_SECONDS = 20
 SOURCED = ".sourced"
+SOURCE = "source.json"
 
 
 class PictureError(Exception):
@@ -230,12 +232,12 @@ def draw(kind: str, source: str, out: Path) -> Path:
 
 
 def cached(folder: Path, name: str, kind: str, source: str) -> Path:
-    """The picture of one source, drawn once under folder and named name."""
+    """The picture of one source, drawn once under folder and named name, never the source it keeps beside it."""
     renderer = VISUALS.read_text() if kind != "image" else ""
     home = folder / hashlib.sha256(f"{kind}\n{source}{renderer}".encode()).hexdigest()[:16]
     home.mkdir(parents=True, exist_ok=True)
-    (home / "source.json").write_text(json.dumps({"kind": kind, "source": source}))
-    if found := sorted(home.glob(f"{name}.*")):
+    (home / SOURCE).write_text(json.dumps({"kind": kind, "source": source}))
+    if found := sorted(path for path in home.glob(f"{name}.*") if path.name != SOURCE):
         return found[0]
     return draw(kind, source, home / f"{name}.png")
 
@@ -247,18 +249,18 @@ def fill(folder: Path, kept: list[str]) -> None:
         for fence in FENCE.finditer(text):
             kind = f"code:{fence[1].lower()}"
             found[hashlib.sha256(f"{kind}\n{fence[2]}".encode()).hexdigest()[:16]] = {"kind": kind, "source": fence[2]}
-    bare = [home for home in sorted({png.parent for png in folder.rglob("*.png")}) if not (home / "source.json").exists()]
+    bare = [home for home in sorted({png.parent for png in folder.rglob("*.png")}) if not (home / SOURCE).exists()]
     filled = [home for home in bare if home.name in found]
     for home in filled:
-        (home / "source.json").write_text(json.dumps(found[home.name]))
+        (home / SOURCE).write_text(json.dumps(found[home.name]))
     if bare:
         left = sum(len(list(home.glob("*.png"))) for home in bare if home not in filled)
         print(f"drive pictures: {len(filled)} drawn before pictures kept their source now keep it; {left} keep none the drive can find and stay as drawn", file=sys.stderr)
     (folder / SOURCED).touch()
 
 
-def pictures(folder: Path, label: str, show_me: str) -> list[str]:
-    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name."""
+def pictures(folder: Path, label: str, show_me: str, taken: set[str]) -> list[str]:
+    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name, and numbered apart from each name in taken, which gains each name it gives, since cc-slack gives each PR of a card every picture whose file name one of the PR's own has."""
     drawn = []
     for kind, source, caption in sources(show_me):
         if kind == "image" and not source.startswith(("http://", "https://")):
@@ -266,16 +268,22 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
                 print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
                 continue
             source = local.as_uri()
-        name = file_name(caption) or title(kind)
+        name = apart(file_name(caption) or title(kind), taken)
         try:
-            shot = cached(folder, name, kind, source)
+            shot = cached(folder, "show-me", kind, source)
         except (PictureError, ValueError) as error:
             print(f"drive card: {label}: its Show me {kind} does not draw: {error}", file=sys.stderr)
             continue
         if not (titled := shot.with_name(name)).exists():
             titled.hardlink_to(shot)
+        taken.add(name)
         drawn.append(str(titled))
     return drawn
+
+
+def apart(name: str, taken: set[str]) -> str:
+    """name, or name numbered from 2 when taken holds it or it is the source a picture keeps beside it."""
+    return next(each for each in itertools.chain([name], (f"{name} ({count})" for count in itertools.count(2))) if each not in {*taken, SOURCE})
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:

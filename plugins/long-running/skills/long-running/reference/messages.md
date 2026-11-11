@@ -200,7 +200,8 @@ Its Show me:
   recommended option 1 and the rest in their order, and a middle dot, as `1 · Feed first`.
 - Leave a ```chart as its fence on the card, which cc-slack draws as Slack's chart. Its title is at
   most 50 characters and each label at most 20; it draws at most 12 series or slices and 20
-  categories, and a card holds at most 2 charts.
+  categories, and a card holds at most 2 charts. Each row's value is a number, above 0 in a pie, each
+  label is text or a number, and each series holds exactly one row for each category.
 - Draw a Mermaid flow whose longest chain runs past four nodes top to bottom, `flowchart TD`, because
   drawn left to right it shrinks its words to about 5 px on his phone.
 - Name the code's language on its fence, because the picture highlights the code in that language,

@@ -78,12 +78,12 @@ def test_a_picture_is_drawn_once_and_again_when_the_renderer_changes(tmp_path, m
 
     monkeypatch.setattr(picture, "visual_png", draw)
     show_me = "```arch\n" + json.dumps(DOC) + "\n```\n"
-    first = picture.pictures(tmp_path / "pictures", "app PR 7", show_me)
-    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) == first
+    first = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set()) == first
     renderer = tmp_path / "visuals.js"
     renderer.write_text("export async function draw() {}")
     monkeypatch.setattr(picture, "VISUALS", renderer)
-    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) != first
+    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set()) != first
     assert drawn == ["arch", "arch"]
     assert json.loads((tmp_path / "pictures").glob("*/source.json").__next__().read_text())["kind"] == "arch"
 
@@ -107,7 +107,7 @@ def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_is_skipp
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n")
     show_me = f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n"
-    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", show_me)
+    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
     assert Path(copied).name == "The card after his tap"
     assert Path(copied).read_bytes() == shot.read_bytes()
 
@@ -117,7 +117,7 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     shot = tmp_path / "shots" / "s106.png"
     shot.parent.mkdir()
     shot.write_bytes(b"\x89PNG\r\n")
-    [copied] = picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n")
+    [copied] = picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n", set())
     assert (Path(copied).name, Path(copied).read_bytes()) == ("the api", shot.read_bytes())
 
 
@@ -136,11 +136,34 @@ def test_a_pr_cards_pictures_are_each_named_exactly_their_caption_which_slack_ti
         "```go\nfunc wake() {\n\tread()\n}\n```\n"
         f"{long}\n```sand\nlane::diff(@tree) -> @diff\n```\n"
     )
-    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me)]
+    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me, set())]
     assert named == ["1 · Feed first then read today", "go code", " ".join(long.split())[: picture.TITLE_CHARS].rstrip()]
     assert drawn == ["mermaid", "code:go", "code:sand"]
-    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me)[0].endswith("/1 · Feed first then read today")
+    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me, set())[0].endswith("/1 · Feed first then read today")
     assert drawn == ["mermaid", "code:go", "code:sand"]
+
+
+def test_a_caption_naming_the_source_a_picture_keeps_still_draws_the_picture(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    show_me = "source:\n```mermaid\nflowchart TD\n  a --> b\n```\nsource.json\n```mermaid\nflowchart TD\n  c --> d\n```\n"
+    drawn = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    assert [(Path(path).name, Path(path).read_bytes()) for path in drawn] == [("source", b"\x89PNG\r\n"), ("source.json (2)", b"\x89PNG\r\n")]
+    assert picture.cached(tmp_path / "pictures", "source", "mermaid", "flowchart TD\n  a --> b\n").read_bytes() == b"\x89PNG\r\n"
+
+
+def test_pictures_titled_alike_on_one_card_are_numbered_apart_and_drawn_once(tmp_path, monkeypatch) -> None:
+    drawn = []
+
+    def draw(kind: str, source: str, out) -> None:
+        drawn.append(kind)
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "visual_png", draw)
+    taken: set[str] = set()
+    first = picture.pictures(tmp_path / "pictures", "app PR 7", "```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
+    second = picture.pictures(tmp_path / "pictures", "app PR 8", "```mermaid\nflowchart TD\n  c --> d\n```\n```mermaid\nflowchart TD\n  a --> b\n```\n", taken)
+    assert [Path(path).name for path in [*first, *second]] == ["Diagram", "Diagram (2)", "Diagram (3)"]
+    assert drawn == ["mermaid", "mermaid"]
 
 
 def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_and_leaves_out_what_does_not_draw(

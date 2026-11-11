@@ -173,25 +173,25 @@ def comment_refresher(pr: dict) -> str:
     return ""
 
 
-def show_me_words(text: str, pictured: bool) -> str:
-    """A Show me's words on his card: one short caption, each markdown table and ```chart as written, which cc-slack draws as Slack's own data table and chart, and its first code block when no picture draws."""
+def show_me_words(text: str, pictured: bool, charts: int) -> str:
+    """A Show me's words on his card, a blank line between each: one short caption, each markdown table and at most charts ```chart fences as written, which cc-slack draws as Slack's own data table and chart, and its first code block when no picture draws."""
     bare = picture.FENCE.sub("", picture.IMAGE.sub("", text))
     first = SENTENCES.split(first_paragraph(without_records(bare)), maxsplit=1)[0].strip()
     readable = first and not first.startswith("|") and "`" not in first and len(first) <= CAPTION_CHARS
     shown = [first] if readable else []
-    shown += natives(text)
+    shown += natives(text, charts)
     code = next((match for match in picture.FENCE.finditer(text) if match[1].lower() not in picture.DIAGRAMS and not picture.raw(match[1], match[2])), None)
     if code and not pictured:
         shown.append("```\n" + code_clipped(code[2].strip("\n")) + "\n```")
-    return "\n".join(shown)
+    return "\n\n".join(shown)
 
 
-def natives(text: str) -> list[str]:
-    """Each markdown table outside a fence and each ```chart fence of a Show me as written, in the order they come, a chart only when Slack draws it and only as many as a card holds, since cc-slack refuses a whole card over one it cannot draw."""
+def natives(text: str, charts: int) -> list[str]:
+    """Each markdown table outside a fence and each ```chart fence of a Show me as written, in the order they come, a chart only when Slack draws it and only the first charts of them, since cc-slack refuses a whole card over one it cannot draw or past the charts one message holds."""
     drawable = [fence for fence in picture.FENCE.finditer(text) if fence[1].lower() in picture.NATIVE and limits.json_problem("chart", fence[2]) is None and not limits.chart_limits(json.loads(fence[2]))]
-    charts = [(fence.start(), fence[0]) for fence in drawable[: limits.CHARTS]]
+    kept = [(fence.start(), fence[0]) for fence in drawable[:charts]]
     unfenced = picture.FENCE.sub(lambda fence: NOT_NEWLINE.sub(" ", fence[0]), text)
-    return [block for _, block in sorted(charts + [(table.start(), table[0]) for table in TABLE.finditer(unfenced)])]
+    return [block for _, block in sorted(kept + [(table.start(), table[0]) for table in TABLE.finditer(unfenced)])]
 
 
 def code_clipped(code: str) -> str:
@@ -276,8 +276,8 @@ def body_of(pr: dict) -> str:
     return rest if rest and all(TRAILER.fullmatch(line.strip()) for line in last.splitlines()) else body
 
 
-def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = ()) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, and what each of its waits that holds waits for, in his card's words."""
+def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = (), charts: int = limits.CHARTS) -> dict:
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, and how many ```chart fences its Show me may still draw on the card."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: HTML_TAG.sub("", text) for heading, text in sections(body).items()}
@@ -290,7 +290,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
-        "show_me": show_me_words(found.get("show me", ""), bool(shown)),
+        "show_me": show_me_words(found.get("show me", ""), bool(shown), charts),
         "pictures": list(shown),
         "plan": section_words(found, *PLAN_HEADINGS),
         "port": section_words(found, "port"),
@@ -330,8 +330,11 @@ def stack_words(pr: dict) -> tuple[str, str]:
 
 
 def render_stack(members: list[Member]) -> dict:
-    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for all."""
-    drawn = [render(*member) for member in members]
+    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for all, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole stack as one."""
+    drawn, charts = [], limits.CHARTS
+    for member in members:
+        drawn.append(one := render(*member, charts=charts))
+        charts -= sum(fence[1].lower() in picture.NATIVE for fence in picture.FENCE.finditer(one["prs"][0]["show_me"]))
     kinds = [kind_and_title(member[0]["title"]) for member in members]
     kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
     title, summary = stack_words(members[0][0])
@@ -409,11 +412,11 @@ def show_me_problems(pr: dict) -> list[str]:
     return [*limits.visual_problems(show_me, 0), *limits.chart_problems(show_me), *limits.placeholder_problems(show_me), *limits.column_problems(show_me)]
 
 
-def pictured(name: str, key: str, pr: dict) -> tuple[str, ...]:
+def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
     repo, number = key.split("#")
     label = f"{repo.split('/')[1]} PR {number}"
     show_me = sections(body_of(pr)).get("show me", "")
-    return tuple(picture.pictures(state.drive_dir(name) / "pictures", label, show_me))
+    return tuple(picture.pictures(state.drive_dir(name) / "pictures", label, show_me, taken))
 
 
 def chains(keys: list[str], reads: dict[str, dict]) -> list[list[str]]:
@@ -577,7 +580,8 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
             continue
         if len(group) > 1 and group in fresh:
             remember(known, group)
-        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key]), tuple(holding(known, key).values())) for key in members]
+        taken: set[str] = set()
+        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
         held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
         if reason := held or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):

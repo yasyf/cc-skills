@@ -570,13 +570,13 @@ def placeholder_problems(show_me: list[str]) -> list[str]:
 
 
 def column_problems(show_me: list[str]) -> list[str]:
-    """Why a Show me table, which Slack draws as its own data table, compares nothing: it has one column, a list or every field crammed into one cell of each row."""
+    """Why a Show me table, which Slack draws as its own data table, compares nothing: its header names one column, a list or every field crammed into one cell of each row, whatever a row's cells split into."""
     return [
         f'the Show me table headed "{table[0][0]}" has one column, so it compares nothing across its rows: give each field a column'
         " of its own under a header naming it, as `| run | seconds | bytes |`, with real values in every cell, or write the rows"
         f" as a list ({PLACEHOLDER_RULING})"
         for table in tables(show_me)
-        if max(map(len, table)) == 1
+        if len(table[0]) == 1
     ]
 
 
@@ -654,7 +654,9 @@ def chart_problems(show_me: list[str]) -> list[str]:
 
 
 def chart_limits(spec: dict) -> list[str]:
-    """Each limit of Slack's chart block a Vega-Lite spec runs past, read as cc-slack reads it: titled by its title or "<value field> by <category field>", one label for each category, one series for each color value or else one named for its value axis, and an arc's slices labeled by color."""
+    """Each limit of Slack's chart block a Vega-Lite spec runs past, read as cc-slack reads it: an encoding of channel objects over data.values rows that are objects, titled by its title or "<value field> by <category field>", one label for each category, one series for each color value or else one named for its value axis, each label text or a number and each value a number, each series one value for each category, and an arc's slices labeled by color and above 0."""
+    if not chart_shaped(spec):
+        return [f"is no chart Slack draws; it holds {CHART_SHAPE}"]
     encoding, rows, mark = spec.get("encoding") or {}, (spec.get("data") or {}).get("values") or [], spec_text(spec.get("mark"), "type")
     pie = mark == "arc"
     axes = (encoding.get("theta") or {}, encoding.get("color") or {}) if pie else (encoding.get("x") or {}, encoding.get("y") or {})
@@ -662,25 +664,53 @@ def chart_limits(spec: dict) -> list[str]:
     readable = pie or (value.get("type") == "quantitative" and category.get("type") != "quantitative")
     if mark not in CHART_MARKS or not rows or not value.get("field") or not category.get("field") or not readable:
         return [f"is no chart Slack draws; it holds {CHART_SHAPE}"]
+    color = None if pie else (encoding.get("color") or {}).get("field")
     title = spec_text(spec.get("title"), "text") or f"{value['field']} by {category['field']}"
-    labels = list(dict.fromkeys(chart_label(row.get(category["field"])) for row in rows))
-    if pie:
-        series = labels
-    elif color := (encoding.get("color") or {}).get("field"):
-        series = list(dict.fromkeys(chart_label(row.get(color)) for row in rows))
-    else:
-        series = [spec_text(value.get("title"), "text") or value["field"]]
+    placed = [chart_label(row.get(category["field"])) for row in rows]
+    labels = list(dict.fromkeys(placed))
+    named = [chart_label(row.get(color)) if color else spec_text(value.get("title"), "text") or value["field"] for row in rows]
+    series = labels if pie else list(dict.fromkeys(named))
     problems = [f'is titled "{title}", {len(title)} characters, and a Slack chart\'s title holds at most {CHART_TITLE}'] if len(title) > CHART_TITLE else []
     problems += [
         f'has the label "{label}", {len(label)} characters, and each label holds 1 to {CHART_LABEL}'
         for label in dict.fromkeys([*labels, *series])
         if not 0 < len(label) <= CHART_LABEL
     ]
+    problems += [
+        f'has a row whose "{field}" is {shown}, and each label is text or a number'
+        for field in filter(None, (category["field"], color))
+        for shown in dict.fromkeys(json.dumps(row.get(field)) for row in rows if not isinstance(row.get(field), str | int | float))
+    ]
+    problems += [
+        f'has a row whose "{value["field"]}" is {shown}, and each value is a number{" above 0" if pie else ""}'
+        for shown in dict.fromkeys(json.dumps(row.get(value["field"])) for row in rows if not chart_number(row.get(value["field"]), pie))
+    ]
+    problems += [
+        f'has the series "{name}" without exactly one row for each category, and a Slack chart draws one value per category in each'
+        " series"
+        for name in ([] if pie else series)
+        if sorted(label for label, each in zip(placed, named, strict=True) if each == name) != sorted(labels)
+    ]
     if len(series) > CHART_SERIES:
         problems.append(f"draws {len(series)} {'slices' if pie else 'series'}, and a Slack chart holds at most {CHART_SERIES}")
     if not pie and len(labels) > CHART_CATEGORIES:
         problems.append(f"has {len(labels)} categories, and a Slack chart holds at most {CHART_CATEGORIES}")
     return problems
+
+
+def chart_shaped(spec: dict) -> bool:
+    """Whether a chart spec has the shape cc-slack reads it into: an encoding object of channel objects whose field and type are text, and data whose values are row objects."""
+    encoding, data = spec.get("encoding") or {}, spec.get("data") or {}
+    if not isinstance(encoding, dict) or not isinstance(data, dict) or not isinstance(rows := data.get("values") or [], list):
+        return False
+    channels = [channel for channel in encoding.values() if channel is not None]
+    return all(isinstance(row, dict) for row in rows) and all(
+        isinstance(channel, dict) and isinstance(channel.get("field"), str | None) and isinstance(channel.get("type"), str | None) for channel in channels
+    )
+
+
+def chart_number(value: object, pie: bool) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool) and (not pie or value > 0)
 
 
 def spec_text(raw: object, key: str) -> str:

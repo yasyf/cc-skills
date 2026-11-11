@@ -69,11 +69,12 @@ for its repository says, then return `DONE <proof>`.
     `chart` fence (Vega-Lite) or a markdown table; a UI change gets a screenshot or gif as a markdown
     image. A fence holds code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Put a
     caption line just above each fence and alt text on each image, since Slack titles each picture
-    with it; a fence with none is titled by its kind, such as "go code". His card carries each `chart`
-    fence and markdown table as written, and Slack draws them as its own chart and data table, so
-    `drive card` refuses a chart past Slack's limits in [Messages](messages.md), a table of one
-    column, and a table with one value in every cell. Open with at most one short sentence: the card
-    shows pictures, not prose.
+    with it; a fence with none is titled by its kind, such as "go code", and a title another picture
+    on the card already has gets a number, as "Diagram (2)". His card carries each `chart` fence and
+    markdown table as written, and Slack draws them as its own chart and data table, so `drive card`
+    refuses a chart past Slack's limits in [Messages](messages.md), a table whose header names one
+    column, and a table with one value in every cell. A stack's card draws at most 2 charts in all,
+    the lowest PRs' first. Open with at most one short sentence: the card shows pictures, not prose.
   - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
     under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
     no teammate, by first name, full name, Slack handle or email. The live drive, private code, Slack, or
