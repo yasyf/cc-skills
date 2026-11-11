@@ -133,6 +133,26 @@ def open_cards(job: dict, found: dict | None) -> list[str]:
     return [drawn for question in open_questions(job, found) if (drawn := question["card"] or question["waits"])]
 
 
+def owned(job: dict, cards: dict | None) -> bool:
+    """Whether a PR's job holds it: a running builder owns its pushes and CI, and a job asking him holds its PR."""
+    return job["state"] == "running" or bool(open_cards(job, cards))
+
+
+def unblocked(pr: dict, data: dict, cards: dict | None) -> bool:
+    """Whether a PR is open, green and approved, not held, with nothing it waits on holding it."""
+    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and not held(pr)
+    return green and not holding(data, pr["waits"], cards)
+
+
+def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
+    """Whether a PR waits on its next step alone: unblocked, and its job not holding it."""
+    return unblocked(pr, data, cards) and not owned(data["jobs"][pr["job"]], cards)
+
+
+def held(pr: dict) -> bool:
+    return (pr.get("tap") or {}).get("label") == "Hold" or pr["hold_label"]
+
+
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     """The waits of a job or PR that still hold: each of his cards still open, each job not finished, each PR still open, and each release until the watch sees it out."""
     return [wait for wait in waits if holds(drive, wait, found)]

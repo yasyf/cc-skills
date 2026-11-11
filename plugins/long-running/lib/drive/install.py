@@ -54,16 +54,43 @@ def config_dir() -> Path:
     return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
 
 
+def known_marketplaces() -> dict:
+    return json.loads((config_dir() / "plugins" / "known_marketplaces.json").read_text())
+
+
+def source_repo(source: dict) -> str | None:
+    if source.get("repo"):
+        return source["repo"]
+    match = GITHUB_REPO.search(source.get("url") or "")
+    return match and match.group(1)
+
+
 def marketplace_repo(marketplace: str) -> str:
-    known = json.loads((config_dir() / "plugins" / "known_marketplaces.json").read_text())
+    known = known_marketplaces()
     if marketplace not in known:
         raise InstallError(f"marketplace {marketplace} is not known; pass --repo")
     source = known[marketplace]["source"]
-    if source.get("repo"):
-        return source["repo"]
-    if match := GITHUB_REPO.search(source.get("url") or ""):
-        return match.group(1)
+    if repo := source_repo(source):
+        return repo
     raise InstallError(f"marketplace {marketplace} has no GitHub repo ({source.get('source')}); pass --repo")
+
+
+def touched(repo: str, files: list[str]) -> list[str]:
+    """The installed plugins, as plugin@marketplace, that a merge of files into repo changes: each of a marketplace on repo whose folder holds one of the files, or that is its marketplace's only plugin, whose binary any file of the repo may build."""
+    known = known_marketplaces()
+    plugins = []
+    for key in json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]:
+        plugin, _, marketplace = key.partition("@")
+        if marketplace not in known or (source_repo(known[marketplace]["source"]) or "").lower() != repo.lower():
+            continue
+        listed = json.loads((Path(known[marketplace]["installLocation"]) / ".claude-plugin" / "marketplace.json").read_text())["plugins"]
+        source = next((entry["source"] for entry in listed if entry["name"] == plugin), None)
+        if source is None:
+            continue
+        folder = source.get("path") if isinstance(source, dict) else source
+        if len(listed) == 1 or folder and any(PurePosixPath(file).is_relative_to(PurePosixPath(folder)) for file in files):
+            plugins.append(key)
+    return plugins
 
 
 def git(clone: str, *args: str, deadline: float) -> str:

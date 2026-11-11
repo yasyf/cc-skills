@@ -26,7 +26,6 @@ REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
 STACK_MOST = 4
-NO_TAP_OWNER = "yasyf"
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
@@ -271,6 +270,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Waits on a code review"
         case _, verdict if verdict == "pending" or held:
             return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
+        case _ if state.queued_on_tap(state.pr_key(pr["url"])):
+            return "CI passed; the drive queues it for merge"
         case _:
             return "CI passed; the agent is landing it"
 
@@ -529,22 +530,18 @@ def drawn_card(shown: list[Member]) -> dict:
 
 def tooling(name: str, entry: dict) -> bool:
     """Whether the PR serves a drive tooling order, a fix to a tool the drive runs on that no words of his ask for, so its card quotes that order instead."""
-    order = state.load(name)["orders"].get(entry.get("serves"))
+    order = state.load(name)["orders"].get(entry.get("serves") or entry["order"])
     return order is not None and order["text"].startswith(state.TOOLING)
-
-
-def merges_untapped(key: str) -> bool:
-    return key.split("/")[0] == NO_TAP_OWNER
 
 
 def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False, visual: bool = False) -> str:
     """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --serves` or a ready record, also needs each body's Summary, and one for a change he sees, by the READY's NATIVE: line, a before and an after screenshot in a Show me on it."""
-    tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or merges_untapped(state.pr_key(pr["url"])))]
+    tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or state.merges_untapped(state.pr_key(pr["url"])))]
     if len(tapped) > STACK_MOST:
         return (
             f"its stack holds {len(tapped)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
             f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
-            f" {NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
+            f" {state.NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
         )
     needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and shown[0][0]["body"] is not None and not stack_words(shown[0][0])[0]:
@@ -732,6 +729,10 @@ def answered(ask: dict) -> dict:
                 action_ts=ask["action_ts"],
                 lane=state.heard_lane(data, entry["order"]),
             )
+    if ask["label"] == "Approve":
+        from drive import land, view
+
+        land.start(name, members, view.live_cards(name))
     return {"ok": True}
 
 

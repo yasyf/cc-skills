@@ -169,7 +169,7 @@ def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: s
 def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:
     """Why a PR card may not go out: a PR on it serves a drive tooling order whose own words the line above the card leaves out."""
     for key in stack:
-        order = data["orders"].get(data["prs"][key].get("serves"))
+        order = data["orders"].get(data["prs"][key].get("serves") or data["prs"][key]["order"])
         if order and order["text"].startswith(state.TOOLING) and order["text"] not in text:
             return f'{key} serves a drive tooling order, so the line above its card quotes that order: put "{order["text"]}" in text'
     return None

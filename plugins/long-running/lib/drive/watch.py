@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, limits, orca, page, reads, slack, state, superseded, view
+from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
 from drive.render import NOT_READY_CHARS, cut, subscribe, when
 
@@ -27,8 +27,9 @@ TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 TELL_AFTER = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
-OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "NOT READY at")
+OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "NOT READY at", "ejected from the merge queue", "not landed")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
+TAP_EVENT = re.compile(r"TAP (?P<label>\S+) (?P<key>\S+)")
 LANE = "watch"
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
@@ -55,7 +56,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved")
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED)
 
 
 @dataclass
@@ -126,7 +127,10 @@ def pr_changes(pr: dict, read: dict) -> list[str]:
         changes.append("conflicts with its base")
     if fresh["state"] != pr["state"]:
         changes.append(fresh["state"])
-    pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"])
+    ejected = github.EJECTED_LABEL in read["labels"]
+    if ejected and not pr["ejected"]:
+        changes.append("ejected from the merge queue")
+    pr.update(fresh, draft=read["isDraft"], merged_sha=read["mergeCommit"], ejected=ejected)
     return changes
 
 
@@ -158,20 +162,9 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def owned(job: dict, cards: dict | None) -> bool:
-    """Whether a PR's job holds it: a running builder owns its pushes and CI, and a job asking him holds its PR."""
-    return job["state"] == "running" or bool(view.open_cards(job, cards))
-
-
-def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
-    """Whether a PR waits on its next step alone: open, green and approved, not held, nothing it waits on holding it, and its job not holding it."""
-    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and not held(pr)
-    return green and not view.holding(data, pr["waits"], cards) and not owned(data["jobs"][pr["job"]], cards)
-
-
 def moves_owed(pr: dict, data: dict, cards: dict) -> bool:
     """Whether a PR's own moves, a new head, checks passed or approved, are said: it waits on its next step alone, and that step is not his card already drawn."""
-    return next_step(pr, data, cards) and not (state.owed_step(pr) == "card" and view.card_for(cards["pr_cards"], pr["url"]))
+    return view.next_step(pr, data, cards) and not (state.owed_step(pr) == "card" and view.card_for(cards["pr_cards"], pr["url"]))
 
 
 def recheck_owed(pr: dict) -> str:
@@ -179,17 +172,13 @@ def recheck_owed(pr: dict) -> str:
 
 
 def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
-    if pr["state"] != "open" or owned(data["jobs"][pr["job"]], cards):
+    if pr["state"] != "open" or view.owned(data["jobs"][pr["job"]], cards):
         return None
     if pr["checks"] == "fail":
         return "red"
-    if cards is None or not moves_owed(pr, data, cards):
+    if cards is None or land.landing(pr) or not moves_owed(pr, data, cards):
         return None
     return step if (step := state.owed_step(pr)) in STUCK_WORDS else None
-
-
-def held(pr: dict) -> bool:
-    return (pr.get("tap") or {}).get("label") == "Hold" or pr["hold_label"]
 
 
 def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
@@ -389,7 +378,7 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed: dict[str, dict[str, str]] = {}
     for key, pr in data["prs"].items():
         if hears(watcher, data, pr["order"]) and card_owed(pr, data, watcher.cards):
-            owed.setdefault(pr["serves"], {})[key] = pr["head"]
+            owed.setdefault(pr.get("serves") or pr["order"], {})[key] = pr["head"]
     lines = []
     for order_id, heads in owed.items():
         order = data["orders"][order_id]
@@ -413,12 +402,11 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def card_owed(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card while his-words check passed or runs, untapped, its order and design recorded, no card of his asking his tap on it or pulled of its Approve, and none sent for its head."""
+    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card while his-words check passed or runs, untapped, no card of his asking his tap on it or pulled of its Approve, and none sent for its head; the order it serves is its job's until `drive pr set --serves` names another."""
     return (
-        next_step(pr, data, cards)
+        view.next_step(pr, data, cards)
         and state.owed_step(pr) == "card"
         and not pr["tap"]
-        and bool(pr.get("serves") and pr.get("design"))
         and pr["ready_said"] != pr["head"]
         and not pr["pulled"]
         and view.card_for(cards["pr_cards"], pr["url"]) is None
@@ -724,6 +712,8 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
+    if event["kind"] == "landing":
+        return f"PR {key}: {event['change']}{suffix}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
@@ -1304,7 +1294,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1312,6 +1302,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
+        landed(watcher)
         lines += settle_lines(watcher, moment)
         lines += unready_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
@@ -1334,6 +1325,12 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
 
 
+def landed(watcher: Watcher) -> None:
+    """Start the drive's lander on each PR the watch hears that his Approve covers once it qualifies, within one GitHub read of it going green and approved."""
+    data = state.load(watcher.name)
+    land.start(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])], watcher.cards)
+
+
 def holder_line(line: str, data: dict) -> str | None:
     """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator."""
     found = ABOUT.search(line)
@@ -1342,12 +1339,17 @@ def holder_line(line: str, data: dict) -> str | None:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, and a PR's when its job is not running to take it, its new head, checks passed or approval only when the coordinator owes it a step: its exempt landing, a reader on its new head under a NOT READY, or the order and design his card quotes; never his card itself, which the watch draws, nor when its author or its own builder lands it."""
+    """Whether a line asks for a step now: any line but a PR's, his Approve of a PR the drive's lander queues only when it is red or conflicts with its base, and a PR's when its job is not running to take it, its new head, checks passed, approval or queueing only when the coordinator owes it a step: its exempt landing or a reader on its new head under a NOT READY; never his card itself, which the watch draws, nor its landing after his Approve, which the lander does, nor GitHub's merged line for a PR the lander merges and says so itself, nor when its author or its own builder lands it."""
+    if (tapped := TAP_EVENT.match(line)) and tapped["label"] == "Approve" and state.queued_on_tap(tapped["key"]):
+        pr = data["prs"].get(tapped["key"])
+        return pr is None or pr["checks"] == "fail" or bool(pr["conflict"])
     found = PR_EVENT.match(line)
     if not found:
         return not line.startswith("PR ")
     pr = data["prs"][found["key"]]
-    owes = {"landing": True, "recheck": True, "card": not pr.get("serves")}.get(state.owed_step(pr), False)
+    if found["change"] == "merged" and land.reported(found["key"], pr):
+        return False
+    owes = {"landing": True, "recheck": True}.get(state.owed_step(pr), False)
     return data["jobs"][found["job"]]["state"] != "running" and (owes or not found["change"].startswith(OWN_MOVES))
 
 
@@ -1361,8 +1363,8 @@ def lane_move(line: str, data: dict) -> str | None:
 
 
 def wakes(line: str, data: dict) -> bool:
-    """Whether the coordinator acts on the line now: his tap, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as one going green and approved that waits on his card or its exempt landing."""
-    return line.startswith(WAKES) or line.startswith("PR ") and needs_step(line, data)
+    """Whether the coordinator acts on the line now: his tap but an Approve the drive's lander acts on, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as its exempt landing or a failure of its landing."""
+    return (line.startswith(WAKES) or line.startswith("PR ")) and needs_step(line, data)
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
@@ -1414,19 +1416,9 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     return failed(watcher, what, what, refusal, moment)
 
 
-def alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        pass
-    return True
-
-
 def holder(path: Path) -> int | None:
     held = path.read_text().strip() if path.exists() else ""
-    return int(held) if held.isdigit() and alive(int(held)) else None
+    return int(held) if held.isdigit() and state.alive(int(held)) else None
 
 
 def claim(name: str, project: str | None = None) -> bool:

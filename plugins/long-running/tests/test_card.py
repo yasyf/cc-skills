@@ -226,9 +226,9 @@ def test_a_closed_pr_says_it_closed_without_merging() -> None:
     }
 
 
-def test_checks_the_watch_read_on_another_head_read_as_still_running() -> None:
+def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_approved_green_monorepo_pr_reads_as_queued_by_the_drive() -> None:
     passed = entry(tap="Approve", checks="pass")
-    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "CI passed; the agent is landing it"
+    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
     assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Lands once CI passes"
 
 
@@ -956,6 +956,24 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
         "number": 42,
         "label": "Approve",
     }
+
+
+def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves_a_red_one_to_the_watch(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    with state.edit(drive) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "the run page", [], state.stamp())
+        data["prs"]["Forge-AI/monorepo#42"] |= {"order": "o1", "checks": "fail", "review": "approved"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "action_ts": "", "source": "s"}
+    assert ask({"answer": answer}) == {"ok": True}
+    assert landers == []
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["checks"] = "pass"
+    assert ask({"answer": answer}) == {"ok": True}
+    assert landers == [("Forge-AI/monorepo#42",)]
 
 
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
