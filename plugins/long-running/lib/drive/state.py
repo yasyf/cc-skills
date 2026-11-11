@@ -219,6 +219,8 @@ def load(name: str) -> dict:
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
+        if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
+            job["ask"] = None
         if job.get("ask"):
             job.setdefault("ask_at", job["updated"])
         if (job.get("agent") or "").startswith(DISPATCH_PREFIX):
@@ -310,6 +312,12 @@ def result_state(job: dict, line: str) -> str | None:
     if BUILT_LINE.match(line):
         return "built"
     return "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
+
+
+def reported(line: str) -> bool:
+    """Whether a line opens with a result other than an ASK, so a lane that sent it as an Orca question returned that result and asked nothing."""
+    opening = re.match(r"[A-Z]*", line)[0]
+    return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:

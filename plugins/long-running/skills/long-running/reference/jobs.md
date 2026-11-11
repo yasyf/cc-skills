@@ -86,7 +86,9 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 
 **Reports.** A lane reports through Orca mail. The drive's watch turns each report into a
 `JOB <j> <o> <line>` event opening with the result line of the lane's final report, which sets the
-job's state as a local agent's line does. `drive status --json` holds the whole latest report, and
+job's state as a local agent's line does. A report sent as an Orca question, one whose first line
+opens with a result word other than `ASK`, is that result and asks nothing, and a report ends any
+question the lane asked before it, since the lane no longer waits on that answer. `drive status --json` holds the whole latest report, and
 `drive job replies <j>` prints every result and question the lane sent, oldest first with its time,
 for a line that points at an earlier reply.
 
@@ -107,8 +109,8 @@ question.
   rest with the output's last characters. A test's failure often sits far before the end of its
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
-- A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
-  to answer. One that names a `LOG <url>` past its first line says so on its line, and
+- A question that opens any other way, such as `READ: please send <file>` or `ASK`, is a `JOB` line
+  for you to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One
   nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
   the job has, since a card drawn before the question asks him something else.

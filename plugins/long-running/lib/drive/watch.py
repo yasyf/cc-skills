@@ -323,7 +323,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str | None:
-    """Record one message from a remote lane on its job, a final report setting its state; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer."""
+    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -335,12 +335,14 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
     if kind == "status":
         return None
     job["report"] = body
-    if kind == "question":
+    if kind == "question" and not state.reported(job["said"]):
         job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
-    if kind == "worker_done":
+    elif kind in ("question", "worker_done"):
+        if job.get("ask"):
+            job.update(ask=None, state="running")
         state.take_result(data, job_id, job["said"])
     line = f"JOB {job_id} {job['order']} {job['said']}"
-    asked = reads.logs(body) if kind == "question" else None
+    asked = reads.logs(body) if job.get("ask") == message["id"] else None
     return f"{line}; drive job resume reads {asked} ahead of your answer" if asked else line
 
 
