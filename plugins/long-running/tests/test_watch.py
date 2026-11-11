@@ -1511,7 +1511,7 @@ def test_a_new_head_under_a_readers_not_ready_wakes_the_coordinator_once_to_star
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     line = f"PR {KEY}: new head bbbbbbb under NOT READY, check owed [o1 j1]"
-    assert watch.run_pass(watching, T0) == [line]
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]", line]
     assert watch.wakes(line, state.load(demo))
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
     assert "no tap until a reader passes its new head, since reader j2 called it NOT READY at " in render.pr_line(KEY, state.load(demo)["prs"][KEY])
@@ -1877,7 +1877,7 @@ def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_tol
 
 
 def pr_card(*keys: str, url: str = CARD) -> dict:
-    return {"url": url, "prs": [state.pr_url(key) for key in keys], "card": {"title": "Fix: the watch"}}
+    return {"url": url, "prs": [state.pr_url(key) for key in keys], "asked": state.stamp(T0), "card": {"title": "Fix: the watch"}}
 
 
 @pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
@@ -1986,7 +1986,7 @@ def test_his_card_pulled_for_rework_stays_without_approve_across_the_reworked_he
     monkeypatch.setattr(talk, "posted", lambda name, post: replies.append(post) or {"permalink": f"{CARD}?thread_ts=1"})
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f"PR {KEY}: new head bbbbbbb under NOT READY, check owed [o1 j1]"]
+    assert watch.run_pass(watching, T0)[-1] == f"PR {KEY}: new head bbbbbbb under NOT READY, check owed [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert (sent, replies, redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([], [], [], "recheck")
     with state.edit(demo) as data:

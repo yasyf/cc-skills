@@ -1501,11 +1501,6 @@ def pr_set(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
-    if args.serves and not args.design:
-        raise DriveError(
-            "--serves needs --design asked:<his answer id or card permalink> for each design decision the PR makes,"
-            " or --design none: a design he never answered goes back as a question, never on a card"
-        )
     if args.tap and args.port_of:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     if args.tapped and not args.tap_source:
@@ -1526,6 +1521,11 @@ def pr_set(args: argparse.Namespace) -> int:
     order = known["prs"][key]["order"]
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
+    if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
+        raise DriveError(
+            "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
+            " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
+        )
     if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"

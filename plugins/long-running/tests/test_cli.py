@@ -4148,6 +4148,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
         f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
         f"{designing} no longer waits on his tap until j1 reworks it",
         f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
+        "Forge-AI/monorepo#45 no longer waits on his tap until j1 reworks it",
         "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
     ]
     assert (code, settled) == (0, [ANSWERED, ("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
