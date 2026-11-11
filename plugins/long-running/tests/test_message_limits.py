@@ -372,7 +372,7 @@ def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_n
     say = call("slack_dm_status", transcript, text=said(55) + " {pr:7}") | {"tool_name": message_limits.SAY}
     refusal = message_limits.deny_reason(say)
     assert "65 words" in refusal
-    assert refusal.endswith(" 10 of the words counted are the titles its {card:…} and {pr:…} references draw as their links' words.")
+    assert refusal.endswith(" 10 of the words counted are the titles its {card:…}, {pr:…}, {order:…} and {record:…} references draw as their words.")
     unknown = call("slack_dm_status", transcript, text="see {card:demo:j9-1}") | {"tool_name": message_limits.SAY}
     assert "{card:demo:j9-1} names no card" in message_limits.deny_reason(unknown)
 

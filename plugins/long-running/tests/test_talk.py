@@ -6,7 +6,19 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread
-from drive import cli, dashboard, picture, render, slack, state, talk, view, watch
+from drive import (
+    cli,
+    dashboard,
+    picture,
+    reads,
+    refs,
+    render,
+    slack,
+    state,
+    talk,
+    view,
+    watch,
+)
 from drive.state import DriveError
 
 WAITS = "demo:j1-7"
@@ -65,6 +77,42 @@ def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(de
     assert said(demo)[0]["text"] == "I withdrew [Keep the old store?](#/feature/o1): the redesign settles it."
     with pytest.raises(DriveError, match=r"\{card:demo:j1-5\} names no card the drive drew"):
         talk.say(demo, {"text": "see {card:demo:j1-5}"})
+
+
+def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners", "--thread", "1794200000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
+    view.refresh_cards(demo)
+    talk.say(demo, {"text": "{order:o1} is live; {order:o2} is next."})
+    assert posts[0][-1] == (
+        "<https://acme.slack.com/archives/D123/p1794200000000100|Drive tooling: a verb for owners> is live;"
+        f" <{dashboard.link(demo)}#/feature/o2|Drive tooling: one owner per order> is next."
+    )
+    assert said(demo)[0]["text"] == "[Drive tooling: a verb for owners](#/feature/o1) is live; [Drive tooling: one owner per order](#/feature/o2) is next."
+    with pytest.raises(DriveError, match=r"\{order:o9\} names no order"):
+        talk.say(demo, {"text": "{order:o9} is next."})
+
+
+def test_a_record_draws_in_its_own_words_linked_to_what_it_links(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    oom = "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM"
+    shown = {"661194": {"text": oom, "refs": {"url": "https://app.datadoghq.com/notebook/1"}}, "661195": {"text": "the write lock is held across the whole call", "refs": {}}}
+    asked: list[list[str]] = []
+    monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or json.dumps(shown[argv[2]]))
+    talk.say(demo, {"text": "The pod restarts because {record:661194}. Stalls: {record:661195}."})
+    assert asked == [["cci", "show", seq, "--json", "--drive", demo] for seq in ("661194", "661195")]
+    assert posts[0][-1] == f"The pod restarts because <https://app.datadoghq.com/notebook/1|{oom}>. Stalls: the write lock is held across the whole call."
+    assert said(demo)[0]["text"] == f"The pod restarts because [{oom}](https://app.datadoghq.com/notebook/1). Stalls: the write lock is held across the whole call."
+
+
+def test_a_line_naming_a_cause_with_no_record_posts_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with pytest.raises(DriveError, match=r"nothing posted: a line naming a cause carries \{record:<seq>\} .*: The runs failed because the pool was full$"):
+        talk.say(demo, {"text": "Merged.\nThe runs failed because the pool was full", "dry_run": True})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": '> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.'})
+    assert len(posts) == 1
+    assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
 
 
 def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_source(
@@ -194,7 +242,7 @@ def test_a_post_for_a_report_delivers_the_part_its_job_answered(
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"job": "j1", "thread": thread})
-    assert talk.say(demo, {"text": "The cause is the lock.", "thread_ts": thread, "order": "o1", "record": "661194"}) == f'POSTED {answer}; o1 "cause": posted {answer}'
+    assert talk.say(demo, {"text": "The lock is held across the whole call.", "thread_ts": thread, "order": "o1", "record": "661194"}) == f'POSTED {answer}; o1 "cause": posted {answer}'
     parts = state.load(demo)["orders"]["o1"]["parts"]
     assert (parts["cause"]["posted"], parts["options as a card"]["posted"]) == (answer, None)
     later = state.now() + timedelta(minutes=30)

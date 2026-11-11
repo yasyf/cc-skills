@@ -375,6 +375,14 @@ the dashboard link. When a line says where things stand, link the page instead o
   never by its number alone. Say what each PR serves: the order of his it carries out, in his words,
   "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. Link each other PR
   the message names the same way.
+- Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
+  line of his words.
+- State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
+  on the same line. `say` draws it in that record's own words, linked to what the record links, so
+  he reads the measuring lane's words, never a paraphrase of them: on Nov 10 a line at 8:46 PM blamed
+  "the change that started the failures" without naming it, and a card he tapped at 9:49 PM carried
+  a false "disk full". `say` posts nothing while a line outside a fence or quote names a cause, such
+  as "because" or "caused", with no `{record:}` on it.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so
@@ -479,8 +487,8 @@ GET 2 page ranges
 
 - The hook passes the exact words of every post and edit, the ack's included, through
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
-  `{card:}` and `{pr:}` title it links, and its length refusal says how many of them those titles
-  are.
+  `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
+  of them those titles are.
 - A post that draws a card, or a PR card through `tap_prs`, carries the card its words say waits on
   him, so check-post's `waits-without-card` finding is dropped for it.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
