@@ -11,8 +11,8 @@ answer verbatim. Codex does the thinking; the caller does the judging. The
 drill:
 
 1. **One foreground Bash call**, `timeout: 600000`, never `run_in_background`
-   (the plugin's guard hook blocks it — background completion never wakes you,
-   and the script survives a killed call anyway):
+   (the plugin's guard hook blocks it — a backgrounded call lets you end your
+   turn before codex answers, and the script survives a killed call anyway):
    `"${CLAUDE_PLUGIN_ROOT}/bin/codex-ask" - <<'QUESTION' … QUESTION` (the
    token is substituted to a real path in this text; bare `codex-ask` rides
    PATH order, where a brew-installed binary can shadow the plugin's bin/).
@@ -23,7 +23,10 @@ drill:
    `--incident` (an active production alert only), `--image`,
    `--lane <name>`, `--schema <name|file>`.
 2. **On timeout, run the printed `AWAIT:` line** in a fresh foreground call
-   (same timeout), repeatedly until it exits. Never re-ask the question — the
+   (same timeout), repeatedly until it exits. Claude Code moving the call to
+   the background ("Command was moved to the background (ID: …) after running
+   for 180s") is that timeout too: run the `AWAIT:` line again rather than end
+   your turn, since codex is still running. Never re-ask the question — the
    run is still finishing and a second ask pays twice.
 3. **Return the reply**: lead with the `REPLY_FILE:` pointer line, then the
    file's contents verbatim, in the exact shape the caller asked for — a bare

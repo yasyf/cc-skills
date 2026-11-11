@@ -311,3 +311,42 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
     }
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
     return pr
+
+
+FAKE_CODEX_ASK = """#!/bin/sh
+run="$2"
+printf '{"lane":".","state":"%s","reply_file":"%s","reply_size":1,"log_file":"%s","question":"q","question_files":1}\\n' \\
+  "$(cat "$run/state")" "$(sed -n 1p "$run/meta")" "$(sed -n 2p "$run/meta")"
+"""
+
+
+@dataclass
+class CodexAsk:
+    """Run folders shaped as codex-ask writes them, read by a codex-ask whose `--collect` prints the state each folder's `state` file holds."""
+
+    runs: Path
+    made: int = 0
+
+    def run(self, state: str, reply: str = "", log: str = "") -> Path:
+        self.made += 1
+        folder = self.runs / f"codex-ask.{self.made}"
+        folder.mkdir()
+        (folder / "state").write_text(state)
+        (folder / f"codex-r-{self.made}").write_text(reply)
+        (folder / f"codex-q-{self.made}.log").write_text(log)
+        (folder / "meta").write_text(f"{folder / f'codex-r-{self.made}'}\n{folder / f'codex-q-{self.made}.log'}\n{{}}\n")
+        return folder / f"codex-r-{self.made}"
+
+
+@pytest.fixture
+def codex_ask(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> CodexAsk:
+    plugin = tmp_path / "codex-plugin"
+    (plugin / "bin").mkdir(parents=True)
+    (plugin / "bin" / "codex-ask").write_text(FAKE_CODEX_ASK)
+    (plugin / "bin" / "codex-ask").chmod(0o755)
+    config = tmp_path / "config"
+    (config / "plugins").mkdir(parents=True)
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": {"codex@skills": [{"installPath": str(plugin)}]}}))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(config))
+    (tmp_path / "runs").mkdir()
+    return CodexAsk(tmp_path / "runs")

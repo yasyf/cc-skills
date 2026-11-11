@@ -8,7 +8,7 @@ import no_file_tools
 import one_line_result
 import pytest
 import quiet_turn
-from conftest import RESEARCH
+from conftest import RESEARCH, CodexAsk
 from drive import render, state
 
 Run = Callable[..., tuple[int, str]]
@@ -133,6 +133,71 @@ def test_a_reader_explaining_a_403_has_not_ended_on_a_refused_read(demo: str, ru
     assert one_line_result.block_reason(agent_stop(explained, tmp_path, agent_type="long-running:reader")) is None
     refused = one_line_result.block_reason(agent_stop("DONE got a 403 reading the api logs", tmp_path, agent_type="long-running:reader"))
     assert refused.startswith("Refused on purpose: your line ends on a refused read")
+
+
+
+def relay_ran(reply: Path) -> list[dict]:
+    """A codex relay's codex-ask call and the output codex-ask printed into its tool result as the run started."""
+    printed = f"REPLY_FILE: {reply}\nLOG_FILE: {reply.parent / 'codex-q-1.log'}\nAWAIT: codex-ask --await {reply.parent}"
+    return [called("Bash", command="codex-ask - <<'QUESTION'"), {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t1", "content": printed}]}}]
+
+
+def codex_job(run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "review the fix")
+    run("job", "add", "codex", "--order", "o1", "--goal", "review", "--agent", "a-7")
+
+
+@pytest.mark.parametrize(
+    ("ran", "reply", "log", "taken", "said"),
+    [
+        ("completed", "UNPROVEN — the column is null on 3 of 40 rows\nThe rest of the answer\n", "", "done", "UNPROVEN — the column is null on 3 of 40 rows"),
+        ("completed", "\nBLOCKED codex edits, Claude ships\n", "", "failed", "BLOCKED codex edits, Claude ships"),
+        ("completed", "ASK Should the fix drop the column?\n", "", "done", "ASK Should the fix drop the column?"),
+        ("died", "", '{"type":"turn.started"}\n{"type":"error","message":"stream disconnected"}\n', "failed", 'BLOCKED codex-ask died: {"type":"error","message":"stream disconnected"}'),
+        ("running", "", "", "running", None),
+    ],
+)
+def test_a_codex_jobs_state_comes_from_the_codex_ask_run_its_relay_asked_never_the_relays_words(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk, ran: str, reply: str, log: str, taken: str, said: str | None
+) -> None:
+    codex_job(run)
+    replied = codex_ask.run(ran, reply, log)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(agent_stop(f"REPLY_FILE: {replied}\nCodex answered.", tmp_path, *relay_ran(replied)))))
+    one_line_result.main()
+    assert json.loads(capsys.readouterr().out)["decision"] == "block"
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == (taken, said, reply if ran == "completed" else "")
+
+
+def test_a_codex_relay_reading_back_a_reply_that_quotes_another_run_keeps_its_own(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    codex_job(run)
+    own = codex_ask.run("completed", "DONE reviewed: no findings\n")
+    other = codex_ask.run("completed", "BLOCKED another relay's run\n")
+    read_back = {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "t2", "content": f"DONE reviewed\nIt quoted:\nREPLY_FILE: {other}\n"}]}}
+    one_line_result.take_result(agent_stop("DONE reviewed: no findings", tmp_path, *relay_ran(own), called("Bash", command=f"cat {own}"), read_back), False)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", "DONE reviewed: no findings")
+
+
+def test_a_codex_relay_whose_lane_folder_holds_a_later_run_sets_nothing(demo: str, run: Run, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    codex_job(run)
+    own = codex_ask.run("completed", "DONE the first relay's answer\n")
+    (own.parent / "meta").write_text(f"{own.parent / 'codex-r-later'}\n{own.parent / 'codex-q-later.log'}\n{{}}\n")
+    one_line_result.take_result(agent_stop("DONE the first relay's answer", tmp_path, *relay_ran(own)), False)
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("running", None)
+
+
+def test_a_codex_relay_whose_run_codex_ask_cannot_read_is_still_held_to_one_line_and_left_to_the_watch(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], codex_ask: CodexAsk
+) -> None:
+    codex_job(run)
+    own = codex_ask.run("completed", "DONE reviewed\n")
+    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(agent_stop(f"REPLY_FILE: {own}\nCodex answered.", tmp_path, *relay_ran(own)))))
+    one_line_result.main()
+    assert json.loads(capsys.readouterr().out)["decision"] == "block"
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
 
 
 def test_a_communicator_turn_writes_no_text_between_its_tool_calls(communicator: str, tmp_path: Path) -> None:

@@ -62,7 +62,7 @@ again. A `long-running:handler` is never recorded this way, even when its brief,
 the record it is briefed with names a job, so a handler started to run `drive job launch <j>` leaves
 `<j>` to the lane it launches and its return sets nothing on `<j>`. A handler holds a job only when
 the communicator names it with `agent` as it adds a read-only question's reader job. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
-job's state and its said line:
+state and said line of every job but a codex job:
 
 | First line | The job's state |
 |---|---|
@@ -71,6 +71,14 @@ job's state and its said line:
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names |
+
+A codex job's state comes from the codex-ask run its relay asked, never from the relay's line. At the
+relay's stop, and on each watch pass once its turn ended, the drive runs `codex-ask --collect` on the
+run folder of the newest `REPLY_FILE:` line codex-ask printed into the relay's tool results. A
+completed run sets done, or failed when codex's reply opens `BLOCKED`, with the reply's first line as
+the said line and the whole reply kept as the job's report; a failed or dead run sets failed on
+`BLOCKED codex-ask <state>:` and its log's last line; a run still going sets nothing and raises no
+gap, whatever the relay ended on. A relay that asked codex nothing is parked like any agent below.
 
 The watch reads the agent's transcript, never the stored state. A running job whose agent ended its
 turn on a result line the drive already keeps, an `ASK <path>` naming the block `drive job ask` kept

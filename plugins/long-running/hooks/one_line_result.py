@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, state
+from drive import agents, codex, state
 
 RESULT_CHARS = 500
 REPORTED_KINDS = ("builder", "design")
@@ -116,13 +116,28 @@ def unread(payload: dict, data: dict, handler: bool, job_id: str | None, line: s
     )
 
 
-def take_result(payload: dict) -> None:
-    """Set the job a drive session's background agent holds from the line it returned, so nobody types its state."""
+def take_result(payload: dict, refused: bool) -> None:
+    """Set the job a drive session's background agent holds from what it returned, so nobody types its state: a codex job from the codex-ask run its relay asked once that run ended, whatever the relay ended on, leaving a run codex-ask cannot read to the watch, which names its error, and any other job from the line it ended on once that line is let through."""
     names = state.session_drives(payload.get("session_id") or "")
-    lines = (payload.get("last_assistant_message") or "").strip().splitlines()
-    if not names or not lines:
+    if not names:
         return
-    if job_id := state.agent_job(state.load(names[0]), payload.get("agent_id")):
+    data = state.load(names[0])
+    if not (job_id := state.agent_job(data, payload.get("agent_id"))):
+        return
+    lines = (payload.get("last_assistant_message") or "").strip().splitlines()
+    job = data["jobs"][job_id]
+    if job["kind"] == "codex":
+        if job["state"] != "running":
+            return
+        try:
+            run = codex.newest_run(agents.transcript(payload))
+        except codex.CodexError:
+            return
+        if run and run.ended:
+            with state.edit(names[0]) as data:
+                codex.take(names[0], data, job_id, run)
+        return
+    if lines and not refused:
         with state.edit(names[0]) as data:
             state.take_result(data, job_id, lines[0].strip())
 
@@ -130,10 +145,10 @@ def take_result(payload: dict) -> None:
 def main() -> None:
     payload = json.load(sys.stdin)
     agents.hold(payload)
-    if reason := block_reason(payload):
+    reason = block_reason(payload)
+    take_result(payload, bool(reason))
+    if reason:
         print(json.dumps({"decision": "block", "reason": reason}))
-        return
-    take_result(payload)
 
 
 if __name__ == "__main__":
