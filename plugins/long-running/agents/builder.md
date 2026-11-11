@@ -124,7 +124,7 @@ prints and a remote lane's brief carries whole:
 - `## Refresher`: for someone who knows the codebase but has not read this code lately.
 - `## Biggest surprise`, then `## What you'll hate most`.
 - `## Show me`: a concrete example in the visual kind that fits, as ASK lists them, or the real SQL,
-  code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs and terminal output stay out of fences.
+  code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs, terminal output and HTTP exchanges stay out of fences.
   A PR that changes what he or a user sees, a UI, page, card or post its `NATIVE:` line names,
   shows a before and an after screenshot of it, `![1 · Before, <build>](<path>)` then
   `![2 · After, <build>](<path>)`, which Slack shows side by side. His words: "This is a visual
@@ -384,7 +384,7 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;
   - an option that points at another by number or position;
-  - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, command output or a
+  - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, an HTTP exchange, command output or a
     stack trace in any fence; a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits; a gallery caption with no option number; a left-to-right flow past
     four nodes;

@@ -113,8 +113,8 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
 - Fill every row and cell with real contents, measured or worked out from the code and marked so,
   never the names of what will be measured later.
 - `drive job ask` also refuses:
-  - a fence naming no language, or `text`, or holding JSON, YAML, logs, a terminal session, command
-    output or a stack trace;
+  - a fence naming no language, or `text`, or holding JSON, YAML, logs, a terminal session, an HTTP
+    exchange, command output or a stack trace;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits, a gallery caption with no option number, or a left-to-right flow
     past four nodes;

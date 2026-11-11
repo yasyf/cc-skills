@@ -212,7 +212,7 @@ Its Show me:
   and `drive job card` draws a fence holding one the same way, links and all.
 - Keep other words and raw data out of fences. `drive job ask` refuses:
   - a fence naming no language or `text` that holds no message or quote, and one holding JSON, YAML, logs, a terminal session,
-    command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
+    an HTTP exchange, command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;
   - a markdown table of one column;

@@ -72,8 +72,9 @@ for its repository says, then return `DONE <proof>`.
     which Slack shows side by side as one gallery, in his words "This is a visual change so it should
     have shown before and after screenshots". A builder's `READY` whose `NATIVE:` line names a surface
     he sees is refused until a Show me on the card carries both. A fence holds code, never prose, JSON,
-    YAML, logs, terminal output, or a stack trace. Put a
-    caption line just above each fence and alt text on each image, since Slack titles each picture
+    YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and
+    what it answered goes in a markdown table or a `mermaid` sequenceDiagram. Put a caption line just
+    above each fence and alt text on each image, since Slack titles each picture
     with it; a fence with none is titled by its kind, such as "go code", and a title another picture
     on the card already has gets a number, as "Diagram (2)". His card carries each `chart` fence and
     markdown table as written, and Slack draws them as its own chart and data table, so `drive card`
