@@ -397,6 +397,12 @@ def exposure(key: str) -> str:
     )
 
 
+def show_me_problems(pr: dict) -> list[str]:
+    """Why a PR body's Show me draws nothing worth a picture on his card, by the visual rules `drive job ask` holds a question's Show me to, each image in it counted as the picture it draws."""
+    show_me = picture.IMAGE.sub(lambda image: f"![]({image[1] or image[2]})", sections(body_of(pr)).get("show me", ""))
+    return limits.visual_problems(show_me.splitlines(), 0) if show_me.strip() else []
+
+
 def pictured(name: str, key: str, pr: dict) -> tuple[str, ...]:
     repo, number = key.split("#")
     label = f"{repo.split('/')[1]} PR {number}"
@@ -471,6 +477,8 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: 
             continue
         if not row["hate_most"]:
             needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
+        if shows := show_me_problems(pr):
+            needs.setdefault(pr["url"], []).append(f"a Show me whose every picture shows what its words cannot ({'; '.join(shows)})")
         if not names_his_order(pr) and pr["url"] not in tools:
             needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
             unordered.append(pr["url"])

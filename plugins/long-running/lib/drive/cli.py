@@ -510,19 +510,54 @@ def job_ask(args: argparse.Namespace) -> int:
 
 def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
+    card = question_card(state.resolve(args.drive), Path(args.file).expanduser(), args.waits, args.reworking)
+    return emit(args, json.dumps(card), card)
+
+
+def question_card(name: str, path: Path, waits: str, reworking: str | None = None) -> dict:
+    """The card a kept ASK block draws under a waits id, a line atop its body saying the question is being redone and why while it is; a waits id naming a job of the drive gives that job's question kept in the file the id, and one naming none, a card asked outside any job, only draws."""
     from drive import superseded
 
-    name = state.resolve(args.drive)
-    path = Path(args.file).expanduser()
-    asked = limits.question(path.read_text(), kept=True)
+    asked = limits.redrawn(path.read_text())
     data = state.load(name)
-    if refused := superseded.redraw_refusal(data, find(data["jobs"], args.waits.partition(":")[2].partition("-")[0], "job"), args.waits, str(path)):
+    job_id = waits.partition(":")[2].partition("-")[0]
+    if job_id in data["jobs"] and (refused := superseded.redraw_refusal(data, data["jobs"][job_id], waits, str(path))):
         raise DriveError(refused)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
-    with state.edit(name) as data:
-        keep_waits(find(data["jobs"], args.waits.partition(":")[2].partition("-")[0], "job"), str(path), args.waits)
-    return emit(args, json.dumps(card), card)
+    summary = [f"{limits.REDONE}{reworking}", *asked.summary] if reworking else asked.summary
+    card = asked.card(name, waits) | {"body": limits.card_body(summary, show_me)}
+    if job_id in data["jobs"]:
+        with state.edit(name) as data:
+            keep_waits(data["jobs"][job_id], str(path), waits)
+    return card
+
+
+def cards_redraw(args: argparse.Namespace) -> int:
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards whose ASK file a job's question keeps; each card that does not redraw is named once the rest are printed."""
+    from drive import view
+
+    name = state.resolve(args.drive)
+    view.refresh_cards(name)
+    if (found := view.live_cards(name)) is None:
+        raise DriveError(f"his open cards could not be read: {view.stored_cards(name)[1]}")
+    kept = {question["waits"]: question["file"] for job in state.load(name)["jobs"].values() for question in job["questions"] if question["waits"] and question["file"]}
+    shown = [waits for card in found["questions"] if (waits := card["card"].get("waits"))]
+    drawn, missed = [], []
+    for waits in args.waits or shown:
+        if waits not in shown:
+            missed.append(f"{waits}: not one of his open cards")
+        elif waits not in kept:
+            missed.append(f"{waits}: no job's question keeps its ASK file; draw it with drive job card <its file> --waits {waits}")
+        else:
+            try:
+                drawn.append(question_card(name, Path(kept[waits]), waits))
+            except DriveError as error:
+                missed.append(f"{waits}: {error}")
+    if drawn:
+        emit(args, "\n".join(map(json.dumps, drawn)), drawn)
+    if missed:
+        raise DriveError("these cards did not redraw:\n- " + "\n- ".join(missed))
+    return 0
 
 
 def keep_waits(job: dict, file: str, waits: str) -> None:
@@ -1449,16 +1484,24 @@ def parser() -> argparse.ArgumentParser:
             "Read a kept ASK block and print its question card as JSON for `say(card=…)`: its question as"
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced visual (code naming its"
             " language, arch, mermaid, dot, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
-            " titled with the caption line above it; a fence of words, of raw data or tool output, or one that does not"
-            " draw is left off, and a"
+            " titled with the caption line above it; a fence of words, with no language or `text`, which only a block"
+            " kept before `drive job ask` refused one holds, stays as written for Slack to draw as a code block; a fence"
+            " of raw data or tool output, or one that does not draw, is left off, and a"
             " Show me left empty is dropped; its options, the recommended one, the drive, and --waits. The question kept"
             " in that file takes the waits id, and one of the job's that held it before, a card this redraws, hands over"
-            " its card and leaves the job. Refused when his words under that card answered it: they are his answer, and a"
-            " question they leave open goes on a card of its own."
+            " its card and leaves the job; a waits id naming no job of the drive only draws the card. Refused when his"
+            " words under that card answered it: they are his answer, and a question they leave open goes on a card of"
+            " its own. A block kept under older rules redraws as kept, its Show me's visuals never checked again, and"
+            " markdown in its question or options, which Slack draws raw, drawn as the words it marks."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")
     verb.add_argument("--waits", required=True, help="the card's waits id, <drive>:<job>-<the ask record's seq>")
+    verb.add_argument(
+        "--reworking",
+        metavar="WHY",
+        help="what is being redone and when it is back: a line atop the card's body says the question is being redone and why, its words and buttons kept",
+    )
     verb.set_defaults(run=job_card)
     verb = job.add_parser(
         "report",
@@ -1643,6 +1686,20 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
     verb.set_defaults(run=watch_events)
+    cards = verbs.add_parser("cards", help="his open question cards").add_subparsers(dest="action", required=True)
+    verb = cards.add_parser(
+        "redraw",
+        parents=both,
+        help="print the card drive job card prints for each of his open question cards, one JSON line each",
+        description=(
+            "Redraw his open question cards in one pass: for each open card whose ASK file a job's question keeps, print"
+            " the JSON `drive job card <that file> --waits <its waits id>` prints, one line each, for say(card=…). Each"
+            " card that does not redraw, one no job's question keeps a file for or one whose redraw is refused, is named"
+            " once the rest are printed, and the verb exits 2."
+        ),
+    )
+    verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
+    verb.set_defaults(run=cards_redraw)
     verbs.add_parser("card").set_defaults(run=card_command)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")

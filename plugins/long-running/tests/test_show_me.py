@@ -285,6 +285,31 @@ def test_a_show_me_he_let_stand_passes(show_me: str, options: str) -> None:
     assert limits.question(ask(show_me, options)).show_me
 
 
+def test_a_kept_block_redraws_with_the_markdown_in_its_options_drawn_as_the_words_it_marks() -> None:
+    text = (
+        "ASK Does each project's lead run its own watch, or does the top one forward events?\n"
+        "Each project gets a lead session of its own; I recommend each lead arms its own `drive watch`.\n"
+        "Show me:\n"
+        "Where the watch runs, before and after:\n"
+        "```diff\n"
+        "- run `drive watch` in the top\n"
+        "+ run `drive watch --project` in each lead\n"
+        "```\n"
+        "- Each lead arms its own `drive watch --project` and hears only *its own* project's events (recommended)\n"
+        "- One watch in the top forwards each line to the project's lead; the top reads every line\n"
+        "Findings:\n"
+        "Direct fix: none: a design choice, with no defect behind it\n"
+        "- the old `drive watch` call stays as it was\n"
+    )
+    with pytest.raises(DriveError, match="which Slack draws as raw text"):
+        limits.question(text, kept=True)
+    asked = limits.redrawn(text)
+    assert asked.options[0] == "Each lead arms its own drive watch --project and hears only its own project's events"
+    assert asked.recommended == asked.options[0]
+    assert asked.summary == ["Each project gets a lead session of its own; I recommend each lead arms its own `drive watch`."]
+    assert "- run `drive watch` in the top" in asked.show_me
+
+
 def test_a_screenshot_kept_outside_the_drives_folders_still_draws() -> None:
     shot = "The New Chat screen while connected:\n![The New Chat screen](/Users/me/shots/new-chat.png)"
     assert limits.question(ask(shot, LANDING_OPTIONS)).show_me[1] == "![The New Chat screen](/Users/me/shots/new-chat.png)"

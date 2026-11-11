@@ -39,6 +39,7 @@ LOG_LINE = re.compile(
 VISUALS = Path(__file__).parent / "site" / "visuals.js"
 VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
+VISUAL_TRIES = 3
 VISUAL_PAGE = """<!doctype html>
 <html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
 <body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
@@ -97,13 +98,14 @@ def headless(page: Path, *args: str) -> str:
 
 
 def visual_png(kind: str, source: str, out: Path) -> None:
-    """Draw one visual with site/visuals.js, the module the dashboard draws it with live: once to measure it, then a screenshot of exactly that box."""
+    """Draw one visual with site/visuals.js, the module the dashboard draws it with live: once to measure it, again while Chrome's time ran out before it finished drawing, as a dot's renderer loading from the network can, then a screenshot of exactly that box."""
     with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch:
         page = Path(scratch) / "visual.html"
         shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
         page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
-        if not (drawn := DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom"))):
-            raise PictureError(f"the {kind} did not finish drawing")
+        measured = (DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom")) for _ in range(VISUAL_TRIES))
+        if not (drawn := next(filter(None, measured), None)):
+            raise PictureError(f"the {kind} did not finish drawing in {VISUAL_TRIES} tries")
         if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
             raise PictureError(said)
         headless(page, f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
@@ -192,12 +194,11 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, a fence of raw data or tool output, and a fence that does not draw leave the card with their caption, since a picture of words, JSON or a terminal shows nothing."""
+    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
 
     def picture_line(fence: re.Match[str]) -> str:
         if fence["language"].lower() in WORDS:
-            print(f"drive card: its Show me holds words in a ``` fence, which leave the card: {fence['source'][:60]!r}", file=sys.stderr)
-            return ""
+            return fence[0]
         if what := raw(fence["language"], fence["source"]):
             print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
             return ""

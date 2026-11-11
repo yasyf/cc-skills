@@ -49,6 +49,7 @@ FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
 SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
+REDONE = "*This question is being redone:* "
 FENCE = re.compile(r"^[ \t]*```")
 PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
@@ -76,6 +77,10 @@ NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECA
 MARKUP = re.compile(
     r"\[[^\]\n]*\]\([^)\s]*\)|<(?:https?://|mailto:|[@#!])[^<>\n]*>|https?://\S+|`[^`\n]+`"
     r"|(?<![\w*_~])[*_~](?=\S)[^*_~\n]*?(?<=\S)[*_~](?![\w*_~])"
+)
+MARKED = re.compile(
+    r"\[([^\]\n]*)\]\([^)\s]*\)|<(?:https?://|mailto:|[@#!])[^<>|\n]*\|([^<>\n]*)>|`([^`\n]+)`"
+    r"|(?<![\w*_~])[*_~](?=\S)([^*_~\n]*?)(?<=\S)[*_~](?![\w*_~])"
 )
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
 PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
@@ -156,9 +161,9 @@ def card_body(summary: list[str], show_me: list[str]) -> str:
 
 
 def card_words(card: dict) -> int:
-    """The words he reads on a question card, counted by `drive job ask` over the card it keeps and by the post hook over the card posted: its title, the body above its `*Show me*` line, and its options."""
-    summary = SHOWN.split(card.get("body") or "", maxsplit=1)[0]
-    return sum(map(words, [card.get("title") or "", *summary.splitlines(), *(card.get("options") or [])]))
+    """The words he reads on a question card, counted by `drive job ask` over the card it keeps and by the post hook over the card posted: its title, the body above its `*Show me*` line but the line saying the question is being redone, and its options."""
+    summary = [line for line in SHOWN.split(card.get("body") or "", maxsplit=1)[0].splitlines() if not line.startswith(REDONE)]
+    return sum(map(words, [card.get("title") or "", *summary, *(card.get("options") or [])]))
 
 
 def card_refusal(card: dict, beside: str) -> str | None:
@@ -257,6 +262,17 @@ def question(text: str, kept: bool = False) -> Question:
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
+
+
+def redrawn(text: str) -> Question:
+    """The question a kept block draws again: read as kept, with the markdown in its question and options, which Slack draws raw on a card's title and buttons, taken down to the words it marks, so a block kept before that rule redraws with the words he read; its Show me's fences and its findings stay as kept."""
+    lines, fenced, ended = [], False, False
+    for line in text.splitlines(keepends=True):
+        ended = ended or bool(FINDINGS.match(line))
+        fenced ^= bool(FENCE.match(line))
+        plain = not (ended or fenced) and line.lstrip().startswith(("ASK ", "- "))
+        lines.append(MARKED.sub(lambda found: next(words for words in found.groups() if words is not None), line) if plain else line)
+    return question("".join(lines), kept=True)
 
 
 def shown_and_options(example: str) -> tuple[list[str], list[str]]:

@@ -791,6 +791,94 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     assert drawn == ["code:http", "code:http"]
 
 
+KEPT_TEXT_FENCE_ASK = """ASK Should the newest server warn the open window at launch when the api refuses it?
+The fix blocks the window when a chat fails to open with the api's refusal. Recommend keeping it as built.
+Show me:
+What the newest sand sends the open window on its chat-list connection, and the code that sends it.
+```text
+before: {"sessions":[…],"removed":[…]}   or   {"live":[…]}
+after:  the same, plus {"type":"update_required"} once per window, after the api first refuses this sand
+```
+```go
+case <-refused:
+\trefused = nil
+\tevent = wireEvent{"type": platformapi.CodeUpdateRequired}
+```
+- Warn at launch; the block lasts until sand restarts or updates, even if the api later lowers its floor. (recommended)
+- Warn at launch; lift the block once sand's next call to the api succeeds, so a lowered floor frees the window without a restart.
+- No launch warning: block only when a chat fails to open; a smaller change, but the window looks usable until then.
+Findings:
+Direct fix: none: a design choice, with no defect behind it
+"""
+
+
+def test_job_card_redraws_a_kept_text_fence_as_a_code_block_where_it_sat(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    block = tmp_path / "ask.md"
+    block.write_text(KEPT_TEXT_FENCE_ASK)
+    code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
+    assert code == 0
+    shown = json.loads(printed)["body"].split("*Show me*\n", 1)[1].splitlines()
+    assert shown[:5] == [
+        "What the newest sand sends the open window on its chat-list connection, and the code that sends it.",
+        "```text",
+        'before: {"sessions":[…],"removed":[…]}   or   {"live":[…]}',
+        'after:  the same, plus {"type":"update_required"} once per window, after the api first refuses this sand',
+        "```",
+    ]
+    assert len(shown) == 6
+    assert shown[5].startswith("![Show me](")
+
+
+def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    jobs = state.load("demo")["jobs"]
+    code, printed = run("job", "card", str(block), "--waits", "demo:hier-2")
+    assert (code, json.loads(printed)["waits"]) == (0, "demo:hier-2")
+    assert state.load("demo")["jobs"] == jobs
+
+
+def test_job_card_reworking_says_atop_the_body_that_the_question_is_being_redone_and_adds_no_counted_words(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    plain = json.loads(run("job", "card", str(block), "--waits", "demo:j1-7")[1])
+    why = "the layouts are being measured again; back within the hour"
+    redone = json.loads(run("job", "card", str(block), "--waits", "demo:j1-7", "--reworking", why)[1])
+    assert redone["body"] == f"*This question is being redone:* {why}\n{plain['body']}"
+    assert (redone["title"], redone["options"], redone["recommended"]) == (plain["title"], plain["options"], plain["recommended"])
+    assert limits.card_words(redone) == limits.card_words(plain)
+
+
+def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_could_not_redraw(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1])
+    printed = [run("job", "card", path, "--waits", f"demo:j1-{n}")[1] for n, path in enumerate(kept)]
+    shown = [
+        {"question": "q", "options": [], "recommended": "", "asked": state.stamp(), "url": f"https://acme.slack.com/archives/D123/p179430000000010{n}", "card": {"waits": waits}}
+        for n, waits in enumerate(["demo:j1-0", "demo:j1-1", "demo:hier-1"])
+    ]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": shown, "pr_cards": []})
+    assert cli.main(["cards", "redraw"]) == 2
+    out, err = capsys.readouterr()
+    assert out.splitlines() == printed
+    assert "demo:hier-1: no job's question keeps its ASK file; draw it with drive job card <its file> --waits demo:hier-1" in err
+    assert run("cards", "redraw", "--waits", "demo:j1-1") == (0, printed[1])
+
+
 def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
