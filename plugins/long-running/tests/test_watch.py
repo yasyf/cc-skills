@@ -60,7 +60,6 @@ def read(**overrides: object) -> dict:
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "aaaaaaa111",
-        "committed": None,
         "mergeCommit": None,
         "checks": RUNNING,
         "reviewDecision": None,
@@ -1698,35 +1697,6 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     assert watch.wakes(line, state.load(demo))
 
 
-def unready(name: str, said: bool = False) -> dict:
-    verdict = {"job": "j2", "head": "aaaaaaa111", "ready": False, "why": "Releasable alone needs #43 live first", "at": state.stamp(T0), "said": said}
-    with state.edit(name) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "verdict": verdict}
-    return verdict
-
-
-def test_a_new_head_under_a_readers_not_ready_wakes_the_coordinator_once_to_start_a_reader_on_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    waiting_job(demo)
-    unready(demo, said=True)
-    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
-    watching = watcher(demo)
-    line = f"PR {KEY}: new head bbbbbbb under NOT READY, check owed [o1 j1]"
-    assert watch.run_pass(watching, T0) == [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]", line]
-    assert watch.wakes(line, state.load(demo))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
-    assert "no tap until a reader passes its new head, since reader j2 called it NOT READY at " in render.pr_line(KEY, state.load(demo)["prs"][KEY])
-
-
-def test_a_not_ready_on_its_head_resumes_the_builder_lane_waiting_on_it_with_the_finding(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    with state.edit(demo) as data:
-        data["jobs"]["j1"].update(where="remote", dispatch="d-1", state="waiting")
-    calls: list[list[str]] = []
-    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout: calls.append(argv) or "")
-    line = f"PR {KEY}: NOT READY at aaaaaaa, rework owed: Releasable alone needs #43 live first [o1 j1]"
-    assert watch.handed(watcher(demo), [line], T0) == []
-    assert calls == [[str(watch.DRIVE), "job", "resume", "j1", line, "--drive", demo]]
-
-
 def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_no_coordinator_turn_and_no_order_or_design_set(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1734,7 +1704,7 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
 
     waiting_job(demo)
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "check": {"job": "j2", "head": "aaaaaaa111", "at": state.stamp(T0)}}
+        data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
     sent: list[tuple[str, list[dict]]] = []
@@ -1746,21 +1716,6 @@ def test_a_pr_green_and_approved_draws_his_card_from_the_watch_once_a_head_with_
     assert sent == [("watch", [{"kind": "ready", "to": ["communicator@demo"], "text": f'{state.pr_url(KEY)}; his order o1 "ship the watch"'}])]
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert len(sent) == 1
-
-
-def test_a_pr_under_its_own_not_ready_or_with_his_card_up_gets_no_fresh_card_from_the_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    from drive import tools
-
-    waiting_job(demo)
-    unready(demo, said=True)
-    with state.edit(demo) as data:
-        data["prs"][KEY] |= {"serves": "o1", "design": "none"}
-    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
-    sent: list[list[dict]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["#9"])
-    watch.run_pass(watcher(demo), T0)
-    assert sent == []
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
@@ -1824,31 +1779,6 @@ def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_and_only_its_failu
 def hold(name: str) -> None:
     with state.edit(name) as data:
         data["prs"][KEY] |= {"wants_tap": True, "tap": {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
-
-
-@pytest.mark.parametrize(
-    ("committed", "change"),
-    [
-        (None, "NOT READY on an older head after his Hold, which stands: check owed on aaaaaaa"),
-        (state.stamp(T0 - timedelta(hours=1)), "NOT READY at aaaaaaa after his Hold, which stands: follow-up owed on its order"),
-    ],
-)
-def test_a_held_pr_under_a_not_ready_kept_with_no_head_says_its_owed_step_once_on_the_head_github_dates_it_to(
-    demo: str, monkeypatch: pytest.MonkeyPatch, committed: str | None, change: str
-) -> None:
-    hold(demo)
-    waiting_job(demo)
-    unready(demo)
-    with state.edit(demo) as data:
-        data["jobs"]["j2"] = job(kind="reader", goal="check", state="done", checks={KEY: None})
-        data["prs"][KEY]["verdict"]["head"] = None
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
-    serve(monkeypatch, {KEY: read(committed=committed)})
-    watching = watcher(demo)
-    line = f"PR {KEY}: {change}: Releasable alone needs #43 live first [o1 j1]"
-    assert watch.run_pass(watching, T0) == [line]
-    assert watch.wakes(line, state.load(demo))
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
 
 
 @pytest.mark.parametrize(("count", "queries"), [(1, [1]), (120, [25, 25, 25, 25, 20])])
@@ -2340,86 +2270,18 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
 
 
-def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_each_read_while_it_asks_and_its_rework_said_once(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
-) -> None:
-    unready(demo)
+def test_a_pushed_rework_redraws_his_open_card_on_it_once_so_it_asks_his_tap_again(demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "rework": {"answer": "a1", "job": "j1", "head": "aaaaaaa111", "why": "bind it as @parent", "at": state.stamp(T0)}}
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
     serve(monkeypatch, {KEY: read()})
-    redraws.failure = "cc-slack daemon not running"
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
-    redraws.failure = None
-    line = f"PR {KEY}: NOT READY at aaaaaaa, rework owed: Releasable alone needs #43 live first [o1 j1]"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [line]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
-    assert redraws.asked == [state.pr_url(KEY)] * 3
-    stored = state.load(demo)["prs"][KEY]
-    assert (stored["verdict"]["said"], stored["pulled"]) == (True, CARD)
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
-    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
-    assert redraws.asked == [state.pr_url(KEY)] * 3
-
-
-def test_his_open_stack_card_whose_other_pr_still_asks_his_tap_keeps_its_approve_and_redraws_once_for_a_not_ready(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
-) -> None:
-    other = "Forge-AI/monorepo#43"
-    with state.edit(demo) as data:
-        data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
-    unready(demo)
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY, other)]})
-    serve(monkeypatch, {KEY: read(), other: read(headRefOid="ddddddd444")})
-    watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f"PR {KEY}: NOT READY at aaaaaaa, rework owed: Releasable alone needs #43 live first [o1 j1]"]
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    stored = state.load(demo)["prs"][KEY]
-    assert (redraws.asked, stored["verdict"]["said"], stored["pulled"]) == ([state.pr_url(KEY)], True, None)
-
-
-def test_a_reworked_head_that_passes_brings_approve_back_on_his_card_in_place_and_says_so_once_under_it(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
-) -> None:
-    passed = {"job": "j3", "head": "bbbbbbb222", "ready": True, "why": "READY-OK #42", "at": state.stamp(T0), "said": False}
-    with state.edit(demo) as data:
-        data["prs"][KEY] |= {"wants_tap": True, "head": "bbbbbbb222", "pulled": CARD, "verdict": passed}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
+    watch.run_pass(watching, T0)
+    assert (redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([], "rework")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222")})
-    replies: list[dict] = []
-    monkeypatch.setattr(talk, "posted", lambda name, post: replies.append(post) or {"permalink": f"{CARD}?thread_ts=1"})
-    watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f"CARD his card {CARD} for {KEY} has its Approve back in place: reworked at bbbbbbb and passed the check"]
-    assert redraws.asked == [state.pr_url(KEY)]
-    assert replies == [{"text": "Reworked at bbbbbbb and passed the check; Approve is back", "thread_ts": watch.view.card_thread(CARD)}]
-    stored = state.load(demo)["prs"][KEY]
-    assert (stored["pulled"], stored["ready_said"], stored["verdict"]["said"]) == (None, "bbbbbbb222", True)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert len(replies) == 1
-
-
-def test_his_card_pulled_for_rework_stays_without_approve_across_the_reworked_head_until_a_readers_ready_names_that_head(
-    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
-) -> None:
-    from drive import tools
-
-    waiting_job(demo)
-    unready(demo, said=True)
-    with state.edit(demo) as data:
-        data["prs"][KEY] |= {"serves": "o1", "design": "none", "pulled": CARD}
-    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
-    sent: list[list[dict]] = []
-    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["#9"])
-    replies: list[dict] = []
-    monkeypatch.setattr(talk, "posted", lambda name, post: replies.append(post) or {"permalink": f"{CARD}?thread_ts=1"})
-    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
-    watching = watcher(demo)
-    assert watch.run_pass(watching, T0)[-1] == f"PR {KEY}: new head bbbbbbb under NOT READY, check owed [o1 j1]"
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
-    assert (sent, replies, redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([], [], [], "recheck")
-    with state.edit(demo) as data:
-        data["prs"][KEY]["verdict"] = {"job": "j3", "head": "bbbbbbb222", "ready": True, "why": "READY-OK #42", "at": state.stamp(T0), "said": False}
-    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == [f"CARD his card {CARD} for {KEY} has its Approve back in place: reworked at bbbbbbb and passed the check"]
-    assert (sent, redraws.asked, len(replies)) == ([], [state.pr_url(KEY)], 1)
+    watch.run_pass(watching, T0 + timedelta(minutes=1))
+    watch.run_pass(watching, T0 + timedelta(minutes=2))
+    assert (redraws.asked, state.owed_step(state.load(demo)["prs"][KEY])) == ([state.pr_url(KEY)], "card")
 
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:

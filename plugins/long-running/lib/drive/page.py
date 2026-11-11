@@ -71,7 +71,7 @@ def queue_line(number: int, item: dict) -> str:
 
 def pr_mark(pr: dict) -> str:
     mark = CHECK_MARKS.get(pr["checks"], ":white_circle:")
-    held = {"Hold": " held by you", "labeled": " held by its hold label", "not ready": " a reader's check found it not ready"}.get(pr["tap"], "")
+    held = {"Hold": " held by you", "labeled": " held by its hold label"}.get(pr["tap"], "")
     return f"{mark} [#{pr['url'].rsplit('/', 1)[-1]}]({pr['url']}){held}"
 
 

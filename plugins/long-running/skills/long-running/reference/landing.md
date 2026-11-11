@@ -36,8 +36,7 @@ for its repository says, then return `DONE <proof>`.
 - Write the body for him in plain words that name each function, syscall, flag, file, path, service or
   table by its proper term, never a vague stand-in, in his words "use the proper fucking terms for
   things". Leave out ids he cannot open (cc-notes, cci, job, order, or waits ids) and hashes: a sentence
-  carrying a record id is dropped from his card, and `drive pr set --serves` refuses a body naming one
-  outside its code and links, telling you to say what each is in plain words.
+  carrying a record id is dropped from his card.
 - Each section stands alone, because he reads it with no other context. A number, fraction, size, or
   ratio says what it measures, why that value, and gives one example. A mechanism gets one plain
   sentence before it is used. Nothing points at a list, finding, thread, or PR the card does not show.
@@ -45,14 +44,15 @@ for its repository says, then return `DONE <proof>`.
   "to open a run's page the browser first fetches a small index from the end of every journal file: once
   its last 64 KiB, now its last sixteenth (about 6 KiB of a 97 KiB file), never more than 64 KiB."
 - Write these body sections, in this order. Fix the body, never the card: his card is redrawn from it.
+  A body is fixed beside the landing, never before it: nothing in it holds a card, a tap, an enqueue
+  or a merge, and a section it lacks is left off his card.
   - `## The stack`: only on a stack's bottom PR. Its first line is the stack's title, one readable line
     on what the whole stack does, then a short paragraph explains the stack in the Refresher's voice.
-    They head his stack card; `drive card` refuses a stack card waiting on his tap without them.
+    They head his stack card.
   - `## Summary`: one or two sentences saying what the PR changes, naming each function, table, flag,
     file or service it touches by its proper term, with no background, in his words "a summary of wtf
     the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
-    section of his card. `drive pr set --serves` and a builder's `READY` refuse a PR without it; a card
-    already drawn keeps redrawing without one.
+    section of his card.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
     It follows the Summary on his card. The card also reads `## ELI5`, and a monorepo body's
@@ -60,8 +60,7 @@ for its repository says, then return `DONE <proof>`.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
   - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
-    behavior he did not ask for, a shortcut, or a risk he would not take. Before the watch sends its
-    `ready` record, `drive pr set --serves` refuses a PR without it.
+    behavior he did not ask for, a shortcut, or a risk he would not take.
   - `## Show me`: one concrete example of the change, which his card draws as a picture and the
     dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
@@ -71,16 +70,15 @@ for its repository says, then return `DONE <proof>`.
     the drive's pictures folder included, `![1 · Before, dev](<path>)` then
     `![2 · After, this PR](<path>)`, each build named in words rather than a sha, which Slack shows
     side by side as one gallery, in his words "This is a visual change so it should
-    have shown before and after screenshots". A builder's `READY` whose `NATIVE:` line names a surface
-    he sees is refused until a Show me on the card carries both. A fence holds code, never prose, JSON,
+    have shown before and after screenshots". A fence holds code, never prose, JSON,
     YAML, logs, terminal output, an HTTP exchange, or a stack trace: a request alone is the call, and
     what it answered goes in a markdown table or a `mermaid` sequenceDiagram. Put a caption line just
     above each fence and alt text on each image, since Slack titles each picture
     with it; a fence with none is titled by its kind, such as "go code", and a title another picture
     on the card already has gets a number, as "Diagram (2)". His card carries each `chart` fence and
-    markdown table as written, and Slack draws them as its own chart and data table, so `drive card`
-    refuses a chart past Slack's limits in [Messages](messages.md), a table whose header names one
-    column, and a table with one value in every cell. A stack's card draws at most 2 charts in all,
+    markdown table as written, and Slack draws them as its own chart and data table, so fit a chart to
+    Slack's limits in [Messages](messages.md), which `drive card` leaves off the card otherwise, and give
+    a table two or more columns with real values in each cell. A stack's card draws at most 2 charts in all,
     the lowest PRs' first. Open with at most one short sentence: the card shows pictures, not prose.
   - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
     under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
@@ -88,25 +86,23 @@ for its repository says, then return `DONE <proof>`.
     a customer's or teammate's data or name goes only into a private repository's PR or a direct message
     to him. `ccx vcs ship` runs the `public-pr-body` hook over the body before it commits or pushes, and
     the `public-names` hook over each line a commit adds; the `landing_guard` hook refuses such a body in
-    `gh pr create`/`edit`, and `drive pr add` a PR with one. After a fix, delete each earlier revision
+    `gh pr create`/`edit`. After a fix, delete each earlier revision
     and the pictures' branch, since both stay readable.
   - `## Against the plan`: only when you departed from the plan: what it said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to run
     it. A PR with behavior of its own beyond that is not a port.
   - `## His words, step by step`: each step his words in your brief name, quoted, beside the `path:line`
-    that does it; it stays off his card. The coordinator checks it against his words before his card is
-    drawn, and a step with no code returns the PR to you. Quote only the order this PR carries out,
-    never one whose jobs it only unblocks.
-  - When the PR is not a port and this list would be empty or say none, no order of his asks for it.
-    Drive tooling says none and gets its card from its own order by [Scope](scope.md); anything else
-    returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its card.
+    that does it; it stays off his card. Quote only the order this PR carries out, never one whose jobs
+    it only unblocks. Drive tooling says none and gets its card from its own order by
+    [Scope](scope.md). A PR that is not a port and that no order of his asks for returns
+    `BLOCKED no order of his names this` instead of `READY`.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
   tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
   PR waits on his tap whoever opened it and whatever order it serves.
 - Return `READY <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
-  review still running: his-words check starts on that head then, and the watch draws his card the
-  minute GitHub reports the PR green and approved. Return no `WAITING` for CI, a review or a queue. A
+  review still running: the watch draws his card the minute GitHub reports the PR green and approved,
+  whatever its body says. Return no `WAITING` for CI, a review or a queue. A
   port's `READY` gets the coordinator's check against #N instead. Name every PR of a stack bottom first
   (`READY <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
   `Drive tooling: <what it unblocks>`, or the order of his it carries out, quoted.

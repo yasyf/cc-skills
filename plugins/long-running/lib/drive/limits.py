@@ -5,8 +5,8 @@ from itertools import groupby, pairwise, permutations
 from pathlib import Path
 
 from drive import picture, slack
-from drive.render import cut, not_ready, when
-from drive.state import KEPT_ASK, PR_KEY, PR_URL, DriveError, ask_hash, check_status, root, same_question
+from drive.render import cut, when
+from drive.state import KEPT_ASK, PR_KEY, PR_URL, DriveError, ask_hash, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -36,7 +36,6 @@ IMMEDIATE_FIX_RULING = 'his Nov 11 1:05 PM words "always do the immediate fix (o
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
-SCREENSHOT_RULING = 'his Nov 11 4:04 AM words "This is a visual change so it should have shown before and after screenshots"'
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
@@ -1050,14 +1049,13 @@ def bare_mechanisms(line: str) -> list[str]:
 
 
 def tap_owed_not(pr: dict) -> str:
-    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, it lands with no tap, or a reader's NOT READY on it stands."""
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, it lands with no tap, or the drive holds it with the hold label."""
     tap = pr.get("tap")
     reasons = [
         f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
         pr["state"] if pr["state"] in ("merged", "closed") else "",
         f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
         "the drive holds it with the hold label" if pr["hold_label"] else "",
-        f"{not_ready(pr)}; only a reader's READY on its head answers that, never its builder's word" if check_status(pr) in ("rework", "recheck") else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 

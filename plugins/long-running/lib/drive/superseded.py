@@ -296,13 +296,13 @@ def reopen_refusal(data: dict, key: str, entry: dict, by: str) -> str | None:
 
 
 def reopen(data: dict, answer_id: str, key: str, by: str) -> list[str]:
-    """Hand the PR to the job that reworks it to his answer: drop his tap on it and mark it not ready on its head with his words, so no card asks his tap on it and a stack card's Approve skips it until a reader's READY passes the rework, when it asks again."""
+    """Hand the PR to the job that reworks it to his answer: drop his tap on it and mark its head with his words, so no card asks his tap on it and a stack card's Approve skips it until its rework is pushed, when it asks again."""
     kept, pr = data["answers"][answer_id], data["prs"][key]
     dropped = pr["tap"]
-    pr.update(tap=None, verdict={"job": by, "head": pr["head"], "ready": False, "why": kept["words"], "at": kept["at"], "said": True, "answer": answer_id}, updated=state.stamp())
+    pr.update(tap=None, rework={"answer": answer_id, "job": by, "head": pr["head"], "why": kept["words"], "at": kept["at"]}, updated=state.stamp())
     return [
         *([f"{key}: his {dropped['label']} on it is dropped"] if dropped else []),
-        f"{key} reopened by his answer {answer_id}: {by} reworks it to his words, so brief {by} with them; it asks his tap again once a reader's READY passes the rework",
+        f"{key} reopened by his answer {answer_id}: {by} reworks it to his words, so brief {by} with them; it asks his tap again once {by} pushes the rework",
     ]
 
 

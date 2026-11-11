@@ -8,7 +8,7 @@ from pathlib import Path
 
 FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
-    "commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) { nodes { "
+    "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     "... on CheckRun { name conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state } } } } } } }"
 )
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
@@ -98,7 +98,6 @@ def flatten(node: dict) -> dict:
         "state": node["state"],
         "isDraft": node["isDraft"],
         "headRefOid": node["headRefOid"],
-        "committed": commits[0]["commit"]["committedDate"] if commits else None,
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
         "checks": [context(check) for check in rollup["contexts"]["nodes"]] if rollup else [],
         "reviewDecision": node["reviewDecision"],

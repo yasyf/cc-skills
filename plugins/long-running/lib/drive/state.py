@@ -6,7 +6,6 @@ import re
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
-from itertools import pairwise
 from pathlib import Path
 
 from drive import picture
@@ -45,8 +44,6 @@ RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
-VERDICT = re.compile(r"(?:^|[;.]\s+)(NOT )?READY\b")
-VERDICT_REASON = re.compile(r":\s+")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d{10}\.\d{6})")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
@@ -294,7 +291,6 @@ def load(name: str) -> dict:
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
-        job.setdefault("checks", {})
         job.setdefault("undelivered", [])
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
             job["ask"] = None
@@ -316,11 +312,11 @@ def load(name: str) -> dict:
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
         pr.setdefault("ready_said", None)
-        pr.setdefault("pulled", None)
         pr.setdefault("lander", None)
         pr.setdefault("ejected", False)
-    if any("verdict" not in pr for pr in data["prs"].values()):
-        judge_kept(data)
+        if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
+            pr["rework"] = {field: verdict[field] for field in ("answer", "job", "head", "why", "at")}
+        pr.setdefault("rework", None)
     data.setdefault("answers", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -414,14 +410,14 @@ def agent_job(data: dict, agent: str | None) -> str | None:
 
 
 def result_state(job: dict, line: str) -> str | None:
-    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer, its READY or NOT READY verdict on a PR or its DESIGN to done, since a design lane takes its choice on and a reader's READY is a check that passed, never a PR of its own; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other, an `ASK` included, since a codex lane keeps no card, is done."""
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other, an `ASK` included, since a codex lane keeps no card, is done."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
     if job["kind"] == "codex":
         return "failed" if opening == "BLOCKED" else "done"
     if BUILT_LINE.match(line):
         return "built"
-    return "done" if reader and opening in ("DESIGN", "READY") else RESULT_STATES.get(opening, "done" if reader else None)
+    return "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
 
 
 def reported(line: str) -> bool:
@@ -444,7 +440,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names, and keep each verdict a reader's answer gives on the PR it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken = result_state(job, line)
     if job["state"] != "running" or not taken:
@@ -459,8 +455,6 @@ def take_result(data: dict, job_id: str, line: str) -> None:
             data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
     if taken == "done":
         drop_carries(data, job_id)
-    if taken == "done" and job["kind"] == "reader":
-        judge(data, job_id, line, job["updated"])
     if taken == "done" and job["kind"] == "builder":
         for design_id, design in data["jobs"].items():
             if design["kind"] == "design" and design["state"] == "waiting" and design_builder(data, design_id) == job_id:
@@ -494,17 +488,6 @@ def design_builder(data: dict, design_id: str) -> str | None:
     return min(builders)[1] if design["kind"] == "design" and builders else None
 
 
-def verdicts(line: str) -> list[tuple[bool, str, str]]:
-    """Each verdict a reader's line gives on PRs, as `READY <pr>…` or `NOT READY <pr>…: <why>` opening the line, a `; ` part or a sentence: whether it passed, the words naming its PRs, those before its first `: `, so a sibling PR its reason cites is not judged, and its reason."""
-    marks = list(VERDICT.finditer(line))
-    found = []
-    for mark, after in pairwise([*marks, None]):
-        clause = line[mark.end() : after.start() if after else None].split(";")[0].strip()
-        named, *reason = VERDICT_REASON.split(clause, maxsplit=1)
-        found.append((not mark[1], named, reason[0] if reason else clause))
-    return found
-
-
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
     """The drive PRs the words name by link, key or bare #N; a bare #N that drive PRs in several repositories carry names the one on the order."""
     folded = {key.casefold(): key for key in data["prs"]}
@@ -516,43 +499,6 @@ def named_prs(data: dict, order_id: str, words: str) -> list[str]:
         shared = [key for key in data["prs"] if key.rpartition("#")[2] == number]
         keys += shared if len(shared) == 1 else [key for key in shared if data["prs"][key]["order"] == order_id]
     return [key for key in dict.fromkeys(keys) if key]
-
-
-def judge(data: dict, job_id: str, line: str, at: str, kept: bool = False) -> None:
-    """Keep each verdict a reader's line gives on the reader job, on the head it was started on for that PR, else the PR's head now, or no head for an answer kept before verdicts carried their head, and on the PR as its newest verdict, unsaid until the watch acts on it."""
-    job = data["jobs"][job_id]
-    for passed, named, why in verdicts(line):
-        for key in named_prs(data, job["order"], named):
-            head = job["checks"].setdefault(key, None if kept else data["prs"][key]["head"])
-            data["prs"][key]["verdict"] = {"job": job_id, "head": head, "ready": passed, "why": why, "at": at, "said": False}
-
-
-def judge_kept(data: dict) -> None:
-    """Give each PR of a drive kept before verdicts carried their head the verdict its readers' kept answers leave standing, each answer in the order it came, on the head its reader recorded or else on no head until `date_verdict` reads the PR from GitHub; a standing NOT READY on an open PR stays unsaid, so the watch names its owner once. It reads nothing from GitHub, since every verb and hook loads every drive."""
-    for pr in data["prs"].values():
-        pr.pop("not_ready", None)
-        pr.update(verdict=None, check=None)
-    answered = [(job_id, job) for job_id, job in data["jobs"].items() if job["kind"] == "reader" and job["state"] == "done" and job["said"]]
-    for job_id, job in sorted(answered, key=lambda found: parse_time(found[1]["updated"])):
-        judge(data, job_id, job["said"], job["updated"], kept=True)
-    for pr in data["prs"].values():
-        if verdict := pr["verdict"]:
-            verdict["said"] = verdict["ready"] or pr["state"] != "open"
-
-
-def date_verdict(data: dict, key: str, head: str, committed: str | None) -> None:
-    """Put a PR's verdict kept on no head on the head GitHub reads for it now, when GitHub reports that head committed by the verdict's time; one committed after leaves the verdict on an older head."""
-    verdict = data["prs"][key]["verdict"]
-    if verdict and verdict["head"] is None and committed and parse_time(committed) <= parse_time(verdict["at"]):
-        verdict["head"] = data["jobs"][verdict["job"]]["checks"][key] = head
-
-
-def check_status(pr: dict) -> str:
-    """Where his-words check stands on a PR's head: passed or rework by a verdict on this head, recheck under a NOT READY on an older head, else checking."""
-    verdict = pr["verdict"]
-    if verdict and verdict["head"] == pr["head"]:
-        return "passed" if verdict["ready"] else "rework"
-    return "recheck" if verdict and not verdict["ready"] else "checking"
 
 
 def local_lane(dispatch: str) -> dict:
@@ -614,7 +560,6 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "branch": None,
         "worktree": None,
         "prs": [],
-        "checks": {},
         "waits": [],
         "waiting_said": [],
         "waiting_claims": {},
@@ -1052,12 +997,17 @@ def queued_on_tap(key: str) -> bool:
 
 
 def owed_step(pr: dict) -> str | None:
-    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework or a reader's recheck while a NOT READY or his answer reworking it stands and he has not tapped it, nothing when its author or its own builder lands it, and else his card, drawn while his-words check runs."""
+    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework while his answer reopened it on its head now and he has not tapped it since, nothing when its author or its own builder lands it, and else his card."""
     if pr.get("exempt"):
         return "landing"
-    if (status := check_status(pr)) in ("rework", "recheck") and not pr["tap"]:
-        return status
+    if in_rework(pr) and not pr["tap"]:
+        return "rework"
     return "card" if pr["wants_tap"] else None
+
+
+def in_rework(pr: dict) -> bool:
+    """Whether his answer reopened the PR on its head now, so its builder still owes the rework he asked for."""
+    return bool(pr["rework"]) and pr["rework"]["head"] == pr["head"]
 
 
 def asks_tap(pr: dict) -> bool:
@@ -1082,15 +1032,13 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "review": "none",
         "conflict": False,
         "hold_label": False,
-        "verdict": None,
-        "check": None,
         "ready_said": None,
-        "pulled": None,
         "draft": False,
         "merged_sha": None,
         "stuck": None,
         "waits": [],
         "lander": None,
         "ejected": False,
+        "rework": None,
         "updated": stamp(),
     }

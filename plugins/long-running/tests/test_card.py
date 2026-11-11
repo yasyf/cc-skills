@@ -5,12 +5,11 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import card, cli, github, limits, picture, render, state, view
+from drive import card, cli, github, picture, render, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
-PASSED = {"job": "j8", "head": HEAD, "ready": True, "why": "", "at": "2026-11-09T07:00:00-08:00", "said": True}
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -30,82 +29,6 @@ The plan said three retries; this does five.
 ## His words, step by step
 - "uploads should survive a flaky network" beside `upload.go:42`
 """
-RENEW_EXCHANGE = """The same agent at minute 10 and minute 15, before and after:
-
-```sh
-before  00:15  SandSQL inbox read with the pushed pass        -> refused, the pass expired
-before  00:15  model call through the api as "Agent <token>"  -> 401, the token expired
-after   00:10  POST /agent-hosts/agt_.../permission/renew {"writer":1}
-               -> 200 {"token":"eyJ...","tokenExpiresAt":"...T00:25:00Z","inbox":{"db":"inbox-agt_...","token":"sat1.inbox",...}}
-after   00:10  the same renew against an api replica from before this change -> 404, and the agent keeps its hold
-after   00:15  inbox read and model call on the renewed pair  -> 200
-after   00:10  the same ack from a pod that no longer holds the agent -> 409 {"error":"over"}, no pass minted
-```
-"""
-SESSIONS_EXCHANGE = """Each page of chats the list asks for.
-
-```sh
-# launch: the newest 50, plus where the next page starts
-GET /api/sessions?team=team_acme
--> { "sessions": [50 chats], "next": "1794294151630439:sess_01k..." }
-
-# a Show more click: every chat down to that cursor, then 50 older
-GET /api/sessions?team=team_acme&through=1794294151630439%3Asess_01k...
--> { "sessions": [100 chats], "next": "1794201022118000:sess_01h..." }
-```
-"""
-CONFLICT_RESPONSE = """What a pod that lost its hold gets back.
-
-```http
-HTTP/1.1 409 Conflict
-content-type: application/json
-
-{"error": "over"}
-```
-"""
-RENEW_REWRITTEN = """The same agent's calls at minute 15, before and after the pod renews at minute 10.
-
-| call at minute 15 | before | after |
-|---|---|---|
-| SandSQL inbox read | refused, the pass expired | 200 |
-| model call as the agent | 401, the token expired | 200 |
-| renew from a pod that lost the agent | no such route | 409, no pass minted |
-
-```mermaid
-sequenceDiagram
-  participant pod as cloud pod
-  participant api
-  pod->>api: minute 10, POST /agent-hosts/:hostId/permission/renew
-  api-->>pod: a fresh token and inbox pass, good to minute 25
-  pod->>api: minute 15, inbox read and model call
-  api-->>pod: both answered
-```
-"""
-RENEW_CALL = """The call the pod makes at minute 10.
-
-```http
-POST /agent-hosts/agt_1/permission/renew HTTP/1.1
-Authorization: Executor <pod token>
-
-{"writer": 1}
-```
-"""
-RENEW_HANDLER = """The handler that answers it.
-
-```go
-// POST /agent-hosts/{id}/permission/renew -> 200
-func (h *Hosts) Renew(w http.ResponseWriter, r *http.Request) {
-	held, err := h.placements.Held(r.Context(), r.PathValue("id"), writer(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-	writeJSON(w, h.mint(held))
-}
-```
-"""
-
-
 def pr_json(
     title: str = "Fix: retry flaky uploads",
     body: str = FIX_BODY,
@@ -145,8 +68,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"} if tap else None,
         "exempt": exempt,
         "fundamental": None,
-        "verdict": PASSED,
-        "check": None,
+        "rework": None,
         "state": pr_state,
         "title": "Fix: retry flaky uploads",
         "head": HEAD,
@@ -406,56 +328,17 @@ ROWS = '[{"step": "before", "seconds": 40}, {"step": "after", "seconds": 2}]'
 
 
 @pytest.mark.parametrize(
-    ("chart", "refusal"),
+    "chart",
     [
-        (CHART.replace(ROWS, "[1]"), "the Show me ```chart fence is no chart Slack draws"),
-        (CHART.replace('"encoding": {', '"encoding": {"color": "step", '), "the Show me ```chart fence is no chart Slack draws"),
-        (CHART.replace('"seconds": 40', '"seconds": "40"'), 'the Show me ```chart fence has a row whose "seconds" is "40", and each value is a number'),
-        (CHART.replace('"after"', '"before"'), 'the Show me ```chart fence has the series "seconds" without exactly one row for each category'),
+        CHART.replace(ROWS, "[1]"),
+        CHART.replace('"encoding": {', '"encoding": {"color": "step", '),
+        CHART.replace('"seconds": 40', '"seconds": "40"'),
+        CHART.replace('"after"', '"before"'),
     ],
 )
-def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card_and_is_refused(chart: str, refusal: str) -> None:
+def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card(chart: str) -> None:
     body = f"## Show me\nEach wake, before and after.\n\n```chart\n{chart}\n```\n"
     assert card.render(pr_json(body=body), entry())["prs"][0]["show_me"] == "Each wake, before and after."
-    assert refusal in "; ".join(card.show_me_problems(pr_json(body=body)))
-
-
-@pytest.mark.parametrize(
-    ("shown", "refusal"),
-    [
-        (
-            "| run, seconds |\n|---|\n| r1, 4.2 s |",
-            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
-        ),
-        (
-            "| run, seconds |\n|---|\n| r1 \\| 4.2 s |",
-            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
-        ),
-        (
-            "| size | before | after |\n|---|---|---|\n| 1 GiB | time | time |\n| 2 GiB | time | time |",
-            'the Show me table headed "size | before | after" holds "time" in every cell',
-        ),
-        (
-            "```chart\n" + CHART.replace('"before"', '"before the queue drains"') + "\n```",
-            'the Show me ```chart fence has the label "before the queue drains", 23 characters, and each label holds 1 to 20, so Slack cannot draw it as its own chart',
-        ),
-    ],
-)
-def test_a_pr_show_me_table_or_chart_slack_cannot_draw_as_its_own_is_refused_naming_the_fix(shown: str, refusal: str) -> None:
-    problems = card.show_me_problems(pr_json(body=f"## Show me\nEach wake, before and after.\n{shown}\n"))
-    assert refusal in "; ".join(problems)
-
-
-@pytest.mark.parametrize("show_me", [RENEW_EXCHANGE, SESSIONS_EXCHANGE, CONFLICT_RESPONSE], ids=["calls and answers in an sh fence", "requests and JSON answers between comments", "a response dump"])
-def test_a_pr_show_me_of_an_http_exchange_is_refused_naming_what_to_draw_instead(show_me: str) -> None:
-    problems = "; ".join(card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")))
-    assert "is an HTTP exchange, raw data or tool output, and a picture of it shows him nothing" in problems
-    assert "a ```mermaid sequenceDiagram for calls between services, a ```compare or a markdown table for options or before and after" in problems
-
-
-@pytest.mark.parametrize("show_me", [RENEW_REWRITTEN, RENEW_CALL, RENEW_HANDLER], ids=["a table and a sequence diagram", "the request alone", "code naming its route in a comment"])
-def test_a_pr_show_me_drawing_what_an_http_exchange_means_or_the_call_alone_passes(show_me: str) -> None:
-    assert card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")) == []
 
 
 def test_record_ids_never_reach_a_card_line() -> None:
@@ -468,12 +351,6 @@ def test_record_ids_never_reach_a_card_line() -> None:
     assert first["surprise"] == "Uploads retry. A failed upload no longer loses the file."
     assert first["refresher"] == "We try again."
     assert first["plan"] == "The plan said three retries; this does five."
-
-
-def test_a_record_id_in_an_images_file_path_is_no_word_he_reads_but_one_in_its_alt_text_is() -> None:
-    shots = "## Show me\n![1 · Before, dev](/drive/scratch/j779/before-de31bf9.png)\n<img src=\"/drive/scratch/j779/after-e3aefbd.png\">\n"
-    assert card.record_ids(pr_json(body=shots)) == []
-    assert card.record_ids(pr_json(body=shots.replace("1 · Before, dev", "1 · Before, de31bf9"))) == ["de31bf9"]
 
 
 def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
@@ -648,90 +525,6 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
-def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.replace("## What you'll hate most", "## Biggest worry")
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {URL}"
-    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
-        "cards": [],
-        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
-    }
-    assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
-
-
-SNIPPETS_SHOW_ME = """
-## Show me
-
-What `up` runs on the box just before its reboot, before and after:
-
-```sh
-sudo launchctl enable system/com.example.screensharing
-(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
-```
-
-```sh
-sudo launchctl enable system/com.example.screensharing
-for try in {1..60}; do [[ "$(sudo launchctl print system/com.example.disk-formatter 2>/dev/null)" == *"state = running"* ]] || break; sleep 5; done
-(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
-```
-
-The box's first-boot script loses its disk lines:
-
-```sh
-disk=$(diskutil list physical external | head -n1 | cut -d" " -f1)
-yes | diskutil repairDisk "$disk"
-```
-
-On a fresh box the host had formatted the disk before the reboot, and the login came up with no dialog.
-
-```mermaid
-flowchart LR
-  boot[first boot: scratch disk blank] --> job[the host's job formats it]
-  boot --> reboot[up reboots the box]
-  job -->|now: up waits for the job| clean[login finds the disk: clean desktop]
-```
-"""
-
-
-def test_a_tap_card_whose_show_me_draws_snippets_that_add_nothing_is_refused_naming_the_rule(
-    drive: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
-    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY + SNIPPETS_SHOW_ME)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        "its tap card needs a Show me whose every picture shows what its words cannot (the Show me draws 3 code fences as 3 pictures"
-    )
-    assert limits.BIG_RULING in skipped["reason"]
-    assert skipped["reason"].endswith(f") in the body of {URL}")
-    diagram = FIX_BODY + "\n## Show me\n" + SNIPPETS_SHOW_ME.split("no dialog.\n", 1)[1]
-    monkeypatch.setattr(card, "run", answering(pr_json(body=diagram)))
-    assert [drawn["number"] for drawn in ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]] == [42]
-
-
-def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.split("## What you'll hate most")[0]
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        f"its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\" list naming his order"
-        f" in the body of {URL}. No order of his names {URL}: "
-    )
-    assert skipped["reason"].endswith("Never edit its body to quote his words for another change")
-    assert [event["kind"] for event in events(drive)] == ["refused"]
-
-
-def test_a_tap_card_asked_afresh_needs_a_summary_while_one_already_drawn_redraws_without_it(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY.replace(f"## Summary\n{SUMMARY}\n\n", ""))))
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert drawn["card"]["prs"][0]["summary"] == ""
-    key, known = "Forge-AI/monorepo#42", card.drive_prs()
-    assert card.tap_refusal(known, [key], card.read_all(known, [key])) == (
-        "its tap card needs a \"Summary\" section first, a sentence or two naming what the PR changes by its function,"
-        f" table, flag or service in the body of {URL}"
-    )
-
-
 def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
@@ -741,56 +534,6 @@ def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monke
         "cards": [],
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
     }
-
-
-VERDICT = {"job": "j9", "head": HEAD, "ready": False, "at": "2026-11-09T09:00:00-08:00", "why": "Releasable alone needs #7 live first", "said": False}
-
-
-def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_loses_its_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(review="APPROVED")))
-    with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith("reader j9 called it NOT READY at ")
-    assert skipped["reason"].endswith(": Releasable alone needs #7 live first, so it draws no Approve until a reader's READY passes its head")
-    tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card]})
-    view.refresh_cards(drive)
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
-    assert drawn["card"]["prs"][0]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first. The agent is reworking it")
-    with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = PASSED
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
-
-
-def test_his_card_offers_approve_while_the_check_runs_showing_since_when_and_drops_the_row_once_it_passes() -> None:
-    running = entry() | {"verdict": None, "check": {"job": "j9", "head": HEAD, "at": "2026-11-09T09:14:00-08:00"}}
-    drawn = card.render(pr_json(review="APPROVED"), running)
-    assert (drawn["status"], drawn["options"], drawn["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], f"His-words check: running since {render.when(running['check']['at'])}")
-    moved = running | {"verdict": PASSED | {"head": "f" * 40}}
-    assert card.render(pr_json(review="APPROVED"), moved)["prs"][0]["blocks"] == f"His-words check: running since {render.when(running['check']['at'])}"
-    assert card.render(pr_json(review="APPROVED"), running | {"check": None})["prs"][0]["blocks"] == "His-words check: not run on this head yet"
-    assert card.render(pr_json(review="APPROVED"), running | {"verdict": PASSED})["prs"][0]["blocks"] == ""
-
-
-def test_a_not_ready_on_an_earlier_head_draws_no_approve_and_says_this_head_is_owed_a_check() -> None:
-    drawn = card.render(pr_json(review="APPROVED"), entry() | {"verdict": VERDICT | {"head": "f" * 40}})
-    assert (drawn["status"], "options" in drawn) == ("info", False)
-    assert drawn["prs"][0]["blocks"].startswith("A reader's check found an earlier head not ready: Releasable alone needs #7 live first.")
-
-
-def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_that_stands_now(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(review="APPROVED")))
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
-    view.refresh_cards(drive)
-    for why in ("Releasable alone needs #7 live first", "The restore still copies at 0 B/s"):
-        with state.edit(drive) as data:
-            data["prs"]["Forge-AI/monorepo#42"]["verdict"] = {**VERDICT, "why": why}
-        [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
-        assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
-        assert drawn["card"]["prs"][0]["blocks"].startswith(f"A reader's check found it not ready: {why}.")
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -807,31 +550,11 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
 
 
-@pytest.mark.parametrize(
-    "words",
-    [
-        "",
-        "None yet: no message or card pick of his names this bug. It reached the bug lane from a teammate's report.",
-        "- none",
-    ],
-)
-def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
-    drive: str, monkeypatch: pytest.MonkeyPatch, words: str
-) -> None:
-    body = FIX_BODY.split("## His words, step by step")[0] + f"## His words, step by step\n{words}\n"
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        f"its tap card needs a \"His words, step by step\" list naming his order in the body of {URL}."
-        f" No order of his names {URL}: "
-    )
-    assert [event["kind"] for event in events(drive)] == ["refused"]
-
-
-def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.split("## His words, step by step")[0]
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"] == []
+def test_a_tap_card_whose_body_has_only_a_title_draws_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json(body="")))
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+    assert "refused" not in [event["kind"] for event in events(drive)]
 
 
 def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1101,33 +824,6 @@ def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
-def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
-    drawn = ask(asks(41, 42, 43))
-    assert drawn["cards"] == []
-    assert all("The stack" in skipped["reason"] for skipped in drawn["skipped"])
-
-
-def test_a_stack_refusal_names_each_section_every_pr_body_lacks(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
-    stacked_gh = card.run
-
-    def gh(cmd: list[str], **_: str) -> str:
-        pr = json.loads(stacked_gh(cmd))
-        if cmd[3] == "42":
-            pr["body"] = pr["body"].replace("## What you'll hate most", "## Biggest worry")
-        return json.dumps(pr)
-
-    monkeypatch.setattr(card, "run", gh)
-    drawn = ask(asks(41, 42, 43))
-    reason = (
-        f"its tap card needs a \"The stack\" section with the stack's one-line title then its summary in the body of"
-        f" {stack_url(41)}; a \"What you'll hate most\" section in the body of {stack_url(42)}"
-    )
-    assert drawn["cards"] == []
-    assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason, reason]
-
-
 def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "STACK_MOST", 2)
     drawn = ask(asks(41, 42, 43))
@@ -1143,50 +839,34 @@ def test_exempt_and_yasyf_prs_are_not_counted_toward_a_stacks_cap(stacked: list[
             data["prs"][f"Forge-AI/monorepo#{number}"]["exempt"] = "test-only"
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
-    own = [(pr_json(url=f"https://github.com/yasyf/cc-skills/pull/{number}"), entry(wants_tap=False), ()) for number in (1, 2, 3)]
-    assert card.refusal(own, card.drawn_card(own), set()) == ""
+    own = [f"yasyf/cc-skills#{number}" for number in (1, 2, 3)]
+    assert card.oversized({key: ("demo", entry(wants_tap=False)) for key in own}, own) == ""
 
 
-def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
-    ask(asks(41, 42, 43))
-    assert all(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"]["refused"] for n in (41, 42, 43))
-    monkeypatch.setattr(card, "STACK_HEADING", "the stack")
-    assert len(ask(asks(41, 42, 43))["cards"]) == 1
-    assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43))
-
-
-def test_his_open_stack_card_with_one_pr_a_reader_called_not_ready_keeps_approve_for_the_others_and_says_why_that_one_waits(
-    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    ask(asks(41, 42, 43))
-    shown = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [stack_url(n) for n in (41, 42, 43)], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "New: the orders table moves"}}
-    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [shown]})
-    view.refresh_cards("demo")
-    with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
-    [drawn] = ask(asks(41, 42, 43))["cards"]
-    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
-    assert drawn["card"]["prs"][1]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first.")
-
-
-REWORKED = VERDICT | {"job": "j1", "why": "1 + pre bind it as @parent", "said": True, "answer": "a1"}
+REWORKED = {"answer": "a1", "job": "j1", "head": HEAD, "why": "1 + pre bind it as @parent", "at": "2026-11-09T09:00:00-08:00"}
 
 
 def test_a_stack_with_one_pr_reworked_to_his_answer_asks_approve_for_the_rest_its_row_saying_approve_skips_it(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#42"].update(verdict=REWORKED, wants_tap=True)
+        data["prs"]["Forge-AI/monorepo#42"].update(rework=REWORKED, wants_tap=True)
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
     assert drawn["card"]["prs"][1]["blocks"] == (
-        f'Being reworked to your {render.when(REWORKED["at"])} answer "1 + pre bind it as @parent". Approve skips it; it asks again once a reader passes the rework'
+        f'Being reworked to your {render.when(REWORKED["at"])} answer "1 + pre bind it as @parent". Approve skips it; it asks again once its rework is pushed'
     )
     assert [row["blocks"].startswith("Being reworked") for row in drawn["card"]["prs"]] == [False, True, False]
 
 
-def test_a_stack_whose_every_pr_asking_his_tap_is_not_ready_or_waits_on_his_open_card_draws_no_card(stacked: list[list[str]]) -> None:
+def test_a_pr_reworked_to_his_answer_asks_his_tap_again_once_its_rework_is_pushed(stacked: list[list[str]]) -> None:
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#41"]["verdict"] = REWORKED
+        data["prs"]["Forge-AI/monorepo#42"].update(rework=REWORKED | {"head": "f" * 40})
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert not any(row["blocks"].startswith("Being reworked") for row in drawn["card"]["prs"])
+
+
+def test_a_stack_whose_every_pr_asking_his_tap_is_reworked_or_waits_on_his_open_card_draws_no_card(stacked: list[list[str]]) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#41"]["rework"] = REWORKED
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
         data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
     drawn = ask(asks(41, 42, 43))
@@ -1257,7 +937,7 @@ def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(sta
 
 def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     ask(asks(41, 42, 43))
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    monkeypatch.setattr(card, "STACK_MOST", 3)
     assert ask(asks(41, 42, 43, 44))["cards"] == []
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == keys
@@ -1285,15 +965,14 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
     ]
 
 
-def test_approve_on_a_stack_card_skips_a_pr_not_ready_or_reworked_to_his_answer_while_hold_holds_it_too(stacked: list[list[str]]) -> None:
+def test_approve_on_a_stack_card_skips_a_pr_reworked_to_his_answer_while_hold_holds_it_too(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = REWORKED
-        data["prs"]["Forge-AI/monorepo#43"]["verdict"] = VERDICT | {"head": "f" * 40}
+        data["prs"]["Forge-AI/monorepo#42"]["rework"] = REWORKED
     answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41-43", "label": "Approve", "action_ts": "", "source": "slack"}
     assert ask({"answer": answer}) == {"ok": True}
     prs = state.load("demo")["prs"]
-    assert [(prs[f"Forge-AI/monorepo#{n}"]["tap"] or {}).get("label") for n in (41, 42, 43)] == ["Approve", None, None]
+    assert [(prs[f"Forge-AI/monorepo#{n}"]["tap"] or {}).get("label") for n in (41, 42, 43)] == ["Approve", None, "Approve"]
     ask({"answer": answer | {"label": "Hold"}})
     prs = state.load("demo")["prs"]
     assert [prs[f"Forge-AI/monorepo#{n}"]["tap"]["label"] for n in (41, 42, 43)] == ["Hold", "Hold", "Hold"]

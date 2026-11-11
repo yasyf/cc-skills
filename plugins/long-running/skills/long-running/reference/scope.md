@@ -26,7 +26,7 @@ summary line about it, because work stopped before it starts wastes nothing.
   PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
   his DM root. That card's top line quotes the order's "Drive tooling: …" words, and his Approve
-  lands it. When a PR card is refused for naming no order of his, take a way the refusal lists.
+  lands it.
 - **Neither**: the drive does not build, polish, or card it. Another lane's PR or bug report goes
   back to that lane in a `handoff` record. A sweep's finding, a teammate's report, or a job's own
   finding he has not ordered becomes a question card saying what was found, and nothing is built
