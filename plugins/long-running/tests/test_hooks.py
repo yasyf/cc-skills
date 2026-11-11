@@ -5,6 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import landing_guard
+import one_line_result
 import pre_compact
 import pytest
 import scratch_folder
@@ -114,6 +115,42 @@ def test_pre_compact_prints_each_roles_summary_instructions(
     out = hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "talker", "trigger": "manual"}))
     assert "summary of the communicator of drive demo is at most 1500 characters" in out
     assert hook_output(pre_compact, monkeypatch, capsys, json.dumps({"session_id": "someone-else"})) == ""
+
+
+def agent_stop(message: str, session: str | None = None, **fields: object) -> dict:
+    return {
+        "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
+        "hook_event_name": "SubagentStop",
+        "agent_id": "a-7",
+        "stop_hook_active": False,
+        "last_assistant_message": message,
+        **fields,
+    }
+
+
+def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_report(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    run("job", "set", "j1", "--agent", "a-7")
+    long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
+    output = json.loads(hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop(long))))
+    assert output["decision"] == "block"
+    assert output["reason"].startswith("Your final message is 3 lines and 82 characters")
+    assert "`drive job report j1 -`" in output["reason"]
+    assert one_line_result.block_reason(agent_stop("WAITING CI on https://github.com/yasyf/cc-skills/pull/1")) is None
+    assert "is 1 line and 501 characters" in one_line_result.block_reason(agent_stop("x" * 501))
+
+
+def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    reason = one_line_result.block_reason(agent_stop("POSTED https://acme.slack.com/archives/D1/p1\nI posted it", "talker"))
+    assert "lands whole in the communicator's context" in reason
+    assert "drive job report" not in reason
+    assert one_line_result.block_reason(agent_stop("a\nb", "someone-else")) is None
+    assert one_line_result.block_reason(agent_stop("a\nb", "talker", stop_hook_active=True)) is None
 
 
 def agent_call(subagent_type: str, prompt: str) -> str:
