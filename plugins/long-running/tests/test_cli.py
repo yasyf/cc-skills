@@ -746,6 +746,16 @@ def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_nam
     assert "The reason given leaves out 33eaad9." in refusals[1]
 
 
+def test_job_ask_checks_a_link_by_its_label_never_the_words_of_its_url(run: Run, asking: str, tmp_path: Path, recorded: Answers) -> None:
+    block = tmp_path / "ask.md"
+    linked = "Meanwhile <https://github.com/Forge-AI/monorepo/pull/53849|the layout fix> builds on neither layout."
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", linked))
+    assert run("job", "ask", asking, str(block))[0] == 0
+    assert "the layout fix" in recorded.asked[0]
+    assert "github" not in recorded.asked[0]
+    assert "monorepo" not in recorded.asked[0]
+
+
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:
     assert run("job", "ask", asking)[0] == 2
     with state.edit("demo") as data:

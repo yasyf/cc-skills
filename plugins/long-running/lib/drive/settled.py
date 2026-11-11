@@ -2,7 +2,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from drive import state
+from drive import limits, state
 from drive.state import DriveError
 
 MATCHES = 3
@@ -31,7 +31,7 @@ def matched(text: str, cwd: str, *flags: str) -> list[dict]:
 
 def refusal(card: str, whole: str, drives: list[str], cwd: str, why: str | None, override: str) -> str | None:
     """Why a question may not go to him: a recorded answer of his may settle it, and no reason names that answer and says why it does not."""
-    found = answers(card, whole, drives, cwd)
+    found = answers(read(card), read(whole), drives, cwd)
     ids = [answer["id"][:7] for answer in found]
     if not (unnamed := [short for short in ids if short not in (why or "")]):
         return None
@@ -45,3 +45,8 @@ def refusal(card: str, whole: str, drives: list[str], cwd: str, why: str | None,
         f' Only when none does, ask again with {override} one string that names every id below, such as {override} "{example}".'
         f"{left_out}\n{listed}"
     )
+
+
+def read(text: str) -> str:
+    """The words of a question as he reads them: a Slack link as its label, other links and bare URLs left out, since every PR link shares github, pull and monorepo with each old answer that names a PR."""
+    return limits.URL.sub(" ", limits.TOKEN.sub(" ", limits.LABELLED.sub(r" \1 ", text)))
