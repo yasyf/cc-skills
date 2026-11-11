@@ -187,8 +187,9 @@ COORDINATOR_RULES = (
         " card or a close in the same turn, and a job waiting on a release gets drive job set <j> --waits"
         " release:<service>:<owner>/<repo>#<n>, not `--due` alone. A build order's first job is an Opus"
         " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
-        " brief carries `Researched: <that reader's job>`, which the brief op writes, and a reader's DESIGN return"
-        " starts the designer. The immediate fix and a red default branch's fix-forward, each on its own `immediate fix`"
+        " brief carries `Researched: <that reader's job>`, which the brief op writes; each other part's builder or designer"
+        " is added beside the reader with `job add --waits <the reader>` and starts on its FREE line; a reader's DESIGN"
+        " return starts the designer. The immediate fix and a red default branch's fix-forward, each on its own `immediate fix`"
         " part, and a builder landing PRs he approved (`job add builder --lands <PR>`) start at once, before any reader."
     ),
     (

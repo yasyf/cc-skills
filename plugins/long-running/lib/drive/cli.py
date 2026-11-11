@@ -742,8 +742,10 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 def job_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
-    if args.kind == "builder" and not args.remote and not args.agent:
+    if args.kind == "builder" and not args.remote and not args.agent and not args.waits:
         refuse_a_local_builder(state.load(name), args.repo)
+    if args.waits and args.agent:
+        raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its reader returns, so it takes no --agent")
     if args.checks and args.kind != "reader":
         raise DriveError("--checks starts his-words check on a PR's head, which only a reader runs")
     heads = {key: github_pr(key)["headRefOid"] for key in map(state.pr_key, args.checks)}
@@ -755,7 +757,7 @@ def job_add(args: argparse.Namespace) -> int:
         parts = pick_parts(args.order, order, args.part)
         refuse_a_shared_immediate_fix(parts)
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := state.held_elsewhere(data, args.order, role) or unlandable(data, lands) or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands)):
+        if refused := state.held_elsewhere(data, args.order, role) or unlandable(data, lands) or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands), args.waits):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or role
         beside = [
@@ -773,11 +775,14 @@ def job_add(args: argparse.Namespace) -> int:
             "worktree": args.worktree,
             "checks": heads,
         }
+        if args.waits:
+            job.update(state="waiting", waits=args.waits, said=f"waits on reader {', '.join(args.waits)}")
         for key, head in heads.items():
             find(data["prs"], key, "drive PR")["check"] = {"job": job_id, "head": head, "at": created}
         order["jobs"].append(job_id)
         order["updated"] = created
-    return emit(args, "\n".join([job_id, *beside]), {"id": job_id, **job, "beside": beside})
+    waiting = [f"{job_id} waits on {', '.join(args.waits)}: start no agent for it until the watch's FREE line says the reader returned"] if args.waits else []
+    return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
 
 def unlandable(data: dict, keys: list[str]) -> str | None:
@@ -835,7 +840,10 @@ def job_set(args: argparse.Namespace) -> int:
             if holds
             else f"nothing is open on {' and '.join(jobs)} to wait on, no card of his and no PR"
         )
-        raise DriveError(f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks or a release, never on another job; {instead}")
+        raise DriveError(
+            f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks or a release, and on another job only as a build order's"
+            f" designer or builder added waiting on its reader, drive job add <kind> --order <o> --waits <the reader>; {instead}"
+        )
     check_waits(name, args.waits)
     told_him(name, args)
     known = state.load(name)
@@ -1480,7 +1488,7 @@ def job_launch(args: argparse.Namespace) -> int:
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
-        job.update(started, brief=str(kept), ask=None, report=None, updated=state.stamp())
+        job.update(started, brief=str(kept), ask=None, report=None, state="running", updated=state.stamp())
     return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
 
 
@@ -2669,6 +2677,16 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="PR",
         help="a drive PR he approved, or an exempt class lands, that this builder lands and builds nothing on, so it starts with no research",
+    )
+    verb.add_argument(
+        "--waits",
+        action="append",
+        default=[],
+        metavar="JOB",
+        help=(
+            "a build order's reader still at work that this designer or builder waits on: it is recorded waiting on the reader with no"
+            " agent, so its part is never in no job, and the watch says FREE once the reader returns, when its agent starts"
+        ),
     )
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])

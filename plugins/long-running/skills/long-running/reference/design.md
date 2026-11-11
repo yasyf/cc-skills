@@ -16,7 +16,9 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    he is asked; a builder writes the code later.
    - Add it with `drive job add design --order <o> --part "<part>" --goal "<one line>"`. On a build
      order outside an incident it refuses until a reader kept its `Researched:` block, by
-     [Jobs](jobs.md); the order's `immediate fix` job never waits on it.
+     [Jobs](jobs.md), so while the reader is at work add it with `--waits <the reader's job>`,
+     recorded waiting, and start it on its `FREE` line; the order's `immediate fix` job never waits
+     on it.
    - Brief it with `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
      plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
      PRs and findings it starts from, and says to design from what his words need, the code an
@@ -65,7 +67,7 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    - The minute a card holds a built job, the watch replies once in that card's own thread, in
      plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
      that card first in his queue.
-   - A job waits only on his cards, never on another job, so his tap frees it. The watch drops each
+   - A built job waits only on his cards, never on another job, so his tap frees it. The watch drops each
      card as he answers it and says `FREE <j>` once, when the last is answered and no question the
      job asked him is open, which wakes the coordinator. Then a handoff builder opens the PR,
      rebuilding first wherever his pick differs from the option it built.
