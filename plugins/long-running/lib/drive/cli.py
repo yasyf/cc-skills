@@ -1259,7 +1259,7 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Read a kept ASK block and print its question card as JSON for `say(card=…)`: its question as"
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced visual (code naming its"
-            " language, arch, mermaid, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
+            " language, arch, mermaid, dot, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
             " titled with the caption line above it; a fence of words, of raw data or tool output, or one that does not"
             " draw is left off, and a"
             " Show me left empty is dropped; its options, the recommended one, the drive, and --waits. The question kept"

@@ -16,7 +16,6 @@ const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' }
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
 const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
-const SLACK_ONLY = new Set(['image', 'dot']);
 const HISTORY_FILTERS = [
   ['all', 'Everything', () => true],
   ['prs', 'PRs merged', (entry) => entry.kind === 'merged'],
@@ -161,7 +160,7 @@ function up() {
   return zoomHref(screen, ...path.slice(0, screen === 'work' && path.length > 1 ? 1 : path.length - 1));
 }
 
-const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare']);
+const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
 const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
 
@@ -227,13 +226,16 @@ function prose(text, cite) {
 }
 
 function fenced(language, source) {
-  if (language === 'dot' || WORD_FENCES.has(language)) return `<pre><code>${esc(source.replace(/\n$/, ''))}</code></pre>`;
+  if (WORD_FENCES.has(language)) return `<pre><code>${esc(source.replace(/\n$/, ''))}</code></pre>`;
   return visual(VISUAL_KINDS.has(language) ? language : `code:${language}`, source);
 }
 
 function shown(path, caption) {
   const drawn = model.visuals?.[path];
-  if (drawn) return visual(drawn.kind, drawn.source, caption);
+  return drawn && drawn.kind !== 'image' ? visual(drawn.kind, drawn.source, caption) : shot(path, caption);
+}
+
+function shot(path, caption) {
   const src = `/api/picture?path=${encodeURIComponent(path)}`;
   return `<a class="shot" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(caption)}" loading="lazy"></a>`;
 }
@@ -311,7 +313,7 @@ function sayBox(key, under, placeholder, about = '', thread = '') {
 }
 
 function pictures(paths) {
-  return paths?.length ? `<div class="pics">${paths.map((path) => `<a href="/api/picture?path=${encodeURIComponent(path)}" target="_blank" rel="noopener"><img loading="lazy" src="/api/picture?path=${encodeURIComponent(path)}" alt=""></a>`).join('')}</div>` : '';
+  return paths?.length ? `<div class="pics">${paths.map((path) => shown(path, '')).join('')}</div>` : '';
 }
 
 function fold(id, html, lines) {
@@ -1239,7 +1241,7 @@ function saidRow(entry) {
     <div class="body">
       <div><b class="what">${HAPPENED.said}</b></div>
       <div class="said-text">${prose(entry.text)}</div>
-      ${entry.visuals.map((shown) => (SLACK_ONLY.has(shown.kind) ? pictures([shown.picture]) : visual(shown.kind, shown.source, shown.caption))).join('')}
+      ${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}
     </div>
   </li>`;
 }
