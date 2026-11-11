@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from collections.abc import Callable
 from datetime import timedelta
 from pathlib import Path
@@ -49,6 +50,36 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
     [kept] = said(demo)
     assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
+
+
+def test_an_edit_links_each_reference_as_a_post_does_and_the_dashboard_shows_its_new_words_in_place(demo: str, posts: list[tuple[str, ...]]) -> None:
+    talk.say(demo, {"text": "{pr:7} is up", "thread_ts": "1794200000.000100"})
+    edit = {"edit": POSTED, "text": "{pr:7} waits on {card:demo:j1-7}"}
+    sent = f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>"
+    assert talk.say(demo, edit | {"dry_run": True}) == f"DRY edit of {POSTED}, 0 pictures: {sent}"
+    assert talk.say(demo, edit) == f"EDITED {POSTED}"
+    assert posts[1] == ("edit", "--url", POSTED, "--text", sent)
+    assert [event["edited"] for event in said(demo)] == [False, True]
+    history = view.history(state.load(demo), (event for event, _ in state.read_events(demo)), "https://acme.slack.com/")
+    [shown] = [entry for entry in history if entry["kind"] == "said"]
+    assert shown["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
+
+
+@pytest.mark.parametrize(
+    ("extra", "refused"),
+    [
+        ({"card": {"title": QUESTION, "waits": WAITS}}, "also passes card. Redraw a card with drive job card"),
+        ({"thread_ts": "1794200000.000100"}, "also passes thread_ts"),
+        ({"text": ""}, "an edit needs text"),
+        ({"text": "Who takes it:\n```mermaid\nflowchart TD\n  chat --> lock\n```"}, "an edit of a Slack message cannot add"),
+    ],
+)
+def test_an_edit_carrying_what_an_edit_of_a_slack_message_cannot_change_edits_nothing(
+    demo: str, posts: list[tuple[str, ...]], extra: dict, refused: str
+) -> None:
+    with pytest.raises(DriveError, match=re.escape(refused)):
+        talk.say(demo, {"edit": POSTED, "text": "Reworded."} | extra)
+    assert (posts, said(demo)) == ([], [])
 
 
 def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:

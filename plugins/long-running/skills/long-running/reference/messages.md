@@ -266,8 +266,8 @@ When it is answered, replaced or redone:
   open cards before the post, so a card no job's question keeps moves its waits too; when his cards
   cannot be read, nothing is posted. A `--reworking` draw and `drive cards
   redraw` are the same question drawn again: they carry `in_place`, so the card is edited where it
-  sits, buttons kept, and nothing is posted. The same words post nothing either way. Never `slack_edit` a
-  card: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
+  sits, buttons kept, and nothing is posted. The same words post nothing either way. Never edit a card with
+  `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
 - While a card he has not answered is being redone, it says so where it sits and keeps its buttons,
   because he may still want to tap one. The moment a redo starts, the coordinator sends an `ask`
@@ -493,8 +493,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   the reporter anything.
 - Messages with no new fact: react with `+1` to chatter instead of acking it, and post no "nothing
   new" line.
-- Second copies: one post per thing, a correction edits it in place, and never text and a card for
-  the same thing.
+- Second copies: one post per thing, a correction rewords it in place with `say(edit=<its permalink>,
+  text=…)`, and never text and a card for the same thing.
 - A promise without a record. A promised time is one the coordinator set with `--due` in the same
   turn, by [The short form](#the-short-form), and its `report` names it. Any other promise, such as
   "from now on…" or "next you get…", goes out only with the order, due time or job that carries it

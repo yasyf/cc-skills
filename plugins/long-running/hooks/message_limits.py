@@ -44,6 +44,11 @@ UNREAD = (
     " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
     " until you open that file and read its newest messages."
 )
+SAY_RULE = (
+    "Every message to him in his DM, a new post or an edit of one, goes through say, the one call that links its references"
+    ' and shows it on the dashboard too, by his words "it shoulkd be one tool call to a lr mcp tool that formats and sends to'
+    ' both slack and dashbord".'
+)
 NO_READ = "your transcript shows no read of his thread {thread}, and a read by another agent or session does not count for yours"
 OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and a read counts for 10"
 FAILED_READ = "your slack_thread call on his thread {thread} failed"
@@ -127,7 +132,7 @@ def result_text(part: dict) -> str:
 def unread(payload: dict, dm: str) -> str | None:
     """Why a handler's new line in his thread waits for a read of that thread, which its own transcript must show in the last 10 minutes; a card is drawn from a record, not written from the thread."""
     tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
+    if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
     read, unopened, failed = last_read(agents.transcript(payload), dm, thread)
     if read and datetime.now(UTC) - read < READ_WINDOW:
@@ -159,8 +164,8 @@ def thread_words(payload: dict, dm: str) -> list[dict]:
     tool_input = payload["tool_input"]
     if tool_input.get("thread_ts"):
         where = ("--channel", dm, "--thread", tool_input["thread_ts"])
-    elif tool_input.get("url"):
-        where = ("--url", tool_input["url"])
+    elif url := tool_input.get("url") or tool_input.get("edit"):
+        where = ("--url", url)
     else:
         return []
     words = []
@@ -212,15 +217,22 @@ def his_words(payload: dict) -> list[dict]:
         return words
 
 
+def edited(payload: dict) -> dict | None:
+    """Where the post a call rewords is, as cc-slack names a message: say's edit permalink as its url, or slack_edit's url, or its ts and thread; none for a new post."""
+    tool_input = payload["tool_input"]
+    if payload["tool_name"] == SAY:
+        return {"url": tool_input["edit"]} if tool_input.get("edit") else None
+    return tool_input if payload["tool_name"] == EDIT else None
+
+
 def edited_words(payload: dict, dm: str) -> int:
     """How long the post an edit replaces is, read from Slack; 0 for a new post."""
-    if payload["tool_name"] != EDIT:
+    if (where := edited(payload)) is None:
         return 0
-    tool_input = payload["tool_input"]
-    if url := tool_input.get("url"):
+    if url := where.get("url"):
         return limits.words(slack.message(url)["text"])
-    ts = tool_input["ts"]
-    return limits.words(slack.message_at(ts, "--channel", dm, "--thread", tool_input.get("thread_ts") or ts)["text"])
+    ts = where["ts"]
+    return limits.words(slack.message_at(ts, "--channel", dm, "--thread", where.get("thread_ts") or ts)["text"])
 
 
 def squashed(text: str) -> str:
@@ -238,7 +250,7 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a post or edit in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
     if posted := coordinator_post(payload):
         return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -263,7 +275,7 @@ def deny_reason(payload: dict) -> str | None:
         return refusal
     if not posts_to(payload, dm):
         return None
-    if refusal := card_edit(payload, drive) or held_while_away(payload, drive) or unread(payload, dm):
+    if refusal := card_edit(payload, drive) or unsaid_post(payload) or held_while_away(payload, drive) or unread(payload, dm):
         return refusal
     if (long := over_length(payload, dm)) and titled:
         long += TITLED.format(titled)
@@ -308,12 +320,29 @@ def reporter_post(payload: dict, drive: dict) -> str | None:
     )
 
 
+def unsaid_post(payload: dict) -> str | None:
+    """Why a write to his DM goes through say: slack_edit rewords a post with each {card:…}, {pr:…}, {order:…} and {record:…} reference left as raw text and the dashboard still showing its old words, and another tool posting a reference sends it raw too."""
+    if payload["tool_name"] == EDIT:
+        return agents.Ruled(
+            "Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…} or {record:…} reference to him as raw text and"
+            " leaves the dashboard showing the post's old words. Reword it with say(edit=<its permalink>, text=<the new words>),"
+            " which links each reference as a new post's are and rewords the post on the dashboard too.",
+            SAY_RULE,
+        )
+    if payload["tool_name"] == SAY or not (raw := refs.REF.search(payload["tool_input"].get("text") or "")):
+        return None
+    return agents.Ruled(
+        f"Refused on purpose: {raw[0]} would reach him as raw text, since only say links a drive reference. Post it with"
+        " say(text=…), which links it as he reads it and shows the post on the dashboard too.",
+        SAY_RULE,
+    )
+
+
 def card_edit(payload: dict, drive: dict) -> str | None:
     """Why an edit may not touch his question card: an edit with text alone replaces its layout and buttons with plain text, and drawing it again under its waits id edits it where it sits."""
-    if payload["tool_name"] != EDIT:
+    if (where := edited(payload)) is None:
         return None
-    tool_input = payload["tool_input"]
-    key = view.message_key(tool_input["url"]) if tool_input.get("url") else (tool_input.get("ts") or "").replace(".", "")
+    key = view.message_key(where["url"]) if where.get("url") else (where.get("ts") or "").replace(".", "")
     for job_id, job in drive["jobs"].items():
         for question in job["questions"]:
             if question["card"] and view.message_key(question["card"]) == key:
@@ -336,7 +365,7 @@ def posted_order(drive: dict, tool_input: dict) -> tuple[str, dict] | None:
 def held_while_away(payload: dict, drive: dict) -> str | None:
     """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
     tool_input = payload["tool_input"]
-    if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
+    if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()):
         return None
@@ -362,7 +391,7 @@ def held_while_away(payload: dict, drive: dict) -> str | None:
 def long_ack(payload: dict) -> str | None:
     """Why the communicator's own ack runs past one sentence: it goes out inside seconds, and the handler answers the rest."""
     tool_input = payload["tool_input"]
-    if payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or tool_input.get("tap_prs"):
+    if payload.get("agent_id") or edited(payload) or tool_input.get("card") or tool_input.get("tap_prs"):
         return None
     sentences = [part for part in SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
     if len(sentences) < 2:

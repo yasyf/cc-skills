@@ -8,10 +8,11 @@ from drive.state import DriveError
 WEB = ("http://", "https://")
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
+EDIT_TAKES = {"edit", "text", "asked", "dry_run"}
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or reword one already there, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
@@ -22,7 +23,7 @@ def say(name: str, post: dict) -> str:
     if post.get("dry_run"):
         return dry(name, post)
     reply = posted(name, post)
-    line = f"POSTED {reply['permalink']}"
+    line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
     if warning := reply.get("warning"):
@@ -73,7 +74,7 @@ def dry(name: str, post: dict) -> str:
     found = refs.resolved(name, post.get("text") or "")
     check(name, post)
     visuals, words, lifted = shown(name, post)
-    where = f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
+    where = f"edit of {post['edit']}" if post.get("edit") else f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
@@ -81,7 +82,16 @@ def dry(name: str, post: dict) -> str:
 
 
 def check(name: str, post: dict) -> None:
-    """Refuse a PR card naming a PR the drive holds none of, which it cannot draw."""
+    """Refuse an edit carrying anything but new words for its post, or a fence that draws as a picture, which an edit of a Slack message cannot add, and a PR card naming a PR the drive holds none of, which it cannot draw."""
+    if post.get("edit") and (extra := sorted(key for key, value in post.items() if value and key not in EDIT_TAKES)):
+        raise DriveError(
+            f"nothing edited: an edit rewords the text of one post of yours, so it takes edit, text and asked alone, and this one also"
+            f" passes {', '.join(extra)}. Redraw a card with drive job card, and post anything new as a new post"
+        )
+    if post.get("edit") and not post.get("text"):
+        raise DriveError("nothing edited: an edit needs text, the post's new words")
+    if post.get("edit") and any(picture.pictured(fence[1], fence[2]) for fence in picture.FENCE.finditer(post["text"])):
+        raise DriveError("nothing edited: a code or diagram fence draws as a picture, which an edit of a Slack message cannot add; post it as a new post")
     data = state.load(name)
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in data["prs"]]:
@@ -111,26 +121,17 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now; a post check refuses goes nowhere."""
+    """cc-slack's reply to the post, or to the edit rewording a post of its own, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now, an edit's words in place of its post's; a post check refuses goes nowhere."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     check(name, post)
     visuals, words, lifted = shown(name, post)
-    prs = state.load(name)["prs"]
+    card = post.get("card")
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
-    argv = ["dm-status", "--agent", "claude"]
-    if thread := post.get("thread_ts"):
-        argv += ["--thread", thread]
-    if card := post.get("card"):
-        argv += ["--card", json.dumps(card)]
-    if about := post.get("about"):
-        argv += ["--about", about]
-    argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
-    argv += [flag for path in [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted] for flag in ("--file", path)]
-    if words:
-        argv += ["--", refs.slack(words, found)]
+    sent = refs.slack(words, found)
+    pictures = [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted]
     asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
-    reply = slack.cc_slack(*argv)
+    reply = slack.cc_slack(*(["edit", "--url", post["edit"], "--text", sent] if post.get("edit") else status(name, post, stack, pictures, sent)))
     if card:
         reply |= {"card_permalink": " ".join([reply["permalink"], *filter(None, [reply.get("card_permalink")])])}
     if card and card.get("waits"):
@@ -145,8 +146,24 @@ def posted(name: str, post: dict) -> dict:
         order=post.get("order"),
         visuals=visuals,
         prs=stack,
+        edited=bool(post.get("edit")),
     )
     return reply
+
+
+def status(name: str, post: dict, stack: list[str], pictures: list[str], sent: str) -> list[str]:
+    """The `cc-slack dm-status` call making a new post in his DM."""
+    prs = state.load(name)["prs"]
+    argv = ["dm-status", "--agent", "claude"]
+    if thread := post.get("thread_ts"):
+        argv += ["--thread", thread]
+    if card := post.get("card"):
+        argv += ["--card", json.dumps(card)]
+    if about := post.get("about"):
+        argv += ["--about", about]
+    argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
+    argv += [flag for path in pictures for flag in ("--file", path)]
+    return [*argv, "--", sent] if sent else argv
 
 
 def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:

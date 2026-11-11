@@ -17,6 +17,7 @@ READ_THREAD = slack.thread
 LAUNCHER = slack.launcher
 CHECK_POST = slack.check_post
 DM = "D123"
+EDITED = "1794288799.000003"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
@@ -333,6 +334,10 @@ def say(transcript: Path, **tool_input: object) -> str | None:
     return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})
 
 
+def link(ts: str) -> str:
+    return f"https://acme.slack.com/archives/{DM}/p{ts.replace('.', '')}"
+
+
 def holds_pr(order: str) -> None:
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#53618"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53618", "j1", order)
@@ -481,14 +486,13 @@ def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
     talker: str, transcript: Path, slack_thread: Thread, ts: str, before: str, after: str
 ) -> None:
     slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
-    edit = call("slack_edit", transcript, channel_id=DM, ts=ts, thread_ts=BAD_STATE_THREAD, text=after)
-    assert message_limits.deny_reason(edit) is None
+    assert say(transcript, edit=link(ts), text=after) is None
 
 
 def test_an_edit_that_grows_its_post_past_a_rewording_is_refused_naming_both_limits(talker: str, transcript: Path, slack_thread: Thread) -> None:
-    slack_thread.messages.append({"ts": "1.3", "from_claude": True, "from_bot": True, "text": said(55)})
-    assert message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(65))) is None
-    reason = message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(66)))
+    slack_thread.messages.append({"ts": EDITED, "from_claude": True, "from_bot": True, "text": said(55)})
+    assert say(transcript, edit=link(EDITED), text=said(65)) is None
+    reason = say(transcript, edit=link(EDITED), text=said(66))
     assert reason.startswith(
         "refused: this post is 66 words, and a line in his thread is at most 60 words, or 10 past the 55 words of the post it edits"
     )
@@ -496,9 +500,9 @@ def test_an_edit_that_grows_its_post_past_a_rewording_is_refused_naming_both_lim
 
 
 def test_an_edit_whose_post_cannot_be_read_keeps_the_line_limit_and_says_why(talker: str, transcript: Path) -> None:
-    reason = message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text=said(61)))
+    reason = say(transcript, edit=link(EDITED), text=said(61))
     assert reason.startswith("refused: this post is 61 words, and a line in his thread is at most 60 words (")
-    assert "The post it edits could not be read to check its length: no message 1.3 in the thread at --channel D123 --thread 1.2." in reason
+    assert f"The post it edits could not be read to check its length: no message {EDITED} in the thread at --url {link(EDITED)}." in reason
 
 
 def test_the_answer_to_his_audit_order_goes_out_whole_and_its_refusal_says_how(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -637,7 +641,7 @@ def test_the_communicators_own_post_has_no_brief_to_quote(talker: str, transcrip
 def test_a_reply_counts_only_in_his_dm(talker: str, transcript: Path) -> None:
     assert "61 words" in message_limits.deny_reason(call("slack_reply", transcript, channel_id=DM, thread_ts="1.2", text=said(61)))
     permalink = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
-    assert "61 words" in message_limits.deny_reason(call("slack_edit", transcript, url=permalink, text=said(61)))
+    assert "61 words" in say(transcript, edit=permalink, text=said(61))
     share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text=said(300))
     assert message_limits.deny_reason(share) is None
 
@@ -711,7 +715,7 @@ def test_a_read_that_leaves_out_channel_id_reads_his_dm_so_the_line_after_it_goe
 def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_thread_read(talker: str, unread: Path) -> None:
     card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
     assert posted(unread, card=card, thread_ts="1.2") is None
-    assert message_limits.deny_reason(call("slack_edit", unread, channel_id=DM, ts="1.3", thread_ts="1.2", text="Fixed.")) is None
+    assert say(unread, edit=link(EDITED), text="Fixed.") is None
     assert posted(unread, text="Fixed.") is None
     payload = call("slack_dm_status", unread, text="Fixed.", thread_ts="1.2")
     del payload["agent_id"]
@@ -1118,8 +1122,7 @@ def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, 
         "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n"
         "1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
     )
-    edit = call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text="See 41 then.")
-    assert message_limits.deny_reason(edit).startswith("refused: `cc-slack check-post` finds this")
+    assert say(transcript, edit=link(EDITED), text="See 41 then.").startswith("refused: `cc-slack check-post` finds this")
     share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See #41 there.")
     assert message_limits.deny_reason(share) is None
     assert checked.texts == ["See 41 now.", "See 41 then."]
@@ -1319,11 +1322,23 @@ def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, tal
     with state.edit("demo") as data:
         question = state.new_question("/drive/asks/j1-ab.md", "Which store?", state.stamp(), card=card)
         data["jobs"]["j1"]["questions"].append(question | {"waits": "demo:j1-661229"})
-    for edit in ({"url": card}, {"channel_id": DM, "ts": "1794288799.976279"}):
-        reason = message_limits.deny_reason(call("slack_edit", transcript, text="Reworded.", **edit))
+    for edit in (call("slack_edit", transcript, text="Reworded.", url=card), call("slack_edit", transcript, text="Reworded.", channel_id=DM, ts="1794288799.976279")):
+        reason = message_limits.deny_reason(edit)
         assert reason.startswith("Refused on purpose: that message is his question card")
         assert "`drive job card /drive/asks/j1-ab.md --waits demo:j1-661229`" in reason
-    assert message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1794288799.000001", text="Reworded.")) is None
+    assert say(transcript, edit=card, text="Reworded.").startswith("Refused on purpose: that message is his question card")
+    assert say(transcript, edit=link("1794288799.000001"), text="Reworded.") is None
+
+
+def test_a_write_to_his_dm_goes_through_say_so_each_reference_is_linked_and_the_dashboard_shows_it(talker: str, transcript: Path) -> None:
+    reason = message_limits.deny_reason(call("slack_edit", transcript, url=link(EDITED), text="Reworded."))
+    assert reason.startswith("Refused on purpose: slack_edit sends each {card:…}, {pr:…}, {order:…} or {record:…} reference to him as raw text")
+    assert "say(edit=<its permalink>, text=<the new words>)" in reason
+    assert reason.rule == message_limits.SAY_RULE
+    reason = message_limits.deny_reason(call("slack_reply", transcript, channel_id=DM, thread_ts=BAD_STATE_THREAD, text="See {pr:7}."))
+    assert reason.startswith("Refused on purpose: {pr:7} would reach him as raw text, since only say links a drive reference.")
+    assert message_limits.deny_reason(call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See {pr:7}.")) is None
+    assert message_limits.deny_reason(call("slack_edit", transcript, url="https://acme.slack.com/archives/C0B75AL4XEW/p1794288799000003", text="Reworded.")) is None
 
 
 def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, transcript: Path) -> None:
