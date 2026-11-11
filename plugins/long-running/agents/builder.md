@@ -320,7 +320,11 @@ coordinator runs it". It refuses any report but an `ASK` or `DESIGN` that names 
 number as a finding left standing, such as "the bucket caps at 5k objects/s, left as is", or one
 "unchanged", "hit" or "exceeds": a limit or capacity finding is his choice, so return `ASK` with two
 to four options for it. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
-so does "the cap was never hit". It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
+so does "the cap was never hit". Only the report's own words count, so a quote, code or link it cites
+as evidence, such as a GitHub rate-limit refusal quoted on a `Measured:` line, passes. On an
+`UNPROVEN:` line a quoted refusal is the reason the step stayed unproven, the excuse his words "gh rate
+limit is not a valid excuse" rule out, so it is refused there: route around it and prove the step, or
+return `ASK`. It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
 card would refuse, naming every section each body lacks, as `drive pr set --serves` does, and checks each
 stack the PRs form on its own, as `drive card` groups them.
 

@@ -66,7 +66,10 @@ recorded, so judge that head. A NOT READY pulls Approve from his card on that PR
 its builder reworks it, and a reader then checks the new head. An Approve he gave before your verdict
 stands. Any other report opens `DONE`, and `drive job report`
 refuses one naming a limit beside a number left as is, unchanged, hit or exceeded, such as "the bucket
-caps at 5k objects/s, left as is": that finding is a `DESIGN`.
+caps at 5k objects/s, left as is": that finding is a `DESIGN`. Only your own words count, so a quote,
+code or link you cite as evidence, such as a GitHub rate-limit refusal quoted on a `Measured:` line,
+passes. On an `UNPROVEN:` line a quoted refusal is your reason for stopping, the excuse his words "gh
+rate limit is not a valid excuse" rule out, so it is refused there: route around it and prove the step.
 
 Your report feeds another agent, never him, with the inputs the one writing to him needs, one fact
 a line, no polish. The first line answers the question; then each fact with its link, number, path
