@@ -1265,7 +1265,9 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert 'demo:j1-7: his words under that card answer it' in refusal
     assert '"its one snapshot file, just wait for the copy"' in refusal
     assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"] if question["waits"] == "demo:j1-7"] == [kept[0]]
-    assert run("answer", "a2", "--words", "One snapshot file", "--link", link)[0] == 0
+    assert cli.main(["answer", "a2", "--words", "One snapshot file", "--link", link]) == 2
+    assert "  j1 waits on o1 and has not heard a2: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert run("answer", "a2", "--sent", "j1")[0] == 0
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     assert cli.main(["job", "ask", asking, "-"]) == 2
     refusal = capsys.readouterr().err
