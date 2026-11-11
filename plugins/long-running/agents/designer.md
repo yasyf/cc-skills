@@ -69,7 +69,9 @@ Findings:
 <the design in plain words, what his words already settle, and what each option changes and costs>
 ````
 
-The question, summary and options are at most 150 words in plain words. A Show me is there only
+The question, summary and options are at most 150 words in plain words, and the question and
+options hold no link or markdown, since Slack draws a card's title and buttons as plain text; the
+summary carries the links. A Show me is there only
 when it shows what they cannot; a constant, a name or a value the words already say is none, and a
 card with nothing that adds clarity has no Show me, by his Nov 10 11:03 PM words "we needed an image
 to show a const? … show a sinippet when it makews sense". It is drawn whole on his card outside
