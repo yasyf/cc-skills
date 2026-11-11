@@ -980,7 +980,8 @@ def status(args: argparse.Namespace) -> int:
         only(data, args.ids)
     pr_fields = overlay_live(data)
     seen = {role: with_build(orca_place(held, name_show), held) for role, held in data["roles"].items()}
-    return emit(args, render.status_text(data, pr_fields, seen), render.status_data(data, pr_fields, seen))
+    named = bool(args.ids)
+    return emit(args, render.status_text(data, pr_fields, seen, named), render.status_data(data, pr_fields, seen, named))
 
 
 def with_build(place: str, held: dict) -> str:

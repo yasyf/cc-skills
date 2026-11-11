@@ -1,4 +1,5 @@
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -171,6 +172,7 @@ SUBSCRIBE = {
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 REPROS_SHOWN = 5
+WHOLE = sys.maxsize
 MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
 SLACK_TOOLS_LINE = (
     "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
@@ -182,8 +184,9 @@ FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
 READS = {
     "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
     "coordinator": (
-        "Everything else is on disk, read on demand by id: drive status <order, job or PR>, drive view, cci digest,"
-        " and the skill's pages, drive manual <page>."
+        "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., which prints each"
+        " named order whole with its parts and each job's goal and said line, never a script over drive.json;"
+        " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>."
     ),
 }
 KEEP = {
@@ -238,7 +241,7 @@ def pr_line(key: str, pr: dict) -> str:
     return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}{waits}"
 
 
-def job_line(job_id: str, job: dict) -> str:
+def job_line(job_id: str, job: dict, limit: int = 100) -> str:
     if job.get("where") == "remote":
         handle = f" remote dispatch {job['dispatch']}" if job.get("dispatch") else " remote, not started"
     else:
@@ -247,7 +250,7 @@ def job_line(job_id: str, job: dict) -> str:
     carries = f"; {job['order']}'s job, carrying " + ", ".join(job["carries"]) if job.get("carries") else ""
     built = f" on {job['branch']}" if job["state"] == "built" else ""
     waits = f"; waits on {', '.join(job['waits'])}" if job.get("waits") else ""
-    return f"{job_id} {job['kind']} {job['state']}{built}{handle}: {cut(job['goal'], 100)}{repro}{carries}{waits}"
+    return f"{job_id} {job['kind']} {job['state']}{built}{handle}: {cut(job['goal'], limit)}{repro}{carries}{waits}"
 
 
 def question_line(question: dict) -> str:
@@ -285,11 +288,16 @@ def role_line(drive: dict, role: str, seen: dict[str, str]) -> str:
     return f"{role}: {who(drive, role)}{place}; {hold_line(drive, role)}"
 
 
-def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str]:
+def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[str]:
+    limit = WHOLE if whole else 80
     lines = [f"- {order_line(order_id, order, limit, promise_thread(drive, order))}"]
+    if whole:
+        lines.append(f"  parts: {'; '.join(order['parts'])}")
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
-        lines.append(f"  - {job_line(job_id, job)}")
+        lines.append(f"  - {job_line(job_id, job, limit)}")
+        if whole and job["said"]:
+            lines.append(f"    said: {cut(job['said'], WHOLE)}")
         lines.extend(f"    - {question_line(question)}" for question in job["questions"])
         lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
     return lines
@@ -352,8 +360,8 @@ def compact_instructions(drive: dict, role: str) -> str:
     )
 
 
-def status_data(drive: dict, pr_fields: str, seen: dict[str, str]) -> dict:
-    orders = open_orders(drive)
+def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool = False) -> dict:
+    orders = drive["orders"] if named else open_orders(drive)
     job_ids = [job_id for order in orders.values() for job_id in order["jobs"]]
     return {
         "name": drive["name"],
@@ -367,14 +375,15 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str]) -> dict:
     }
 
 
-def status_text(drive: dict, pr_fields: str, seen: dict[str, str]) -> str:
-    orders = open_orders(drive)
-    lines = [
-        f"{drive['name']}: {len(orders)} open of {len(drive['orders'])} orders; PR fields {pr_fields}",
-        *(role_line(drive, role, seen) for role in ROLES),
-    ]
-    for order_id, order in orders.items():
-        lines.extend(order_block(drive, order_id, order, 80))
+def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool = False) -> str:
+    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line."""
+    lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders; PR fields {pr_fields}"]
+    if named:
+        lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))
+        return "\n".join(lines)
+    lines.extend(role_line(drive, role, seen) for role in ROLES)
+    for order_id, order in open_orders(drive).items():
+        lines.extend(order_block(drive, order_id, order, False))
     repros = sorted(
         ((job["updated"], job_id, job) for job_id, job in drive["jobs"].items() if job.get("repro")), reverse=True
     )[:REPROS_SHOWN]
