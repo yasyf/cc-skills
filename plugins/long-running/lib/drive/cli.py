@@ -1109,7 +1109,10 @@ def design_basis(text: str) -> str:
 def his_link(text: str) -> str:
     if state.CARD_LINK.search(text):
         return text
-    raise argparse.ArgumentTypeError("name the Slack permalink of his message or of the card he tapped: a hold or approval the drive gave itself is never his")
+    raise argparse.ArgumentTypeError(
+        "name the Slack permalink of his message or of the card he tapped: a hold or approval the drive gave itself is never his,"
+        " and one recorded as his drops with --no-tapped --why"
+    )
 
 
 def pr_set(args: argparse.Namespace) -> int:
@@ -1133,9 +1136,14 @@ def pr_set(args: argparse.Namespace) -> int:
         )
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
+    if args.no_tapped and not args.why:
+        raise DriveError("--no-tapped needs --why <reason>: why the hold the drive gave itself no longer stands, kept in the drive's events")
     known = state.load(name)
     if key not in known["prs"]:
         raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
+    dropped = known["prs"][key]["tap"]
+    if args.no_tapped:
+        refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
     if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
@@ -1154,6 +1162,11 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.serves:
             served = f"\nserves {args.serves}, his words: {find(data['orders'], args.serves, 'order')['text']}"
         set_pr(pr, args)
+    untapped = ""
+    if args.no_tapped:
+        repo, number = key.split("#")
+        state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why)
+        untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}"
     withdrawn: list[str] = []
     if why := withdrawal(args, view.holding(data, args.waits, view.live_cards(name))):
         try:
@@ -1161,7 +1174,7 @@ def pr_set(args: argparse.Namespace) -> int:
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
         view.refresh_cards(name)
-    line = render.pr_line(key, pr) + served + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
+    line = render.pr_line(key, pr) + served + untapped + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
@@ -1223,6 +1236,8 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.tapped:
         pr["tap"] = {"label": args.tapped, "at": state.stamp(), "head": pr["head"], "source": args.tap_source}
         pr["fundamental"] = None
+    if args.no_tapped:
+        pr["tap"] = None
     pr["waits"] = merged_waits(pr, args)
     pr["updated"] = state.stamp()
 
@@ -1240,6 +1255,29 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
     members = after.get("stack") or [key]
     if reason := card.waiting(known, members) or card.tap_refusal(known, members, card.read_all(members)):
         raise DriveError(f"{key}: {reason}")
+
+
+def refuse_a_tap_of_his(name: str, key: str, tap: dict | None) -> None:
+    """--no-tapped drops only a hold the drive gave itself: an Approve is his, since the drive never approves its own PR, and so is a tap whose source links his message or card, or one he pressed on his card."""
+    if tap is None:
+        raise DriveError(f"{key}: no tap is recorded on it, so --no-tapped has nothing to drop")
+    repo, number = key.split("#")
+    pressed = any(
+        event["kind"] == "tap" and (event["repo"], event["number"], event["label"], event["source"]) == (repo, int(number), tap["label"], tap["source"])
+        for event, _ in state.read_events(name)
+    )
+    if tap["label"] == "Approve":
+        his = "an Approve, which only he gives"
+    elif state.CARD_LINK.search(tap["source"]):
+        his = f"recorded from his words at {tap['source']}"
+    elif pressed:
+        his = "pressed on his card"
+    else:
+        return
+    raise DriveError(
+        f"{key}: its {tap['label']} is his, {his}, and only his own word lifts it: his tap on its card, or his words recorded with"
+        " --tapped <label> --tap-source <their permalink>. --no-tapped drops only a hold the drive gave itself"
+    )
 
 
 def refuse_an_exempt_stop(data: dict, key: str) -> None:
@@ -2024,7 +2062,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design; --no-tap withdraws his open card for it, needs --why"
     )
-    verb.add_argument("--why", help="with --no-tap, the reason his withdrawn card shows")
+    verb.add_argument("--why", help="with --no-tap, the reason his withdrawn card shows; with --no-tapped, why the drive's own hold no longer stands")
     verb.add_argument("--serves", metavar="ORDER", help="the order of his whose words ask for this PR; prints them back")
     verb.add_argument(
         "--design",
@@ -2039,7 +2077,13 @@ def parser() -> argparse.ArgumentParser:
         "--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card"
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
-    verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
+    tapped = verb.add_mutually_exclusive_group()
+    tapped.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
+    tapped.add_argument(
+        "--no-tapped",
+        action="store_true",
+        help="drop a hold the drive recorded itself as his tap, refusing his own; needs --why, kept in the drive's events",
+    )
     verb.add_argument("--tap-source", type=his_link, help="the Slack permalink of his message or of the card he tapped")
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)

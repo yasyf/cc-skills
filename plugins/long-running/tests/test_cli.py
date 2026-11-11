@@ -1943,6 +1943,40 @@ def test_pr_set_tapped_records_only_a_tap_his_permalink_shows(run: Run, with_pr:
     assert state.load("demo")["prs"][with_pr]["tap"]["source"] == link
 
 
+def test_pr_set_no_tapped_drops_a_hold_the_drive_gave_itself_with_its_why(run: Run, with_pr: str) -> None:
+    source = "migrated hold: breaks:a client on an older build cannot read it"
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": "Hold", "at": state.stamp(), "head": "abc", "source": source}
+    assert run("pr", "set", PR, "--no-tapped")[0] == 2
+    assert state.load("demo")["prs"][with_pr]["tap"] is not None
+    code, out = run("pr", "set", PR, "--no-tapped", "--why", "the release carrying its reader is live")
+    assert code == 0
+    assert out.endswith(f"\ndropped the Hold the drive gave itself ({source}): the release carrying its reader is live")
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["tap"], pr["fundamental"]) == (None, None)
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: no tap from him yet")
+    [event] = [event for event, _ in state.read_events("demo") if event["kind"] == "untapped"]
+    assert (event["number"], event["label"], event["source"], event["why"]) == (42, "Hold", source, "the release carrying its reader is live")
+    assert run("pr", "set", PR, "--no-tapped", "--why", "again")[0] == 2
+
+
+@pytest.mark.parametrize(
+    ("label", "source", "pressed"),
+    [
+        ("Hold", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1793895991193029?thread_ts=1793895914.909779", False),
+        ("Hold", "pressed the button", True),
+        ("Approve", "migrated: old drive ledger tap", False),
+    ],
+)
+def test_pr_set_no_tapped_refuses_a_tap_of_his(run: Run, with_pr: str, label: str, source: str, pressed: bool) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": label, "at": state.stamp(), "head": "abc", "source": source}
+    if pressed:
+        state.append_event("demo", "tap", repo="Forge-AI/monorepo", number=42, label=label, head="abc", source=source, action_ts="1.2")
+    assert run("pr", "set", PR, "--no-tapped", "--why", "the drive's hold moved to --waits")[0] == 2
+    assert state.load("demo")["prs"][with_pr]["tap"]["source"] == source
+
+
 def test_pr_set_fundamental_clears_the_tap(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
         data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
