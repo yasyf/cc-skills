@@ -2223,7 +2223,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--interactions", help="each click or step he takes on the result, which its builder walks through and records; needed when --native names a surface")
     verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
-    verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts")
+    verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts; \"none: <why>\" for a job that runs none")
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")
     verb.add_argument("--plan", help="the plan section this implements, quoted")
