@@ -1330,7 +1330,7 @@ def job_report(args: argparse.Namespace) -> int:
 
 def keep_repro(name: str, job_id: str, source: str) -> str:
     path = named_file(source, "reproduction file")
-    kept = state.drive_dir(name) / "repro" / f"{job_id}{path.suffix}"
+    kept = state.repro_path(name, job_id, path.suffix)
     kept.parent.mkdir(exist_ok=True)
     if not kept.exists() or not kept.samefile(path):
         shutil.copyfile(path, kept)
@@ -1475,7 +1475,7 @@ def job_launch(args: argparse.Namespace) -> int:
     root = checkout(data)
     text = named_text(args.brief or job["brief"], "brief file")
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text):
+    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text) or orca.uncarried(name, text):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][args.id]

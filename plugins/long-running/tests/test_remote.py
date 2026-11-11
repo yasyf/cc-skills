@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import json
 import subprocess
@@ -7,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Drawing
+from conftest import Answers, Drawing
 from drive import cli, github, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
@@ -44,6 +45,10 @@ Findings:
 {DESIGN_PICK}
 One copy took 40 minutes on the primary.
 """
+
+
+def kept_ask(drive: str) -> Path:
+    return state.drive_dir(drive) / "asks" / f"j1-{hashlib.sha256(ASK_IN_SHAPE.encode()).hexdigest()[:8]}.md"
 
 
 def message(kind: str, text: str, **overrides: str | None) -> dict:
@@ -230,20 +235,59 @@ def test_launch_clones_from_the_drives_recorded_checkout_whatever_folder_it_runs
     assert run("job", "launch", "j1", "brief.md")[0] == 0
     assert checkouts == [tmp_path.resolve()]
 
-def test_a_sprite_brief_carries_each_report_its_researched_and_plan_lines_name(demo: str) -> None:
-    reports = state.report_path(demo, "j7").parent
-    reports.mkdir(parents=True, exist_ok=True)
-    state.report_path(demo, "j7").write_text("DONE the reader's findings\nexists: lib/thing.py\n")
-    state.report_path(demo, "j8").write_text("DESIGN the whole design\n")
-    state.report_path(demo, "j9").write_text("DONE a job the brief only lists as a transcript\n")
-    text = "Order (his words): ship it\nResearched: j7\nPlan: Design j8, whole: reports/j8.md (drive job report j8)\nPlan: j404 kept none\nTranscripts:\n- j9 reader: x.jsonl"
-    composed = orca.vm_brief(demo, "j1", text, None)
-    assert "# Report of j7, which your brief names\n\nDONE the reader's findings\nexists: lib/thing.py\n" in composed
-    assert "# Report of j8, which your brief names\n\nDESIGN the whole design\n" in composed
-    assert "j404" not in composed.split("# Brief")[0]
-    assert "a job the brief only lists" not in composed
-    assert composed.count("# Report of j8") == 1
+
+def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_kept_only_in_the_drive_included(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    folder = state.drive_dir(demo)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    for goal in ("research it", "design it", "list it"):
+        run("job", "add", "reader", "--order", "o1", "--goal", goal)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["report"] = "DESIGN the whole design\n"
+    files = {
+        state.report_path(demo, "j1"): "DONE the reader's findings\nexists: lib/thing.py\n",
+        state.report_path(demo, "j3"): "DONE a job the brief only lists as a transcript\n",
+        folder / "asks" / "j2-0c1d2e3f.md": "ASK Which store?\n",
+        state.repro_path(demo, "j1", ".sh"): "exit 1\n",
+        folder / "scratch" / "j1" / "notes.md": "the notes\n",
+    }
+    for path, text in files.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    (folder / "scratch" / "j4").mkdir()
+    text = (
+        "Order (his words): ship it\nResearched: j1\nPlan: Design j2, whole: reports/j2.md (drive job report j2)\n"
+        f"Done when: j3 asked for `{folder}/asks/j2-0c1d2e3f.md` and repro/j1.sh, then ~/{folder.relative_to(folder.parents[1])}/scratch/j1/notes.md.\n"
+        "Elsewhere: /other/long-running/other/asks/j9-1a2b3c4d.md\n"
+        f"Scratch: {folder}/scratch/j4\nTranscripts:\n- j3 reader: x.jsonl"
+    )
+    monkeypatch.setattr(Path, "home", lambda: folder.parents[1])
+    composed = orca.vm_brief(demo, "j5", text, None)
+    assert "# Report of j1, which your brief names\n\nDONE the reader's findings\nexists: lib/thing.py\n" in composed
+    assert "# Report of j2, which your brief names\n\nDESIGN the whole design\n" in composed
+    assert "# Drive file asks/j2-0c1d2e3f.md, which your brief names\n\nASK Which store?\n" in composed
+    assert "# Drive file repro/j1.sh, which your brief names\n\nexit 1\n" in composed
+    assert "# Drive file scratch/j1/notes.md, which your brief names\n\nthe notes\n" in composed
+    carried = composed.split(orca.BRIEF_HEADING)[0]
+    assert (carried.count("# Report of j2"), carried.count("# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 3, False, False)
+    assert orca.uncarried(demo, text) is None
     assert orca.brief_of(composed) == text
+
+
+def test_launch_refuses_a_brief_naming_a_drive_file_the_drive_keeps_no_text_of_and_stamps_nothing(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    asked = state.drive_dir(demo) / "asks" / "j1290-702505b0.md"
+    (tmp_path / "brief.md").write_text(f"Order (his words): ship it\nPlan: j404 kept the plan\nDone when: his card in {asked} draws\nDrive: demo, order o1, job j1\n")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    before = state.load(demo)["jobs"]["j1"]
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    refusal = capsys.readouterr().err
+    assert refusal.startswith("drive: j1: refused, not launched: its brief names Report of j404; Drive file asks/j1290-702505b0.md, which the drive keeps no text of")
+    assert state.load(demo)["jobs"]["j1"] == before
 
 
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
@@ -851,8 +895,7 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     deliver(monkeypatch, [message("question", sent)])
     monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    kept = f"; {watch.UNKEPT_ASK.format(job='j1')}" if sent is ASK_IN_SHAPE else ""
-    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent.splitlines()[0]}{kept}"]
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 ASK {kept_ask(remote)}" if sent is ASK_IN_SHAPE else f"JOB j1 o1 {sent.splitlines()[0]}"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
     assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
@@ -1083,16 +1126,45 @@ def test_an_ask_out_of_shape_goes_back_to_its_lane_with_every_fix_and_never_wake
     assert len([args for args in replies if args[0] == "reply"]) == 1
 
 
-def test_an_ask_in_shape_wakes_the_coordinator_once_its_card_draws(remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing) -> None:
+def test_an_ask_in_shape_is_kept_in_the_drive_as_drive_job_ask_keeps_one_and_wakes_the_coordinator_with_its_file(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
+) -> None:
     deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="msg_ask")])
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}"]
-    assert [card["waits"] for card in drawing.cards] == [f"{remote}:j1-0"]
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 ASK {kept_ask(remote)}"]
+    assert kept_ask(remote).read_text() == ASK_IN_SHAPE
+    assert {card["waits"] for card in drawing.cards} == {f"{remote}:j1-0"}
     assert replies == []
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["ask"], job["state"], job["report"]) == ("msg_ask", "waiting", ASK_IN_SHAPE)
+    assert (job["ask"], job["state"], job["said"], job["report"]) == ("msg_ask", "waiting", "Where should the nightly store copy run?", ASK_IN_SHAPE)
+    assert [(question["file"], question["title"]) for question in job["questions"]] == [(str(kept_ask(remote)), "Where should the nightly store copy run?")]
+
+
+def test_an_ask_his_recorded_answer_may_settle_goes_to_the_coordinator_unkept_with_the_refusal(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing, recorded: Answers
+) -> None:
+    recorded.found = [{"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "Owner Nov 9: run the nightly store copy on the primary"}]
+    deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="msg_ask")])
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    [line] = watch.run_pass(watching, T0)
+    assert line.startswith("JOB j1 o1 ASK Where should the nightly store copy run?; `drive job ask j1` refused to keep it: ")
+    assert "- ac61348 Owner Nov 9: run the nightly store copy on the primary" in line
+    assert not kept_ask(remote).exists()
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["questions"]) == ("msg_ask", "waiting", [])
+
+
+def test_a_lane_reports_repro_file_is_kept_in_the_drive_as_drive_job_set_repro_keeps_one(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    report = "DONE reproduced and fixed\nREPRO: /home/sprite/scratch/j1/repro.sh, the steps in order\n\n```sh\nset -e\ndrive job launch j9 brief.md\n```\nCHECK: https://example.com/run/1\n"
+    deliver(monkeypatch, [message("worker_done", report)])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.lane_lines(watching, T0) == ["JOB j1 o1 DONE reproduced and fixed"]
+    kept = state.repro_path(remote, "j1", ".sh")
+    assert kept.read_text() == "set -e\ndrive job launch j9 brief.md\n"
+    assert state.load(remote)["jobs"]["j1"]["repro"] == str(kept)
 
 
 def test_an_ask_cc_slack_cannot_check_goes_on_to_the_coordinator_and_says_so_from_the_third_failure(
@@ -1182,7 +1254,7 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.lane_lines(watching, T0) == [f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}", "JOB j1 o1 WAITING CI on the fix"]
+    assert watch.lane_lines(watching, T0) == [f"JOB j1 o1 ASK {kept_ask(remote)}", "JOB j1 o1 WAITING CI on the fix"]
     checked = len(drawing.cards)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(mail_seen=0, state="running")

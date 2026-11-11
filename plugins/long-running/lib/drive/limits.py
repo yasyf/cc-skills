@@ -427,7 +427,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
 
 
 def shape(text: str, drive: str, job_id: str, unsettled: str | None = None, hurting: bool = False) -> Question:
-    """The question a job's ASK block puts to him once both of its checks pass: its words, then the card it draws, which cc-slack refuses in its own words. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; only `drive job ask <j>` then checks it against his recorded answers."""
+    """The question a job's ASK block puts to him once both of its checks pass: its words, then the card it draws, which cc-slack refuses in its own words. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; `drive job ask <j>`, which the watch then runs on that ASK, also checks it against his recorded answers."""
     asked = question(text, unsettled=unsettled, hurting=hurting)
     if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")

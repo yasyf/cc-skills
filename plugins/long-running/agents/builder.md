@@ -232,8 +232,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `CARGO_LOCAL=1` and `GO_LOCAL=1`, so the remote-builder shims keep them here, after `mise install`
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - The Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
-  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing; the reports your brief's
-  `Researched:` and `Plan:` lines name come whole above your brief. Read through the
+  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Every drive file your
+  brief names comes whole above your brief: the report of each job its `Researched:` and `Plan:`
+  lines name under `# Report of <job>`, and each file under the drive's `reports/`, `asks/`,
+  `repro/` and `scratch/` folders it names, by its path on the coordinator's Mac or from the drive's
+  folder, under `# Drive file <its path from the drive's folder>`. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
@@ -245,12 +248,14 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 | `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the two after it), then its last characters; a job URL reads that one job. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 
-- No drive's records are here, so skip `drive pr add` and keeping a block with `drive job ask`: your
-  report's `PR:` line carries the PR's link, an `EXEMPT:` line names an exempt class, and a port's
-  `SERVES: port of #N` line names its old PR, and the coordinator registers all three. An `ASK` report
-  is the block itself, in the ASK section's shape, which the coordinator keeps with `drive job ask`.
-  The drive's watch on the coordinator's Mac checks it the moment it arrives, its words and the card
-  cc-slack draws from it, as `drive job ask` does, within about a minute. A reply opening
+- No drive's records are here, so skip `drive pr add`, `drive job set --repro` and keeping a block
+  with `drive job ask`: your report's `PR:` line carries the PR's link, an `EXEMPT:` line names an
+  exempt class, and a port's `SERVES: port of #N` line names its old PR, and the coordinator
+  registers all three. A `REPRO:` line names the file, with its whole text in a fence on the lines
+  under it, which the watch keeps in the drive's `repro/` folder as `drive job set --repro` does. An
+  `ASK` report is the block itself, in the ASK section's shape. The drive's watch on the
+  coordinator's Mac keeps it the moment it arrives, within about a minute, in the drive's `asks/`
+  folder as `drive job ask` does, its words and the card cc-slack draws from it checked. A reply opening
   `ASK refused, fix each line and ask again:` names every fix: apply them all and ask again with the
   whole block. Any other reply is his answer.
 - Report through Orca, never in a final message: `ASK` with
