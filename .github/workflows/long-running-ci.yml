@@ -39,4 +39,5 @@ jobs:
       - name: capt-hook pack test
         env:
           UV_PYTHON: "3.14"
+          LONG_RUNNING_STATE: ${{ github.workspace }}/plugins/long-running/capt-hook/hooks/tests/fixtures/state
         run: uvx --isolated 'capt-hook>=12.121.63' pack test plugins/long-running

@@ -24,6 +24,7 @@ DATA_PASS = re.compile(
     re.IGNORECASE,
 )
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
+DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill or bulk repair over a team's data, rather than building a PR or check named for one."
 LABELS = render.HANDLER_LABELS
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in LABELS)}):")
 
@@ -82,12 +83,12 @@ def builder_refusal(text: str) -> str | None:
     if found is None:
         return None
     job = brief.BRIEF_JOB.search(text)
-    return (
+    return agents.Ruled(
         f"refused: this builder's Goal reads as a pass over a team's data (`{found[0].strip()}`) and its brief has no `Runs as:`"
-        " line; a pass, migration, backfill or bulk repair over a team's data runs as a service account in that team's"
-        " cluster, started from a pipeline or an in-cluster schedule, never under a person's sign-in: write the brief again"
-        f" with drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\", or --runs-as"
-        " \"none: <why>\" when the job runs no pass"
+        " line; a pass runs in the team's cluster, never as a person:"
+        f" `drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\"`, or"
+        " `--runs-as \"none: <why>\"` when the job runs no pass",
+        DATA_PASS_RULE,
     )
 
 
@@ -163,7 +164,7 @@ def heavier(payload: dict) -> dict | None:
 def main() -> None:
     payload = json.load(sys.stdin)
     if reason := deny_reason(payload):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}} | agents.ruled(reason)))
     elif made := heavier(payload):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 

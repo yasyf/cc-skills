@@ -99,6 +99,8 @@ def test_a_handlers_line_opens_with_what_it_did_never_a_message_to_him(communica
     assert reason.startswith("Refused on purpose: a handler's line opens with what it did, `POSTED <permalink>` for each post, `RECORDED <seq>`")
     assert one_line_result.block_reason(agent_stop("RECORDED 662062; RECORDED 662063; card j810-661541 closed with his words", tmp_path, **HANDLER)) is None
     assert one_line_result.block_reason(agent_stop("DEFECT say: refused; a ; in its refusal", tmp_path, **HANDLER)) is None
+    nothing = "NOTHING for 662342: the card is already the newest message in thread 1794387242.405329"
+    assert one_line_result.block_reason(agent_stop(nothing, tmp_path, **HANDLER)) is None
 
 
 def test_an_ordinary_subagent_in_the_communicators_session_is_no_handler(communicator: str, tmp_path: Path) -> None:

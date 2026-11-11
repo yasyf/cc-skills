@@ -8,17 +8,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import install, orca, state
 from drive.orca import OrcaError
-from drive.shell import parts, runnable, simple_commands
+from drive.shell import runnable, simple_commands
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
 BUILDER = "long-running:builder"
-HANDLER = "long-running:handler"
 SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
 VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
-CHAINS = {";", "&&", "||", "&", "(", ")"}
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
 
@@ -82,7 +80,8 @@ def bare_pr(found: list[list[str]]) -> str | None:
 def cached_page(text: str) -> str | None:
     if not (cached := CACHED_PAGE.search(text)):
         return None
-    current = install.installed(f"long-running@{cached[1]}")["version"]
+    if (current := install.installed(f"long-running@{cached[1]}")["version"]) == cached[2]:
+        return None
     return (
         f"refused: this reads the skill's pages from long-running {cached[2]}'s copy in Claude Code's plugin cache, and"
         f" {current} is installed now; a cached copy goes stale with each install. Read a page's rows with"
@@ -96,17 +95,6 @@ def background_resume(found: list[list[str]]) -> str | None:
     return (
         "refused: `drive job resume` runs in the foreground with `timeout: 20000`, because a send returns in about 5"
         " seconds and a relaunch backgrounds itself at 20; run it again without run_in_background"
-    )
-
-
-def chained(text: str) -> str | None:
-    joint = next((part for operator, part in parts(text) if operator and part in CHAINS), None)
-    if joint is None:
-        return None
-    return (
-        f"refused: a handler keeps each Bash call one plain pipeline, and this one chains steps with `{joint}`, since a"
-        " permission prompt in a terminal nobody watches stalls you; put the steps in a script under your brief's"
-        " `Scratch:` folder and run that"
     )
 
 
@@ -188,7 +176,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a cached skill page, `drive job resume` runs in the background, a handler chains steps, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -205,7 +193,6 @@ def deny_reason(payload: dict) -> str | None:
         lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
         lambda: background_resume(found) if call.get("run_in_background") else None,
-        lambda: chained(text) if kind == HANDLER else None,
         lambda: shell_after_claude(scripts),
         lambda: live_resume(found + [words for inner in scripts for words in inner]),
         lambda: mid_incident(found),

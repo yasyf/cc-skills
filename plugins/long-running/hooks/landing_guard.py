@@ -84,9 +84,7 @@ COORDINATOR_WORK = (
     ("cargo", "build"),
     ("cargo", "test"),
     ("make",),
-    ("orca",),
 )
-TRANSCRIPT_READ = ("orca", "orchestration", "worker-read")
 RELEASE_CUTS = frozenset({"start", "approve", "rollback"})
 PLAN_ONLY = frozenset({"--plan", "--dry-run"})
 
@@ -477,12 +475,10 @@ def script_reason(script: str, shell: Shell) -> str | None:
 
 
 def own_work(script: str, shell: Shell) -> str | None:
-    """The first step of a script that is an order's work, not a coordinator's own call: a loop, a build, a ship, commit or push, or an `orca` call other than a transcript read."""
-    for segment, words, _ in commands(script, shell):
-        if segment[0] in LOOPS:
-            return segment[0]
+    """The first step of a script that is an order's work, not a coordinator's own call: a build, a ship, a commit or a push."""
+    for _, words, _ in commands(script, shell):
         called = (Path(words[0]).name, *words[1:])
-        if called[:3] != TRANSCRIPT_READ and any(called[: len(work)] == work for work in COORDINATOR_WORK):
+        if any(called[: len(work)] == work for work in COORDINATOR_WORK):
             return " ".join(called[:3])
     return None
 

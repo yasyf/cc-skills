@@ -65,12 +65,9 @@ def test_a_drive_session_reads_no_skill_page_from_the_plugin_cache(demo: str) ->
     assert bash_guard.deny_reason(read).startswith("refused: this reads the skill's pages")
     assert bash_guard.deny_reason(bash('drive manual coordinator "TAP Approve"')) is None
     assert bash_guard.deny_reason(bash(f"wc -l {CACHED}/*.md", session="elsewhere")) is None
-
-
-def test_a_drive_session_runs_any_drive_verb_in_bash(demo: str) -> None:
-    assert bash_guard.deny_reason(bash('drive job set j3 --said "x"')) is None
-    assert bash_guard.deny_reason(bash("drive status o1")) is None
-    assert bash_guard.deny_reason(bash("drive heard --ts 1.2")) is None
+    installed = CACHED.replace("1.0.1", "1.0.181")
+    assert bash_guard.deny_reason(bash(f"grep -n Handoff {installed}/landing.md")) is None
+    assert bash_guard.deny_reason(bash(f"cat > /s/read.py <<'EOF'\nopen('{installed}/coordinator.md')\nEOF")) is None
 
 
 def test_a_session_outside_any_drive_and_its_agents_are_not_checked(demo: str) -> None:
@@ -85,18 +82,6 @@ def test_drive_job_resume_runs_in_the_foreground(demo: str) -> None:
     reason = bash_guard.deny_reason(bash('drive job resume j3 "go"', call={"run_in_background": True}))
     assert reason.startswith("refused: `drive job resume` runs in the foreground with `timeout: 20000`")
     assert bash_guard.deny_reason(bash('drive job resume j3 "go"', call={"timeout": 20000})) is None
-
-
-def test_a_handler_keeps_each_bash_call_one_plain_pipeline(demo: str) -> None:
-    handler = {"agent_id": "a-1", "agent_type": "long-running:handler"}
-    reason = bash_guard.deny_reason(bash("a=$(cci show 1); for s in 1 2; do cci show $s; done", **handler))
-    assert reason.startswith("refused: a handler keeps each Bash call one plain pipeline, and this one chains steps with `(`")
-    assert "`Scratch:` folder" in reason
-    assert "`&&`" in bash_guard.deny_reason(bash("cd /work && cci show 1", **handler))
-    assert bash_guard.deny_reason(bash("cci show 661229 --json", **handler)) is None
-    assert bash_guard.deny_reason(bash("cci show 661229 --json | jq -r .text", **handler)) is None
-    assert bash_guard.deny_reason(bash("drive job report j3 - <<'EOF'\nDONE it ran; (twice)\nEOF", **handler)) is None
-    assert bash_guard.deny_reason(bash("a=$(cci show 1); cci show $a")) is None
 
 
 def test_a_session_is_resumed_only_once_its_process_exits(demo: str, config: Path, monkeypatch: pytest.MonkeyPatch) -> None:

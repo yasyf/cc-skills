@@ -44,12 +44,12 @@ def approve(key: str) -> None:
     ("command", "step"),
     [
         ('ccx vcs ship -m "Fix: x"', "ccx vcs ship"),
-        ("for j in j1 j2; do drive job end $j; done", "for"),
-        ("cd /work && orca terminal close --terminal term_9ef3a5e3", "orca terminal close"),
+        ("git commit -am x", "git commit -am"),
+        ("for lane in a b; do git push origin $lane; done", "git push origin"),
         ("bash -c 'go build ./...'", "go build ./..."),
     ],
 )
-def test_the_coordinators_own_ship_loop_orca_or_build_call_is_refused_naming_a_job(demo: str, no_calls: None, command: str, step: str) -> None:
+def test_the_coordinators_own_ship_commit_or_build_call_is_refused_naming_a_job(demo: str, no_calls: None, command: str, step: str) -> None:
     reason = landing_guard.deny_reason(bash(command, session_id=SESSION))
     assert reason == landing_guard.COORDINATOR_STEP.format(step=step)
     assert "Start a job with this step" in reason
@@ -59,9 +59,16 @@ def test_the_coordinators_own_ship_loop_orca_or_build_call_is_refused_naming_a_j
 
 @pytest.mark.parametrize(
     "command",
-    ["drive status o288", "orca orchestration worker-read --dispatch d1 --limit 50 --full --json", "cci show 661229 --json"],
+    [
+        "drive status o288",
+        "orca orchestration worker-read --dispatch d1 --limit 50 --full --json",
+        "cci show 661229 --json",
+        "for j in j855 j966 j641; do drive job replies $j --drive demo | tail -5; done",
+        "orca orchestration check --help",
+        'orca orchestration send --to dispatch:ctx_7ac497ba6e6c --type status --subject "His answer" --body "Land it"',
+    ],
 )
-def test_the_coordinators_reads_pass(demo: str, no_calls: None, command: str) -> None:
+def test_the_coordinators_reads_loops_and_orca_calls_pass(demo: str, no_calls: None, command: str) -> None:
     assert landing_guard.deny_reason(bash(command, session_id=SESSION)) is None
 
 

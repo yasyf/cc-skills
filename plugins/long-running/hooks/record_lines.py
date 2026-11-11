@@ -31,6 +31,7 @@ SECOND_REPORT = (
     " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
     " does not fit waits for the next wake"
 )
+SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's that repeats what its first report there already sent, rather than news that came in since."
 TAP_ASKED = re.compile(r"\btap (?:Approve|Hold)\b|\b(?:needs?|waits? (?:on|for)) (?:your|his|a) tap\b", re.IGNORECASE)
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
@@ -121,8 +122,6 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
     yield None if OPENING.match(text) else UNOPENED
     yield THREADED_CATCH_UP if thread and (attrs(record).get("catch_up") or CATCH_UP.search(text)) else None
     yield off_thread(drive, record)
-    if text.startswith("POST") and (long := limits.post_refusal({"text": OPENING.sub("", text, count=1).lstrip()})):
-        yield f"refused: a POST report's facts become one post, so they keep its length: {long.removeprefix('refused: ')}"
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
     if thread and role == "coordinator" and not payload.get("agent_id"):
@@ -169,7 +168,7 @@ def report_threads(tool_input: dict) -> set[str]:
 def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:
     """Why the coordinator's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
     if thread in report_threads({"records": records[:index]}):
-        return SECOND_REPORT.format(thread=thread)
+        return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
     sent: dict[str, set[str]] = {}
     posted: set[str] = set()
     for row in tail(transcript_of(payload)):
@@ -180,7 +179,7 @@ def second_report(payload: dict, records: list[dict], index: int, thread: str) -
                 sent[part["id"]] = report_threads(part.get("input") or {})
             elif part.get("type") == "tool_result" and part.get("tool_use_id") in sent and not part.get("is_error"):
                 posted.add(part["tool_use_id"])
-    return SECOND_REPORT.format(thread=thread) if any(thread in sent[call] for call in posted) else None
+    return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE) if any(thread in sent[call] for call in posted) else None
 
 
 def unread_job(payload: dict, text: str) -> str | None:
@@ -244,7 +243,7 @@ def decision(payload: dict) -> dict | None:
 
 def main() -> None:
     if made := decision(json.load(sys.stdin)):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", **made}}))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", **made}} | agents.ruled(made.get("permissionDecisionReason") or "")))
 
 
 if __name__ == "__main__":
