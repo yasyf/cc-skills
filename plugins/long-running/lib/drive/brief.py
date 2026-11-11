@@ -35,7 +35,7 @@ LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
-DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Fork:", "Facts:")
+DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Change:", "Fork:", "Facts:")
 UNDESIGNED = ("HANDOFF", "BLOCKED")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
 
@@ -209,7 +209,13 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         return (
             "a design lane's report is the design in its shape, which the coordinator reads for its forks, and this one"
             f" lacks {', '.join(missing)}: DESIGN <the part, in a few words>, then Root cause: (the structure that lets the"
-            " defect happen, or none: <why no defect is behind it>), Settled:, Native:, a Fork: line per fork and Facts:"
+            " defect happen, or none: <why no defect is behind it>), Settled:, Native:, a Change: line per PR its builders"
+            " open, a Fork: line per fork and Facts:"
+        )
+    if job["kind"] == "design" and opening == "DESIGN" and (stray := unlisted_waits(text)):
+        return (
+            f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on an earlier change'
+            " of its list, as (waits on change <its number, counting Change: lines from 1>)"
         )
     if job["kind"] == "reader" and (refused := reader_refusal(job_id, job, order, text, lines)):
         return refused
@@ -265,6 +271,12 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
 def design_missing(lines: list[str]) -> list[str]:
     missing = [] if DESIGN_PART.match(lines[0]) else ["a first line DESIGN <the part>"]
     return missing + [f"a {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
+
+
+def unlisted_waits(text: str) -> str | None:
+    """The first Change: line waiting on a change that is not an earlier one of the list."""
+    found = list(state.CHANGE_LINE.finditer(text))
+    return next((line[0] for number, line in enumerate(found, start=1) if line["after"] and not 1 <= int(line["after"]) < number), None)
 
 
 def limit_finding(lines: list[str]) -> str | None:

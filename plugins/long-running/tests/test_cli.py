@@ -41,13 +41,18 @@ ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs,
 DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
     "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + ROOT_CAUSE
 )
-DESIGNED = """DESIGN the store copy
+DESIGNED = f"""DESIGN the store copy
 Design: one copy per store, in the order the stores list
-Settled: "copy one store"
+{ROOT_CAUSE}Settled: "copy one store"
 Native: none: he never sees it
+Change: copy each store in list order
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
 """
+STACKED = DESIGNED.replace(
+    "Change: copy each store in list order\n",
+    "Change: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n",
+)
 FINDINGS_FIRST = """ASK Two design picks for the new run page: how a run's files are laid out, and what the runner keeps.
 
 Findings:
@@ -2153,7 +2158,8 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert code == 2
     assert (
         "j1: refused, nothing kept: a design lane's report is the design in its shape, which the coordinator reads for its"
-        " forks, and this one lacks a first line DESIGN <the part>, a Settled: line, a Native: line, a Fork: line, a Facts: line"
+        " forks, and this one lacks a first line DESIGN <the part>, a Root cause: line, a Settled: line, a Native: line, a Change: line,"
+        " a Fork: line, a Facts: line"
     ) in err
     assert "this one lacks a Fork: line: DESIGN <the part" in keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits\n", ""))[1]
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
@@ -2164,6 +2170,24 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert keep(monkeypatch, capsys, "j3", "BLOCKED the store list is unreadable\n") == (0, "")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j2"]["state"], jobs["j3"]["state"]) == ("stopped", "failed")
+
+
+def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_the_earlier_change_its_line_names(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    code, err = keep(monkeypatch, capsys, "j1", STACKED.replace("(waits on change 2)", "(waits on change 3)"))
+    assert code == 2
+    assert 'its Change: line "Change: the writes through it (waits on change 3)" waits on a change its list does not hold' in err
+    assert keep(monkeypatch, capsys, "j1", STACKED) == (0, "")
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert {part: (held["design"], held["after"]) for part, held in parts.items()} == {
+        "copy one store": (None, None),
+        "the moved-table interface": ("j1", None),
+        "the reads through it": ("j1", None),
+        "the writes through it": ("j1", "the reads through it"),
+    }
 
 
 def test_a_research_readers_report_carries_its_filled_researched_block(
@@ -3342,7 +3366,7 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
     assert run("order", "posted", "o1", answer, "--record", "661300")[0] == 0
     run("order", "set", "o1", "--parts", "why", "what")
     parts = state.load("demo")["orders"]["o1"]["parts"]
-    assert parts == {"why": {"posted": answer, "orphan_said": None}, "what": state.new_part()}
+    assert parts == {"why": state.new_part() | {"posted": answer}, "what": state.new_part()}
 
 
 def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
@@ -3747,6 +3771,19 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "fix": posted {line}')
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
+
+
+def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_already_answered_it(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
+    answered = slack_thread.post(state.now(), from_claude=True)
+    his = slack_thread.post(state.now() + timedelta(seconds=1))
+    assert cli.main(["order", "posted", "o1", his, "--part", "cause"]) == 2
+    assert f"{his} is not the drive's post" in capsys.readouterr().err
+    assert run("order", "posted", "o1", answered, "--part", "cause") == (0, f'o1 "cause": posted {answered}, the post that answered it')
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert (parts["cause"]["posted"], parts["fix"]["posted"]) == (answered, None)
 
 
 def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handler_wrote_from_the_communicators_lane(

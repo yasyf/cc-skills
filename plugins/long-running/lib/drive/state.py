@@ -21,6 +21,7 @@ IMMEDIATE_FIX = "immediate fix"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
+CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on change (?P<after>\d+)\))?[ \t]*$", re.MULTILINE)
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
@@ -277,6 +278,9 @@ def load(name: str) -> dict:
         order.setdefault("reporter", None)
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
+        for part in order["parts"].values():
+            part.setdefault("design", None)
+            part.setdefault("after", None)
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job.setdefault("carries", {})
@@ -288,6 +292,7 @@ def load(name: str) -> dict:
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
         job.setdefault("checks", {})
+        job.setdefault("undelivered", [])
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
             job["ask"] = None
         if job.get("ask"):
@@ -451,13 +456,29 @@ def take_result(data: dict, job_id: str, line: str) -> None:
                 design.update(state="done", said=f"built by {job_id}: {line}", updated=job["updated"])
 
 
+def add_changes(data: dict, job_id: str, report: str) -> None:
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order, naming the design and the earlier change it waits on, so the watch says ORPHAN for a change no builder carries; a design of one change is its own part."""
+    job = data["jobs"][job_id]
+    found = [(whole_order(line["change"]), line["after"]) for line in CHANGE_LINE.finditer(report)]
+    if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or len(found) < 2:
+        return
+    order = data["orders"][job["order"]]
+    for change, after in found:
+        order["parts"].setdefault(change, new_part(job_id, found[int(after) - 1][0] if after else None))
+    order["updated"] = stamp()
+
+
 def design_builder(data: dict, design_id: str) -> str | None:
-    """The builder carrying a design job's parts on its order, the one that returned DONE first, else one still at work, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
+    """The builder carrying a design job's parts, or a change its DESIGN listed, on its order, the one that returned DONE first, else one still at work, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
     design = data["jobs"][design_id]
+    changes = {part for part, held in data["orders"][design["order"]]["parts"].items() if held["design"] == design_id}
     builders = [
         (job["state"] != "done", job_id)
         for job_id, job in data["jobs"].items()
-        if job["kind"] == "builder" and job["order"] == design["order"] and job["state"] not in ("failed", "stopped") and set(design["parts"]) <= set(job["parts"])
+        if job["kind"] == "builder"
+        and job["order"] == design["order"]
+        and job["state"] not in ("failed", "stopped")
+        and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
     ]
     return min(builders)[1] if design["kind"] == "design" and builders else None
 
@@ -546,8 +567,8 @@ def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
 
 
-def new_part() -> dict:
-    return {"posted": None, "orphan_said": None}
+def new_part(design: str | None = None, after: str | None = None) -> dict:
+    return {"posted": None, "orphan_said": None, "design": design, "after": after}
 
 
 def reporter(link: str) -> dict:
@@ -587,6 +608,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "waiting_said": [],
         "waiting_claims": {},
         "mail_seen": 0,
+        "undelivered": [],
         "state": "running",
         "said": None,
         "may_settle": None,
@@ -739,13 +761,19 @@ def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
     """The cci lane of the session a communicator's owner, answer, posted or refused record serves: the meta session's for an order it holds, else the coordinator session hearing the order of the job its attr job or waits id names, else of the newest order in its thread; None for another kind, or a record naming neither."""
     if kind not in ROUTED_KINDS:
         return None
-    named = WAITS_ID.fullmatch(attrs.get("waits") or "")
-    job = data["jobs"].get(attrs.get("job") or (named[2] if named and named[1] == data["name"] else ""))
+    job = data["jobs"].get(named_job(data, attrs))
     order_id = job["order"] if job else thread_order(data, attrs.get("thread"))
     if order_id is None:
         return None
     order = data["orders"][order_id]
     return "meta" if order["owner"] == "meta" else order_lane(data, order)
+
+
+def named_job(data: dict, attrs: dict) -> str | None:
+    """The job of this drive a record's attr job or waits id names."""
+    named = WAITS_ID.fullmatch(attrs.get("waits") or "")
+    job_id = attrs.get("job") or (named[2] if named and named[1] == data["name"] else None)
+    return job_id if job_id in data["jobs"] else None
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:

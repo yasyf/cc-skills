@@ -368,8 +368,9 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a live lane is never relaunched"))
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(ask="msg_q1", state="waiting")
+        data["jobs"]["j1"].update(ask="msg_q1", state="waiting", undelivered=[{"seq": "#61", "words": "Approve", "at": state.stamp(), "said": None}])
     assert run("job", "resume", "j1", "TAP Approve")[0] == 0
+    assert state.load(remote)["jobs"]["j1"]["undelivered"] == []
     assert run("job", "resume", "j1", "PR checks failed")[0] == 0
     assert calls == [
         ("run-use", "--id", RUN),

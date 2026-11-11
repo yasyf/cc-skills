@@ -288,6 +288,17 @@ def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...
     return answered
 
 
+def test_his_answer_waits_on_each_job_it_answers_until_that_job_resumes(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n#62\n", ""))
+    open_cards(monkeypatch, "demo:j1-7")
+    answers = [{"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}, {"kind": "answer", "text": "Ring", "waits": "demo:j1-8", "undone": True}]
+    tools.run("record", demo, {"records": answers})
+    [kept] = state.load(demo)["jobs"]["j1"]["undelivered"]
+    assert (kept["seq"], kept["words"], kept["said"]) == ("#61", "the lazy copy, no sweeper", None)
+
+
 def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[list[dict]] = []
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#51\n", ""))
