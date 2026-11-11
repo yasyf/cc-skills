@@ -31,7 +31,9 @@ BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
 BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
 MARKUP = re.compile(r"\x1b_[^\x07]*\x07|\x1b\[[0-9;]*[A-Za-z]|\r")
-FAILURE = re.compile(r"^\s*(?:--- FAIL: |FAIL\s|\S+_test\.go:\d+: |[✖✕●] )|panicked at |error TS\d+")
+FAILURE = re.compile(r"--- FAIL: |^\s*(?:FAIL\s|[✖✕●] )|panicked at |error TS\d+")
+GO_FAIL = re.compile(r"--- FAIL: (\S+)")
+GO_START = re.compile(r"=== (?:RUN|CONT|NAME)\s+(\S+)")
 FAILURE_AFTER = 2
 COMMAND_START = "~~~ Running commands"
 COMMAND_END = "~~~ Running repository post-command hook"
@@ -117,32 +119,49 @@ def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path, bu
 
 
 def excerpt(log: str, limit: int) -> str:
-    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines first and its last characters in what they leave."""
+    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines, then each failure's own output in an even share of what they leave, then its last characters in the rest."""
     output = MARKUP.sub("", log).split(COMMAND_START, 1)[-1].split(COMMAND_END, 1)[0].strip()
     if len(output) <= limit:
         return output
-    hits, failures = failure_lines(output)
-    if len(failures) >= limit:
-        return f"[first {limit} of {len(failures)} characters of the failure lines, {hits} matched]\n{failures[:limit]}"
-    found = f"[failure lines first, {hits} matched, each with the {FAILURE_AFTER} lines after it]\n{failures}" if hits else "[no failure lines matched]"
-    rest = limit - len(failures)
-    return f"{found}\n[last {rest} of {len(output)} characters]\n{output[-rest:]}"
+    found, own = failures(output)
+    if not found:
+        return f"[no failure lines matched]\n[last {limit} of {len(output)} characters]\n{output[-limit:]}"
+    named = "\n".join(found)
+    if len(named) >= limit:
+        return f"[first {limit} of {len(named)} characters of the {len(found)} failure lines]\n{named[:limit]}"
+    share = (limit - len(named)) // len(own)
+    kept = [block[max(len(block) - share, 0) :] for block in own]
+    said = (
+        f"[failure lines, {len(found)} matched]\n{named}\n"
+        f"[each failure's own output: a Go test's lines from its === RUN, else the failure line and the {FAILURE_AFTER} after it,"
+        f" each cut to its last {share} characters]\n"
+        + "\n--\n".join(kept)
+    )
+    rest = limit - len(named) - sum(map(len, kept))
+    return f"{said}\n[last {rest} of {len(output)} characters]\n{output[-rest:]}" if rest else said
 
 
-def failure_lines(output: str) -> tuple[int, str]:
-    """How many of the output's non-blank lines match FAILURE, and those lines with the FAILURE_AFTER lines after each, as grep -A joins them."""
+def failures(output: str) -> tuple[list[str], list[str]]:
+    """The output's non-blank lines that match FAILURE, matched anywhere in a `--- FAIL:` line, and each one's own output, overlapping ones joined: a Go test's lines from its last `=== RUN`, `=== CONT` or `=== NAME` line, else the failure line, through the FAILURE_AFTER lines after it."""
     lines = [line for line in output.splitlines() if line.strip()]
-    spans: list[list[int]] = []
-    hits = 0
+    began: dict[str, int] = {}
+    found: list[str] = []
+    spans: list[tuple[int, int]] = []
     for at, line in enumerate(lines):
+        if test := GO_START.search(line):
+            began[test[1]] = at
         if not FAILURE.search(line):
             continue
-        hits += 1
-        if spans and at <= spans[-1][1] + 1:
-            spans[-1][1] = at + FAILURE_AFTER
+        found.append(line)
+        test = GO_FAIL.search(line)
+        spans.append((began.get(test[1], at) if test else at, at + FAILURE_AFTER))
+    joined: list[list[int]] = []
+    for first, last in sorted(spans):
+        if joined and first <= joined[-1][1] + 1:
+            joined[-1][1] = max(joined[-1][1], last)
         else:
-            spans.append([at, at + FAILURE_AFTER])
-    return hits, "\n--\n".join("\n".join(lines[start : end + 1]) for start, end in spans)
+            joined.append([first, last])
+    return found, ["\n".join(lines[first : last + 1]) for first, last in joined]
 
 
 def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> str:
