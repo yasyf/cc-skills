@@ -1017,6 +1017,8 @@ def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_un
     ) in capsys.readouterr().err
     block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; the copy is held until you pick one."))
     assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; copying is paused pending your approval."))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 0
     block.write_text(bare.replace("Findings:\n", "Findings:\nNext question: none: a pick with nothing held on it\n"))
     assert cli.main(["job", "ask", "--check", str(block)]) == 0
     assert limits.question(bare, kept=True).summary == ["Two ways to copy."]

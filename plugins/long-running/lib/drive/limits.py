@@ -85,14 +85,15 @@ RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 NEXT_QUESTION = re.compile(
-    r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words)|port(?:s|ed)?"
-    r"|next|then|once|meanwhile|held|holds|waits?|waiting|until|blocked)\b",
+    r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
+    r"|next|then|once|meanwhile|held|holds|waits?|waiting|awaits?|awaiting|paused|pending|until|blocked)\b",
     re.IGNORECASE,
 )
 NO_NEXT_QUESTION = re.compile(r"^[ \t]*Next question:[ \t]*none[ \t]*:[ \t]*\S", re.MULTILINE | re.IGNORECASE)
 NEXT_QUESTIONS = "why, did he already decide this, is it a port, what comes after, or why it is held"
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
+QUOTED_LINE = re.compile(rf"^[ \t]*{QUOTE}.*$", re.MULTILINE)
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
 POST_KINDS = rf"{KINDS}|change"
 DRIVE_KINDS = ("PR", "card")
@@ -885,10 +886,11 @@ def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
 
 
 def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
-    """Why a post calls a thing by a word he corrected, which `drive term` keeps beside the proper term his words or the code use; a quote, code and a link's address stay as written, and the proper term holds no stand-in, so "replica" never refuses "S3 replica"."""
+    """Why a post calls a thing by a word he corrected, which `drive term` keeps beside the proper term his words or the code use, in its text, a visual's caption, a link's words or a card; a quote, a `>` quote line, code and a link's address stay as written, and the proper term holds no stand-in, so "replica" never refuses "S3 replica"."""
     card = post.get("card") or {}
-    text = "\n".join([post.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])])
-    for pattern in (FENCED, QUOTED, URL):
+    captions = [visual.get("caption") or "" for visual in post.get("visuals") or []]
+    text = LABELLED.sub(r" \1 ", "\n".join([post.get("text") or "", *captions, card.get("title") or "", card.get("body") or "", *(card.get("options") or [])]))
+    for pattern in (FENCED, QUOTED, QUOTED_LINE, URL):
         text = pattern.sub(" ", text)
     found = [
         f'"{match[0]}" becomes "{term}"'
