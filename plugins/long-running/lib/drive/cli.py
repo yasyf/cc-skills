@@ -1996,7 +1996,7 @@ def pr_land(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name, and the jobs waiting on their orders: refuse until each card and PR is marked standing, superseded or reopened by it and each job sent his words or untouched, settle each superseded or reopened card in place, and close on GitHub an open PR superseded outright; any other card or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name, and the jobs waiting on their orders: refuse until each card and PR is marked standing, superseded or reopened by it and each job sent his words or untouched, settle each superseded card in place, redraw in place each card carrying a reopened PR, and close on GitHub an open PR superseded outright; any other card or PR still asking him may be marked too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -2039,7 +2039,7 @@ def answer(args: argparse.Namespace) -> int:
             f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
         )
     refusals = [
-        superseded.stack_refusal(asked, [key for key, _ in [*args.superseded, *args.reopened]]),
+        superseded.stack_refusal(asked, [key for key, _ in args.superseded]),
         *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
         *(superseded.reopen_refusal(data, key, asked[key], by) for key, by in args.reopened),
         args.others_stand and superseded.others_refusal(args.id, kept, asked, named, data),
@@ -2053,20 +2053,23 @@ def answer(args: argparse.Namespace) -> int:
     try:
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
+            if mark == "reopened":
+                with state.edit(name) as data:
+                    data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
+                    done += superseded.reopen(data, args.id, key, job_id)
+                count = slack.redraw_pr_cards(state.pr_url(key))
+                done.append(f"{key}: {count} open card{'' if count == 1 else 's'} of his carrying it redrawn in place, its row saying his answer reworks it")
+                continue
             if card and card not in cleared:
                 superseded.settle(card, kept)
                 cleared.add(card)
-            if mark == "superseded" and superseded.stops_open_pr(data, key, job_id):
+            if superseded.stops_open_pr(data, key, job_id):
                 superseded.close(key)
             with state.edit(name) as data:
                 if card:
                     done.append(f"{key}: its card {card} now shows his words and a link to them, with no buttons")
-                if mark == "reopened":
-                    data["answers"][args.id]["cards"][key] = {"mark": mark, "job": job_id, "card": card}
-                    done += superseded.reopen(data, args.id, key, job_id)
-                else:
-                    data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
-                    done += [*([] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
+                data["answers"][args.id]["cards"][key] = {"mark": mark, "job": asked[key]["job"], "into": job_id, "card": card}
+                done += [*([] if card else [f"{key}: no card was drawn for it"]), *superseded.supersede(data, args.id, key, asked[key], job_id)]
     finally:
         if args.superseded or args.reopened:
             view.refresh_cards(name)
@@ -3005,8 +3008,10 @@ def parser() -> argparse.ArgumentParser:
             " job waiting on one of their orders, and exits 2. Each later call marks them: --stands for one this answer"
             " leaves as it is, --superseded for one it replaces, which settles its card in place showing his words and a"
             " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
-            " folds what the job carries into the live job named, and --reopened for a PR his words change, which settles"
-            " its card the same way, drops its tap ask, and names the live job that reworks it; --sent for a waiting job"
+            " folds what the job carries into the live job named, and --reopened for a PR his words change, which drops his"
+            " tap on it, marks it not ready with his words until a reader's READY passes the rework, redraws each open card"
+            " carrying it in place, a stack card's Approve and Hold kept for its other PRs, and names the live job that"
+            " reworks it; --sent for a waiting job"
             " SendMessage gave his words verbatim, and --untouched for one they leave as it is. --others-stand marks the"
             " cards and PRs left standing only while a few are left. It exits 2, listing the rest, until every one is"
             " marked; the watch says ANSWER every 10 minutes while a card or PR is not."
@@ -3039,7 +3044,7 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=reopened_mark,
         metavar="KEY=JOB",
-        help="a PR his answer changes: its card settled in place, its tap ask dropped, and the live job named reworks it to his words",
+        help="a PR his answer changes: his tap on it dropped, marked not ready with his words until a reader's READY passes the rework, its cards redrawn in place, and the live job named reworks it to his words",
     )
     verb.add_argument(
         "--others-stand",
