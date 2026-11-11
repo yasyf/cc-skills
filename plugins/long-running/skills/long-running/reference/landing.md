@@ -130,7 +130,7 @@ line for line, with that PR's tests, and nothing more; the coordinator reads it 
 records it with `drive pr set <url> --port-of <N>`. **Test-only**: only test and fixture files.
 **CI-only**: only CI configuration and CI tooling. **Flake fix**: the whole change fixes one named
 flaking test, in test or fixture code, and adds no timeout. **Incident fix**: the root fix an incident's order
-ships, by [incidents.md](incidents.md), never a revert, which waits for his tap. Record any other class with `drive pr set <url> --exempt
+ships, by [incidents.md](incidents.md), never a revert, which waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it reverts a change. Record any other class with `drive pr set <url> --exempt
 "<class>"` and clear it with `--no-exempt`; the landing guard reads it. Anything else waits for his tap.
 
 **His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle.

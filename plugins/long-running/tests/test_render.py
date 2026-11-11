@@ -166,8 +166,8 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",
-        "    - yasyf/cc-skills#9 open, checks pass, review none, wants tap",
-        "    - yasyf/cc-skills#11 open, checks pass, review none, wants tap",
+        '    - yasyf/cc-skills#9 "New: drive" open, checks pass, review none, wants tap',
+        '    - yasyf/cc-skills#11 "New: drive" open, checks pass, review none, wants tap',
     ]
 
 

@@ -265,7 +265,8 @@ def pr_line(key: str, pr: dict) -> str:
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""
-    return f"{key} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}{waits}"
+    title = f' "{cut(pr["title"], 80)}"' if pr["title"] else ""
+    return f"{key}{title} {pr['state']}, checks {pr['checks']}, review {pr['review']}, {tap}{exempt}{port}{waits}"
 
 
 def job_line(job_id: str, job: dict, limit: int = 100) -> str:

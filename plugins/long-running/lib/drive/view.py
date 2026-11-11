@@ -107,7 +107,7 @@ def message_key(url: str) -> str:
 
 
 def card_thread(url: str) -> str | None:
-    found = slack.CARD_LINK.search(url)
+    found = state.CARD_LINK.search(url)
     return found and (found[4] or f"{found[2]}.{found[3]}")
 
 

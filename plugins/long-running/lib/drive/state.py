@@ -25,6 +25,7 @@ DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
+CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
@@ -199,6 +200,8 @@ def load(name: str) -> dict:
         order.setdefault("workstream", None)
         order.setdefault("kind", None)
         order.setdefault("complex", False)
+        order.setdefault("thread", None)
+        order["thread"] = dm_thread(data, order)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])
@@ -215,6 +218,15 @@ def load(name: str) -> dict:
         pr.setdefault("failed_checks", [])
     data.setdefault("answers", {})
     return data
+
+
+def dm_thread(data: dict, order: dict) -> str | None:
+    """The order's thread, or, when it is the ts of the order's own post in a channel that is neither his DM nor one the drive watches, the thread its posts in his DM hang from."""
+    posts = [(link[1], f"{link[2]}.{link[3]}", link[4]) for part in order["parts"].values() if (link := CARD_LINK.search(part["posted"] or ""))]
+    ours = {data["slack"]["channel"], *data["slack"].get("watch", [])}
+    if not any(ts == order["thread"] and channel not in ours for channel, ts, _ in posts):
+        return order["thread"]
+    return next((thread or ts for channel, ts, thread in posts if channel == data["slack"]["channel"]), None)
 
 
 def job_parts(job: dict, order_id: str) -> list[str]:
