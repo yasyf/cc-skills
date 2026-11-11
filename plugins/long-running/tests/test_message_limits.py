@@ -128,8 +128,8 @@ REWORDINGS = [
         " minutes, so splitting large tables would not have changed tonight. Production still serves from the old replica."
         " A fix is being written; next line by 3:25 AM."),
         ("*Table size was not the cause.* The new replica restored the snapshot from the bucket, which ends at write 22, but"
-        " its readiness check needs write 23, so it never passed and logged no error.\n\nThe largest database (13 GB) caught"
-        " up in about two minutes, so splitting large tables would not have changed tonight. Production still serves from"
+        " its readiness check needs write 23, so it never passed and logged no error (see {record:661300}).\n\nThe largest"
+        " database (13 GB) caught up in about two minutes, so splitting large tables would not have changed tonight. Production still serves from"
         " the old replica. A fix is being written; next line by 3:25 AM."),
     ),
     (
@@ -148,7 +148,7 @@ REWORDINGS = [
         " the release tool refuses to retry it. Next line by 3:50 AM."),
         ("*Two causes are being traced.* Acme's snapshot was uploaded at 1:23 AM Nov 9 and its LTX files in the bucket were"
         " gone by 3:15 AM Nov 10; the bucket's delete log is refused to us, so who removed them is open. The aborted rollout"
-        " blocked the resume because the release tool refuses to retry it. Next line by 3:50 AM."),
+        " blocked the resume because the release tool refuses to retry it (see {record:661300}). Next line by 3:50 AM."),
     ),
 ]
 
@@ -484,9 +484,10 @@ def test_his_curly_apostrophe_matches_a_straight_one_in_asked(talker: str, brief
 
 @pytest.mark.parametrize(("ts", "before", "after"), REWORDINGS)
 def test_rewording_a_posted_line_is_held_to_that_lines_own_length(
-    talker: str, transcript: Path, slack_thread: Thread, ts: str, before: str, after: str
+    talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, ts: str, before: str, after: str
 ) -> None:
     slack_thread.messages.append({"ts": ts, "from_claude": True, "from_bot": True, "text": before})
+    monkeypatch.setattr(refs.reads, "run", lambda argv, checkout: json.dumps({"text": "Restore log, 3:20 AM", "refs": {}}))
     assert say(transcript, edit=link(ts), text=after) is None
 
 
