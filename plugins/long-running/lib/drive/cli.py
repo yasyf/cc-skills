@@ -38,7 +38,7 @@ TOLD_LINK = (
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status")
+MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status", "search_plan")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -1025,23 +1025,8 @@ def keep_repro(name: str, job_id: str, source: str) -> str:
     return str(kept)
 
 
-def local_builders(data: dict) -> int:
-    """The builders running on this Mac: its agents still at work, and its Orca workers whose lane has not ended."""
-    moment = state.now()
-    return sum(
-        job["kind"] == "builder"
-        and job["state"] == "running"
-        and (
-            state.on_mac(job) and not any(death["dispatch"] == job.get("dispatch") for death in job.get("deaths", []))
-            if job.get("where") == "remote"
-            else watch.local_gap(job_id, job, data, moment) is None
-        )
-        for job_id, job in data["jobs"].items()
-    )
-
-
 def place_job(args: argparse.Namespace) -> int:
-    builders = local_builders(state.load(state.resolve(args.drive)))
+    builders = place.local_builders(state.load(state.resolve(args.drive)), state.now())
     share, ceiling = place.busy(), place.limit()
     where, why = place.verdict(share, ceiling, builders)
     payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": builders}
@@ -1050,7 +1035,7 @@ def place_job(args: argparse.Namespace) -> int:
 
 def refuse_a_local_builder(data: dict, repo: str | None) -> None:
     """A builder starts on this Mac only under its cap of local builders, and a monorepo builder only while drive place says local."""
-    builders = local_builders(data)
+    builders = place.local_builders(data, state.now())
     monorepo = (repo or "").casefold() == place.MONOREPO.casefold()
     where, why = place.verdict(place.busy() if monorepo else 0.0, place.limit(), builders)
     if where == "remote":
@@ -1934,6 +1919,21 @@ def tool_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def plan_search(args: argparse.Namespace) -> int:
+    """Print the sections of the plans the coordinator's checkout keeps in cc-notes that carry the most of the words, each under its plan and headings."""
+    words = " ".join(args.words)
+    checkout_dir = Path(state.load(state.resolve(args.drive))["roles"]["coordinator"]["cwd"])
+    try:
+        found = reads.plan_sections(words, checkout_dir)
+    except reads.ReadError as error:
+        raise DriveError(f"plan search: {error}") from None
+    said = "\n\n".join(
+        " › ".join(filter(None, [f"== {section['title']} (plan {section['plan']}, {section['status']})", section["heading"]])) + f"\n{section['text']}"
+        for section in found
+    )
+    return emit(args, said or f'no plan the coordinator keeps in cc-notes has a section on "{words}"', found)
+
+
 def install_plugin(args: argparse.Namespace) -> int:
     from drive import install
 
@@ -2552,6 +2552,14 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
     verb.set_defaults(run=mcp_command)
+    plan = verbs.add_parser("plan", help="the plans the coordinator's checkout keeps in cc-notes").add_subparsers(dest="action", required=True)
+    verb = plan.add_parser(
+        "search",
+        parents=both,
+        help="print the plan sections carrying the most of the words, best first, each under its plan's title and the headings above it",
+    )
+    verb.add_argument("words", nargs="+", help="what to look for in the plans, such as a part, a step or a file")
+    verb.set_defaults(run=plan_search)
     verb = verbs.add_parser("tool", help="run one MCP tool on the JSON arguments read from stdin and print its lines")
     verb.add_argument("tool", choices=MCP_TOOLS)
     verb.set_defaults(run=tool_command)

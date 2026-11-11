@@ -40,8 +40,11 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 2. Research before you write:
    - A `Researched: <job>` line names a reader's report on the order: read it first with
      `drive job report <job>` and build on what exists, never a second copy beside it.
-   - Search the code, the brief's plan section and his recorded answers (`answer_search`, or
+   - Search the code, the brief's plan section, the whole plan (`search_plan`, or
+     `drive plan search <words>`) and his recorded answers (`answer_search`, or
      `ccn answer search`) on the whole area the change touches, never only the words of its order.
+     When you are unsure what the plan means for a step, search it before you build, and return
+     `ASK` when it still leaves you unsure.
      His words say what he wants, never every piece of it, and the rest is yours to find. Quote each
      ruling you follow on `RULINGS:` and apply it to what its words name; a wider reading is an `ASK`.
    - Search the merged fixes in the area too. When yours would be the third fix for one symptom, make
@@ -296,7 +299,11 @@ a `DONE` or `READY` whose `NEXT:` or `UNPROVEN:` line leaves a step for someone 
 coordinator runs the backfill once it ships" or "until the coordinator runs it": do that step
 yourself before you return, or return `ASK` when it needs his choice. "PROVE: after release, open the
 run page" checks what is live and passes, and so does a line ruling a step out, such as "NEXT: no
-coordinator runs it". It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
+coordinator runs it". It refuses any report but an `ASK` or `DESIGN` that names a limit beside a
+number as a finding left standing, such as "the bucket caps at 5k objects/s, left as is", or one
+"unchanged", "hit" or "exceeds": a limit or capacity finding is his choice, so return `ASK` with two
+to four options for it. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
+so does "the cap was never hit". It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
 card would refuse, naming every section each body lacks, as `drive pr set --tap` does, and checks each
 stack the PRs form on its own, as `drive card` groups them.
 

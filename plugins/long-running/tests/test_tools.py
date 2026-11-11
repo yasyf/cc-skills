@@ -59,6 +59,46 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 
+PLAN = {
+    "id": "ec8bf71cc2820ecf8c5bb8b2695825c2cf3e7c54",
+    "title": "One copy per store",
+    "status": "approved",
+    "body": (
+        "# One copy per store\n\n## Context\nThe copy runs once a night.\n\n## Approach\n### Step 1: the bucket\nWrite each copy to"
+        " the bucket.\n```sh\n# a comment, not a heading\n```\n### Step 2: the catch-up\nThe catch-up runs on start.\n"
+    ),
+}
+
+
+def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_headings(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], str]] = []
+
+    def ccn(argv: list[str], checkout: object) -> str:
+        calls.append((argv, str(checkout)))
+        return json.dumps([{key: PLAN[key] for key in ("id", "title", "status")}] if argv[2] == "search" else PLAN)
+
+    monkeypatch.setattr(reads, "run", ccn)
+    said = tools.run("search_plan", demo, {"words": ["catch-up", "start"]})
+    assert said.splitlines() == ["== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 2: the catch-up", "The catch-up runs on start."]
+    coordinator = state.load(demo)["roles"]["coordinator"]["cwd"]
+    assert calls[:2] == [
+        (["ccn", "plan", "search", "catch-up start", "--limit", "5", "--json"], coordinator),
+        (["ccn", "plan", "show", PLAN["id"], "--json"], coordinator),
+    ]
+    assert run("plan", "search", "bucket") == (
+        0,
+        (
+            "== One copy per store (plan ec8bf71, approved) › One copy per store › Approach › Step 1: the bucket\nWrite each copy to"
+            " the bucket.\n```sh\n# a comment, not a heading\n```"
+        ),
+    )
+    assert run("plan", "search", "deploy", "freeze") == (0, 'no plan the coordinator keeps in cc-notes has a section on "deploy freeze"')
+    listed = {tool["name"]: tool for tool in tools.verb_tools()}["search_plan"]
+    assert (listed["inputSchema"]["required"], listed["annotations"]) == (["words"], {"readOnlyHint": True})
+
+
 def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, "#41\n#42\n", "")

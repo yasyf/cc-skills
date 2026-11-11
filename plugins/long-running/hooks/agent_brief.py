@@ -5,7 +5,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, state
+from drive import agents, brief, place, state
+from drive.render import cut, when
 
 DESIGNER = "long-running:designer"
 BUILDER = "long-running:builder"
@@ -98,8 +99,27 @@ def builder_refusal(text: str) -> str | None:
     )
 
 
+def crowded(data: dict) -> str | None:
+    """Why no builder starts on this Mac now: its cap of builders already runs here, naming the builder jobs that wait for one, oldest due first."""
+    running = place.local_builders(data, state.now())
+    if running < place.LOCAL_BUILDERS:
+        return None
+    waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
+    return (
+        f"refused: {running} builders already run on this Mac, its cap of {place.LOCAL_BUILDERS}, so this one waits: start no"
+        f" builder here until one finishes, then start the first job waiting, oldest due first: {waiting or 'none is added yet'}."
+        " A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>"
+    )
+
+
+def in_line(data: dict, job_id: str) -> str:
+    job = data["jobs"][job_id]
+    due = place.promised(data, job)
+    return f'{job_id} ({f"due {when(due)}" if due else "no time promised"}) "{cut(job["goal"], 60)}"'
+
+
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief and runs on Opus but for the two light records, a job's agent fits its kind, a builder's brief says its scope, and drive tooling is the communicator's alone."""
+    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief and runs on Opus but for the two light records, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the communicator's alone, and a builder starts here only under this Mac's cap of builders."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -140,7 +160,7 @@ def deny_reason(payload: dict) -> str | None:
         )
     if refused := job_refusal(names[0], data, kind, text):
         return refused
-    return builder_refusal(text) if kind == BUILDER else None
+    return builder_refusal(text) or crowded(data) if kind == BUILDER else None
 
 
 def main() -> None:

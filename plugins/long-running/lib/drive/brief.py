@@ -23,6 +23,9 @@ LEFT_FOR = re.compile(
     rf"|\b(?:coordinator|communicator|handler|someone(?:\s+else)?)\s+(?:must\s+|should\s+|needs?\s+to\s+|has\s+to\s+|will\s+|then\s+)?{STEPS}\b",
     re.IGNORECASE,
 )
+LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rate[- ]limit\w*|limit\w*|max(?:imum)?)\b", re.IGNORECASE)
+LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
+CHOICE_OPENINGS = ("ASK", "DESIGN")
 QUESTION = re.compile(r"(?:^|[,;?]|\band\b)\s*(?:why|who|whom|whose|when|where|what|which|how|whether)\b", re.IGNORECASE | re.MULTILINE)
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
@@ -159,7 +162,7 @@ def questions(text: str) -> int:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -173,6 +176,11 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         return (
             f"it names a REPRO: file, but {job_id} keeps none in the drive: run drive job set {job_id} --repro <path>"
             " first, which keeps a copy where drive status lists it, then keep this report"
+        )
+    if opening not in CHOICE_OPENINGS and (finding := limit_finding(lines)):
+        return (
+            f'it reports a limit as a finding left standing: "{cut(finding, 120)}". A limit or capacity finding is his'
+            " choice, so return ASK or DESIGN with two to four options for it, one recommended, in place of this report"
         )
     if job["kind"] == "design" and opening not in UNDESIGNED and (missing := design_missing(lines)):
         return (
@@ -233,6 +241,19 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
 def design_missing(lines: list[str]) -> list[str]:
     missing = [] if DESIGN_PART.match(lines[0]) else ["a first line DESIGN <the part>"]
     return missing + [f"a {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
+
+
+def limit_finding(lines: list[str]) -> str | None:
+    """The first line naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a clause ruling that out, as "never hit" does, aside."""
+    return next((line for line in lines if limited(line) and left_standing(line)), None)
+
+
+def limited(line: str) -> bool:
+    return any(LIMIT.search(part) and re.search(r"\d", part) for part in limits.CLAUSE_BREAK.split(line))
+
+
+def left_standing(line: str) -> bool:
+    return any(not limits.NEGATION.search(limits.CLAUSE_END.split(line[: found.start()])[-1]) for found in LEFT_STANDING.finditer(line))
 
 
 def left_steps(text: str) -> str | None:

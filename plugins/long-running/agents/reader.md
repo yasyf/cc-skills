@@ -13,7 +13,8 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
 
 - Read each fact from its owner: GitHub for a PR's state, the CI log for a failure,
   `cc-transcript` for a session, cc-notes answers for his decisions, `drive status` for orders and
-  jobs, and a release's commit and build for its contents. A missing message proves nothing.
+  jobs, the plan for its steps (`drive plan search <words>`, or the `search_plan` tool), and a
+  release's commit and build for its contents. A missing message proves nothing.
 - Whether something he uses works is read where he uses it, never from API data.
 - Make every read the order names, whoever owns the data; his order authorizes it and a read
   writes nothing. A refusal sends you that turn down the staff route that opens it: an admin view,
@@ -58,7 +59,9 @@ or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without
 `READY <pr url>…` when every step it checks matches, or `NOT READY <pr url>…: <what fails>`, several
 verdicts joined by `; `, each naming before its `: ` only the PRs it judges, since the drive keeps each
 NOT READY on the PRs named there and refuses their `ready` records, tap cards and `drive pr set --tap`
-until a later reader's `READY` names them. Any other report opens `DONE`.
+until a later reader's `READY` names them. Any other report opens `DONE`, and `drive job report`
+refuses one naming a limit beside a number left as is, unchanged, hit or exceeded, such as "the bucket
+caps at 5k objects/s, left as is": that finding is a `DESIGN`.
 
 Your report feeds another agent, never him, with the inputs the one writing to him needs, one fact
 a line, no polish. The first line answers the question; then each fact with its link, number, path

@@ -11,6 +11,7 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
 OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
+READS = {"status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 OPS_HELP = (
@@ -96,6 +97,16 @@ def verb_tools() -> list[dict]:
             "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
+        {
+            "name": "search_plan",
+            "description": (
+                "Search the plans the coordinator's checkout keeps in cc-notes for the words, to check a step against the plan"
+                " before building it or asking. Returns the sections carrying the most of them, best first, each under its"
+                " plan's title, id, status and the headings above it."
+            ),
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search"))["properties"], "dry_run": DRY_RUN}, "required": ["words"]},
+            "annotations": {"readOnlyHint": True},
+        },
     ]
 
 
@@ -108,9 +119,9 @@ def run(tool: str, name: str, arguments: dict) -> str:
             return record(name, listing(arguments, "records", "owner, answer or defect records"), dry_run)
         case "heard":
             return batch(name, (tool,), [{tool: arguments}], dry_run)
-        case "status":
+        case "status" | "search_plan":
             said: list[str] = []
-            return "\n".join(ran(name, said, 1, 1, (tool,), arguments, dry_run) or said)
+            return "\n".join(ran(name, said, 1, 1, READS[tool], arguments, dry_run) or said)
         case group:
             return batch(name, (group,), listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
 
