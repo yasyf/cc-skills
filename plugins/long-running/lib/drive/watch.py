@@ -1,3 +1,4 @@
+import collections
 import contextlib
 import functools
 import hashlib
@@ -466,10 +467,10 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
+    """Each live remote lane's mail, from every worker of its job and not only the newest, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
-    lanes = lane_handles(live_lanes(watcher, data))
+    lanes = lane_handles(watcher, data)
     lines, messages = [], []
     kept = functools.cache(lambda job_id: {reply["id"] for reply in state.replies(watcher.name, job_id)})
     for run, handles in lanes.items():
@@ -484,17 +485,15 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines += said
     if messages:
         with state.edit(watcher.name) as data:
-            heard = lane_handles(live_lanes(watcher, data))
+            heard = lane_handles(watcher, data)
             for run, message in messages:
-                job_id = heard.get(run, {}).get(message["from_handle"])
+                job_id = sender(heard, run, message)
                 if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"]:
                     continue
                 data["jobs"][job_id]["mail_seen"] = message["sequence"]
                 if message["type"] == "heartbeat" or message["id"] in kept(job_id):
                     continue
                 state.keep_reply(watcher.name, job_id, message)
-                if message["from_handle"] != f"dispatch:{data['jobs'][job_id]['dispatch']}":
-                    continue
                 if message["type"] == "question" and (question := reads.request(message["body"] or "") or refusals.get(message["id"])):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
@@ -504,12 +503,12 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def ask_refusals(
-    watcher: Watcher, data: dict, lanes: dict[str, dict[str, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]], moment: datetime
+    watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]], moment: datetime
 ) -> tuple[dict[str, str], list[str]]:
     """The reply sending each new `ASK` a remote lane asked back to it, by its message id, when `drive job ask` would refuse it: its words and its card are checked here as it arrives, so an `ASK` out of shape never wakes the coordinator, who checks one in shape against his recorded answers alone. One cc-slack could not check goes on to the coordinator, whose `drive job ask <j>` checks it again."""
     refusals, lines = {}, []
     for run, message in messages:
-        job_id = lanes[run].get(message["from_handle"])
+        job_id = sender(lanes, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or "") or message["id"] in kept(job_id):
             continue
         try:
@@ -547,13 +546,22 @@ def live_lanes(watcher: Watcher, data: dict) -> dict[str, dict]:
     }
 
 
-def lane_handles(jobs: dict[str, dict]) -> dict[str, dict[str, str]]:
-    """Each Run's dispatch handles, the dead ones a job replaced included, by the job each belongs to."""
-    lanes: dict[str, dict[str, str]] = {}
-    for job_id, job in jobs.items():
+def lane_handles(watcher: Watcher, data: dict) -> dict[str, dict[str | None, str]]:
+    """Whose each live lane's Run's mail is: a Run the drive keeps for one job alone maps None to that job, which takes the mail of every worker there, one the job never recorded included, such as the first of two workers two racing resumes started; a Run several jobs share, as drives kept lanes before each job got its own, maps each dispatch handle, the ones a job replaced included, to its job."""
+    holders = collections.Counter(job.get("run") for job in data["jobs"].values())
+    lanes: dict[str, dict[str | None, str]] = {}
+    for job_id, job in live_lanes(watcher, data).items():
+        if holders[job["run"]] == 1:
+            lanes[job["run"]] = {None: job_id}
+            continue
         for dispatch in [job["dispatch"], *(ended["dispatch"] for ended in job.get("deaths", []))]:
             lanes.setdefault(job["run"], {})[f"dispatch:{dispatch}"] = job_id
     return lanes
+
+
+def sender(lanes: dict[str, dict[str | None, str]], run: str, message: dict) -> str | None:
+    handles = lanes.get(run, {})
+    return handles.get(None) or handles.get(message["from_handle"])
 
 
 def track_lane_prs(data: dict, job_id: str, body: str) -> None:
