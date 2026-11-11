@@ -49,7 +49,7 @@ Change: copy each store in list order
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
 """
-STACKED = DESIGNED.replace(
+DESIGNED_IN_CHANGES = DESIGNED.replace(
     "Change: copy each store in list order\n",
     "Change: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n",
 )
@@ -2219,10 +2219,10 @@ def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_t
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    code, err = keep(monkeypatch, capsys, "j1", STACKED.replace("(waits on change 2)", "(waits on change 3)"))
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 3)"))
     assert code == 2
     assert 'its Change: line "Change: the writes through it (waits on change 3)" waits on a change its list does not hold' in err
-    assert keep(monkeypatch, capsys, "j1", STACKED) == (0, "")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert {part: (held["design"], held["after"]) for part, held in parts.items()} == {
         "copy one store": (None, None),
