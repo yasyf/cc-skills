@@ -3403,10 +3403,15 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
 def test_a_handler_closes_only_an_order_its_report_record_closes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    attrs = {"10": {"orders": "o1", "thread": "1794200000.000100"}, "11": {"orders": "o1", "close": "o2"}, "12": {"close": "o2 o1"}}
+    attrs = {
+        "10": {"orders": "o1", "thread": "1794200000.000100"},
+        "11": {"orders": "o1", "close": "o2"},
+        "12": {"close": "o2 o1"},
+        "13": {"close": "o2,o3, o4"},
+    }
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the handler")
+    for text in ("fix the watch", "fix the handler", "fix the say tool", "fix the card"):
+        run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text)
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -3418,6 +3423,9 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     assert state.load("demo")["orders"]["o1"]["state"] == "open"
     assert run("order", "set", "o1", "--state", "done", "--record", "12")[0] == 0
     assert state.load("demo")["orders"]["o1"]["state"] == "done"
+    for order_id in ("o2", "o3", "o4"):
+        assert run("order", "set", order_id, "--state", "done", "--record", "13")[0] == 0
+    assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o2", "o3", "o4")] == ["done", "done", "done"]
 
 
 def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_one_done_only_by_its_record(

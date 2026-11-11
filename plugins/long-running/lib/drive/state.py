@@ -45,6 +45,7 @@ PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+ORDER_LIST = re.compile(r"[\s,]+")
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 APPROVALS_LABELLED = ".approvals-labelled"
 
@@ -800,6 +801,11 @@ def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
         return
     order.update(due=upcoming, promised=kept.isoformat(), kept=None, due_said=None)
     keep(order, posts, announced=False)
+
+
+def closed_orders(report: dict) -> list[str]:
+    """The orders a report's close attr names, separated by commas, spaces or both, as `o1,o2` or `o1 o2`."""
+    return [order for order in ORDER_LIST.split(report.get("close") or "") if order]
 
 
 def keep_closing(order: dict, posts: list[datetime], written: datetime) -> None:

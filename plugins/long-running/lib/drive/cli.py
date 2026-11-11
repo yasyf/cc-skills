@@ -550,7 +550,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
             )
         return {}
     report = report_attrs(seq)
-    closes = report.get("close", "").split()
+    closes = state.closed_orders(report)
     if not closes:
         raise DriveError(f"record {seq} has no close attr, so it closes no order: a report names each order its post finishes in its close attr")
     if order_id not in closes:
@@ -620,7 +620,7 @@ def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
     """The parts of the order a post delivers: the part its report names, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
     if part := report.get("part"):
         return pick_parts(order_id, order, [part])
-    if order_id in report.get("close", "").split():
+    if order_id in state.closed_orders(report):
         return list(order["parts"])
     return []
 
@@ -634,7 +634,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     delivered = reported_parts(order_id, order, report)
     at, ours = drive_post_at(link, data, order_id, bool(report.get("part")))
     line = state.stamp(at)
-    closing = order_id in report.get("close", "").split()
+    closing = order_id in state.closed_orders(report)
     kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
