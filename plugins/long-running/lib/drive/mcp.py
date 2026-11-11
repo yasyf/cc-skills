@@ -1,5 +1,6 @@
 import json
 import subprocess
+import tempfile
 import threading
 from pathlib import Path
 from typing import TextIO
@@ -12,6 +13,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
 OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
 LISTED: dict[str, str] = {}
+CALLS: dict[int | str, subprocess.Popen] = {}
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
@@ -118,6 +120,8 @@ def serve(stdin: TextIO, stdout: TextIO) -> int:
 
 def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
     if "id" not in request:
+        if request["method"] == "notifications/cancelled" and (child := CALLS.pop(request["params"]["requestId"], None)):
+            child.kill()
         return
     reply = {"jsonrpc": "2.0", "id": request["id"]}
     match request["method"]:
@@ -132,7 +136,10 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
             LISTED["drive"] = newest_drive()
             reply["result"] = {"tools": listed(LISTED["drive"])}
         case "tools/call":
-            reply["result"] = call(request["params"]["name"], request["params"].get("arguments") or {})
+            result = call(request["id"], request["params"]["name"], request["params"].get("arguments") or {})
+            if result is None:
+                return
+            reply["result"] = result
         case "ping":
             reply["result"] = {}
         case method:
@@ -152,14 +159,23 @@ def listed(drive: str) -> list[dict]:
     return json.loads(subprocess.run([drive, "mcp", "--list"], capture_output=True, text=True, check=True, timeout=CALL_SECONDS).stdout)
 
 
-def call(tool: str, arguments: dict) -> dict:
-    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal keeps the lines of the ops that ran before it."""
-    try:
-        done = subprocess.run([newest_drive(), "tool", tool], input=json.dumps(arguments), capture_output=True, text=True, check=False, timeout=CALL_SECONDS)
-    except subprocess.TimeoutExpired:
-        return {"content": [{"type": "text", "text": f"drive tool {tool} did not finish in {CALL_SECONDS} seconds"}], "isError": True}
-    said = done.stdout + done.stderr if done.returncode else done.stdout
-    return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(done.returncode)}
+def call(request_id: int | str, tool: str, arguments: dict) -> dict | None:
+    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal keeps the lines of the ops that ran before it.
+    Its arguments go in a file rather than a pipe the server writes, so a child that fails before reading them cannot hold the call past CALL_SECONDS; a call Claude Code cancels has its child killed and gets no reply."""
+    with tempfile.TemporaryFile("w+") as given:
+        json.dump(arguments, given)
+        given.seek(0)
+        with subprocess.Popen([newest_drive(), "tool", tool], stdin=given, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as child:
+            CALLS[request_id] = child
+            try:
+                out, err = child.communicate(timeout=CALL_SECONDS)
+            except subprocess.TimeoutExpired:
+                child.kill()
+                out, err = "", f"drive tool {tool} did not finish in {CALL_SECONDS} seconds"
+    if CALLS.pop(request_id, None) is None:
+        return None
+    said = out + err if child.returncode else out
+    return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(child.returncode)}
 
 
 def newest_drive() -> str:
