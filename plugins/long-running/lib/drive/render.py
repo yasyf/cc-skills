@@ -64,8 +64,9 @@ COORDINATOR_RULES = (
     ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
-        "Every event line, record and job result has its row in drive manual coordinator: read the row there before"
-        " acting on one whose row these rules do not hold."
+        "Every event line, record and job result has its row in drive manual coordinator: before acting on one whose"
+        " row these rules do not hold, read that row alone with drive manual coordinator <its first word>, such as"
+        " drive manual coordinator TAP, never the whole page."
     ),
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"

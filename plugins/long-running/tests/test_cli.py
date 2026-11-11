@@ -1426,6 +1426,14 @@ def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run)
     assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
 
 
+def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
+    code, out = run("manual", "coordinator", "tap")
+    assert code == 0
+    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Hold …`"]
+    assert len(out) < len((cli.PAGES / "coordinator.md").read_text()) / 10
+    assert run("manual", "coordinator", "nothing-names-this")[0] == 2
+
+
 DESIGN_CARD = "https://acme.slack.com/archives/D123/p1794300000000100"
 TAP_CARD = "https://acme.slack.com/archives/D123/p1794300000000200"
 PICK = "https://acme.slack.com/archives/D123/p1794300000000300"
