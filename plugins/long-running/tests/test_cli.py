@@ -393,14 +393,18 @@ def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
     assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD]) == 2
-    assert "j1 works on incident o1: a card that blocks it is said in the incident's thread at once" in capsys.readouterr().err
+    refusal = capsys.readouterr().err
+    assert "j1 works on incident o1: a card that blocks it is said in the incident's thread at once" in refusal
+    assert "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink" in refusal
     moment = state.now()
     elsewhere = slack_thread.post(moment, from_claude=True, thread_ts="1794100000.000100", text=f"<{DESIGN_CARD}|the store card> blocks the fix")
     assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", elsewhere]) == 2
     assert "name the drive's own post in the incident's thread, 1794200000.000100" in capsys.readouterr().err
     unlinked = slack_thread.post(moment + timedelta(seconds=1), from_claude=True, text="the store card blocks the fix")
     assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", unlinked]) == 2
-    assert f"does not link {DESIGN_CARD}" in capsys.readouterr().err
+    refusal = capsys.readouterr().err
+    assert f"does not link {DESIGN_CARD}" in refusal
+    assert "as <its permalink|your card on what it decides>, never as its bare permalink" in refusal
     said = slack_thread.post(
         moment + timedelta(seconds=2),
         from_claude=True,
@@ -672,13 +676,18 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     block.write_text(TEAMMATE_FIX)
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
-    assert '"teammate\'s PR" names something he could open with no link there; put those words in its link' in refusal
+    assert (
+        '"teammate\'s PR" names something he could open with no link there, in "A teammate\'s PR landed at 2:12 PM today"; put those'
+        " words in its link"
+    ) in refusal
     assert '"teammate\'s landed PR" in the question or an option names something he could open, and those draw no links' in refusal
     block.write_text(TEAMMATE_FIX_SHOWN)
     assert run("job", "ask", asking, str(block))[0] == 0
     block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their PR, then ours"))
+    assert run("job", "ask", asking, str(block))[0] == 0
+    block.write_text(TEAMMATE_FIX_SHOWN.replace("A teammate's PR for the update button>", "A teammate's change>").replace("theirs first, then ours", "with their PR, then ours"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert '"their PR" names something he could open with no link there' in capsys.readouterr().err
+    assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
 def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says_why_not(

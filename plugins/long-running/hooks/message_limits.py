@@ -24,6 +24,8 @@ QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
+WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
+TITLED = " {} of the words counted are the titles its {{card:…}} and {{pr:…}} references draw as their links' words."
 UNREAD = (
     "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
     " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post. When the"
@@ -110,14 +112,16 @@ def unread(payload: dict, dm: str) -> str | None:
     return UNREAD.format(dm=dm, thread=thread)
 
 
-def unchecked(text: str) -> str | None:
-    """What `cc-slack check-post` finds in the exact words the post sends."""
-    if not text:
+def unchecked(tool_input: dict) -> str | None:
+    """What `cc-slack check-post` finds in the exact words the post sends; a post that draws a card, or a PR's tap card through tap_prs, carries the card its words say waits on him."""
+    if not (text := tool_input.get("text") or ""):
         return None
     try:
         findings = slack.check_post(text)
     except slack.SlackError as error:
         return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
+    if tool_input.get("card") or tool_input.get("tap_prs"):
+        findings = [finding for finding in findings if not WAITS_WITHOUT_CARD.match(finding)]
     if not findings:
         return None
     return "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings)
@@ -152,8 +156,18 @@ def squashed(text: str) -> str:
 
 def quotes(asked: str | list[str]) -> list[str]:
     """Each stretch of his words that asked quotes: one message of his per entry or line, cut where the quote skips some of them."""
-    entries = [asked] if isinstance(asked, str) else asked
-    return [part for entry in entries for piece in BETWEEN_QUOTES.split(entry) if (part := piece.strip().strip(QUOTE_MARKS).strip())]
+    return [part for entry in messages(asked) for piece in BETWEEN_QUOTES.split(entry) if (part := piece.strip().strip(QUOTE_MARKS).strip())]
+
+
+def messages(asked: str | list[str]) -> list[str]:
+    """The messages of his asked holds: a list's entries, a string that is a JSON list of strings, as a list arrives through a tool whose schema declares no asked, or the one string."""
+    if isinstance(asked, list):
+        return asked
+    try:
+        listed = json.loads(asked)
+    except json.JSONDecodeError:
+        return [asked]
+    return listed if isinstance(listed, list) and all(isinstance(entry, str) for entry in listed) else [asked]
 
 
 def unsaid(parts: list[str], said: str) -> list[str]:
@@ -162,17 +176,20 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM does not go out as written: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, the post keeps its length, and `cc-slack check-post` passes its exact words."""
+    """Why a post to his DM does not go out as written: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, and then, refused at once with every finding, the post keeps its length, links what it names, asks no tap that is not owed, and `cc-slack check-post` passes its exact words."""
     if posted := coordinator_post(payload):
         return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
         return None
     dm = drive["slack"]["channel"]
+    titled = 0
     if payload["tool_name"] == SAY and refs.REF.search(said := payload["tool_input"].get("text") or ""):
         try:
-            payload = {**payload, "tool_input": {**payload["tool_input"], "text": refs.slack(said, refs.resolved(drive["name"], said))}}
+            found = refs.resolved(drive["name"], said)
         except DriveError as error:
             return str(error)
+        titled = limits.words(refs.slack(" ".join(match[0] for match in refs.REF.finditer(said)), found))
+        payload = {**payload, "tool_input": {**payload["tool_input"], "text": refs.slack(said, found)}}
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
         return (
@@ -181,13 +198,20 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
-    return (
-        unread(payload, dm)
-        or over_length(payload, dm)
-        or unlinked(payload, drive)
-        or untapped(payload)
-        or unchecked(tool_input.get("text") or "")
-    )
+    if refusal := unread(payload, dm):
+        return refusal
+    if (long := over_length(payload, dm)) and titled:
+        long += TITLED.format(titled)
+    return every([long, unlinked(payload, drive), untapped(payload), unchecked(tool_input)])
+
+
+def every(refusals: list[str | None]) -> str | None:
+    """One refusal holding each check's, so a single rewrite fixes them all."""
+    found = [refusal for refusal in refusals if refusal]
+    if len(found) < 2:
+        return next(iter(found), None)
+    listed = "\n".join(f"{index}. {refusal.removeprefix('refused: ')}" for index, refusal in enumerate(found, 1))
+    return f"refused, {len(found)} ways; fix each, then post the fixed words once:\n{listed}"
 
 
 def untapped(payload: dict) -> str | None:

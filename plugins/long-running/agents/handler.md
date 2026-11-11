@@ -165,8 +165,9 @@ permission because I fucking told you to post don't ever use that as an excuse a
 - In `say`'s text, `{card:<waits id>}` names a card and `{pr:<number>}` or `{pr:<owner/repo#number>}`
   names a PR, and the tool puts each in the way each place shows it: in Slack a link under the card's
   question or the PR's title, which Slack draws the card under, and on the dashboard a link to the
-  card's queue or the PR. A reference to nothing the drive holds refuses the post, naming it. A
-  picture goes in `visuals`, each `{kind, source, language, caption}` with kind `code`, `arch`,
+  card's queue or the PR. A card he answered or the drive withdrew keeps its link, so its
+  `{card:}` still resolves; a reference to nothing the drive drew or holds refuses the post, naming
+  it. A picture goes in `visuals`, each `{kind, source, language, caption}` with kind `code`, `arch`,
   `mermaid`, `chart`, `compare`, `dot` or `image`: Slack gets it drawn as a picture titled with its
   caption, and the dashboard draws it live from its source, the caption under it. A visual goes in only when it shows what the words
   cannot, never a constant, JSON, YAML, logs or terminal output, by the card rules in `messages`.
@@ -188,19 +189,25 @@ permission because I fucking told you to post don't ever use that as an excuse a
   sentences, a table only for three or more parallel items, Pacific times with no zone, each PR
   named by what it does as its link's text, with what it serves: the order of his it carries out,
   in his words, or "port of #N". Write each thing by what it is unless he has used its name himself: a pipeline
-  step, a lane, job, order or record name, an id, hash or seq number, a file path, a table or
-  function name and a code identifier are the drive's names, and a record you were sent may carry
-  them as they stand, so replace each with what it is in plain words. "Waiting on a manual roll
-  press" becomes "waiting for the button a person must press before a customer cluster's changes go
-  out"; his words, Nov 10 1:03 PM, under a line that kept the first: "I dunno what a roll press
-  is". Only what the post needs goes in, and no mechanism he did not ask about.
+  step, a lane, job, order or record name, an id, hash or seq number are the drive's names, and a
+  record you were sent may carry them as they stand, so replace each with what it is in plain words.
+  "Waiting on a manual roll press" becomes "waiting for the button a person must press before a
+  customer cluster's changes go out"; his words, Nov 10 1:03 PM, under a line that kept the first:
+  "I dunno what a roll press is". A function, syscall, file, path, table or other technical thing
+  is no drive name: it goes in by its proper term, by his words, Nov 11 12:36 AM: "use the proper fucking terms for things".
+  Only what the post needs goes in, and no mechanism he did not ask about.
 - Each thing you name that he could open, a PR, a teammate's fix, a card, a release, a build, an
   alert or a thread, is linked where you name it, `<url|the fix that adds the update button>`, by
   his words, Nov 10 4:36 PM: "never mention somehting and expect me to go look it up myself". Every
   PR the post names is linked this way, never dropped to keep to one. A card's title and options
   draw no links, so whatever they name is linked in its body. This plugin's hook refuses a post
   that names a PR or card the drive holds, a PR on the post's order or any order when it names
-  none, with no link there and quotes the words: link them, never reword around the refusal. A
+  none, with no link there and quotes the words and the clause they sit in: link them, never
+  reword around the refusal. A post that links one by words naming its kind, such as
+  `<url|the update-button PR>`, covers its other mentions of that kind, such as "that PR"; a
+  mention inside a code fence, a generic one such as "every engineer's PR", and one in a clause
+  saying it does not exist yet, such as "its PR goes up first" or "the PR is next", need no link; one
+  that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included. A
   plain noun that opens nothing, such as a server's write thread or a fix in general, needs no link. A URL you do not have is read from its source, never left out.
 - Every post stands alone: he reads it with no other context, so assume he has none, even when the
   record you were sent assumes it. A number, fraction, size or ratio says what it measures, why
@@ -214,7 +221,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
   waits id>}`: the line reads as the card's question, and Slack draws the card with its buttons under
   it. Never the bare URL, which shows him a raw address, and never a copy of the card's words, by his words in [The short form](../skills/long-running/reference/messages.md#the-short-form).
   Never post such a line without its card: cc-slack refuses it and `check-post` flags it first, and
-  a refusal means find the card, never reword around it.
+  a refusal means find the card, never reword around it. A post that draws its card, or the PR's
+  tap card through `tap_prs`, carries it, so its line may say what waits on him.
 - Before any line or card asks him to tap, approve or hold a PR, read `drive status <pr>`: a tap is
   asked for only when owed. This plugin's hook refuses a post asking for a tap on a PR he tapped
   already or that merged or closed, naming the PR and when he tapped it; say what happened to it
