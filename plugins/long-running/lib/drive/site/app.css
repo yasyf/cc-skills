@@ -56,10 +56,10 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 
 .content { min-width: 0; }
 .topbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 20px; height: 69px; padding: 0 52px; background: color-mix(in srgb, var(--bg) 92%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
-.crumb { display: flex; align-items: center; gap: 12px; min-width: 0; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.crumb { flex: none; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .crumb strong { color: var(--ink); font-weight: 500; }
-.alerts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
-.al { padding: 6px 12px; border-radius: 20px; background: var(--soft); color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
+.alerts { display: flex; justify-content: safe flex-end; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.al { flex: none; max-width: 300px; overflow: hidden; text-overflow: ellipsis; padding: 6px 12px; border-radius: 20px; background: var(--soft); color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
 .al.bad { background: #f8e7e3; color: #8f3428; }
 .al:hover { text-decoration: none; filter: brightness(.97); }
 #main { max-width: 1600px; margin: 0 auto; padding: 37px 52px 60px; }
