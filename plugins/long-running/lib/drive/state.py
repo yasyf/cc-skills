@@ -66,6 +66,11 @@ def root() -> Path:
     return Path.home() / ".local" / "state" / "long-running"
 
 
+def scratch() -> bool:
+    """Whether LONG_RUNNING_STATE moves the state root, as a proof's or a test's drive does; no real drive sets it."""
+    return bool(os.environ.get("LONG_RUNNING_STATE"))
+
+
 def drive_dir(name: str) -> Path:
     return root() / name
 

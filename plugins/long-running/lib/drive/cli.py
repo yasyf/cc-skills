@@ -2230,7 +2230,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else start it as its own process unless one runs, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator."""
+    """Run the watch with --loop; else start it as its own process unless one runs, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator, and a drive under LONG_RUNNING_STATE gets neither the process nor the channel."""
     if args.loop:
         return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
@@ -2244,7 +2244,7 @@ def watch_events(args: argparse.Namespace) -> int:
             f" bind one with drive start {name} --role coordinator --project {shlex.quote(args.project)}"
         )
     print(watch.ensure(name, args.project))
-    if project == args.project and state.session_role(data, session) == "coordinator":
+    if project == args.project and state.session_role(data, session) == "coordinator" and not state.scratch():
         try:
             watch.listen(name, session, args.project)
         except reads.ReadError as error:
