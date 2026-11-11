@@ -121,6 +121,20 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "open_on", lambda heads: {})
 
 
+@dataclass
+class WatchProcess:
+    ensured: list[str] = field(default_factory=list)
+    listened: list[tuple[str, str]] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
+    process = WatchProcess()
+    monkeypatch.setattr(watch, "ensure", lambda name: process.ensured.append(name) or f"the watch runs for {name}")
+    monkeypatch.setattr(watch, "listen", lambda name, session: process.listened.append((name, session)))
+    return process
+
+
 @pytest.fixture(autouse=True)
 def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
     seen: dict[str, str | None] = {}

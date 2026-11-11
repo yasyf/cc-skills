@@ -16,11 +16,11 @@ ANSWER = {
 
 def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_made(demo: str) -> None:
     order = {"words": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling"}
-    said = tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"state": "waiting", "said": "WAITING CI"}}]})
+    said = tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"branch": "lr-fix", "said": "pushed"}}]})
     assert said.splitlines()[:2] == ["1 order add: o1", "1 job add: j1"]
     assert said.splitlines()[2].startswith("2 job set: j1")
     job = state.load(demo)["jobs"]["j1"]
-    assert (job["order"], job["state"], job["said"]) == ("o1", "waiting", "WAITING CI")
+    assert (job["order"], job["branch"], job["said"]) == ("o1", "lr-fix", "pushed")
     status = tools.run("status", demo, {"ids": ["o1", "j1"]}).splitlines()
     assert len(status) > 2 and not status[0].startswith("1 status")
 
@@ -53,7 +53,7 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     assert ["say", *listed] == list(cli.MCP_TOOLS)
     ops = {next(iter(shape["properties"])): shape["properties"] for shape in listed["job"]["inputSchema"]["properties"]["ops"]["items"]["oneOf"]}
     job_set = ops["set"]["set"]
-    assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
+    assert job_set["properties"]["state"]["enum"] == ["stopped"]
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
     assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "project", "workstream"]
     assert listed["status"]["annotations"] == {"readOnlyHint": True}

@@ -67,7 +67,7 @@ each job that needs one a fresh agent.
    shell, which would keep a login shell running in the terminal once the session ends.
 
    Its prompt runs Start or resume, so `drive start` records the new terminal and the role takes
-   back its watches, its cursor and, for the coordinator, `drive watch`.
+   back its watches, its cursor and, for the coordinator, the watch, which `drive start` starts unless it runs.
 5. Check it: 10 seconds after the create, `orca terminal show --terminal <the handle the create
    printed> --json` reads `"orphaned": false`, and the repository setting in
    [Start or resume](start.md) is the fix when it reads true. Then the role's
@@ -107,7 +107,7 @@ in cc-notes answers.
    An open incident without a fix-live record is an order too, run by [incidents.md](incidents.md).
 4. Each open drive PR, as a job with no agent under the order it serves (else the migration order):
    `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name> --branch <branch>`,
-   `drive job set <j> --state waiting --pr <url>`, then `drive pr add <url> --job <j>` (`--tap` if it waits on him).
+   `drive job report <j> -` with the line `WAITING <url>` on stdin, which sets it waiting, then `drive pr add <url> --job <j>` (`--tap` if it waits on him).
 5. A tap he gave carries over when the old ledger shows it in force, so he is never asked again:
    `drive pr set <url> --tapped Approve --tap-source migrated:<old>` (or `--tapped Hold`).
    A recorded exemption carries the same way: `drive pr set <url> --exempt "<class>"`.

@@ -49,7 +49,7 @@ run the `orca orchestration check` it names. A lane that started no worker runs 
 silently: start it with the Agent tool on its brief, whose `Drive:` line records the agent, and
 say so in the order's next report. A failure after worker-start ran may have left the lane
 live, so a reader checks its attempt before anything starts it again. The lane reports through
-Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
+Orca mail, and the drive's watch turns each report into a `JOB <j> <o> <line>` event that opens with
 the `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED` a background agent returns, taken from a
 final report's subject, which the builder sends as its first line and which sets the job's state
 as a local agent's line does; `drive status --json`

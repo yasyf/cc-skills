@@ -158,8 +158,8 @@ note beside the record's.
 When a question card of his blocks incident work, such as a design card on the fix, the incident's
 thread hears it at once, in a line that opens with the card linked, says what it blocks, and names
 the recommended option the job builds on meanwhile. The job keeps building on that recommendation:
-its `ASK` resumes it in that turn with "build the recommended option meanwhile" and `drive job set
-<j> --state running`, and it never waits on the card. `drive job set <j> --card <link>` or `--waits
+its `ASK` resumes it in that turn with "build the recommended option meanwhile", which runs the
+job again, and it never waits on the card. `drive job set <j> --card <link>` or `--waits
 <card>` on a job of an open incident order refuses until `--told <link>` names the drive's post in
 the incident's thread that links the card. His words, Nov 10 10:48 PM: "I selected on that card,
 next time if thats blkocking an incident fucking tell me".

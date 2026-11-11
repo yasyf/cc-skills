@@ -14,7 +14,7 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import RESEARCH
+from conftest import RESEARCH, WatchProcess
 from drive import state
 
 Run = Callable[..., tuple[int, str]]
@@ -65,8 +65,9 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
     return capsys.readouterr().out
 
 
-def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    watch_process.ensured.clear()
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "resume"})
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
@@ -76,6 +77,7 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker", "source": "compact"})["hookSpecificOutput"]["additionalContext"]
     assert context.startswith("You are the communicator of drive demo: you talk to him.")
+    assert (watch_process.ensured, watch_process.listened) == (["demo"], [("demo", "session-under-test")])
 
 
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -240,7 +242,8 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief))) == ""
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["where"], job["session"], job["state"]) == ("a-9", "local", os.environ["CLAUDE_CODE_SESSION_ID"], "running")
-    run("job", "set", "j1", "--state", "waiting")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "waiting"
     assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, brief))) == ""
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert no_calls == []

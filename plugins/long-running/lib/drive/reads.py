@@ -114,12 +114,13 @@ def excerpt(log: str, limit: int) -> str:
     return f"[last {limit} of {len(output)} characters]\n{output[-limit:]}"
 
 
-def run(argv: list[str], checkout: Path) -> str:
+def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> str:
     named = " ".join([Path(argv[0]).name, *argv[1:3]])
     try:
         done = subprocess.run(
             argv,
             cwd=checkout,
+            env=env,
             capture_output=True,
             text=True,
             errors="replace",

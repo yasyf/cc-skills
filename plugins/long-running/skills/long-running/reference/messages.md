@@ -303,7 +303,7 @@ goes in that thread: no progress, no test results, no follow-up.
 Fixed: Iris picks up again right after you answer its question, on today's build.
 ```
 
-**The status page**, which you never write: `drive watch` redraws the drive's canvas, a tab named
+**The status page**, which you never write: the drive's watch redraws the drive's canvas, a tab named
 after the drive in his DM with the app, within a minute of any change. It lists what waits on him
 first and in full, then each open feature as one line by state, then finished work as counts with
 the newest five named, and ends with the dashboard link. It stays under 40,000 bytes: past that it

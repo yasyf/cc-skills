@@ -1,18 +1,25 @@
+import contextlib
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import render, state
+from drive import reads, render, state, watch
 
 
 def role_context(session: str) -> str | None:
+    """The role's context for the session holding one; a coordinator's session also gets the watch started unless it runs, and its cci channel pointed at the watch's records."""
     bound = state.session_drives(session)
     if not bound:
         return None
     data = state.load(bound[0])
-    return render.context(data, state.session_role(data, session))
+    role = state.session_role(data, session)
+    if role == "coordinator":
+        watch.ensure(bound[0])
+        with contextlib.suppress(reads.ReadError):
+            watch.listen(bound[0], session)
+    return render.context(data, role)
 
 
 def respond(payload: dict) -> dict | None:

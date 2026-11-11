@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import RESEARCH, Answers, Drawing, Thread, Withdrawals
+from conftest import RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
 from drive import card, cli, github, limits, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -86,6 +86,15 @@ def test_start_creates_the_drive_and_prints_the_roles_context(run: Run, tmp_path
         }
     }
     assert data["slack"] == {"channel": "D123", "page": None, "watch": []}
+
+
+def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_process: WatchProcess, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("start", "demo", "--role", "communicator", "--channel", "D123")
+    assert watch_process.ensured == []
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "coordinator-session")
+    code, out = run("start", "demo", "--role", "coordinator")
+    assert (code, watch_process.ensured) == (0, ["demo"])
+    assert "\nthe watch runs for demo\ncoordinator: " in out
 
 
 def test_start_needs_a_role(run: Run) -> None:
@@ -471,11 +480,10 @@ def test_job_add_needs_a_known_order(run: Run, demo: str) -> None:
 def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
     run("job", "add", "codex", "--order", "o1", "--goal", "review")
-    run("job", "set", "j1", "--agent", "a-1", "--state", "waiting", "--said", "PR up", "--pr", PR)
+    run("job", "set", "j1", "--agent", "a-1", "--said", "PR up", "--pr", PR)
     run("job", "set", "j1", "--pr", PR)
     job = state.load("demo")["jobs"]["j1"]
     assert job["agent"] == "a-1"
-    assert job["state"] == "waiting"
     assert job["said"] == "PR up"
     assert job["prs"] == [PR]
 
@@ -503,7 +511,7 @@ def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
     assert kept.read_text() == "1. run it\n"
     assert f"- j1 (o1): {kept}" in run("status")[1]
     assert run("job", "set", "j1", "--repro", str(steps))[0] == 2
-    assert run("job", "set", "j1", "--state", "done", "--repro", str(kept))[0] == 0
+    assert run("job", "set", "j1", "--repro", str(kept))[0] == 0
     assert kept.read_text() == "1. run it\n"
 
 
@@ -1027,7 +1035,7 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
         ("design", "DESIGN the table move", "waiting"),
         ("builder", "BLOCKED no order of his names this", "failed"),
         ("reader", "The flag exists since 1.0.40", "done"),
-        ("builder", "BUILT lr-move, waits on demo:j1-3", None),
+        ("builder", "BUILT lr-move, waits on demo:j1-3", "built"),
         ("builder", "I pushed the fix", None),
     ],
 )
@@ -1044,6 +1052,28 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     jobs = state.load("demo")["jobs"]
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, first) if taken else ("running", None))
     assert (jobs["j2"]["state"], jobs["j2"]["said"]) == ("stopped", None)
+
+
+def test_a_built_return_sets_its_job_built_on_its_branch_waiting_on_each_card_it_names(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    card = "https://acme.slack.com/archives/D123/p1794200000000100"
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"BUILT lr-move, waits on demo:j1-3, {card}\nCHECK: build 12\n"))
+    run("job", "report", "j1", "-")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["branch"], job["waits"]) == ("built", "lr-move", ["demo:j1-3", card])
+
+
+def test_job_set_takes_state_stopped_alone_since_the_line_a_job_returns_sets_every_other(run: Run, demo: str) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    for taken in ("running", "waiting", "built", "done", "failed"):
+        with pytest.raises(SystemExit):
+            run("job", "set", "j1", "--state", taken)
+    assert run("job", "set", "j1", "--state", "stopped")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
 def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
@@ -1416,7 +1446,8 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     run("job", "add", "builder", "--order", "o1", "--goal", "one restore code path " * 8)
     said = "DONE " + "merged and installed, the replica now calls the primary's restore code, " * 4
-    run("job", "set", "j1", "--state", "done", "--said", said)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="done", said=said)
     run("order", "set", "o1", "--state", "done")
     lines = run("status", "j1")[1].splitlines()
     assert lines == [
@@ -1477,10 +1508,10 @@ def fake_module(monkeypatch: pytest.MonkeyPatch, name: str, main: Callable[..., 
     monkeypatch.setattr(drive, name, module, raising=False)
 
 
-def test_watch_dispatches_with_the_drive_flag(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_watch_loop_runs_the_watch_with_the_drive_flag(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    fake_module(monkeypatch, "watch", lambda name: calls.append(name) or 0)
-    assert run("watch", "--drive", "demo")[0] == 0
+    monkeypatch.setattr(cli.watch, "main", lambda name: calls.append(name) or 0)
+    assert run("watch", "--loop", "--drive", "demo")[0] == 0
     assert calls == ["demo"]
 
 
@@ -1593,7 +1624,8 @@ def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
     run("job", "add", "builder", "--order", "o1", "--goal", "spike 1: restore cost at three database sizes, one operation at a time", "--part", "spike 1")
     run("job", "add", "reader", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
-    run("job", "set", "j2", "--state", "done")
+    with state.edit("demo") as data:
+        data["jobs"]["j2"]["state"] = "done"
     assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (0, "j3")
     code, out = run("job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 1", "--part", "spike 2", "--part", "spike 3")
     assert (code, out.splitlines()) == (

@@ -55,10 +55,11 @@ def start(args: argparse.Namespace) -> int:
         data["roles"][args.role] = fresh["roles"][args.role]
         if args.channel:
             data["slack"]["channel"] = args.channel
-        watch = data["slack"].setdefault("watch", [])
-        watch.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watch)
+        watched_channels = data["slack"].setdefault("watch", [])
+        watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
     seen = orca_place(data["roles"][args.role], run_show)
-    text = f"{render.context(data, args.role)}\n\n{args.role}: {render.who(data, args.role)}, {seen}"
+    watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
+    text = f"{render.context(data, args.role)}\n\n{watched}{args.role}: {render.who(data, args.role)}, {seen}"
     return emit(args, text, {**data, "orca": {args.role: seen}})
 
 
@@ -354,11 +355,6 @@ def job_set(args: argparse.Namespace) -> int:
         if args.card:
             hold_card(job, args.card, shown)
         job["waits"] = merged_waits(job, args)
-        if args.state == "built" and not (job["branch"] and job["waits"]):
-            raise DriveError(
-                f"{args.id} built needs --branch <the pushed branch it built> and --waits <each design card it waits on>:"
-                " a built job opens no PR until he answers them"
-            )
         if args.carries:
             if args.part and len(args.carries) > 1:
                 raise DriveError("--part names the parts of one carried order; carry one order a call to name its parts")
@@ -369,8 +365,6 @@ def job_set(args: argparse.Namespace) -> int:
         elif args.part:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
-        if args.state == "done":
-            state.drop_carries(data, args.id)
         if args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
             job.update(state.local_lane(args.agent), agent=None)
         elif args.agent:
@@ -1136,9 +1130,18 @@ def dashboard_command(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    from drive import watch
-
-    return watch.main(args.drive)
+    """Run the watch with --loop; else start it as its own process unless one runs, and point the coordinator's cci channel at its records when this is the coordinator's session."""
+    if args.loop:
+        return watch.main(args.drive)
+    name = state.resolve(args.drive)
+    print(watch.ensure(name))
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    if state.session_role(state.load(name), session) == "coordinator":
+        try:
+            watch.listen(name, session)
+        except reads.ReadError as error:
+            raise DriveError(f"the watch runs, but the coordinator's cci channel was not pointed at it: {error}") from None
+    return 0
 
 
 def card_command(args: argparse.Namespace) -> int:
@@ -1310,7 +1313,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the job")
     verb.add_argument("--agent", help="the agent id the Agent tool returned")
     verb.add_argument(
-        "--state", choices=state.JOB_STATES, help="built: it built the recommended design on --branch and opens no PR until each --waits card is answered"
+        "--state", choices=("stopped",), help="stopped: it ends unfinished; every other state comes from the line the job returns"
     )
     verb.add_argument("--branch", help="the pushed branch it works or built on")
     verb.add_argument("--said", help="its latest line")
@@ -1566,7 +1569,9 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--port", type=int, help="serve on this port instead of the drive's own")
     verb.add_argument("--serve", action="store_true", help="serve in the foreground")
     verb.set_defaults(run=dashboard_command)
-    verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
+    verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
+    verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
+    verb.set_defaults(run=watch_events)
     verbs.add_parser("card").set_defaults(run=card_command)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")

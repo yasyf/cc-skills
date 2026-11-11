@@ -103,7 +103,8 @@ def test_place_counts_only_running_builders_on_this_mac(
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     run("job", "add", "reader", "--order", "o1", "--goal", "read", "--agent", "r")
     run("job", "add", "builder", "--order", "o1", "--goal", "parked", "--agent", "p")
-    run("job", "set", "j10", "--state", "waiting")
+    with state.edit("demo") as data:
+        data["jobs"]["j10"]["state"] = "waiting"
     code, out = run("place", "--json")
     assert (code, json.loads(out)["where"], json.loads(out)["local_builders"]) == (0, "local", 7)
     run("job", "add", "builder", "--order", "o1", "--goal", "eighth", "--agent", "e")

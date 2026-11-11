@@ -45,8 +45,8 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    findings nor a high-level line he must ask to have fleshed out, and what his words settle is
    never asked. Meanwhile a builder may build the recommended option of each fork on a pushed branch.
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
-   opens no PR. The coordinator records it with `drive job set <j> --state built --branch <branch>
-   --waits <card>`, one `--waits` for each card's waits id or Slack link, and the ledger, `drive
+   opens no PR. That line sets the job built on its branch, waiting on each card's waits id or Slack link it
+   names, and the ledger, `drive
    status`, `drive view`, the dashboard and his status tab show the job as built, with the branch
    and each card. `drive pr add` refuses any new PR for the job while one of its cards is open.
    The watch drops each card as he answers it and says `FREE <j>` once, when the last is answered
