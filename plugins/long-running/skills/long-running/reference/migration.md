@@ -131,8 +131,12 @@ His rulings already live in cc-notes answers.
    --branch <branch>`, then `drive job report <j> -` with the line `WAITING <url>` on stdin, which
    sets it waiting, then `drive pr add <url> --job <j>`, with `--tap` when it waits on his tap.
 5. Carry a tap he gave when the old drive's `lr board rows` show it in force, so he is never asked
-   again: `drive pr set <url> --tapped Approve --tap-source migrated:<old>`, or `--tapped Hold`. A
-   recorded exemption carries the same way: `drive pr set <url> --exempt "<class>"`.
+   again: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,
+   or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would
+   say "Held by you": it carries as a `hold` label or `--waits` on what it waits for. `drive pr set`
+   refuses `--tapped` with no permalink of his. On Nov 8 a root's hold on a PR he had just tapped
+   "Approve both" on carried as his hold for more than a day. A recorded exemption carries the same way:
+   `drive pr set <url> --exempt "<class>"`.
 
 ## Adopt live work
 

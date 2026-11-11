@@ -1035,6 +1035,12 @@ def design_basis(text: str) -> str:
     raise argparse.ArgumentTypeError("say asked:<his answer id or card permalink>, or none")
 
 
+def his_link(text: str) -> str:
+    if state.CARD_LINK.search(text):
+        return text
+    raise argparse.ArgumentTypeError("name the Slack permalink of his message or of the card he tapped: a hold or approval the drive gave itself is never his")
+
+
 def pr_set(args: argparse.Namespace) -> int:
     from drive import view
 
@@ -1049,6 +1055,11 @@ def pr_set(args: argparse.Namespace) -> int:
         )
     if args.tap and args.port_of:
         raise DriveError("a port lands with no tap: pass --port-of alone")
+    if args.tapped and not args.tap_source:
+        raise DriveError(
+            f"--tapped {args.tapped} needs --tap-source <the Slack permalink of his message or of the card he tapped>:"
+            " only his own words are his tap, and a PR the drive holds itself carries a hold label or --waits on what it waits for"
+        )
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     known = state.load(name)
@@ -1929,7 +1940,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--fundamental", help="what changed; clears his tap and any exemption")
     verb.add_argument("--tapped", choices=state.TAP_LABELS, help="record a tap he gave elsewhere")
-    verb.add_argument("--tap-source", default="recorded", help="where that tap came from")
+    verb.add_argument("--tap-source", type=his_link, help="the Slack permalink of his message or of the card he tapped")
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
