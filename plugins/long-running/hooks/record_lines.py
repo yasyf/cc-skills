@@ -37,7 +37,9 @@ def unsettled(record: dict, names: list[str], cwd: str) -> str | None:
     attrs = record.get("attrs") or {}
     if (record.get("kind") or "").lower() != "ask" or settled.kept(names, attrs.get("ask")):
         return None
-    return settled.refusal(record.get("text") or "", cwd, attrs.get("unsettled"), "the attr `unsettled` set to")
+    text = record.get("text") or ""
+    whole = "\n\n".join(filter(None, [text, record.get("body")]))
+    return settled.refusal(text, whole, names, cwd, attrs.get("unsettled"), "the attr `unsettled` set to")
 
 
 def untapped(record: dict, prs: dict[str, dict]) -> str | None:

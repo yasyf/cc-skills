@@ -13,9 +13,16 @@ def kept(names: list[str], ask: str | None) -> bool:
     return bool(ask) and any(Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks") for name in names)
 
 
-def answers(text: str, cwd: str) -> list[dict]:
-    """His durable answers that may already settle a question: cc-notes' match of their rare words against what he would read."""
-    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", str(MATCHES), "--json"]
+def answers(card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
+    """His durable answers that may already settle a question: those the part he reads names, then each drive's nearest to the whole question, findings included, which reach a ruling whose subject only its body names."""
+    found = matched(card, cwd)
+    for name in drives:
+        found += matched(whole, cwd, "--nearest", "--label", f"drive:{name}")
+    return list({answer["id"]: answer for answer in found}.values())
+
+
+def matched(text: str, cwd: str, *flags: str) -> list[dict]:
+    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", *flags, "--limit", str(MATCHES), "--json"]
     try:
         done = subprocess.run(match, input=text, cwd=cwd, capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -25,9 +32,9 @@ def answers(text: str, cwd: str) -> list[dict]:
     return json.loads(done.stdout)
 
 
-def refusal(text: str, cwd: str, why: str | None, override: str) -> str | None:
+def refusal(card: str, whole: str, drives: list[str], cwd: str, why: str | None, override: str) -> str | None:
     """Why a question may not go to him: a recorded answer of his may settle it, and no reason names that answer and says why it does not."""
-    found = answers(text, cwd)
+    found = answers(card, whole, drives, cwd)
     ids = [answer["id"][:7] for answer in found]
     if not (unnamed := [short for short in ids if short not in (why or "")]):
         return None
@@ -36,7 +43,8 @@ def refusal(text: str, cwd: str, why: str | None, override: str) -> str | None:
     left_out = f" The reason given leaves out {', '.join(unnamed)}." if why else ""
     return (
         "refused: these recorded answers of his may already settle this question. Read each with `ccn answer show <id>`:"
-        " a question one settles is never asked again, in any wording, and the work goes ahead on that answer. Only when"
-        f' none does, ask again with {override} one string that names every id below, such as {override} "{example}".'
+        " a question one settles is never asked again, in any wording, and the work goes ahead on that answer. One that"
+        " already names what you recommend, such as a service he said to build, settles what that thing does: build it."
+        f' Only when none does, ask again with {override} one string that names every id below, such as {override} "{example}".'
         f"{left_out}\n{listed}"
     )
