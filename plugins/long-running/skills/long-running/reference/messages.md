@@ -220,7 +220,8 @@ Its Show me:
   - a `flowchart LR` or `graph LR` whose longest chain runs past four nodes;
   - a fence of one or two lines declaring a constant;
   - as many code fences as options, which go in one `compare` fence labeled per option;
-  - a picture kept in the drive's asks or pictures folder, drawn by hand instead of from a fence;
+  - a picture kept in the drive's asks or pictures folder, drawn by hand instead of from a fence, which a before and an
+    after screenshot kept there is not;
   - two or more PRs listed by number, which their stack's PR card shows;
   - a `Show me:` with no visual under it, and a picture inside a sentence or a table cell.
 - A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,

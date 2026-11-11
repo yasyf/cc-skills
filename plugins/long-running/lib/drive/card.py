@@ -410,8 +410,10 @@ def exposure(key: str) -> str:
 
 
 def show_me_problems(pr: dict) -> list[str]:
-    """Why a PR body's Show me draws nothing worth a picture on his card, or a table or chart Slack cannot draw as its own, by the visual, table and chart rules `drive job ask` holds a question's Show me to, each image in it counted as the picture it draws."""
-    show_me = picture.IMAGE.sub(lambda image: f"![]({image[1] or image[2]})", sections(body_of(pr)).get("show me", "")).splitlines()
+    """Why a PR body's Show me draws nothing worth a picture on his card, or a table or chart Slack cannot draw as its own, by the visual, table and chart rules `drive job ask` holds a question's Show me to, each image in it, an `<img>` tag too, counted as the picture it draws under its alt text."""
+    show_me = picture.IMAGE.sub(
+        lambda image: f"![{alt[1] if (alt := picture.ALT.match(image[0])) else ''}]({image[1] or image[2]})", sections(body_of(pr)).get("show me", "")
+    ).splitlines()
     if not any(line.strip() for line in show_me):
         return []
     return [*limits.visual_problems(show_me, 0), *limits.chart_problems(show_me), *limits.placeholder_problems(show_me), *limits.column_problems(show_me)]
@@ -508,7 +510,7 @@ def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = Fal
         if ids := record_ids(pr):
             needs.setdefault(pr["url"], []).append(f"plain words for what each of {', '.join(ids)} is, in place of the record id, which says nothing to him")
     offered = [pr for pr, entry, *_ in shown if card["status"] == "needs_you" and offers_approval(pr, entry)]
-    if visual and offered and not any(limits.before_and_after(sections(body_of(pr)).get("show me", "")) for pr, *_ in shown):
+    if visual and offered and not any(limits.screenshots(sections(body_of(pr)).get("show me", "")) for pr, *_ in shown):
         needs.setdefault(offered[-1]["url"], []).append(SCREENSHOTS)
     if not needs:
         return ""

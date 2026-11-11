@@ -237,6 +237,8 @@ HEAVY_JOBS_OPTIONS = r'''- 2 threads, 375 GB free floor: a 21 GB copy no longer 
 - 4 threads, same reserve: fastest backlog; a quarter of the CPUs and the most memory pressure, on a machine that froze tonight'''
 
 SCRATCH_CREATOR_DRAWN = r'''![Show me]({root}/durable-agents/pictures/redraw/j571-660789/who.png)'''
+UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/pictures/j779-upgrading-chat-before-de31bf9.png)
+![2 · After, this PR's build at e3aefbd]({root}/durable-agents/pictures/j779-upgrading-chat-after-e3aefbd.png)'''
 
 
 def ask(show_me: str, options: str) -> str:
@@ -298,6 +300,7 @@ def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carr
         pytest.param(SCRATCH_CALLS_SHOW_ME, SCRATCH_CALLS_OPTIONS, id="a compare labeled per option"),
         pytest.param(AUDIT_LOG_SHOW_ME, AUDIT_LOG_OPTIONS, id="a real multi-line diff"),
         pytest.param(SCRATCH_CREATOR_SHOW_ME, SCRATCH_CREATOR_OPTIONS, id="the diagram first, then its tables native"),
+        pytest.param(UPGRADING_CHAT_SHOTS, LANDING_OPTIONS, id="a before and an after screenshot kept in the drive's pictures folder"),
     ],
 )
 def test_a_show_me_he_let_stand_passes(show_me: str, options: str) -> None:
@@ -369,19 +372,20 @@ def test_two_pictures_pass_as_one_gallery_only_when_each_caption_opens_with_its_
 
 
 @pytest.mark.parametrize(
-    ("show_me", "both"),
+    ("show_me", "shots"),
     [
-        ("![1 · Before, dev](/x/page.png)\n![2 · After, this PR](/x/page-new.png)", True),
-        ('<img src="/x/before.png">\n<img src="/x/after.png">', True),
-        ("![2 · After, this PR](/x/page-new.png)\n![1 · Before, dev](/x/page.png)", True),
-        ("![1 · Before, dev](/x/page.png)", False),
-        ("![Before and after, side by side](/x/both.png)", False),
-        ("![1 · The run page](/x/page.png)\n![2 · The run page, wider](/x/page-new.png)", False),
-        ("Before this PR the page cut off; after it, it fits.\n![The run page](/x/page.png)", False),
+        ("![1 · Before, dev](/x/page.png)\n![2 · After, this PR](/x/page-new.png)", {"/x/page.png", "/x/page-new.png"}),
+        ('<img src="/x/before.png">\n<img src="/x/after.png">', {"/x/before.png", "/x/after.png"}),
+        ("![2 · After, this PR](/x/page-new.png)\n![1 · Before, dev](/x/page.png)", {"/x/page.png", "/x/page-new.png"}),
+        ("![1 · Before, dev](/x/page.png)\n![2 · After, this PR](/x/page-new.png)\n![The flow](/x/flow.png)", {"/x/page.png", "/x/page-new.png"}),
+        ("![1 · Before, dev](/x/page.png)", set()),
+        ("![Before and after, side by side](/x/both.png)", set()),
+        ("![1 · The run page](/x/page.png)\n![2 · The run page, wider](/x/page-new.png)", set()),
+        ("Before this PR the page cut off; after it, it fits.\n![The run page](/x/page.png)", set()),
     ],
 )
-def test_a_show_me_carries_before_and_after_screenshots_only_as_two_pictures_named_before_and_after(show_me: str, both: bool) -> None:
-    assert limits.before_and_after(show_me) is both
+def test_a_show_me_carries_before_and_after_screenshots_only_as_two_pictures_named_before_and_after(show_me: str, shots: set[str]) -> None:
+    assert limits.screenshots(show_me) == shots
 
 
 def test_a_left_to_right_flow_past_four_nodes_is_refused_and_the_same_flow_top_to_bottom_passes() -> None:

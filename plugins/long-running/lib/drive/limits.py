@@ -586,7 +586,7 @@ def column_problems(show_me: list[str]) -> list[str]:
 
 
 def visual_problems(show_me: list[str], options: int) -> list[str]:
-    """Why a Show me would draw nothing worth a picture: a fence of words or a mock, a fence of raw data or tool output, a constant, a code picture per option, a picture drawn by hand, PRs listed by number, a chart, compare or arch whose JSON does not draw, or no visual at all. A draft message or a quote, as `> ` lines or a fence of sentences, is none of these: his card shows it as a quote of its text."""
+    """Why a Show me would draw nothing worth a picture: a fence of words or a mock, a fence of raw data or tool output, a constant, a code picture per option, a picture drawn by hand, which a before and an after screenshot kept beside such pictures is not, PRs listed by number, a chart, compare or arch whose JSON does not draw, or no visual at all. A draft message or a quote, as `> ` lines or a fence of sentences, is none of these: his card shows it as a quote of its text."""
     text = "\n".join(show_me)
     every = list(picture.FENCE.finditer(text))
     fences = [fence for fence in every if not picture.quoted(fence[1], fence[2])]
@@ -594,6 +594,7 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
     raw = [(fence, what) for fence in named if (what := picture.raw(fence[1], fence[2]))]
     drawn = [fence for fence in named if not picture.raw(fence[1], fence[2])]
     code = [fence for fence in drawn if fence[1].lower() not in picture.DIAGRAMS]
+    shots = screenshots(text)
     problems = [
         f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a mock or words'
         " in a code block: name the language of real code, write a message or quote as plain sentences, which his card shows as a"
@@ -624,7 +625,7 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
         " the drive's: carry its source in a fence the drive draws, a ```mermaid or ```arch diagram or a ```compare labeled per"
         f" option, and its tables as markdown, which Slack shows natively, or leave the Show me out ({HAND_RULING}; {NATIVE_RULING})"
         for line in captions(show_me)
-        if (shown := PICTURE.fullmatch(line)) and drawn_by_hand(picture.IMAGE.search(line)[1])
+        if (shown := PICTURE.fullmatch(line)) and (path := picture.IMAGE.search(line)[1]) not in shots and drawn_by_hand(path)
     ]
     if len(prs := dict.fromkeys(PR_NUMBER.findall(TOKEN.sub(" ", text)))) >= 2:
         problems.append(
@@ -783,10 +784,10 @@ def constant(source: str) -> bool:
     return 1 <= len(lines) <= 2 and all(CONSTANT.match(line) for line in lines)
 
 
-def before_and_after(show_me: str) -> bool:
-    """Whether a Show me carries a before and an after screenshot: two of its pictures, one whose caption or file name says before and another after."""
-    shots = [image[0] for image in picture.IMAGE.finditer(show_me)]
-    return any(BEFORE.search(one) and AFTER.search(other) for one, other in permutations(shots, 2))
+def screenshots(show_me: str) -> set[str]:
+    """The paths of a Show me's before and after screenshots: each picture whose caption or file name says before beside another that says after, and that other."""
+    shots = [(image[0], image[1] or image[2]) for image in picture.IMAGE.finditer(show_me)]
+    return {path for (one, before), (other, after) in permutations(shots, 2) if BEFORE.search(one) and AFTER.search(other) for path in (before, after)}
 
 
 def drawn_by_hand(path: str) -> bool:

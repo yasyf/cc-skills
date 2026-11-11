@@ -127,8 +127,9 @@ prints and a remote lane's brief carries whole:
   code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs, terminal output and HTTP exchanges stay out of fences.
   A PR that changes what he or a user sees, a UI, page, card or post its `NATIVE:` line names,
   shows a before and an after screenshot of it, `![1 · Before, <build>](<path>)` then
-  `![2 · After, <build>](<path>)`, which Slack shows side by side. His words: "This is a visual
-  change so it should have shown before and after screenshots".
+  `![2 · After, <build>](<path>)`, which Slack shows side by side, kept anywhere, the drive's pictures
+  folder included. His words: "This is a visual change so it should have shown before and after
+  screenshots".
 - `## Against the plan`, only on a departure; `## Port`, on a port.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 
@@ -390,7 +391,8 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     four nodes;
   - a fence of one or two lines declaring a constant; a code fence per option, which belong in one
     `compare` labeled per option;
-  - a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence; a
+  - a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence, which a
+    before and an after screenshot kept there is not; a
     picture inside a sentence or table cell; two or more PRs listed by number, which a stack card
     shows; a table with one value in every cell; a `Show me:` with no visual.
 - A card never asks him to tap, approve or hold a PR that `drive status <pr>` shows he tapped, or that

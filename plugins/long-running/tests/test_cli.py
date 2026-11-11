@@ -2094,16 +2094,18 @@ def test_a_builders_ready_names_prs_whose_tap_card_draws(
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
 
 
-def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_screenshot_on_its_card(
+def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_screenshot_on_its_card_kept_where_the_drive_keeps_pictures(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     seen = f"READY {PR}\nNATIVE: the Iris app's run page\n"
-    refused = f"its tap card needs {card.SCREENSHOTS} in the body of {PR}"
-    for show_me in ("", "## Show me\n![1 · Before, dev](/x/run-page.png)\n"):
+    pictures = state.root() / "demo" / "pictures"
+    before, after = f"![1 · Before, dev]({pictures}/run-page.png)\n", f"![2 · After, this PR]({pictures}/run-page-new.png)\n"
+    for show_me, alone in (("", False), (f"## Show me\n{before}", True)):
         on_github["body"] = CARD_BODY + show_me
         code, err = keep(monkeypatch, capsys, "j1", seen)
-        assert (code, refused in " ".join(err.split())) == (2, True)
-    on_github["body"] = CARD_BODY + "## Show me\n![1 · Before, dev](/x/run-page.png)\n![2 · After, this PR](/x/run-page-new.png)\n"
+        said = " ".join(err.split())
+        assert (code, card.SCREENSHOTS in said, 'the Show me picture "1 · Before, dev" is a file drawn by hand' in said) == (2, True, alone)
+    on_github["body"] = CARD_BODY + f"## Show me\n{before}{after}"
     assert keep(monkeypatch, capsys, "j1", seen) == (0, "")
     on_github["body"] = CARD_BODY
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nNATIVE: none: he never sees it\n") == (0, "")
