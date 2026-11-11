@@ -839,19 +839,31 @@ def hold_card(job: dict, url: str, shown: dict | None) -> None:
     question.update(card=url, waits=question["waits"] or waits)
 
 
-def follow_card(name: str, waits: str, url: str) -> None:
-    """Point each question asked under the waits id at the card cc-slack drew it on, and each wait on its old link at the new one: a card asked again with new words posts as a new card, its old one left pointing at it."""
+def asked_on(name: str, waits: str) -> set[str]:
+    """Each card his question under the waits id is drawn on, by its message, read before it is drawn again: the open one cc-slack lists under the id and each one a job's question keeps."""
     from drive import view
 
-    data = state.load(name)
-    if not (moved := {view.message_key(question["card"]) for job in data["jobs"].values() for question in job["questions"] if question["waits"] == waits and question["card"]} - {view.message_key(url)}):
+    try:
+        listed = view.cards(name)["questions"]
+    except view.CardsError as error:
+        raise DriveError(f"nothing posted: a card drawn again under its waits id moves each wait on its old card to the new one, which needs his cards, and cc-slack could not list them: {error}") from None
+    kept = (question for job in state.load(name)["jobs"].values() for question in job["questions"] if question["waits"] == waits and question["card"])
+    return {view.message_key(entry["url"]) for entry in listed if entry["card"].get("waits") == waits} | {view.message_key(question["card"]) for question in kept}
+
+
+def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
+    """Point each question asked under the waits id at the card cc-slack drew it on, and each wait of a job or PR on a card it was drawn on before at the new one: a card asked again with new words posts as a new card, its old one left pointing at it."""
+    from drive import view
+
+    if not (moved := asked - {view.message_key(url)}):
         return
     with state.edit(name) as data:
         for job in data["jobs"].values():
             for question in job["questions"]:
                 if question["waits"] == waits and question["card"]:
                     question["card"] = url
-            job["waits"] = list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in job["waits"]))
+        for owner in [*data["jobs"].values(), *data["prs"].values()]:
+            owner["waits"] = list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in owner["waits"]))
 
 
 def job_ask(args: argparse.Namespace) -> int:

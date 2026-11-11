@@ -251,7 +251,9 @@ When it is answered, replaced or redone:
   call posts the new version as the live card at the DM root, its link in the thread `thread_ts`
   names, and edits the old card to the new words with one line linking the new card where its
   buttons were, as is every older copy, so one card stays answerable. `say` then points the question
-  and every wait on the old card's link at the new card. A `--reworking` draw and `drive cards
+  and every job's or PR's wait on the old card's link at the new card, the old card read from his
+  open cards before the post, so a card no job's question keeps moves its waits too; when his cards
+  cannot be read, nothing is posted. A `--reworking` draw and `drive cards
   redraw` are the same question drawn again: they carry `in_place`, so the card is edited where it
   sits, buttons kept, and nothing is posted. The same words post nothing either way. Never `slack_edit` a
   card: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
