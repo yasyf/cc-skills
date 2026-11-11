@@ -2099,7 +2099,7 @@ def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_scree
 ) -> None:
     seen = f"READY {PR}\nNATIVE: the Iris app's run page\n"
     pictures = state.root() / "demo" / "pictures"
-    before, after = f"![1 · Before, dev]({pictures}/run-page.png)\n", f"![2 · After, this PR]({pictures}/run-page-new.png)\n"
+    before, after = f"![1 · Before, dev]({pictures}/j779-run-page-before-de31bf9.png)\n", f"![2 · After, this PR]({pictures}/j779-run-page-after-e3aefbd.png)\n"
     for show_me, alone in (("", False), (f"## Show me\n{before}", True)):
         on_github["body"] = CARD_BODY + show_me
         code, err = keep(monkeypatch, capsys, "j1", seen)

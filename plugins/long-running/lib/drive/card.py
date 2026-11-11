@@ -28,7 +28,7 @@ PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
 SCREENSHOTS = (
     "a before and an after screenshot of what he sees change, two pictures in its Show me, or another PR's on the card,"
-    " captioned `1 · Before, <the build it shows>` and `2 · After, <the build it shows>`, which Slack shows side by side,"
+    " captioned `1 · Before, dev` and `2 · After, this PR`, each build named in words rather than a sha, which Slack shows side by side,"
     f" since the READY's NATIVE: line names a surface he sees ({limits.SCREENSHOT_RULING})"
 )
 CONVENTIONAL_KINDS = {
@@ -140,8 +140,8 @@ def without_records(text: str) -> str:
 
 
 def record_ids(pr: dict) -> list[str]:
-    """Each record id a PR's body names outside its code and links, which says nothing to him."""
-    return list(dict.fromkeys(RECORD_ID.findall(CODE.sub("", body_of(pr)))))
+    """Each record id, which says nothing to him, a PR's body names outside its code, its links and its images' file paths; an image's alt text, which he reads, counts."""
+    return list(dict.fromkeys(RECORD_ID.findall(CODE.sub("", picture.IMAGE.sub(picture.alt, body_of(pr))))))
 
 
 def first_paragraph(text: str) -> str:
@@ -412,7 +412,7 @@ def exposure(key: str) -> str:
 def show_me_problems(pr: dict) -> list[str]:
     """Why a PR body's Show me draws nothing worth a picture on his card, or a table or chart Slack cannot draw as its own, by the visual, table and chart rules `drive job ask` holds a question's Show me to, each image in it, an `<img>` tag too, counted as the picture it draws under its alt text."""
     show_me = picture.IMAGE.sub(
-        lambda image: f"![{alt[1] if (alt := picture.ALT.match(image[0])) else ''}]({image[1] or image[2]})", sections(body_of(pr)).get("show me", "")
+        lambda image: f"![{picture.alt(image)}]({image[1] or image[2]})", sections(body_of(pr)).get("show me", "")
     ).splitlines()
     if not any(line.strip() for line in show_me):
         return []
