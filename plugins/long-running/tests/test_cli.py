@@ -2369,7 +2369,7 @@ def test_pr_add_registers_under_the_key(run: Run, with_pr: str) -> None:
     assert data["jobs"]["j1"]["prs"] == [PR]
 
 
-def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_or_untapped_for_a_reason(
+def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outside_forge_ai_or_untapped_for_a_reason(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
@@ -2390,7 +2390,29 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_or_unt
         data["prs"].pop(key)
         data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
-    assert state.load("demo")["prs"][key]["wants_tap"] is False
+    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/7", "--job", "j1")[0] == 0
+    prs = state.load("demo")["prs"]
+    assert (prs[key]["wants_tap"], prs["yasyf/cc-skills#7"]["wants_tap"]) == (True, False)
+
+
+def test_pr_add_of_a_yasyf_pr_starts_one_lander_that_merges_and_installs_it(
+    run: Run, demo: str, on_github: dict, landers: list[tuple[str, ...]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    url = "https://github.com/yasyf/cc-skills/pull/7"
+    code, out = run("pr", "add", url, "--job", "j1")
+    assert (code, out.startswith("yasyf/cc-skills#7: merging it with gh pr merge --squash --admin, then installing")) == (0, True)
+    assert landers == [("yasyf/cc-skills#7",)]
+    assert state.load("demo")["prs"]["yasyf/cc-skills#7"]["lander"]["head"] == "abc"
+    assert run("pr", "add", url, "--job", "j1")[1] == f"yasyf/cc-skills#7: not merging it: lander pid {os.getpid()} already merges it"
+    on_github["baseRefName"] = "j1-below"
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"]["lander"]["outcome"] = "not landed: gh pr merge --squash --admin refused it: conflict"
+    assert run("pr", "add", url, "--job", "j1")[1] == (
+        "yasyf/cc-skills#7: not merging it: it sits on j1-below, not main; register it again once the PR below it merges"
+    )
+    assert landers == [("yasyf/cc-skills#7",)]
 
 
 def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:

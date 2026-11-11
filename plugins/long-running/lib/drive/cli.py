@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import artifacts, brief, github, limits, orca, picture, place, reads, render, settled, slack, state, watch
+from drive import artifacts, brief, github, land, limits, orca, picture, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -1606,7 +1606,7 @@ def pr_add(args: argparse.Namespace) -> int:
     key = state.pr_key(args.url)
     url = state.pr_url(key)
     if args.no_tap and not args.why:
-        raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling")
+        raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
     if exposed := card.exposure(key):
         raise DriveError(f"{key}: {exposed}")
     read = github_pr(key)
@@ -1625,7 +1625,8 @@ def pr_add(args: argparse.Namespace) -> int:
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
                 " the watch says FREE when the last is answered"
             )
-        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]) | {"wants_tap": not tooling(data["orders"][job["order"]])})
+        wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
+        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]) | {"wants_tap": wants_tap})
         pr.update(job=args.job, order=job["order"])
         if args.port_of:
             pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
@@ -1635,7 +1636,10 @@ def pr_add(args: argparse.Namespace) -> int:
             pr["wants_tap"] = False
         if url not in job["prs"]:
             job["prs"].append(url)
-    return emit(args, key, {"key": key, **pr})
+    if not state.merges_untapped(key):
+        return emit(args, key, {"key": key, **pr})
+    merging = land.merge_ready(name, key, read)
+    return emit(args, f"{key}: {merging}", {"key": key, **pr, "merging": merging})
 
 
 def design_basis(text: str) -> str:
@@ -1944,6 +1948,12 @@ def pr_tapped(args: argparse.Namespace) -> int:
     may_land, why = tap_verdict(pr)
     emit(args, f"{key}: {why}", {"key": key, "may_land": may_land, "why": why})
     return 0 if may_land else 1
+
+
+def pr_land(args: argparse.Namespace) -> int:
+    keys = [state.pr_key(url) for url in args.urls]
+    outcome = land.run(state.resolve(args.drive), keys)
+    return emit(args, outcome, {"keys": keys, "outcome": outcome})
 
 
 def answer(args: argparse.Namespace) -> int:
@@ -2892,6 +2902,13 @@ def parser() -> argparse.ArgumentParser:
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
     verb.set_defaults(run=pr_tapped)
+    verb = pr.add_parser(
+        "land",
+        parents=both,
+        help="what the watch, his Approve and pr add start: queue PRs he approved through stack-enqueue --watch, or merge a yasyf/* PR with --admin and install it",
+    )
+    verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
+    verb.set_defaults(run=pr_land)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
     verb = verbs.add_parser("bound", parents=both, help="run one command with a lane's Run bound to this terminal, under the drive's binding lock, then bind the drive's own Run, which no lane mails")

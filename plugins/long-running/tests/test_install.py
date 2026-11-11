@@ -302,6 +302,28 @@ def test_the_repo_resolves_from_known_marketplaces(config: Path, marketplace: st
     assert install.marketplace_repo(marketplace) == repo
 
 
+def test_a_merge_touches_each_installed_plugin_of_its_repo_whose_folder_it_changes_and_a_marketplaces_only_plugin_on_any_change(config: Path) -> None:
+    inbox = {"source": {"source": "github", "repo": "yasyf/cc-inbox"}, "installLocation": str(config / "i")}
+    (config / "plugins" / "known_marketplaces.json").write_text(json.dumps(json.loads((config / "plugins" / "known_marketplaces.json").read_text()) | {"inbox": inbox}))
+    listed = {
+        "m": [
+            {"name": "slop-cop", "source": "./plugins/slop-cop"},
+            {"name": "long-running", "source": {"source": "git-subdir", "url": f"https://github.com/{REPO}", "path": "plugins/long-running", "ref": "long-running--v1.0.3"}},
+            {"name": "cci", "source": {"source": "github", "repo": "yasyf/cc-inbox"}},
+        ],
+        "i": [{"name": "cc-inbox", "source": "./"}],
+    }
+    for folder, plugins in listed.items():
+        (config / folder / ".claude-plugin").mkdir(parents=True)
+        (config / folder / ".claude-plugin" / "marketplace.json").write_text(json.dumps({"plugins": plugins}))
+    installed = {key: [] for key in ("slop-cop@skills", "long-running@skills", "cci@skills", "cc-inbox@inbox", "revdiff@revdiff")}
+    (config / "plugins" / "installed_plugins.json").write_text(json.dumps({"version": 2, "plugins": installed}))
+    assert install.touched(REPO, ["plugins/long-running/lib/drive/land.py", "README.md"]) == ["long-running@skills"]
+    assert install.touched(REPO, ["plugins/slop-cop/x.py", "plugins/long-running/SKILL.md"]) == ["slop-cop@skills", "long-running@skills"]
+    assert install.touched(REPO, ["README.md"]) == []
+    assert install.touched("yasyf/cc-inbox", ["cmd/cci/main.go"]) == ["cc-inbox@inbox"]
+
+
 def test_a_marketplace_with_no_github_repo_asks_for_repo(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
     fake(["unused"], set())
     assert install.main("plugin@forge", SHA, None, 900) == 1

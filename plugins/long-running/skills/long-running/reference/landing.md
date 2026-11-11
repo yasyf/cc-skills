@@ -102,7 +102,8 @@ for its repository says, then return `DONE <proof>`.
     returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its card.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
   tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
-  order, or one added with `--no-tap --why "<reason>"` waits on none.
+  order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
+  PR waits on his tap whoever opened it and whatever order it serves.
 - Return `READY <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
   review still running: his-words check starts on that head then, and the watch draws his card the
   minute GitHub reports the PR green and approved. Return no `WAITING` for CI, a review or a queue. A
@@ -116,11 +117,19 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
 "can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
-2. Merge at once with `gh pr merge <n> -R <repo> --squash --admin`, whatever its checks show. Read
-   them once they finish and fix a red one forward in a follow-up PR.
-3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
+2. Register it with `drive pr add <url> --job <j>`, which starts the drive's lander on it: a process
+   of its own, outliving your turn, that merges it with `gh pr merge <n> -R <repo> --squash --admin`,
+   whatever its checks show, then runs `drive install` from the merge sha for each plugin installed on
+   this Mac whose folder the merge changes, or that is its marketplace's only plugin. It writes its
+   output to the drive's `landings.log`, and its outcome reaches the job's holder as one line,
+   `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`. `drive pr add`
+   prints why it started none: a draft, the `hold` label, a lander already running on it, or a base
+   other than the default branch, so a stacked PR is registered again once the PR below it merges.
+   Read the checks once they finish and fix a red one forward in a follow-up PR.
+3. Install by hand only what the lander does not, from the merge sha
+   (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
-     `long-running@skills`) waits for the release that holds the merge, updates the plugin, and
+     `long-running@skills`), which the lander runs itself, waits for the release that holds the merge, updates the plugin, and
      prints the installed version. A release holds it when the merge is in the release's commit and
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
      binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
@@ -194,14 +203,28 @@ When a push changes what he approved, run `drive pr set <url> --fundamental "<wh
 clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
 carry out one decision of his into one first, so he gets one card.
 
-**Enqueue** into the Trunk merge queue with the repository's script, naming every PR that may land:
+**His Approve lands a `Forge-AI/monorepo` PR with no session turn.** The drive's lander, a process of
+its own, enqueues it into the Trunk merge queue with the coordinator checkout's script:
+
+    .agents/skills/submit-pr/scripts/stack-enqueue --watch <PR>...
+
+His card tap starts it when the PR is already green, approved by the reviewer bot and free of
+conflicts, and the watch starts it within one GitHub read, 60 seconds, of the PR getting there. It
+names the PRs of his card's stack bottom first, up to the first he has not approved, and starts on
+none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
+conflict. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
+wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
+holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
+His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. An exempt
+class, and a PR of another `Forge-AI` repository, is enqueued by its handoff builder:
 
     .agents/skills/submit-pr/scripts/stack-enqueue <PR>...
 
 It enqueues the largest green, approved, unheld bottom of the stack in one call, never an unnamed PR,
 and reads the queue back. `--check` previews the gate; `--watch` keeps enqueueing as the stack turns
 green. The `landing_guard` hook refuses an enqueue missing an open PR of his card's stack; once part
-lands, run `ccx vcs stack submit` for the rest.
+lands, run `ccx vcs stack submit` for the rest. The lander runs outside any Claude session, so no hook
+sees it: it checks his tap and his open cards itself, from the drive's state.
 
 **The queue is the only way in**, because every other way skips the checks it runs: the `landing_guard`
 hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `merge`/`merge-fast` label.

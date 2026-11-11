@@ -114,7 +114,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `READY` again.
    - A PR that is not a port and whose his-words list is empty or says none is not his order. Drive
      tooling is such a PR: its list says none rather than borrow his words for the order it unblocks.
-     Land a `yasyf/*` one yourself by the landing reference. A `Forge-AI/*` one returns `READY` with
+     A `yasyf/*` one lands from `drive pr add` on, whose lander merges it with `--admin` and installs
+     each plugin it changes, so it returns `READY` and its `PR … merged at` line brings the handoff that
+     proves it live. A `Forge-AI/*` one returns `READY` with
      `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an exempt class covers
      it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns

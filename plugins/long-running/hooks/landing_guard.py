@@ -8,13 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, limits, public_check, settled, slack, state, superseded, view
+from drive import agents, github, land, limits, public_check, settled, slack, state, superseded, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import expanded, runnable, templates
 
-GUARDED_OWNER = "forge-ai"
-MONOREPO = "Forge-AI/monorepo"
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -131,8 +129,8 @@ LANDINGS = (
         endpoint=True,
     ),
     Landing(("ccx", "vcs", "merge"), frozenset({"repo", "match-head-commit", "red-on-main"}), {"R": "repo"}),
-    Landing(("ci", "trunk", "submit"), frozenset({"priority"}), every_pr=True, repo=MONOREPO),
-    Landing(("stack-enqueue",), frozenset(), every_pr=True, repo=MONOREPO, reads=("check", "status", "dequeue")),
+    Landing(("ci", "trunk", "submit"), frozenset({"priority"}), every_pr=True, repo=state.MONOREPO),
+    Landing(("stack-enqueue",), frozenset(), every_pr=True, repo=state.MONOREPO, reads=("check", "status", "dequeue")),
 )
 BODY_POSTS = (
     Landing(
@@ -325,26 +323,16 @@ def judged_by(key: str, session: str) -> tuple[str, dict] | None:
     return max(known, key=lambda entry: entry[:2])[2:] if known else None
 
 
-def open_cards(name: str, pr: dict) -> list[str]:
-    """His open cards a drive PR or its job waits on, outside an open incident, whose repair lands on the recommended option, and outside an immediate fix, which lands while he picks the proper fix."""
-    data = state.load(name)
-    job = data["jobs"][pr["job"]]
-    if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
-        return []
-    waits = list(dict.fromkeys([*pr["waits"], *job["waits"]]))
-    return [wait for wait in view.holding(data, waits, view.live_cards(name)) if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
-
-
 def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     if (judged := judged_by(key, shell.session)) is None:
         return None
     name, pr = judged
-    if shell.driving and (cards := open_cards(name, pr)):
+    if shell.driving and (cards := land.open_cards(state.load(name), pr, view.live_cards(name))):
         return CARD_REASON.format(key=key, cards=", ".join(cards))
     may_land, why = tap_verdict(pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
-    if shell.driving and not landing.repo and key.split("#")[0].lower() == MONOREPO.lower() and pr.get("exempt") != INCIDENT_FIX:
+    if shell.driving and not landing.repo and state.queued_on_tap(key) and pr.get("exempt") != INCIDENT_FIX:
         return QUEUE_REASON.format(key=key)
     return None
 
@@ -379,7 +367,7 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return None
     named = refs if landing.every_pr else refs[:1] or [None]
     repo = target_repo(landing, next(iter(named), None), options, shell)
-    if repo.split("/")[0].lower() != GUARDED_OWNER:
+    if not state.guarded(repo):
         return None
     if switched_on(options, "admin"):
         return ADMIN_REASON

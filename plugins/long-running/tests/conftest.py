@@ -1,4 +1,5 @@
 import json
+import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -11,6 +12,7 @@ from drive import (
     cli,
     dashboard,
     github,
+    land,
     orca,
     page,
     public_check,
@@ -127,6 +129,14 @@ def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     monkeypatch.setattr(dashboard, "tailnet", lambda: None)
     monkeypatch.setattr(page, "draw", lambda name, markdown: pages.append(markdown) or page.Drawn("https://slack.example/docs/T1/F1", False))
     return pages
+
+
+@pytest.fixture(autouse=True)
+def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    started: list[tuple[str, ...]] = []
+    monkeypatch.setattr(land, "spawn", lambda name, keys: started.append(keys) or os.getpid())
+    monkeypatch.setattr(github, "default_branch", lambda repo: "main")
+    return started
 
 
 @dataclass

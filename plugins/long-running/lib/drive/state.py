@@ -25,6 +25,9 @@ BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
+GUARDED_OWNER = "forge-ai"
+NO_TAP_OWNER = "yasyf"
+MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
@@ -73,6 +76,16 @@ def scratch() -> bool:
 
 def drive_dir(name: str) -> Path:
     return root() / name
+
+
+def alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
 
 
 def state_path(name: str) -> Path:
@@ -289,6 +302,8 @@ def load(name: str) -> dict:
         pr.setdefault("hold_label", False)
         pr.setdefault("ready_said", None)
         pr.setdefault("pulled", None)
+        pr.setdefault("lander", None)
+        pr.setdefault("ejected", False)
     if any("verdict" not in pr for pr in data["prs"].values()):
         judge_kept(data)
     data.setdefault("answers", {})
@@ -961,6 +976,20 @@ def card_wait(data: dict, wait: str) -> bool:
     return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait)
 
 
+def merges_untapped(key: str) -> bool:
+    return key.split("/")[0] == NO_TAP_OWNER
+
+
+def guarded(key: str) -> bool:
+    """Whether only his tap or an exempt class lands a PR of this repository, a Forge-AI one, whoever opened it."""
+    return key.split("/")[0].lower() == GUARDED_OWNER
+
+
+def queued_on_tap(key: str) -> bool:
+    """Whether his Approve lands the PR with no session turn: a Forge-AI/monorepo one, which the drive's lander queues through stack-enqueue."""
+    return key.split("#")[0].lower() == MONOREPO.lower()
+
+
 def owed_step(pr: dict) -> str | None:
     """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, nothing when its author or its own builder lands it, its builder's rework or a reader's recheck while a NOT READY stands and he has not tapped it, and else his card, drawn while his-words check runs."""
     if pr.get("exempt"):
@@ -996,5 +1025,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "merged_sha": None,
         "stuck": None,
         "waits": [],
+        "lander": None,
+        "ejected": False,
         "updated": stamp(),
     }

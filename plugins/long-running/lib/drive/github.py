@@ -20,6 +20,7 @@ COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
 CANDIDATE = "rc/"
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
+EJECTED_LABEL = "trunk-failed"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 PRS_PER_QUERY = 25
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
@@ -54,6 +55,10 @@ def read(what: str, cmd: list[str], max_age: str = "0s") -> str:
 def close(url: str) -> None:
     """Close a pull request on GitHub."""
     run(["gh", "pr", "close", url])
+
+
+def default_branch(repo: str) -> str:
+    return read(f"{repo}'s default branch", ["gh", "api", f"repos/{repo}", "--jq", ".default_branch"], max_age="1h").strip()
 
 
 def visibility(repo: str) -> str | None:
