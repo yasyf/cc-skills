@@ -530,7 +530,7 @@ window.scrollTo(0, 120);
 await wait(200);
 const canvas = document.querySelector('#main .canvas');
 const world = canvas.querySelector('.world');
-const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, scale: Number(world.style.getPropertyValue('--k')) });
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, shown: getComputedStyle(world).visibility === 'visible' && Number(world.style.getPropertyValue('--k')) === camera.k, scale: camera.k });
 const overview = look();
 canvas.querySelector('.region[data-cam-key="Platform"]').click();
 await wait(800);
@@ -546,11 +546,11 @@ await wait(300);
 done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.querySelector('.task-sheet') } });
 """, board(status=[{"state": "running", "features": [FEATURE, iris]}]), "1200,600", "--force-prefers-reduced-motion")
     assert {name: {key: value for key, value in view.items() if key != "scale"} for name, view in seen.items()} == {
-        "overview": {"hash": "#/now", "level": "all", "same": True, "top": 120},
-        "project": {"hash": "#/now/Platform", "level": "project", "same": True, "top": 120},
-        "stream": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120},
-        "task": {"hash": "#/now/Platform/SandSQL/o1", "level": "stream", "same": True, "top": 120, "sheet": "ship the fix"},
-        "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "sheet": False},
+        "overview": {"hash": "#/now", "level": "all", "same": True, "top": 120, "shown": True},
+        "project": {"hash": "#/now/Platform", "level": "project", "same": True, "top": 120, "shown": True},
+        "stream": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "shown": True},
+        "task": {"hash": "#/now/Platform/SandSQL/o1", "level": "stream", "same": True, "top": 120, "shown": True, "sheet": "ship the fix"},
+        "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "shown": True, "sheet": False},
     }
     assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
 

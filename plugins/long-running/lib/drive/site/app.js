@@ -690,7 +690,7 @@ function cameraStyle() {
   return camera ? `transform:scale(${camera.k}) translate(${-camera.x}px, ${-camera.y}px);--k:${camera.k}` : 'visibility:hidden';
 }
 
-function place() {
+function aim() {
   $('#main .world').setAttribute('style', cameraStyle());
 }
 
@@ -735,11 +735,11 @@ function settleCamera(arrived) {
   }
   if (arrived || !camera) {
     camera = cameraTarget();
-    place();
+    aim();
     fitter?.disconnect();
     fitter = new ResizeObserver(() => {
       camera = cameraTarget();
-      place();
+      aim();
     });
     fitter.observe(viewport);
   } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== cameraAt) flyTo(cameraTarget());
@@ -750,7 +750,7 @@ function flyTo(target, ms = 560) {
   cancelAnimationFrame(flying);
   if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
     camera = target;
-    return place();
+    return aim();
   }
   const from = { ...camera, w: 1 / camera.k };
   const to = { ...target, w: 1 / target.k };
@@ -760,7 +760,7 @@ function flyTo(target, ms = 560) {
     const e = ease(t);
     const w = from.w + (to.w - from.w) * e;
     camera = { k: 1 / w, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e };
-    place();
+    aim();
     if (t < 1) flying = requestAnimationFrame(step);
   };
   flying = requestAnimationFrame(step);
@@ -775,7 +775,7 @@ function zoomAround(factor, px, py, ms = 0) {
   if (ms) return flyTo(target, ms);
   cancelAnimationFrame(flying);
   camera = target;
-  place();
+  aim();
   return viewport;
 }
 
@@ -1782,7 +1782,7 @@ document.addEventListener('pointerdown', (event) => {
     viewport.classList.add('dragging');
     cancelAnimationFrame(flying);
     camera = { ...start.camera, x: start.camera.x - dx / start.camera.k, y: start.camera.y - dy / start.camera.k };
-    place();
+    aim();
   };
   const end = () => {
     viewport.classList.remove('dragging');
