@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, picture, refs, render, slack, state, view
+from drive import agents, cli, limits, picture, refs, render, slack, state, talk, view
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -260,18 +260,27 @@ def posted_order(drive: dict, tool_input: dict) -> tuple[str, dict] | None:
 
 
 def held_while_away(payload: dict, drive: dict) -> str | None:
-    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up."""
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up, the report it posts marked held on the drive and its writer told so."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
         return None
     if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()):
         return None
-    if (found := posted_order(drive, tool_input)) and found[1]["incident"]:
+    seq = tool_input.get("record")
+    report = cli.report_attrs(seq) if seq else {}
+    order_id = found[0] if (found := posted_order(drive, tool_input)) else state.report_order(drive, report) if seq else None
+    if order_id and drive["orders"][order_id]["incident"]:
         return None
+    held = (
+        f" Report {seq} is marked held: `drive status` lists it until the catch-up posts, and record {talk.hold(drive['name'], seq, report, order_id)}"
+        f" told its writer so. Return NOTHING held for his catch-up."
+        if seq
+        else ""
+    )
     return agents.Ruled(
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
         " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the coordinator sends"
-        " when he is back.",
+        f" when he is back.{held}",
         AWAY_RULE,
     )
 

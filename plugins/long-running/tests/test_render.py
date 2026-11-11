@@ -199,6 +199,20 @@ def test_status_data_keeps_only_open_work() -> None:
     assert set(data["prs"]) == {"yasyf/cc-skills#9"}
 
 
+def test_status_lists_each_report_held_for_his_catch_up() -> None:
+    drive = sample()
+    at = state.stamp(state.now())
+    drive["held"] = {"700": {"order": "o1", "at": at, "told": "701"}, "702": {"order": None, "at": at, "told": "703"}}
+    lines = render.status_text(drive, "live", {}).splitlines()
+    start = lines.index("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
+    assert lines[start + 1 : start + 3] == [
+        f"- report 700 (o1), held {render.when(at)}, its writer told in record 701",
+        f"- report 702 (no order), held {render.when(at)}, its writer told in record 703",
+    ]
+    assert render.status_data(drive, "live", {})["held"] == drive["held"]
+    assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), "live", {}).splitlines())
+
+
 def test_when_names_the_day_for_other_days() -> None:
     tomorrow = state.now() + timedelta(days=1)
     assert render.when(state.stamp(tomorrow)).startswith(tomorrow.strftime("%b %-d"))

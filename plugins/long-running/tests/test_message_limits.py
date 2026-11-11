@@ -9,7 +9,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import limits, slack, state
+from drive import limits, slack, state, talk
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -1162,6 +1162,39 @@ def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run,
     with state.edit("demo") as data:
         data["owner"]["away"] = False
     assert posted(transcript, text="The fix merged.") is None
+
+
+def test_a_report_held_while_he_is_away_is_marked_held_and_its_coordinator_told_once(
+    run: Run, talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "unblock the users")
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["orders"]["o2"]["incident"] = True
+    told = []
+
+    def cci(argv: list[str], checkout: Path) -> str:
+        if argv[1] == "show":
+            return json.dumps({"seq": argv[2], "lane": "root", "at": state.stamp(), "fields": {"attrs": {"order": {"700": "o1", "710": "o2"}[argv[2]]}}})
+        told.append(argv)
+        return json.dumps({"seq": 701})
+
+    monkeypatch.setattr(message_limits.cli.reads, "run", cci)
+    reason = say(transcript, text="The fix merged.", record="700")
+    assert reason.startswith("Refused on purpose: he is away")
+    assert reason.endswith(
+        "Report 700 is marked held: `drive status` lists it until the catch-up posts, and record 701 told its writer so."
+        " Return NOTHING held for his catch-up."
+    )
+    assert say(transcript, text="The fix merged.", record="700") == reason
+    assert told == [
+        ["cci", "post", "--drive", "demo", "--lane", "communicator", "--kind", "refused", "--re", "700", "--to", "root@demo", "--id", "held-700"]
+        + ["--attr", "held=700", "--attr", "order=o1", "--json", "--text", talk.HELD.format(seq="700")]
+    ]
+    assert {seq: (mark["order"], mark["told"]) for seq, mark in state.load("demo")["held"].items()} == {"700": ("o1", "701")}
+    assert say(transcript, text="Users are unblocked.", record="710") is None
+    assert list(state.load("demo")["held"]) == ["700"]
 
 
 def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(talker: str, transcript: Path) -> None:

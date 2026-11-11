@@ -346,6 +346,39 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     assert posts[-1][-1] == "The run page fix is live."
 
 
+def test_his_catch_up_carries_the_reports_held_for_it_and_lets_them_go(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["held"] = {seq: {"order": "o1", "at": state.stamp(), "told": told} for seq, told in (("700", "701"), ("702", "703"))}
+    report(monkeypatch, {"orders": "o1"})
+    assert not talk.say(demo, {"text": "The run page fix is live.", "record": "660300"}).endswith("no longer held: 700, 702")
+    assert list(state.load(demo)["held"]) == ["700", "702"]
+    report(monkeypatch, {"catch_up": "true"})
+    state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1", held="700 702")
+    assert talk.say(demo, {"text": "The run page fix is live.", "record": "660299"}).endswith("; it carries the reports held for it, no longer held: 700, 702")
+    assert state.load(demo)["held"] == {}
+
+
+def test_a_held_report_is_told_to_the_coordinator_session_that_wrote_it_else_the_one_hearing_its_order(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["project"] = "Iris"
+        data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(), "from": 0}
+    told = []
+
+    def cci(argv: list[str], checkout: Path) -> str:
+        told.append(argv[argv.index("--to") + 1])
+        return json.dumps({"seq": 800 + len(told)})
+
+    monkeypatch.setattr(cli.reads, "run", cci)
+    assert talk.hold(demo, "700", {"writer": "builder"}, "o1") == "801"
+    assert talk.hold(demo, "700", {"writer": "root"}, "o1") == "801"
+    assert talk.hold(demo, "702", {"writer": "root"}, "o1") == "802"
+    assert talk.hold(demo, "704", {"writer": "builder"}, None) == "803"
+    assert told == [f"iris@{demo}", f"root@{demo}", f"root@{demo}"]
+
+
 def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

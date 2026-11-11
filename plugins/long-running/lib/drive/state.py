@@ -204,6 +204,7 @@ def new_drive(
         "prs": {},
         "answers": {},
         "stand_ins": {},
+        "held": {},
     }
 
 
@@ -272,6 +273,7 @@ def load(name: str) -> dict:
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
     data.setdefault("stand_ins", {})
+    data.setdefault("held", {})
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
@@ -615,6 +617,12 @@ def thread_order(data: dict, thread: str | None) -> str | None:
         (order_id for order_id, order in reversed(data["orders"].items()) if thread and thread in (order["thread"], *(ts for _, ts in card_threads(data, order)))),
         None,
     )
+
+
+def report_order(data: dict, attrs: dict) -> str | None:
+    """The order a report is about: the one its order attr names, else the first its close attr names, else its job's, else the newest in its thread."""
+    named = [attrs.get("order"), *closed_orders(attrs), (data["jobs"].get(attrs.get("job") or "") or {}).get("order")]
+    return next((order_id for order_id in named if order_id in data["orders"]), None) or thread_order(data, attrs.get("thread"))
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
