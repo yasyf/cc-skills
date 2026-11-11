@@ -13,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Self
 
 from drive import agents, dashboard, github, limits, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
@@ -826,6 +827,17 @@ def said_last(entry: dict) -> str:
     return first_line(texts[-1]) if texts else "nothing"
 
 
+class Unrecorded(str):
+    """A running local job's gap when its agent ended its turn on a result line its job never took, carrying that line."""
+
+    line: str
+
+    def __new__(cls, job_id: str, line: str) -> Self:
+        made = super().__new__(cls, f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"')
+        made.line = line
+        return made
+
+
 def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     session = job.get("session")
     holder = next((held for held in state.bound_sessions(data).values() if session and held["session"] == session), None)
@@ -843,7 +855,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if turn and agents.ended(turn):
         line = said_last(turn)
         if state.result_state(job, line):
-            return f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"'
+            return Unrecorded(job_id, line)
         if quiet >= QUIET_FOR:
             return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no result line: SendMessage wakes it'
         return None
@@ -879,9 +891,9 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line the drive already keeps, an `ASK <path>` naming the block `drive job ask` kept or its kept report's first line, has that line taken as the job's result, as its stop hook takes it, so a stop that skipped the take leaves no gap."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, found, lines = {}, {}, {}, {}, []
+    gaps, deaths, heads, found, taken, lines = {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -890,8 +902,12 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if running and job.get("branch") and (job.get("repo") or remote):
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
             if not remote:
-                if running:
-                    gaps[job_id] = local_gap(job_id, job, data, moment)
+                gap = running and local_gap(job_id, job, data, moment)
+                if isinstance(gap, Unrecorded) and state.kept_return(watcher.name, job_id, job, gap.line):
+                    taken[job_id] = gap.line
+                    heads.pop(job_id, None)
+                elif running:
+                    gaps[job_id] = gap
                 continue
             if not job.get("dispatch"):
                 if running:
@@ -921,10 +937,12 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
-    if found:
+    if found or taken:
         with state.edit(watcher.name) as data:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
+            for job_id, line in taken.items():
+                state.take_result(data, job_id, line)
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
     return lines + failed + death_lines(watcher.name, deaths, moment)

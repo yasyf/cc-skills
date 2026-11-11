@@ -16,6 +16,8 @@ GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
 GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
 RED = [{"name": "test", "conclusion": "FAILURE"}]
+ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
+UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 
 
 def order(**overrides: object) -> dict:
@@ -900,6 +902,68 @@ def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: 
     data = state.load(demo)
     assert REAL_LOCAL_GAP("j1", {"session": "old", "agent": "a1"}, data, state.now()) == "j1's agent ended with an earlier session"
     assert REAL_LOCAL_GAP("j1", {"session": "session-under-test", "agent": "a1"}, data, state.now()) == "j1's agent a1 has no transcript"
+
+
+def ended_on(text: str) -> dict:
+    return {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": text}]}}
+
+
+def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None) -> None:
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    card = {"question": ASKED, "options": ["Renew", "Sign in"], "recommended": "Renew", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": ASKED}}
+    monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
+    kept = state.drive_dir(demo) / "asks" / "j1-4d8033be.md"
+    write_transcript(tmp_path / "config", [CALLING, RESULT, ended_on(text.format(kept=kept))], timedelta(minutes=4))
+    if report:
+        state.report_path(demo, "j1").parent.mkdir(exist_ok=True)
+        state.report_path(demo, "j1").write_text(report)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(
+            kind=kind,
+            session="session-under-test",
+            agent="a1",
+            said=ASKED,
+            questions=[state.new_question(str(kept), ASKED, state.stamp(T0), card=CARD)],
+            updated=state.stamp(state.now() - timedelta(minutes=10)),
+        )
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "report", "taken", "said"),
+    [
+        ("reader", "ASK {kept}\n\nThe card asks whether sessions renew while used.", None, "waiting", ASKED),
+        ("reader", "ASK {kept}", "DONE OURS migration 0340 gave every session one expiry\nError he sees: Cannot reach the thread index\n", "waiting", ASKED),
+        ("builder", "DONE shipped\nPR: x", "DONE shipped\nPR: x\n", "done", "DONE shipped"),
+    ],
+)
+def test_a_local_agent_that_ended_on_a_line_the_drive_keeps_has_it_taken_and_is_no_orphan(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None, taken: str, said: str
+) -> None:
+    returned(demo, tmp_path, monkeypatch, kind, text, report)
+    watching = watcher(demo, state.now())
+    assert watch.run_pass(watching, state.now()) == []
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == (taken, said, report or "")
+    assert watch.run_pass(watching, state.now() + watch.HANDOFF + timedelta(minutes=1)) == []
+
+
+@pytest.mark.parametrize(
+    ("kind", "text", "report"),
+    [
+        ("builder", "DONE shipped\nPR: x", None),
+        ("builder", "DONE shipped\nPR: x", "DONE an earlier result\n"),
+        ("reader", "ASK {kept}.old", None),
+    ],
+)
+def test_a_local_agent_that_ended_on_a_line_the_drive_does_not_keep_is_an_orphan(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None
+) -> None:
+    returned(demo, tmp_path, monkeypatch, kind, text, report)
+    [line] = watch.run_pass(watcher(demo, state.now()), state.now())
+    assert line.startswith(UNRECORDED)
+    assert state.load(demo)["jobs"]["j1"]["state"] == "running"
 
 
 def talking(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, entries: list[dict], quiet: timedelta, heard: timedelta) -> None:

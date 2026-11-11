@@ -69,8 +69,11 @@ job's state and its said line:
 | `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names |
 
 The watch reads the agent's transcript, never the stored state. A running job whose agent ended its
-turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or
-belonged to an earlier session makes its parts `ORPHAN`s. An agent that ends its turn on a line with
+turn on a result line the drive already keeps, an `ASK <path>` naming the block `drive job ask` kept
+or its kept report's first line, takes that line as its result, as the stop would have, since the
+`one_line_result` hook can send a stop back before it takes one. A running job whose agent ended its
+turn on any other result line, ended it 30 minutes ago on any other line, wrote nothing for 30
+minutes, or belonged to an earlier session makes its parts `ORPHAN`s. An agent that ends its turn on a line with
 no result word is parked on a task of its own, which usually wakes it; one still parked after 30
 minutes is said with the remedy, a `SendMessage` to wake it.
 

@@ -63,10 +63,7 @@ def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     researched = job["kind"] == "reader" and order["kind"] == "build" and not order["incident"]
-    if job["kind"] not in REPORTED_KINDS and not researched:
-        return None
-    kept = state.report_text(name, job_id, job).strip().splitlines()
-    if kept and kept[0].strip() == line:
+    if job["kind"] not in REPORTED_KINDS and not researched or state.kept_return(name, job_id, job, line):
         return None
     block = " with its `Researched:` block, which the order's builder is briefed from," if researched else ""
     return (
