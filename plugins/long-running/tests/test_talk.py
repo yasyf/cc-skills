@@ -37,7 +37,7 @@ def test_one_post_links_each_reference_the_way_slack_and_the_dashboard_each_show
         ("dm-status", "--agent", "claude", "--thread", "1794200000.000100", "--", f"<{PR_URL}|the run page shows its history> waits on <{CARD_URL}|{QUESTION}>")
     ]
     [kept] = said(demo)
-    assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question)"
+    assert kept["text"] == f"[the run page shows its history]({PR_URL}) waits on [{QUESTION}](#/queue/question/1794300000.000100)"
     assert (kept["url"], kept["thread"]) == (POSTED, "1794300000.000900")
 
 
@@ -62,6 +62,7 @@ def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(de
         data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp(), card=settled) | {"waits": "demo:j1-6"})
     talk.say(demo, {"text": "I withdrew {card:demo:j1-6}: the redesign settles it."})
     assert posts[0][-1] == f"I withdrew <{settled}|Keep the old store?>: the redesign settles it."
+    assert said(demo)[0]["text"] == "I withdrew [Keep the old store?](#/feature/o1): the redesign settles it."
     with pytest.raises(DriveError, match=r"\{card:demo:j1-5\} names no card the drive drew"):
         talk.say(demo, {"text": "see {card:demo:j1-5}"})
 
