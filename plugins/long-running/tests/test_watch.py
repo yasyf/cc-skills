@@ -1138,9 +1138,49 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
-        f'PR {KEY}: green and approved with no card drawn for 30 minutes [o1 j1]'
-    ]
+    line = f"PR {KEY}: green and approved with no card drawn for 30 minutes [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
+    assert watch.wakes(line, state.load(demo))
+
+
+@pytest.mark.parametrize("wants_tap", [False, True])
+def test_a_green_approved_exempt_pr_not_landed_for_thirty_minutes_is_said_and_wakes_the_coordinator(
+    demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool
+) -> None:
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": "incident fix"}
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    line = f"PR {KEY}: green, approved and exempt, and not landed for 30 minutes [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
+    assert watch.wakes(line, state.load(demo))
+    assert render.pr_line(KEY, state.load(demo)["prs"][KEY]).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
+
+
+def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_prs_job_runs_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = "Forge-AI/monorepo#43"
+    assert cli.main(["pr", "set", KEY, "--waits", other, "--drive", demo]) == 2
+    assert f"--waits {other}: the drive tracks no PR {other}; drive pr add it to its job first" in capsys.readouterr().err
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="fix the shm lock and prove it live")
+        data["prs"][other] = state.new_pr(state.pr_url(other), "j2", "o1")
+    assert cli.main(["pr", "set", KEY, "--waits", other, "--drive", demo]) == 0
+    with state.edit(demo) as data:
+        data["prs"][KEY]["exempt"] = "incident fix"
+    waiting_job(demo)
+    reads = {KEY: read(checks=GREEN, reviewDecision="APPROVED"), other: read()}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    reads[other] = read(state="MERGED", mergeCommit="ccc333")
+    freed = f"FREE {KEY} j1 o1: {other} answered or done, nothing else holds it"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {other}: merged [o1 j2]", freed]
+    assert state.load(demo)["jobs"]["j2"]["state"] == "running"
+    assert watch.wakes(freed, state.load(demo))
 
 
 @pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
@@ -1251,6 +1291,23 @@ def test_a_prs_merge_or_red_wakes_the_coordinator_only_when_no_running_job_takes
     moves = [f"PR {KEY}: {move} [o1 j1]" for move in ("merged", "checks failed", "conflicts with its base", "changes requested", "still red for 30 minutes")]
     watch.sent(watcher(demo), "root", moves, T0)
     assert posted(sent) == [(kind, f"root@{demo}", line) for line in moves]
+
+
+@pytest.mark.parametrize(
+    ("wants_tap", "exempt", "kind"),
+    [(True, "incident fix", "handoff"), (False, "incident fix", "handoff"), (True, None, "handoff"), (False, None, "evidence")],
+)
+def test_a_pr_going_green_and_approved_wakes_the_coordinator_when_the_drive_owes_it_his_card_or_its_exempt_landing(
+    demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool, exempt: str | None, kind: str
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": exempt, "review": "approved"}
+        data["jobs"]["j1"]["state"] = "waiting"
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    assert watch.sent(watching, "root", watch.run_pass(watching, T0), T0) == []
+    assert posted(sent) == [(kind, f"root@{demo}", f"PR {KEY}: checks passed [o1 j1]")]
 
 
 def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

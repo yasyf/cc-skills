@@ -133,13 +133,16 @@ def open_cards(job: dict, found: dict | None) -> list[str]:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job not finished, and each release until the watch sees it out."""
-    jobs = drive["jobs"]
-    return [
-        wait
-        for wait in waits
-        if (jobs[wait]["state"] not in state.FINISHED_JOB_STATES if wait in jobs else bool(state.RELEASE_WAIT.fullmatch(wait)) or card_open(wait, found))
-    ]
+    """The waits of a job or PR that still hold: each of his cards still open, each job not finished, each PR still open, and each release until the watch sees it out."""
+    return [wait for wait in waits if holds(drive, wait, found)]
+
+
+def holds(drive: dict, wait: str, found: dict | None) -> bool:
+    if wait in drive["jobs"]:
+        return drive["jobs"][wait]["state"] not in state.FINISHED_JOB_STATES
+    if wait in drive["prs"]:
+        return drive["prs"][wait]["state"] == "open"
+    return bool(state.RELEASE_WAIT.fullmatch(wait)) or card_open(wait, found)
 
 
 def read(name: str, moment: datetime) -> dict:
@@ -175,7 +178,7 @@ def pr_title(pr: dict) -> str:
 def tap_of(pr: dict) -> str | None:
     if pr.get("tap"):
         return pr["tap"]["label"]
-    return "wanted" if pr["wants_tap"] and pr["state"] == "open" else None
+    return "wanted" if state.owed_step(pr) == "card" and pr["state"] == "open" else None
 
 
 def pr_entry(pr: dict) -> dict:
@@ -194,7 +197,7 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
 
 
 def waits_on_tap(pr: dict, card: dict | None) -> bool:
-    asked = pr["wants_tap"] and not pr.get("tap") and not pr.get("exempt") and not pr["waits"] and pr["state"] == "open"
+    asked = state.owed_step(pr) == "card" and not pr.get("tap") and not pr["waits"] and pr["state"] == "open"
     return asked and (pr["checks"] == "pass" or card is not None)
 
 
@@ -317,6 +320,8 @@ def asked_card(found: dict, wait: str) -> dict | None:
 def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if wait in drive["jobs"]:
         return {"title": f"{wait}: {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)}", "url": None}
+    if wait in drive["prs"]:
+        return {"title": f"{wait} merging: {cut(pr_title(drive['prs'][wait]), TITLE_CHARS)}", "url": state.pr_url(wait)}
     if release := state.RELEASE_WAIT.fullmatch(wait):
         return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
     if card := asked_card(found, wait):
