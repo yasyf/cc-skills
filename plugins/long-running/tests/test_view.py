@@ -28,6 +28,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "kept": None,
         "withdrawn": None,
         "jobs": jobs,
+        "incident": False,
         "proof": None,
         "note": None,
         "created": at(-120),
@@ -467,4 +468,21 @@ def test_asks_list_every_order_newest_first_with_its_thread() -> None:
     assert [(ask["id"], ask["title"], ask["state"], ask["thread"], ask["jobs"]) for ask in asks] == [
         ("o2", "newer ask", "done", None, 1),
         ("o1", "older ask", "working", "1794200000.000100", 0),
+    ]
+
+
+def test_incidents_list_his_open_incident_orders_oldest_first() -> None:
+    data = drive_of(
+        {
+            "o1": order("runs fail for one team", [], incident=True, created=at(-30)),
+            "o2": order("ship the dashboard", []),
+            "o3": order("the old journal copy broke", [], incident=True, state="done"),
+            "o4": order("Sand usage events set aside", [], incident=True, created=at(-90)),
+        },
+        {},
+        [],
+    )
+    assert [(entry["id"], entry["title"]) for entry in view.board(data, found(), "live", [], T0)["incidents"]] == [
+        ("o4", "Sand usage events set aside"),
+        ("o1", "runs fail for one team"),
     ]

@@ -1,6 +1,7 @@
 import http.client
 import json
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -68,6 +69,7 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     asked = []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label, via)) or {"answered": True, "label": label})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 0)
     server, port = serving(board)
     elsewhere = post_answer(port, "https://evil.example", card, "Approve")
     gone = post_answer(port, f"http://box:{port}", card, "Merge")
@@ -77,6 +79,36 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     assert gone == (409, {"error": dashboard.GONE})
     assert taken == (200, {"answered": True, "label": "Approve"})
     assert asked == [(card, "Approve", f"http://box:{port}/")]
+
+
+def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent_cannot_be_undone(monkeypatch: pytest.MonkeyPatch) -> None:
+    card = "https://acme.slack.com/archives/D1/p100"
+    board = dashboard.Board("demo", [])
+    board.answers = {card: ["Approve", "Hold"]}
+    asked = []
+    monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label})
+    monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 2)
+    server, port = serving(board)
+    page = f"http://box:{port}"
+    held = {}
+    clicked = threading.Thread(target=lambda: held.update(reply=post_answer(port, page, card, "Approve")))
+    clicked.start()
+    while card not in board.held:
+        time.sleep(0.01)
+    twice = post_answer(port, page, card, "Hold")
+    undone = post(port, page, "/api/undo", {"card": card})
+    clicked.join()
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 0)
+    sent = post_answer(port, page, card, "Hold")
+    late = post(port, page, "/api/undo", {"card": card})
+    server.shutdown()
+    assert twice == (409, {"error": dashboard.HELD})
+    assert undone == (200, {"undone": True})
+    assert held["reply"] == (200, {"undone": True})
+    assert sent == (200, {"answered": True, "label": "Hold"})
+    assert late == (409, {"error": dashboard.SENT})
+    assert asked == [(card, "Hold")]
 
 
 def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:

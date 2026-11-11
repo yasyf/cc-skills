@@ -57,6 +57,7 @@ const expanded = new Set();
 const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
+const toasts = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
 let talk = null;
 
@@ -264,7 +265,9 @@ function queueScreen(filter) {
     return `<button data-queue="${id}" class="${id === queueFilter ? 'on' : ''}">${label}<span class="n">${n}</span></button>`;
   }).join('');
   const cards = shown.map((item) => ({ question: questionCard, tap: tapCard, late: lateCard })[item.kind](item)).join('');
+  const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   return `<h1 class="h1">${head}</h1>
+    ${unread}
     <div class="subtabs">${filters}</div>
     <div class="queue">${cards || '<p class="empty">Nothing here.</p>'}</div>`;
 }
@@ -315,14 +318,6 @@ function reviewScreen(tab) {
 }
 
 function nowScreen() {
-  const taps = model.queue.filter((item) => item.kind === 'tap').length;
-  const picks = model.queue.filter((item) => item.kind === 'question').length;
-  const late = model.queue.filter((item) => item.kind === 'late').length;
-  const needs = [
-    taps && `<div class="nl"><span>${taps} ${taps === 1 ? 'change waits' : 'changes wait'} on your approval</span><a class="btn" href="#/queue/tap">Review them</a></div>`,
-    picks && `<div class="nl"><span>${picks} ${picks === 1 ? 'question waits' : 'questions wait'} on your answer</span><a class="btn" href="#/queue/question">Answer them</a></div>`,
-    late && `<div class="nl"><span>${late} promised ${late === 1 ? 'time has' : 'times have'} passed</span><a class="btn" href="#/queue/late">See them</a></div>`,
-  ].filter(Boolean);
   const counts = model.counts;
   const oldest = model.queue.find((item) => item.since);
   const headline = `${counts.live} ${counts.live === 1 ? 'feature' : 'features'} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
@@ -335,8 +330,7 @@ function nowScreen() {
       <span class="bar-label">${quiet ? `Quiet ${ago(job.updated)}` : 'Running'}</span><b>${esc(job.goal)}</b>${job.said ? `<span>${esc(job.said)}</span>` : ''}
       <em>last word ${ago(job.updated)} ago</em></a>`;
   }).join('');
-  return `${needs.length ? `<section class="needs"><span class="tag">Needs you</span><div>${needs.join('')}</div></section>` : ''}
-    <h1 class="headline">${esc(headline)}</h1>
+  return `<h1 class="headline">${esc(headline)}</h1>
     <p class="asof">As of ${clock(model.at)} · ${model.progress.merged} of ${model.progress.prs} pull requests merged since the drive began</p>
     <div class="cols">
       <section><h2 class="sec">What blocks it, nearest first</h2>${blocked || '<p class="empty small">Nothing is blocked.</p>'}</section>
@@ -675,15 +669,13 @@ function goJump(row) {
   location.hash = row.dataset.href;
 }
 
-function alerts() {
-  const stalled = model.work.filter(isStalled).length;
-  const late = model.queue.filter((item) => item.kind === 'late').length;
-  const red = model.progress.red;
+function strip() {
+  const picks = model.queue.filter((item) => item.kind === 'question').length;
+  const taps = model.queue.filter((item) => item.kind === 'tap').length;
   return [
-    model.cards === 'live' ? '' : `<span class="al warn">Your questions are not listed here: cc-slack ${esc(model.cards)}</span>`,
-    stalled ? `<a class="al bad" href="#/work">${stalled} ${stalled === 1 ? 'job has' : 'jobs have'} been quiet ${STALL_MINUTES} minutes or more</a>` : '',
-    late ? `<a class="al bad" href="#/queue/late">${late} promised ${late === 1 ? 'time has' : 'times have'} passed</a>` : '',
-    red ? `<a class="al bad" href="#/review/not%20ready">${red} open ${red === 1 ? 'PR is' : 'PRs are'} red</a>` : '',
+    ...model.incidents.map((incident) => `<a class="al bad" href="#/feature/${esc(incident.id)}">Incident since ${clock(incident.created)}: ${esc(incident.title)}</a>`),
+    picks ? `<a class="al warn" href="#/queue/question">${picks} ${picks === 1 ? 'question waits' : 'questions wait'} on your answer</a>` : '',
+    taps ? `<a class="al warn" href="#/queue/tap">${taps} ${taps === 1 ? 'change waits' : 'changes wait'} on your tap</a>` : '',
   ].filter(Boolean).join('');
 }
 
@@ -756,7 +748,7 @@ function render() {
   };
   const waiting = model.review.filter((entry) => entry.group === 'you').length;
   $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('chat', '#/chat', 'Chat', model.asks.filter((ask) => ask.state === 'waiting').length) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
-  const raised = screen === 'now' ? '' : alerts();
+  const raised = strip();
   $('#alerts').innerHTML = raised;
   $('#alerts').hidden = !raised;
   const screens = { queue: () => queueScreen(id), now: nowScreen, status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), chat: () => chatScreen(id), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
@@ -788,19 +780,56 @@ function fresh() {
 async function answer(card, label) {
   const asked = [...model.queue, ...model.review].find((candidate) => candidate.answer === card);
   answers.set(card, { label });
+  toast(card, { label, title: asked.title, until: Date.now() + model.undo_seconds * 1000, state: 'held' });
   render();
   try {
     const reply = await fetch('/api/answer', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card, label }) });
     const said = await reply.json();
     if (!reply.ok) throw new Error(said.error);
-    answers.set(card, { label: said.label || label, at: said.at || new Date().toISOString(), done: true });
+    if (said.undone) {
+      answers.delete(card);
+      toast(card, { ...toasts.get(card), state: 'undone' });
+    } else {
+      answers.set(card, { label: said.label || label, at: said.at || new Date().toISOString(), done: true });
+      toast(card, { ...toasts.get(card), state: 'sent' });
+    }
   } catch (error) {
     answers.set(card, { label, error: error.message });
+    toast(card, { ...toasts.get(card), state: 'failed', error: error.message });
   }
   render();
   const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.picks');
   shown?.nextElementSibling?.classList.contains('refused') && shown.nextElementSibling.remove();
   if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
+}
+
+async function undo(card) {
+  toast(card, { ...toasts.get(card), state: 'undoing' });
+  const reply = await fetch('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
+  if (!reply.ok) toast(card, { ...toasts.get(card), state: 'late', error: (await reply.json()).error });
+}
+
+const TOAST_SAID = {
+  held: (shown) => `Sending in ${Math.max(0, Math.ceil((shown.until - Date.now()) / 1000))}s`,
+  undoing: () => 'Taking it back…',
+  undone: () => 'Undone. It waits on you again.',
+  sent: () => 'Sent.',
+  late: (shown) => shown.error,
+  failed: (shown) => `Not sent: ${shown.error}`,
+};
+
+function toast(card, shown) {
+  toasts.set(card, shown);
+  if (!['held', 'undoing'].includes(shown.state)) setTimeout(() => toasts.get(card) === shown && toasts.delete(card) && drawToasts(), 5000);
+  drawToasts();
+}
+
+function drawToasts() {
+  $('#toasts').innerHTML = [...toasts].map(([card, shown]) => `<div class="toast ${shown.state}" role="status">
+    <span><b>${esc(shown.label)}</b> · ${esc(shown.title)}</span>
+    <span class="meta">${esc(TOAST_SAID[shown.state](shown))}</span>
+    ${shown.state === 'held' ? `<button class="btn" data-undo="${esc(card)}">Undo</button>` : ''}
+  </div>`).join('');
 }
 
 function redrawBoxes(key) {
@@ -833,7 +862,7 @@ function noticeKey(item) {
 }
 
 function notify() {
-  const fresh = model.queue.filter((item) => heard && !heard.has(noticeKey(item)));
+  const fresh = model.queue.filter((item) => item.kind !== 'late' && heard && !heard.has(noticeKey(item)));
   heard = new Set(model.queue.map(noticeKey));
   noticeButton();
   if (!fresh.length || !window.isSecureContext || !('Notification' in window) || Notification.permission !== 'granted') return;
@@ -888,6 +917,8 @@ document.addEventListener('submit', (event) => {
 document.addEventListener('click', (event) => {
   const gotIt = event.target.closest('button[data-gotit]');
   if (gotIt) return say(gotIt.dataset.gotit, gotIt.dataset.under, 'Got it', '');
+  const undone = event.target.closest('button[data-undo]');
+  if (undone) return undo(undone.dataset.undo);
   const pick = event.target.closest('button[data-card]');
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
@@ -957,5 +988,6 @@ window.addEventListener('DOMContentLoaded', () => {
     drawJump();
   });
   setInterval(render, 60000);
+  setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
   connect();
 });

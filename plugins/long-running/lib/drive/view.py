@@ -21,8 +21,8 @@
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
 newest first), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
 thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
-`not ready` or `decided`, with its Slack card and the `thread` under that card when it has one) and each feature's
-`text`, `note`, `created` and `jobs`.
+`not ready` or `decided`, with its Slack card and the `thread` under that card when it has one), `incidents` (his
+open incident orders, each with `id`, `title` and `created`) and each feature's `text`, `note`, `created` and `jobs`.
 """
 
 import json
@@ -474,5 +474,12 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "history": history(drive, events, moment, found["team_url"]),
         "review": review(drive, found),
         "asks": asks(drive, moment, found["team_url"]),
+        "incidents": incidents(drive),
         "channel": drive["slack"]["channel"],
     }
+
+
+def incidents(drive: dict) -> list[dict]:
+    """His incident orders still open, oldest first."""
+    live = [(order_id, order) for order_id, order in drive["orders"].items() if order["incident"] and order["state"] not in state.CLOSED_ORDER_STATES]
+    return [{"id": order_id, "title": plain(order["text"], TITLE_CHARS), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
