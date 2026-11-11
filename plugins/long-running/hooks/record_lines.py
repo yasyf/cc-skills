@@ -87,10 +87,12 @@ def unkinded(record: dict) -> str | None:
 
 
 def completed(names: list[str], drive: dict, record: dict) -> dict:
-    """The record with what the drive already knows filled in: an ask's kept file as its ask attr when it attaches that file as its path, and a ready record's kind, read from the order its order attr names, when its text names none."""
+    """The record with what the drive already knows filled in: an ask's kept file as its ask attr when it attaches that file as its path, and, for a job on an open incident order, incident=true and the incident's thread; and a ready record's kind, read from the order its order attr names, when its text names none."""
     named = attrs(record)
-    if kind(record) == "ask" and not named.get("ask") and settled.keeper(names, record.get("path")):
-        return record | {"attrs": named | {"ask": record["path"]}}
+    if kind(record) == "ask":
+        filled = named | ({"ask": record["path"]} if not named.get("ask") and settled.keeper(names, record.get("path")) else {})
+        filled |= settled.incident_marks(names, filled)
+        return record if filled == named else record | {"attrs": filled}
     order = drive["orders"].get(named.get("order") or "")
     if kind(record) != "ready" or order is None or KIND_NAMED.search(record.get("text") or ""):
         return record
