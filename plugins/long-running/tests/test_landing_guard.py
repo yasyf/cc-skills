@@ -51,7 +51,7 @@ def approve(key: str) -> None:
 )
 def test_the_coordinators_own_ship_commit_or_build_call_is_refused_naming_a_job(demo: str, no_calls: None, command: str, step: str) -> None:
     reason = landing_guard.deny_reason(bash(command, session_id=SESSION))
-    assert reason == landing_guard.COORDINATOR_STEP.format(step=step)
+    assert reason == landing_guard.COORDINATOR_STEP.format(who="coordinator", step=step)
     assert "Start a job with this step" in reason
     assert "drive job add" in reason
     assert (landing_guard.judged_reason(bash(command, session_id=SESSION)), landing_guard.guarded_reason(bash(command, session_id=SESSION))) == (reason, None)
@@ -60,7 +60,7 @@ def test_the_coordinators_own_ship_commit_or_build_call_is_refused_naming_a_job(
 def test_the_meta_sessions_own_ship_call_is_refused_naming_a_job(demo: str, no_calls: None) -> None:
     with state.edit("demo") as data:
         data["roles"]["meta"] = data["roles"]["coordinator"] | {"session": "tooler"}
-    assert landing_guard.deny_reason(bash('ccx vcs ship -m "Fix: x"', session_id="tooler")) == landing_guard.COORDINATOR_STEP.format(step="ccx vcs ship")
+    assert landing_guard.deny_reason(bash('ccx vcs ship -m "Fix: x"', session_id="tooler")) == landing_guard.COORDINATOR_STEP.format(who="meta session", step="ccx vcs ship")
 
 
 @pytest.mark.parametrize(

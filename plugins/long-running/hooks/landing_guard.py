@@ -50,7 +50,7 @@ STACK_REASON = (
     " part alone. Name every open PR of it: `stack-enqueue {every}`"
 )
 COORDINATOR_STEP = (
-    "Refused on purpose: the coordinator and the meta session do no order's work themselves, so a turn never blocks, and `{step}` is such"
+    "Refused on purpose: the {who} does no order's work itself, so its turn never blocks, and `{step}` is such"
     ' work. Start a job with this step (`drive job add <kind> --order <o> --goal "<the step>"`), or hand it to the job'
     " that owns it with `drive job resume <j> -`"
 )
@@ -531,9 +531,10 @@ def judged_reason(payload: dict) -> str | None:
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
-    coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) in ("coordinator", "meta") for name in names)
-    if coordinates and (step := own_work(command, shell)):
-        return COORDINATOR_STEP.format(step=step)
+    roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
+    who = next((role for role in roles if role in ("coordinator", "meta")), None)
+    if who and (step := own_work(command, shell)):
+        return COORDINATOR_STEP.format(who=state.title(who), step=step)
     return None
 
 

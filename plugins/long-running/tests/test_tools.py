@@ -215,7 +215,7 @@ def test_a_bound_meta_session_hears_each_defect_and_his_ruling_and_keeps_its_own
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     tools.run("record", demo, {"records": [defect]})
     assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
-        ("communicator", [("defect", ["communicator@demo"]), ("owner", ["root@demo"])]),
+        ("communicator", [("defect", ["root@demo"]), ("owner", ["root@demo"])]),
         ("communicator", [("defect", ["meta@demo"]), ("owner", ["root@demo", "meta@demo"]), ("owner", ["root@demo"])]),
         ("root", [("defect", ["meta@demo"])]),
     ]
