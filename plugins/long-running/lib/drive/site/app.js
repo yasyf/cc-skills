@@ -1,5 +1,6 @@
 const ZONE = 'America/Los_Angeles';
 const STALL_MINUTES = 45;
+const READABLE = 0.42;
 const GAP_MINUTES = 30;
 const REVIEW_KEEP_MS = 5 * 60 * 1000;
 const SLACK = /^https:\/\/[\w-]+\.slack\.com\//;
@@ -575,29 +576,29 @@ function queueScreen(id) {
 }
 
 function nowScreen() {
-  const [project, stream] = route().path;
+  const [project, stream, taskId] = route().path;
   const { tree } = index();
-  if (project === undefined) return nowPage('All projects', [], projectsLevel(tree), null);
-  const streams = tree.get(project);
-  if (!streams) return gone('This project');
-  if (stream === undefined) return nowPage(fileName(project), [project], streamsLevel(project, streams), [...streams.values()].flat());
-  const list = streams.get(stream);
-  if (!list) return gone('This workstream');
-  return nowPage(fileName(stream), [project, stream], tasksLevel(list), list);
+  const streams = project === undefined ? null : tree.get(project);
+  if (project !== undefined && !streams) return gone('This project');
+  const list = stream === undefined ? null : streams.get(stream);
+  if (stream !== undefined && !list) return gone('This workstream');
+  const task = list?.find((entry) => entry.id === taskId) ?? null;
+  const keys = [project, stream].filter((key) => key !== undefined);
+  const scope = task ? [task] : list ?? (streams ? [...streams.values()].flat() : null);
+  return `<div class="eyebrow">Now</div>
+    <h1 class="h1 zoom-title">${esc(keys.length ? fileName(keys.at(-1)) : 'All projects')}</h1>
+    ${keys.length ? crumbs(keys, task ? 'This task' : '') : `<p class="lead">${esc(nowHeadline())}</p>`}
+    <div class="now-grid">${nowCanvas(tree, project, stream, task)}${story(scope)}</div>`;
+}
+
+function nowHeadline() {
+  const counts = model.counts;
+  const oldest = model.queue.find((item) => item.since);
+  return `${counted(counts.live, 'feature')} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
 }
 
 function gone(what) {
   return `<p class="empty">${what} has no open work on the dashboard now. <a href="#/now">All projects</a></p>`;
-}
-
-function nowPage(title, keys, body, scope) {
-  const counts = model.counts;
-  const oldest = model.queue.find((item) => item.since);
-  const headline = `${counted(counts.live, 'feature')} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
-  return `<div class="eyebrow">Now</div>
-    <h1 class="h1 zoom-title">${esc(title)}</h1>
-    ${keys.length ? crumbs(keys) : `<p class="lead">${esc(headline)}</p>`}
-    <div class="now-grid"><div class="zoom-body">${body}</div>${story(scope)}</div>`;
 }
 
 function crumbs(keys, last = '') {
@@ -606,31 +607,55 @@ function crumbs(keys, last = '') {
   return `<nav class="crumbs" aria-label="Zoom out">${[...here.map(([name, href]) => `<a href="${href}">${esc(name)}</a>`), `<b>${esc(last || steps.at(-1)[0])}</b>`].join('<span aria-hidden="true">/</span>')}</nav>`;
 }
 
-function projectsLevel(tree) {
-  const cards = [...tree].map(([key, streams]) => {
-    const sub = key === NONE ? 'Orders the coordinator has not filed under a project yet' : counted(streams.size, 'workstream');
-    return zoomCard(zoomHref('now', key), fileName(key), sub, [...streams.values()].flat(), key === NONE);
-  });
-  return `<h2 class="sec">Projects <span class="count">${tree.size}</span></h2>
-    <div class="zoom-list">${cards.join('') || '<p class="empty small">No open orders.</p>'}</div>`;
+function nowCanvas(tree, project, stream, task) {
+  const level = stream !== undefined ? 'stream' : project !== undefined ? 'project' : 'all';
+  const columns = tree.size <= 3 ? tree.size : Math.ceil(Math.sqrt(tree.size));
+  const regions = [...tree].map(([key, streams]) => region(key, streams, project, stream)).join('');
+  return `<section class="canvas" data-level="${level}" style="--cols:${columns}" aria-label="Projects, workstreams and tasks">
+    <div class="canvas-bar"><span class="meta">${level === 'all' ? 'Click a project to zoom in' : level === 'project' ? 'Click a workstream to see its tasks' : 'Esc zooms out'}</span>
+      <div class="canvas-tools"><button class="map-btn" data-cam="out" aria-label="Zoom out">−</button><button class="map-btn" data-cam="in" aria-label="Zoom in">+</button><button class="map-btn" data-cam="fit" aria-label="Fit to this level" title="Fit">⤢</button></div></div>
+    <div class="viewport" data-at="${esc([project, stream].filter((key) => key !== undefined).join('/'))}" data-view="${esc(task?.id ?? '')}">
+      <div class="world" style="${cameraStyle()}">${regions || '<p class="empty small">No open orders.</p>'}</div>
+      ${task ? taskSheet(task, project, stream) : ''}
+    </div>
+  </section>`;
 }
 
-function streamsLevel(project, streams) {
-  const cards = [...streams].map(([key, list]) => zoomCard(zoomHref('now', project, key), fileName(key), key === NONE ? 'Orders filed under no workstream yet' : counted(list.length, 'task'), list, key === NONE));
-  return `<h2 class="sec">Workstreams <span class="count">${streams.size}</span></h2><div class="zoom-list">${cards.join('')}</div>`;
+function region(key, streams, project, stream) {
+  const list = [...streams.values()].flat();
+  const here = key === project;
+  return `<div class="region${key === NONE ? ' unfiled' : ''}${project !== undefined && !here ? ' aside' : ''}" data-cam-key="${esc(key)}" data-href="${zoomHref('now', key)}">
+    <a class="region-head" href="${zoomHref('now', key)}"${project === undefined || !here ? '' : ' tabindex="-1"'}>
+      <span class="zoom-mark" aria-hidden="true">${key === NONE ? '?' : esc([...fileName(key)][0].toUpperCase())}</span>
+      <span class="region-name"><b>${esc(fileName(key))}</b><small>${esc(counted(streams.size, 'workstream'))} · ${openOf(list)}</small></span>
+      ${needs(list)}${stateBar(list)}
+    </a>
+    <div class="region-glance" aria-hidden="true"><b>${esc(fileName(key))}</b><span>${esc(openOf(list))}</span>${needs(list)}</div>
+    <div class="streams" style="--n:${Math.min(streams.size, 3)}"${here ? '' : ' inert'}>${[...streams].map(([skey, slist]) => streamBox(key, skey, slist, here && skey === stream)).join('')}</div>
+  </div>`;
 }
 
-function zoomCard(href, name, sub, list, unfiled) {
-  const open = list.filter((entry) => entry.state !== 'live').length;
+function streamBox(project, key, list, here) {
+  const asks = [...new Map(list.flatMap((entry) => entry.cards.map((card) => [card.url, card]))).values()].sort((a, b) => new Date(a.asked) - new Date(b.asked));
+  const tasks = list.toSorted((a, b) => RANK.indexOf(a.state) - RANK.indexOf(b.state) || new Date(b.updated) - new Date(a.updated));
+  return `<div class="stream${key === NONE ? ' unfiled' : ''}${here ? ' here' : ''}" data-cam-key="${esc(project)}/${esc(key)}" data-href="${zoomHref('now', project, key)}">
+    <a class="stream-head" href="${zoomHref('now', project, key)}"${here ? ' tabindex="-1"' : ''}><b>${esc(fileName(key))}</b><small>${esc(counted(list.length, 'task'))} · ${openOf(list)}</small>${needs(list)}${stateBar(list)}</a>
+    <div class="stream-body"${here ? '' : ' inert'}>
+      ${asks.length ? `<h3 class="sec">Your asks <span class="count">${asks.length}</span></h3><div class="task-list">${asks.map(askRow).join('')}</div>` : ''}
+      <h3 class="sec">Tasks <span class="count">${tasks.length}</span></h3><div class="task-list">${tasks.map((entry) => taskRow(entry, zoomHref('now', project, key, entry.id))).join('')}</div>
+    </div>
+  </div>`;
+}
+
+function openOf(list) {
+  return `${list.filter((entry) => entry.state !== 'live').length} open of ${list.length}`;
+}
+
+function needs(list) {
   const asks = new Set(list.flatMap((entry) => entry.cards.map((card) => card.url))).size;
   const blocked = list.filter((entry) => entry.state === 'blocked').length;
   const flags = `${asks ? `<span class="need">${counted(asks, 'question')} for you</span>` : ''}${blocked ? `<span class="need bad">${blocked} blocked</span>` : ''}`;
-  return `<a class="zoom-card${unfiled ? ' unfiled' : ''}" href="${href}">
-    <span class="zoom-mark" aria-hidden="true">${unfiled ? '?' : esc([...name][0].toUpperCase())}</span>
-    <span class="zoom-name"><b>${esc(name)}</b><small>${esc(sub)}</small>${flags ? `<span class="flags">${flags}</span>` : ''}</span>
-    <span class="zoom-stat"><b>${open}</b><small>open of ${list.length}</small>${stateBar(list)}</span>
-    <span class="arrow" aria-hidden="true">↗</span>
-  </a>`;
+  return flags ? `<span class="flags">${flags}</span>` : '';
 }
 
 function stateBar(list) {
@@ -638,11 +663,112 @@ function stateBar(list) {
   return `<span class="statebar" data-tip="${esc(counts.map(([state, n]) => `${n} ${STOP_WORDS[state].toLowerCase()}`).join(', '))}">${counts.map(([state, n]) => `<i class="t-${STOP_TONES[state]}" style="flex:${n}"></i>`).join('')}</span>`;
 }
 
-function tasksLevel(list) {
-  const asks = [...new Map(list.flatMap((entry) => entry.cards.map((card) => [card.url, card]))).values()].sort((a, b) => new Date(a.asked) - new Date(b.asked));
-  const tasks = list.toSorted((a, b) => RANK.indexOf(a.state) - RANK.indexOf(b.state) || new Date(b.updated) - new Date(a.updated));
-  return `${asks.length ? `<h2 class="sec">Your asks <span class="count">${asks.length}</span></h2><div class="task-list">${asks.map(askRow).join('')}</div>` : ''}
-    <h2 class="sec">Tasks <span class="count">${tasks.length}</span></h2><div class="task-list">${tasks.map(taskRow).join('')}</div>`;
+function taskSheet(entry, project, stream) {
+  return `<aside class="task-sheet" aria-label="This task">
+    <div class="sheet-bar"><span class="eyebrow">Task</span><a class="linkish" href="${zoomHref('now', project, stream)}">Close</a></div>
+    <h2 class="sheet-title">${esc(entry.title)}</h2>
+    ${taskBody(entry)}
+  </aside>`;
+}
+
+let camera = null;
+let cameraAt = null;
+let flying = 0;
+let dragged = false;
+let fitter = null;
+const ease = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
+
+function cameraStyle() {
+  return camera ? `transform:scale(${camera.k}) translate(${-camera.x}px, ${-camera.y}px);--k:${camera.k}` : 'visibility:hidden';
+}
+
+function place() {
+  $('#main .world').setAttribute('style', cameraStyle());
+}
+
+function boxOf(el, world) {
+  let x = 0;
+  let y = 0;
+  for (let at = el; at !== world; at = at.offsetParent) {
+    x += at.offsetLeft;
+    y += at.offsetTop;
+  }
+  return { x, y, w: el.offsetWidth, h: el.offsetHeight };
+}
+
+function fitTo(box, viewport, level) {
+  const pad = level === 'all' ? 0.04 : 0.025;
+  const w = viewport.clientWidth;
+  const h = viewport.clientHeight;
+  const room = Math.min(w / (box.w * (1 + 2 * pad)), h / (box.h * (1 + 2 * pad)), 1.15);
+  const k = level === 'all' ? room : Math.max(room, Math.min(w / (box.w * (1 + 2 * pad)), READABLE));
+  const top = box.h * k > h ? box.y - box.h * pad : box.y + box.h / 2 - h / k / 2;
+  return { k, x: box.x + box.w / 2 - w / k / 2, y: top };
+}
+
+function cameraTarget() {
+  const viewport = $('#main .viewport');
+  const world = viewport.querySelector('.world');
+  const at = viewport.dataset.at;
+  const target = at ? viewport.querySelector(`[data-cam-key="${CSS.escape(at)}"]`) : world.firstElementChild;
+  const box = at ? boxOf(target, world) : { x: 0, y: 0, w: world.scrollWidth, h: world.scrollHeight };
+  const sheet = viewport.querySelector('.task-sheet');
+  const room = { clientWidth: viewport.clientWidth - (sheet && viewport.clientWidth - sheet.offsetWidth >= 420 ? sheet.offsetWidth : 0), clientHeight: viewport.clientHeight };
+  return fitTo(box, room, $('#main .canvas').dataset.level);
+}
+
+function settleCamera(arrived) {
+  const viewport = $('#main .viewport');
+  if (!viewport) {
+    fitter?.disconnect();
+    camera = null;
+    cameraAt = null;
+    return;
+  }
+  if (arrived || !camera) {
+    camera = cameraTarget();
+    place();
+    fitter?.disconnect();
+    fitter = new ResizeObserver(() => {
+      camera = cameraTarget();
+      place();
+    });
+    fitter.observe(viewport);
+  } else if (`${viewport.dataset.at}#${viewport.dataset.view}` !== cameraAt) flyTo(cameraTarget());
+  cameraAt = `${viewport.dataset.at}#${viewport.dataset.view}`;
+}
+
+function flyTo(target, ms = 560) {
+  cancelAnimationFrame(flying);
+  if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    camera = target;
+    return place();
+  }
+  const from = { ...camera, w: 1 / camera.k };
+  const to = { ...target, w: 1 / target.k };
+  const t0 = performance.now();
+  const step = (now) => {
+    const t = Math.min(1, (now - t0) / ms);
+    const e = ease(t);
+    const w = from.w + (to.w - from.w) * e;
+    camera = { k: 1 / w, x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e };
+    place();
+    if (t < 1) flying = requestAnimationFrame(step);
+  };
+  flying = requestAnimationFrame(step);
+}
+
+function zoomAround(factor, px, py, ms = 0) {
+  const viewport = $('#main .viewport');
+  const ux = camera.x + px / camera.k;
+  const uy = camera.y + py / camera.k;
+  const k = Math.min(3, Math.max(0.03, camera.k / factor));
+  const target = { k, x: ux - px / k, y: uy - py / k };
+  if (ms) return flyTo(target, ms);
+  cancelAnimationFrame(flying);
+  camera = target;
+  place();
+  return viewport;
 }
 
 function askRow(card) {
@@ -651,10 +777,10 @@ function askRow(card) {
   return item ? `<button class="task-row" data-queue="${esc(noticeKey(item))}">${body}<span class="task-go">Answer it ↗</span></button>` : `<div class="task-row">${body}</div>`;
 }
 
-function taskRow(entry) {
+function taskRow(entry, href = `#/feature/${entry.id}`) {
   const merged = entry.prs.filter((pr) => pr.state === 'merged').length;
   const facts = [entry.prs.length ? `${merged} of ${counted(entry.prs.length, 'PR')} merged` : '', entry.cards.length ? `${counted(entry.cards.length, 'decision')} for you` : ''].filter(Boolean).join(' · ');
-  return `<a class="task-row" href="#/feature/${esc(entry.id)}">
+  return `<a class="task-row" href="${esc(href)}">
     <span class="task-mark t-${STOP_TONES[entry.state]}" aria-hidden="true"></span>
     <span class="task-body"><b>${esc(entry.title)}</b>${entry.now ? `<small>${esc(entry.now)}</small>` : ''}</span>
     <span class="task-facts">${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}${facts ? `<small>${esc(facts)}</small>` : ''}</span>
@@ -1273,6 +1399,13 @@ function prPiece(pr) {
 function featureScreen(id) {
   const entry = featureOf(id);
   if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/now">Back to Now</a></p>';
+  return `<div class="eyebrow">Task</div>
+    <h1 class="h1 zoom-title">${esc(entry.title)}</h1>
+    ${crumbs([fileKey(entry.project), fileKey(entry.workstream)], 'This task')}
+    <div class="now-grid"><div class="zoom-body">${taskBody(entry)}</div>${story([entry])}</div>`;
+}
+
+function taskBody(entry) {
   const facts = [
     entry.now ? ['Where it is', esc(entry.now)] : null,
     ['Asked', clock(entry.created)],
@@ -1281,18 +1414,13 @@ function featureScreen(id) {
     entry.note ? ['Note', esc(entry.note)] : null,
   ].filter(Boolean);
   const pieces = [...entry.cards.map(decisionPiece), ...entry.prs.map(prPiece)];
-  return `<div class="eyebrow">Task</div>
-    <h1 class="h1 zoom-title">${esc(entry.title)}</h1>
-    ${crumbs([fileKey(entry.project), fileKey(entry.workstream)], 'This task')}
-    <div class="now-grid"><div class="zoom-body">
-      <div class="kick"><span class="dot ${entry.state.replace(' ', '-')}"></span>${GROUPS[entry.state]}${entry.prs.length ? ` · ${entry.prs.filter((pr) => pr.state === 'merged').length} of ${entry.prs.length} merged` : ''}</div>
+  return `<div class="kick"><span class="dot ${entry.state.replace(' ', '-')}"></span>${GROUPS[entry.state]}${entry.prs.length ? ` · ${entry.prs.filter((pr) => pr.state === 'merged').length} of ${entry.prs.length} merged` : ''}</div>
       <blockquote class="said">${esc(entry.text)}</blockquote>
       <h2 class="sec">PRs and decisions <span class="count">${pieces.length}</span></h2>
       ${pieces.length ? `<div class="pieces">${pieces.join('')}</div>` : '<p class="empty small">No PR or decision yet.</p>'}
       ${entry.built.length ? `<h2 class="sec">Built, waiting on your design answers</h2><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
       <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
-      ${entry.jobs.length ? `<h2 class="sec">Jobs</h2><ul class="jobs card">${entry.jobs.map(jobRow).join('')}</ul>` : ''}
-    </div>${story([entry])}</div>`;
+      ${entry.jobs.length ? `<h2 class="sec">Jobs</h2><ul class="jobs card">${entry.jobs.map(jobRow).join('')}</ul>` : ''}`;
 }
 
 function measure() {
@@ -1321,15 +1449,21 @@ function render() {
     reviews.delete(key);
   }
   const html = (screens[screen] ?? queueScreen)();
-  const arrived = location.hash !== shownHash;
-  shownHash = location.hash;
+  const arrived = pageOf(location.hash) !== shownHash;
+  shownHash = pageOf(location.hash);
   $('#main').classList.toggle('arrived', arrived);
   if (arrived) $('#main').innerHTML = html;
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
+  settleCamera(arrived);
   if ($('#jump').open) drawJump();
   measure();
   fill();
   fresh();
+  return arrived;
+}
+
+function pageOf(hash) {
+  return /^#\/now(?:\/|$)/.test(hash) ? '#/now' : hash;
 }
 
 function morph(old, made) {
@@ -1534,6 +1668,18 @@ document.addEventListener('click', (event) => {
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
   if (event.target.closest('#incidents a')) $('#incidents').hidePopover();
+  const cam = event.target.closest('#main [data-cam]');
+  if (cam) {
+    const viewport = $('#main .viewport');
+    if (cam.dataset.cam === 'fit') return flyTo(cameraTarget(), 420);
+    return zoomAround(cam.dataset.cam === 'in' ? 0.7 : 1 / 0.7, viewport.clientWidth / 2, viewport.clientHeight / 2, 260);
+  }
+  const spot = !event.target.closest('a, button, .task-sheet') && event.target.closest('#main .viewport [data-href]');
+  if (spot) {
+    const zone = spot.closest('.streams[inert]') ? spot.closest('.region') : spot;
+    if (!zone.matches('.here')) location.hash = zone.dataset.href;
+    return;
+  }
   const shown = event.target.closest('#main [data-shot], #drawer [data-shot], #main [data-enlarge], #drawer [data-enlarge]');
   if (shown) return openLightbox(shown.closest('figure.visual') ?? shown);
   const stepped = event.target.closest('#lightbox [data-step]');
@@ -1604,9 +1750,45 @@ document.addEventListener('focusout', (event) => {
   if (event.target.matches('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
-  render();
-  window.scrollTo(0, history.state?.y ?? 0);
+  if (render() || history.state?.y !== undefined) window.scrollTo(0, history.state?.y ?? 0);
 });
+document.addEventListener('pointerdown', (event) => {
+  const viewport = event.target.closest('#main .viewport');
+  if (!viewport || event.button !== 0 || event.target.closest('.task-sheet, .stream.here .stream-body')) return;
+  const start = { x: event.clientX, y: event.clientY, camera: { ...camera } };
+  dragged = false;
+  const move = (moved) => {
+    const dx = moved.clientX - start.x;
+    const dy = moved.clientY - start.y;
+    if (!dragged && Math.hypot(dx, dy) < 6) return;
+    if (!dragged) viewport.setPointerCapture(event.pointerId);
+    dragged = true;
+    viewport.classList.add('dragging');
+    cancelAnimationFrame(flying);
+    camera = { ...start.camera, x: start.camera.x - dx / start.camera.k, y: start.camera.y - dy / start.camera.k };
+    place();
+  };
+  const end = () => {
+    viewport.classList.remove('dragging');
+    viewport.removeEventListener('pointermove', move);
+  };
+  viewport.addEventListener('pointermove', move);
+  viewport.addEventListener('pointerup', end, { once: true });
+  viewport.addEventListener('pointercancel', end, { once: true });
+});
+document.addEventListener('click', (event) => {
+  if (!dragged || !event.target.closest('#main .viewport')) return;
+  dragged = false;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+}, true);
+document.addEventListener('wheel', (event) => {
+  const viewport = event.target.closest('#main .viewport');
+  if (!viewport || !(event.ctrlKey || event.metaKey)) return;
+  event.preventDefault();
+  const r = viewport.getBoundingClientRect();
+  zoomAround(Math.exp(event.deltaY * (event.ctrlKey ? 0.01 : 0.0016)), event.clientX - r.left, event.clientY - r.top);
+}, { passive: false });
 window.addEventListener('scroll', () => {
   clearTimeout(keepPlace.timer);
   keepPlace.timer = setTimeout(keepPlace, 120);
