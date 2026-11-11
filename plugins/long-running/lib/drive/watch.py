@@ -182,18 +182,17 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. A release that ships an open incident order's PR says once that its fix is live and the order still open."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. A release that ships an open incident order's PR says once, as the last release its live jobs and open PRs wait on ships, that its fix is live and the order still open."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     owners = [*(job for job in data["jobs"].values() if not view.open_cards(job, watcher.cards)), *data["prs"].values()]
     if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
-    live = {
-        owner["order"]: out[wait]
-        for owner in owners
-        for wait in owner["waits"]
-        if wait in out and state.open_incidents(data, [owner["order"]])
-    }
+    fixes: dict[str, dict[str, None]] = {}
+    for owner in owners:
+        for wait in owner["waits"]:
+            if wait in out and state.open_incidents(data, [owner["order"]]):
+                fixes.setdefault(owner["order"], {})[out[wait]] = None
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if view.open_cards(job, watcher.cards):
@@ -209,27 +208,40 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
-    return lines + [f"LIVE {order_id}: {shipping}, so its fix is live and the incident order is still open: close it with drive order set {order_id} --state done so the strip shows live incidents only" for order_id, shipping in live.items()]
+        pending = {owner["order"] for owner in release_owners(data) if any(state.RELEASE_WAIT.fullmatch(wait) for wait in owner["waits"])}
+    return lines + [
+        f"LIVE {order_id}: {', '.join(shipping)}, so its fix is live and the incident order is still open: close it with drive order set {order_id} --state done so the strip shows live incidents only"
+        for order_id, shipping in fixes.items()
+        if order_id not in pending
+    ]
 
 
 def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Settle in place each open PR card whose every PR merged or closed, its buttons replaced by how each ended so a late tap records nothing; one that fails goes again next read."""
+    """Settle in place each open PR card whose every PR merged or closed, its buttons replaced by how each ended so a late tap records nothing; one that fails goes again next read. cc-slack withdraws every open card carrying the PR it is given, so a card goes through a PR no card with a PR still open carries, the one the fewest cards carry first."""
     if watcher.cards is None:
         return []
     prs = {pr["url"]: (key, pr) for key, pr in state.load(watcher.name)["prs"].items()}
+    cards = watcher.cards["pr_cards"]
+    carriers = {url: [card for card in cards if url in card["prs"]] for card in cards for url in card["prs"]}
+    ended = [card for card in cards if all(url in prs and prs[url][1]["state"] != "open" for url in card["prs"])]
+    routes = sorted(
+        ((url, card) for card in ended for url in card["prs"] if all(other in ended for other in carriers[url])), key=lambda route: len(carriers[route[0]])
+    )
+    done: set[str] = set()
     lines = []
-    for card in watcher.cards["pr_cards"]:
-        ended = [prs[url] for url in card["prs"] if url in prs and prs[url][1]["state"] != "open"]
-        if len(ended) < len(card["prs"]):
+    for url, card in routes:
+        if view.message_key(card["url"]) in done:
             continue
-        reason = ", ".join(f"{key} {pr['state']}" for key, pr in ended)
+        done.add(view.message_key(card["url"]))
+        reason = ", ".join(f"{prs[pr][0]} {prs[pr][1]['state']}" for pr in card["prs"])
         try:
-            slack.withdraw_pr_card(ended[0][1]["url"], reason)
+            withdrawn = slack.withdraw_pr_card(url, reason)
         except slack.SlackError as error:
             lines += failed(watcher, "card settle", "PR card settle", error, moment)
             continue
         watcher.failures.pop("card settle", None)
-        lines.append(f"CARD {card['url']} settled in place: {reason}")
+        done |= {view.message_key(link) for link in withdrawn}
+        lines += [f"CARD {link} settled in place: {reason}" for link in withdrawn]
     return lines
 
 
@@ -264,7 +276,7 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
     """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit."""
     waits = {
         wait
-        for owner in [*(job for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES), *state.open_prs(data)]
+        for owner in release_owners(data)
         for wait in owner["waits"]
         if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
     }
@@ -279,6 +291,10 @@ def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, s
             out[wait] = f"release {release} ships {found['pr']} on {found['service']}"
     watcher.failures.pop("github releases", None)
     return out, []
+
+
+def release_owners(data: dict) -> list[dict]:
+    return [*(job for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES), *state.open_prs(data)]
 
 
 def released(data: dict, owner: dict, cards: dict | None, out: dict[str, str]) -> str:
@@ -497,16 +513,19 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     return lines
 
 
+def ran_out(job: dict, moment: datetime) -> bool:
+    return bool(job["due"]) and state.parse_time(job["due"]) <= moment
+
+
 def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each job clock that ran out while its job still runs, said once; a job that returned before it owes none, and either way the clock ends."""
-    data = state.load(watcher.name)
-    ran_out = [job_id for job_id, job in data["jobs"].items() if job["due"] and state.parse_time(job["due"]) <= moment]
-    if not ran_out:
+    if not any(ran_out(job, moment) for job in state.load(watcher.name)["jobs"].values()):
         return []
     lines = []
     with state.edit(watcher.name) as data:
-        for job_id in ran_out:
-            job = data["jobs"][job_id]
+        for job_id, job in data["jobs"].items():
+            if not ran_out(job, moment):
+                continue
             if job["state"] == "running":
                 lines.append(
                     f'DUE {job_id} {job["order"]} "{cut(job["goal"], 80)}" was due {when(job["due"])} and still runs: read its transcript,'

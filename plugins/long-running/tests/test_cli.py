@@ -2641,13 +2641,26 @@ def refusal(command: str, leaves: dict[str, argparse.ArgumentParser]) -> str | N
         action = takes.get(before) if before else first
         if action and action.choices and word != "X" and not word.startswith("-") and word not in map(str, action.choices):
             return f"`{command}` gives {action.dest} {word!r}, not one of {list(action.choices)}"
-    whole = any(word.startswith("--") for word in rest) and (first is None or not rest[0].startswith("-"))
-    if whole and (missing := sorted(action.option_strings[0] for action in parser._actions if action.required and action.option_strings and not set(action.option_strings) & set(rest))):
+    if not any(word.startswith("--") for word in rest) or first and not names_positional(rest, takes):
+        return None
+    if missing := sorted(action.option_strings[0] for action in parser._actions if action.required and action.option_strings and not set(action.option_strings) & set(rest)):
         return f"`{command}` leaves out {missing}, which drive {verb} requires"
     source = rest[rest.index("--from") + 1] if "--from" in rest[:-1] else ""
     if verb == "order add" and "--due" in rest and "--thread" not in rest and source != "X" and not source.startswith("slack:"):
         return f"`{command}` gives --due with no --thread, and drive order add refuses a promised time with no thread its line goes in"
     return None
+
+
+def names_positional(rest: list[str], takes: dict[str, argparse.Action]) -> bool:
+    flag = None
+    for word in rest:
+        if word.startswith("--"):
+            flag = takes.get(word)
+        elif flag is None or flag.nargs == 0:
+            return True
+        elif flag.nargs not in ("+", "*"):
+            flag = None
+    return False
 
 
 def drive_commands(text: str, prose: bool) -> Iterator[str]:
@@ -2675,10 +2688,12 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
         "drive order set o1 --part x",
         "drive job set j1 --state live",
         "drive job add reader --order X",
+        "drive job add --order X design",
         "drive order add X --from migrated: X --due X --project X --workstream X",
     ):
         assert refusal(guess, leaves)
-    assert refusal("drive order add X --from slack: X / X --due X --project X --workstream X", leaves) is None
+    for mention in ("drive order add X --from slack: X / X --due X --project X --workstream X", "drive order add --due", "drive job add --order X"):
+        assert refusal(mention, leaves) is None
 
 
 def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
