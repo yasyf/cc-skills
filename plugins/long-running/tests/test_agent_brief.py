@@ -60,6 +60,13 @@ def test_a_design_job_starts_only_as_the_designer(demo: str, run: Run, monkeypat
     assert agent_brief.deny_reason(started("long-running:designer", prompt, "fable")) is None
 
 
+def test_a_codex_lane_on_the_immediate_fix_starts_with_no_research(demo: str, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build", "--parts", "the copy", "immediate fix")
+    run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop the stuck restores")
+    prompt = "Order (his words): restores copy one store\nDrive: demo, order o1, job j1"
+    assert agent_brief.deny_reason(started("codex:codex-wrapper", prompt)) is None
+
+
 def test_a_codex_lane_on_a_build_order_waits_on_its_readers_research(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Restores", "restores copy one store", "--kind", "build")
     run("job", "add", "codex", "--order", "o1", "--goal", "build the copy")

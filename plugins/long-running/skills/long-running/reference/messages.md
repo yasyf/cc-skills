@@ -132,14 +132,17 @@ summary of one feature is a line of at most 60 words.
 - Slack draws a card's title and buttons as plain text, so a link or markdown there shows raw and
   `drive job ask` refuses it; put the link in the summary.
 - Its body is its summary, one to three lines: what was found and what is being decided, the
-  recommendation, and what happens meanwhile. The first line gives him the investigation's results
+  recommendation, and what happens meanwhile, naming the immediate fix or rollback already shipping
+  when a bug hurts someone now. The first line gives him the investigation's results
   before he picks. It answers his next question: why, did he already decide this, is it a port, what
   comes after, or why it is held. `drive job ask` refuses a summary that answers none of them unless
   the findings carry `Next question: none: <why>`. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
 - One option is always the fix the job's own diagnosis points at, recommended unless the summary says
   why not. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Direct fix:` line naming that
-  option by its words, or `Direct fix: none: <why>`.
+  option by its words, or `Direct fix: none: <why>`, and, on a bug hurting someone now, an incident's
+  or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
+  shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
 - Give two to four options, each one line of at most 25 words saying what runs, on what trigger,
   what it reads and what reaches whom, then what he gets and what it costs; `drive job ask` refuses
   any other count or length. cc-slack adds Other, which takes his own words,
@@ -243,7 +246,7 @@ Posting it:
   words, as that question, `drive job card` draws it under the question's `waits` id whatever new
   seq it is given, and his answer closes every copy at once. `drive job ask` refuses a block another
   job's open card asks. When a job builds the recommended option meanwhile, the summary says which
-  option is being built.
+  option is being built, and names the immediate fix or rollback already shipping.
 - Set `drive` to the drive's name on every card, so cc-slack reads a `waits` card as the drive's
   question, whose home is Slack, and posts it with no cc-present board warning.
 

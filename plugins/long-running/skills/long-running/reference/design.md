@@ -16,7 +16,7 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    he is asked; a builder writes the code later.
    - Add it with `drive job add design --order <o> --part "<part>" --goal "<one line>"`. On a build
      order outside an incident it refuses until a reader kept its `Researched:` block, by
-     [Jobs](jobs.md).
+     [Jobs](jobs.md); the order's `immediate fix` job never waits on it.
    - Brief it with `drive job brief <j> --serves "<his order>" --done-when "<the DESIGN return>" --where "<repo>" --plan "<what exists>"`,
      plus `--ruling <answer id>` for each answer of his on the area. The `--plan` names the files,
      PRs and findings it starts from, and says to design from what his words need, the code an
@@ -48,15 +48,20 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      cut; the visual rules are in [Messages](messages.md).
    - Nothing his words settle is asked. `drive job ask` catches only recorded answers, so also read
      his threads on the area.
-   - Meanwhile a builder may build the recommended option of each fork on a pushed branch, because
-     he wants work to go on while he decides. When his words on the order ask for options only,
-     start no builder until he picks, in an incident too.
+   - Meanwhile the recommended option's builder starts beside the cards and builds it on a pushed
+     branch, because he wants work to go on while he decides. When his words on the order ask for
+     options only, start no builder on the proper fix until he picks, in an incident too.
+   - When a bug hurts someone now, its immediate fix, or a rollback when prudent, ships at once
+     beside the cards on its own `immediate fix` part, options-only orders too, and the proper fix
+     replaces it when it lands. His words: "always do the immediate fix (or rollback if prudent) in
+     parallel to giving me options for the proper fix (which should replace the hacky fix, and as
+     always you can optimistically build the recommended option on a branch)".
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
    opens no PR. The line sets its job built on that branch, waiting on each card's waits id or
    Slack link it names.
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, `drive pr add` refuses a new PR for it while one of
-     its cards is open.
+     its cards is open. An immediate fix's job is never held: its PR goes up at once.
    - The minute a card holds a built job, the watch replies once in that card's own thread, in
      plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
      that card first in his queue.
@@ -71,7 +76,8 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
    closed for this.
    - Outside an incident, land, enqueue or decide nothing on a recommended option while his card on
-     it is open, because the recommendation is yours and the decision is his.
+     it is open, because the recommendation is yours and the decision is his. The immediate fix is no
+     recommended option: it stops harm now, waits on none of his cards, and his pick replaces it.
    - In an incident, by his pick, the fix's PR opens and lands on the recommended option while the
      card stays open, and `drive pr set --waits <card>` refuses on it. Another pick of his starts a
      follow-up job on the same order, by [Incidents](incidents.md#his-card-on-an-incident).

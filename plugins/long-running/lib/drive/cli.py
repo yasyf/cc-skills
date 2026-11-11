@@ -269,7 +269,7 @@ def incident_open(args: argparse.Namespace) -> int:
 
 
 def incident_stop(args: argparse.Namespace) -> int:
-    """Give an open incident its stop when no build can roll the break back: a job with apply authority whose PR turns the failing automatic path off and lands only on his tap."""
+    """Give an open incident its stop when no build can roll the break back: a job with apply authority whose PR, the incident's immediate fix, turns the failing automatic path off and lands at once as an incident fix, until the root fix replaces it."""
     name = state.resolve(args.drive)
     created = state.stamp()
     with state.edit(name) as data:
@@ -744,11 +744,15 @@ def job_add(args: argparse.Namespace) -> int:
     if args.checks and args.kind != "reader":
         raise DriveError("--checks starts his-words check on a PR's head, which only a reader runs")
     heads = {key: github_pr(key)["headRefOid"] for key in map(state.pr_key, args.checks)}
+    if args.lands and args.kind != "builder":
+        raise DriveError("--lands names the PRs a builder lands, which only a builder does")
+    lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
+        refuse_a_shared_immediate_fix(parts)
         role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-        if refused := state.held_elsewhere(data, args.order, role) or brief.job_refusal(name, data, args.order, args.kind):
+        if refused := state.held_elsewhere(data, args.order, role) or unlandable(data, lands) or brief.job_refusal(name, data, args.order, args.kind, parts, bool(lands)):
             raise DriveError(f"refused, no job added: {refused}")
         order["owner"] = order["owner"] or role
         beside = [
@@ -771,6 +775,28 @@ def job_add(args: argparse.Namespace) -> int:
         order["jobs"].append(job_id)
         order["updated"] = created
     return emit(args, "\n".join([job_id, *beside]), {"id": job_id, **job, "beside": beside})
+
+
+def unlandable(data: dict, keys: list[str]) -> str | None:
+    """Why a builder may not start on --lands alone: each PR it lands is a drive PR his Approve or an exempt class lets land, since only then does it build nothing his order's research would shape."""
+    for key in keys:
+        if key not in data["prs"]:
+            return f"--lands {key}: no drive PR; add it with drive pr add {state.pr_url(key)} --job <the job that opened it>"
+        may_land, why = tap_verdict(data["prs"][key])
+        if not may_land:
+            return f"--lands {key}: it may not land yet, {why}; a builder lands only a PR he approved or an exempt class lands"
+    return None
+
+
+def refuse_a_shared_immediate_fix(parts: list[str]) -> None:
+    """The immediate fix is a job of its own, since its PR lands at once while the proper fix's waits on his cards."""
+    if state.IMMEDIATE_FIX not in parts or len(parts) == 1:
+        return
+    others = ", ".join(json.dumps(part, ensure_ascii=False) for part in parts if part != state.IMMEDIATE_FIX)
+    raise DriveError(
+        f'the "{state.IMMEDIATE_FIX}" part is a job of its own: its PR lands at once, while the proper fix\'s waits on his cards,'
+        f' so one job takes "{state.IMMEDIATE_FIX}" and another {others}'
+    )
 
 
 def job_set(args: argparse.Namespace) -> int:
@@ -829,6 +855,7 @@ def job_set(args: argparse.Namespace) -> int:
         elif args.part:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
+            refuse_a_shared_immediate_fix(job["parts"])
         if args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
             job.update(state.local_lane(args.agent), agent=None)
         elif args.agent:
@@ -1029,7 +1056,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
 
     data = state.load(name)
     job = data["jobs"][job_id]
-    asked = limits.shape(text, name, job_id, unsettled)
+    asked = limits.shape(text, name, job_id, unsettled, any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
     said = "\n".join([asked.title, *asked.summary]).casefold()
     if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
         raise DriveError(
@@ -1542,8 +1569,6 @@ def pr_add(args: argparse.Namespace) -> int:
     refuse_an_unkinded_title(key, read, args.port_of)
     known = state.load(name)
     added = find(known["jobs"], args.job, "job")
-    if args.exempt == INCIDENT_EXEMPTION:
-        refuse_an_exempt_stop(known, key, added, added["order"])
     if (args.exempt or args.no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
         refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job}. ")
     with state.edit(name) as data:
@@ -1551,7 +1576,7 @@ def pr_add(args: argparse.Namespace) -> int:
         if data["orders"][job["order"]]["once"]:
             raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if state.card_wait(data, wait)]
-        if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]):
+        if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]) and state.IMMEDIATE_FIX not in job["parts"]:
             raise DriveError(
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
                 " the watch says FREE when the last is answered"
@@ -1619,6 +1644,11 @@ def pr_set(args: argparse.Namespace) -> int:
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
             " stays open; a different pick of his starts a follow-up job on the same order"
         )
+    if cards and state.IMMEDIATE_FIX in known["jobs"][known["prs"][key]["job"]]["parts"]:
+        raise DriveError(
+            f'--waits {", ".join(cards)}: {key} is {order}\'s immediate fix, which lands at once while his cards on the proper fix stay'
+            " open, and the proper fix's PR replaces it"
+        )
     check_waits(name, args.waits)
     try:
         shipped = {wait: shipping for wait in args.waits if (shipping := view.shipped_by(known, wait))}
@@ -1630,7 +1660,6 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.port_of or args.tap:
             refuse_an_unkinded_title(key, read, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
-            refuse_an_exempt_stop(known, key, known["jobs"][known["prs"][key]["job"]], order)
             refuse_an_exempt_revert(known, key, order, read)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
@@ -1772,17 +1801,6 @@ def refuse_a_tap_of_his(name: str, key: str, tap: dict | None) -> None:
     raise DriveError(
         f"{key}: its {tap['label']} is his, {his}, and only his own word lifts it: his tap on its card, or his words recorded with"
         " --tapped <label> --tap-source <their permalink>. --no-tapped drops only a hold the drive gave itself"
-    )
-
-
-def refuse_an_exempt_stop(data: dict, key: str, job: dict, order: str) -> None:
-    """The PR of an incident's stop turns the failing path off, which no incident order approves: it lands only on his tap, on a card quoting the bug from the record."""
-    if state.INCIDENT_STOP not in state.job_parts(job, order):
-        return
-    raise DriveError(
-        f'{key}: refused, it is {order}\'s stop, which turns the failing path off, and a stop never lands as an "{INCIDENT_EXEMPTION}":'
-        f" only his tap lands it. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {order} --design none,"
-        f" its body quoting the bug from {order}'s record ({data['orders'][order]['note'] or 'none noted yet'})"
     )
 
 
@@ -2350,7 +2368,8 @@ def parser() -> argparse.ArgumentParser:
         choices=state.ORDER_KINDS,
         help=(
             "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
-            " Researched: block before any builder or designer starts, and their briefs name it. An incident order is a build"
+            " Researched: block before any builder or designer starts, except the immediate fix's, and their briefs name it."
+            " An incident order is a build"
         ),
     )
     verb.add_argument(
@@ -2359,7 +2378,7 @@ def parser() -> argparse.ArgumentParser:
         help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet; --no-complex marks a one-fact lookup, and an answer order asking several questions with neither starts no Sonnet lane",
     )
     verb.add_argument(
-        "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on it until he picks, only a reader or designer"
+        "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on the proper fix until he picks, only a reader or designer, while its immediate fix part's starts at once"
     )
     verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
     verb.add_argument(
@@ -2482,7 +2501,8 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "the turn the rollback finds no build that lacks the failing path: a stop part and its codex job, with apply authority,"
-            " whose PR turns the failing automatic path off and lands only on his tap, on a card quoting the bug from the record"
+            " whose PR, the incident's immediate fix, turns the failing automatic path off and lands at once as an incident fix,"
+            " its body quoting the bug from the record, until the root fix's PR deletes it"
         ),
     )
     verb.add_argument("id", help="the open incident order")
@@ -2526,6 +2546,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.add_argument("--checks", action="append", default=[], metavar="PR", help="a reader's PR to check, its head now stamped on the reader")
+    verb.add_argument(
+        "--lands",
+        action="append",
+        default=[],
+        metavar="PR",
+        help="a drive PR he approved, or an exempt class lands, that this builder lands and builds nothing on, so it starts with no research",
+    )
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")

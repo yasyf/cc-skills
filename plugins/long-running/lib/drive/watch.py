@@ -596,8 +596,9 @@ def ask_refusals(
         job_id = sender(lanes, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or "") or message["id"] in kept(job_id):
             continue
+        job = data["jobs"][job_id]
         try:
-            limits.shape(message["body"], watcher.name, job_id)
+            limits.shape(message["body"], watcher.name, job_id, hurting=any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
         except state.DriveError as error:
             refusals[message["id"]] = f"{reads.REFUSED} {error}"
         except slack.SlackError as error:

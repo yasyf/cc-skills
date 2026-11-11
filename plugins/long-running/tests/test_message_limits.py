@@ -934,6 +934,17 @@ def test_a_post_naming_the_change_links_it_and_a_link_refusal_says_how_to_say_it
     assert posted(transcript, text="The change doesn't exist yet.") is None
 
 
+def test_a_choice_on_a_bug_hurting_someone_now_names_the_immediate_fix_shipping_while_he_picks() -> None:
+    assert "`Interim fix: none: <why nobody is hurt now>`" in limits.interim_fix_problems("Direct fix: none: a design choice\n")[0]
+    assert limits.interim_fix_problems("Interim fix: we will repair the stuck rows\n") != []
+    for named in (
+        "Interim fix: https://github.com/Forge-AI/monorepo/pull/43",
+        "Interim fix: j12 repairs the stuck rows",
+        "Interim fix: none: the bug blocks only a test env",
+    ):
+        assert limits.interim_fix_problems(f"Direct fix: none: a design choice\n{named}\n") == []
+
+
 def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() -> None:
     options = [
         "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",

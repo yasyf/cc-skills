@@ -1,17 +1,17 @@
 ---
 name: long-running
-description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator acks his Slack messages, a coordinator's jobs ship each order, and a meta session's jobs fix the drive's own tools.
+description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator acks his Slack messages, a coordinator's jobs ship each order, and a meta session's jobs fix its tools.
 ---
 
 # Long-running drives
 
-A drive is three Claude Code sessions, the communicator, the coordinator and the meta session, and the background jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`), the communicator and the meta session Opus 5.5 (`claude-opus-5-5`). Among jobs only the designer runs Fable; handlers, readers and builders run Opus, Sonnet only a one-fact lookup, since complex work on a light model gets redone.
+A drive is three Claude Code sessions, the communicator, coordinator and meta session, and the jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`), the communicator and meta session Opus 5.5 (`claude-opus-5-5`). Among jobs only the designer runs Fable; handlers, readers and builders run Opus, Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to. Its turn on his message is two messages of tool calls, so his next message never waits: a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler` it never waits on. The handler does every read, card and post through `say`, answers his read-only questions, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator, and a ruling reaches the meta session too. He reads only Slack, so the communicator writes nothing in its terminal and ends each turn on `Sent.`.
+The communicator is the only session he talks to: its turn on his message is a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler`, so his next message never waits. The handler does every read, card and post through `say`, answers his read-only questions, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator, a ruling to the meta session too. He reads only Slack, never a terminal (`communicator`).
 
-The coordinator turns his messages into orders and gives each to a job that owns one deliverable end to end: code, PR, CI, merge, install, check. It routes events from its watch, lands, installs, and sends the communicator what to post as records. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator session per project beside this top one: each hears, lands and installs only its project's work, so no context holds every project, and the top keeps unfiled orders and production cuts, one at a time (`coordinator`).
+The coordinator turns his messages into orders and gives each to a job owning one deliverable end to end: code, PR, CI, merge, install, check. It routes its watch's events, lands, installs, and sends the communicator what to post as records. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator per project beside the top one, so no context holds every project (`coordinator`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it, so the communicator starts only handlers and the reader of his read-only questions, the meta session only drive tooling jobs, and the coordinator every other job. Other sessions reach `root`, the coordinator, and `meta`, the meta session, through cci.
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it: the communicator starts only handlers and his read-only questions' readers, the meta session only drive tooling jobs, the coordinator every other job. Other sessions reach the coordinator as `root` and the meta session as `meta`.
 
 ## Rules
 
@@ -21,16 +21,16 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 
 - The coordinator runs only `drive`, `cci`, transcript reads and one `gh` call, so its turn never blocks; a hook refuses its build, ship, loop or `orca` call.
 - Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card.
-- An order is an answer, one job doing its own research, or a build, whose builder starts only on an Opus reader's `Researched:` block.
+- An order is an answer, one job doing its own research, or a build, whose builder starts on an Opus reader's `Researched:` block, its immediate fix's at once.
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
-- The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule that forbids one way of doing his pick never cancels the pick: build it the way the rule allows, and ask nothing.
+- The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule forbidding one way of doing his pick never cancels it: build it the way the rule allows, asking nothing.
 
 ### Questions for him
 
 - Ask him only what is his: architecture and abstractions, scope, and his own workflow. Do the rest of his orders with no go-ahead and report it with a count (`scope`).
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
-- A tricky design gets a design job whose forks go on his cards (`design`), and a finding with design consequences reaches him as options, unasked. A builder may build the recommended option meanwhile, but outside an incident's repair no PR goes up until he answers each, since a shape he never chose is costly to undo.
-- His words under a card that answer it, a direction included, close it: the card shows them and the work goes ahead on them. A question he asks under a card is answered in its thread, and the card keeps waiting. Only what his answer leaves open goes on a new card, and a question his recorded answers settle is never asked again.
+- A tricky design gets a design job whose forks go on his cards (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair, since an unchosen shape is costly to undo.
+- His words under a card that answer it, a direction included, close it; the card shows them and the work follows them. A question he asks under it is answered in its thread while the card waits. Only what his answer leaves open goes on a new card; one his recorded answers settle is never asked.
 - The fix a job's diagnosis points at is always one of its card's options, recommended unless the summary says why not.
 
 ### His words
@@ -42,7 +42,7 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 
 ### Fixes and landing
 
-- Fix the cause. No stopgap, flag, pin, retry or sweeper stands in for it, and a bad state is designed out under one owner. A revert lands only on his tap (`incidents`).
+- A bug hurting someone now gets its immediate fix or a prudent rollback at once, beside his card on the fix of its cause, which replaces it. A bad state is designed out under one owner. A revert lands only on his tap (`incidents`).
 - Before a fix, search cc-notes papercuts for the symptom. A third fix for one symptom is a class fix that deletes the earlier patches.
 - Hold, freeze or reorder work only on his word, except freezing a service a release broke (`incidents`). A build or release he started is his to cancel, retry, reorder or approve, and no release starts while it runs. One of ours that must stop gets a `report` to the communicator first.
 - Run no tests locally: CI grades.
@@ -52,7 +52,7 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 - Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory. Call a job silent, stuck, or done only after reading its transcript.
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
 - Promise him something only naming the order, due time or job doing it; a hook refuses a bare one.
-- Cards and posts name each thing by its proper technical term, since a stand-in such as "the copy change" leaves a question he cannot answer. Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
+- Cards and posts name each thing by its proper technical term, since a stand-in such as "the copy change" leaves him guessing. Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results feed the next summary, never a record or post each. While he is away, only cards and incident lines go out.
 
 ## Pages
@@ -65,7 +65,7 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 | `records` | sending or reading a record |
 | `communicator` | you are the communicator |
 | `coordinator` | you are the coordinator |
-| `meta` | you are the meta session, or drive tooling is yours |
+| `meta` | you are the meta session or hold drive tooling |
 | `jobs` | starting, resuming or ending a job |
 | `scope` | what may be built or carded |
 | `design` | a part has a tricky design |
@@ -78,4 +78,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Tooling and meta work is the meta session's, an order whose builder serves drive tooling included (`jobs`): a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, a ruling's rewrite, and the install of each released tool. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`meta`); the communicator and the coordinator start no tooling reader, designer or builder. A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him. A drive with no meta session bound keeps drive tooling with the communicator, and its records reach `communicator@<drive>`.
+Drive tooling is the meta session's (`meta`): a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, a ruling's rewrite, each released tool's install, and an order whose builder serves it. It starts the reader that turn under its own "Drive tooling:" order and the builder on its research. A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him. With no meta session bound, the communicator holds drive tooling and its records.

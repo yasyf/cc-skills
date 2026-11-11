@@ -23,17 +23,23 @@ Every other alert in the channels the drive holds gets no line, no order and no 
 ruled against time spent on incidents nobody asked for. Anything else he asks you to fix is an
 ordinary order, by [coordinator.md](coordinator.md). When his words on an order ask for options or
 a diagnosis, it is no incident even with something down: a reader's diagnosis and option cards
-answer it, and no fix job starts. His words: "no wetf this one bring me options dont just fucking
-try toi fix".
+answer it, and no job builds the proper fix before his pick. His words: "no wetf this one bring me
+options dont just fucking try toi fix". The immediate fix of what is down, or a rollback when
+prudent, still ships at once on its own `immediate fix` part beside the cards, by his later words:
+"always do the immediate fix (or rollback if prudent) in parallel to giving me options for the
+proper fix".
 
 Before starting an incident, run `answer_search` for his incident rulings and follow them. You
 hold the alert channels, each a `drive start --watch` named on its `Hold with cc-slack subscribe`
 line, so the drive sees its own releases go bad.
 
 The goal: users stop being blocked within minutes, by releasing the default branch when the first
-check shows its newest build already works, else by rolling the release back. Then the root fix
-of the cause ships, the one that stops a repeat, and a stopgap never ships. His words: "you should
-have just rolle dback and done the proper fix".
+check shows its newest build already works, else by rolling the release back, else by the stop,
+the immediate fix that turns the failing path off. Then the root fix of the cause ships, the one
+that stops a repeat, and replaces any immediate fix, so no stopgap outlives it. His words: "you
+should have just rolle dback and done the proper fix", and "always do the immediate fix (or
+rollback if prudent) in parallel to giving me options for the proper fix (which should replace the
+hacky fix ...)".
 
 The fix job starts at the alert, in the same message as the diagnosis job, because diagnosis
 redirects the fix job and never comes first. Nothing stands between the alert and those two jobs:
@@ -100,12 +106,14 @@ changed and when, its findings the suspects, and its root cause the verdict.
   that release: the step that failed, its log, and the code that step runs.
   - It builds the root fix of the cause, under the repository's own performance and "fix the
     cause" rules (in the monorepo, AGENTS.md's Performance section).
-  - In the cause's place it never ships a pin, a hardcoded flag, a header, a prefix rule, a cap,
-    a retry, a timeout raise, a timer, a wait, a cache, a special case or a revert of the change.
-    His words: "this is also a hack stop doing fucking hacks just do proper fundamental fixes".
+  - It leaves no pin, hardcoded flag, header, prefix rule, cap, retry, timeout raise, timer, wait,
+    cache, special case or revert of the change standing in the cause's place. His words: "this is
+    also a hack stop doing fucking hacks just do proper fundamental fixes". When no rollback or
+    release stopped the harm, the stop below ships the immediate fix at once as its own PR, and
+    this job's root fix deletes it.
   - Its PR is the whole root fix with its regression tests and the tests the repository's rules
-    ask for. Nothing is split off to land faster, because the rollback or release already stopped
-    the harm.
+    ask for. Nothing more is split off to land faster, because the rollback, release or stop
+    already stopped the harm.
   - When the cause is a design, a design step puts its questions on cards by
     [Design first](design.md), and the fix job builds the recommended option meanwhile, by
     [His card on an incident](#his-card-on-an-incident).
@@ -135,9 +143,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
   - **cause**, the diagnosis job, owns the record and sends the fix job each suspect it confirms.
     It never gates the rollback or the fix.
 - **stop**, with apply authority, when no build lacks the failing path, because then nothing else
-  halts the harm while the root fix is built. Its PR turns the failing automatic path off and lands
-  only on his tap, on a card whose body quotes the bug from the record: `drive pr set --exempt
-  "incident fix"` refuses it. Design cards hold only the root fix, never the stop.
+  halts the harm while the root fix is built. It is the incident's immediate fix: its PR turns the
+  failing automatic path off, its body quotes the bug from the record, and it lands at once with
+  `drive pr set <url> --exempt "incident fix"`, by his words "get the fix out now". The root fix's
+  PR deletes it. Design cards hold only the root fix, never the stop.
   `drive incident open --no-rollback` starts it at the alert, and `drive incident stop <o>` the turn
   a rollback finds no build, refused while a stop job runs.
 - **A Sentry read:** a codex lane has no Sentry sign-in. A first check or cause job that needs
@@ -288,8 +297,9 @@ check's verdict, or from the order when none ran.
   the release answers the gate with `--order <the answer id>`, or
   `tools/ci release approve <id> --via <agent>` where it holds at approve. His own order approves
   any other release he ordered, as [landing.md](landing.md) says.
-- A revert is never a rollback, because his standing rule is fix forward. A PR or build that takes
-  a change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
+- A revert is never a rollback, because his standing rule is fix forward. A rollback to an older
+  build, when prudent, is an immediate fix the incident order approves, with no tap. A PR or build
+  that takes a change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
   revert, and no incident order approves it. It lands only on his tap on its card, which states the
   bug in that change from the record, with its PR and evidence. `drive pr set <url> --exempt
   "incident fix"` refuses a PR that says it reverts a change and names the tap card to draw. Any
@@ -298,10 +308,13 @@ check's verdict, or from the order when none ran.
 - When a build or release he started carries the fix, its steps are the lines he gets. It stays his,
   by [SKILL.md](../SKILL.md).
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts.
-- A repair of a team's data runs, however urgent, as a service account inside the cluster that
-  serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md). It never starts from
-  break-glass, an admin `kubectl exec`, anyone's own sign-in, or another cluster with credentials
-  copied in.
+- A pass, migration or backfill over a team's data runs as a service account inside the cluster
+  that serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md), never from an admin
+  `kubectl exec`, anyone's own sign-in, or another cluster with credentials copied in. An urgent
+  hand repair of the records a bug left stuck is an immediate fix: it runs at once through this
+  Mac's machine-profile break-glass, beside the root fix that stops new ones. His words: "manually
+  repair his stuck ones with machine profile break glass asap", and "You can use the fucking
+  machine profile for break glass how many fucking times do I have to tell you".
 
 ## What he hears
 

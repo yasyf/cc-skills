@@ -87,20 +87,26 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
     return None
 
 
-def job_refusal(name: str, data: dict, order_id: str, kind: str) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, and on a design lane when that research found a choice for him."""
+def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False) -> str | None:
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, and on a design lane when that research found a choice for him. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix"."""
     order = data["orders"][order_id]
-    if order["options_only"] and kind in ("builder", "codex"):
+    at_once = state.IMMEDIATE_FIX in parts or lands
+    listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
+    immediate = (
+        f'the immediate fix of a bug hurting someone now, or a red default branch\'s fix-forward, starts at once on its own "{state.IMMEDIATE_FIX}"'
+        f" part, added with drive order set {order_id} --parts {listed}, and a builder landing PRs he approved with --lands <each PR>"
+    )
+    if order["options_only"] and kind in ("builder", "codex") and not at_once:
         return (
-            f"{order_id} is limited to options: he picks one before anything is built, so no {kind} starts on it; start a reader or a designer"
-            f" until he picks, drive job add design --order {order_id}, and once he picks, drive order set {order_id} --no-options-only"
+            f"{order_id} is limited to options: he picks one before the proper fix is built, so no {kind} starts on it; start a reader or a designer"
+            f" until he picks, drive job add design --order {order_id}, and once he picks, drive order set {order_id} --no-options-only; {immediate}"
         )
     if order["kind"] == "answer" and kind != "reader":
         return (
             f"{order_id} is an answer order: one reader researches it and answers him, with no {kind} beside it; work its"
             f" answer finds to build is a build order: drive order set {order_id} --kind build"
         )
-    if order["kind"] != "build" or order["incident"] or kind not in RESEARCHED_KINDS:
+    if order["kind"] != "build" or order["incident"] or kind not in RESEARCHED_KINDS or at_once:
         return None
     found = research(name, data, order_id)
     if found is None:
@@ -108,24 +114,25 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str) -> str | None:
             f"{order_id} is a build order, so its {kind} starts only once an Opus reader has kept {BLOCK} in its report:"
             f' drive job add reader --order {order_id} --goal "research: <what>", then a long-running:reader whose brief'
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
-            " line what already does part of it, and its open line each question the order implies"
+            f" line what already does part of it, and its open line each question the order implies; {immediate}"
         )
     reader, text = found
     designing = any(data["jobs"][job_id]["kind"] == "design" for job_id in order["jobs"] if data["jobs"][job_id]["order"] == order_id)
     if kind == "builder" and text.lstrip().startswith("DESIGN") and not designing:
         return (
-            f"{reader} returned DESIGN: the choice its research found goes to him as cards before any builder:"
-            f" drive job add design --order {order_id}, then a long-running:designer briefed Researched: {reader}"
+            f"{reader} returned DESIGN: the choice its research found goes to him as cards, and the recommended option's builder starts"
+            f" beside them: drive job add design --order {order_id} first, in this turn, then a long-running:designer briefed"
+            f" Researched: {reader}, and this builder builds the recommended option on a branch; {immediate}"
         )
     return None
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: a build order's builder or designer needs the Researched: line naming its reader, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: a build order's builder or designer needs the Researched: line naming its reader, unless it ships the immediate fix, and an answer order's one lane does its own research."""
     job = data["jobs"][job_id]
     order_id = job["order"]
     order = data["orders"][order_id]
-    if HANDOFF.search(brief) or order["incident"] or not order["kind"]:
+    if HANDOFF.search(brief) or order["incident"] or not order["kind"] or state.IMMEDIATE_FIX in job["parts"]:
         return None
     if order["kind"] == "answer":
         if RESEARCHED_LINE.search(brief):
@@ -210,7 +217,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
 
 
 def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
-    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, among them the fix its evidence points at."""
+    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, among them the fix its evidence points at, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)
     if order["kind"] == "build" and not order["incident"] and job["goal"].casefold().startswith("research") and (
         missing := [f"{key}:" for key in KEYS if not block.get(key)]
@@ -233,6 +240,8 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
     summary = [line for line in lines if not line.startswith("- ") and not limits.DIRECT_FIX.match(line)]
     if problems := limits.direct_fix_problems(text, options, limits.RECOMMENDED.sub("", marked[0]), summary):
         return f"a reader's DESIGN names among its options the fix its evidence points at: {problems[0]}"
+    if state.hurts_now(order) and (problems := limits.interim_fix_problems(text)):
+        return f"a reader's DESIGN on a bug hurting someone now names its immediate fix: {problems[0]}"
     return None
 
 
