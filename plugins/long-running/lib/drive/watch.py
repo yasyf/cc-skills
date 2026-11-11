@@ -28,7 +28,6 @@ PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<jo
 LANE = "watch"
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
-LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
@@ -986,7 +985,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)
-    return [line[:LINE_LIMIT] for line in handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)]
+    return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
 
 
 def tooling(line: str, data: dict) -> bool:

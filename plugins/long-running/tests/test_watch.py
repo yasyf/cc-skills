@@ -439,21 +439,23 @@ def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
     assert watch.run_pass(watching, T0) == []
 
 
-def test_lines_are_capped_at_three_hundred_chars(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_catch_up_naming_eighty_orders_reaches_the_coordinator_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
+    sent = posts(monkeypatch)
     watching = watcher(demo)
-    state.append_event(demo, "unheard", question="x" * 500)
-    assert len(watch.run_pass(watching, T0)[0]) == 300
+    orders = " ".join(f"o{n}" for n in range(283, 363))
+    state.append_event(demo, "catch-up", dm="D123", since="1:46 AM", orders=orders)
+    line = f"EVENT catch-up dm=D123 since=1:46 AM orders={orders}"
+    assert len(line) > 400
+    assert watch.sent(watching, "root", watch.run_pass(watching, T0), T0) == []
+    assert posted(sent) == [("handoff", f"root@{demo}", line)]
 
 
 def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     watching = watcher(demo)
     state.append_event(demo, "unheard", question="first line\nsecond\r\nthird\rfourth\n\n" + "x" * 300)
-    [line] = watch.run_pass(watching, T0)
-    assert line.startswith("EVENT unheard question=first line second third fourth xxx")
-    assert len(line) == 300
-    assert "\n" not in line and "\r" not in line
+    assert watch.run_pass(watching, T0) == ["EVENT unheard question=first line second third fourth " + "x" * 300]
 
 
 def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
