@@ -45,7 +45,11 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
 
 def job(order_id: str, job_state: str, said: str | None = None, updated: int = -30, **overrides: object) -> dict:
     base = {"order": order_id, "kind": "builder", "goal": "g", "prs": [], "state": job_state, "said": said, "updated": at(updated)}
-    return base | {"branch": None, "waits": [], "parts": [], "carries": {}} | overrides
+    return base | {"branch": None, "waits": [], "questions": [], "parts": [], "carries": {}} | overrides
+
+
+def asked_on(*cards: str) -> list[dict]:
+    return [state.new_question(None, None, at(-30), card=card) for card in cards]
 
 
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
@@ -174,10 +178,10 @@ def test_each_feature_names_the_open_cards_of_his_that_block_it_and_each_card_th
     data = drive_of(
         {"o1": order("rank the cards", ["j1", "j2"]), "o2": order("ship the page", ["j3"]), "o3": order("free to go", ["j4"])},
         {
-            "j1": job("o1", "waiting", card=f"{TEAM}archives/D123/p-40"),
+            "j1": job("o1", "waiting", questions=asked_on(f"{TEAM}archives/D123/p-40")),
             "j2": job("o1", "built", branch="lane/built", waits=["demo:j2-7-a", "j1"]),
             "j3": job("o2", "waiting"),
-            "j4": job("o3", "waiting", card=f"{TEAM}archives/D123/p-90"),
+            "j4": job("o3", "waiting", questions=asked_on(f"{TEAM}archives/D123/p-90")),
         },
         [pr(1, "o2", waits=["demo:j2-7-a"]), pr(2, "o3", waits=["demo:j9-1-a"], state="merged")],
     )

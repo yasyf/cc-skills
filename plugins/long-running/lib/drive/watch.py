@@ -148,14 +148,16 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered or the job finished, and say once, as its last wait ends, that nothing holds it."""
+    """Drop each wait of a job or PR that ended, his card answered or the job finished, and say once, as its last wait ends, that nothing holds it; the cards a job asked him on hold it too, so it keeps its waits until he answers them."""
     data = state.load(watcher.name)
-    owners = [*data["jobs"].values(), *data["prs"].values()]
+    owners = [*(job for job in data["jobs"].values() if not view.open_cards(job, watcher.cards)), *data["prs"].values()]
     if all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return []
     lines = []
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
+            if view.open_cards(job, watcher.cards):
+                continue
             if (ended := released(data, job, watcher.cards)) and job["state"] not in state.FINISHED_JOB_STATES:
                 job["updated"] = state.stamp(moment)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
@@ -612,7 +614,7 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 
 
 def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
-    if job.get("ask") or job.get("card") and view.card_open(job["card"], cards) or view.holding(data, job["waits"], cards):
+    if job.get("ask") or view.open_cards(job, cards) or view.holding(data, job["waits"], cards):
         return True
     if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
         return True
@@ -631,9 +633,11 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it"
     if job["state"] == "done":
-        if not job.get("card"):
+        drawn = [question for question in job["questions"] if question["card"]]
+        if not drawn:
             return f"{job_id} answered and the answer is not posted to him"
-        return None if view.card_open(job["card"], watcher.cards) else f"{job_id}'s card is answered and no job carries his answer"
+        answered = "card is" if len(drawn) == 1 else "cards are"
+        return None if view.open_cards(job, watcher.cards) else f"{job_id}'s {answered} answered and no job carries his answer"
     return f"{job_id} {job['state']}"
 
 

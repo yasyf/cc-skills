@@ -35,6 +35,22 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert (state_root / "demo" / ".lock").exists()
 
 
+def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": "Which store?", "updated": "2026-11-09T14:00:00-08:00"}
+    data["jobs"] = {
+        "j1": base | {"question": "/asks/j1-a.md", "card": "https://acme.slack.com/archives/D1/p1", "unsettled": "ac61348: another subject"},
+        "j2": base | {"question": None, "card": None},
+        "j3": base | {"card": "https://acme.slack.com/archives/D1/p3", "questions": []},
+    }
+    state.create(data)
+    jobs = state.load("demo")["jobs"]
+    assert jobs["j1"]["questions"] == [state.new_question("/asks/j1-a.md", "Which store?", base["updated"], "ac61348: another subject", "https://acme.slack.com/archives/D1/p1")]
+    assert jobs["j2"]["questions"] == []
+    assert jobs["j3"]["questions"] == []
+
+
 def test_edit_discards_changes_when_the_body_raises(state_root: Path) -> None:
     make("demo")
     with pytest.raises(RuntimeError), state.edit("demo") as data:

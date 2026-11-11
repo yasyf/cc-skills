@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from drive import artifacts, install, state
 
-JOB = {"goal": "fix the load gate", "where": "local", "agent": "a1", "session": "s1"}
+JOB = {"goal": "fix the load gate", "where": "local", "agent": "a1", "session": "s1", "questions": []}
 
 
 @pytest.fixture
@@ -27,10 +27,21 @@ def turn(kind: str, *blocks: dict, message_id: str | None = None, **fields: obje
 
 
 def test_a_job_lists_the_files_the_drive_keeps_for_it_in_reading_order() -> None:
-    remote = {"where": "remote", "brief": "/b.md", "report": "DONE", "question": "/q.md", "repro": "/r.md", "agent": None, "session": None}
+    remote = {"where": "remote", "brief": "/b.md", "report": "DONE", "questions": [state.new_question("/q.md", "Q?", "now")], "repro": "/r.md", "agent": None, "session": None}
     assert artifacts.kept("j1", remote, set()) == ["brief", "report", "question", "repro"]
     assert artifacts.kept("j2", JOB, {"j2"}) == ["report", "transcript"]
     assert artifacts.kept("j3", JOB | {"session": None}, set()) == []
+
+
+def test_the_question_page_shows_every_question_the_job_asked_oldest_first(tmp_path: Path) -> None:
+    first, second = tmp_path / "j1-a.md", tmp_path / "j1-b.md"
+    first.write_text("ASK Which store?\n")
+    second.write_text("ASK Which layout?\n")
+    asked = JOB | {"questions": [state.new_question(str(path), None, "now") for path in (first, second, tmp_path / "gone.md")]}
+    shown = artifacts.page("demo", "j1", asked, "question")
+    assert shown.index("ASK Which store?") < shown.index("ASK Which layout?")
+    assert f"This Mac no longer holds {tmp_path / 'gone.md'}." in shown
+    assert "3 questions, oldest first" in shown
 
 
 def test_a_kept_report_reads_from_its_file_before_the_lane_text(drive_home: Path) -> None:

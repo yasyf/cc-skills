@@ -49,7 +49,8 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    --waits <card>`, one `--waits` for each card's waits id or Slack link, and the ledger, `drive
    status`, `drive view`, the dashboard and his status tab show the job as built, with the branch
    and each card. `drive pr add` refuses any new PR for the job while one of its cards is open.
-   The watch drops each card as he answers it and says `FREE <j>` once, when the last is answered.
+   The watch drops each card as he answers it and says `FREE <j>` once, when the last is answered
+   and no question the job itself asked him is still open.
    A handoff builder then opens the PR, rebuilding first wherever his pick differs from the
    recommended option it built.
 4. **Nothing lands around an open card.** A PR already open that carries a design card he has
