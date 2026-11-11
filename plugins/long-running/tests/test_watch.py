@@ -258,6 +258,13 @@ def test_a_handoff_the_communicator_did_not_get_goes_again_and_says_so_from_the_
     assert [argv[-1] for argv in sent] == [f"PR {KEY}: checks failed [o1 j1]"]
 
 
+def test_a_line_sent_him_wakes_no_one(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    state.append_event(demo, "said", text="shipped", thread=None, url="https://acme.slack.com/archives/D123/p1", card=None, order=None, visuals=[])
+    assert watch.run_pass(watching, T0) == []
+
+
 def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     watching = watcher(demo)

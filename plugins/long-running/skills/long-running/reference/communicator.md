@@ -75,8 +75,11 @@ as one forced at its context limit, still acks him: cc-slack's compaction hook m
 and until it starts again the cc-slack daemon posts "Got it, back in a minute." under each of his
 messages beside the eyes, and each arrives with `acked`, so the communicator adds no second ack.
 
-A handler reads what it needs, writes, checks and posts every line, card and share itself, and
-returns one line, its permalinks and at most three facts, by its agent definition, since its whole
+A handler reads what it needs, writes, checks and posts every line, card and share itself through
+`say`, the one call that posts it to his Slack DM and shows it on the drive's dashboard, and which
+turns `{card:<waits id>}` and `{pr:<number>}` in its text into a link Slack draws the card or PR
+under and a link on the dashboard. It returns one line, its permalinks and at most three facts, by
+its agent definition, since its whole
 return stays in the communicator's context until the next compaction. Anything he waits on that takes it past
 a minute gets one line in his thread first. A read-only question it answers itself, from the source
 that owns the fact, never through the coordinator, and a refused access never ends that read: in the

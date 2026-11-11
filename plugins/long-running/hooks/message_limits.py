@@ -7,10 +7,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import limits, slack, state
+from drive import limits, refs, slack, state
+from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
-DM_POST = SLACK + "slack_dm_status"
+SAY = "mcp__plugin_long-running_drive__say"
+DM_POSTS = {SLACK + "slack_dm_status", SAY}
 EDIT = SLACK + "slack_edit"
 THREAD_READ = SLACK + "slack_thread"
 READ_WINDOW = timedelta(minutes=10)
@@ -33,17 +35,17 @@ WHOLE = (
 )
 
 
-def his_dm(session: str) -> str | None:
-    """His DM with the app, when this session is a drive's communicator, whose handlers write everything he reads."""
+def his_drive(session: str) -> dict | None:
+    """The drive this session is the communicator of, whose handlers write everything he reads in his DM with the app."""
     for name in state.session_drives(session):
         data = state.load(name)
         if state.session_role(data, session) == "communicator":
-            return data["slack"]["channel"]
+            return data
     return None
 
 
 def posts_to(payload: dict, dm: str) -> bool:
-    if payload["tool_name"] == DM_POST:
+    if payload["tool_name"] in DM_POSTS:
         return True
     tool_input = payload["tool_input"]
     channel = tool_input.get("channel_id") or next(iter(PERMALINK_CHANNEL.findall(tool_input.get("url") or "")), None)
@@ -160,9 +162,14 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 def deny_reason(payload: dict) -> str | None:
     """Why a post to his DM does not go out as written: a handler's line in his thread waits for its read of that thread, the post keeps its length, and `cc-slack check-post` passes its exact words."""
-    dm = his_dm(payload.get("session_id") or "")
-    if dm is None:
+    if (drive := his_drive(payload.get("session_id") or "")) is None:
         return None
+    dm = drive["slack"]["channel"]
+    if payload["tool_name"] == SAY and refs.REF.search(said := payload["tool_input"].get("text") or ""):
+        try:
+            payload = {**payload, "tool_input": {**payload["tool_input"], "text": refs.slack(said, refs.resolved(drive["name"], said))}}
+        except DriveError as error:
+            return str(error)
     tool_input = payload["tool_input"]
     if PLACEHOLDER.fullmatch(text := (tool_input.get("text") or "").strip()):
         return (

@@ -386,7 +386,7 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
     assert [job_entry["id"] for job_entry in entry["jobs"]] == ["j1", "j2"]
 
 
-def test_history_lists_every_day_newest_first_with_his_taps_by_title_and_the_swears_in_his_orders() -> None:
+def test_history_lists_every_day_newest_first_with_his_taps_by_title_each_line_sent_him_and_the_swears_in_his_orders() -> None:
     data = drive_of(
         {
             "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
@@ -399,9 +399,11 @@ def test_history_lists_every_day_newest_first_with_his_taps_by_title_and_the_swe
         {"kind": "tap", "at": at(-5), "repo": "yasyf/cc-skills", "number": 1, "label": "Approve"},
         {"kind": "shown", "at": at(-4), "repo": "yasyf/cc-skills", "number": 1, "waits": ""},
         {"kind": "refused", "at": at(-3), "repo": "yasyf/cc-skills", "number": 9, "reason": "its body lacks a section"},
+        {"kind": "said", "at": at(-2), "text": "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", "url": "https://acme.slack.com/archives/D123/p1", "order": "o1", "visuals": []},
     ]
     history = view.board(data, found(), "live", events, T0, set())["history"]
     assert [(entry["kind"], entry["text"], entry["detail"]) for entry in history] == [
+        ("said", "[change 1](https://github.com/yasyf/cc-skills/pull/1) is live", ""),
         ("refused", "https://github.com/yasyf/cc-skills/pull/9", "its body lacks a section"),
         ("tap", "change 1", "Approve"),
         ("live", "ship the page", "installed 1.0.21"),

@@ -234,30 +234,40 @@ def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
 
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    data = state.load(name)
+    if not args.undo:
+        return emit(args, *record_post(name, args.id, args.link, args.part))
+    order = communicators_order(state.load(name), args.id)
+    [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
+    with state.edit(name) as data:
+        data["orders"][args.id]["parts"][undone]["posted"] = None
+    return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
+
+
+def communicators_order(data: dict, order_id: str) -> dict:
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError("only the communicator records a post in an order's thread or takes back a part's mark")
-    order = find(data["orders"], args.id, "order")
-    if args.undo:
-        [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
-        with state.edit(name) as data:
-            data["orders"][args.id]["parts"][undone]["posted"] = None
-        return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
-    parts = pick_parts(args.id, order, [args.part]) if args.part else list(order["parts"])
+    return find(data["orders"], order_id, "order")
+
+
+def record_post(name: str, order_id: str, link: str, named: str | None) -> tuple[str, dict]:
+    """Record the drive's post in an order's thread: the promised time it keeps, the order's last line, and the part it delivers."""
+    data = state.load(name)
+    order = communicators_order(data, order_id)
+    parts = pick_parts(order_id, order, [named]) if named else list(order["parts"])
     part = parts[0] if len(parts) == 1 else None
-    at, ours = drive_post_at(args.link, data, args.id, bool(args.part))
+    at, ours = drive_post_at(link, data, order_id, bool(named))
     line = state.stamp(at)
     with state.edit(name) as data:
-        order = data["orders"][args.id]
+        order = data["orders"][order_id]
         if ours:
             if state.owed(order):
                 state.keep(order, [at])
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         if part:
-            order["parts"][part]["posted"] = args.link
+            order["parts"][part]["posted"] = link
     said = f'"{part}": posted' if part else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
-    return emit(args, f"{args.id} {said} {args.link}{away}", {"id": args.id, "part": part, "posted": args.link, "due": order["due"]})
+    return f"{order_id} {said} {link}{away}", {"id": order_id, "part": part, "posted": link, "due": order["due"]}
 
 
 def job_add(args: argparse.Namespace) -> int:
@@ -987,6 +997,22 @@ def card_command(args: argparse.Namespace) -> int:
     return card.main(sys.stdin, sys.stdout)
 
 
+def mcp_command(args: argparse.Namespace) -> int:
+    from drive import mcp
+
+    return mcp.serve(sys.stdin, sys.stdout)
+
+
+def tool_command(args: argparse.Namespace) -> int:
+    from drive import talk
+
+    try:
+        print(getattr(talk, args.tool)(state.resolve(), json.load(sys.stdin)))
+    except reads.ReadError as error:
+        raise DriveError(str(error)) from None
+    return 0
+
+
 def install_plugin(args: argparse.Namespace) -> int:
     from drive import install
 
@@ -1160,7 +1186,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="print the question card a kept ASK block draws, its Show me visuals drawn as pictures",
         description=(
-            "Read a kept ASK block and print its question card as JSON for `slack_dm_status(card=…)`: its question as"
+            "Read a kept ASK block and print its question card as JSON for `say(card=…)`: its question as"
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced visual (code naming its"
             " language, arch, mermaid, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
             " titled with the caption line above it; a fence of words or one that does not draw is left off, and a"
@@ -1323,6 +1349,10 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=dashboard_command)
     verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
     verbs.add_parser("card").set_defaults(run=card_command)
+    verbs.add_parser("mcp", help="serve the say tool to a Claude Code session over stdio").set_defaults(run=mcp_command)
+    verb = verbs.add_parser("tool", help="run one MCP tool on the JSON arguments read from stdin and print its one line")
+    verb.add_argument("tool", choices=("say",))
+    verb.set_defaults(run=tool_command)
 
     verb = verbs.add_parser("install")
     verb.add_argument("plugin", metavar="plugin@marketplace")

@@ -14,12 +14,14 @@ const GROUPS = {
 };
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
-const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn' };
+const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn', said: 'Sent you' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
+const SLACK_ONLY = new Set(['image', 'dot']);
 const HISTORY_FILTERS = [
   ['all', 'Everything', () => true],
   ['prs', 'PRs merged', (entry) => entry.kind === 'merged'],
   ['you', 'Your asks and taps', (entry) => ['order', 'tap'].includes(entry.kind)],
+  ['said', 'Sent to you', (entry) => entry.kind === 'said'],
 ];
 const NONE = '~';
 const UNFILED = 'Unfiled';
@@ -172,6 +174,7 @@ function inline(text, cite = model.repo) {
     .replace(/<(https?:\/\/[^|>\s]+)\|([^>]+)>/g, (_, url, label) => keep(link(label, url)))
     .replace(/<(https?:\/\/[^|>\s]+)>/g, (_, url) => keep(link(url, url)))
     .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => keep(`<a class="shot" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(alt)}" loading="lazy"></a>`))
+    .replace(/\[([^\]]+)\]\((#\/[^)\s]+)\)/g, (_, label, route) => keep(`<a class="ref" href="${esc(route)}">${esc(label)}</a>`))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => keep(link(label, url)))
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\S*/g, (url, number) => keep(link(`#${number}`, url)));
   out = esc(out)
@@ -1229,7 +1232,20 @@ function strip() {
   ].filter(Boolean).join('');
 }
 
+function saidRow(entry) {
+  return `<li class="happened said">
+    <span class="time">${timeOf(entry.at)}</span>
+    <span class="dot"></span>
+    <div class="body">
+      <div><b class="what">${HAPPENED.said}</b></div>
+      <div class="said-text">${prose(entry.text)}</div>
+      ${entry.visuals.map((shown) => (SLACK_ONLY.has(shown.kind) ? pictures([shown.picture]) : visual(shown.kind, shown.source, shown.caption))).join('')}
+    </div>
+  </li>`;
+}
+
 function historyRow(entry) {
+  if (entry.kind === 'said') return saidRow(entry);
   return `<li class="happened ${esc(entry.kind)}">
     <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
