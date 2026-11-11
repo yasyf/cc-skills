@@ -91,7 +91,8 @@ limit".
   label: each unknown gets a job, and he gets its result or nothing. A job's `UNPROVEN:` list is the
   coordinator's input, never copy for him. An incident line carries only a step of the fix with its
   time, its proof on a real machine and users having it, or what is running and when the next line
-  lands, plus one cause line once a test machine reproduces it: no side facts about a release.
+  lands, plus what the incident's record holds about the cause, quoted, by [incidents.md](incidents.md):
+  no side facts about a release.
 - A report is one record per thread per coordinator turn, opening `POST` or `FYI`, never a burst:
   everything a turn has for a thread goes in that one record, written at the length of the post it
   becomes, a line of 60 words or a summary of 120, so the handler posts it as written. Its first
