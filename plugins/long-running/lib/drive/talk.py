@@ -114,7 +114,10 @@ def posted(name: str, post: dict) -> dict:
     argv += [flag for path in [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted] for flag in ("--file", path)]
     if words:
         argv += ["--", refs.slack(words, found)]
+    asked = cli.asked_on(name, card["waits"]) if card and card.get("waits") else set()
     reply = slack.cc_slack(*argv)
+    if asked:
+        cli.follow_card(name, card["waits"], asked, reply["permalink"])
     state.append_event(
         name,
         "said",

@@ -105,6 +105,31 @@ def test_a_record_draws_in_its_own_words_linked_to_what_it_links(demo: str, post
     assert said(demo)[0]["text"] == f"The pod restarts because [{oom}](https://app.datadoghq.com/notebook/1). Stalls: the write lock is held across the whole call."
 
 
+def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:
+    other = "https://acme.slack.com/archives/D123/p1794300000000400"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp()) | {"waits": [CARD_URL, other]}
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, QUESTION, state.stamp(), card=CARD_URL) | {"waits": WAITS})
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}
+        data["prs"]["yasyf/cc-skills#7"]["waits"] = [other, CARD_URL]
+    talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
+    data = state.load(demo)
+    jobs, prs = data["jobs"], data["prs"]
+    assert jobs["j1"]["questions"][0]["card"] == POSTED
+    assert (jobs["j1"]["waits"], jobs["j2"]["waits"], prs["yasyf/cc-skills#7"]["waits"]) == ([POSTED, other], [POSTED], [other, POSTED])
+    talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
+    assert (state.load(demo)["jobs"], state.load(demo)["prs"]) == (jobs, prs)
+
+
+def test_a_card_no_question_keeps_moves_each_wait_on_it_to_the_new_card_when_asked_again_with_new_words(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}
+        data["prs"]["yasyf/cc-skills#7"]["waits"] = [CARD_URL]
+    talk.say(demo, {"card": {"title": QUESTION, "waits": WAITS}})
+    data = state.load(demo)
+    assert (data["jobs"]["j2"]["waits"], data["prs"]["yasyf/cc-skills#7"]["waits"]) == ([POSTED], [POSTED])
+
+
 def test_a_line_naming_a_cause_with_no_record_posts_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:
     with pytest.raises(DriveError, match=r"nothing posted: a line naming a cause carries \{record:<seq>\} .*: The runs failed because the pool was full$"):
         talk.say(demo, {"text": "Merged.\nThe runs failed because the pool was full", "dry_run": True})
