@@ -351,7 +351,7 @@ def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_re
         DriveError,
         match=(
             r"nothing posted: refused, the report is the coordinator's and o1 is the communicator's order, so it delivers nothing there:"
-            r" post your own report from the communicator's lane, cci post --kind report --lane communicator --attr close=o1"
+            r" post your own report on the cci post tool with kind report, lane communicator, attrs \{close: o1\} and no to"
         ),
     ):
         talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "order": "o1", "record": "664348"})

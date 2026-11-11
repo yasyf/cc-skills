@@ -3677,9 +3677,9 @@ def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handle
     report_records(monkeypatch, {"664348": {"close": "o1"}})
     assert cli.main(["order", "posted", "o1", line, "--record", "664348"]) == 2
     assert (
-        "refused, the report is the coordinator's and o1 is the communicator's order, so it delivers nothing there: post your own report from the"
-        ' communicator\'s lane, cci post --kind report --lane communicator --attr close=o1 "<its first words>" with no --to, carrying this report\'s'
-        " facts, and pass that seq, or post with no record, a progress line"
+        "refused, the report is the coordinator's and o1 is the communicator's order, so it delivers nothing there: post your own report on the cci"
+        " post tool with kind report, lane communicator, attrs {close: o1} and no to, its first words as text, carrying this report's facts, and"
+        " pass that seq, or post with no record, a progress line"
     ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["which page shows a run's history?"]["posted"] is None
     report_records(monkeypatch, {"664350": {"close": "o1"}}, lane="communicator")

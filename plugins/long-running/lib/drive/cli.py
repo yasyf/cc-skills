@@ -678,8 +678,8 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     if writer is None or holder in (None, writer):
         return None
     carried = (
-        f'post your own report from the communicator\'s lane, cci post --kind report --lane communicator --attr close={order_id} "<its first words>"'
-        " with no --to, carrying this report's facts, and pass that seq"
+        f"post your own report on the cci post tool with kind report, lane communicator, attrs {{close: {order_id}}} and no to,"
+        " its first words as text, carrying this report's facts, and pass that seq"
         if holder == "communicator"
         else f"pass the {state.title(holder)}'s own report on {order_id}"
     )
