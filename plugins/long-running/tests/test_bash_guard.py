@@ -35,6 +35,15 @@ def running(monkeypatch: pytest.MonkeyPatch, config: Path, pids: dict[int, int])
     monkeypatch.setattr(orca, "parents", lambda: pids)
 
 
+def test_a_builder_opens_its_pr_the_repositorys_way(demo: str) -> None:
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    reason = bash_guard.deny_reason(bash("gh pr create --base main --head fix --title X --body-file /s/body.md", **builder))
+    assert reason.startswith("refused: a builder opens its PR the repository's way, never a bare `gh pr create`")
+    assert "`ccx vcs ship --pr-title-file <title> --pr-body-file <body>`" in reason
+    assert bash_guard.deny_reason(bash("ccx vcs ship --no-watch --pr-title-file /s/t --pr-body-file /s/b", **builder)) is None
+    assert bash_guard.deny_reason(bash("gh pr create --title X", session="ordinary")) is None
+
+
 def test_a_designer_opens_no_pr_and_pushes_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     designer = {"agent_id": "a-1", "agent_type": "long-running:designer"}
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash('gh pr create --title "Design"', **designer))))

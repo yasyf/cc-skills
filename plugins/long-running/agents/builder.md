@@ -96,7 +96,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    not name, a hand-made stand-in for a native piece, a name with no link, a number with no meaning,
    a step left for him. Close each gap inside the order yourself, starting from the brief's `Would he ask:` line;
    a gap that is a design fork goes back as `ASK`.
-6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill), with the
+6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill; a hook refuses a bare `gh pr create`), with the
    title and body below, and register it: `drive pr add <url> --job <your job id>`, adding `--tap`
    when the repository needs his tap before landing.
 7. Return as soon as it is registered: `WAITING` naming the checks or review still out, or `READY`
