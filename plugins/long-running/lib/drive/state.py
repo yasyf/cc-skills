@@ -15,6 +15,7 @@ CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
+INCIDENT_STOP = "stop"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
@@ -206,6 +207,7 @@ def load(name: str) -> dict:
         order.setdefault("kind", None)
         order.setdefault("complex", False)
         order.setdefault("thread", None)
+        order.setdefault("releases", {})
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
     for job in data["jobs"].values():
@@ -538,6 +540,18 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
     return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
+
+
+def running_stops(data: dict, order_id: str) -> list[str]:
+    return [job_id for job_id in data["orders"][order_id]["jobs"] if INCIDENT_STOP in data["jobs"][job_id]["parts"] and data["jobs"][job_id]["state"] not in FINISHED_JOB_STATES]
+
+
+def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
+    order = data["orders"][order_id]
+    job_id = next_id(data["jobs"], "j")
+    data["jobs"][job_id] = new_job(order_id, "codex", f"{part}: {whole_order(order['text'])}", [part], created)
+    order["jobs"].append(job_id)
+    return f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}'
 
 
 def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:

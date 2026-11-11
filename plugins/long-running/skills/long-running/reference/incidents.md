@@ -252,6 +252,12 @@ check's verdict, or from the order when none ran.
   or what caused the break, no comparison of open builds, no question. The job shipping the fix
   lifts the service's freeze, starts the build at the fix commit, and reports its link. The
   release's own approve gate is the only check, and every read runs while it builds.
+- Every release a job of an open incident starts, its fix's, rollback's, stop's or the default
+  branch's, is named to the drive in that turn with `drive incident release <o> <name>`, the
+  name `tools/ci release start` prints. The turn its post in the releases channel says a step
+  failed, cc-slack hands the drive that line, the incident's stop reopens, and the watch says
+  `EVENT stop` with the job to start, or the running stop job to resume. On Nov 10 release 60,
+  which carried the stop, stuck at 9:36 PM and nobody went after it until 10:39 PM.
 - No incident release starts, a rollback included, before a line to him states the bug it ships
   against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
   The fix's release has that line from its PR-open line. For a rollback or a release of the

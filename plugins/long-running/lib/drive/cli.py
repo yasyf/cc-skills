@@ -15,9 +15,9 @@ from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 INCIDENT_FIX = "fix"
-INCIDENT_STOP = "stop"
-INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
+INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [state.INCIDENT_STOP, "cause"]}
 FREEZE_FOR = timedelta(hours=12)
+RELEASE_NAME = re.compile(r"[a-z]+-[a-z]+")
 INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
@@ -120,6 +120,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "kept": None,
             "withdrawn": None,
             "jobs": [],
+            "releases": {},
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
@@ -135,18 +136,10 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         }
         if args.due:
             need_thread(data, order_id, order)
-        started = [incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
+        started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
     return order_id, order, started, incidents
-
-
-def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
-    order = data["orders"][order_id]
-    job_id = state.next_id(data["jobs"], "j")
-    data["jobs"][job_id] = state.new_job(order_id, "codex", f"{part}: {state.whole_order(order['text'])}", [part], created)
-    order["jobs"].append(job_id)
-    return f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}'
 
 
 def incident_open(args: argparse.Namespace) -> int:
@@ -178,10 +171,10 @@ def incident_stop(args: argparse.Namespace) -> int:
             raise DriveError(f"{args.id}: refused, it is no open incident order")
         if refused := state.held_elsewhere(data, args.id, state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
             raise DriveError(f"refused, no stop added: {refused}")
-        if running := [job_id for job_id in order["jobs"] if INCIDENT_STOP in data["jobs"][job_id]["parts"] and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]:
+        if running := state.running_stops(data, args.id):
             raise DriveError(f"{args.id}: refused, its stop runs as {', '.join(running)}; resume that job instead")
-        order["parts"][INCIDENT_STOP] = state.new_part()
-        started = incident_job(data, name, args.id, INCIDENT_STOP, created)
+        order["parts"][state.INCIDENT_STOP] = state.new_part()
+        started = state.incident_job(data, name, args.id, state.INCIDENT_STOP, created)
         order["updated"] = created
     return emit(args, started, {"id": args.id, "job": started.split()[0]})
 
@@ -211,6 +204,20 @@ def incident_freeze(args: argparse.Namespace) -> int:
         f" with tools/ci release unfreeze {freeze} before the fix's build starts",
         {"id": args.id, "freeze": freeze, "until": until},
     )
+
+
+def incident_release(args: argparse.Namespace) -> int:
+    """Name a release an incident's job started, so the turn cc-slack hands the drive that release failing a step, its stop reopens with a job to get it live."""
+    if not RELEASE_NAME.fullmatch(args.release):
+        raise DriveError(f"{args.release}: refused, name the release as its post in the releases channel does, such as stark-maclean")
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        order = find(data["orders"], args.id, "order")
+        if not state.open_incidents(data, [args.id]):
+            raise DriveError(f"{args.id}: refused, it is no open incident order")
+        order["releases"][args.release] = {"named": state.stamp(), "failed": None}
+        order["updated"] = state.stamp()
+    return emit(args, f"{args.id}: {args.release} named; the turn it fails a step, {args.id}'s stop reopens", {"id": args.id, "release": args.release})
 
 
 def check_thread(data: dict, source: str, thread: str) -> None:
@@ -1154,7 +1161,7 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
 def refuse_an_exempt_stop(data: dict, key: str) -> None:
     """The PR of an incident's stop turns the failing path off, which no incident order approves: it lands only on his tap, on a card quoting the bug from the record."""
     pr = data["prs"][key]
-    if INCIDENT_STOP not in state.job_parts(data["jobs"][pr["job"]], pr["order"]):
+    if state.INCIDENT_STOP not in state.job_parts(data["jobs"][pr["job"]], pr["order"]):
         return
     raise DriveError(
         f'{key}: refused, it is {pr["order"]}\'s stop, which turns the failing path off, and a stop never lands as an "{INCIDENT_EXEMPTION}":'
@@ -1690,6 +1697,17 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the open incident order")
     verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
     verb.set_defaults(run=incident_freeze)
+    verb = incident.add_parser(
+        "release",
+        parents=both,
+        help=(
+            "in the turn a job of an open incident starts a release, its fix's, rollback's, stop's or the default branch's: the"
+            " watch reopens the incident's stop, with a job to get it live, the turn cc-slack hands the drive that release failing a step"
+        ),
+    )
+    verb.add_argument("id", help="the open incident order")
+    verb.add_argument("release", help="the release's name as tools/ci release start prints it and its post shows it, such as stark-maclean")
+    verb.set_defaults(run=incident_release)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(
