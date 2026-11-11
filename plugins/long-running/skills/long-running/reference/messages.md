@@ -393,7 +393,11 @@ the dashboard link. When a line says where things stand, link the page instead o
   result or nothing. `cc-slack check-post` refuses a line listing what is not proven, and a job's
   `UNPROVEN:` list is the coordinator's input, never copy for him.
 - An incident line follows [incidents.md](incidents.md) and carries no side facts about a release.
-- State comes from live reads, `drive status`, GitHub or a transcript, never from memory. What a
+- State comes from live reads, `drive status`, GitHub or a transcript, never from memory. A job's
+  last line is history: what is live is read from the default branch and the release, since a later
+  PR may have reverted the change or put it back. A 12:57 AM status on Nov 11 told him the 512
+  memory indexes were backed out, from a job's line written before the 8:41 PM PR that restored
+  them. What a
   release carries, such as its PRs, its steps or which build fixes what, is read from that release's
   commit and build.
 - Ask for a tap only when one is owed. Before any card or line asks him to tap, approve or hold a

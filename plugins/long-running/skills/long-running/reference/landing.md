@@ -137,7 +137,7 @@ restack his own in-flight branches. A PR lands only when all of these hold at it
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
   asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
-  with `drive pr set <url> --tapped Approve --tap-source slack:<permalink>`, because the `landing_guard`
+  with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because the `landing_guard`
   hook reads only a recorded tap and refuses a landing command for a drive PR with neither.
 
 **Exempt classes land with no tap** once green. He never sees a PR card for one: it is marked as its
@@ -157,7 +157,10 @@ class wherever he sees it, and its order's thread gets one line naming the class
 Record any other class by its name with `drive pr set <url> --exempt "<class>"` and clear it with
 `--no-exempt`; the landing guard reads it. Anything else waits for his tap.
 
-**His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle.
+**His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle,
+and a push that carries out his own pick on a card the PR waited on, since his pick is what he
+approved. On Nov 9 a gate refused a PR he had approved because its new head carried out his "Halve
+to 512" pick, which it called "a design answer, not an Approve on the PR".
 When a push changes what he approved, run `drive pr set <url> --fundamental "<what changed>"`, which
 clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
 carry out one decision of his into one first, so he gets one card.

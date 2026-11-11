@@ -140,8 +140,12 @@ His rulings already live in cc-notes answers.
 
 ## Adopt live work
 
-- An adopted PR's job stays `waiting` with no agent. Start a builder on it only when an event needs
-  action: failed checks, requested changes, a new head, or his tap.
+- An adopted PR's job stays `waiting` with no agent only when nothing is owed on it, since no event
+  comes for work nobody is doing. A PR with work owed, such as a review finding not yet answered, a
+  step after its merge like a fill, or a plan a ruling of his touches, gets a builder with a handoff in
+  the same turn. On Nov 9 a builder stopped at 3:04 AM with a review finding open, its adopting job
+  had no agent, and nothing touched it for two days. Otherwise start a builder only when an event
+  needs action: failed checks, requested changes, a new head, or his tap.
 - Ask an implementation session that is mid-change to push and stop: `cci post --drive <old> --lane
   root --kind ask --to <its lane> --text "Push your branch and PR now, reply with the branch and
   head, then stop work: drive <new> adopts it."` When it replies, carry its PR by
