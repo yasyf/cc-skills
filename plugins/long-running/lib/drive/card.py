@@ -391,7 +391,13 @@ def drawn_card(shown: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
     return render_stack(shown) if len(shown) > 1 else render(*shown[0])
 
 
-def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
+def tooling(name: str, entry: dict) -> bool:
+    """Whether the PR serves a drive tooling order, a fix to a tool the drive runs on that no words of his ask for, so its card quotes that order instead."""
+    order = state.load(name)["orders"].get(entry.get("serves"))
+    return order is not None and order["text"].startswith(state.TOOLING)
+
+
+def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: set[str]) -> str:
     needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
@@ -401,7 +407,7 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
             continue
         if not row["hate_most"]:
             needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
-        if not names_his_order(pr):
+        if not names_his_order(pr) and pr["url"] not in tools:
             needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
             unordered.append(pr["url"])
     if not needs:
@@ -411,9 +417,9 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict) -> str:
         return f"its tap card needs {wanted}"
     return (
         f"its tap card needs {wanted}. No order of his names {', '.join(unordered)}: its \"His words, step by step\" list"
-        " is missing, empty or says none, so it is a port, which lands with no card; drive tooling, which goes to him as a"
-        " question of its own at his DM root opening \"Drive tooling:\" and saying what it unblocks, or lands under an"
-        " exempt class; or the drive's to drop. Never edit its body to quote his words for another change"
+        " is missing, empty or says none, so it is a port, which lands with no card; drive tooling, which serves its own"
+        f" order with drive pr set <url> --tap --serves <the order opening \"{state.TOOLING}\"> and lands on his Approve,"
+        " or lands under an exempt class; or the drive's to drop. Never edit its body to quote his words for another change"
     )
 
 
@@ -430,13 +436,15 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"
 
 
-def tap_refusal(members: list[tuple[str, dict]]) -> str:
-    shown = []
-    for key, entry in members:
+def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    shown, tools = [], set()
+    for key in members:
         if not (pr := read(key)):
             raise state.DriveError(f"{key}: could not read it from GitHub to check its tap card")
-        shown.append((pr, entry, ()))
-    return refusal(shown, drawn_card(shown))
+        shown.append((pr, known[key][1], ()))
+        if tooling(*known[key]):
+            tools.add(pr["url"])
+    return refusal(shown, drawn_card(shown), tools)
 
 
 def cards(asked: list[dict]) -> dict:
@@ -464,7 +472,7 @@ def cards(asked: list[dict]) -> dict:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
         card = drawn_card(shown)
-        if reason := waiting(known, members) or refusal(shown, card):
+        if reason := waiting(known, members) or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

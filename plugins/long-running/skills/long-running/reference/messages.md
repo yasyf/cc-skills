@@ -8,8 +8,9 @@ and the handler writes the words, and a handler answers his read-only questions 
 is short, says what changed for him, and carries the card with its buttons whenever it says
 something waits on him.
 
-The tooling holds every message to a length. These limits are the coordinator's reading of his Nov 9
-9:33 PM words, "What the fuck is this insane shit you're sending me your messages need to be way
+The tooling holds every message to a length, counted as the post goes out, a link as the words of
+its label, so a report record names no cap of its own. These limits are the coordinator's reading
+of his Nov 9 9:33 PM words, "What the fuck is this insane shit you're sending me your messages need to be way
 shorter rewrite this for a human", said under a findings post of about 900 words:
 
 | What he reads | At most |
@@ -110,8 +111,9 @@ its 150 words whatever it quotes.
   thread, and `DUE` repeats every 10 minutes until a drive post is in that thread. His ruling, Nov 9
   5:24 PM: "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at
   the whims of an agent".
-- A handler runs `cc-slack check-post` on every line it posts and fixes what it flags; the ack, one
-  sentence the communicator already knows, goes out unchecked.
+- No post in his DM goes out unchecked. The hook runs `cc-slack check-post` on the exact words of
+  each post and edit, the ack's included, and refuses one it flags. A handler's new line in his
+  thread also waits for that handler's own read of the thread in the last 10 minutes.
 
 ## The shapes
 
@@ -141,15 +143,15 @@ and what it costs, the card 150 words in all. The findings stay in the job's fil
 the card posts the one section its question rests on, in plain words, and that is the only way they
 reach him.
 
-The card goes at his DM root with `slack_dm_status(card=…)` and no thread, then `cc-slack
-card-copy --url <its permalink> --thread <his thread>`, so the card and its buttons sit in his
-thread; a drive tooling card, whose order has no thread, stays at his DM root with no copy. The
-handler then closes the `ask` record with a `posted` record carrying the card's
-permalink and `waits` id. His tap still comes back as an `answer` record, so card posted and he
-answered stay two states. To change the words of a card he has not answered, draw it again under
-its `waits` id: that one call edits the card where it sits, redraws every copy of it already in a
-thread, and posts one fresh copy beside it. A redraw gets no `card-copy`, which puts a duplicate in
-front of him. No option asks a reporter or anyone else to retry, confirm or check: the drive
+The card is one `slack_dm_status(card=…, thread_ts=<his thread>)` call. cc-slack posts a card that
+names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
+never rests on a handler's reading. It puts one copy of the card with its buttons in that thread.
+A drive tooling card is given no thread, since its order has none. The handler then closes
+the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His tap
+still comes back as an `answer` record, so card posted and he answered stay two states. To change
+the words of a card he has not answered, draw it again under its `waits` id. That one call edits
+the card where it sits, redraws every copy of it already in a thread, and posts one fresh copy
+beside it. No option asks a reporter or anyone else to retry, confirm or check: the drive
 proves a fix itself. When something waits on his
 answer, set `waits` to `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues
 on the recommended pick, leave both out and say in the body which option is being built. Set `drive`
@@ -163,19 +165,19 @@ body or option points at another option by number or position, such as "as 1", "
 does, such as "Own process plus a memory cap per script". cc-slack refuses a card that breaks this
 and quotes the words, and the coordinator writes an `ask` record's options the same way.
 
-**A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record,
-and only for a PR that carries out an order of his whose words ask for it. The line above it quotes
-that order. A port never gets one: he reads "port of #N landed" in its order's thread once it
-lands, and so for every class that lands with no tap. Drive tooling never gets one either: a
-`Forge-AI/*` fix no exempt class covers is a question card at his DM root, by
-[Scope](scope.md).
+**A PR card**, which nobody writes: one card per stack, which a handler draws from a `ready` record.
+It is only for a PR that carries out an order of his whose words ask for it, or for a `Forge-AI/*`
+drive tooling fix no exempt class covers, which serves its own order by [Scope](scope.md). The line
+above it quotes that order: his words, or the tooling order's "Drive tooling: …" words, at his DM
+root. A port never gets one: he reads "port of #N landed" in its order's thread once it lands, and
+so for every class that lands with no tap.
 `slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
 them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
 The same call puts a copy of the card under the line in his thread, so that thread carries its
-buttons with no `card-copy`. The call's `card_permalink` names the card and its `permalink` only
+buttons. The call's `card_permalink` names the card and its `permalink` only
 the line; when the card command gives a PR no card, the call fails with its reason and posts
 nothing. Each PR on it gets its own section, opened by its title, link and Open
 button, then its Refresher, its biggest surprise, what he will hate most, where it stands and what
@@ -350,9 +352,9 @@ Meanwhile nothing is built on either layout, and the run page works as it does t
 
 ## Before it goes out
 
-A handler passes every message it posts through `cc-slack check-post -` and fixes every line it
-prints; the ack alone skips it, being one sentence the communicator already knows. The length hook
-counts its words as it goes out, so a post over its limit comes back refused. Then the
-handler reads it as he will, on a phone, with no context: does he know what changed, whether he
+The hook passes the exact words of every post through `cc-slack check-post` and counts them as they
+go out. A post it flags or one over its limit comes back refused with what to fix, and a handler's
+line in his thread comes back until that handler has read the thread. Then the handler
+reads it as he will, on a phone, with no context: does he know what changed, whether he
 must act, and when he hears next, and does every number, term and reference in it make sense with
 nothing else open?

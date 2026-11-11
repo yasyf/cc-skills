@@ -2,16 +2,18 @@ import io
 import json
 import os
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import message_limits
 import pytest
-from conftest import Thread
+from conftest import Checked, Thread
 from drive import slack
 
 Run = Callable[..., tuple[int, str]]
 READ_THREAD = slack.thread
 LAUNCHER = slack.launcher
+CHECK_POST = slack.check_post
 DM = "D123"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
@@ -147,8 +149,31 @@ REWORDINGS = [
 ]
 
 
+THREADS = ("1.2", BAD_STATE_THREAD, DB_THREAD, AUDIT_THREAD, HARDWARE_THREAD)
+
+
 def said(count: int) -> str:
     return " ".join(["word"] * count)
+
+
+def handler(lane: Path, opening: str, *read: str) -> None:
+    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": opening}}) + "\n")
+    reads(lane, *read)
+
+
+def reads(lane: Path, *threads: str, age: timedelta = timedelta(), failed: bool = False, channel: str = DM) -> None:
+    at = (datetime.now(UTC) - age).isoformat()
+    with lane.open("a") as transcript:
+        for thread in threads:
+            call_id = f"read-{thread}-{at}"
+            use = {"type": "tool_use", "id": call_id, "name": message_limits.THREAD_READ, "input": {"channel_id": channel, "thread_ts": thread, "limit": 1000}}
+            result = {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": "{}"}]} | ({"is_error": True} if failed else {})
+            transcript.write(json.dumps({"type": "assistant", "timestamp": at, "message": {"role": "assistant", "content": [use]}}) + "\n")
+            transcript.write(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": [result]}}) + "\n")
+
+
+def lane_of(transcript: Path) -> Path:
+    return transcript.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
 
 
 @pytest.fixture
@@ -160,16 +185,20 @@ def talker(run: Run) -> str:
 @pytest.fixture
 def transcript(tmp_path: Path) -> Path:
     parent = tmp_path / "communicator.jsonl"
-    lane = parent.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
-    lane.parent.mkdir(parents=True)
-    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": HIS_WORDS}}) + "\n")
+    lane_of(parent).parent.mkdir(parents=True)
+    handler(lane_of(parent), HIS_WORDS, *THREADS)
     return parent
 
 
 @pytest.fixture
 def briefed(transcript: Path) -> Path:
-    lane = transcript.with_suffix("") / "subagents" / f"agent-{HANDLER}.jsonl"
-    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "Record: 658738"}}) + "\n")
+    handler(lane_of(transcript), "Record: 658738", *THREADS)
+    return transcript
+
+
+@pytest.fixture
+def unread(transcript: Path) -> Path:
+    handler(lane_of(transcript), "Record: 659865")
     return transcript
 
 
@@ -421,6 +450,76 @@ def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcri
 def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo: str, transcript: Path) -> None:
     assert posted(transcript, text=said(300)) is None
     assert message_limits.deny_reason(call("slack_dm_status", transcript, session="elsewhere", text=said(300))) is None
+
+
+def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thread(talker: str, unread: Path) -> None:
+    refusal = (
+        "refused: your transcript shows no read of his thread 1.2 in the last 10 minutes, so this line could miss what he"
+        f" said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2, limit=1000), then post."
+    )
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == refusal
+    reads(lane_of(unread), "1.3")
+    reads(lane_of(unread), "1.2", channel="C0B75AL4XEW")
+    reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
+    reads(lane_of(unread), "1.2", failed=True)
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == refusal
+    reads(lane_of(unread), "1.2", age=timedelta(minutes=9))
+    assert posted(unread, text="Fixed.", thread_ts="1.2") is None
+    assert message_limits.deny_reason(call("slack_reply", unread, channel_id=DM, thread_ts="1.4", text="Fixed.")).startswith(
+        "refused: your transcript shows no read of his thread 1.4"
+    )
+
+
+def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_thread_read(talker: str, unread: Path) -> None:
+    card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
+    assert posted(unread, card=card, thread_ts="1.2") is None
+    assert message_limits.deny_reason(call("slack_edit", unread, channel_id=DM, ts="1.3", thread_ts="1.2", text="Fixed.")) is None
+    assert posted(unread, text="Fixed.") is None
+    payload = call("slack_dm_status", unread, text="Fixed.", thread_ts="1.2")
+    del payload["agent_id"]
+    assert message_limits.deny_reason(payload) is None
+
+
+def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, transcript: Path, checked: Checked) -> None:
+    checked.findings = ["1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"]
+    reason = posted(transcript, text="See #41 now.", thread_ts="1.2")
+    assert reason == (
+        "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n"
+        "1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
+    )
+    edit = call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text="See #41 then.")
+    assert message_limits.deny_reason(edit).startswith("refused: `cc-slack check-post` finds this")
+    share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See #41 there.")
+    assert message_limits.deny_reason(share) is None
+    assert checked.texts == ["See #41 now.", "See #41 then."]
+    checked.findings = []
+    assert posted(transcript, text="See <https://github.com/yasyf/cc-skills/pull/41|the fix> now.", thread_ts="1.2") is None
+
+
+def test_a_post_check_post_cannot_check_does_not_go_out(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(text: str) -> list[str]:
+        raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
+
+    monkeypatch.setattr(slack, "check_post", broken)
+    assert posted(transcript, text="Fixed.", thread_ts="1.2") == (
+        "refused: `cc-slack check-post` could not check this post's words, so it does not go out: the cc-slack@cc-slack"
+        " plugin is not installed."
+    )
+
+
+def test_check_post_runs_the_installed_cc_slack_on_the_exact_words(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    launcher = tmp_path / "cc-slack"
+    launcher.write_text(
+        f"#!/bin/sh\n[ \"$1 $2\" = 'check-post -' ] || exit 2\n/bin/cat > '{tmp_path / 'words'}'\n"
+        "echo \"1:5 bare-number '#41': link it\"\nexit 1\n"
+    )
+    launcher.chmod(0o755)
+    monkeypatch.setattr(slack, "launcher", lambda: str(launcher))
+    assert CHECK_POST("See #41 now.") == ["1:5 bare-number '#41': link it"]
+    assert (tmp_path / "words").read_text() == "See #41 now."
+    launcher.write_text("#!/bin/sh\necho 'usage: check-post <file|->' >&2\nexit 2\n")
+    with pytest.raises(slack.SlackError, match="usage: check-post"):
+        CHECK_POST("See #41 now.")
 
 
 def test_main_prints_a_pretooluse_denial(

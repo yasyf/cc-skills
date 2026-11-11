@@ -52,8 +52,8 @@ itself.
   - `## His words, step by step`: each step his words in the brief name, quoted, beside the
     file and line that does it (`path:line`). The coordinator checks this list against his words
     before his card is drawn, so a step with no code returns the PR to you. It stays off his card.
-    A PR that is not a port and whose list would be empty or say none is not his order and never
-    becomes a PR card: drive tooling says none and lands by [Scope](scope.md), and anything else
+    A PR that is not a port and whose list would be empty or say none is not his order. Drive
+    tooling says none and gets its card from its own order by [Scope](scope.md). Anything else
     returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its
     card. Never quote his words for another change, such as the order whose jobs a tool fix
     unblocks, to fill this list.
