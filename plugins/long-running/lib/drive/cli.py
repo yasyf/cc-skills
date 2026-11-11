@@ -839,6 +839,21 @@ def hold_card(job: dict, url: str, shown: dict | None) -> None:
     question.update(card=url, waits=question["waits"] or waits)
 
 
+def follow_card(name: str, waits: str, url: str) -> None:
+    """Point each question asked under the waits id at the card cc-slack drew it on, and each wait on its old link at the new one: a card asked again with new words posts as a new card, its old one left pointing at it."""
+    from drive import view
+
+    data = state.load(name)
+    if not (moved := {view.message_key(question["card"]) for job in data["jobs"].values() for question in job["questions"] if question["waits"] == waits and question["card"]} - {view.message_key(url)}):
+        return
+    with state.edit(name) as data:
+        for job in data["jobs"].values():
+            for question in job["questions"]:
+                if question["waits"] == waits and question["card"]:
+                    question["card"] = url
+            job["waits"] = list(dict.fromkeys(url if view.message_key(wait) in moved else wait for wait in job["waits"]))
+
+
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
     from drive import superseded, view
@@ -911,7 +926,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
 
 
 def question_card(name: str, path: Path, waits: str, reworking: str | None = None) -> dict:
-    """The card a kept ASK block draws under a waits id, a line atop its body saying the question is being redone and why while it is; a waits id naming a job of the drive gives that job's question kept in the file the id, and one naming none, a card asked outside any job, only draws."""
+    """The card a kept ASK block draws under a waits id, a line atop its body saying the question is being redone and why while it is, which cc-slack draws in place on the open card; a waits id naming a job of the drive gives that job's question kept in the file the id, and one naming none, a card asked outside any job, only draws."""
     from drive import superseded
 
     asked = limits.redrawn(path.read_text())
@@ -921,7 +936,7 @@ def question_card(name: str, path: Path, waits: str, reworking: str | None = Non
         raise DriveError(refused)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     summary = [f"{limits.REDONE}{reworking}", *asked.summary] if reworking else asked.summary
-    card = asked.card(name, waits) | {"body": limits.card_body(summary, show_me)}
+    card = asked.card(name, waits) | {"body": limits.card_body(summary, show_me)} | ({"in_place": True} if reworking else {})
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data["jobs"][job_id], path, waits)
@@ -929,7 +944,7 @@ def question_card(name: str, path: Path, waits: str, reworking: str | None = Non
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
-    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, drawn from the ASK file `ask_source` finds for it; each card that does not redraw is named once the rest are printed."""
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, drawn from the ASK file `ask_source` finds for it and marked in_place, so cc-slack edits each where it sits and posts no new version; each card that does not redraw is named once the rest are printed."""
     from drive import view
 
     name = state.resolve(args.drive)
@@ -943,7 +958,7 @@ def cards_redraw(args: argparse.Namespace) -> int:
             missed.append(f"{waits}: not one of his open cards")
             continue
         try:
-            drawn.append(question_card(name, ask_source(name, shown[waits]), waits))
+            drawn.append(question_card(name, ask_source(name, shown[waits]), waits) | {"in_place": True})
         except DriveError as error:
             missed.append(f"{waits}: {error}")
     if drawn:
@@ -2635,7 +2650,8 @@ def parser() -> argparse.ArgumentParser:
         help="print the card drive job card prints for each of his open question cards, one JSON line each",
         description=(
             "Redraw his open question cards in one pass: for each open card, print the JSON `drive job card <its ASK file>"
-            " --waits <its waits id>` prints, one line each, for say(card=…). Its ASK file is the one a job's question keeps"
+            " --waits <its waits id>` prints, marked in_place so Slack edits the card where it sits and posts no new version,"
+            " one line each, for say(card=…). Its ASK file is the one a job's question keeps"
             " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
             " asks/<waits id>.md rebuilt from the card as posted, which a question of its job then keeps. Each card that does"
             " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2."

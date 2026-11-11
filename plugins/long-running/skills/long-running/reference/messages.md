@@ -248,8 +248,12 @@ When it is answered, replaced or redone:
   settles it in place, showing his words and a link to them where its buttons were, so a late tap
   records nothing.
 - To change the words of a card he has not answered, draw it again under its `waits` id. That one
-  call edits the card where it sits, its layout, pictures and buttons included, posts nothing, and
-  leaves every older copy without buttons, reading one line that links the card. Never `slack_edit` a
+  call posts the new version as the live card at the DM root, its link in the thread `thread_ts`
+  names, and edits the old card to the new words with one line linking the new card where its
+  buttons were, as is every older copy, so one card stays answerable. `say` then points the question
+  and every wait on the old card's link at the new card. A `--reworking` draw and `drive cards
+  redraw` are the same question drawn again: they carry `in_place`, so the card is edited where it
+  sits, buttons kept, and nothing is posted. The same words post nothing either way. Never `slack_edit` a
   card: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
 - While a card he has not answered is being redone, it says so where it sits and keeps its buttons,

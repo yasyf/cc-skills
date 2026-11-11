@@ -115,6 +115,8 @@ def posted(name: str, post: dict) -> dict:
     if words:
         argv += ["--", refs.slack(words, found)]
     reply = slack.cc_slack(*argv)
+    if card and card.get("waits"):
+        cli.follow_card(name, card["waits"], reply["permalink"])
     state.append_event(
         name,
         "said",
