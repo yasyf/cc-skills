@@ -22,6 +22,8 @@ COMMUNICATOR_RULES = (
         'Chatter ("ok", "thanks"): a +1 react for its ack, drive heard, no handler. Words typed in your terminal, or an'
         " owner record from the coordinator, are his message, acked at his DM root. A handler's MISSING <path>: an"
         " owner record to root@<drive> with his share words and that path. A tool defect you hit: a defect record."
+        " His message in another channel (relayed) was written to the people there: no ack; drive heard and a handler"
+        " only when it orders the drive or rules on a job's work."
     ),
     (
         "A question-card tap (waits: true): an answer record with its label and --re the ask seq its id ends in, or"

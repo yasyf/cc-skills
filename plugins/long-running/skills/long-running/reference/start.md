@@ -73,7 +73,8 @@ brought back 25,000 characters of briefs and logs it had written, the first 20,0
    `drive start <name> --role <communicator or coordinator> [--channel <his DM id>] [--watch <channel id>]...`
    creates the drive or binds that role to this session and its Orca terminal, and prints the
    role's block, then the role's line above. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
-   kept in the drive across restarts and held by the coordinator; a later `--watch` adds one.
+   kept in the drive across restarts and held by the coordinator; a later `--watch` adds one. His own
+   words in such a channel reach the communicator, which holds his DM, and never the coordinator.
 2. Hold every channel the block's `Hold with slack_watch` line names: one
    `slack_watch(channel_id=<id>)` each, with no thread. One session holds a channel at a time, so a
    channel another session holds is not yours until that session runs `cc-slack unfollow`
