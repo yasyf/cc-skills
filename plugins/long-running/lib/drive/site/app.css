@@ -264,8 +264,12 @@ a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; tex
 .enlarge { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--paper) 92%, transparent); color: var(--ink-2); cursor: zoom-in; opacity: 0; transition: opacity .15s; }
 .visual:hover .enlarge, .enlarge:focus-visible { opacity: 1; }
 .enlarge svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.visual-host[data-kind="code"] { display: inline-grid; max-width: 100%; }
+.visual-host[data-kind="code"] { display: inline-grid; grid-template-columns: minmax(0, auto); max-width: 100%; }
+.visual-host[data-kind="code"] .visual-code { width: auto; min-width: 0; max-width: none; overflow-x: auto; white-space: pre; overflow-wrap: normal; }
+.visual:has(.code-bar) > .enlarge { display: none; }
 .code-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 5px 12px; border: 1px solid #d1d9e0; border-bottom: 0; border-radius: 6px 6px 0 0; background: #eef1f4; color: var(--muted); font: 11px var(--mono); }
+.code-bar .acts { display: flex; gap: 14px; }
+.lb-stage .code-bar [data-enlarge] { display: none; }
 .code-bar + .visual-code { border-radius: 0 0 6px 6px; }
 html:has(dialog[open]) { overflow: hidden; }
 .lightbox { width: 96vw; height: 94vh; max-width: none; max-height: none; padding: 0; border: 0; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: 0 25px 120px #00160060; }
