@@ -94,8 +94,8 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr
   names, or each part of an order its `close` attr names. A progress line's report names neither,
   whatever job it names: it keeps the time and delivers no part, on an order of one part as on one
-  of several. A post in the thread of the incident an alert's order joined counts in that order's
-  threads too, once the incident's owner job carries it.
+  of several. An incident and every alert's order joined to it with `--joins` share their threads both
+  ways, so a post on any of them in any of their threads counts, whichever job carries the alert.
   `drive order posted <o> <link> --record <the report's seq>` records a part delivered anywhere
   else. Only the communicator's side records a post; the coordinator is refused.
 

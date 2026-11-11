@@ -214,6 +214,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "workstream": args.workstream,
             "proof": None,
             "note": joined and joined["note"],
+            "joins": joined and (joined["joins"] or args.joins),
             "created": created,
             "updated": created,
             "last_line": None,
@@ -373,23 +374,25 @@ def his_words(link: str, deed: str) -> str:
 
 
 def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tuple[datetime, bool]:
-    """When the drive made the post, and whether it is in one of the order's threads: its own, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does."""
+    """When the drive made the post, and whether it is in one of the order's threads: its own, on an incident each other order's of it, its jobs' cards', or a card of a PR it holds; a post that delivers a part named with --part counts wherever it was made, as a share in another channel does. A refusal names the order whose thread it is, and only when no order holds it the --joins command for his alert at its root."""
     posted, root = slack.message_and_root(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
-    threads = slack.order_threads(data, data["orders"][order_id])
+    threads = slack.order_threads(data, order_id, data["orders"][order_id])
     ours = not threads or posted.get("thread_ts") in {thread for _, thread in threads} or slack.names_order_pr(data, order_id, root)
     if not (ours or named_part):
+        held = state.thread_order(data, posted.get("thread_ts"))
         joins = (
             "; when his message at the root of that thread is another alert on this incident, that alert is its own order, which the"
             f' coordinator records with drive order add "<his alert>" --from slack:{state.CARD_LINK.search(link)[1]}/{root["ts"]}'
             f" --thread {root['ts']} --joins {order_id} --project \"{data['orders'][order_id]['project']}\" --workstream \"{data['orders'][order_id]['workstream']}\", and this line goes on that order"
-            if data["orders"][order_id]["incident"] and root and root.get("from_user")
+            if not held and data["orders"][order_id]["incident"] and root and root.get("from_user")
             else ""
         )
+        holder = f"; that thread is {held}'s, so a line about {held} is recorded on it with drive order posted {held} {link}" if held else ""
         raise DriveError(
             f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
-            f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{joins}"
+            f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{holder}{joins}"
         )
     return slack.sent_at(posted), ours
 
@@ -448,7 +451,7 @@ def order_set(args: argparse.Namespace) -> int:
         check_thread(data, destination)
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     closing = closing and state.promise_thread(data, destination) is not None
-    posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
+    posts, unread = slack.order_posts(data, args.id, destination) if closing and state.owed(order) else ([], None)
     changes = {"text": args.words, "note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn, "options_only": args.options_only, "once": args.once}
     moment = state.now()
     due = state.parse_due(args.due, moment) if args.due else None
@@ -664,15 +667,17 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
 
 
 def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
-    """Why a post to his DM may not go out on an order: it goes in none of the order's threads, its own, its cards' or the thread under a card of a PR it holds."""
-    if order_id not in data["orders"] or not (threads := slack.order_threads(data, data["orders"][order_id])):
+    """Why a post to his DM may not go out on an order: it goes in none of the order's threads, its own, on an incident each other order's of it, its cards' or the thread under a card of a PR it holds, naming the order whose thread it is, if any."""
+    if order_id not in data["orders"] or not (threads := slack.order_threads(data, order_id, data["orders"][order_id])):
         return None
     if thread in {ts for _, ts in threads} or (thread and slack.names_order_pr(data, order_id, slack.root(data["slack"]["channel"], thread))):
         return None
     where = f"thread {thread}" if thread else "his DM root"
+    held = state.thread_order(data, thread)
+    whose, on_held = (f"{held}'s thread and ", f", post it with order {held} when the line is about {held}") if held else ("", "")
     return (
-        f"refused, {where} is none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
-        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --record <the report's seq>"
+        f"refused, {where} is {whose}none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
+        f" post it in one of them{on_held}, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --record <the report's seq>"
     )
 
 

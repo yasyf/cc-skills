@@ -139,7 +139,7 @@ def off_thread(drive: dict, record: dict) -> str | None:
         return None
     job = drive["jobs"].get(named.get("job") or "")
     orders = [order for order in [*state.closed_orders(named), job and job["order"]] if order and order in drive["orders"]]
-    threads = list(dict.fromkeys(ts for order in orders for _, ts in slack.order_threads(drive, drive["orders"][order])))
+    threads = list(dict.fromkeys(ts for order in orders for _, ts in slack.order_threads(drive, order, drive["orders"][order])))
     if not orders or thread in threads:
         return None
     return OFF_THREAD.format(orders=", ".join(orders), thread=thread, threads=", ".join(threads) or "none yet")

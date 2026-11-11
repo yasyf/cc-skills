@@ -511,7 +511,7 @@ def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_whi
     assert run("order", "set", "o1", "--due", "+60m")[0] == 0
     order = state.load("demo")["orders"]["o1"]
     assert (state.parse_time(order["due"]) > state.parse_time(first), state.owed_at(order), order["kept"]) == (True, order["due"], None)
-    monkeypatch.setattr(slack, "order_posts", lambda data, order: pytest.fail("closing an order with no thread reads none"))
+    monkeypatch.setattr(slack, "order_posts", lambda data, order_id, order: pytest.fail("closing an order with no thread reads none"))
     assert run("order", "set", "o1", "--state", "dropped")[0] == 0
 
 
@@ -3365,7 +3365,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     assert (parts["fix"]["posted"], parts["first check"]["posted"]) == (None, line)
 
 
-def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_the_order_that_joins_it(
+def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_until_the_alert_joins_it_then_counts_on_either_order(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
@@ -3384,9 +3384,27 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_
     alert = "SandSQL replica lanes unproven on staging"
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
 
 
-def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time(
+def test_a_line_in_the_thread_of_an_order_outside_the_incident_is_refused_naming_that_order_and_no_join(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True})
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert cli.main(["order", "posted", "o1", line]) == 2
+    refused = capsys.readouterr().err
+    assert f"; that thread is o2's, so a line about o2 is recorded on it with drive order posted o2 {line}" in refused
+    assert "--joins" not in refused
+
+
+def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time_once_no_job_carries_it(
     run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
@@ -3396,12 +3414,28 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_p
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
-    assert run("order", "posted", "o2", line)[0] == 2
-    with state.edit("demo") as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
+        state.drop_carries(data, "j1")
+    line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     assert state.load("demo")["orders"]["o2"]["kept"] == slack.sent_at(slack_thread.messages[-1]).isoformat()
+
+
+def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_owner_job_carries_it_for(run: Run, demo: str) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL errors on plat", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL error log count", "--joins", "o1")
+    run("order", "add", "--project", "p", "--workstream", "w", "SandSQL restore runs retrying", "--joins", "o2")
+    with state.locked("demo"):
+        saved = json.loads(state.state_path("demo").read_text())
+        assert [saved["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", "o1"]
+        for order in saved["orders"].values():
+            del order["joins"]
+        saved["jobs"]["j1"]["carries"]["o2"] = ["SandSQL error log count"]
+        saved["orders"]["o2"]["jobs"].append("j1")
+        state.state_path("demo").write_text(json.dumps(saved))
+    data = state.load("demo")
+    assert [data["orders"][order_id]["joins"] for order_id in ("o1", "o2", "o3")] == [None, "o1", None]
+    assert state.incident_orders(data, "o2") == ["o1", "o2"]
 
 
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:

@@ -101,19 +101,23 @@ def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
     return any(key.casefold() in named for key, pr in data["prs"].items() if pr["order"] == order_id)
 
 
-def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
-    """The threads a line for an order goes in: its own, the own thread of each incident it joined, whose owner job carries it, then each of its cards'."""
-    carriers = (data["orders"][data["jobs"][job_id]["order"]] for job_id in order["jobs"])
-    joined = [other for other in carriers if order["incident"] and other["incident"] and other is not order]
-    own = filter(None, (state.promise_thread(data, other) for other in [order, *joined]))
-    return list(dict.fromkeys([*own, *state.card_threads(data, order)]))
+def order_threads(data: dict, order_id: str, order: dict) -> list[tuple[str, str]]:
+    """The threads a line for an order goes in: its own, then on an incident the own thread of each other order of it, the incident an alert's order joined and every alert joined to it, both ways, then each of their cards'."""
+    others = [data["orders"][other] for other in state.incident_orders(data, order_id) if other != order_id]
+    own = filter(None, (state.promise_thread(data, each) for each in [order, *others]))
+    return list(dict.fromkeys([*own, *incident_cards(data, order_id)]))
 
 
-def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
-    """When the drive posted in an order's threads, its own and each of its cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read."""
-    if not (threads := order_threads(data, order)):
+def incident_cards(data: dict, order_id: str) -> list[tuple[str, str]]:
+    """The thread of each card the jobs of every order of the order's incident drew, the order alone when it is in none."""
+    return list(dict.fromkeys(where for other in state.incident_orders(data, order_id) for where in state.card_threads(data, data["orders"][other])))
+
+
+def order_posts(data: dict, order_id: str, order: dict) -> tuple[list[datetime], str | None]:
+    """When the drive posted in an order's threads, its own, its incident's and each of their cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read."""
+    if not (threads := order_threads(data, order_id, order)):
         return [], "it has no thread to read; give it one with drive order set --thread"
-    cards = set(state.card_threads(data, order))
+    cards = set(incident_cards(data, order_id))
     since = str(int(state.parse_time(order["promised"]).timestamp()))
     posts: list[datetime] = []
     unread = None
