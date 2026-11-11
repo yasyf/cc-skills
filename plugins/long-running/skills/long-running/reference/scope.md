@@ -39,7 +39,9 @@ summary line about it, because work stopped before it starts wastes nothing.
 Two kinds of work are the drive's without a new order, and each line about them says which. A defect
 in something the drive shipped or is building belongs to the order that shipped it, and its line
 names that order. A defect in a tool the drive runs on is drive tooling, fixed without asking under
-its own order, its lines at his DM root, never in a feature thread it unblocks. Nothing else is.
+its own order, its lines at his DM root, never in a feature thread it unblocks. His feedback on a
+post or card is one, in the library, `cc-slack check-post` or drive tool that let it through, every
+time. Nothing else is.
 
 Ask him only what is his to decide: architecture and abstractions, scope, and his own workflow.
 Within his orders, do everything else and report the result with a count: ports, closes, restarts,

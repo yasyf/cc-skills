@@ -483,3 +483,9 @@ GET 2 page ranges
 - Then read it as he will, on a phone, with no other context. Does he know what changed, whether he
   must act, and when he hears next? Does every number, term and reference make sense with nothing
   else open, and does each thing he could open carry its link right there?
+- A post he faults anyway, by its words, a picture, or a card or link it lacks, shows a class of
+  post these checks pass. The post is fixed in place, and every time, a repeat too, its own Tooling
+  order changes `cc-slack check-post`, a drive hook or the library that draws posts and cards, so
+  the next post of that class is refused or drawn right before he reads it, by
+  [communicator.md](communicator.md#what-each-input-gets). His words: "When I give feedback on posts
+  keep iterating on the library, tooling etc don't get complacent".

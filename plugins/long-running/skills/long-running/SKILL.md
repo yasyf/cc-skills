@@ -38,7 +38,7 @@ This file holds the fundamental rules; one that fires on a single input is a tes
 - A brief, record or handoff carries his words verbatim, and your reading travels marked as yours beside them, since a paraphrase becomes the spec downstream.
 - His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling).
 - A ruling binds only what his words name; ask him on a card before carrying it to another surface.
-- His reminder of dropped work is a tool defect: fix what dropped it.
+- His reminder of dropped work is a tool defect: fix what dropped it. So is his feedback on a post or card: fix the post and the library, `check-post` or drive tool that passed it.
 
 ### Fixes and landing
 
