@@ -24,7 +24,10 @@ you built up.
 
 1. Make a worktree for the change where your global instructions put worktrees, from the
    repository's default branch, or check out the branch the brief names to adopt.
-2. Search before you write: the code, the plan section in the brief, and his recorded answers
+2. A `Researched: <job>` line in the brief names the reader that already read his rulings on the
+   order, what exists for it and its open questions: read its report with `drive job report <job>`
+   first, and build on what exists, never a second copy beside it.
+   Search before you write: the code, the plan section in the brief, and his recorded answers
    (`answer_search`) on the whole area the change touches, never only the words of its order,
    quoting each one you follow on your report's `RULINGS:` line. His words say what he wants,
    never every piece of it, and the rest is yours to find. When he sees or uses what you build,
@@ -248,7 +251,8 @@ changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `REA
 decision the PR makes beside the answer id or card permalink of his that settled it, or `none`,
 `NATIVE:` what the platform he sees it on already does for this and what the change builds on,
 with links, or `none: he never sees it`, `RULINGS:` each ruling of his on the area you followed,
-quoted with its time, `INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction
+quoted with its time, `REUSES:` on a `READY` whose research found something that exists, how the PR
+calls or extends it, which `drive job report` refuses a `READY` without, `INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction
 file's path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
 number or path the message needs. An `ASK` keeps no report: `drive job ask` keeps its block.
 

@@ -14,6 +14,7 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
+from conftest import RESEARCH
 from drive import state
 
 Run = Callable[..., tuple[int, str]]
@@ -289,6 +290,55 @@ def test_scratch_folder_leaves_other_agents_alone(
     assert hook_output(scratch_folder, monkeypatch, capsys, agent_call("Explore", f"Scratch: {folder}")) == ""
     assert hook_output(scratch_folder, monkeypatch, capsys, agent_call("long-running:reader", "no folder named")) == ""
     assert not folder.exists()
+
+
+def drive_agent(subagent_type: str, prompt: str, model: str | None = None, session: str | None = None) -> dict:
+    tool_input = {"subagent_type": subagent_type, "prompt": prompt, "description": "d"} | ({"model": model} if model else {})
+    return {"session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": tool_input}
+
+
+def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    run("job", "report", "j1", "-")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    folder = tmp_path / "j2"
+    bare = f"Order: Drive tooling: copy one store\nServes: drive tooling\nDrive: demo, order o1, job j2\nScratch: {folder}"
+    denied = json.loads(hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", bare))))
+    assert denied["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert denied["hookSpecificOutput"]["permissionDecisionReason"].startswith(
+        "refused, no agent started: j2 builds on o1, a build order: its brief carries the line Researched: <its reader's job>"
+    )
+    assert not folder.exists()
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
+        "refused, no agent started: Researched: j2 names no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) == (
+        "refused, no agent started: o1 is a build order: its reader, designer and builder run on Opus; pass no model, or opus"
+    )
+    assert hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", f"Researched: j1\n{bare}"))) == ""
+    assert folder.is_dir()
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j2\nScratch: {folder}")) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", bare, session="another-session")) is None
+
+
+def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:
+    run("order", "add", "why did the copy stall?", "--kind", "answer", "--complex")
+    run("job", "add", "reader", "--order", "o1", "--goal", "answer him")
+    run("order", "add", "which flag sets the cap?", "--kind", "answer")
+    run("job", "add", "reader", "--order", "o2", "--goal", "answer him")
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Researched: j9\nDrive: demo, order o1, job j1")) == (
+        "refused, no agent started: j1 answers o1, an answer order: its one lane does its own research, reading code,"
+        " transcripts, records and his answers itself, so its brief carries no Researched: line"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) == (
+        "refused, no agent started: o1 is a complex answer order: its lane runs on Opus; pass no model, or opus"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus")) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")) is None
 
 
 def test_guard_denies_an_untapped_drive_pr(

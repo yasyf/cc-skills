@@ -12,6 +12,12 @@ LIVE_WORKER = {
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"lastOutputAt": None},
 }
+RESEARCH = """DONE researched the store copy
+Researched:
+rulings: none on the copy path
+exists: supervisor/copies.rs store_copy_at copies one store
+open: none
+"""
 
 
 @pytest.fixture

@@ -1,13 +1,10 @@
 import json
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
-
-BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
+from drive import brief, state
 
 
 def bind(payload: dict) -> None:
@@ -17,7 +14,7 @@ def bind(payload: dict) -> None:
         return
     tool_input = payload["tool_input"]
     if payload["tool_name"] == "Agent":
-        match = BRIEF_JOB.search(tool_input.get("prompt") or "")
+        match = brief.BRIEF_JOB.search(tool_input.get("prompt") or "")
         if match:
             with state.edit(names[0]) as data:
                 data["jobs"][match[1]].update(

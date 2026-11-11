@@ -40,6 +40,16 @@ lists it, so a share reads that file instead of rebuilding the steps from your t
 A tool that breaks on you is not a block: route around it, and send `cci post --kind defect --lane
 root --to communicator@<drive>` quoting its refusal, since the communicator starts every tool fix.
 
+A brief with a `Research:` line asks what a build needs before its builder starts. Your report
+then carries a line `Researched:` and under it three lines, each filled: `rulings:` each recorded
+answer of his that `ccn answer match` returns for the order's whole words and each `scope:durable`
+answer on its area, by id and quote, or none; `exists:` each tool, code path, platform feature or
+Slack block that already does part of it, by path or link, or none; `open:` each question the
+order implies that he has not answered, by its card, or none. A finding that leaves a choice for
+him, such as a limit hit, a path that differs or a cost, opens your report `DESIGN <the choice>`
+with two to four `- ` options, exactly one ending (recommended), and a design lane turns it into
+his cards; `drive job report` refuses a `DESIGN` with no options.
+
 Your answer goes to another agent, never to him, so it is not a write-up: it is the inputs the one
 writing to him needs, one fact a line, with no polish. The first line answers the question; then
 each fact with its link, number, path or exact quote, `REPRO:` the reproduction file's path when
