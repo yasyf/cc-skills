@@ -620,15 +620,76 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
             message("heartbeat", "alive"),
             message("status", "building the watch"),
             message("status", "no body", body=None),
-            message("question", "READY https://github.com/Forge-AI/monorepo/pull/7\nPR: Fix: x\nCHANGE: y"),
+            message("question", "Which fixture keeps the hold test deterministic?\nLOG https://buildkite.com/forge/test/builds/1 is red on it"),
             message("worker_done", "DONE elsewhere", from_handle="dispatch:ctx_other"),
         ],
     )
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"]
+    assert watch.run_pass(watching, T0) == [
+        "JOB j1 o1 Which fixture keeps the hold test deterministic?; drive job resume reads LOG https://buildkite.com/forge/test/builds/1 ahead of your answer"
+    ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == ("msg_question", "waiting", job["report"].splitlines()[0])
-    assert job["report"].endswith("CHANGE: y")
+    assert job["report"].endswith("is red on it")
+
+
+@pytest.mark.parametrize(
+    ("sent", "asked", "taken"),
+    [
+        ("READY https://github.com/Forge-AI/monorepo/pull/7\nPR: Fix: x\nLOG https://buildkite.com/forge/test/builds/1 was red", None, "waiting"),
+        ("WAITING CI and the reviewer bot on the reworked chat-open tags PR", None, "waiting"),
+        ("BUILT lane/built, waits on demo:j1-7-a", None, "built"),
+        ("DONE port of #53187 merged", None, "done"),
+        ("ASK Which restore brings an evicted primary database back on its next start?", "msg_question", "waiting"),
+        ("ANSWER (1): #53302 is not a deletion", "msg_question", "waiting"),
+    ],
+)
+def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and_never_unanswered(
+    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch, [message("question", sent)])
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent.splitlines()[0]}"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"]) == (asked, taken)
+    assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
+
+
+def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets_the_job(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(
+        monkeypatch,
+        [message("question", "#53090 at b6f66c236d70: green (buildkite/test 123111)", id="relay_5678e2af0b2d")],
+        [message("worker_done", "READY #53090 head b6f66c236d70", id="relay_495e9eedbf7c")],
+    )
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == ["JOB j1 o1 #53090 at b6f66c236d70: green (buildkite/test 123111)"]
+    assert state.load(remote)["jobs"]["j1"]["ask"] == "relay_5678e2af0b2d"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == ["JOB j1 o1 READY #53090 head b6f66c236d70"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["said"]) == (None, "waiting", "READY #53090 head b6f66c236d70")
+    assert watch.unanswered("j1", job, None, T0 + timedelta(minutes=41)) is None
+
+
+@pytest.mark.parametrize(
+    ("said", "report", "kept"),
+    [
+        ("READY #53195 sent for his tap", "READY https://github.com/Forge-AI/monorepo/pull/53195", None),
+        ("CI and reviewer on the reworked chat-open tags PR", "\nWAITING CI and the reviewer bot on the reworked chat-open tags PR", None),
+        ("READY #53447 at 925dbd0c, rebased onto dev", "Rebased onto dev with ccx in the conflict worktree.", None),
+        ("How should a table move copy a live SandSQL database?", "ASK How should a table move copy a live SandSQL database?", "relay_q"),
+        ("Which fixture keeps the hold test deterministic?", "Which fixture keeps the hold test deterministic?", "relay_q"),
+    ],
+)
+def test_a_drive_saved_with_a_lane_result_kept_as_its_question_loads_with_none(
+    said: str, report: str, kept: str | None, remote: str
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ask="relay_q", state="waiting", said=said, report=report, updated=state.stamp(T0))
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"]) == (kept, "waiting")
 
 
 @pytest.mark.parametrize(
