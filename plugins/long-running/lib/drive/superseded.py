@@ -1,4 +1,6 @@
-"""What each answer or ruling of his leaves standing: every card open and every PR not yet live when it was recorded, until each is marked standing, superseded or reopened by it."""
+"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could replace, until each is marked standing, superseded or reopened by it."""
+
+import re
 
 from drive import slack, state, view
 from drive.render import cut, when
@@ -40,14 +42,32 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside every card asking him and every PR not yet live as it is recorded, none marked yet, but the card it answers: the one he tapped or wrote under."""
+    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, and those its words name."""
+    answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
+    jobs = {entry["job"] for entry in answered if entry["job"]}
+    orders = {entry["order"] for entry in answered if entry["order"]}
     return {
         "words": words,
         "link": link,
         "at": moment,
         "said": moment,
-        "cards": {key: None for key, entry in asked.items() if not (entry["card"] and under(link, entry["card"]))},
+        "cards": {
+            key: None
+            for key, entry in asked.items()
+            if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry))
+        },
     }
+
+
+def named(words: str, key: str, entry: dict) -> bool:
+    """Whether his words name this card or PR whole, by its key, its link, its card's link or its PR's link."""
+    refs = (key, entry["url"], entry["card"], entry.get("pr") and state.pr_url(entry["pr"]))
+    return any(ref and re.search(rf"{re.escape(ref)}(?!\w)", words) for ref in refs)
+
+
+def markable(kept: dict, asked: dict[str, dict]) -> list[str]:
+    """What an answer may still mark: each card or PR still asking him that it has not marked, but the card it answers."""
+    return [key for key, entry in asked.items() if kept["cards"].get(key) is None and not (entry["card"] and under(kept["link"], entry["card"]))]
 
 
 def under(link: str, card: str) -> bool:

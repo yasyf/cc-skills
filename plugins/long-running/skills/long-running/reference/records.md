@@ -14,7 +14,7 @@ line, its ids and paths in place of prose, since the channel puts that line whol
 session's context; the rest goes in its body, which only the handler or job that acts on it reads
 with `cci show <seq>`. In a drive session the `post` tool cuts a longer text itself: the line
 becomes its first line, cut at a word and ending in `…`, and the whole text moves to the top of the
-body; a record that attaches a file as its body is refused instead, so the rest goes in that file.
+body; a record that attaches a file as its body keeps the cut line alone, since that file holds the rest.
 His words stay whole: `owner`, `answer` and `incident` records are never cut. His pick, Nov 10
 2:08 AM: "Job reports, alerts, role-to-role notes and CI events arrive as one line each, CI events
 batched per 5 minutes".

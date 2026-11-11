@@ -13,10 +13,6 @@ UNKEPT_ASK = (
     " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
     " record again with that path"
 )
-WITH_FILE = (
-    f"refused: a drive record's text is one line of at most {RECORD_CHARS} characters, and this record attaches a file"
-    " as its body; put the rest of its text in that file."
-)
 
 
 def first_line(text: str) -> str:
@@ -28,10 +24,12 @@ def first_line(text: str) -> str:
 
 
 def shortened(record: dict) -> dict | None:
-    """The record with its text cut to one line and the whole text at the top of its body; his words and incidents stay whole."""
+    """The record with its text cut to one line and the whole text at the top of its body, or for a record that attaches a file as its body, which holds the rest, the line alone; his words and incidents stay whole."""
     text = (record.get("text") or "").strip()
     if (record.get("kind") or "").lower() in WHOLE_KINDS or (line := first_line(text)) == text:
         return None
+    if record.get("path"):
+        return record | {"text": line}
     body = record.get("body")
     return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
 
@@ -65,8 +63,6 @@ def decision(payload: dict) -> dict | None:
     cut = [shortened(record) for record in records]
     if not any(cut):
         return None
-    if any(new and old.get("path") for new, old in zip(cut, records)):
-        return {"permissionDecision": "deny", "permissionDecisionReason": WITH_FILE}
     if tool_input.get("records"):
         return {"updatedInput": tool_input | {"records": [new or old for new, old in zip(cut, records)]}}
     return {"updatedInput": cut[0]}

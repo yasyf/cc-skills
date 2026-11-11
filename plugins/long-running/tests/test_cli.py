@@ -561,6 +561,12 @@ def test_job_add_needs_a_known_order(run: Run, demo: str) -> None:
     assert run("job", "add", "reader", "--order", "o3", "--goal", "look")[0] == 2
 
 
+def test_job_add_takes_designer_its_agent_types_name_as_a_design_job(run: Run, demo: str) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "pick the layout")
+    assert run("job", "add", "designer", "--order", "o1", "--goal", "cards: the layout") == (0, "j1")
+    assert state.load("demo")["jobs"]["j1"]["kind"] == "design"
+
+
 def test_job_set_appends_prs_once(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "words")
     run("job", "add", "codex", "--order", "o1", "--goal", "review")
@@ -578,6 +584,29 @@ def test_job_set_stores_each_pr_as_its_canonical_url(run: Run, demo: str) -> Non
     run("job", "set", "j1", "--pr", PR + "/files", "--pr", PR)
     assert state.load("demo")["jobs"]["j1"]["prs"] == [PR]
     assert run("job", "set", "j1", "--pr", "https://example.com/not-a-pr")[0] == 2
+
+
+def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_he_taps_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    link, merge = "https://acme.slack.com/archives/D123/p1794300000000400", "merge:acme:app:42"
+    tap = {"asked": state.stamp(), "url": link, "prs": ["https://github.com/acme/app/pull/42"], "card": {"title": "New: land it?", "waits": merge}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    view.refresh_cards("demo")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    assert run("job", "set", "j1", "--waits", link, "--waits", merge)[0] == 0
+    data = state.load("demo")
+    assert data["jobs"]["j1"]["waits"] == [link, merge]
+    assert view.holding(data, [link, merge], view.live_cards("demo")) == [link, merge]
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards("demo")
+    assert view.holding(data, [link, merge], view.live_cards("demo")) == []
+    assert cli.main(["job", "set", "j1", "--waits", merge]) == 2
+    assert (
+        f"--waits {merge}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
+        " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, or"
+    ) in capsys.readouterr().err
 
 
 def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
@@ -638,6 +667,23 @@ def test_job_ask_refuses_findings_before_the_question(
     assert "the summary is 0 lines" in refusal
     assert "0 options; an ASK has 2 to 4" in refusal
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+
+
+def test_job_ask_check_says_ready_or_every_fix_with_no_drive_and_keeps_nothing(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    assert capsys.readouterr().out == "ready\n"
+    monkeypatch.setattr("sys.stdin", io.StringIO(FINDINGS_FIRST))
+    assert cli.main(["job", "ask", "--check", "-"]) == 2
+    refusal = capsys.readouterr().err
+    assert "the summary is 0 lines" in refusal
+    assert "0 options; an ASK has 2 to 4" in refusal
+    assert not state_root.exists()
+    assert cli.main(["job", "ask"]) == 2
+    assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
 
 def test_job_ask_names_every_way_an_ask_is_out_of_shape(
@@ -904,6 +950,25 @@ def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(
     assert state.load("demo")["jobs"] == jobs
 
 
+def test_job_card_after_a_job_draws_its_newest_kept_ask_or_the_one_named_under_the_waits_id_its_card_has(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    first = run("job", "ask", asking, str(block))[1]
+    assert cli.main(["job", "card", asking]) == 2
+    assert f"j1's ASK in {first} has no card yet, so no waits id: pass --waits demo:j1-<its ask record's seq>" in capsys.readouterr().err
+    code, printed = run("job", "card", first, "--waits", "demo:j1-7")
+    assert code == 0
+    assert run("job", "card", asking) == (0, printed)
+    block.write_text(SHORT_ASK.replace("ASK How should", "ASK Where should"))
+    newest = run("job", "ask", asking, str(block))[1]
+    assert cli.main(["job", "card", asking]) == 2
+    assert f"j1's ASK in {newest} has no card yet" in capsys.readouterr().err
+    assert run("job", "card", asking, first) == (0, printed)
+
+
 def test_job_card_reworking_says_atop_the_body_that_the_question_is_being_redone_and_adds_no_counted_words(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1091,6 +1156,28 @@ def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_nam
     assert "The reason given leaves out 33eaad9." in refusals[1]
 
 
+def test_job_ask_checks_a_reworded_ask_against_the_answers_its_refusal_listed_until_its_title_changes(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    recorded.found = [IDLE_RULING]
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "- ac61348 " in capsys.readouterr().err
+    recorded.found = [MERGE_RULING]
+    where = SHORT_ASK.replace("ASK How should", "ASK Where should")
+    block.write_text(where)
+    assert cli.main(["job", "ask", asking, str(block), "--unsettled", "ac61348: it closes sessions; this asks where a run's files go"]) == 2
+    assert "The reason given leaves out 33eaad9." in capsys.readouterr().err
+    recorded.found = [IDLE_RULING]
+    block.write_text(where.replace("about 180 small files", "180 files"))
+    why = "33eaad9: a merge-rule revert, not where a run's files go"
+    assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
+    assert len(recorded.asked) == 2
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"][-1]["unsettled"], job["may_settle"]) == ("waiting", why, None)
+
+
 def test_job_ask_checks_a_link_by_its_label_never_the_words_of_its_url(run: Run, asking: str, tmp_path: Path, recorded: Answers) -> None:
     block = tmp_path / "ask.md"
     linked = "Meanwhile <https://github.com/Forge-AI/monorepo/pull/53849|the layout fix> builds on neither layout."
@@ -1164,6 +1251,18 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
     assert run("job", "report", "j1")[0] == 2
+
+
+def test_job_report_prints_the_one_line_result_of_a_job_that_kept_no_report_and_refuses_one_that_returned_nothing(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    assert cli.main(["job", "report", "j1"]) == 2
+    assert "j1 kept no report and has returned nothing yet" in capsys.readouterr().err
+    run("job", "set", "j1", "--said", "DONE installed 1.0.76")
+    assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\n(j1 kept no report; this one-line result is all it returned)")
+    assert json.loads(run("job", "report", "j1", "--json")[1]) == {"id": "j1", "report": None, "said": "DONE installed 1.0.76"}
 
 
 def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
@@ -1634,8 +1733,9 @@ def test_pr_set_no_tap_withdraws_his_open_card_showing_why(
     assert run("pr", "set", PR, "--no-tap", "--why", "not this drive's order")[0] == 2
 
 
-def test_pr_set_unknown_pr_fails(run: Run, demo: str) -> None:
-    assert run("pr", "set", PR, "--no-tap", "--why", "not his order")[0] == 2
+def test_pr_set_on_a_pr_the_drive_does_not_track_names_drive_pr_add(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["pr", "set", PR, "--no-tap", "--why", "not his order"]) == 2
+    assert f"no drive PR Forge-AI/monorepo#42: add it first with drive pr add {PR} --job <j>, then set it" in capsys.readouterr().err
 
 
 def test_pr_tapped_unknown_pr_may_land(run: Run, demo: str) -> None:
@@ -1699,6 +1799,30 @@ def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str, monke
         assert "something else" not in out
     assert run("status", "o2")[1].splitlines()[0].startswith("demo: 1 open of 1 orders")
     assert run("status", "j9")[0] != 0
+
+
+def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_takes(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    code, out = run("status", "42")
+    assert (code, "land it" in out, "something else" in out) == (0, True, False)
+    assert cli.main(["status", "53615"]) == 2
+    assert "no order, job or PR 53615; name an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/sand#42"] = data["prs"][with_pr] | {"url": "https://github.com/Forge-AI/sand/pull/42"}
+    assert cli.main(["status", "42"]) == 2
+    assert "42 is the number of Forge-AI/monorepo#42, Forge-AI/sand#42; name one as owner/repo#42" in capsys.readouterr().err
+
+
+def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
+    for verb, key in (("order", "o1"), ("job", "j1"), ("job", "42")):
+        shown = run(verb, "show", key)
+        assert (shown[0], "land it" in shown[1]) == (0, True)
+        assert shown == run("status", key)
 
 
 def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Run, demo: str) -> None:
@@ -1781,6 +1905,20 @@ def test_card_dispatches_stdin_and_stdout(run: Run, monkeypatch: pytest.MonkeyPa
     fake_module(monkeypatch, "card", lambda stdin, stdout: calls.append((stdin, stdout)) or 3)
     assert run("card")[0] == 3
     assert calls == [(sys.stdin, sys.stdout)]
+
+
+def test_card_with_no_request_on_stdin_names_card_command_and_what_stdin_held(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for stdin, held in (("", "nothing"), ("\n", "nothing"), ("tap it", "no JSON")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(stdin))
+        assert cli.main(["card"]) == 2
+        assert capsys.readouterr().err == (
+            f"drive: drive card answers cc-slack's card_command: pipe it one request JSON on stdin, such as {{\"prs\": [...]}}; stdin held {held}\n"
+        )
+    with pytest.raises(SystemExit):
+        cli.main(["-h"])
+    assert "cc-slack's card_command" in capsys.readouterr().out
 
 
 def test_install_dispatches_its_arguments(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2088,6 +2226,22 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     assert state.load("demo")["orders"]["o1"]["state"] == "done"
 
 
+def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_one_done_only_by_its_record(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    for closing in (["dropped"], ["done", "--note", "he called it off"]):
+        assert cli.main(["order", "set", "o1", "--state", *closing]) == 2
+        assert "pass --record <that record's seq>, or drop an order no record names with --state dropped --note <why>" in capsys.readouterr().err
+    assert run("order", "set", "o1", "--state", "dropped", "--note", "he called it off")[0] == 0
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["state"], order["note"]) == ("dropped", "he called it off")
+
+
 def test_only_the_communicator_marks_an_answer_posted(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why?")
     assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
@@ -2177,7 +2331,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
     commands += [command for command in drive_commands(rules, prose=True) if command.split()[1] in verbs]
     assert len(commands) > 150
     assert [why for command in commands if (why := refusal(command, leaves))] == []
-    for guess in ("drive job show j1", "drive order set o1 --part x", "drive job set j1 --state live"):
+    for guess in ("drive job list j1", "drive order set o1 --part x", "drive job set j1 --state live"):
         assert refusal(guess, leaves)
 
 
@@ -2189,9 +2343,14 @@ def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
     assert run("manual", "coordinator", "nothing-names-this")[0] == 2
 
 
+def test_drive_manual_with_no_page_lists_the_pages(run: Run) -> None:
+    pages = sorted(path.stem for path in cli.PAGES.glob("*.md"))
+    assert run("manual") == (0, "\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in pages)]))
+
+
 DESIGN_CARD = "https://acme.slack.com/archives/D123/p1794300000000100"
 TAP_CARD = "https://acme.slack.com/archives/D123/p1794300000000200"
-PICK = "https://acme.slack.com/archives/D123/p1794300000000300"
+PICK = "https://acme.slack.com/archives/D123/p1794300000000300?thread_ts=1794300000.000100"
 WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
 STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
 
@@ -2221,15 +2380,15 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert "run it with --words and --link alone first" in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
-    assert f"  demo:j2-7  question  j2 o1  Which topology?  {DESIGN_CARD}" in listed
+    assert "demo:j2-7" not in listed
     assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
-    assert capsys.readouterr().err.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
-    assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
-    assert "demo:j2-7: not a card or PR that a1 has not marked" in capsys.readouterr().err
+    refusal = capsys.readouterr().err
+    assert "demo:j2-7: not a card or PR that a1 has not marked" in refusal
+    assert refusal.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
     code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
     assert out.splitlines() == [
-        "his answer a1 recorded: 1 standing, 1 superseded, 0 reopened by it",
+        "his answer a1 recorded: 0 standing, 1 superseded, 0 reopened by it",
         f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
         f"{designing} no longer waits on his tap",
         "j1 stopped: end its agent, or its lane with drive job end j1",
@@ -2280,7 +2439,7 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
     assert cwds == [checkout]
 
 
-def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
+def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
@@ -2293,7 +2452,7 @@ def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_li
         data["jobs"]["j3"]["state"] = "done"
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
-    assert "; 1 card and 3 PRs have no mark:" in listed
+    assert "; 3 PRs have no mark:" in listed
     assert "  Forge-AI/monorepo#44  open  j1 o1  " in listed
     assert "  Forge-AI/monorepo#45  merged  j2 o1  " in listed
     assert "#46" not in listed
@@ -2301,7 +2460,7 @@ def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_li
     assert run("answer", "a1", "--reopened", "Forge-AI/monorepo#45=j3")[0] == 2
     code, out = run("answer", "a1", "--reopened", f"{designing}=j1", "Forge-AI/monorepo#45=j1", "--others-stand")
     assert out.splitlines() == [
-        "his answer a1 recorded: 2 standing, 0 superseded, 2 reopened by it",
+        "his answer a1 recorded: 1 standing, 0 superseded, 2 reopened by it",
         f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
         f"{designing} no longer waits on his tap until j1 reworks it",
         f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
@@ -2311,6 +2470,26 @@ def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_li
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"]) == (False, "running")
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
+
+
+def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_those_its_words_name(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j3")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j3")
+    words = f"{WORDS}; hold https://github.com/Forge-AI/monorepo/pull/45 until it lands"
+    assert cli.main(["answer", "a1", "--words", words, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert "; 2 PRs have no mark:" in listed
+    assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
+    assert "  Forge-AI/monorepo#45  open  j3 o2  " in listed
+    assert "#44" not in listed
+    marked = run("answer", "a1", "--stands", designing, "Forge-AI/monorepo#45", "Forge-AI/monorepo#44")
+    assert marked == (0, "his answer a1 recorded: 3 standing, 0 superseded, 0 reopened by it")
+    assert state.load("demo")["answers"]["a1"]["cards"]["Forge-AI/monorepo#44"] == {"mark": "stands"}
 
 
 def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_needs_no_mark(
@@ -2335,7 +2514,7 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
 ) -> None:
     cards_asking(monkeypatch, PR)
     monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": False, "already_answered": True, "label": "Tree", "at": "now"})
-    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    assert run("answer", "a1", "--words", WORDS, "--link", TAP_CARD)[0] == 2
     assert cli.main(["answer", "a1", "--superseded", "demo:j2-7=stop"]) == 2
     assert f"{DESIGN_CARD} already shows his answer 'Tree'" in capsys.readouterr().err
     data = state.load("demo")

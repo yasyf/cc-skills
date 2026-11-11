@@ -678,6 +678,12 @@ def respond(request: dict) -> dict:
 
 def main(stdin: TextIO, stdout: TextIO) -> int:
     """Answer one cc-slack card_command request read from stdin with one JSON reply on stdout."""
-    json.dump(respond(json.load(stdin)), stdout)
+    text = stdin.read()
+    try:
+        request = json.loads(text)
+    except json.JSONDecodeError:
+        held = "nothing" if not text.strip() else "no JSON"
+        raise state.DriveError(f"drive card answers cc-slack's card_command: pipe it one request JSON on stdin, such as {{\"prs\": [...]}}; stdin held {held}") from None
+    json.dump(respond(request), stdout)
     stdout.write("\n")
     return 0

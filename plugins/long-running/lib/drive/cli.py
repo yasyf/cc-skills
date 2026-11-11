@@ -18,7 +18,9 @@ INCIDENT_FIX = "fix"
 INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
-WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
+JOB_ID = re.compile(r"j\d+")
+ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
+WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 TOLD_LINK = (
     "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink,"
@@ -213,7 +215,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.thread:
         check_thread(data, order["from"], args.thread)
     if args.state in state.CLOSED_ORDER_STATES:
-        need_record_close(data, args.id, args.record)
+        need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note))
     destination = order | {"thread": args.thread or order["thread"]}
     closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
@@ -294,12 +296,12 @@ def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
     )
 
 
-def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
+def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_note: bool) -> None:
     if seq is None:
-        if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
+        if not dropped_with_note and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
             raise DriveError(
                 f"{order_id}: a handler closes only an order the report record it posted names in its close attr;"
-                " pass --record <that record's seq>"
+                " pass --record <that record's seq>, or drop an order no record names with --state dropped --note <why>"
             )
         return
     closes = report_attrs(seq).get("close", "").split()
@@ -519,6 +521,12 @@ def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
     from drive import superseded
 
+    if args.check:
+        limits.question(sys.stdin.read() if args.check == "-" else Path(args.check).expanduser().read_text())
+        print("ready")
+        return 0
+    if args.id is None:
+        raise DriveError("name the job whose ASK this keeps: drive job ask <j> <file>; drive job ask --check <file> only checks its shape")
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -529,7 +537,13 @@ def job_ask(args: argparse.Namespace) -> int:
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     shown = "\n".join([asked.title, *asked.summary, *asked.options])
-    if refused := settled.refusal(shown, text, [name], data["roles"]["coordinator"]["cwd"], args.unsettled, "--unsettled", superseded.said_under(data, job)):
+    matched = job["may_settle"]
+    if not matched or matched["title"] != asked.title:
+        found = settled.matching(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
+        matched = {"title": asked.title, "answers": [{"id": answer["id"], "title": answer["title"]} for answer in found]}
+    if refused := settled.refusal(matched["answers"], args.unsettled, "--unsettled"):
+        with state.edit(name) as data:
+            data["jobs"][args.id]["may_settle"] = matched
         raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
@@ -537,14 +551,32 @@ def job_ask(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         job["questions"].append(state.new_question(str(kept), asked.title, state.stamp(), args.unsettled))
-        job.update(state="waiting", said=asked.title, updated=state.stamp())
+        job.update(state="waiting", said=asked.title, updated=state.stamp(), may_settle=None)
     return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
 
 
 def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
-    card = question_card(state.resolve(args.drive), Path(args.file).expanduser(), args.waits, args.reworking)
+    name = state.resolve(args.drive)
+    card = question_card(name, *card_source(name, args), args.reworking)
     return emit(args, json.dumps(card), card)
+
+
+def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
+    """The kept ASK block a card draws and its waits id: after a job, its newest kept block or the one named, under the waits id its card already has unless --waits names one; a file alone, under --waits."""
+    if not JOB_ID.fullmatch(args.ask):
+        if not args.waits:
+            raise DriveError(f"{args.ask}: a card drawn from a file needs --waits <drive>:<job>-<the ask record's seq>; drive job card <j> draws a job's newest kept ASK")
+        return Path(args.ask).expanduser(), args.waits
+    job = find(state.load(name)["jobs"], args.ask, "job")
+    named = Path(args.file).expanduser().resolve() if args.file else None
+    kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
+    if not kept:
+        raise DriveError(f"{args.ask} keeps no ASK block{f' in {args.file}' if args.file else ''}: keep one with drive job ask {args.ask} <file>")
+    question = kept[-1]
+    if not (waits := args.waits or question["waits"]):
+        raise DriveError(f"{args.ask}'s ASK in {question['file']} has no card yet, so no waits id: pass --waits {name}:{args.ask}-<its ask record's seq>")
+    return Path(question["file"]), waits
 
 
 def question_card(name: str, path: Path, waits: str, reworking: str | None = None) -> dict:
@@ -621,8 +653,10 @@ def job_report(args: argparse.Namespace) -> int:
             state.take_result(data, args.id, whole.strip().splitlines()[0].strip())
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
     text = state.report_text(name, args.id, job)
+    if not text and not job["said"]:
+        raise DriveError(f"{args.id} kept no report and has returned nothing yet")
     if not text:
-        raise DriveError(f"{args.id} kept no report; its one-line result is all it returned")
+        return emit(args, f"{job['said']}\n({args.id} kept no report; this one-line result is all it returned)", {"id": args.id, "report": None, "said": job["said"]})
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
 
 
@@ -904,7 +938,9 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     known = state.load(name)
-    order = find(known["prs"], key, "drive PR")["order"]
+    if key not in known["prs"]:
+        raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
+    order = known["prs"][key]["order"]
     if (cards := [wait for wait in args.waits if wait not in known["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
@@ -958,8 +994,9 @@ def check_waits(name: str, waits: list[str]) -> None:
     for wait in cards:
         if not (WAITS_CARD.fullmatch(wait) and view.card_open(wait, found)):
             raise DriveError(
-                f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open,"
-                " or release:<service>:<owner>/<repo>#<n>, the release of that service carrying that PR"
+                f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
+                " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, or"
+                " release:<service>:<owner>/<repo>#<n>, the release of that service carrying that PR"
             )
 
 
@@ -1048,7 +1085,7 @@ def pr_tapped(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against every card asking him and every PR not yet live when it came: refuse until each is marked standing, superseded or reopened by it, and settle each superseded or reopened card in place."""
+    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name: refuse until each is marked standing, superseded or reopened by it, and settle each superseded or reopened card in place; any other card or PR still asking him may be marked too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -1076,7 +1113,7 @@ def answer(args: argparse.Namespace) -> int:
     named = [*args.stands, *(key for key, _ in [*args.superseded, *args.reopened])]
     if twice := sorted({key for key in named if named.count(key) > 1}):
         raise DriveError(f"{', '.join(twice)}: marked twice; mark each once, standing, superseded or reopened")
-    if stray := [key for key in named if key not in open_keys]:
+    if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
         raise DriveError(f"{', '.join(stray)}: not a card or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked)}")
     refusals = [
         superseded.stack_refusal(asked, [key for key, _ in [*args.superseded, *args.reopened]]),
@@ -1199,11 +1236,23 @@ def run_show(checkout: Path) -> str:
     )
 
 
+def drive_key(data: dict, key: str) -> str:
+    """The order, job or PR an id names; a bare number names the drive's one PR of that number."""
+    if "#" in key or "/pull/" in key:
+        return state.pr_key(key)
+    if not key.isdigit():
+        return key
+    numbered = [pr for pr in data["prs"] if pr.endswith(f"#{key}")]
+    if len(numbered) > 1:
+        raise DriveError(f"{key} is the number of {', '.join(numbered)}; name one as owner/repo#{key}")
+    return numbered[0] if numbered else key
+
+
 def only(data: dict, ids: list[str]) -> None:
     """Narrow data, never saved, to the orders the ids name, directly or through one of their jobs or PRs."""
-    keys = {state.pr_key(key) if "#" in key or "/pull/" in key else key for key in ids}
+    keys = {drive_key(data, key) for key in ids}
     if unknown := keys - set(data["orders"]) - set(data["jobs"]) - set(data["prs"]):
-        raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}")
+        raise DriveError(f"no order, job or PR {', '.join(sorted(unknown))}; name {ID_FORMS}")
     orders = {key if key in data["orders"] else (data["jobs"].get(key) or data["prs"][key])["order"] for key in keys}
     data["orders"] = {key: order for key, order in data["orders"].items() if key in orders}
     jobs = {job_id for order in data["orders"].values() for job_id in order["jobs"]}
@@ -1244,6 +1293,9 @@ def context(args: argparse.Namespace) -> int:
 
 
 def manual(args: argparse.Namespace) -> int:
+    if not args.page:
+        print("\n".join(["drive manual <page> prints one of these pages:", *(f"- {page}" for page in manual_pages())]))
+        return 0
     text = (PAGES / f"{args.page}.md").read_text()
     if not args.row:
         sys.stdout.write(text)
@@ -1339,6 +1391,14 @@ def setup(args: argparse.Namespace) -> int:
     return 0
 
 
+def manual_pages() -> list[str]:
+    return sorted(path.stem for path in PAGES.glob("*.md"))
+
+
+def job_kind(kind: str) -> str:
+    return "design" if kind == "designer" else kind
+
+
 def parser() -> argparse.ArgumentParser:
     drive_opt = argparse.ArgumentParser(add_help=False)
     drive_opt.add_argument("--drive", help="the drive to act on")
@@ -1352,9 +1412,9 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="CARD|JOB|RELEASE",
         help=(
-            "a design card of his still open, by its Slack link or waits id, release:<service>:<owner>/<repo>#<n>, the next"
+            "a design card or PR card of his still open, by its Slack link or waits id, release:<service>:<owner>/<repo>#<n>, the next"
             " release of that service carrying that PR the drive tracks, or for a PR a job, it waits on; repeat for each. The"
-            " watch drops each as he answers it, the job ends or GitHub shows the newest release of that service holds the PR's"
+            " watch drops each as he answers or taps it, the job ends or GitHub shows the newest release of that service holds the PR's"
             " merge commit, and says FREE once when the last is gone, which wakes the coordinator"
         ),
     )
@@ -1457,6 +1517,9 @@ def parser() -> argparse.ArgumentParser:
         help="the report record the post carries: it delivers the part its part attr names, else each part of the order its job attr's job delivers, counted in any channel",
     )
     verb.set_defaults(run=order_posted)
+    verb = order.add_parser("show", parents=both, help="drive status for these ids")
+    verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
+    verb.set_defaults(run=status)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(
@@ -1464,7 +1527,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts",
     )
-    verb.add_argument("kind", choices=state.JOB_KINDS, help="what the job is")
+    verb.add_argument("kind", type=job_kind, choices=state.JOB_KINDS, help="what the job is; designer, its agent type's name, is design")
     verb.add_argument("--order", required=True, help="the order whose parts it delivers")
     verb.add_argument("--goal", required=True, help="its deliverable, one line")
     verb.add_argument("--agent", help="the agent id the Agent tool returned")
@@ -1525,9 +1588,14 @@ def parser() -> argparse.ArgumentParser:
             " answer of his may already settle it."
         ),
     )
-    verb.add_argument("id")
+    verb.add_argument("id", nargs="?", help="the job whose ASK this keeps; none with --check")
     verb.add_argument(
         "file", nargs="?", help="the file holding the ASK block, or - to read it from stdin; default: a remote lane's latest report"
+    )
+    verb.add_argument(
+        "--check",
+        metavar="FILE",
+        help="only check the ASK block in this file, or - for stdin, and print every fix it needs or ready; keeps nothing and reads no drive, so a remote lane runs it",
     )
     verb.add_argument(
         "--unsettled",
@@ -1551,11 +1619,14 @@ def parser() -> argparse.ArgumentParser:
             " its card and leaves the job; a waits id naming no job of the drive only draws the card. Refused when his"
             " words under that card answered it: they are his answer, and a question they leave open goes on a card of"
             " its own. A block kept under older rules redraws as kept, its Show me's visuals never checked again, and"
-            " markdown in its question or options, which Slack draws raw, drawn as the words it marks."
+            " markdown in its question or options, which Slack draws raw, drawn as the words it marks. Name a job first,"
+            " `drive job card <j>`, to draw its newest kept ASK, or the one a file after it names, under the waits id its"
+            " card already has."
         ),
     )
-    verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")
-    verb.add_argument("--waits", required=True, help="the card's waits id, <drive>:<job>-<the ask record's seq>")
+    verb.add_argument("ask", metavar="JOB|FILE", help="a job, whose newest kept ASK block draws, or the kept ASK block itself, the file an ask record's `ask` attr names")
+    verb.add_argument("file", nargs="?", help="after a job, which of its kept ASK blocks draws; default: its newest")
+    verb.add_argument("--waits", help="the card's waits id, <drive>:<job>-<the ask record's seq>; after a job, default: the waits id its card already has")
     verb.add_argument(
         "--reworking",
         metavar="WHY",
@@ -1637,6 +1708,9 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite, or its terminal and clean worktree on this Mac")
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
+    verb = job.add_parser("show", parents=both, help="drive status for these ids")
+    verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
+    verb.set_defaults(run=status)
 
     pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
     verb = pr.add_parser("add", parents=both)
@@ -1725,11 +1799,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
     verb.set_defaults(run=heard)
 
-    verb = verbs.add_parser("status", parents=both)
-    verb.add_argument("ids", nargs="*", help="orders, jobs or PRs to read; default: every open order")
+    verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
+    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
-    verb.add_argument("page", choices=sorted(path.stem for path in PAGES.glob("*.md")))
+    verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")
     verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY")
     verb.set_defaults(run=manual)
     verb = verbs.add_parser("context", parents=[drive_opt])
@@ -1759,7 +1833,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
     verb.set_defaults(run=cards_redraw)
-    verbs.add_parser("card").set_defaults(run=card_command)
+    card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"
+    verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
     verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
     verb.set_defaults(run=mcp_command)

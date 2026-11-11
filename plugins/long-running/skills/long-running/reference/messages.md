@@ -33,7 +33,8 @@ or his tap on Explain more, which the handler's brief quotes. On Nov 10 between 
 "figure out how it got into a bad state" lost its answer four times to the 60-word cap. The call
 passes as `asked` each message of his the post answers, word for word, one per line or one list
 entry each, a list a tool sends as a JSON string read as its entries, with `…` where it skips words. The hook finds each in a message of his in the thread
-the post goes to, read from Slack, or in the handler's brief, with curly and straight quote marks
+the post goes to, read from Slack, or in the handler's brief, the record its `Record:` line names
+included, with curly and straight quote marks
 alike, and one found quote is enough: on Nov 10 at 4:37 AM the 236-word answer to "What’s wrong
 with how it is now?" was cut to 59 words, and that question stood in another thread than his
 follow-up the post went to. A refusal says which limit applied and why: no `asked`, so not an

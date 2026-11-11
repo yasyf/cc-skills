@@ -208,7 +208,9 @@ with these changes.
 - No `drive` CLI runs here, so skip `drive pr add` and `drive job ask`: the `PR:` line of your
   report carries the PR's link, an `EXEMPT:` line names an exempt class, and a port's `SERVES: port
   of #N` line names its old PR; the coordinator registers all three. An `ASK` report is the block
-  itself, in the shape Return gives, which the coordinator checks with `drive job ask`.
+  itself, in the shape Return gives, which the coordinator keeps with `drive job ask`; before
+  returning it, run `drive job ask --check <file>`, which checks its shape alone with no drive or
+  job, and fix each thing it names until it prints `ready`.
 - Report through Orca, never in a final message. `ASK` goes out as
   `orca orchestration ask --question "<your report>"`; then end your turn, and his answer wakes
   you. `DONE`, `READY`, `BUILT` and `WAITING` go out as `orca orchestration send --type worker_done
@@ -272,7 +274,8 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   link. Its lines name the option built for each card and what his other picks would change.
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <path>`: only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. Write the
-  block to a file under your scratch directory in this shape, run `drive job ask <your job>
+  block to a file under your scratch directory in this shape, run `drive job ask --check <file>`,
+  which checks its shape alone and prints every fix or `ready`, then `drive job ask <your job>
   <file>`, which refuses it out of shape and names each fix, and return the path it prints, a
   new file for each question you keep:
 
