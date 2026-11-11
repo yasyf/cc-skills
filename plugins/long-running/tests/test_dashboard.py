@@ -706,3 +706,13 @@ await wait(50);
 done({ kept: localStorage.getItem('motion'), pressed: document.querySelector('#main [data-motion]').getAttribute('aria-pressed') });
 """, board())
     assert seen == {"kept": "paused", "pressed": "true"}
+
+
+def test_a_history_moment_with_a_long_link_wraps_on_a_phone_instead_of_widening_the_page(tmp_path: Path) -> None:
+    live = {"at": "2026-11-10T23:59:30-08:00", "kind": "live", "text": "the fix is live", "detail": "https://buildkite.com/forge/release/builds/14449/steps/canvas/jobs/0192f3a1-7b5c-4c8e-9d2e-1f0a", "url": None, "feature": "o1"}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+done({ wide: document.documentElement.scrollWidth, room: innerWidth });
+""", board(history=[live]), "390,844")
+    assert seen["wide"] <= seen["room"]
