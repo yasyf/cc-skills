@@ -598,9 +598,13 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
             ]
         }
     )
+    watched = {**entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"}
     assert reply == {
-        "cards": [{"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())}],
-        "skipped": [{"repo": "yasyf/cc-skills", "number": 42, "reason": "drive card could not read it from GitHub"}],
+        "cards": [
+            {"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())},
+            {"repo": "yasyf/cc-skills", "number": 42, "card": card.render(card.watched(watched), watched)},
+        ],
+        "skipped": [],
     }
     assert asked == [
         ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS],
