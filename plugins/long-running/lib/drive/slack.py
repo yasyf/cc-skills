@@ -37,20 +37,35 @@ def cc_slack(*args: str) -> dict:
     return json.loads(result.stdout)
 
 
-def check_post(text: str) -> list[str]:
-    """What `cc-slack check-post` finds in a post's exact words, one finding and its fix a line."""
+def check_post(text: str, asked: list[str]) -> list[str]:
+    """What `cc-slack check-post` finds in a post's exact words, one finding and its fix a line, each message of his the post answers passed as --asked; an exit 1 that prints no finding failed."""
     try:
-        result = subprocess.run([launcher(), "check-post", "-"], input=text, check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            [launcher(), "check-post", "-", *(f"--asked={message}" for message in asked)], input=text, check=False, capture_output=True, text=True, timeout=30
+        )
     except (OSError, subprocess.TimeoutExpired) as error:
         raise SlackError(str(error)) from None
-    if result.returncode > 1:
+    if result.returncode > 1 or result.returncode and not result.stdout.strip():
         raise SlackError(" ".join(result.stderr.split()) or f"cc-slack check-post exited {result.returncode}")
     return result.stdout.splitlines()
 
 
-def post_findings(text: str, draws_card: bool) -> list[str]:
-    """What `cc-slack check-post` finds in the words a post sends; a post that draws a question card or a PR's tap card carries the card its words say waits on him."""
-    return [finding for finding in check_post(text) if not (draws_card and WAITS_WITHOUT_CARD.match(finding))]
+def post_findings(text: str, draws_card: bool, asked: str | list[str] = "") -> list[str]:
+    """What `cc-slack check-post` finds in the words a post sends, a drive word his asked messages use passing; a post that draws a question card or a PR's tap card carries the card its words say waits on him."""
+    return [finding for finding in check_post(text, messages(asked)) if not (draws_card and WAITS_WITHOUT_CARD.match(finding))]
+
+
+def messages(asked: str | list[str]) -> list[str]:
+    """The messages of his asked holds: a list's entries, a string that is a JSON list of strings, as a list arrives through a tool whose schema declares no asked, or the one string; none for an empty asked."""
+    if isinstance(asked, list):
+        return asked
+    if not asked:
+        return []
+    try:
+        listed = json.loads(asked)
+    except json.JSONDecodeError:
+        return [asked]
+    return listed if isinstance(listed, list) and all(isinstance(entry, str) for entry in listed) else [asked]
 
 
 def draw_refusal(card: dict) -> str | None:

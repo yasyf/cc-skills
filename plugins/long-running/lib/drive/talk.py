@@ -59,7 +59,7 @@ def dry(name: str, post: dict) -> str:
 def check(name: str, post: dict, found: dict[str, dict]) -> None:
     """Refuse a post whose words `cc-slack check-post` finds anything in, whoever wrote them, each reference as the words it draws; a PR card naming a PR the drive holds none of; and a PR card under a line leaving out the drive tooling order a PR on it serves."""
     text = post.get("text") or ""
-    if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")))):
+    if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")), post.get("asked") or "")):
         raise DriveError(
             "nothing posted: `cc-slack check-post` finds this in the post's words, each {card:}, {pr:}, {order:} and {record:} as the words it draws;"
             " fix each, naming a card, PR or order in words of your own as {pr:<number>|<words>}, then post the fixed words:\n" + "\n".join(findings)

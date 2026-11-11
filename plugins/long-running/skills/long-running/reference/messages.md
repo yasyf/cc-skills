@@ -526,9 +526,13 @@ GET 2 page ranges
   Check-post reads the words under each link, so a card, PR or order title it flags is named in the
   post's own words, `{pr:<number>|<words>}`; a `{record:}` always draws the record's own words, so a
   record whose words it flags is not the one to cite.
+- A post that answers him hands check-post each message of his in `asked` as `--asked`, so a drive
+  word he used there, such as "the drive" in his question about the drive, passes in the answer.
+  The same word in a post that answers nothing he said with it is still flagged.
 - A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
   the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
-  it. A check that fails on a post refuses it rather than let it out unchecked.
+  it. A check that fails on a post refuses it rather than let it out unchecked, and so does a
+  check-post that exits 1 naming no finding.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
   runs. A post check-post flags, one over its limit, one naming something he could open with no link

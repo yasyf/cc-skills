@@ -222,7 +222,7 @@ def test_a_tooling_order_whose_words_check_post_refuses_draws_its_pr_card_once_r
 ) -> None:
     flagged = "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path"
     reworded = "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path"
-    monkeypatch.setattr(slack, "check_post", lambda text: ["1:97 drive-term 'j844': say what happens to the reader's work instead"] if "j844" in text else [])
+    monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:97 drive-term 'j844': say what happens to the reader's work instead"] if "j844" in text else [])
     run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
     with state.edit(demo) as data:
         data["orders"]["o1"]["text"] = flagged
@@ -369,6 +369,13 @@ def test_words_check_post_finds_anything_in_go_nowhere(demo: str, posts: list[tu
         talk.say(demo, {"text": "{pr:7|a chart fence draws} is live."})
     assert checked.texts == [f"<{PR_URL}|a chart fence draws> is live."]
     assert (posts, said(demo)) == ([], [])
+
+
+def test_say_checks_its_words_with_each_message_of_his_it_answers(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
+    talk.say(demo, {"text": "It has two merges left.", "asked": ["how far along is the drive?", "and the deploy?"]})
+    talk.say(demo, {"text": "The deploy is out.", "asked": '["is the deploy out?"]'})
+    talk.say(demo, {"text": "Merged."})
+    assert checked.asked == [["how far along is the drive?", "and the deploy?"], ["is the deploy out?"], []]
 
 
 def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
