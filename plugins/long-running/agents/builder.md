@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Use when a long-running drive's coordinator, or its communicator for drive tooling, needs one change built or one event on an open PR handled (a red check, a review, his tap to land, a merge to install and prove live). It writes the code and opens the PR, or handles that event, and returns one result line; the next PR event gets a fresh builder.
+description: Use when a long-running drive's coordinator, or its meta session for drive tooling, needs one change built or one event on an open PR handled (a red check, a review, his tap to land, a merge to install and prove live). It writes the code and opens the PR, or handles that event, and returns one result line; the next PR event gets a fresh builder.
 model: opus
 effort: xhigh
 background: true
@@ -21,7 +21,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 
 ## Your brief
 
-- The coordinator starts you with a brief, or the communicator for drive tooling (Tooling below). Its
+- The coordinator starts you with a brief, or the meta session for drive tooling (Tooling below). Its
   `Order` line is his words; its `Serves` line says whether the change ports an old PR, is drive
   tooling under its own order, or carries out that order; its `Decisions that bind` are his rulings.
 - His words in `Order` and `Decisions that bind` win over anything else you read, this file next,
@@ -110,7 +110,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      tooling is such a PR: its list says none rather than borrow his words for the order it unblocks.
      Land a `yasyf/*` one yourself by the landing reference. A `Forge-AI/*` one returns `READY` with
      `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an exempt class covers
-     it; the communicator's handler registers it under its Drive tooling order, and the exempt class
+     it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns
      `BLOCKED no order of his names this`.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:
@@ -153,7 +153,8 @@ prints and a remote lane's brief carries whole:
 
 ## Tooling
 
-The communicator starts you for drive tooling with a brief of a few lines: `Order: Drive tooling:
+The meta session starts you for drive tooling, or the communicator on a drive with no meta session,
+with a brief of a few lines: `Order: Drive tooling:
 <what>`, `Serves: drive tooling`, `From:`, his words for a ruling, `Native:`, `Decisions that bind:`
 and `Would he ask:` from what it already knew, `Drive`, `Scratch`, and an `After:` line when a hook
 refused a post he ordered.
@@ -166,19 +167,20 @@ refused a post he ordered.
   skill's `SKILL.md` and reference pages, `agents/*.md`, the role rules in `lib/drive/render.py` and
   the drive MCP tool descriptions. Your report lists each rule as it now reads in the installed skill.
 - Copy an `After:` line into your report as `AFTER:`; a tool that breaks on you is a `DEFECT:` line
-  there, which the handler for your result starts a builder from.
-- A record you send the communicator, such as an `FYI` report, goes to `communicator@<drive>` with
-  `--lane builder` (`lane: "builder"` on the cci `post` tool): you share its session, so its lane is
-  your default, and cci refuses a record from a lane addressed only to itself.
+  there, which the meta session starts a fix from.
+- A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>`,
+  or `communicator@<drive>` on a drive with no meta session, with `--lane builder` (`lane: "builder"`
+  on the cci `post` tool): you share its session, so its lane is your default, and cci refuses a
+  record from a lane addressed only to itself.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with
   `drive pr add <url> --job <your job>` and stop the old job with
   `drive job set <old> --state stopped --said "handed to <your job>"`. `Handoff: LAND <url>` lands
-  that PR. Every event after that reaches the communicator, never the coordinator.
+  that PR. Every event after that reaches the meta session, never the coordinator.
 
 ## Handoff
 
 A `Handoff:` brief names an open PR, its branch and head, and one event. Check out that branch in a
-fresh worktree; the coordinator already registered the PR as yours, and on a communicator's handoff
+fresh worktree; the coordinator already registered the PR as yours, and on the meta session's handoff
 you register it by Tooling above. Read the earlier jobs' transcripts the brief lists only for what the
 event needs. The first four events then return as step 7 says.
 
@@ -307,7 +309,7 @@ listing decisions that block nothing is not a result.
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `READY` covers. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
-| `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with `cci post --kind defect --lane root --to communicator@<drive>` quoting its refusal, or for drive tooling a `DEFECT:` line. |
+| `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with `cci post --kind defect --lane root --to meta@<drive>` quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
 `drive job report` refuses a report whose first line opens with none of these words, naming them. It

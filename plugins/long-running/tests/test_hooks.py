@@ -433,6 +433,13 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
         "refused: the communicator starts no named agent"
     )
     assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) is None
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", "demo", "--role", "meta")
+    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) == (
+        "refused: a builder serving drive tooling is the meta session's, never the communicator's: send a defect record to"
+        " meta@demo naming the tool and its refusal verbatim, and the meta session's builder takes it over"
+    )
+    assert agent_brief.deny_reason(started_by_role("tooler", subagent_type="long-running:builder", prompt=tooling)) is None
     assert agent_brief.deny_reason({**named, "agent_id": "a-1"}) is None
     assert hook_output(agent_brief, monkeypatch, capsys, json.dumps(started_by_role("someone-else", name="desk"))) == ""
 
@@ -995,8 +1002,9 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
     handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
     posted = "cci post --kind posted --lane communicator --to root@demo --resolves 8 --attr waits=demo:j1-8 'card up demo:j1-8'"
     assert landing_guard.deny_reason(bash(posted) | handler) == (
-        "A communicator's posted record goes to the coordinator session hearing the order it serves, and root@demo is not its"
-        " lane; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
+        "This posted record goes to iris@demo: a defect to the session holding drive tooling, the communicator's owner, answer,"
+        " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
+        " post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
     )
     refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
     assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)

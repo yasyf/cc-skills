@@ -24,9 +24,10 @@ BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
-ROLES = ("communicator", "coordinator")
-LANE_ROLES = {"communicator": "communicator", "root": "coordinator"}
-DRIVE_LANES = ("root", "communicator", "coordinator", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
+ROLES = ("communicator", "coordinator", "meta")
+HOLDERS = ("communicator", "meta")
+LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
+DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
 LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
@@ -687,30 +688,40 @@ def report_order(data: dict, attrs: dict) -> str | None:
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
-    """The cci lane of the coordinator session a communicator's owner, answer, posted or refused record serves: the one hearing the order of the job its attr job or waits id names, else the newest order in its thread; None for another kind, or a record naming neither."""
+    """The cci lane of the session a communicator's owner, answer, posted or refused record serves: the meta session's for an order it holds, else the coordinator session hearing the order of the job its attr job or waits id names, else of the newest order in its thread; None for another kind, or a record naming neither."""
     if kind not in ROUTED_KINDS:
         return None
     named = WAITS_ID.fullmatch(attrs.get("waits") or "")
-    if job := data["jobs"].get(attrs.get("job") or (named[2] if named and named[1] == data["name"] else "")):
-        return order_lane(data, data["orders"][job["order"]])
-    order_id = thread_order(data, attrs.get("thread"))
-    return order_id and order_lane(data, data["orders"][order_id])
+    job = data["jobs"].get(attrs.get("job") or (named[2] if named and named[1] == data["name"] else ""))
+    order_id = job["order"] if job else thread_order(data, attrs.get("thread"))
+    if order_id is None:
+        return None
+    order = data["orders"][order_id]
+    return "meta" if order["owner"] == "meta" else order_lane(data, order)
 
 
-def routed(drives: dict[str, dict], kind: str, attrs: dict, to: list[str]) -> list[str]:
-    """Where a communicator's record goes: each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order the record serves there."""
+def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:
+    """Where a drive session's record goes: a defect to the communicator or the meta session to the one holding drive tooling, and the communicator's owner, answer, posted or refused record for a coordinator lane to the session hearing the order it serves, its owner record carrying a ruling to the meta session as well, which rewrites the skill while the coordinator applies it to the live work."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
-        if (data := drives.get(name)) and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
-            entry = f"{serving}@{name}"
-        made.append(entry)
+        if not (data := drives.get(name)):
+            made.append(entry)
+            continue
+        communicates = session_role(data, session) == "communicator"
+        if kind == "defect" and lane in HOLDERS:
+            lane = tooling_holder(data)
+        elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
+            lane = serving
+        made.append(f"{lane}@{name}")
+        if communicates and kind == "owner" and attrs.get("ruling") and "meta" in data["roles"]:
+            made.append(f"meta@{name}")
     return list(dict.fromkeys(made))
 
 
-def communicated(names: list[str], session: str | None) -> dict[str, dict]:
-    """Each drive of names the session is the communicator of, by name."""
-    return {name: data for name in names if session_role(data := load(name), session) == "communicator"}
+def bound_drives(names: list[str]) -> dict[str, dict]:
+    """Each drive of names, by name, whose records a session's post is routed in."""
+    return {name: load(name) for name in names}
 
 
 def hears(data: dict, order: dict, project: str | None) -> bool:
@@ -723,18 +734,28 @@ def agent_gone(data: dict, job: dict) -> bool:
     return session_role(data, job.get("session")) is None
 
 
-def communicators(order: dict) -> bool:
-    """Whether the communicator holds the order, so its watch lines, jobs, agents and reports are the communicator's: a drive tooling order, or one a brief serving drive tooling gave it."""
-    return order["owner"] == "communicator"
+def tooling_holder(data: dict) -> str:
+    """The session holding drive tooling: the meta session once one is bound, else the communicator, as before the meta session existed."""
+    return "meta" if "meta" in data["roles"] else "communicator"
+
+
+def holder_lane(order: dict) -> str | None:
+    """The lane of the session holding an order whose watch lines, jobs, agents and reports are its own rather than a coordinator's: the meta session's for a drive tooling order or one a brief serving drive tooling gave it, the communicator's for its read-only question or drive tooling while no meta session is bound; None for a coordinator's."""
+    return order["owner"] if order["owner"] in HOLDERS else None
+
+
+def title(role: str) -> str:
+    """A role as a sentence names it, the meta session by its full name."""
+    return "meta session" if role == "meta" else role
 
 
 def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
-    """Why a session's role may not act on an order the drive's other session holds, naming the holder and its session; an order from before owners is held by the first role to add a job to it."""
+    """Why a session's role may not act on an order another session of the drive holds, naming the holder and its session; an order from before owners is held by the first role to add a job to it."""
     holder = data["orders"][order_id]["owner"]
     if role is None or holder in (None, role):
         return None
     session = (data["roles"].get(holder) or {}).get("session") or "not started"
-    return f"{order_id} is the {holder}'s order, session {session}: only the {holder} adds its jobs, starts its agents and posts its reports; send the {holder} a record instead"
+    return f"{order_id} is the {title(holder)}'s order, session {session}: only the {title(holder)} adds its jobs, starts its agents and posts its reports; send the {title(holder)} a record instead"
 
 
 def last_started(data: dict) -> str:

@@ -191,7 +191,7 @@ def called(path: Path, call: str, tool: str, tool_input: dict, failed: bool = Fa
 def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_to_the_communicator_goes_out(demo: str) -> None:
     for agent in ("long-running:reader", "long-running:designer"):
         reason = refusal(record_lines.decision(by(agent, kind="report", text="j12 found the leak", to=["owner@demo"])))
-        assert "drive job report <j>" in reason and "communicator@<drive>" in reason
+        assert "drive job report <j>" in reason and "meta@<drive>" in reason
     assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO, lane="reader")) is None
     assert record_lines.decision(by("long-running:handler", kind="note", text="j12 found the leak", to=["owner@demo"])) is None
 

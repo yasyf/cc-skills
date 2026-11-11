@@ -12,11 +12,11 @@ from drive import agents, limits, settled, slack, state
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
     "refused: a {agent} posts nothing to him, since the communicator's handler is the one voice he hears; keep what you found"
-    " with `drive job report <j>` in your return, or send a tool's defect to communicator@<drive>"
+    " with `drive job report <j>` in your return, or send a tool's defect to meta@<drive>"
 )
 AGENT_DEFECT = (
     "refused: a handler posts no defect record, so only one fix starts; return a `DEFECT <tool>: <what"
-    " happened, any refusal verbatim>` line, and the communicator starts the fix"
+    " happened, any refusal verbatim>` line, and the session holding drive tooling starts the fix"
 )
 OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
@@ -27,11 +27,11 @@ OFF_THREAD = (
     " or add this one with `drive order set <o> --thread {thread}`"
 )
 SECOND_REPORT = (
-    "refused: the coordinator sends one report per thread per turn, a turn running from a wake to the end of its response,"
+    "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
     " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
     " does not fit waits for the next wake"
 )
-SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's that repeats what its first report there already sent, rather than news that came in since."
+SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since."
 TAP_ASKED = re.compile(r"\btap (?:Approve|Hold)\b|\b(?:needs?|waits? (?:on|for)) (?:your|his|a) tap\b", re.IGNORECASE)
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
 CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
@@ -126,7 +126,7 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
-    if thread and role == "coordinator" and not payload.get("agent_id"):
+    if thread and role in ("coordinator", "meta") and not payload.get("agent_id"):
         yield second_report(payload, records, index, thread)
     if STUCK.search(text):
         yield unread_job(payload, text)
@@ -168,7 +168,7 @@ def report_threads(tool_input: dict) -> set[str]:
 
 
 def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:
-    """Why the coordinator's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
+    """Why the coordinator's or the meta session's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
     if thread in report_threads({"records": records[:index]}):
         return agents.Ruled(SECOND_REPORT.format(thread=thread), SECOND_REPORT_RULE)
     sent: dict[str, set[str]] = {}
@@ -216,15 +216,15 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
             yield from report_refusals(payload, drive, role, records, index)
 
 
-def readdressed(drives: dict[str, dict], record: dict) -> dict:
-    """The communicator's owner, answer, posted or refused record with each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order it serves."""
+def readdressed(drives: dict[str, dict], session: str | None, record: dict) -> dict:
+    """The record addressed where its drive routes it: a defect to the session holding drive tooling, and the communicator's owner, answer, posted or refused record to the session hearing the order it serves, its ruling to the meta session as well."""
     entries = listed(record.get("to"))
-    to = state.routed(drives, kind(record), attrs(record), entries)
+    to = state.routed(drives, session, kind(record), attrs(record), entries)
     return record if to == entries else record | {"to": to}
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows and one line, the rest in its body for whoever acts on it, and each of the communicator's records for a coordinator sent to the coordinator session hearing the order it serves."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows and one line, the rest in its body for whoever acts on it, and each record sent where its drive routes it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -234,8 +234,8 @@ def decision(payload: dict) -> dict | None:
     records = [completed(names, drive, record) for record in given]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    drives = state.communicated(names, payload.get("session_id"))
-    made = [limits.shortened(routed) or routed for routed in (readdressed(drives, record) for record in records)]
+    drives = state.bound_drives(names)
+    made = [limits.shortened(routed) or routed for routed in (readdressed(drives, payload.get("session_id"), record) for record in records)]
     if made == given:
         return None
     if tool_input.get("records"):

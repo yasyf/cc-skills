@@ -744,7 +744,8 @@ def question_answered(ask: dict) -> dict:
     item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": ask.get("undone")}
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
-    [seq] = tools.sent(name, "communicator", [tools.post(item, state.load(name), "root")])
+    data = state.load(name)
+    [seq] = tools.sent(name, "communicator", [tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))])
     return {"ok": True, "seq": seq}
 
 

@@ -3,6 +3,7 @@
 Each move is done by hand:
 
 - [From one driver to two sessions](#from-one-driver-to-two-sessions), in place.
+- [Add a meta session](#add-a-meta-session), to a running drive.
 - [Into an Orca terminal](#into-an-orca-terminal), for a session Orca does not show.
 - [Read a 0.7.x drive](#read-a-07x-drive) through
   [Cards, stand-downs and what stays behind](#cards-stand-downs-and-what-stays-behind): a 0.7.x
@@ -43,6 +44,24 @@ communicator.
    waits on it.
 7. Check it: `drive status` names both sessions, and his next message gets the communicator's ack
    inside 5 to 10 seconds while the coordinator receives its `owner` record.
+
+## Add a meta session
+
+A drive started before the meta session existed keeps drive tooling with the communicator, and
+reads `meta: not started` in `drive status`, until one binds.
+
+1. Start the meta session in its own Orca terminal with its command in [Start or resume](start.md),
+   whose prompt runs that page's steps.
+2. Its `drive start <name> --role meta` takes every open drive tooling order the communicator held,
+   his read-only questions aside, and names them. From then on the `record` tool and the post hooks
+   send each `defect` record and each `owner` record carrying a `ruling` attr to `meta@<drive>`,
+   `drive order add` gives it each new `Drive tooling:` order, and the watch hands it those orders'
+   lines.
+3. A tooling agent the communicator started before still returns to the communicator, whose handler
+   hands its result to the meta session as a `handoff` record carrying `--attr job=<j>`; the meta
+   session acts on it as on its own agent's.
+4. Check it: `drive status` reads `meta: session <id>`, and the communicator's block no longer says
+   drive tooling is its own.
 
 ## Into an Orca terminal
 
@@ -111,7 +130,7 @@ His rulings already live in cc-notes answers.
 
 ## Carry
 
-1. Start the new drive's two sessions by [Start or resume](start.md). The coordinator runs
+1. Start the new drive's sessions by [Start or resume](start.md). The coordinator runs
    `drive setup` first, and its `drive start <name> --role coordinator --channel <his DM>` adds a
    `--watch <channel id>` for each other channel the old drive watched, its alert channels above
    all, which `cc-slack follows --session <old holder's session id>` lists.

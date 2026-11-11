@@ -49,9 +49,10 @@ RECORD = {
         "to": {
             "type": "string",
             "description": (
-                "the lane it goes to in place of the other session's; the communicator's owner or answer record goes to the"
-                " coordinator session hearing the order of the job it answers, else of its thread's newest order, whatever"
-                " lane this names"
+                "the lane it goes to in place of the default, the coordinator's from the communicator and the communicator's"
+                " from any other session; a defect goes to the session holding drive tooling, the meta session once one is"
+                " bound, and the communicator's owner or answer record to the session hearing the order of the job it"
+                " answers, else of its thread's newest order, whatever lane this names"
             ),
         },
         "attrs": {"type": "object", "additionalProperties": TEXT},
@@ -81,8 +82,10 @@ def verb_tools() -> list[dict]:
         {
             "name": "record",
             "description": (
-                "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to the drive's other"
-                " session in one call, as this session's role. A question card he tapped takes waits, which fills re with"
+                "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to another session of"
+                " the drive in one call, as this session's role: a defect reaches the meta session, or the communicator"
+                " while none is bound, and an owner record carrying a ruling reaches the meta session beside the"
+                " coordinator. A question card he tapped takes waits, which fills re with"
                 " the ask's seq and attr job; an Undo tap sets undone. A defect's text past one 120-character line goes as"
                 " that line cut at a word, the whole text atop its body. Returns each record's seq."
             ),
@@ -95,7 +98,7 @@ def verb_tools() -> list[dict]:
         *(ops_tool(group, {"add": job_add} if group == "job" else {}) for group in OPS),
         {
             "name": "status",
-            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order. A handler or the coordinator reads this, never the communicator.",
+            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order. A handler, the coordinator or the meta session reads this, never the communicator.",
             "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
@@ -321,15 +324,20 @@ def ran(name: str, said: list[str], index: int, count: int, words: tuple[str, ..
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the drive's other session or the lane each names."""
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the lane each names, else the communicator, the coordinator's for the communicator, each sent where the drive routes it."""
     data = state.load(name)
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     role = state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}, so no lane to post as")
+    if role == "meta" and any(item["kind"] == "defect" for item in records):
+        raise DriveError(
+            "refused, no record posted: the meta session holds drive tooling, so a defect it hits is its own: one job call adds"
+            " its order and reader, by drive manual meta defect"
+        )
     project = state.session_project(data, session)
-    lane, other = ("communicator", "root") if role == "communicator" else (state.project_lane(project) if project else "root", "communicator")
-    posts = [post(item, data, other) for item in records]
+    lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
+    posts = [post(item, data, other, session) for item in records]
     if dry_run:
         return "\n".join(f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1))
     return "\n".join(f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1))
@@ -353,8 +361,8 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
     return done.stdout.split()
 
 
-def post(item: dict, data: dict, other: str) -> dict:
-    """The cci record an item posts as, to the lane it names, else the other session's, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record; the communicator's owner or answer record goes, whatever lane it names, to the coordinator session hearing the order of the job it answers, else of the newest order in its thread, a sub-coordinator's for its project."""
+def post(item: dict, data: dict, other: str, session: str | None) -> dict:
+    """The cci record an item posts as, to the lane it names, else other, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record, and sent where the drive routes it: a defect to the session holding drive tooling, and the communicator's owner or answer record, whatever lane it names, to the session hearing the order of the job it answers, else of the newest order in its thread, its ruling to the meta session as well."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through cci post, whose hook reads it")
@@ -372,10 +380,10 @@ def post(item: dict, data: dict, other: str) -> dict:
     for attr in ("thread", "ruling"):
         if item.get(attr):
             attrs[attr] = item[attr]
-    lanes = ["root", "communicator", *map(state.project_lane, data["subcoordinators"])]
-    if (to := (other == "root" and state.serving_lane(data, item["kind"], attrs)) or item.get("to") or other) not in lanes:
-        raise DriveError(f"to {to}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")
-    made["to"] = [f"{to}@{drive}"]
+    lanes = ["root", "communicator", *(["meta"] if "meta" in data["roles"] else []), *map(state.project_lane, data["subcoordinators"])]
+    made["to"] = state.routed({drive: data}, session, item["kind"], attrs, [f"{item.get('to') or other}@{drive}"])
+    if unread := [entry.partition("@")[0] for entry in made["to"] if entry.partition("@")[0] not in lanes]:
+        raise DriveError(f"to {', '.join(unread)}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")
     if item.get("undone"):
         attrs["undone"], text = text, f"undone: {text}"
     made |= {"text": text} | ({"attr": attrs} if attrs else {})

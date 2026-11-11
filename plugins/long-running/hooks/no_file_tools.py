@@ -12,7 +12,7 @@ WHOLE_OUTPUT = re.compile(r"\bcat\s+[^|;&]*(?:/tool-results/\S*|\.output)\s*(?:$
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not open a file itself: Claude Code puts each file opened with Read, Write or Edit back into the session after every compaction."""
+    """Why a drive's coordinator, communicator or meta session may not open a file itself: Claude Code puts each file opened with Read, Write or Edit back into the session after every compaction."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -27,8 +27,8 @@ def deny_reason(payload: dict) -> str | None:
         " Read, Write or Edit back into this session after every compaction. Read a page of the skill with"
         " `drive manual <page>`, a job's return with `drive job report <job>`, a record with cci, and a saved tool result"
         " or background output with a bounded Bash slice such as `tail -c 2000 <file>`. A file to write goes to a job,"
-        " or on stdin to the drive verb that keeps it; a lesson is a cc-notes note (`ccn note add`) or a defect record"
-        " to the communicator, never a memory file."
+        " or on stdin to the drive verb that keeps it; a lesson is a cc-notes note (`ccn note add`) or a defect record,"
+        " which reaches the meta session, never a memory file."
     )
 
 
@@ -37,8 +37,8 @@ def bash_reason(role: str, command: str) -> str | None:
     if MEMORY_FILE.search(command):
         return (
             f"refused: the {role} reads and writes no memory file, with Bash or any tool, since the drive keeps its lessons"
-            " where every session and job finds them: a lesson is a cc-notes note (`ccn note add`) or a defect record to"
-            " the communicator."
+            " where every session and job finds them: a lesson is a cc-notes note (`ccn note add`) or a defect record,"
+            " which reaches the meta session."
         )
     if WHOLE_OUTPUT.search(command):
         return (

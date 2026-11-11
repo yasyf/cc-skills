@@ -1,6 +1,6 @@
 ---
 name: reader
-description: Answers one read-only question a long-running drive's order needs, with evidence, such as reproducing a bug or researching a build. Returns one line. Runs on Opus, or Sonnet for a one-fact lookup; the coordinator, or the communicator for drive tooling, starts it in the background.
+description: Answers one read-only question a long-running drive's order needs, with evidence, such as reproducing a bug or researching a build. Returns one line. Runs on Opus, or Sonnet for a one-fact lookup; the coordinator, or the meta session for drive tooling, starts it in the background.
 model: opus
 effort: xhigh
 background: true
@@ -78,6 +78,6 @@ line alone, at most 500 characters, since it lands whole in the starting session
 nothing to him, which the `post` tool refuses; the handler relays it.
 
 Route around a tool that breaks on you, and send
-`cci post --kind defect --to communicator@<drive>` quoting its refusal, with `--lane reader` when
-your brief's order opens `Drive tooling:` and `--lane root` otherwise, since the communicator
+`cci post --kind defect --to meta@<drive>` quoting its refusal, with `--lane reader` when
+your brief's order opens `Drive tooling:` and `--lane root` otherwise, since the meta session
 starts every tool fix. Follow a `drive` refusal that names its fix.

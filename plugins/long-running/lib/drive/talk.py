@@ -38,12 +38,12 @@ def say(name: str, post: dict) -> str:
 
 
 def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
-    """Mark a report whose line waits for his catch-up held on the drive, once, answering it with a refused record to the coordinator session that wrote it, else the one hearing its order; that record's seq."""
+    """Mark a report whose line waits for his catch-up held on the drive, once, answering it with a refused record to the coordinator or meta session that wrote it, else the coordinator session hearing its order; that record's seq."""
     data = state.load(name)
     if mark := data["held"].get(seq):
         return mark["told"]
-    coordinators = ["root", *map(state.project_lane, data["subcoordinators"])]
-    lane = report["writer"] if report["writer"] in coordinators else state.heard_lane(data, order_id) if order_id else "root"
+    writers = ["root", "meta", *map(state.project_lane, data["subcoordinators"])]
+    lane = report["writer"] if report["writer"] in writers else state.heard_lane(data, order_id) if order_id else "root"
     argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "refused", "--re", seq, "--to", f"{lane}@{name}", "--id", f"held-{seq}"]
     argv += ["--attr", f"held={seq}", *(["--attr", f"order={order_id}"] if order_id else [])]
     try:

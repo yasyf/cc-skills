@@ -1185,6 +1185,19 @@ def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
     assert decision["permissionDecisionReason"].startswith("refused: the drive's message check failed on this post with KeyError: 'timestamp'")
 
 
+def test_the_meta_session_posts_nothing_to_slack_and_sends_its_words_and_questions_to_the_communicator(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", demo, "--role", "meta")
+    said = {"session_id": "tooler", "tool_name": message_limits.SAY, "tool_input": {"text": "The watch hook is fixed."}}
+    assert message_limits.deny_reason(said) == (
+        "Refused on purpose: the meta session posts nothing to Slack, since his reply under a post reaches only the session that"
+        " posted it. Send the words as a `report` record to communicator@demo, and its handler posts them; a question for him goes"
+        " as an `ask` record there."
+    )
+
+
 def test_the_coordinator_posts_nothing_to_slack_and_sends_its_words_to_the_communicator(demo: str) -> None:
     said = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": message_limits.SAY, "tool_input": {"text": "Merged."}}
     assert message_limits.deny_reason(said).startswith("Refused on purpose: the coordinator posts nothing to Slack")

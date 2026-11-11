@@ -225,8 +225,8 @@ def unclaim_reload(drive: str, role: str, version: str) -> None:
 
 
 def reload_sessions(version: str, updated: datetime, deadline: float) -> list[str]:
-    """Reload every session of every drive: the communicator, the top coordinator and each sub-coordinator."""
-    sessions = [(name, seat) for name in state.names() for seat in dict.fromkeys([*state.ROLES, *state.bound_sessions(state.load(name))])]
+    """Reload every session bound to every drive: the communicator, the top coordinator, the meta session and each sub-coordinator."""
+    sessions = [(name, seat) for name in state.names() for seat in state.bound_sessions(state.load(name))]
     with ThreadPoolExecutor() as pool:
         return list(pool.map(lambda session: reload_session(*session, version, updated, deadline), sessions))
 

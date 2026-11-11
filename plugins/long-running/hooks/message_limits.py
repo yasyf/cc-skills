@@ -64,16 +64,16 @@ def his_drive(session: str) -> dict | None:
 
 
 def coordinator_post(payload: dict) -> str | None:
-    """Why the coordinator may not post to Slack itself: his reply under a post reaches only the session that posted it, and the communicator is the one he talks to."""
+    """Why the coordinator or the meta session may not post to Slack itself: his reply under a post reaches only the session that posted it, and the communicator is the one he talks to."""
     session = payload.get("session_id") or ""
     if payload.get("agent_id"):
         return None
     for name in state.session_drives(session):
-        if state.session_role(state.load(name), session) == "coordinator":
+        if (role := state.session_role(state.load(name), session)) in ("coordinator", "meta"):
             return (
-                "Refused on purpose: the coordinator posts nothing to Slack, since his reply under a post reaches only the"
+                f"Refused on purpose: the {state.title(role)} posts nothing to Slack, since his reply under a post reaches only the"
                 f" session that posted it. Send the words as a `report` record to communicator@{name}, and its handler"
-                " posts them."
+                " posts them; a question for him goes as an `ask` record there."
             )
     return None
 

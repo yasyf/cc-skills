@@ -57,6 +57,12 @@ def test_the_coordinators_own_ship_commit_or_build_call_is_refused_naming_a_job(
     assert (landing_guard.judged_reason(bash(command, session_id=SESSION)), landing_guard.guarded_reason(bash(command, session_id=SESSION))) == (reason, None)
 
 
+def test_the_meta_sessions_own_ship_call_is_refused_naming_a_job(demo: str, no_calls: None) -> None:
+    with state.edit("demo") as data:
+        data["roles"]["meta"] = data["roles"]["coordinator"] | {"session": "tooler"}
+    assert landing_guard.deny_reason(bash('ccx vcs ship -m "Fix: x"', session_id="tooler")) == landing_guard.COORDINATOR_STEP.format(step="ccx vcs ship")
+
+
 @pytest.mark.parametrize(
     "command",
     [

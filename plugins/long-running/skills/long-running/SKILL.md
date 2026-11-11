@@ -1,17 +1,17 @@
 ---
 name: long-running
-description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator acks his Slack messages and a coordinator's jobs ship each order.
+description: Use when work will outlive one context window, spans several PRs or repos, waits on CI or merges, or the owner says "drive", "long-running" or names a drive. Runs a drive: a communicator acks his Slack messages, a coordinator's jobs ship each order, and a meta session's jobs fix the drive's own tools.
 ---
 
 # Long-running drives
 
-A drive is two Claude Code sessions, the communicator and the coordinator, and the background jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`) and the communicator Opus 5.5 (`claude-opus-5-5`). Among jobs only the designer runs Fable; handlers, readers and builders run Opus, Sonnet only a one-fact lookup, since complex work on a light model gets redone.
+A drive is three Claude Code sessions, the communicator, the coordinator and the meta session, and the background jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`), the communicator and the meta session Opus 5.5 (`claude-opus-5-5`). Among jobs only the designer runs Fable; handlers, readers and builders run Opus, Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to. Its turn on his message is two messages of tool calls, so his next message never waits: a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler` it never waits on. The handler does every read, card and post through `say`, answers his read-only questions, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator. He reads only Slack, so the communicator writes nothing in its terminal and ends each turn on `Sent.`.
+The communicator is the only session he talks to. Its turn on his message is two messages of tool calls, so his next message never waits: a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler` it never waits on. The handler does every read, card and post through `say`, answers his read-only questions, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator, and a ruling reaches the meta session too. He reads only Slack, so the communicator writes nothing in its terminal and ends each turn on `Sent.`.
 
-The coordinator turns his messages into orders and gives each to a job that owns one deliverable end to end: code, PR, CI, merge, install, check. It routes events from its watch, lands, installs, and sends the communicator what to post as records. It never posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator session per project beside this top one: each hears, lands and installs only its project's work, so no context holds every project, and the top keeps unfiled orders and production cuts, one at a time (`coordinator`).
+The coordinator turns his messages into orders and gives each to a job that owns one deliverable end to end: code, PR, CI, merge, install, check. It routes events from its watch, lands, installs, and sends the communicator what to post as records. Neither it nor the meta session posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator session per project beside this top one: each hears, lands and installs only its project's work, so no context holds every project, and the top keeps unfiled orders and production cuts, one at a time (`coordinator`).
 
-The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it, so the communicator starts only handlers and drive tooling jobs, and the coordinator every other job. Other sessions reach `root`, the coordinator, through cci.
+The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it, so the communicator starts only handlers and the reader of his read-only questions, the meta session only drive tooling jobs, and the coordinator every other job. Other sessions reach `root`, the coordinator, and `meta`, the meta session, through cci.
 
 ## Rules
 
@@ -65,6 +65,7 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 | `records` | sending or reading a record |
 | `communicator` | you are the communicator |
 | `coordinator` | you are the coordinator |
+| `meta` | you are the meta session, or drive tooling is yours |
 | `jobs` | starting, resuming or ending a job |
 | `scope` | what may be built or carded |
 | `design` | a part has a tricky design |
@@ -77,4 +78,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Tooling and meta work is the communicator's, an order whose builder serves drive tooling included (`jobs`): a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, and a ruling's rewrite. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`communicator`). A defect anyone else hits is a `defect` record to `communicator@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him.
+Tooling and meta work is the meta session's, an order whose builder serves drive tooling included (`jobs`): a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, a ruling's rewrite, and the install of each released tool. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`meta`); the communicator and the coordinator start no tooling reader, designer or builder. A defect anyone hits is a `defect` record to `meta@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him. A drive with no meta session bound keeps drive tooling with the communicator, and its records reach `communicator@<drive>`.

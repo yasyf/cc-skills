@@ -166,7 +166,7 @@ Your final message is its first line alone, since it lands whole in the coordina
   morning. Keep each Bash call one plain pipeline; put loops, nested `${...}` expansions and
   multi-step logic in a script in your brief's `Scratch:` folder and run that.
 - Work around a tool that crashes, hangs or refuses without naming a fix, and send
-  `cci post --kind defect --to communicator@<drive>` quoting its refusal, since the communicator
+  `cci post --kind defect --to meta@<drive>` quoting its refusal, since the meta session
   starts every tool fix, with `--lane designer` when your brief's order opens `Drive tooling:`, else
   `--lane root`.
 - You reach him only through the forks you keep, his cards. Send him nothing yourself,

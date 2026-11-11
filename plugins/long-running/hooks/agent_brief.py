@@ -91,23 +91,25 @@ def builder_refusal(text: str) -> str | None:
     )
 
 
-def tooling_refusal(name: str, data: dict, text: str) -> str:
-    """Why the coordinator starts no builder serving drive tooling: the communicator alone starts it, on the job its brief names once that job's order is the communicator's, and on its own order for a brief that names none."""
+def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
+    """Why a session other than the one holding drive tooling starts no builder serving it: that session alone starts it, the meta session once one is bound, else the communicator, on the job its brief names once that job's order is its own, and on its own order for a brief that names none."""
+    holder = state.tooling_holder(data)
+    held_by, starter = state.title(holder), state.title(role)
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
     if job is None:
         return (
-            "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
-            f" communicator@{name} naming the tool and its refusal verbatim, and the communicator's builder takes it over"
+            f"refused: a builder serving drive tooling is the {held_by}'s, never the {starter}'s: send a defect record to"
+            f" {holder}@{name} naming the tool and its refusal verbatim, and the {held_by}'s builder takes it over"
         )
     order_id = job["order"]
-    session = (data["roles"].get("communicator") or {}).get("session") or "not started"
-    given = state.communicators(data["orders"][order_id])
-    held = f", and {order_id} is the communicator's order, session {session}" if given else ""
-    step = "" if given else f"{brief.gives_tooling(match[1], order_id)}, then "
+    session = (data["roles"].get(holder) or {}).get("session") or "not started"
+    given = data["orders"][order_id]["owner"] == holder
+    held = f", and {order_id} is the {held_by}'s order, session {session}" if given else ""
+    step = "" if given else f"{brief.gives_tooling(match[1], order_id, holder)}, then "
     return (
-        f"refused: a builder serving drive tooling is the communicator's, never the coordinator's{held}: {step}send"
-        f" communicator@{name} a defect record naming {match[1]} and its `Read your brief first:` line, and the communicator starts it"
+        f"refused: a builder serving drive tooling is the {held_by}'s, never the {starter}'s{held}: {step}send"
+        f" {holder}@{name} a defect record naming {match[1]} and its `Read your brief first:` line, and the {held_by} starts it"
     )
 
 
@@ -131,7 +133,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the communicator's alone, and a builder starts here only under this Mac's cap of builders."""
+    """Why a drive session may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the meta session's alone, or the communicator's while none is bound, and a builder starts here only under this Mac's cap of builders."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -160,8 +162,8 @@ def deny_reason(payload: dict) -> str | None:
             " definition, and a rule typed into a prompt overrides it: drop the line"
         )
     text = brief.carried(prompt)
-    if kind == BUILDER and role == "coordinator" and brief.SERVES_TOOLING.search(text):
-        return tooling_refusal(names[0], data, text)
+    if kind == BUILDER and role not in (None, state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
+        return tooling_refusal(names[0], data, text, role)
     if refused := job_refusal(names[0], data, kind, text):
         return refused
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None

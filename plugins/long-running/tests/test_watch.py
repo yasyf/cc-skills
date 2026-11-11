@@ -224,9 +224,9 @@ def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.Mon
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
 
 
-def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the communicator") -> None:
+def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the communicator", owner: str = "communicator") -> None:
     with state.edit(name) as data:
-        data["orders"]["o1"].update(text=text, owner="communicator")
+        data["orders"]["o1"].update(text=text, owner=owner)
         data["jobs"]["j1"]["state"] = job_state
 
 
@@ -259,6 +259,14 @@ def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coo
         ("handoff", f"communicator@{demo}", line) for line in (f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]")
     ]
     assert {argv[argv.index("--lane") + 1] for argv in sent} == {"watch"}
+
+
+def test_the_lines_of_an_order_the_meta_session_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling_order(demo, "waiting", owner="meta")
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
+    sent = posts(monkeypatch)
+    assert watch.run_pass(watcher(demo), T0) == []
+    assert posted(sent) == [("handoff", f"meta@{demo}", f"PR {KEY}: checks failed [o1 j1]")]
 
 
 def test_a_tooling_prs_moves_while_its_builder_runs_are_the_builders_own(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -2135,7 +2143,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
-    assert watch.communicators_line(line, state.load(demo))
+    assert watch.holder_line(line, state.load(demo)) == "communicator"
 
 
 def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:

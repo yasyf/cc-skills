@@ -20,8 +20,8 @@ summary line about it, because work stopped before it starts wastes nothing.
   A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it.
 - **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards, or CI
   plumbing, or a rewrite of this skill a ruling of his asks for, by [Tooling](../SKILL.md#tooling).
-  It is the communicator's, under its own order with no thread, added with its reader and builder by
-  [communicator.md](communicator.md#tooling), and never `--serves` to his feature order, so his
+  It is the meta session's, under its own order with no thread, added with its reader and builder by
+  [meta.md](meta.md), and never `--serves` to his feature order, so his
   feature threads carry only their feature. Its PR's His words list says none. A `yasyf/*` tooling
   PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
