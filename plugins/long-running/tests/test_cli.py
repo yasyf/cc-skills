@@ -312,12 +312,39 @@ def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its
     assert reads[0] == ("--channel", "D123", "--thread", "1794200090.000700", "--limit", "1")
 
 
+def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "wait on the release")
+    code, out = run("order", "set", "o1", "--due", "+30m")
+    first = state.load("demo")["orders"]["o1"]["due"]
+    said = (
+        f"stored {render.when(first)} as the drive's own time: o1 has no thread, so no line to him keeps it, and the watch"
+        " says DUE once then; a time promised to him needs --thread <ts>"
+    )
+    assert (code, out.splitlines()[-1]) == (0, said)
+    assert run("order", "set", "o1", "--due", "+60m")[0] == 0
+    order = state.load("demo")["orders"]["o1"]
+    assert (state.parse_time(order["due"]) > state.parse_time(first), state.owed_at(order), order["kept"]) == (True, order["due"], None)
+    monkeypatch.setattr(slack, "order_posts", lambda data, order: pytest.fail("closing an order with no thread reads none"))
+    assert run("order", "set", "o1", "--state", "dropped")[0] == 0
+
+
+def test_job_set_waits_on_the_release_of_a_pr_the_drive_tracks(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    wait = "release:api:Forge-AI/monorepo#7"
+    assert cli.main(["job", "set", "j1", "--waits", wait]) == 2
+    assert f"--waits {wait}: the drive tracks no PR Forge-AI/monorepo#7; drive pr add it to its job first" in capsys.readouterr().err
+    assert run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/7", "--job", "j1")[0] == 0
+    assert run("job", "set", "j1", "--waits", wait)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["waits"] == [wait]
+
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers")
-    assert cli.main(["order", "set", "o1", "--due", "+30m"]) == 2
-    assert "o1: refused, no time stored: a promised time needs the thread its line goes in" in capsys.readouterr().err
     past = "2026-01-01T09:00:00-08:00"
     assert cli.main(["order", "set", "o1", "--due", past, "--thread", "1.2"]) == 2
     assert f"o1: refused, no time stored: {render.when(past)} is already past" in capsys.readouterr().err
@@ -1241,7 +1268,7 @@ def test_job_set_takes_state_stopped_alone_and_says_the_line_a_job_returns_sets_
         assert "j1 is running, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line the job returns" in refusal
         assert (
             "which the watch reads or drive job report j1 - takes: DONE sets done, READY sets waiting, WAITING sets waiting, DESIGN sets waiting,"
-            " BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
+            " ASK sets waiting, BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
         ) in refusal
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0

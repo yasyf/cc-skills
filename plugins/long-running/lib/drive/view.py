@@ -132,9 +132,13 @@ def open_cards(job: dict, found: dict | None) -> list[str]:
 
 
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
-    """The waits of a job or PR that still hold: each of his cards still open, each job not finished."""
+    """The waits of a job or PR that still hold: each of his cards still open, each job not finished, and each release until the watch sees it out."""
     jobs = drive["jobs"]
-    return [wait for wait in waits if (jobs[wait]["state"] not in state.FINISHED_JOB_STATES if wait in jobs else card_open(wait, found))]
+    return [
+        wait
+        for wait in waits
+        if (jobs[wait]["state"] not in state.FINISHED_JOB_STATES if wait in jobs else bool(state.RELEASE_WAIT.fullmatch(wait)) or card_open(wait, found))
+    ]
 
 
 def read(name: str, moment: datetime) -> dict:
@@ -312,6 +316,8 @@ def asked_card(found: dict, wait: str) -> dict | None:
 def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if wait in drive["jobs"]:
         return {"title": f"{wait}: {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)}", "url": None}
+    if release := state.RELEASE_WAIT.fullmatch(wait):
+        return {"title": f"the release of {release['service']} carrying {release['pr']}", "url": state.pr_url(release["pr"])}
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}

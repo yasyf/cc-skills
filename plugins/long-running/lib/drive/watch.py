@@ -26,12 +26,14 @@ WAKES = ("TAP ", "DUE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT 
 OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
+UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
 DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
+SETTLING = ""
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
 UNSTAFFED_FOR = timedelta(minutes=5)
@@ -114,7 +116,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
-            if watcher.cards is not None and stuck_as(pr, view.holding(data, pr["waits"], watcher.cards), watcher.cards) != "ready":
+            if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
@@ -123,13 +125,29 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def stuck_as(pr: dict, holds: list[str], cards: dict | None) -> str | None:
-    if pr["state"] != "open":
+def owned(job: dict, cards: dict | None) -> bool:
+    """Whether a PR's job holds it: a running builder owns its pushes and CI, and a job asking him holds its PR."""
+    return job["state"] == "running" or bool(view.open_cards(job, cards))
+
+
+def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
+    """Whether a PR waits on its next step alone: open, green and approved, not held, nothing it waits on holding it, and its job not holding it."""
+    green = pr["state"] == "open" and pr["checks"] == "pass" and pr["review"] == "approved" and not held(pr)
+    return green and not view.holding(data, pr["waits"], cards) and not owned(data["jobs"][pr["job"]], cards)
+
+
+def moves_owed(pr: dict, data: dict, cards: dict) -> bool:
+    """Whether a PR's own moves, a new head, checks passed or approved, wake the coordinator: it waits on its next step alone, his card when it wants his tap and none is drawn, or its landing when it wants none."""
+    return next_step(pr, data, cards) and not (pr["wants_tap"] and view.card_for(cards["pr_cards"], pr["url"]))
+
+
+def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
+    if pr["state"] != "open" or owned(data["jobs"][pr["job"]], cards):
         return None
     if pr["checks"] == "fail":
         return "red"
-    card_owed = cards is not None and pr["wants_tap"] and not held(pr) and not holds and not view.card_for(cards["pr_cards"], pr["url"])
-    return "ready" if pr["checks"] == "pass" and pr["review"] == "approved" and card_owed else None
+    card_owed = cards is not None and pr["wants_tap"] and not view.card_for(cards["pr_cards"], pr["url"])
+    return "ready" if card_owed and next_step(pr, data, cards) else None
 
 
 def held(pr: dict) -> bool:
@@ -137,9 +155,9 @@ def held(pr: dict) -> bool:
 
 
 def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
-    """Say a PR stuck red, or green and approved with no card while nothing it waits on holds, once it has held 30 minutes, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
+    """Say a PR stuck red, or green and approved with no card while nothing it waits on holds, once it has held 30 minutes with its job neither running nor asking him, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
     holds = view.holding(data, pr["waits"], cards)
-    what, stuck = stuck_as(pr, holds, cards), pr.get("stuck")
+    what, stuck = stuck_as(pr, data, cards), pr.get("stuck")
     if what is None or not stuck or stuck["as"] != what:
         pr["stuck"] = what and {"as": what, "since": state.stamp(moment), "said": None}
         return None
@@ -164,23 +182,27 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered or the job finished, and say once, as its last wait ends, that nothing holds it; the cards a job asked him on hold it too, so it keeps its waits until he answers them."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them."""
     data = state.load(watcher.name)
+    out, lines = shipped(watcher, data, moment)
     owners = [*(job for job in data["jobs"].values() if not view.open_cards(job, watcher.cards)), *data["prs"].values()]
-    if all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
-        return []
-    lines = []
+    if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
+        return lines
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if view.open_cards(job, watcher.cards):
                 continue
-            if (ended := released(data, job, watcher.cards)) and job["state"] not in state.FINISHED_JOB_STATES:
+            if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES:
                 job["updated"] = state.stamp(moment)
+                for order_id in [job["order"], *job["carries"]]:
+                    parts = data["orders"][order_id]["parts"]
+                    for part in parts.keys() & set(state.job_parts(job, order_id)):
+                        parts[part]["orphan_said"] = state.stamp(moment)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
-                lines.append(f"FREE {job_id} {job['order']}: {ended} answered or done, nothing else holds it{built}")
+                lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}")
         for key, pr in data["prs"].items():
-            if (ended := released(data, pr, watcher.cards)) and pr["state"] == "open":
-                lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended} answered or done, nothing else holds it")
+            if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
+                lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
     return lines
 
 
@@ -211,12 +233,36 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return lines
 
 
-def released(data: dict, owner: dict, cards: dict | None) -> str:
-    """Drop the waits of a job or PR that ended; the ended ones, when nothing else holds it."""
-    holds = view.holding(data, owner["waits"], cards)
+def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
+    """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit."""
+    waits = {
+        wait
+        for owner in [*(job for job in data["jobs"].values() if job["state"] not in state.FINISHED_JOB_STATES), *state.open_prs(data)]
+        for wait in owner["waits"]
+        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
+    }
+    out = {}
+    for wait in sorted(waits):
+        found = state.RELEASE_WAIT.fullmatch(wait)
+        try:
+            release = github.release_of(found["pr"], found["service"], data["prs"][found["pr"]]["merged_sha"])
+        except github.GithubError as error:
+            return {}, read_failed(watcher, "github releases", error, moment)
+        if release:
+            out[wait] = f"release {release} ships {found['pr']} on {found['service']}"
+    watcher.failures.pop("github releases", None)
+    return out, []
+
+
+def released(data: dict, owner: dict, cards: dict | None, out: dict[str, str]) -> str:
+    """Drop the waits of a job or PR that ended; what ended, when nothing else holds it."""
+    holds = [wait for wait in view.holding(data, owner["waits"], cards) if wait not in out]
     ended = [wait for wait in owner["waits"] if wait not in holds]
     owner["waits"] = holds
-    return "" if holds else ", ".join(map(bare, ended))
+    if holds or not ended:
+        return ""
+    answered = [bare(wait) for wait in ended if wait not in out]
+    return ", ".join([*([f"{', '.join(answered)} answered or done"] if answered else []), *(out[wait] for wait in ended if wait in out)])
 
 
 def minutes(span: timedelta) -> int:
@@ -384,21 +430,27 @@ def overdue(order: dict, moment: datetime, away: bool) -> bool:
 
 
 def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
-    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away."""
+    """Each promised time that passed with no drive post in its order's thread or one of its cards' since it was promised, read from Slack, again every ten minutes until one is there; only the first while he is away. An order with no thread has no line to read, so its time is the drive's own, said once and kept by being said."""
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
-    threads = {order_id: slack.order_posts(data, order) for order_id, order in state.open_orders(data).items() if overdue(order, moment, away)}
+    threads = {
+        order_id: slack.order_posts(data, order) if state.promise_thread(data, order) else None
+        for order_id, order in state.open_orders(data).items()
+        if overdue(order, moment, away)
+    }
     if not threads:
         return []
     lines = []
     with state.edit(watcher.name) as data:
-        for order_id, (posts, unread) in threads.items():
+        for order_id, read in threads.items():
             order = data["orders"][order_id]
-            if overdue(order, moment, away):
-                state.keep(order, posts)
+            if read and overdue(order, moment, away):
+                state.keep(order, read[0])
             if overdue(order, moment, away):
                 order["due_said"] = state.stamp(moment)
-                why = unread or f"no line in its thread since {when(order['promised'])}"
+                if read is None:
+                    order["kept"] = order["due_said"]
+                why = UNTHREADED if read is None else read[1] or f"no line in its thread since {when(order['promised'])}"
                 lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
     return lines
 
@@ -521,7 +573,7 @@ def compact_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def said_last(entry: dict) -> str:
     texts = [block["text"] for block in entry["message"]["content"] if block.get("type") == "text"]
-    return cut(first_line(texts[-1]), 100) if texts else "nothing"
+    return first_line(texts[-1]) if texts else "nothing"
 
 
 def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -539,7 +591,12 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         return None
     turn = last_turn(path)
     if turn and turn["type"] == "assistant" and turn["message"].get("stop_reason") == "end_turn":
-        return f'{job_id}\'s agent finished and its result is not recorded: "{said_last(turn)}"'
+        line = said_last(turn)
+        if state.result_state(job, line):
+            return f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"'
+        if quiet >= QUIET_FOR:
+            return f'{job_id}\'s agent ended its turn {minutes(quiet)} minutes ago on "{cut(line, 100)}" with no result line: SendMessage wakes it'
+        return None
     if quiet >= QUIET_FOR:
         return f"{job_id}'s agent has written nothing for {minutes(quiet)} minutes"
     return None
@@ -548,6 +605,8 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
 def remote_gap(job_id: str, worker: dict, moment: datetime) -> str | None:
     projection = worker["projection"]
     if projection["outcome"] != "in_progress":
+        if moment - state.parse_time(worker["dispatch"]["completedAt"]) < HANDOFF:
+            return None
         return f"{job_id}'s lane {projection['outcome']} and its result is not recorded"
     output = (worker.get("terminal") or {}).get("lastOutputAt")
     quiet = output and moment - datetime.fromtimestamp(output / 1000).astimezone()
@@ -672,7 +731,8 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 
 
 def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
-    if job.get("ask") or view.open_cards(job, cards) or view.holding(data, job["waits"], cards):
+    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its, or a time to come."""
+    if job.get("ask") or view.open_cards(job, cards) or job["waits"]:
         return True
     if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
         return True
@@ -681,8 +741,9 @@ def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: dat
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    """Why the job leaves its parts with no one, None when it carries them, or SETTLING while a change in the last two minutes is still being handed over."""
     if moment - state.parse_time(job["updated"]) < HANDOFF:
-        return None
+        return SETTLING
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
@@ -709,7 +770,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return None
     if not jobs:
         return "no job" if moment - state.parse_time(order["updated"]) >= UNSTAFFED_FOR else None
-    return None if None in gaps else gaps[-1]
+    return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
@@ -724,6 +785,8 @@ def orphan_change(data: dict, key: tuple[str, str], gap: str | None, due: set[st
     said = data["orders"][key[0]]["parts"][key[1]]["orphan_said"]
     if gap is None:
         return "heal" if said else None
+    if gap == SETTLING:
+        return None
     if key[0] in due or not said or moment - state.parse_time(said) >= TICK_EVERY:
         return "say"
     return None

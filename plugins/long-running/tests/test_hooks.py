@@ -223,6 +223,19 @@ def test_a_drive_jobs_returned_line_sets_its_state_once_the_line_is_let_through(
     assert (job["state"], job["said"]) == ("waiting", "WAITING: CI on #1")
 
 
+def test_an_ask_its_agent_returns_leaves_its_job_waiting_on_the_question_drive_job_ask_set(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    with state.edit("demo") as data:
+        data["jobs"]["j1"].update(state="waiting", said="Which store?", questions=[state.new_question("/x.md", "Which store?", state.stamp())])
+    stop = agent_stop("ASK /x.md", **stepped(tmp_path, "Drive: demo, order o1, job j1"))
+    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["state"], job["said"]) == ("a-9", "waiting", "Which store?")
+
+
 def stepped(tmp_path: Path, brief: str, session: str | None = None, **fields: object) -> dict:
     lane = tmp_path / "session" / "subagents" / "agent-a-9.jsonl"
     lane.parent.mkdir(parents=True, exist_ok=True)

@@ -82,16 +82,20 @@ REAL_ENSURE = watch.ensure
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
-def test_github_pass_says_a_prs_own_moves_only_once_it_waits_on_his_card_and_stores_fields(demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool) -> None:
+@pytest.mark.parametrize("job_state", ["running", "waiting"])
+def test_a_prs_own_moves_wake_the_coordinator_only_when_it_is_green_and_its_job_is_not_running(
+    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, wants_tap: bool
+) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = wants_tap
+        data["jobs"]["j1"]["state"] = job_state
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
     lines = watch.run_pass(watcher(demo), T0)
     assert lines == [
         f'PR {KEY}: new head bbbbbbb [o1 j1]',
         f'PR {KEY}: checks passed [o1 j1]',
         f'PR {KEY}: approved [o1 j1]',
-    ] * wants_tap
+    ] * (job_state == "waiting")
     pr = state.load(demo)["prs"][KEY]
     assert (pr["head"], pr["checks"], pr["review"], pr["title"]) == ("bbbbbbb222", "pass", "approved", "Fix: the watch")
 
@@ -582,7 +586,7 @@ def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
 
 
-def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_job_on_the_part_heals_the_orphan_once_its_handover_is_done(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         files_order(data, updated=state.stamp(T0 - timedelta(minutes=10)))
@@ -591,6 +595,8 @@ def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.Monke
     with state.edit(demo) as data:
         data["jobs"]["j2"]["parts"].append("stack 2")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] == state.stamp(T0)
+    assert watch.run_pass(watching, T0 + watch.HANDOFF) == []
     assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
@@ -684,6 +690,7 @@ def write_transcript(config: Path, entries: list[dict], quiet: timedelta) -> Non
 
 
 FINISHED = {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "DONE shipped\nPR: x"}]}}
+PARKED = {"type": "assistant", "message": {"stop_reason": "end_turn", "content": [{"type": "text", "text": "Codex is still running. I'll wait for the notification."}]}}
 CALLING = {"type": "assistant", "message": {"stop_reason": "tool_use", "content": [{"type": "tool_use", "name": "Bash"}]}}
 RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
 
@@ -696,6 +703,12 @@ RESULT = {"type": "user", "message": {"content": [{"type": "tool_result"}]}}
         ([CALLING, RESULT], timedelta(minutes=10), None),
         ([CALLING, RESULT], timedelta(minutes=45), "j1's agent has written nothing for 45 minutes"),
         ([CALLING, FINISHED], timedelta(seconds=30), None),
+        ([CALLING, PARKED], timedelta(minutes=10), None),
+        (
+            [CALLING, PARKED],
+            timedelta(minutes=45),
+            'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no result line: SendMessage wakes it',
+        ),
     ],
 )
 def test_a_local_agent_is_judged_by_its_transcript(
@@ -703,7 +716,7 @@ def test_a_local_agent_is_judged_by_its_transcript(
 ) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     write_transcript(tmp_path / "config", entries, quiet)
-    job_of = {"session": "session-under-test", "agent": "a1"}
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "builder"}
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
 
 
@@ -771,9 +784,12 @@ def test_a_communicator_outside_orca_is_never_compacted(demo: str, tmp_path: Pat
     assert watch.compact_due(state.load(demo), state.now()) is None
 
 
-def worker(verdict: str = "live", outcome: str = "in_progress", attention: list[str] = (), quiet: timedelta = timedelta()) -> dict:
+def worker(
+    verdict: str = "live", outcome: str = "in_progress", attention: list[str] = (), quiet: timedelta = timedelta(), finished: timedelta = timedelta(minutes=10)
+) -> dict:
     output = (T0 - quiet).timestamp() * 1000
     return {
+        "dispatch": {"completedAt": state.stamp(T0 - finished)},
         "projection": {"liveness": {"verdict": verdict}, "outcome": outcome, "attention": {"categories": list(attention)}},
         "terminal": {"lastOutputAt": output},
     }
@@ -784,6 +800,7 @@ def worker(verdict: str = "live", outcome: str = "in_progress", attention: list[
     [
         (worker(), None),
         (worker(outcome="succeeded"), "j4's lane succeeded and its result is not recorded"),
+        (worker(outcome="succeeded", finished=timedelta(seconds=30)), None),
         (worker(attention=["input"], quiet=timedelta(minutes=5)), None),
         (worker(attention=["input"], quiet=timedelta(minutes=40)), "j4's lane has sat at its prompt for 40 minutes"),
     ],
@@ -792,7 +809,13 @@ def test_a_remote_lane_is_judged_by_its_dispatch(shown: dict, gap: str | None) -
     assert watch.remote_gap("j4", shown, T0) == gap
 
 
+def waiting_job(name: str) -> None:
+    with state.edit(name) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+
+
 def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
     serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == [f'PR {KEY}: checks failed [o1 j1]']
@@ -806,14 +829,16 @@ def test_a_pr_red_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.Monk
 @pytest.mark.parametrize(
     ("change", "said"),
     [
-        (lambda reads, data: reads.update({KEY: read(checks=RED, reviewDecision="CHANGES_REQUESTED")}), ["changes requested"]),
-        (lambda reads, data: data["jobs"]["j1"].update(state="waiting"), []),
-        (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), []),
+        (lambda reads, data: reads.update({KEY: read(checks=RED, reviewDecision="CHANGES_REQUESTED")}), ["changes requested", "still red for 45 minutes"]),
+        (lambda reads, data: data["jobs"]["j1"].update(state="done"), ["still red for 45 minutes"]),
+        (lambda reads, data: data["prs"][KEY].update(tap={"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed"}), ["still red for 45 minutes"]),
+        (lambda reads, data: data["jobs"]["j1"].update(state="running"), []),
     ],
 )
 def test_a_red_pr_is_said_again_on_each_change_and_only_then(
     demo: str, monkeypatch: pytest.MonkeyPatch, change: Callable[[dict, dict], None], said: list[str]
 ) -> None:
+    waiting_job(demo)
     reads = {KEY: read(checks=RED)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
@@ -822,7 +847,7 @@ def test_a_red_pr_is_said_again_on_each_change_and_only_then(
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [f"{pr} still red for 30 minutes [o1 j1]"]
     with state.edit(demo) as data:
         change(reads, data)
-    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=45)) == [*(f"{pr} {line} [o1 j1]" for line in said), f"{pr} still red for 45 minutes [o1 j1]"]
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=45)) == [f"{pr} {line} [o1 j1]" for line in said]
     assert watch.run_pass(watching, T0 + timedelta(minutes=200)) == []
 
 
@@ -856,6 +881,7 @@ def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
 
 
 def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_he_answers_the_last(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
     waits_on(demo, "demo:j1-7-a", "demo:j1-7-b")
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -876,6 +902,7 @@ def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_end
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="real run")
     waits_on(demo, "j2")
+    waiting_job(demo)
     serve(monkeypatch, {KEY: read(checks=RED)})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -886,6 +913,80 @@ def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_end
         data["jobs"]["j2"]["state"] = "done"
     assert watch.run_pass(watching, T0 + timedelta(minutes=120)) == [f"{pr} still red for 120 minutes [o1 j1]", f"FREE {KEY} j1 o1: j2 answered or done, nothing else holds it"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
+
+
+def test_a_job_whose_wait_ends_is_freed_before_any_orphan_and_said_to_be_stranded_only_thirty_minutes_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    said = "WAITING release: #1 merged abc; rides the next release"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j2"] = job(goal="release the service")
+        data["jobs"]["j1"].update(state="waiting", said=said, waits=["j2"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["state"] = "done"
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == ["FREE j1 o1: j2 answered or done, nothing else holds it"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=4)) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=10))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=11)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=13)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == [
+        f'ORPHAN o1 "ship the watch": j1 waits on "{said}" and no open PR, card or due time can wake it'
+    ]
+
+
+def release(number: int, published: str, components: str, name: str = "releases") -> dict:
+    return {
+        "name": f"{name}/2026-11-09/{number}",
+        "tag_name": f"release/{name}-2026-11-09-{number}",
+        "published_at": published,
+        "draft": False,
+        "prerelease": False,
+        "body": f"Released from `c{number}` by [its build](https://ci.example/{number}).\n\nComponents: {components}",
+    }
+
+
+def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_its_service_holds_its_merged_pr(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    published = [release(1, "2026-11-09T14:00:00Z", "api, dashboard"), release(9, "2026-11-09T16:00:00Z", "api", name="rc")]
+    statuses, calls = ["behind", "ahead"], []
+
+    def gh(cmd: list[str]) -> str:
+        calls.append(cmd[2])
+        return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else f"{statuses.pop(0)}\n"
+
+    monkeypatch.setattr(watch.github, "run", gh)
+    wait = f"release:api:{KEY}"
+    with state.edit(demo) as data:
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    assert watch.run_pass(watching, T0) == []
+    assert calls[-1] == "repos/Forge-AI/monorepo/compare/abc123...release/releases-2026-11-09-1"
+    published.append(release(2, "2026-11-09T15:00:00Z", "dashboard, api"))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: release releases/2026-11-09/2 ships {KEY} on api, nothing else holds it"]
+    assert calls[-1] == "repos/Forge-AI/monorepo/compare/abc123...release/releases-2026-11-09-2"
+    assert state.load(demo)["jobs"]["j1"]["waits"] == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    assert len(calls) == 4
+
+
+def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    due = state.stamp(T0 - timedelta(minutes=1))
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(due=due, promised=state.stamp(T0 - timedelta(minutes=30)))
+    watching = watcher(demo)
+    assert said_due(watching, T0) == [f'DUE o1 "ship the watch" was due {render.when(due)}: {watch.UNTHREADED}']
+    assert said_due(watching, T0 + timedelta(minutes=30)) == []
+    assert state.load(demo)["orders"]["o1"]["kept"] == state.stamp(T0)
 
 
 def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
@@ -903,6 +1004,7 @@ def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(dem
     asking(monkeypatch, demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
@@ -1022,6 +1124,7 @@ def test_a_job_waits_only_on_his_cards_so_his_tap_frees_it(demo: str, monkeypatc
 
 
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["wants_tap"] = True
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
@@ -1066,6 +1169,7 @@ def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monke
 
 def test_a_held_red_pr_is_said_once_until_its_head_moves_or_the_hold_lifts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     hold(demo)
+    waiting_job(demo)
     reads = {KEY: read(checks=RED)}
     serve(monkeypatch, reads)
     watching = watcher(demo)
