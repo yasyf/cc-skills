@@ -89,10 +89,10 @@ Then do the row that matches. A row that names a section means every bullet of t
 
 ### His words under a question card
 
-- His words under a card are his answer, even when your prompt says he picked nothing. Post an `answer` record to `root@<drive>` carrying them verbatim, with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record, and `--attr job=<the job its waits id names>`, so the coordinator resumes that job.
-- Then close the card with what he said, so it never asks him again. Words that name exactly one option close it with that option: `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<that option>, via=<his message's permalink>)`.
-- Words that name no option, or several, are his answer in his own words, never mapped to the closest option: `slack_card_answer(..., label=<his words verbatim, cut with … only past the card's limit>, other=true, settled=true, via=<his message's permalink>)`, and the `answer` record carries `--attr maps=none`. The card then shows his words in place of its buttons.
-- A result with `already_answered: true` means the card already shows his answer, its `label`: it is closed, so call nothing more and never report it as open.
+- cc-slack takes his words under a drive's card that still waits as his answer: it closes the card, and its card command posts the one `answer` record. So his words reach you only under a card he already answered, or in a message of his carrying a file.
+- First call `slack_card_answer(waits=<thread_card>, url=<the card's permalink>, label=<his words verbatim, cut with … only past the card's limit>, other=true, settled=true, via=<his message's permalink>)`. Words that name exactly one option pass that option as `label`, without `other` and `settled`; words that name no option, or several, are his answer in his own words, never mapped to the closest option.
+- A result with `already_answered: true`, or a refusal saying no waiting card is there, means the card is closed and his answer recorded. Post no `answer` record, never reopen it or report it as open, and read his words as a message from him by the rows above: a read-only question, an order or a ruling.
+- Any other result means his words just closed the card, and `slack_card_answer` records nothing. Post the one `answer` record to `root@<drive>` carrying his words verbatim, with `--re` the ask seq read from the `waits` id, or `--topic card:<the card's thread_ts>` when the card has no ask record, `--attr job=<the job its waits id names>`, so the coordinator resumes that job, and `--attr maps=none` for words that name no option.
 - Close only the card his words are under, and it stays closed: a question they leave open goes on a new card, because `drive job card` refuses to redraw a card his words answered. The coordinator's `drive answer` settles any other card his answer replaces.
 
 ### A report record

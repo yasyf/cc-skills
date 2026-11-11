@@ -634,13 +634,14 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """Post his tap on a question card as the communicator's answer record to the coordinator, the one it would post for that tap."""
-    from drive import tools
+    """Post his answer on a drive's question card, by a tap, a typed number or his words in its thread, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`."""
+    from drive import tools, view
 
-    if not (named := tools.WAITS.fullmatch(ask["waits"])):
+    name, _, _ = ask["waits"].partition(":")
+    if name not in state.names():
         raise state.DriveError(f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached")
-    name = named[1]
-    item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "waits": ask["waits"], "undone": ask.get("undone")}
+    item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": ask.get("undone")}
+    item |= {"waits": ask["waits"]} if tools.WAITS.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     [seq] = tools.sent(name, "communicator", [tools.post(item, name, f"root@{name}")])
     return {"ok": True, "seq": seq}

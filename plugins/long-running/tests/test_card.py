@@ -568,7 +568,7 @@ def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: 
     assert card.drive_prs()["Forge-AI/monorepo#42"][0] == "copy"
 
 
-def test_a_tap_on_a_question_card_is_posted_as_the_communicators_answer_record(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_an_answer_on_a_drives_question_card_is_posted_as_its_one_answer_record(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, "661500\n", "")
     monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
@@ -577,12 +577,14 @@ def test_a_tap_on_a_question_card_is_posted_as_the_communicators_answer_record(d
     assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
     ask({"answer": tap | {"label": "neither, keep both", "other": True}})
     ask({"answer": tap | {"undone": True}})
+    ask({"answer": tap | {"waits": f"{drive}:hier-1", "label": "Keep both until Friday", "other": True}})
     batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
     answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"]}
     assert posted == [
         (batch, [answer | {"text": "Ring", "attr": {"job": "j3"}}]),
         (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none", "job": "j3"}}]),
         (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}}]),
+        (batch, [{"kind": "answer", "to": [f"root@{drive}"], "url": url, "topic": "card:1794200000.000100", "text": "Keep both until Friday", "attr": {"maps": "none"}}]),
     ]
     assert events(drive) == []
     with pytest.raises(state.DriveError, match="step-3:merge is no drive's question card"):
