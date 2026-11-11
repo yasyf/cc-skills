@@ -63,7 +63,7 @@ def remote(run: Run, demo: str) -> str:
 @pytest.fixture
 def rooted(run: Run, demo: str) -> str:
     """A root started by hand with the orca skill's local route and recorded with drive job set --agent <its dispatch>, as drives saved it before local lanes."""
-    run("order", "add", "the tooling root")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(agent=ROOT_DISPATCH, where="local", said="root-tooling: dispatch ctx_ab821100f80b")
@@ -905,7 +905,7 @@ def test_a_root_recorded_by_its_orca_dispatch_is_read_through_worker_show_and_it
 
 
 def test_an_orca_dispatch_set_as_a_jobs_agent_records_a_lane_on_this_mac(run: Run, demo: str) -> None:
-    run("order", "add", "the tooling root")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the tooling root")
     run("job", "add", "builder", "--order", "o1", "--goal", "root tooling")
     run("job", "set", "j1", "--agent", ROOT_DISPATCH)
     saved = json.loads(state.state_path(demo).read_text())["jobs"]["j1"]
@@ -952,7 +952,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
     launched = {}
@@ -985,7 +985,7 @@ def test_launch_local_records_a_lane_on_this_mac_that_reads_as_starting_while_it
 def test_a_job_with_no_dispatch_reads_as_starting_until_a_launch_would_have_finished(
     run: Run, demo: str, ago: timedelta, gap: str | None
 ) -> None:
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"]["launching"] = state.stamp(T0 - ago)

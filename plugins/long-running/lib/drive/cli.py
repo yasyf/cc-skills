@@ -674,7 +674,7 @@ def job_resume(args: argparse.Namespace) -> int:
         end = orca.lane_end(job)
     except orca.OrcaError as error:
         raise DriveError(
-            f"{args.id}'s lane cannot be checked, so nothing was sent: {error}; resume it again once Orca reaches its Sprite"
+            f"{args.id}'s lane cannot be checked, so nothing was sent: {error}; resume it again once Orca reaches its lane {orca.place(job)}"
         ) from None
     if end:
         return restart(args, name, job["dispatch"], end)
