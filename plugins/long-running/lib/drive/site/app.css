@@ -218,6 +218,10 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .rl em { color: var(--you); font-style: normal; font-size: 11.5px; font-weight: 700; }
 .rl:hover { text-decoration: none; color: #fff; }
 .thread { display: grid; gap: 10px; }
+.talk { margin: 14px 0 4px; padding: 2px 14px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.talk .thread { margin: 6px 0 2px; }
+.talk .msg { background: var(--panel); }
+.talk .msg.you { background: #132036; }
 .msg { max-width: 88%; padding: 10px 14px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
 .msg.you { justify-self: end; background: #132036; border-color: #22406b; }
 .msg .who { margin-bottom: 4px; color: var(--ink-3); font-size: 12px; font-weight: 600; }

@@ -20,9 +20,9 @@
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
 newest first), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
-thread it came in, where it has one, so the page can draw that thread), `review` (every
-open PR, in `you`, `not ready` or `decided`, with its Slack card when it has one) and each feature's `text`, `note`,
-`created` and `jobs`.
+thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
+`not ready` or `decided`, with its Slack card and the `thread` under that card when it has one) and each feature's
+`text`, `note`, `created` and `jobs`.
 """
 
 import json
@@ -101,6 +101,11 @@ def live_cards(name: str) -> dict | None:
 def message_key(url: str) -> str:
     match = SLACK_TS.search(url)
     return match[1] if match else url
+
+
+def card_thread(url: str) -> str:
+    key = message_key(url)
+    return f"{key[:-6]}.{key[-6:]}"
 
 
 def card_open(url: str, found: dict | None) -> bool:
@@ -408,6 +413,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "updated": pr["updated"],
         "card": card["card"] if card else None,
         "answer": card["url"] if card else None,
+        "thread": card_thread(card["url"]) if card else None,
     }
 
 

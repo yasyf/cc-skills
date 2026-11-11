@@ -228,7 +228,7 @@ class Board:
             self.unders = set(answers) | {ask["url"] for ask in model["asks"] if ask["url"]}
             self.prs = prs
             self.pictures = pictures
-            self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]}
+            self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]} | {entry["thread"] for entry in model["review"] if entry["thread"]}
             self.channel = model["channel"]
             self.version += 1
             self.changed.notify_all()
@@ -289,7 +289,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             if not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
             elif ts not in board.threads:
-                self.answered(404, {"error": f"{ts} is not the thread of an ask of this drive"})
+                self.answered(404, {"error": f"{ts} is not the thread of an ask or PR card of this drive"})
             else:
                 try:
                     self.answered(200, cc_slack("thread", "--channel", board.channel, "--thread", ts, "--limit", THREAD_MESSAGES))
