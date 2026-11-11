@@ -257,8 +257,12 @@ check's verdict, or from the order when none ran.
   branch's, is named to the drive in that turn with `drive incident release <o> <name>`, the
   name `tools/ci release start` prints. The turn its post in the releases channel says a step
   failed, cc-slack hands the drive that line, the incident's stop reopens, and the watch says
-  `EVENT stop` with the job to start, or the running stop job to resume. On Nov 10 release 60,
-  which carried the stop, stuck at 9:36 PM and nobody went after it until 10:39 PM.
+  `EVENT stop` with the job to start, or the running stop job to resume, since a stuck release
+  nobody follows leaves his users broken.
+- An incident filed under a project with a sub-coordinator is that session's to fix and land, and
+  the top coordinator starts, approves and rolls back its cuts, one at a time, by his pick "the top
+  starts, approves and rolls back production cuts": the sub-coordinator sends the top a `release`
+  record for each, since the `landing_guard` hook refuses those three from its session and agents.
 - No incident release starts, a rollback included, before a line to him states the bug it ships
   against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
   The fix's release has that line from its PR-open line. For a rollback or a release of the
