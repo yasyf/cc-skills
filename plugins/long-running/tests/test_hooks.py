@@ -528,7 +528,7 @@ def test_guard_denies_every_landing_form(drive_pr: str, no_calls: list[list[str]
 
 def test_guard_allows_a_tapped_drive_pr(drive_pr: str, no_calls: list[list[str]]) -> None:
     approve(drive_pr)
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash")) is None
+    assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
 
 def test_guard_denies_a_held_drive_pr(drive_pr: str, no_calls: list[list[str]]) -> None:
@@ -539,7 +539,7 @@ def test_guard_denies_a_held_drive_pr(drive_pr: str, no_calls: list[list[str]]) 
 
 def test_guard_allows_an_exempt_drive_pr(drive_pr: str, run: Run, no_calls: list[list[str]]) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash")) is None
+    assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
 
 
 def test_guard_allows_a_pr_the_drive_does_not_know(drive_pr: str, no_calls: list[list[str]]) -> None:
@@ -741,9 +741,9 @@ def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_starte
         data["roles"]["coordinator"]["session"] = "the-copy's-session"
     updated_at("demo", drive_pr, "2026-11-11T00:42:12-08:00")
     updated_at("copy", drive_pr, "2026-11-11T00:20:00-08:00")
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")) is None
+    assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
     updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")).startswith(f"{drive_pr}: no tap from him yet")
+    assert landing_guard.deny_reason(bash("stack-enqueue 42")).startswith(f"{drive_pr}: no tap from him yet")
 
 
 def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
@@ -755,7 +755,7 @@ def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
         data["roles"]["coordinator"]["session"] = "the-copy's-session"
     updated_at("demo", drive_pr, "2026-11-11T00:20:00-08:00")
     updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
-    mine = bash(f"gh pr merge {PR}") | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    mine = bash("stack-enqueue 42") | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
     assert landing_guard.deny_reason(mine) is None
     assert landing_guard.deny_reason(mine | {"session_id": "the-copy's-session"}).startswith(f"{drive_pr}: no tap from him yet")
 
@@ -767,10 +767,17 @@ def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
         "gh api --method=put /repos/Forge-AI/monorepo/pulls/42/merge -f merge_method=squash",
     ],
 )
-def test_guard_holds_a_merge_through_the_api_to_his_tap(drive_pr: str, no_calls: list[list[str]], command: str) -> None:
+def test_guard_holds_a_merge_through_the_api_to_his_tap_and_the_incident_exemption(
+    drive_pr: str, no_calls: list[list[str]], command: str
+) -> None:
     assert landing_guard.deny_reason(bash(command)).startswith(f"{drive_pr}: no tap from him yet")
     approve(drive_pr)
     assert landing_guard.deny_reason(bash(command)) is None
+    driving = bash(command) | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    assert landing_guard.deny_reason(driving) == landing_guard.QUEUE_REASON.format(key=drive_pr)
+    with state.edit("demo") as data:
+        data["prs"][drive_pr]["exempt"] = "incident fix"
+    assert landing_guard.deny_reason(driving) is None
 
 
 def test_guard_lets_an_api_read_of_a_merge_through(drive_pr: str, no_calls: list[list[str]]) -> None:

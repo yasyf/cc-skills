@@ -1,0 +1,118 @@
+import io
+import json
+import os
+from collections.abc import Callable
+from datetime import UTC, datetime
+from pathlib import Path
+
+import communicator_calls
+import pytest
+from drive import state
+
+Run = Callable[..., tuple[int, str]]
+SLACK = "mcp__plugin_cc-slack_cc-slack__"
+
+
+def hook_output(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], payload: dict) -> str:
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(payload)))
+    communicator_calls.main()
+    return capsys.readouterr().out
+
+
+def call(tool: str, transcript: Path | None = None, **tool_input: object) -> dict:
+    return {
+        "session_id": os.environ["CLAUDE_CODE_SESSION_ID"],
+        "transcript_path": str(transcript or "/nowhere.jsonl"),
+        "tool_name": tool,
+        "tool_input": tool_input,
+    }
+
+
+@pytest.fixture
+def builder(run: Run, demo: str) -> Callable[..., None]:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+
+    def holds(**fields: object) -> None:
+        with state.edit(demo) as data:
+            data["jobs"]["j1"].update(fields)
+
+    return holds
+
+
+def transcript(tmp_path: Path, *commands: str) -> Path:
+    path = tmp_path / "session.jsonl"
+    at = datetime.now(UTC).isoformat()
+    rows = [{"type": "user", "timestamp": at, "message": {"content": "go"}}]
+    for index, command in enumerate(commands):
+        rows.append({"timestamp": at, "message": {"content": [{"type": "tool_use", "id": f"t{index}", "name": "Bash", "input": {"command": command}}]}})
+        rows.append({"timestamp": at, "message": {"content": [{"type": "tool_result", "tool_use_id": f"t{index}", "content": "read"}]}})
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    return path
+
+
+def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_rest(
+    communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    output = json.loads(hook_output(monkeypatch, capsys, call(SLACK + "slack_thread", channel_id="D123", thread_ts="1.2")))
+    reason = output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert reason.startswith(f"Refused on purpose: the communicator does not run {SLACK}slack_thread itself")
+    assert "Start a background long-running:handler" in reason
+    assert communicator_calls.deny_reason(call("Bash", command="cc-transcript show /x/agent-a1.jsonl")).startswith(
+        "Refused on purpose: the communicator does not run Bash itself"
+    )
+    assert communicator_calls.deny_reason(call("Skill", skill="cc-slack:slack")) is not None
+    assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:handler", prompt="Record: 9 Drive: demo")) is None
+    for own in (
+        call(SLACK + "slack_reply", channel_id="D123", thread_ts="1.2", text="On it: the fix ships next."),
+        call(SLACK + "slack_react", channel_id="D123", ts="1.2", name="+1"),
+        call("mcp__plugin_long-running_drive__heard", ts="1.2"),
+        call("ToolSearch", query="select:SendMessage"),
+        call("SendMessage", to="a-7", message="Approve"),
+        call("Skill", skill="long-running:long-running"),
+        call("Bash", command="drive heard --ts 1.2"),
+        call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
+    ):
+        assert communicator_calls.deny_reason(own) is None
+    assert communicator_calls.deny_reason({**call(SLACK + "slack_thread"), "agent_id": "a-1"}) is None
+    assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
+
+
+def test_the_coordinator_sends_no_pr_event_to_a_builder_that_returned_and_starts_a_fresh_one(
+    demo: str, builder: Callable[..., None], tmp_path: Path
+) -> None:
+    builder(agent="a-7", state="built")
+    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it"))
+    assert reason.startswith("Refused on purpose: j1's builder already returned (built)")
+    assert "`drive job add builder`" in reason
+    assert "`Handoff:` line" in reason
+    assert 'drive job set j1 --state stopped --said "handed to <new>"' in reason
+    fresh = "Handoff: red check on https://github.com/Forge-AI/monorepo/pull/4244 Drive: demo, order o1, job j2"
+    assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:builder", prompt=fresh)) is None
+    builder(state="waiting")
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="He picked Approve")) is None
+    builder(state="done")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+    assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="CI went red, fix it")) is None
+
+
+def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcript(
+    demo: str, builder: Callable[..., None], tmp_path: Path
+) -> None:
+    builder(where="remote", dispatch="ctx_9", agent=None, state="running")
+    resume = 'drive job resume j1 "status?"'
+    reason = communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=resume))
+    assert reason.startswith("Refused on purpose: your transcript shows no read of j1's transcript in the last 10 minutes")
+    assert "`drive job replies j1`" in reason
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j1"), command=resume)) is None
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j12"), command=resume)) is not None
+    worker_read = transcript(tmp_path, "orca orchestration worker-read --dispatch ctx_9 --limit 50 --full --json")
+    assert communicator_calls.deny_reason(call("Bash", worker_read, command=resume)) is None
+    builder(where="local", dispatch=None, agent="a-7")
+    reason = communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message="status?"))
+    assert "`cc-transcript` on agent a-7's transcript" in reason
+    read = transcript(tmp_path, "cc-transcript show ~/.claude/projects/x/s/subagents/agent-a-7.jsonl --tail 40")
+    assert communicator_calls.deny_reason(call("SendMessage", read, to="a-7", message="status?")) is None
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive status o1")) is None

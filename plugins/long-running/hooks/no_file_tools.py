@@ -1,10 +1,14 @@
 import json
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, state
+
+MEMORY_FILE = re.compile(r"\.claude/projects/\S*/memory/")
+WHOLE_OUTPUT = re.compile(r"\bcat\s+[^|;&]*(?:/tool-results/\S*|\.output)\s*(?:$|[;&])", re.MULTILINE)
 
 
 def deny_reason(payload: dict) -> str | None:
@@ -16,6 +20,8 @@ def deny_reason(payload: dict) -> str | None:
     if not names:
         return None
     role = state.session_role(state.load(names[0]), session)
+    if payload["tool_name"] == "Bash":
+        return bash_reason(role, payload["tool_input"]["command"])
     return (
         f"refused: the {role} opens no file with {payload['tool_name']}, since Claude Code puts each file opened with"
         " Read, Write or Edit back into this session after every compaction. Read a page of the skill with"
@@ -24,6 +30,22 @@ def deny_reason(payload: dict) -> str | None:
         " or on stdin to the drive verb that keeps it; a lesson is a cc-notes note (`ccn note add`) or a defect record"
         " to the communicator, never a memory file."
     )
+
+
+def bash_reason(role: str, command: str) -> str | None:
+    """Why a drive role's Bash call may not run: it reaches a memory file or prints a whole saved output, the two ways around the file tools' refusal."""
+    if MEMORY_FILE.search(command):
+        return (
+            f"refused: the {role} reads and writes no memory file, with Bash or any tool, since the drive keeps its lessons"
+            " where every session and job finds them: a lesson is a cc-notes note (`ccn note add`) or a defect record to"
+            " the communicator."
+        )
+    if WHOLE_OUTPUT.search(command):
+        return (
+            f"refused: the {role} prints no whole saved tool result or background output, since all of it lands in this"
+            " session's context. Read a bounded slice such as `tail -c 2000 <file>`."
+        )
+    return None
 
 
 def main() -> None:

@@ -245,7 +245,7 @@ check's verdict, or from the order when none ran.
   then `gh pr merge <n> -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack,
   which `gh pr merge` refuses, `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f
   sha=<head> -f merge_method=squash -f merge_action=direct_merge`. The `landing_guard` hook holds
-  both to the exemption or his tap, and refuses `--admin`.
+  both to that exemption, and refuses `--admin`.
 - Accept a reviewer-bot finding with `submit-pr`'s
   `pr-reviews accept <slug> --why "incident: <why the fix is right>"`, unless it says the fix is
   wrong.

@@ -1094,3 +1094,89 @@ def test_the_coordinator_posts_nothing_to_slack_and_sends_its_words_to_the_commu
     assert message_limits.deny_reason(reply).startswith("Refused on purpose")
     assert message_limits.deny_reason(said | {"agent_id": "a-1"}) is None
     assert message_limits.deny_reason(said | {"session_id": "someone-else"}) is None
+
+
+def test_the_communicators_ack_is_one_sentence_and_the_rest_goes_in_the_handlers_brief(talker: str, transcript: Path) -> None:
+    ack = call("slack_dm_status", transcript, thread_ts="1.2", text="Got it. Starting a handler. It will read the thread first.")
+    del ack["agent_id"]
+    reason = message_limits.deny_reason(ack)
+    assert reason.startswith("refused: this ack is 3 sentences, and an ack is one")
+    assert "put the rest in the handler's brief" in reason
+    for one in ("Starting a handler to answer why the card redrew.", 'Starting a handler on "the card. It redraws."'):
+        assert message_limits.deny_reason(ack | {"tool_input": {"thread_ts": "1.2", "text": one}}) is None
+    assert posted(transcript, text="Got it. The fix merged.") is None
+
+
+def test_a_promise_names_the_order_job_or_time_that_carries_it(talker: str, transcript: Path) -> None:
+    reason = posted(transcript, text="From now on cards redraw in place.")
+    assert reason.startswith('refused: "From now on" promises him something, and this post names no order, job or due time')
+    assert "or drop the promise" in reason
+    assert posted(transcript, text="From now on cards redraw in place (o291, due 1:00 AM).") is None
+    assert posted(transcript, text="From now on cards redraw in place.", order="o1") is None
+    assert posted(transcript, text='He wrote "I will tap it after lunch".') is None
+
+
+def test_a_time_promised_in_an_orders_thread_needs_its_due_time_first(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"] = "1.2"
+    soon, past = state.now() + timedelta(hours=1), state.now() - timedelta(hours=2)
+    promised = f"You get it by {soon:%-I:%M %p}."
+    reason = posted(transcript, text=promised, thread_ts="1.2")
+    assert reason.startswith(f'refused: "by {soon:%-I:%M %p}" promises him a time on o1, which holds no due time')
+    assert f"Run `drive order set o1 --due {soon:%H:%M}` first, then post." in reason
+    assert posted(transcript, text=f"Its folder was empty by {past:%-I:%M %p}.", thread_ts="1.2") is None
+    assert posted(transcript, text=promised, thread_ts=BAD_STATE_THREAD) is None
+    with state.edit("demo") as data:
+        state.promise(data["orders"]["o1"], state.stamp(soon), state.now())
+    assert posted(transcript, text=promised, thread_ts="1.2") is None
+
+
+def test_while_he_is_away_only_cards_incident_lines_and_answers_go_out(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit("demo") as data:
+        data["owner"] = {"heard": state.stamp(), "away": True}
+        data["orders"]["o1"].update(thread="1.2", incident=True)
+    reason = posted(transcript, text="The fix merged.")
+    assert reason.startswith("Refused on purpose: he is away")
+    assert "joins the catch-up the coordinator sends when he is back" in reason
+    card = {"title": said(10), "body": said(40), "options": ["Land it", "Hold it"], "waits": "demo:j1-7"}
+    assert posted(transcript, card=card) is None
+    assert posted(transcript, text="Users are unblocked.", thread_ts="1.2") is None
+    assert posted(transcript, text="The fix merged.", asked="did it merge?") is None
+    with state.edit("demo") as data:
+        data["owner"]["away"] = False
+    assert posted(transcript, text="The fix merged.") is None
+
+
+def test_a_say_code_visual_of_raw_data_is_refused_and_a_short_snippet_goes_out(talker: str, transcript: Path) -> None:
+    raw = {"kind": "code", "language": "json", "source": '{"time": "2026-11-10T03:15:00Z", "bytes": 0}'}
+    reason = say(transcript, text="The upload stalled.", visuals=[raw])
+    assert reason.startswith('refused: the code visual holding "{"time"')
+    assert "raw data or tool output" in reason
+    assert "show a short snippet of real code" in reason
+    snippet = {"kind": "code", "language": "go", "source": "func ready(db *DB) bool {\n\treturn db.Uploaded() > 0\n}"}
+    assert say(transcript, text="The upload stalled.", visuals=[snippet]) is None
+
+
+def test_an_edit_of_his_question_card_is_refused_naming_the_redraw(run: Run, talker: str, transcript: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    card = f"https://acme.slack.com/archives/{DM}/p1794288799976279"
+    with state.edit("demo") as data:
+        question = state.new_question("/drive/asks/j1-ab.md", "Which store?", state.stamp(), card=card)
+        data["jobs"]["j1"]["questions"].append(question | {"waits": "demo:j1-661229"})
+    for edit in ({"url": card}, {"channel_id": DM, "ts": "1794288799.976279"}):
+        reason = message_limits.deny_reason(call("slack_edit", transcript, text="Reworded.", **edit))
+        assert reason.startswith("Refused on purpose: that message is his question card")
+        assert "`drive job card /drive/asks/j1-ab.md --waits demo:j1-661229`" in reason
+    assert message_limits.deny_reason(call("slack_edit", transcript, channel_id=DM, ts="1794288799.000001", text="Reworded.")) is None
+
+
+def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["terminal"] = "term_live"
+    reason = posted(transcript, text="Open it with `orca terminal switch --terminal term_old`.")
+    assert reason.startswith("refused: `orca terminal switch --terminal term_old` names a terminal no session of this drive runs in")
+    assert "as the role's line `drive status` prints it" in reason
+    assert posted(transcript, text="Open it with `orca terminal switch --terminal term_live`.") is None

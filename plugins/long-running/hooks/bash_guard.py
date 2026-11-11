@@ -1,0 +1,260 @@
+import json
+import re
+import shlex
+import sys
+from itertools import pairwise
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+
+from drive import install, orca, state, tools
+from drive.orca import OrcaError
+from drive.shell import runnable
+
+AGENTS = "long-running:"
+DESIGNER = "long-running:designer"
+HANDLER = "long-running:handler"
+SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
+WRAPPERS = {"command", "exec", "nohup", "env", "time"}
+VALUED = {"-C", "-R", "--repo", "--drive"}
+ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
+CHAINS = {";", "&&", "||", "&", "(", ")"}
+PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
+NO_TOOL_FLAGS = ("--json", "--drive", "--help", "-h")
+CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
+
+
+def tokens(text: str) -> list[str]:
+    lexer = shlex.shlex(text.replace("\n", ";"), posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    return list(lexer)
+
+
+def commands(text: str) -> list[list[str]]:
+    """The words of each command the script runs, past assignments and wrappers, and those of each `sh -c` script inside it."""
+    groups: list[list[str]] = [[]]
+    for token in tokens(text):
+        if set(token) <= set("();<>|&"):
+            groups.append([])
+        else:
+            groups[-1].append(token)
+    found = []
+    for words in groups:
+        while words and (ASSIGNMENT.fullmatch(words[0]) or Path(words[0]).name in WRAPPERS):
+            words = words[1:]
+        if not words:
+            continue
+        found.append(words)
+        if Path(words[0]).name in SHELLS and "-c" in words[:-1]:
+            found += commands(runnable(words[words.index("-c") + 1]))
+    return found
+
+
+def verb(words: list[str]) -> list[str]:
+    named, rest = [Path(words[0]).name], iter(words[1:])
+    for word in rest:
+        if word in VALUED:
+            next(rest, None)
+        elif not word.startswith("-"):
+            named.append(word)
+    return named
+
+
+def option(words: list[str], name: str) -> str | None:
+    given = [value for flag, value in pairwise(words) if flag == name]
+    given += [word.removeprefix(f"{name}=") for word in words if word.startswith(f"{name}=")]
+    return given[-1] if given else None
+
+
+def terminal_scripts(found: list[list[str]]) -> list[list[list[str]]]:
+    """The commands each `orca terminal create --command` starts its terminal with."""
+    return [commands(runnable(option(words, "--command") or "")) for words in found if verb(words)[:3] == ["orca", "terminal", "create"]]
+
+
+def designer_push(found: list[list[str]]) -> str | None:
+    pushed = next((" ".join(push) for words in found for push in PUSHES if tuple(verb(words)[: len(push)]) == push), None)
+    if not pushed:
+        return None
+    return (
+        f"refused: the designer is read only, so it runs no `{pushed}`: it opens no PR and pushes nothing. Keep the design"
+        " in your report, piped with a quoted heredoc into `drive job report <your job> -`, and the coordinator starts"
+        " the builder that ships it"
+    )
+
+
+def cached_page(text: str) -> str | None:
+    if not (cached := CACHED_PAGE.search(text)):
+        return None
+    current = install.installed(f"long-running@{cached[1]}")["version"]
+    return (
+        f"refused: this reads the skill's pages from long-running {cached[2]}'s copy in Claude Code's plugin cache, and"
+        f" {current} is installed now; a cached copy goes stale with each install. Read a page's rows with"
+        " `drive manual <page> <row>`, which prints the installed rows"
+    )
+
+
+def tool_verb(found: list[list[str]]) -> str | None:
+    for words in found:
+        named = verb(words)
+        if named[0] != "drive" or len(named) < 2 or any(word.split("=")[0] in NO_TOOL_FLAGS for word in words):
+            continue
+        tool = named[1]
+        if tool in ("heard", "status"):
+            return (
+                f"refused: `drive {tool}` has a tool on the drive MCP server: call `{tool}` with its flags as fields,"
+                f" dashes as underscores, or pipe that JSON to `drive tool {tool}`; Bash keeps `drive {tool} --json`"
+            )
+        if tool in tools.OPS and named[2:3] and named[2] in tools.OPS[tool]:
+            return (
+                f"refused: `drive {tool} {named[2]}` has a tool on the drive MCP server, which runs every op the turn needs in"
+                f" one call: call `{tool}(ops=[{{{named[2]}: {{<its flags and positionals as fields, dashes as underscores>}}}}])`,"
+                f" or pipe that JSON to `drive tool {tool}`"
+            )
+    return None
+
+
+def background_resume(found: list[list[str]]) -> str | None:
+    if not any(verb(words)[:3] == ["drive", "job", "resume"] for words in found):
+        return None
+    return (
+        "refused: `drive job resume` runs in the foreground with `timeout: 20000`, because a send returns in about 5"
+        " seconds and a relaunch backgrounds itself at 20; run it again without run_in_background"
+    )
+
+
+def chained(text: str) -> str | None:
+    joint = next((token for token in tokens(text) if token in CHAINS), None)
+    if joint is None:
+        return None
+    return (
+        f"refused: a handler keeps each Bash call one plain pipeline, and this one chains steps with `{joint}`, since a"
+        " permission prompt in a terminal nobody watches stalls you; put the steps in a script under your brief's"
+        " `Scratch:` folder and run that"
+    )
+
+
+def shell_after_claude(scripts: list[list[list[str]]]) -> str | None:
+    for found in scripts:
+        names = [Path(words[0]).name for words in found]
+        if "claude" in names and (shell := next((name for name in names[names.index("claude") :] if name in SHELLS), None)):
+            return (
+                f"refused: the terminal's --command runs `{shell}` after claude, and a shell there outlives the session in"
+                " the terminal; drop it, so --command ends with the claude command"
+            )
+    return None
+
+
+def role_of(session: str | None = None, terminal: str | None = None) -> tuple[dict, str] | None:
+    """The drive and role whose recorded session or terminal this is."""
+    for name in state.names():
+        data = state.load(name)
+        for role, held in data["roles"].items():
+            if (session and held["session"] == session) or (terminal and held["terminal"] == terminal):
+                return data, role
+    return None
+
+
+def hidden(held: dict) -> str | None:
+    """The command that shows a role's terminal Orca only hides, None when it shows or is gone."""
+    try:
+        if not held["terminal"] or not orca.terminal(held["terminal"])["orphaned"]:
+            return None
+        checkout = orca.main_checkout(held["cwd"])
+    except OrcaError:
+        return None
+    return f"orca repo set --repo path:{checkout} --external-worktree-visibility show"
+
+
+def live_resume(found: list[list[str]]) -> str | None:
+    for words in found:
+        session = option(words, "--resume") or option(words, "-r")
+        if Path(words[0]).name != "claude" or not session or "--fork-session" in words:
+            continue
+        running = orca.parents()
+        pid = next((pid for pid in orca.claude_pids(session) if pid in running), None)
+        if pid is None:
+            continue
+        owner = role_of(session=session)
+        if owner and (show := hidden(owner[0]["roles"][owner[1]])):
+            return (
+                f"refused: session {session} still runs as pid {pid}, in a terminal Orca only hides because it shows no"
+                f" worktree it did not make; leave it running and show it with `{show}`"
+            )
+        return (
+            f"refused: session {session} still runs as pid {pid}, and a resume while it runs copies it under a new id, so two"
+            f" sessions answer for one role; end it, wait until `ps -p {pid}` lists nothing, then resume it"
+        )
+    return None
+
+
+def ended_role(words: list[str]) -> tuple[dict, str] | None:
+    named = verb(words)
+    if named[:3] == ["orca", "terminal", "send"] and option(words, "--text") == "/exit":
+        return role_of(terminal=option(words, "--terminal"))
+    if named[:2] == ["claude", "stop"] and named[2:3]:
+        return role_of(session=named[2])
+    return None
+
+
+def mid_incident(found: list[list[str]]) -> str | None:
+    for words in found:
+        if not (owner := ended_role(words)):
+            continue
+        data, role = owner
+        if incidents := state.open_incidents(data, list(data["orders"])):
+            named = ", ".join(incidents)
+            return (
+                f"refused: {named} is an open incident order, and ending the {role} now stops it mid-incident; move it after"
+                f" the fix is live, once `drive status {incidents[0]}` reads done"
+            )
+    return None
+
+
+def deny_reason(payload: dict) -> str | None:
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a cached skill page, the coordinator runs in Bash a verb its MCP tool serves, `drive job resume` runs in the background, a handler chains steps, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
+    call = payload["tool_input"]
+    session = payload.get("session_id") or ""
+    drives = state.session_drives(session)
+    if payload["tool_name"] != "Bash":
+        return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
+    kind = payload.get("agent_type") or ""
+    if not drives and not kind.startswith(AGENTS):
+        return None
+    text = runnable(call["command"])
+    found = commands(text)
+    scripts = terminal_scripts(found)
+    own_session = bool(drives) and not payload.get("agent_id")
+    reasons = (
+        lambda: designer_push(found) if kind == DESIGNER else None,
+        lambda: cached_page(call["command"]) if drives else None,
+        lambda: tool_verb(found) if own_session else None,
+        lambda: background_resume(found) if call.get("run_in_background") else None,
+        lambda: chained(text) if kind == HANDLER else None,
+        lambda: shell_after_claude(scripts),
+        lambda: live_resume(found + [words for inner in scripts for words in inner]),
+        lambda: mid_incident(found),
+    )
+    return next(filter(None, (reason() for reason in reasons)), None)
+
+
+def main() -> None:
+    try:
+        reason = deny_reason(json.load(sys.stdin))
+    except ValueError:
+        return
+    if reason:
+        print(
+            json.dumps(
+                {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": reason,
+                    }
+                }
+            )
+        )
+
+
+if __name__ == "__main__":
+    main()

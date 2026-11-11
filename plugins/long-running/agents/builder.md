@@ -130,8 +130,8 @@ prints and a remote lane's brief carries whole:
 
 - On a public repository a screenshot shows a demo drive or public data only, under a `demo-` or
   `public-` path; a picture of the live drive, private code, Slack or a customer goes only to a
-  private repository's PR or his DM. Check this before `gh pr create` or a ship publishes the body,
-  since `drive pr add` refuses it only once the body is public.
+  private repository's PR or his DM. The `landing_guard` hook refuses `gh pr create`/`edit` or a ship
+  putting up such a body: fix the body first.
 - Every section stands alone, since he reads the card with no other context. A number, fraction,
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
@@ -180,7 +180,7 @@ event needs. The first four events then return as step 7 says.
 | A conflict with its base | Rebase onto the base, resolve each conflict by what both sides meant, push. |
 | A review | Answer or fix every finding; a non-critical bot finding you judge wrong gets a one-line reply saying why. |
 | His answers to the design cards a built branch or open PR waited on | Rebuild wherever his pick differs from the option built, and open the PR if none is open. |
-| His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing and return `WAITING` naming the card: neither his order to land nor its recommended option answers it. |
+| His tap or order to land | Land it by the landing reference for its repository (`drive manual landing`). While a question card of his on the change is open, land and enqueue nothing, which the `landing_guard` hook refuses, and return `WAITING` naming the card: neither his order nor its recommended option answers it. |
 | A merge | Install or deploy it, prove it live with the brief's `INSTALL:` and `PROVE:` lines and return `DONE`, then remove the worktree and leave nothing running. |
 
 ## Releases
@@ -259,8 +259,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `drive status` lists it, so a share reads that file instead of rebuilding the steps.
 - Before your final message, keep your whole return by piping it on stdin in one Bash call:
   `drive job report <your job> - <<'EOF'`, its lines, then `EOF`. That is the one place a report is
-  kept, so write no report file; the coordinator, or the handler it names, reads it with
-  `drive job report <your job>` only when acting on it. An `ASK` keeps no report: `drive job ask`
+  kept, so write no report file, and your final line is sent back until it is; others read it
+  with `drive job report <your job>`. An `ASK` keeps no report: `drive job ask`
   keeps its block.
 - Its first line is exactly one result line below. The lines after it are the inputs a handler writes
   his message from, one fact a line, unpolished, never the write-up itself, plus any exact quote,

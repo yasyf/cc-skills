@@ -23,9 +23,9 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      input, not a shape to keep.
    - Start it with the Agent tool: `subagent_type: "long-running:designer"`, `model: "fable"`,
      `run_in_background: true`, a short `description`, no `name` (the `agent_brief` hook refuses
-     one), and the `Read your brief first: <path>` line as the whole `prompt`. It runs only as that
-     agent, never a codex lane, because only that definition keeps it read only, settled questions
-     off his cards and each fork in shape.
+     one), and the `Read your brief first: <path>` line as the whole `prompt`. The `agent_brief`
+     hook refuses a design job's brief on any other type, since only that definition keeps it read
+     only, settled questions off his cards and each fork in shape.
    - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design, a
      `Settled:` line quoting his words, and a `Fork:` line for each `ASK` block it kept with
      `drive job ask`. Each piece has a worked example, such as an API's calls, imperative beside

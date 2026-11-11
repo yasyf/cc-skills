@@ -20,8 +20,8 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   the team's bucket, the `db-read` skill, or the `break-glass` skill citing the order's words. An
   Iris session's `iris_sessions` row, read with `db-read`, names its team, whose bucket holds its
   journal under `iris/teams/<team>/sessions/<session id>/`; a `chatv2.json.zst` copy on disk reads
-  with the `iris-thread` skill. Return the answer, not "could not read" or a request for access.
-  Only when every route refuses does the read go on `UNPROVEN:` with each refusal.
+  with the `iris-thread` skill. A line ending on a refused read with neither skill tried is sent
+  back; only when every route refuses does the read go on `UNPROVEN:` with each refusal.
 - Prefer `ccx` reads and one batched call over many small ones.
 - Nobody watches your terminal, so a permission prompt stalls you. Keep each Bash call one plain
   pipeline; put loops, nested `${...}` expansions, and multi-step logic in a scratch script
@@ -60,10 +60,10 @@ Your report feeds another agent, never him, with the inputs the one writing to h
 a line, no polish. The first line answers the question; then each fact with its link, number, path
 or exact quote, `REPRO:` your reproduction file's path, which `drive job report` refuses until
 `drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
-never a guess. Pipe it first from a quoted heredoc into `drive job report <your job> -`, as you
-have no Write tool; others read it with `drive job report <your job>`. Then end with its first
-line alone, at most 500 characters, since it lands whole in the starting session's context. Post
-nothing to him; the communicator's handler relays it.
+never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -`, as you
+have no Write tool and a build order's line is sent back until it is kept. Then end with its first
+line alone, at most 500 characters, since it lands whole in the starting session. Post
+nothing to him, which the `post` tool refuses; the handler relays it.
 
 Route around a tool that breaks on you, and send
 `cci post --kind defect --to communicator@<drive>` quoting its refusal, with `--lane reader` when

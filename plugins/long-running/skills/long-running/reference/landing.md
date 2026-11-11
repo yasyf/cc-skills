@@ -24,11 +24,11 @@ for its repository says, then return `DONE <proof>`.
   build reads (a stored file, row, journal, or manifest) links the readers' PR in its body. Offer him no
   design that lands a part first and leaves a step for later; `drive job ask` refuses one.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
-  land arrived. Its recommended option never stands in for his answer: return `WAITING` naming the card,
-  which the coordinator puts in front of him by [Design first](design.md). `drive pr add` refuses a PR
-  whose job waits on his open card. An incident's repair is the exception, since no incident waits on a
-  card: it lands on the recommended option, the card stays open, and a different pick of his starts a
-  follow-up job on the same order.
+  land arrived, since its recommended option never stands in for his answer. `drive pr add` and the
+  `landing_guard` hook refuse a PR waiting on his open card: return `WAITING` naming the card, which
+  the coordinator puts in front of him by [Design first](design.md). An incident's repair is the
+  exception: it lands on the recommended option, the card stays open, and a different pick of his
+  starts a follow-up job on the same order.
 - Keep a stack to four PRs at most, because his card shows each PR of a stack in its own section with
   its pictures; `drive pr set --tap` refuses a longer one and says how to split or fold it.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
@@ -71,9 +71,9 @@ for its repository says, then return `DONE <proof>`.
   - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
     under a `demo-` or `public-` file or folder name, and the body names no private repository's PR. The
     live drive, private code, Slack, or a customer's or teammate's data goes only into a private
-    repository's PR or a direct message to him. `drive pr add` refuses a public PR whose body breaks
-    this; after fixing such a body on an open PR, delete each earlier revision from its edit history and
-    the branch holding the pictures, since both stay readable.
+    repository's PR or a direct message to him. The `landing_guard` hook refuses such a body in
+    `gh pr create`/`edit` or `ccx vcs ship`, and `drive pr add` a PR with one; after a fix, delete
+    each earlier revision and the pictures' branch, since both stay readable.
   - `## Against the plan`: only when you departed from the plan: what it said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to run
     it. A PR with behavior of its own beyond that is not a port.
@@ -147,8 +147,8 @@ restack his own in-flight branches. A PR lands only when all of these hold at it
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
 - he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
   asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
-  with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because the `landing_guard`
-  hook reads only a recorded tap and refuses a landing command for a drive PR with neither.
+  with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because
+  `landing_guard` refuses landing a drive PR with no recorded tap.
 
 **Exempt classes land with no tap** once green. He never sees a PR card for one: it is marked as its
 class wherever he sees it, and its order's thread gets one line naming the class and the PR, such as
@@ -181,12 +181,12 @@ carry out one decision of his into one first, so he gets one card.
 
 It enqueues the largest green, approved, unheld bottom of the stack in one call, never an unnamed PR,
 and reads the queue back. `--check` previews the gate; `--watch` keeps enqueueing as the stack turns
-green. Enqueue a green stack together, never its first PR alone; once part lands, run
-`ccx vcs stack submit` for the rest.
+green. The `landing_guard` hook refuses an enqueue missing an open PR of his card's stack; once part
+lands, run `ccx vcs stack submit` for the rest.
 
-**The queue is the only way in**, because every other way skips the checks it runs: never `--admin`,
-`gh pr merge` around the queue, a hand-added `merge` or `merge-fast` label, or
-`tools/ci trunk submit --direct`, which needs his written ruling naming the PR and its full head sha. An
+**The queue is the only way in**, because every other way skips the checks it runs: the `landing_guard`
+hook refuses `--admin`, and on a drive PR `gh pr merge`, the merge API or a `merge`/`merge-fast` label.
+`tools/ci trunk submit --direct` needs his written ruling naming the PR and its full head sha. An
 incident fix lands as [incidents.md](incidents.md) says.
 
 **Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an
