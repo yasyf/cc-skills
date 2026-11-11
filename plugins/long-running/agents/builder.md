@@ -239,6 +239,10 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `DONE`, `READY`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<your report>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
+- Orca brings the coordinator's mail, his answer to your `ASK` included, by typing "You have N
+  orchestration messages" into your terminal. Read it with `orca orchestration check` as that line
+  names it, which finds your terminal from `ORCA_TERMINAL_HANDLE`. Its one handle flag is
+  `--terminal <handle>`: it refuses the `--from <handle>` that your preamble gives `ask` and `send`.
 - Leave the Sprite as it is when you finish; the coordinator frees it.
 
 ## Waits and reads
