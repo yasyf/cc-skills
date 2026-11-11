@@ -193,6 +193,26 @@ def graphql(text: str, what: str) -> dict:
         raise GithubError(f"unreadable GraphQL reply for {what}: {error}") from None
 
 
+def below(key: str) -> list[str]:
+    """The open PRs stack-enqueue queues under key, bottom first: those below it in its native GitHub stack, or, with no native stack and a base other than its repository's default, the one open PR whose head is that base and those under it."""
+    owner, name, number = split(key)
+    text = (
+        f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ baseRefName "
+        "baseRef { associatedPullRequests(states: OPEN, first: 2) { nodes { number } } } "
+        "stack { entries(first: 100) { nodes { position pullRequest { number state } } } } } } }"
+    )
+    pull = graphql(text, f"the native stack under {key}")["data"]["repository"]["pullRequest"]
+    if pull["stack"]:
+        entries = sorted(pull["stack"]["entries"]["nodes"], key=lambda entry: entry["position"])
+        under = takewhile(lambda entry: entry["pullRequest"]["number"] != number, entries)
+        return [f"{owner}/{name}#{entry['pullRequest']['number']}" for entry in under if entry["pullRequest"]["state"] == "OPEN"]
+    opened = (pull["baseRef"] or {"associatedPullRequests": {"nodes": []}})["associatedPullRequests"]["nodes"]
+    if pull["baseRefName"] == default_branch(f"{owner}/{name}") or len(opened) != 1:
+        return []
+    parent = f"{owner}/{name}#{opened[0]['number']}"
+    return [*below(parent), parent]
+
+
 def release_of(key: str, service: str, commit: str) -> str | None:
     """The name of the newest published release that ships the service, when it holds the commit; a release candidate, named rc/, ships to staging and never counts."""
     repo = repo_of(key)

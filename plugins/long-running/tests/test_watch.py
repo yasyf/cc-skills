@@ -2014,6 +2014,38 @@ def test_a_landers_outcome_is_said_on_its_prs_line_and_only_a_failure_wakes_its_
     assert watch.wakes(lines[0], state.load(demo)) == bool(code)
 
 
+def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_his_approve_and_tries_again_once_he_approves_it(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    stacked(demo)
+    with state.edit(demo) as data:
+        for key in (KEY, OTHER):
+            data["prs"][key]["stack"] = [key]
+    approve(demo, OTHER)
+    enqueue_exiting(tmp_path, demo, 0)
+    monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41", KEY] if key == OTHER else [])
+    held = (
+        f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack without his Approve, and stack-enqueue queues a stack from its bottom, "
+        "so his Approve on a PR above would land it too; it lands once he approves each of them or they merge"
+    )
+    assert land.run(demo, [OTHER], dry_run=True) == held
+    assert state.load(demo)["prs"][OTHER]["lander"] is None
+    assert land.run(demo, [OTHER]) == held
+    assert state.load(demo)["prs"][OTHER]["lander"]["below"] == ["Forge-AI/monorepo#41", KEY]
+    assert land.start(demo, [OTHER], NO_CARDS) == []
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#41"] = state.new_pr(state.pr_url("Forge-AI/monorepo#41"), "j1", "o1") | {"state": "merged"}
+    approve(demo, KEY)
+    assert land.start(demo, [OTHER], NO_CARDS) == [(OTHER,)]
+    assert landers == [(OTHER,)]
+    monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41"] if key == OTHER else [])
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#41"]["state"] = "open"
+    assert land.run(demo, [KEY, OTHER], dry_run=True).startswith("not landed: Forge-AI/monorepo#41 sits below")
+    monkeypatch.setattr(land.github, "below", lambda key: [KEY] if key == OTHER else [])
+    assert land.run(demo, [KEY, OTHER], dry_run=True) == f"would queue {KEY}, {OTHER} through stack-enqueue --watch: every PR below it is merged or approved by him"
+
+
 def test_a_lander_refuses_a_pr_his_approve_does_not_cover(demo: str) -> None:
     with pytest.raises(state.DriveError, match="a Forge-AI/monorepo PR he approved"):
         land.run(demo, [KEY])
