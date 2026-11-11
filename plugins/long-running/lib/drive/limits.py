@@ -76,11 +76,14 @@ RELEASABLE_RULING = (
     'his Nov 10 6:44 PM words "why would you merge something that shouydlknt go out dev mustr always be releasable"'
 )
 STEP = r"(?:run|re-?run|fill|back-?fill|migrate|apply|execute|trigger|kick\s+off|flip|enable|patch|repair)"
+SHIPPED = (
+    r"(?:the\s+|it\s+|this\s+)?(?:deploy|deployed|release|released|rollout|merge|merged|lands|merges|ships"
+    r"|is\s+(?:live|released|deployed|merged|out))\b"
+)
 LATER_STEP = re.compile(
     rf"\b(?:then|afterwards|later)\s+(?:we\s+|you\s+|it\s+)?(?:{STEP}|fix)\b"
-    rf"|\b(?:after|once|when)\s+(?:the\s+|it\s+|this\s+)?(?:deploy|deployed|release|released|rollout|lands|merges|ships"
-    rf"|is\s+(?:live|released|deployed|merged|out))\b,?\s+(?:(?:we|you|i|someone|then)\s+(?:must\s+|should\s+|need\s+to\s+|will\s+)?)?{STEP}\b"
-    r"|\bback-?fill(?:s|ing)?\b|\bfill\b|\bpass[- ]box(?:es)?\b"
+    rf"|\b(?:after|once|when)\s+{SHIPPED},?\s+(?:(?:we|you|i|someone|then)\s+(?:must\s+|should\s+|need\s+to\s+|will\s+)?)?{STEP}\b"
+    rf"|\b{STEP}\b(?:\s+[\w'-]+){{0,4}}?\s+(?:(?:after|once|when)\s+{SHIPPED}|(?:later|afterwards)\b)"
     r"|\bfix(?:ed)?\s+(?:it\s+|them\s+)?(?:up|forward|later|afterwards)\b|\bfollow[- ]?up\s+(?:pr|fix|change|step)\b",
     re.IGNORECASE,
 )
@@ -333,7 +336,7 @@ def unlinked(linked: list[str], plain: list[str]) -> list[str]:
 
 
 def later_steps(text: str) -> list[tuple[str, str]]:
-    """Each step the text leaves for after a release, such as a backfill, a pass box or "then run", beside the line naming it; one the text rules out, as "no backfill" does, is none."""
+    """Each step the text schedules for after a release, such as "then run" or "backfill once it ships", beside the line naming it; a feature merely named, such as a backfills page or a pass box, is none, and so is a step the text rules out, as "nothing has to run once it ships" does."""
     found = []
     for match in LATER_STEP.finditer(text):
         if NEGATION.search(CLAUSE_END.split(text[: match.start()])[-1]):

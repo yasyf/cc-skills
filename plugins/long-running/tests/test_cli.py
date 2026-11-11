@@ -886,6 +886,12 @@ def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_se
         ("The new column ships empty; then run the fill from a pass box.", "", 'but it says "then run" in'),
         ("Every target reads both shapes, so any order is safe.", "- **Install:** merge, then backfill after the deploy\n", 'but it says "then backfill" in "- **Install:** merge'),
         ("Every target reads both shapes, so any order is safe.", "## Risk\nIt needs no backfill and no pass box.\n", ""),
+        (
+            "Every target reads both shapes, and nothing has to run once it ships.",
+            "## Risk\nOnly the `backfill-runner` account, holding `backfills:run`, starts one from a pass box, and each run shows on the admin backfills page.\n",
+            "",
+        ),
+        ("Every target reads both shapes.", "## Risk\nRun the backfill once it ships.\n", 'but it says "Run the backfill once it ships" in'),
         ("Every target reads both shapes, so any order is safe.", "PROVE: after release, open the run page and see its steps\n", ""),
         ("Every target reads both shapes.", "```\nINSTALL: drive install x\nthen run fill\n```\n", ""),
     ],
