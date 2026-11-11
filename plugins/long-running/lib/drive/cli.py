@@ -20,6 +20,10 @@ REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
+TOLD_LINK = (
+    "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink,"
+    " which `cc-slack check-post` refuses."
+)
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
@@ -441,7 +445,8 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     if not args.told:
         raise DriveError(
             f"{args.id} works on incident {', '.join(incidents)}: a card that blocks it is said in the incident's thread at once, a line"
-            " linking the card with what it blocks and the recommended option the job builds on meanwhile; post that line, then pass --told <its link>"
+            " linking the card with what it blocks and the recommended option the job builds on meanwhile; post that line, then pass --told <its link>."
+            f" {TOLD_LINK}"
         )
     posted, _ = slack.message_and_root(args.told)
     threads = [where[1] for order_id in incidents if (where := state.promise_thread(data, data["orders"][order_id]))]
@@ -450,7 +455,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     found = view.live_cards(name) or view.NO_CARDS
     linked = set(view.SLACK_TS.findall(posted.get("text") or ""))
     if unlinked := [card for card in cards if view.message_key(view.wait_entry(data, card, found)["url"] or card) not in linked]:
-        raise DriveError(f"--told {args.told} does not link {', '.join(unlinked)}: the line links each card that blocks the incident")
+        raise DriveError(f"--told {args.told} does not link {', '.join(unlinked)}: the line links each card that blocks the incident. {TOLD_LINK}")
 
 
 def shown_card(name: str, url: str) -> dict | None:

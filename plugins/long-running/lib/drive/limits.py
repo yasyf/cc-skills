@@ -16,6 +16,11 @@ SUMMARY_LINES = 3
 OPTION_COUNT = range(2, 5)
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
+FROM_ASK = (
+    " A question card is posted exactly as `drive job card <its ask file> --waits {waits}` prints it, never put together by hand:"
+    " fix its words in the ASK block and keep it again with `drive job ask`."
+)
+PERMISSION_WAITS = "slack:"
 LINKS_RULING = 'his Nov 10 4:36 PM words "never mention somehting and expect me to go look it up myself"'
 PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes,disk` for everything"'
 LIBRARY_RULING = 'his Nov 10 9:58 PM words "buold out a libary of difernetg visualizaions … and then use the approporiuate one each time"'
@@ -58,9 +63,9 @@ NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
 DRIVE_KINDS = ("PR", "card")
-DETERMINERS = r"the|this|that|these|those|its|his|her|their|our|your|my"
+DETERMINERS = r"the|these|those|its|his|her|their|our|your|my"
 FILLER = (
-    rf"(?!(?:{DETERMINERS}|will|would|can|could|should|must|may|might|to|which|who|and|or|but|not|never|next|is|are|was"
+    rf"(?!(?:{DETERMINERS}|this|that|a|an|will|would|can|could|should|must|may|might|to|which|who|and|or|but|not|never|next|is|are|was"
     r"|were|be|been|has|have|had|does|did|do|it|in|on|of|for|with|at|by|from|as|so|then|also)\b)[\w-]+(?:['’]s)?"
 )
 POSSESSIVE = r"[\w-]+['’]s"
@@ -68,10 +73,16 @@ COUNT = r"(?:\d+|one|two|three|four|five|six|both|several)"
 COMPOUND = (
     r"(?![ \t]+(?:checks?|steps?|buttons?|notes?|tooling|scripts?|rules?|lanes?|queues?|times?|ids?|numbers?|names?"
     r"|branch(?:es)?|caches?|process(?:es)?|paths?|pipelines?|box(?:es)?|machines?|tools?|systems?|commands?|flows?"
-    r"|trains?|gates?|press|hooks?|jobs?|targets?|modes?|flags?|settings?|channels?)\b)"
+    r"|trains?|gates?|press|hooks?|jobs?|targets?|modes?|flags?|settings?|channels?|freezes?|skills?)\b)"
 )
-NAMED = re.compile(rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?(?:{KINDS})\b{COMPOUND}", re.IGNORECASE)
-KIND = re.compile(rf"\b(?:{KINDS})\b", re.IGNORECASE)
+NAMED = re.compile(rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?(?:{KINDS})(?![-\w]){COMPOUND}", re.IGNORECASE)
+KIND = re.compile(rf"\b(?:{KINDS})(?![-\w])", re.IGNORECASE)
+MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\((https?://[^)\s]+)\)")
+FENCED = re.compile(r"^[ \t]*```.*?^[ \t]*```[^\n]*$", re.MULTILINE | re.DOTALL)
+MASK = "\x00"
+CLAUSE_BREAK = re.compile(r"[.;:,!?]+(?=\s|$)|\n")
+NOT_YET = re.compile(r"\b(?:yet|(?:is|comes|goes) next|being (?:written|built)|when it opens|goes up|lands here|waits on)\b", re.IGNORECASE)
+GENERIC = re.compile(r"\b(?:every|each|any|such|all)\s+$", re.IGNORECASE)
 LINK = re.compile(r"<[^<>|]+\|([^<>]*)>")
 NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECASE)
 MARKUP = re.compile(
@@ -167,7 +178,9 @@ def card_words(card: dict) -> int:
 
 
 def card_refusal(card: dict, beside: str) -> str | None:
-    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it, so a drive's question card, whose words `drive job ask` kept and counted, carries none."""
+    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it, so a drive's question card, whose words `drive job ask` kept and counted, carries none. A cc-slack permission card, its waits `slack:…`, holds the whole post it asks to send and keeps no limit."""
+    if (card.get("waits") or "").startswith(PERMISSION_WAITS):
+        return None
     options = card.get("options") or []
     long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     body = card.get("body") or ""
@@ -175,7 +188,7 @@ def card_refusal(card: dict, beside: str) -> str | None:
     if drawn and card.get("drive") and card.get("waits"):
         return (
             f"refused: this post's text is {words(beside)} words cc-slack draws atop the card, and a drive's question card carries"
-            " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text."
+            " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text." + from_ask(card)
         )
     count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, what he gets and what it costs: {', '.join(long)}"] if long else []
@@ -186,7 +199,13 @@ def card_refusal(card: dict, beside: str) -> str | None:
         )
     if not problems:
         return None
-    return f"refused: {'; '.join(problems)} ({READING})."
+    return f"refused: {'; '.join(problems)} ({READING})." + from_ask(card)
+
+
+def from_ask(card: dict) -> str:
+    """How a drive's question card, one with a waits id that is no cc-slack permission card's, is redrawn once its words are fixed."""
+    waits = card.get("waits") or ""
+    return FROM_ASK.format(waits=waits) if waits and not waits.startswith(PERMISSION_WAITS) else ""
 
 
 def question(text: str, kept: bool = False) -> Question:
@@ -472,32 +491,56 @@ def held(data: dict, order: str | None) -> tuple[str, ...]:
 
 
 def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> list[str]:
-    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot: `linked` lines draw `<url|label>` links, and what `plain` lines name, a card's title and options, which draw as plain text, is linked in a `linked` line by words naming the same kind of thing. A plain noun, such as a thread, a fix or a release, names nothing the drive opens."""
+    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it is not there or not there yet."""
     labels = [label for line in linked for label in LINK.findall(line)]
     linked_kinds = {kind(found) for label in labels for found in KIND.findall(label)}
-    problems = [
-        f'the link <…|{label}> says only a number; its text says what it is, such as what the change does' for label in labels if NUMBER_LABEL.fullmatch(label)
+    markdown = [found for line in linked for found in MARKDOWN_LINK.finditer(FENCED.sub(" ", line))]
+    problems = [f'"{found[0]}" is a markdown link, and Slack draws no [label](url) link: write <{found[2]}|{found[1]}>' for found in markdown]
+    problems += [
+        f'the link <…|{label}> says only a number; its text says what it is, such as what the change does'
+        for label in [*labels, *(found[1] for found in markdown)]
+        if NUMBER_LABEL.fullmatch(label)
     ]
     for lines, is_plain in ((linked, False), (plain, True)):
-        bare = [QUOTED.sub(" ", URL.sub(" ", TOKEN.sub(" ", line))) for line in lines]
-        problems += [
-            f'"{number}" is a number he cannot open; link it by what it is, such as <https://github.com/…/pull/53618|the fix that adds the update button>'
-            for line in bare
-            for number in PR_NUMBER.findall(line)
-        ]
-        for line in bare:
-            for found in dict.fromkeys(match.group() for match in NAMED.finditer(line)):
-                named = KIND.findall(found)[-1]
-                if kind(named) not in kinds:
+        for line in lines:
+            bare = masked(line)
+            problems += [
+                f'"{number}" is a number he cannot open; link it by what it is, such as <https://github.com/…/pull/53618|the fix that adds the update button>'
+                for number in PR_NUMBER.findall(bare)
+            ]
+            for match in NAMED.finditer(bare):
+                found, named = match[0], KIND.findall(match[0])[-1]
+                if kind(named) not in kinds or kind(named) in linked_kinds or GENERIC.search(bare, 0, match.start()):
                     continue
-                if not is_plain:
-                    problems.append(f'"{found}" names something he could open with no link there; put those words in its link, <url|{found}>, so he opens it where it is named ({LINKS_RULING})')
-                elif kind(named) not in linked_kinds:
+                read, written = clause(line, bare, match.start(), match.end())
+                if NEGATION.search(read) or NOT_YET.search(read):
+                    continue
+                if is_plain:
                     problems.append(
                         f'"{found}" in the question or an option names something he could open, and those draw no links; link it in the summary'
                         f" or a Show me caption, its link text naming the {named} ({LINKS_RULING})"
                     )
-    return problems
+                else:
+                    where = f', in "{written}"' if written != found else ""
+                    problems.append(
+                        f'"{found}" names something he could open with no link there{where}; put those words in its link, <url|{found}>, so he'
+                        f" opens it where it is named ({LINKS_RULING})"
+                    )
+    return list(dict.fromkeys(problems))
+
+
+def masked(line: str) -> str:
+    """The line with each code fence, link, URL and quote blanked to as many marks, so no phrase runs across one and every other word keeps its place."""
+    for pattern in (FENCED, MARKDOWN_LINK, TOKEN, URL, QUOTED):
+        line = pattern.sub(lambda found: MASK * len(found[0]), line)
+    return line
+
+
+def clause(line: str, bare: str, start: int, end: int) -> tuple[str, str]:
+    """The clause around a span of the line: its masked words, which the checks read, and its words as written, which a refusal quotes."""
+    begin = max((found.end() for found in CLAUSE_BREAK.finditer(bare, 0, start)), default=0)
+    stop = next((found.start() for found in CLAUSE_BREAK.finditer(bare, end)), len(bare))
+    return bare[begin:stop], " ".join(line[begin:stop].split())
 
 
 def later_steps(text: str) -> list[tuple[str, str]]:
@@ -551,4 +594,4 @@ def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
         problems = unlinked([post.get("text") or ""], [], kinds)
     if not problems:
         return None
-    return "refused: " + "; ".join(problems) + "."
+    return "refused: " + "; ".join(problems) + "." + (from_ask(card) if card else "")

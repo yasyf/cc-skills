@@ -55,6 +55,17 @@ def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothi
     assert posts[0][-1] == "<https://github.com/Forge-AI/monorepo/pull/7|Forge-AI/monorepo#7>"
 
 
+def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(demo: str, posts: list[tuple[str, ...]]) -> None:
+    settled = "https://acme.slack.com/archives/D123/p1794300000000500"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp(), card=settled) | {"waits": "demo:j1-6"})
+    talk.say(demo, {"text": "I withdrew {card:demo:j1-6}: the redesign settles it."})
+    assert posts[0][-1] == f"I withdrew <{settled}|Keep the old store?>: the redesign settles it."
+    with pytest.raises(DriveError, match=r"\{card:demo:j1-5\} names no card the drive drew"):
+        talk.say(demo, {"text": "see {card:demo:j1-5}"})
+
+
 def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_source(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

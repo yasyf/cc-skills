@@ -351,7 +351,9 @@ def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_n
     with state.edit("demo") as data:
         data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(10)}
     say = call("slack_dm_status", transcript, text=said(55) + " {pr:7}") | {"tool_name": message_limits.SAY}
-    assert "65 words" in message_limits.deny_reason(say)
+    refusal = message_limits.deny_reason(say)
+    assert "65 words" in refusal
+    assert refusal.endswith(" 10 of the words counted are the titles its {card:…} and {pr:…} references draw as their links' words.")
     unknown = call("slack_dm_status", transcript, text="see {card:demo:j9-1}") | {"tool_name": message_limits.SAY}
     assert "{card:demo:j9-1} names no card" in message_limits.deny_reason(unknown)
 
@@ -368,8 +370,23 @@ def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(ta
     assert too_long == (
         "refused: this card is 151 words, and a question with its summary and options is at most 150 words in all; its Show"
         " me goes under a `*Show me*` line in the body, drawn whole and not counted (the coordinator's reading of his Nov 9"
-        ' 9:33 PM words "your messages need to be way shorter rewrite this for a human").'
+        ' 9:33 PM words "your messages need to be way shorter rewrite this for a human"). A question card is posted exactly as'
+        " `drive job card <its ask file> --waits demo:j1-7` prints it, never put together by hand: fix its words in the ASK"
+        " block and keep it again with `drive job ask`."
     )
+
+
+def test_a_cc_slack_permission_card_carries_the_whole_post_it_asks_to_send(talker: str, transcript: Path) -> None:
+    card = {
+        "status": "needs_you",
+        "title": "Post this in the #proj-rollout thread?",
+        "body": said(155),
+        "options": ["Yes", "No"],
+        "recommended": "Yes",
+        "waits": "slack:C0B75AL4XEW:1794292257.690249:0123456789ab",
+    }
+    assert posted(transcript, card=card) is None
+    assert posted(transcript, card=card | {"waits": "demo:j1-7"}).startswith("refused: this card is 163 words")
 
 
 def test_the_answer_to_how_it_got_into_a_bad_state_goes_out_whole(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -387,6 +404,7 @@ def test_the_answer_to_how_it_got_into_a_bad_state_goes_out_whole(talker: str, b
         f"{WHY_TWO_PLACES} / {STILL_NO_SENSE.strip()}",
         f'"{WHY_TWO_PLACES}"\n"{STILL_NO_SENSE.strip()}"',
         [WHY_TWO_PLACES, STILL_NO_SENSE],
+        json.dumps([WHY_TWO_PLACES, STILL_NO_SENSE]),
     ],
 )
 def test_an_answer_to_two_of_his_messages_names_both_as_asked(
@@ -609,8 +627,8 @@ def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str
     holds_pr("o1")
     refusal = posted(transcript, text=TEAMMATES_PR)
     assert refusal.startswith(
-        "refused: \"teammate's PR\" names something he could open with no link there; put those words in its link,"
-        " <url|teammate's PR>, so he opens it where it is named"
+        "refused: \"teammate's PR\" names something he could open with no link there, in \"A teammate's PR landed at 2:12 PM"
+        " today\"; put those words in its link, <url|teammate's PR>, so he opens it where it is named"
     )
     assert '"never mention somehting and expect me to go look it up myself"' in refusal
     assert posted(transcript, text=JOSHS_PR) is None
@@ -647,9 +665,60 @@ def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_posts_order_
     holds_pr("o2")
     assert say(transcript, text=first, order="o1") is None
     assert say(transcript, text=first, order="o2").startswith(
-        'refused: "the first PR" names something he could open with no link there; put those words in its link, <url|the first PR>'
+        'refused: "the first PR" names something he could open with no link there, in "Once the first PR lands"; put those words'
+        " in its link, <url|the first PR>"
     )
     assert say(transcript, text=first).startswith('refused: "the first PR" names something he could open')
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "*The PR is up and green: <https://github.com/Forge-AI/monorepo/pull/53618|the update-button PR>*",
+        "<https://github.com/Forge-AI/monorepo/pull/53618|The update-button PR> is green; that PR lands on your tap.",
+        "Its API is next: its PR goes up first.",
+        "The first PR is not open yet.",
+        "Josh's <https://github.com/Forge-AI/monorepo/pull/53618|update-button> PR landed.",
+        "The PR-review bot posted twice, and the PR freeze holds.",
+        "That waits a PR.",
+        "Every engineer's pull request gets a check.",
+        "The run prints:\n```\nthe first PR lands\n```",
+    ],
+)
+def test_a_mention_the_post_links_or_that_names_nothing_to_open_needs_no_link(talker: str, transcript: Path, text: str) -> None:
+    holds_pr("o1")
+    assert posted(transcript, text=text) is None
+
+
+def test_a_phrase_said_twice_is_refused_at_each_clause_and_once_across_a_cards_options(talker: str, transcript: Path) -> None:
+    holds_pr("o1")
+    refusal = posted(transcript, text="The first PR lands today. The alerts stop once the first PR is live.")
+    assert '"The first PR" names something he could open with no link there, in "The first PR lands today";' in refusal
+    assert '"the first PR" names something he could open with no link there, in "The alerts stop once the first PR is live";' in refusal
+    card = {"title": said(5), "body": said(20), "options": ["Keep their PR (recommended)", "Close their PR"], "waits": "demo:j1-7"}
+    assert posted(transcript, card=card).count('"their PR" in the question or an option') == 1
+
+
+def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_read(talker: str, transcript: Path, checked: Checked) -> None:
+    holds_pr("o1")
+    checked.findings = ["1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"]
+    text = said(61) + " Once the first PR lands, the alerts stop."
+    refusal = posted(transcript, text=text, thread_ts="1.2")
+    assert refusal.startswith("refused, 3 ways; fix each, then post the fixed words once:\n1. this post is 69 words")
+    assert '\n2. "the first PR" names something he could open with no link there' in refusal
+    assert "\n3. `cc-slack check-post` finds this in the post's exact words" in refusal
+    assert posted(transcript, text=text, thread_ts="1.9").startswith("refused: your transcript shows no read of his thread 1.9")
+
+
+def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str, transcript: Path, checked: Checked) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/4242"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
+    checked.findings = ['1:1 waits-without-card "Ready for your tap: the backfill runs as a service account": link the card']
+    text = "Ready for your tap: the backfill runs as a service account."
+    assert posted(transcript, text=text, tap_prs=[url]) is None
+    assert posted(transcript, text=text, card={"title": said(5), "body": text, "options": ["Yes", "No"], "waits": "demo:j1-7"}) is None
+    assert "waits-without-card" in posted(transcript, text=text)
 
 
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
@@ -678,7 +747,9 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
     assert posted(transcript, card=card) is None
     assert posted(transcript, card=card, text="Question: what must prove each moved copy is whole before the 30 frozen copies are deleted?") == (
         "refused: this post's text is 16 words cc-slack draws atop the card, and a drive's question card carries only the words"
-        " of the ASK block `drive job ask` kept and counted: post the same card with no text."
+        " of the ASK block `drive job ask` kept and counted: post the same card with no text. A question card is posted exactly"
+        " as `drive job card <its ask file> --waits demo:j620-660354` prints it, never put together by hand: fix its words in"
+        " the ASK block and keep it again with `drive job ask`."
     )
     assert posted(transcript, card=card, text=asked.summary[0]) is None
 
@@ -729,6 +800,17 @@ def test_markdown_or_a_link_in_a_cards_title_or_an_option_is_refused_since_slack
     for kept in (False, True):
         with pytest.raises(DriveError, match=re.escape(f'holds "{found}", which Slack draws as raw text')):
             limits.question(block, kept=kept)
+
+
+def test_a_markdown_link_in_a_summary_is_refused_with_the_slack_link_to_write() -> None:
+    linked = "[the first PR](https://github.com/Forge-AI/monorepo/pull/53519)"
+    with pytest.raises(DriveError) as refused:
+        limits.question(WATCHDOG_ASK.replace(f"<{HIS_PICK}|Your Nov 9 pick>", f"{linked}, beside your Nov 9 pick,"))
+    assert (
+        f'"{linked}" is a markdown link, and Slack draws no [label](url) link: write <https://github.com/Forge-AI/monorepo/pull/53519|the first PR>'
+        in str(refused.value)
+    )
+    assert "names something he could open" not in str(refused.value)
 
 
 def test_a_show_me_table_row_is_no_caption_and_runs_past_25_words() -> None:

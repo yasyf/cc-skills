@@ -32,7 +32,7 @@ question or order of his carries the whole answer, at any length: what he asked,
 or his tap on Explain more, which the handler's brief quotes. On Nov 10 between 3:50 and 3:56 AM his
 "figure out how it got into a bad state" lost its answer four times to the 60-word cap. The call
 passes as `asked` each message of his the post answers, word for word, one per line or one list
-entry each, with `…` where it skips words. The hook finds each in a message of his in the thread
+entry each, a list a tool sends as a JSON string read as its entries, with `…` where it skips words. The hook finds each in a message of his in the thread
 the post goes to, read from Slack, or in the handler's brief, with curly and straight quote marks
 alike, and one found quote is enough: on Nov 10 at 4:37 AM the 236-word answer to "What’s wrong
 with how it is now?" was cut to 59 words, and that question stood in another thread than his
@@ -72,7 +72,7 @@ limit".
   "fucking say what it is jesus" and "why the fuckl di yuou think it was acceptbale to send the last
   message and omit that". The line says what each PR serves: the order of his it carries
   out, in his words, "port of #N", or "Drive tooling:" and what it unblocks. Anything else goes in by what
-  it is, never by a name he has not used himself, such as a pipeline step, an id or a function name.
+  it is, never by a name he has not used himself, such as a pipeline step or an id.
   Name only what the message needs, and no mechanism he did not ask about.
 - Every card and line in a feature's thread is about that feature. Drive tooling, such as a fix to
   the launcher its builders start from, goes at his DM root under its own words, never in the
@@ -136,8 +136,10 @@ limit".
   5:24 PM: "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at
   the whims of an agent".
 - No post in his DM goes out unchecked. The hook runs `cc-slack check-post` on the exact words of
-  each post and edit, the ack's included, and refuses one it flags. A handler's new line in his
-  thread also waits for that handler's own read of the thread in the last 10 minutes.
+  each post and edit, the ack's included, and refuses one it flags. A post that draws a card, or a
+  PR's tap card through `tap_prs`, carries the card its words say waits on him, so check-post's
+  `waits-without-card` finding is dropped for it. A handler's new line in his thread also waits
+  for that handler's own read of the thread in the last 10 minutes.
 
 ## The shapes
 
@@ -353,12 +355,14 @@ Nothing to post; a line that says where things stand links it.
 - **What changed for him first.** "You can now tap Approve on any open PR card and it lands"
   beats "the rule that pulled your card when checks went red is merged and gone".
 - **His names, not ours.** A thing goes in by what it is, in plain words, unless he has used its
-  name himself. A pipeline step, a job, record, card or row id, a hash, a lane, a plan step, a file,
-  table or function name and a code identifier are our names, so each is replaced, never quoted as
-  it stands in a record or a log: "waiting on a manual roll press" becomes "waiting for the button a
-  person must press before a customer cluster's changes go out". His words, Nov 10 1:03 PM, under a
-  line that said the first: "I dunno what a roll press is". A product or tool he uses keeps its name
-  in backticks. Only what the message needs goes in, and no mechanism he did not ask about.
+  name himself. A pipeline step, a job, record, card or row id, a hash, a lane and a plan step are
+  our names, so each is replaced, never quoted as it stands in a record or a log: "waiting on a
+  manual roll press" becomes "waiting for the button a person must press before a customer
+  cluster's changes go out". His words, Nov 10 1:03 PM, under a line that said the first: "I dunno
+  what a roll press is". A product or tool he uses keeps its name in backticks. A function,
+  syscall, file, path, table or other technical thing is no name of ours: it goes in by its proper
+  term, by his words, Nov 11 12:36 AM: "use the proper fucking terms for things". Only what the
+  message needs goes in, and no mechanism he did not ask about.
 - **It stands alone.** He reads every line with no other context, so assume he has none. His
   words, Nov 9 9:12 PM: "What is the sixteenth? You say it with no context you always have to
   assume I don't have any other context". A number, fraction, size or ratio says what it
@@ -382,7 +386,12 @@ Nothing to post; a line that says where things stand links it.
   message names is linked the same way, never dropped to keep to one. A card's title and options
   draw no links, so whatever they name is linked in its summary or a Show me caption. `drive job
   ask` and this plugin's hook refuse an `ASK` or a post that names such a thing with no link there,
-  and say which words.
+  and say which words and the clause they sit in. A link whose words name its kind, such as
+  `<url|the update-button PR>`, covers the message's other mentions of that kind, such as "that
+  PR". A mention inside a code fence, a generic one such as "every engineer's PR", and one in a
+  clause saying it is not there or not there yet, such as "its PR goes up first" or "no PR is open
+  yet", name nothing to link. Slack draws no `[label](url)` link, so the check refuses one and
+  shows the `<url|label>` to write.
 - **Numbers over adjectives.** "129 of 476 passed, up from 100" beats "much better".
 - **Answer his next question in the same message**: why, did he already decide this, is it a
   port, what comes after, why it is held.
@@ -488,9 +497,11 @@ GET 2 page ranges
 ## Before it goes out
 
 The hook passes the exact words of every post through `cc-slack check-post` and counts them as they
-go out. A post it flags, one over its limit, or a handler's post naming something he could open
-with no link there comes back refused with what to fix, and a handler's line in his thread comes
-back until that handler has read the thread. Then the handler
+go out. A handler's line in his thread comes back until that handler has read the thread. Past that
+read, every other check runs, and a post check-post flags, one over its limit, one naming something
+he could open with no link there, or one asking a tap that is not owed comes back once, with every
+finding and what to fix. A `say` post counts the words of each `{card:}` and `{pr:}` title it links,
+and its length refusal says how many of them those titles are. Then the handler
 reads it as he will, on a phone, with no context: does he know what changed, whether he
 must act, and when he hears next, does every number, term and reference in it make sense with
 nothing else open, and does each thing it names that he could open carry its link right there?

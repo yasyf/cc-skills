@@ -16,7 +16,7 @@ def resolved(name: str, text: str) -> dict[str, dict]:
             continue
         if match[1] == "card":
             cards = cards or open_cards(name)
-            found[match[0]] = card(cards, match[2])
+            found[match[0]] = card(cards, state.load(name), match[2])
         else:
             found[match[0]] = pr(state.load(name)["prs"], match[2])
     return found
@@ -30,13 +30,16 @@ def open_cards(name: str) -> list[dict]:
     return [*listed["questions"], *listed["pr_cards"]]
 
 
-def card(cards: list[dict], waits: str) -> dict:
-    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens the queue it waits in."""
+def card(cards: list[dict], data: dict, waits: str) -> dict:
+    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens the queue it waits in. A question card he answered or the drive withdrew keeps its permalink, so it is found among the questions the drive drew."""
     for entry in reversed(cards):
         if entry["card"].get("waits") == waits:
             queue = "tap" if waits.startswith("merge:") else "question"
             return {"kind": "card", "title": entry["card"]["title"], "url": entry["url"], "board": f"#/queue/{queue}"}
-    raise DriveError(f"{{card:{waits}}} names no card of the drive's; `cc-slack drive-cards --drive <drive>` lists each card's waits id")
+    for question in (question for job in data["jobs"].values() for question in reversed(job["questions"])):
+        if question["waits"] == waits and question["card"]:
+            return {"kind": "card", "title": question["title"] or "his question card", "url": question["card"], "board": "#/queue/question"}
+    raise DriveError(f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive>` lists each open card's waits id")
 
 
 def pr(prs: dict, ref: str) -> dict:

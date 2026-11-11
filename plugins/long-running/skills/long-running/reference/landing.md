@@ -26,8 +26,9 @@ itself.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A repository
   whose title check demands `fix:` or `feat:` keeps it; the card reads either.
 - Body sections, in this order. His card is drawn from them: fix the body, never the card. Each is
-  plain words for him: no record ids (cc-notes, cci, job or order ids), hashes, file paths or code
-  identifiers; a sentence carrying a record id is dropped from his card. Each stands alone, since he
+  plain words for him: no record ids (cc-notes, cci, job or order ids) or hashes, while a function,
+  syscall, file or path goes in by its proper term, by his words, Nov 11 12:36 AM: "use the proper fucking terms for things";
+  a sentence carrying a record id is dropped from his card. Each stands alone, since he
   reads it with no other context: a number, fraction, size or ratio says what it measures, why that
   value, and gives one example; a mechanism gets one plain sentence before it is used; nothing
   points at a list, finding, thread or PR the card does not show. Not "reads each journal file's
