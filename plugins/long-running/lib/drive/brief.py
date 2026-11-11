@@ -1,7 +1,7 @@
 import re
 from pathlib import Path
 
-from drive import card, limits, state
+from drive import limits, state
 from drive.render import cut
 
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
@@ -226,8 +226,6 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "builder" and opening == "DONE":
         return unproven(text)
-    if job["kind"] == "builder" and opening == "READY" and (sections := untappable(lines[0], he_sees(text))):
-        return f"the PRs it names would draw no tap card: {sections}"
     if not (job["kind"] == "builder" and opening == "READY" and order["kind"] == "build") or order["incident"]:
         return None
     found = research(name, data, job["order"])
@@ -306,14 +304,6 @@ def left_steps(text: str) -> str | None:
 def left_for(line: str) -> bool:
     """Whether the line leaves a step for another session to run, a step its clause rules out, as "no coordinator runs it" does, aside."""
     return any(not limits.NEGATION.search(limits.CLAUSE_END.split(line[: found.start()])[-1]) for found in LEFT_FOR.finditer(line))
-
-
-def untappable(first: str, visual: bool) -> str:
-    """Why the tap cards of the drive PRs a READY line names, those waiting on his tap, would be refused, each stack they form checked on its own as drive card groups them, a change he sees needing a before and an after screenshot on each card, or "" when each draws."""
-    known = card.drive_prs()
-    keys = [key for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(first)) if key in known and known[key][1]["wants_tap"]]
-    reads = card.read_all(known, keys)
-    return "; ".join(reason for chain in card.chains(keys, reads) if (reason := card.tap_refusal(known, chain, reads, visual)))
 
 
 def he_sees(text: str) -> bool:

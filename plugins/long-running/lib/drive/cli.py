@@ -759,9 +759,6 @@ def job_add(args: argparse.Namespace) -> int:
         refuse_a_local_builder(state.load(name), args.repo)
     if args.waits and args.agent:
         raise DriveError("--waits records a job whose agent starts on the watch's FREE line once its reader returns, so it takes no --agent")
-    if args.checks and args.kind != "reader":
-        raise DriveError("--checks starts his-words check on a PR's head, which only a reader runs")
-    heads = {key: github_pr(key)["headRefOid"] for key in map(state.pr_key, args.checks)}
     if args.lands and args.kind != "builder":
         raise DriveError("--lands names the PRs a builder lands, which only a builder does")
     lands = list(dict.fromkeys(map(state.pr_key, args.lands)))
@@ -786,12 +783,9 @@ def job_add(args: argparse.Namespace) -> int:
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
-            "checks": heads,
         }
         if args.waits:
             job.update(state="waiting", waits=args.waits, said=f"waits on reader {', '.join(args.waits)}")
-        for key, head in heads.items():
-            find(data["prs"], key, "drive PR")["check"] = {"job": job_id, "head": head, "at": created}
         order["jobs"].append(job_id)
         order["updated"] = created
     waiting = [f"{job_id} waits on {', '.join(args.waits)}: start no agent for it until the watch's FREE line says the reader returned"] if args.waits else []
@@ -1639,15 +1633,13 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def pr_add(args: argparse.Namespace) -> int:
-    from drive import card, view
+    from drive import view
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     url = state.pr_url(key)
     if args.no_tap and not args.why:
         raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling outside Forge-AI")
-    if exposed := card.exposure(key):
-        raise DriveError(f"{key}: {exposed}")
     read = github_pr(key)
     refuse_an_unkinded_title(key, read, args.port_of)
     known = state.load(name)
@@ -1872,11 +1864,11 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.port_of:
         pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
     if args.tap is not None:
-        pr.update(wants_tap=args.tap, ready_said=None, pulled=None)
+        pr.update(wants_tap=args.tap, ready_said=None)
     if args.serves or args.design:
         pr["ready_said"] = None
     if args.fundamental:
-        pr.update(fundamental=args.fundamental, tap=None, exempt=None, ready_said=None, pulled=None)
+        pr.update(fundamental=args.fundamental, tap=None, exempt=None, ready_said=None)
     if args.exempt:
         pr["exempt"] = args.exempt
     if args.no_exempt:
@@ -1901,7 +1893,7 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
         return
     known[key] = (name, after)
     members = after.get("stack") or [key]
-    if reason := card.waiting(known, members) or card.tap_refusal(known, members, card.read_all(known, members)):
+    if reason := card.waiting(known, members) or card.oversized(known, members):
         raise DriveError(f"{key}: {reason}")
 
 
@@ -2706,7 +2698,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
-    verb.add_argument("--checks", action="append", default=[], metavar="PR", help="a reader's PR to check, its head now stamped on the reader")
     verb.add_argument(
         "--lands",
         action="append",
@@ -3009,7 +3000,7 @@ def parser() -> argparse.ArgumentParser:
             " leaves as it is, --superseded for one it replaces, which settles its card in place showing his words and a"
             " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
             " folds what the job carries into the live job named, and --reopened for a PR his words change, which drops his"
-            " tap on it, marks it not ready with his words until a reader's READY passes the rework, redraws each open card"
+            " tap on it, marks its head with his words so no card asks his tap until the rework is pushed, redraws each open card"
             " carrying it in place, a stack card's Approve and Hold kept for its other PRs, and names the live job that"
             " reworks it; --sent for a waiting job"
             " SendMessage gave his words verbatim, and --untouched for one they leave as it is. --others-stand marks the"
@@ -3044,7 +3035,7 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         type=reopened_mark,
         metavar="KEY=JOB",
-        help="a PR his answer changes: his tap on it dropped, marked not ready with his words until a reader's READY passes the rework, its cards redrawn in place, and the live job named reworks it to his words",
+        help="a PR his answer changes: his tap on it dropped, its head marked with his words so no card asks his tap until the rework is pushed, its cards redrawn in place, and the live job named reworks it to his words",
     )
     verb.add_argument(
         "--others-stand",

@@ -70,7 +70,7 @@ state and said line of every job but a codex job:
 
 | First line | The job's state |
 |---|---|
-| `DONE`, or a reader's answer, its `READY` or `NOT READY` on a PR included | done; a reader's verdict stays on each PR it names, at the head `drive job add --checks` recorded, until a later reader's verdict replaces it |
+| `DONE`, or a reader's answer | done |
 | `READY` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |

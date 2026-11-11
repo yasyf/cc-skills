@@ -63,14 +63,7 @@ defect is behind it>`. His ruling: "Update your skill to not just brush over the
 incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
 picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
 report` refuses a `DESIGN` without it. Start no other line with `- `, since
-`drive job report` counts each as an option. A check of a PR for the coordinator's `READY` row opens
-`READY <pr url>…` when every step it checks matches, or `NOT READY <pr url>…: <what fails>`, several
-verdicts joined by `; `, each naming before its `: ` only the PRs it judges, since the drive keeps each
-verdict on the PRs named there at the head your job was started on, which `drive job add --checks`
-recorded, so judge that head. A NOT READY pulls Approve from his card on that PR and refuses its
-`ready` records, tap cards and `drive pr set --serves` until a later reader's `READY` passes its head:
-its builder reworks it, and a reader then checks the new head. An Approve he gave before your verdict
-stands. Any other report opens `DONE`, and `drive job report`
+`drive job report` counts each as an option. Any other report opens `DONE`, and `drive job report`
 refuses one naming a limit beside a number left as is, unchanged, hit or exceeded, such as "the bucket
 caps at 5k objects/s, left as is": that finding is a `DESIGN`. Only your own words count, so a quote,
 code or link you cite as evidence, such as a GitHub rate-limit refusal quoted on a `Measured:` line,

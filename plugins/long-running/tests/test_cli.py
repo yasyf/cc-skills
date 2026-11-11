@@ -2311,57 +2311,12 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
 
 
-def test_a_builders_ready_names_prs_whose_tap_card_draws(
+def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
-    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
-    assert code == 2
-    assert f"j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"What you'll hate most\" section in the body of {PR}" in err
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
-    on_github["body"] = CARD_BODY
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
-
-
-def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_screenshot_on_its_card_kept_where_the_drive_keeps_pictures(
-    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seen = f"READY {PR}\nNATIVE: the Iris app's run page\n"
-    pictures = state.root() / "demo" / "pictures"
-    before, after = f"![1 · Before, dev]({pictures}/j779-run-page-before-de31bf9.png)\n", f"![2 · After, this PR]({pictures}/j779-run-page-after-e3aefbd.png)\n"
-    for show_me, alone in (("", False), (f"## Show me\n{before}", True)):
-        on_github["body"] = CARD_BODY + show_me
-        code, err = keep(monkeypatch, capsys, "j1", seen)
-        said = " ".join(err.split())
-        assert (code, card.SCREENSHOTS in said, 'the Show me picture "1 · Before, dev" is a file drawn by hand' in said) == (2, True, alone)
-    on_github["body"] = CARD_BODY + f"## Show me\n{before}{after}"
-    assert keep(monkeypatch, capsys, "j1", seen) == (0, "")
-    on_github["body"] = CARD_BODY
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nNATIVE: none: he never sees it\n") == (0, "")
-
-
-def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
-    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    other = PR.removesuffix("42") + "43"
-    run("pr", "add", other, "--job", "j1")
-    branches = {"42": ("main", "land-it"), "43": ("land-it", "land-more")}
-
-    def gh(cmd: list[str], **_: str) -> str:
-        if cmd[1] == "api":
-            return "[]"
-        base, head = branches[cmd[3]]
-        return json.dumps(on_github | {"url": PR.removesuffix("42") + cmd[3], "baseRefName": base, "headRefName": head})
-
-    monkeypatch.setattr(card, "run", gh)
-    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n")
-    assert code == 2
-    assert (
-        "j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"The stack\" section with the"
-        f" stack's one-line title then its summary in the body of {PR}"
-    ) in err
-    branches["43"] = ("main", "land-more")
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n") == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
 
 
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
@@ -2541,37 +2496,6 @@ def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, dem
     assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
     pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
     assert (pr["port_of"], pr["exempt"], pr["wants_tap"], state.owed_step(pr)) == (51234, "pure port", False, "landing")
-
-
-def test_job_add_reader_checks_stamps_the_prs_head_on_the_reader_and_its_card_check(run: Run, with_pr: str, on_github: dict) -> None:
-    on_github["headRefOid"] = "def5678"
-    code, out = run("job", "add", "reader", "--order", "o1", "--goal", "his words", "--checks", PR)
-    job_id = out.splitlines()[0]
-    data = state.load("demo")
-    assert (code, data["jobs"][job_id]["checks"]) == (0, {with_pr: "def5678"})
-    assert data["prs"][with_pr]["check"] == {"job": job_id, "head": "def5678", "at": data["jobs"][job_id]["created"]}
-    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--checks", PR)[0] == 2
-
-
-def test_pr_add_on_a_public_repo_refuses_a_live_picture_and_a_private_pr(
-    run: Run, demo: str, on_github: dict, visibilities: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
-    run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    visibilities.update({"Forge-AI/monorepo": "public", "Forge-AI/litestream": "private", "owner/repo": None})
-    live = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/plan.png?raw=true"
-    on_github["body"] = (
-        f"## Show me\n![Plan]({live})\n"
-        "![Hover](https://github.com/yasyf/cc-skills/blob/73f9efa/pr-shots/demo-hover.png?raw=true)\n"
-        "Opened on Forge-AI/litestream#7, like owner/repo#3."
-    )
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
-    error = capsys.readouterr().err
-    assert error.startswith(
-        f"drive: Forge-AI/monorepo#42: Forge-AI/monorepo is public, and its body shows pictures outside a demo or public"
-        f" path ({live}) and PRs of the private Forge-AI/litestream. "
-    )
-    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
 
 
 def test_pr_add_on_a_public_repo_takes_demo_pictures(run: Run, demo: str, on_github: dict, visibilities: dict) -> None:
@@ -2778,43 +2702,12 @@ def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
 
 
-def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_section(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {PR}"
-    assert capsys.readouterr().err.strip() == f"drive: {with_pr}: {reason}"
-    pr = state.load("demo")["prs"][with_pr]
-    assert (pr["wants_tap"], pr.get("serves")) == (False, None)
-    on_github["body"] = CARD_BODY.split("## His words")[0].replace("## What you'll hate most", "## Biggest surprise")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(
-        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
-        f" list naming his order in the body of {PR}. No order of his names {PR}: "
-    )
-
-
 def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the_release(
     run: Run, with_pr: str, on_github: dict
 ) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     on_github["body"] = CARD_BODY + "## Risk\nThen run the fill from a pass box once it ships.\n"
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
-
-
-def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refuse(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
-    on_github["body"] = "## Summary\nLands it."
-    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(
-        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
-    )
-    assert state.load("demo")["prs"][with_pr].get("serves") is None
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    assert run("pr", "set", PR, "--serves", "o1")[0] == 0
 
 
 def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_communicator_sets_it(
@@ -2975,18 +2868,6 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is True
     on_github["body"] = CARD_BODY
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
-
-
-def test_a_tap_card_refuses_a_body_naming_record_ids(run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look. It follows cci 661229.")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.strip() == (
-        f"drive: {with_pr}: its tap card needs plain words for what each of cci 661229 is, in place of the record id, which says"
-        f" nothing to him in the body of {PR}"
-    )
-    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look, per his 11:23 PM card answer.")
-    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
 def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_while_drive_place_says_remote(
@@ -4438,16 +4319,16 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     code, out = run("answer", "a1", "--reopened", f"{designing}=j1", "Forge-AI/monorepo#45=j1", "--others-stand")
     assert out.splitlines() == [
         "his answer a1 recorded: 1 standing, 0 superseded, 2 reopened by it",
-        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once a reader's READY passes the rework",
+        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once j1 pushes the rework",
         f"{designing}: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
-        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once a reader's READY passes the rework",
+        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once j1 pushes the rework",
         "Forge-AI/monorepo#45: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
     ]
     assert (code, settled, redraws.asked) == (0, [ANSWERED], [PR, "https://github.com/Forge-AI/monorepo/pull/45"])
     data = state.load("demo")
     reworked = data["prs"][designing]
     assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "rework", "running")
-    assert reworked["verdict"] | {"at": None} == {"job": "j1", "head": reworked["head"], "ready": False, "why": WORDS, "at": None, "said": True, "answer": "a1"}
+    assert reworked["rework"] | {"at": None} == {"answer": "a1", "job": "j1", "head": reworked["head"], "why": WORDS, "at": None}
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 

@@ -20,7 +20,7 @@ def node(**overrides: object) -> dict:
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
         "labels": {"nodes": []},
-        "commits": {"nodes": [{"commit": {"committedDate": "2026-11-11T09:00:00Z", "statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
+        "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
     }
     return {**base, **overrides}
 
@@ -61,7 +61,6 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "state": "OPEN",
             "isDraft": False,
             "headRefOid": "abc1234def",
-            "committed": "2026-11-11T09:00:00Z",
             "mergeCommit": None,
             "checks": GREEN,
             "reviewDecision": None,
@@ -73,7 +72,6 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "state": "MERGED",
             "isDraft": False,
             "headRefOid": "abc1234def",
-            "committed": None,
             "mergeCommit": "fff000",
             "checks": [],
             "reviewDecision": "APPROVED",
@@ -250,7 +248,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "checkSuite": {"workflowRun": None}},
         {"context": "buildkite/test", "state": "SUCCESS"},
     ]
-    pr = node(commits={"nodes": [{"commit": {"committedDate": "2026-11-11T09:00:00Z", "statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
+    pr = node(commits={"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
     monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"p1": pr}}}))
     assert github.fetch(["a/one#1"])[0]["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
