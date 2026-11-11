@@ -359,7 +359,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 repo, head = github.repo_of(cite), board.heads.get(cite)
                 at = f"?ref={head}" if head else ""
                 try:
-                    text = github.run(["gh", "api", f"repos/{repo}/contents/{urllib.parse.quote(path)}{at}", "-H", "Accept: application/vnd.github.raw+json"])
+                    text = github.run(["gh", "api", f"repos/{repo}/contents/{urllib.parse.quote(path)}{at}", "-H", "Accept: application/vnd.github.raw+json"], max_age="1h" if head else "60s")
                 except github.GithubError:
                     where = f"at {head[:9]}" if head else "on its default branch"
                     self.answered(200, {"error": f"{repo} has no {path} {where}, or GitHub could not be reached."})

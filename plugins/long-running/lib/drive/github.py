@@ -1,7 +1,10 @@
 import json
+import os
 import re
 import subprocess
-from itertools import groupby
+import sys
+from itertools import groupby, takewhile
+from pathlib import Path
 
 FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
@@ -18,15 +21,20 @@ CANDIDATE = "rc/"
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
+CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 
 
 class GithubError(Exception):
     pass
 
 
-def run(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> str:
+def run(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s") -> str:
+    """Run a command; a gh one goes through ccx's GitHub gateway, which charges it to this drive verb or hook in the machine-wide ledger, refuses it under the rate-limit floor, and answers a read from its cache when the same read was answered within max_age."""
+    env = None
+    if cmd[0] == "gh":
+        cmd, env = ["ccx", "vcs", "gh", "--max-age", max_age, "--", *cmd[1:]], os.environ | {"CCX_CALLER": CALLER}
     try:
-        result = subprocess.run(cmd, cwd=cwd, check=False, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, cwd=cwd, env=env, check=False, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GithubError(str(error)) from None
     if result.returncode:
@@ -34,10 +42,10 @@ def run(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> str:
     return result.stdout
 
 
-def read(what: str, cmd: list[str]) -> str:
+def read(what: str, cmd: list[str], max_age: str = "0s") -> str:
     """Run a gh read; one that fails names what it could not read."""
     try:
-        return run(cmd)
+        return run(cmd, max_age=max_age)
     except GithubError as error:
         raise GithubError(f"could not read {what} from GitHub: {error}") from None
 
@@ -50,7 +58,7 @@ def close(url: str) -> None:
 def visibility(repo: str) -> str | None:
     """public, private or internal, as GitHub reports the repository to us; None when it knows no repository by that name."""
     try:
-        return read(f"{repo}'s visibility", ["gh", "api", f"repos/{repo}", "--jq", ".visibility"]).strip()
+        return read(f"{repo}'s visibility", ["gh", "api", f"repos/{repo}", "--jq", ".visibility"], max_age="1h").strip()
     except GithubError as error:
         if "HTTP 404" in str(error):
             return None
@@ -182,11 +190,11 @@ def graphql(text: str, what: str) -> dict:
 def release_of(key: str, service: str, commit: str) -> str | None:
     """The name of the newest published release that ships the service, when it holds the commit; a release candidate, named rc/, ships to staging and never counts."""
     repo = repo_of(key)
-    shipping = [release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"])) if ships(release, service)]
+    shipping = [release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"], max_age="60s")) if ships(release, service)]
     if not shipping:
         return None
     newest = max(shipping, key=lambda release: release["published_at"])
-    compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"])
+    compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"], max_age="1h")
     return newest["name"] if compared.strip() in HOLDS else None
 
 

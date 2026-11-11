@@ -1284,7 +1284,7 @@ def test_a_job_waiting_on_a_release_is_freed_once_the_newest_release_shipping_it
     published = [release(1, "2026-11-09T14:00:00Z", "api, dashboard"), release(9, "2026-11-09T16:00:00Z", "api", name="rc")]
     statuses, calls = ["behind", "ahead"], []
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: object) -> str:
         calls.append(cmd[2])
         return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else f"{statuses.pop(0)}\n"
 
@@ -1489,7 +1489,7 @@ def test_a_release_wait_whose_release_is_already_out_is_never_stored(demo: str, 
     with state.edit(demo) as data:
         data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
     published = [release(2, "2026-11-09T15:00:00Z", "dashboard")]
-    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
     assert cli.main(["pr", "set", KEY, "--waits", f"release:dashboard:{shipped}", "--waits", f"release:api:{shipped}", "--drive", demo]) == 0
     assert f"\nrelease releases/2026-11-09/2 ships {shipped} on dashboard, so it is not a wait" in capsys.readouterr().out
     assert state.load(demo)["prs"][KEY]["waits"] == [f"release:api:{shipped}"]
@@ -1714,7 +1714,7 @@ def test_a_watch_pass_reads_github_in_one_call_however_many_open_prs_it_watches(
             key = f"Forge-AI/monorepo#{1000 + number}"
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}"}
     asked: list[list[str]] = []
-    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or json.dumps({"data": {}}))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or json.dumps({"data": {}}))
     watch.run_pass(watcher(demo), T0)
     assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], count)]
 
@@ -1878,7 +1878,7 @@ def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_unt
 def test_an_open_incident_order_is_told_to_close_once_a_release_ships_its_fix_and_another_order_is_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "api")]
-    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
     wait = f"release:api:{KEY}"
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="ship the dashboard", jobs=["j2"])
@@ -1902,7 +1902,7 @@ def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_says_its_fix_is_li
     iris = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
     nested: list[list[str]] = []
 
-    def github_run(cmd: list[str]) -> str:
+    def github_run(cmd: list[str], **_: object) -> str:
         if not nested:
             nested.append([])
             sub_coordinated(demo)
@@ -1927,7 +1927,7 @@ def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_says_its_fix_is_li
 def test_an_incident_order_waiting_on_two_releases_is_told_its_fix_is_live_only_once_both_shipped(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "api")]
-    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
     with state.edit(demo) as data:
         data["orders"]["o1"]["incident"] = True
         data["prs"][KEY].update(state="merged", merged_sha="abc123")
@@ -1950,7 +1950,7 @@ def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_tol
 ) -> None:
     serve(monkeypatch, {})
     published = [release(2, "2026-11-09T15:00:00Z", "worker")]
-    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
     sub_coordinated(demo)
     still = state.stamp(T0 - timedelta(minutes=10))
     with state.edit(demo) as data:

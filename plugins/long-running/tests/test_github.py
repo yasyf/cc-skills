@@ -45,7 +45,7 @@ def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None
 def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
-    def fake(cmd: list[str]) -> str:
+    def fake(cmd: list[str], **_: object) -> str:
         calls.append(cmd)
         merged = node(state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED", labels={"nodes": [{"name": "hold"}]})
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
@@ -86,7 +86,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
 def test_fetch_and_open_on_each_read_any_number_of_prs_or_branches_in_one_graphql_call(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     sizes = []
 
-    def fake(cmd: list[str]) -> str:
+    def fake(cmd: list[str], **_: object) -> str:
         sizes.append((cmd[4].count("pullRequest("), cmd[4].count("pullRequests(")))
         return json.dumps({"data": {}})
 
@@ -97,7 +97,7 @@ def test_fetch_and_open_on_each_read_any_number_of_prs_or_branches_in_one_graphq
 
 
 def test_a_failed_graphql_read_names_what_it_could_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refused(cmd: list[str]) -> str:
+    def refused(cmd: list[str], **_: object) -> str:
         raise github.GithubError("gh: API rate limit already exceeded for installation ID 1.")
 
     monkeypatch.setattr(github, "run", refused)
@@ -120,6 +120,24 @@ def test_run_raises_with_gh_stderr_on_failure(monkeypatch: pytest.MonkeyPatch) -
         github.run(["gh", "api", "graphql"])
 
 
+def test_run_sends_a_gh_command_through_ccx_gateway_under_the_drive_caller_and_any_other_command_as_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    ran = []
+
+    def fake(cmd: list[str], env: dict | None = None, **_: object) -> subprocess.CompletedProcess:
+        ran.append((cmd, env and env["CCX_CALLER"]))
+        return subprocess.CompletedProcess(cmd, 0, "public\n", "")
+
+    monkeypatch.setattr(github.subprocess, "run", fake)
+    assert github.visibility("a/one") == "public"
+    github.run(["gh", "pr", "close", "https://github.com/a/one/pull/1"])
+    github.run(["git", "remote", "get-url", "origin"])
+    assert ran == [
+        (["ccx", "vcs", "gh", "--max-age", "1h", "--", "api", "repos/a/one", "--jq", ".visibility"], github.CALLER),
+        (["ccx", "vcs", "gh", "--max-age", "0s", "--", "pr", "close", "https://github.com/a/one/pull/1"], github.CALLER),
+        (["git", "remote", "get-url", "origin"], None),
+    ]
+
+
 def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake(cmd: list[str], **_: object) -> subprocess.CompletedProcess:
         raise FileNotFoundError("gh")
@@ -130,7 +148,7 @@ def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_fetch_raises_a_github_error_on_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "run", lambda cmd: "<html>bad gateway</html>")
+    monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
     with pytest.raises(github.GithubError, match="unreadable GraphQL reply"):
         github.fetch(["a/one#1"])
 
@@ -216,7 +234,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
         {"context": "buildkite/test", "state": "SUCCESS"},
     ]
     pr = node(commits={"nodes": [{"commit": {"committedDate": "2026-11-11T09:00:00Z", "statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
-    monkeypatch.setattr(github, "run", lambda cmd: json.dumps({"data": {"r0": {"p1": pr}}}))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"p1": pr}}}))
     assert github.fetch(["a/one#1"])["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},

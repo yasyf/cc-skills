@@ -514,7 +514,7 @@ def test_load_turns_each_kept_not_ready_into_a_verdict_on_no_head_with_no_github
     data["prs"][f"{MONOREPO}#4302"]["state"] = "merged"
     state.create(data)
     asked: list[list[str]] = []
-    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or "{}")
+    monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or "{}")
     kept = state.load("demo")
     assert asked == []
     rework, recheck = kept["prs"][f"{MONOREPO}#4289"], kept["prs"][f"{MONOREPO}#4279"]
@@ -540,7 +540,7 @@ def test_resolving_the_sessions_drive_reads_nothing_from_github_while_another_dr
     state.create(old)
     make("durable-agents", session="the-session")
     asked: list[list[str]] = []
-    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or "{}")
+    monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or "{}")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "the-session")
     monkeypatch.delenv("LONG_RUNNING_DRIVE", raising=False)
     assert (state.resolve(), state.session_drives("the-session"), asked) == ("durable-agents", ["durable-agents"], [])
