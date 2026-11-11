@@ -29,7 +29,7 @@ def launcher() -> str:
 
 def cc_slack(*args: str) -> dict:
     try:
-        result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=30)
+        result = subprocess.run([launcher(), *args], check=False, capture_output=True, text=True, timeout=90)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise SlackError(str(error)) from None
     if result.returncode:
