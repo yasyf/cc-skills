@@ -48,6 +48,19 @@ def check_post(text: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+def draw_refusal(card: dict) -> str | None:
+    """Why cc-slack refuses to draw a status card, in its own words, or None when it draws; `cc-slack card render` runs the checks the post runs, reaching neither Slack nor the daemon."""
+    try:
+        result = subprocess.run(
+            [launcher(), "card", "render", "--card", "/dev/stdin"], input=json.dumps(card), check=False, capture_output=True, text=True, timeout=30
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SlackError(str(error)) from None
+    if not result.returncode:
+        return None
+    return " ".join(result.stderr.split()) or f"cc-slack card render exited {result.returncode}"
+
+
 def thread(*where: str) -> list[dict]:
     return cc_slack("thread", *where)["messages"]
 

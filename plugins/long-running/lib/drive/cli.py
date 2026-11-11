@@ -291,6 +291,8 @@ def job_ask(args: argparse.Namespace) -> int:
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.question(text)
+    if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
+        raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), os.getcwd(), args.unsettled, "--unsettled"):
         raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"

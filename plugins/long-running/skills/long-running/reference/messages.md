@@ -26,7 +26,8 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 
 The long-running plugin's hook refuses a post in his DM over its limit, from the communicator or
 any handler, with the count, the limit and what would pass, and `drive job ask` refuses a job's
-`ASK` whose card runs over it. Routine lines and summaries stay short. A line that answers a
+`ASK` whose card runs over it, or that cc-slack would refuse to draw, in cc-slack's words. Text
+passed beside a card is drawn atop its body and counts. Routine lines and summaries stay short. A line that answers a
 question or order of his carries the whole answer, at any length: what he asked, a ruling he gave,
 or his tap on Explain more, which the handler's brief quotes. On Nov 10 between 3:50 and 3:56 AM his
 "figure out how it got into a bad state" lost its answer four times to the 60-word cap. The call
