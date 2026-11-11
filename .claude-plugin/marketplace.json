@@ -154,10 +154,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/long-running",
-        "ref": "long-running--v1.0.245"
+        "ref": "long-running--v1.0.246"
       },
       "description": "Run a long drive as two Claude Code sessions: a communicator that acks every message of the owner's within seconds and writes everything he sees, and a coordinator that turns each order into a background agent shipping it end to end while one watcher turns CI, merges, taps and promised times into events.",
-      "version": "1.0.245"
+      "version": "1.0.246"
     },
     {
       "name": "live-dashboard",
@@ -165,10 +165,10 @@
         "source": "git-subdir",
         "url": "https://github.com/yasyf/cc-skills",
         "path": "plugins/live-dashboard",
-        "ref": "live-dashboard--v0.5.13"
+        "ref": "live-dashboard--v0.5.14"
       },
       "description": "A live dashboard assembled per task from typed components: PRs waiting for review, stack landing previews, Slack test-thread feeds, latency percentiles, design gates, Datadog monitors, cci lanes, and local components written for the job at hand, served on a stable port with a scheduler that caches, backs off, and drops secret-shaped payloads.",
-      "version": "0.5.13"
+      "version": "0.5.14"
     },
     {
       "name": "open-pr",
