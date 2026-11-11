@@ -14,7 +14,7 @@ arrives, before anything else:
 Every other alert in the channels the drive holds is nobody's here: no line, no order, no job. He ruled
 it ("stop wasting time with random non-issue incidents no one asked you to"), so before starting an
 incident run `answer_search` for his incident rulings and follow them. The coordinator holds the
-alert channels, each a `drive start --watch` named on its `Hold with slack_subscribe` line, so the drive
+alert channels, each a `drive start --watch` named on its `Hold with cc-slack subscribe` line, so the drive
 sees its own releases go bad.
 
 The goal is that users stop being blocked within minutes: by releasing the default branch when the

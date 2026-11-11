@@ -81,7 +81,7 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
     context = output["hookSpecificOutput"]["additionalContext"]
-    assert 'Hold with slack_subscribe(kinds=["alerts", "releases", "posts"]): C0B75AL4XEW, C0822AHFY3G' in context
+    assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G' in context
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     context = session_start.respond({"session_id": "talker"})["hookSpecificOutput"]["additionalContext"]

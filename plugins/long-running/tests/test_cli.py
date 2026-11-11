@@ -126,7 +126,7 @@ def test_start_stores_watched_channels_and_a_later_watch_adds(run: Run) -> None:
         "start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0B75AL4XEW"
     )
     assert code == 0
-    assert 'Hold with slack_subscribe(kinds=["alerts", "releases", "posts"]): C0B75AL4XEW' in out
+    assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW' in out
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
     run("start", "demo", "--role", "coordinator")
     assert state.load("demo")["slack"]["watch"] == ["C0B75AL4XEW"]
@@ -151,12 +151,12 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
     assert code == 0
     assert out.splitlines()[1:3] == [
         "communicator: not started; Hold with slack_watch: his DM D123",
-        f'coordinator: session {session}, in no Orca terminal; Hold with slack_subscribe(kinds=["alerts", "releases", "posts"]): C0B75AL4XEW, C0822AHFY3G',
+        f'coordinator: session {session}, in no Orca terminal; Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G',
     ]
     code, out = run("status", "--json")
     assert json.loads(out)["slack"] == {"channel": "D123", "watch": ["C0B75AL4XEW", "C0822AHFY3G"]}
     code, out = run("context")
-    assert 'Hold with slack_subscribe(kinds=["alerts", "releases", "posts"]): C0B75AL4XEW, C0822AHFY3G' in out.splitlines()
+    assert 'Hold with cc-slack subscribe --kind alerts,releases,posts --channel <id>: C0B75AL4XEW, C0822AHFY3G' in out.splitlines()
     code, out = run("context", "--role", "communicator")
     assert "Hold with slack_watch: his DM D123" in out.splitlines()
 

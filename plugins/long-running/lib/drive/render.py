@@ -266,7 +266,7 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
 
 
-FEED_SUBSCRIPTION = 'slack_subscribe(kinds=["alerts", "releases", "posts"])'
+FEED_SUBSCRIPTION = "cc-slack subscribe --kind alerts,releases,posts --channel <id>"
 
 
 def held_channels(drive: dict, role: str) -> list[str]:
