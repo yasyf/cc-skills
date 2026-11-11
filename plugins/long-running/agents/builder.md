@@ -269,10 +269,11 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   or repeated `gh pr view`, no sleep. The watch sees each change, which a fresh builder handles; you
   are resumed with `SendMessage` only to bring his answer to your `ASK`. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
-- Nobody watches the starting session's terminal, so a permission prompt there stalls you for hours.
-  Keep each Bash call one plain pipeline; put loops, nested `${...}` expansions and multi-step logic
-  in a script file under your scratch directory and run it, since Claude Code asks before running a
-  command its parser cannot read.
+- Nobody watches the starting session's terminal, so the `bash_guard` hook refuses each permission
+  prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's
+  parser cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write
+  such a command, and any multi-step logic, to a script file under your scratch directory and run
+  the file.
 - Read a file whole, once, with Read, or one section of a large file with `ccx code read --section`,
   and work from your context: page through no file in `sed -n` windows and read no lines twice.
 

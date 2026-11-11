@@ -78,6 +78,23 @@ def test_a_session_outside_any_drive_and_its_agents_are_not_checked(demo: str) -
     assert bash_guard.deny_reason(bash(command, session="ordinary", **builder)).startswith("refused: the terminal's --command runs `zsh` after claude")
 
 
+def test_claude_codes_permission_prompt_on_a_drive_agents_command_is_refused(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    unreadable = 'tables="a,b"; for t in ${(s:,:)tables}; do echo $t; done'
+    builder = {"agent_id": "a-1", "agent_type": "long-running:builder"}
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(bash(unreadable, hook_event_name="PermissionRequest", **builder))))
+    bash_guard.main()
+    decided = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert decided == {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": bash_guard.UNSEEN_PROMPT}}
+    assert "write the command to a script in your brief's Scratch folder" in bash_guard.UNSEEN_PROMPT
+    assert bash_guard.deny_reason(bash(unreadable, hook_event_name="PreToolUse", **builder)) is None
+    assert bash_guard.deny_reason(bash(unreadable, hook_event_name="PermissionRequest")) is None
+    assert bash_guard.deny_reason(bash(unreadable, session="ordinary", hook_event_name="PermissionRequest", **builder)) == bash_guard.UNSEEN_PROMPT
+    elsewhere = {"agent_id": "a-1", "agent_type": "general-purpose"}
+    assert bash_guard.deny_reason(bash(unreadable, session="ordinary", hook_event_name="PermissionRequest", **elsewhere)) is None
+
+
 def test_drive_job_resume_runs_in_the_foreground(demo: str) -> None:
     reason = bash_guard.deny_reason(bash('drive job resume j3 "go"', call={"run_in_background": True}))
     assert reason.startswith("refused: `drive job resume` runs in the foreground with `timeout: 20000`")

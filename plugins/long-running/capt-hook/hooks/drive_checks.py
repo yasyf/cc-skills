@@ -68,17 +68,18 @@ TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
-    said = subprocess.run(
+    ran = subprocess.run(
         ["python3", "-I", str(newest_install() / "hooks" / script)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
         cwd=payload.get("cwd") or None,
-        check=True,
-    ).stdout.strip()
-    if not said:
+    )
+    if ran.returncode:
+        raise RuntimeError(f"{script} exited {ran.returncode}:\n{ran.stderr}")
+    if not (said := ran.stdout.strip()):
         return None
     output = json.loads(said)
     found = output.get("hookSpecificOutput") or {}

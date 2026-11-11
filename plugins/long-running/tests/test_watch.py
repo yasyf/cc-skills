@@ -1027,6 +1027,23 @@ def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_und
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"'
 
 
+def test_a_local_agents_tool_call_with_no_result_for_five_minutes_is_said_stuck_once(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    serve(monkeypatch, {})
+    asked = state.now()
+    call = {"type": "tool_use", "id": "toolu_held", "name": "Bash", "input": {"command": 'tables="a,b"; echo ${(s:,:)tables}'}}
+    write_transcript(tmp_path / "config", [{"type": "assistant", "timestamp": state.stamp(asked), "message": {"stop_reason": "tool_use", "content": [call]}}], timedelta(0))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(session="session-under-test", agent="a1")
+    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=4)) == []
+    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=7)) == [
+        'STUCK j1 o1: its agent\'s Bash call "tables="a,b"; echo ${(s:,:)tables}" has had no result for 7 minutes, so a permission prompt nobody'
+        " sees holds it: TaskStop a1, then hand the job to a fresh agent whose brief runs that call as a scratch script"
+    ]
+    assert state.load(demo)["jobs"]["j1"]["stuck_call"] == "toolu_held"
+    assert watch.agent_lines(watcher(demo), asked + timedelta(minutes=9)) == []
+
+
 def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
     data = state.load(demo)
