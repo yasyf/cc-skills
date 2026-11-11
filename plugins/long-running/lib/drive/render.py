@@ -21,14 +21,15 @@ COMMUNICATOR_RULES = (
         " any record its row names, and the long-running:handler go in the next message, then the turn ends, with one"
         " call more only to record a read-only question's handler, the job tool with ops"
         ' [{add: {kind: "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
-        ' "slack:<channel>/<ts>", thread: "<ts>"}, goal: "<one line>", agent: "<id>"}}], leaving out complex only for'
-        " a one-fact lookup, or a tooling reader, by the next rule."
+        ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
+        ' "<its workstream>"}, goal: "<one line>", agent: "<id>"}}], leaving out complex only for a one-fact lookup,'
+        " or a tooling reader, by the next rule."
     ),
     (
         "Tooling and meta work is yours, never the coordinator's, and a build: a defect record, a handler's DEFECT"
         " <tool: refusal> line, a defect you hit and a ruling's skill rewrite each get in the next message one call of"
         ' the job tool, ops [{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from:'
-        ' "<its From>"}, goal: "research: <what>"}}], then a long-running:reader, its prompt the lines `Order: Drive'
+        ' "<its From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}], then a long-running:reader, its prompt the lines `Order: Drive'
         " tooling: <what>`, `From: cci:<seq>`, `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling,"
         " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
         ' Its DONE line gets the job tool with ops [{add: {kind: "builder", order: "<o>", goal: "<one line>"}}], then a'
@@ -354,6 +355,17 @@ def owed_lines(drive: dict) -> list[str]:
     return [f"- {order_id} line owed since {clock(due)}" for due, order_id in sorted(owed_now)]
 
 
+def filed_line(drive: dict) -> str:
+    """The projects and workstreams the drive's orders are filed under, which a new order reuses where it fits."""
+    filed: dict[str, list[str]] = {}
+    for order in drive["orders"].values():
+        if order["project"] and order["workstream"] and order["workstream"] not in filed.setdefault(order["project"], []):
+            filed[order["project"]].append(order["workstream"])
+    return "Projects in use, each with its workstreams: " + (
+        "; ".join(f"{project}: {', '.join(workstreams)}" for project, workstreams in filed.items()) or "none yet"
+    )
+
+
 def context(drive: dict, role: str) -> str:
     """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads."""
     lines = [
@@ -365,6 +377,7 @@ def context(drive: dict, role: str) -> str:
         f"Subscribe: cci drive use {drive['name']}, then {SUBSCRIBE[role]}",
         f"{role.capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
+        filed_line(drive),
     ]
     if role == "coordinator":
         lines.extend(owed_lines(drive))

@@ -1,6 +1,8 @@
 from datetime import timedelta
 
-from drive import render, state
+import re
+
+from drive import render, state, tools
 
 
 def order(
@@ -27,6 +29,8 @@ def order(
         "created": created,
         "updated": created,
         "last_line": None,
+        "project": None,
+        "workstream": None,
     }
 
 
@@ -205,3 +209,28 @@ def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
         f"- o1 working due {due}, its lines go in D123 thread 1794307360.614569: "
     )
     assert next(line for line in lines if line.startswith("- o3 ")).startswith("- o3 open: ")
+
+
+def test_every_order_a_sessions_rules_tell_it_to_add_carries_each_field_order_add_requires() -> None:
+    required = set(tools.schema(tools.leaf("order", "add"))["required"])
+    templates = [
+        re.findall(r"(\w+):", found)
+        for rules in render.RULES.values()
+        for rule in rules
+        for found in re.findall(r"order: \{([^}]*)\}", rule)
+    ]
+    assert templates
+    for keys in templates:
+        assert required <= set(keys), keys
+
+
+def test_the_context_names_the_projects_and_workstreams_in_use_for_a_new_order_to_reuse() -> None:
+    drive = sample()
+    drive["orders"]["o1"] |= {"project": "Platform", "workstream": "SandSQL"}
+    drive["orders"]["o2"] |= {"project": "The drive", "workstream": "Drive tooling"}
+    drive["orders"]["o3"] |= {"project": "Platform", "workstream": "Releases and CI"}
+    for role in ("communicator", "coordinator"):
+        assert (
+            "Projects in use, each with its workstreams: Platform: SandSQL, Releases and CI; The drive: Drive tooling"
+            in render.context(drive, role)
+        )
