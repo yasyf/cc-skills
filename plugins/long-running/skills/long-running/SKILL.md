@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a handler in the next, on Opus unless the ask is very simple, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -8,11 +8,8 @@ description: Run a long drive as two Claude Code sessions. The communicator is t
 A drive is two sessions and the background agents one of them starts. His ruling, Nov 9 7:46 AM:
 "We like the coordinator / communicator split". Both sessions run Fable 5.2, `claude-fable-5-2`,
 and the only other Fable in the drive is the light design lane that designs a tricky order before
-any builder starts, by the `design` page: builders, readers, codex lanes and every
-other job keep the model their agent names. Handlers and readers run on Opus; the communicator or
-coordinator passes `model: "sonnet"` only for a very simple ask, such as a record posted as written
-or a one-fact lookup, and anything needing research, an explanation, a design read or a judgment
-call stays on Opus. His ruling, Nov 10 8:57 PM: "also you ned to use judgemnt dont put retarded sonnet agsnets on complex or important stuff only whern itsd a very simple ask, for more complex use opus from the start". His rulings, Nov 9 1:32 PM: "Our coordinator and
+any builder starts, by the `design` page. Handlers and readers run on Opus unless the ask is very
+simple (`communicator`); every other job keeps the model its agent names. His rulings, Nov 9 1:32 PM: "Our coordinator and
 communicator lanes should switch to fable 5.2, released today (still no other lanes should be
 fable)", and 9:38 PM, which makes the design lane the one exception: "when you have a tricky design
 like this to make, you should 1) spawn a light fable lane just for the initial design and 2) ask
@@ -22,9 +19,8 @@ the user early and often".
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
   and nothing else; cc-slack has put the eyes on his message by then. The handler reads what it
   needs, does the work or hands it to the coordinator, answers him itself in his thread, and
-  returns one line: its permalinks and at most three facts. Reports, cards, due lines,
-  drafts and `check-post` all run in handlers, so his next message never sits behind the
-  communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
+  returns one line: its permalinks and at most three facts. Everything past the ack runs in
+  handlers, so his next message never sits behind the communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
   job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to
   respiond while pushing context back up to you", and 5:02 PM: "youre still responding way too slow,
   so youre clearly not multiplexing enogh, you should be responding in 5-10 seconds for simple
@@ -69,7 +65,7 @@ disk needs to be maximally compact and very token efficient".
 A tool defect either session hits gets a builder job on that tool's repo in the same turn, under
 its own "Drive tooling:" order (`scope`): the coordinator starts it, from a `defect` record when the
 communicator hit it, and the work it blocked moves to a route that works meanwhile. It is never an
-excuse and never a question to him. Before a fix, search cc-notes papercuts for the same symptom:
+excuse or a question to him. Before a fix, search cc-notes papercuts for the same symptom:
 the third fix for one symptom is a class fix whose PR deletes the earlier patches.
 
 ## Never
