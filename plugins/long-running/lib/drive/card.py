@@ -642,7 +642,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """Post his answer on a drive's question card, by a tap, a typed number or his words in its thread, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`."""
+    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`."""
     from drive import tools, view
 
     name, _, _ = ask["waits"].partition(":")

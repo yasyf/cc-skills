@@ -44,12 +44,12 @@ COMMUNICATOR_RULES = (
         " <refusal>` is tooling, below; any other line is context for his next message."
     ),
     (
-        "A question-card answer (slack.action with waits: true), whether he tapped it, typed its number or wrote words"
-        " in its thread, and an Undo (undo: true) get no record and no handler: cc-slack closed the card, and its card"
-        " command posted his answer record, `undone:` for an Undo. When the card's waits id names a job of a builder of"
-        " yours, `SendMessage` it his answer verbatim. Explain more gets no record: a handler briefed `Message (his"
-        " words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:) gets nothing, since"
-        " cc-slack records it."
+        "A question-card answer (slack.action with waits: true), whether he tapped it, typed its number in its thread"
+        " or wrote in its Other box, and an Undo (undo: true) get no record and no handler: cc-slack closed the card,"
+        " and its card command posted his answer record, `undone:` for an Undo. When the card's waits id names a job"
+        " of a builder of yours, `SendMessage` it his answer verbatim. Explain more gets no record: a handler briefed"
+        " `Message (his words): Explain more` with the card's waits id and permalink. A PR-card tap (merge:) gets"
+        " nothing, since cc-slack records it."
     ),
     (
         "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
