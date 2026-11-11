@@ -32,6 +32,7 @@ ON_MAC = "on this Mac"
 RELOAD = "/reload-plugins"
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
+ANSWERED_ELSEWHERE = "answer_conflict"
 
 
 class OrcaError(DriveError):
@@ -383,10 +384,15 @@ def bound_command(drive: str, run: str, argv: list[str]) -> subprocess.Completed
 
 
 def answer(drive: str, job: dict, text: str) -> str:
-    """Reply to the lane's open question, or send to its Dispatch when it asked nothing."""
+    """Reply to the lane's open question, or send to its Dispatch when it asked nothing or Orca already holds another answer to that question, since the lane no longer waits on it."""
     if job.get("ask"):
-        reply(drive, job["run"], job["ask"], text)
-        return f"answered its question {job['ask']}"
+        try:
+            reply(drive, job["run"], job["ask"], text)
+        except OrcaError as error:
+            if error.code != ANSWERED_ELSEWHERE:
+                raise
+        else:
+            return f"answered its question {job['ask']}"
     call(
         "send",
         "--to",

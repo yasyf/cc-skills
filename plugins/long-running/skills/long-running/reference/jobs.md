@@ -93,7 +93,9 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 `JOB <j> <o> <line>` event opening with the result line of the lane's final report, which sets the
 job's state as a local agent's line does. A report sent as an Orca question, one whose first line
 opens with a result word other than `ASK`, is that result and asks nothing, and a report ends any
-question the lane asked before it, since the lane no longer waits on that answer. `drive status --json` holds the whole latest report, and
+question the lane asked before it, since the lane no longer waits on that answer. The watch takes
+each message once: one the job's kept history already holds is never an event again, so a watch
+that restarts after an install says nothing it said before. `drive status --json` holds the whole latest report, and
 `drive job replies <j>` prints every result and question the lane sent, oldest first with its time,
 for a line that points at an earlier reply.
 
@@ -128,7 +130,8 @@ question.
 - A question kept for you that reads as a `LOG` or `READ`, such as one kept before the watch read it
   that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
-  until the answer goes through, past a refused reply or a watch restart. Its
+  until the answer goes through, past a refused reply or a watch restart, or until Orca says it
+  already holds another answer, which drops it with no line. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
 
 **What the watch reads each minute.**
@@ -142,7 +145,8 @@ question.
 
 **Resume.** `drive job resume` checks the worker before it sends.
 
-- A live worker gets the message. On a finished worker whose Sprite is still up, it starts the job's
+- A live worker gets the message: the answer to its open question, or a new message to its Dispatch
+  when it asked none or Orca already holds another answer to it. On a finished worker whose Sprite is still up, it starts the job's
   next worker in its terminal; a dead worker is relaunched on a fresh Sprite on the same Run.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran. Work the dead lane had not pushed is lost.
