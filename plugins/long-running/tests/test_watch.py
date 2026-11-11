@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread, WatchProcess
-from drive import cli, github, reads, render, slack, state, watch
+from drive import cli, github, reads, render, slack, state, talk, watch
 
 KEY = "Forge-AI/monorepo#42"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
@@ -831,6 +831,21 @@ def waits_on(name: str, *waits: str) -> None:
         data["prs"][KEY] |= {"wants_tap": True, "waits": list(waits)}
 
 
+POSTED = "https://acme.slack.com/archives/D123/p1794200000000900"
+
+
+@pytest.fixture
+def told(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    posts: list[dict] = []
+    monkeypatch.setattr(talk, "posted", lambda name, post: posts.append(post) or {"permalink": POSTED})
+    return posts
+
+
+def waiting(*cards: str) -> list[str]:
+    since = render.when(state.stamp(T0))
+    return [f"WAITING-ON-HIM {{card:{card}}} blocks j1, built on lane/built, since {since}" for card in cards]
+
+
 def question(waits: str) -> dict:
     return {"question": f"Pick {waits}?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(T0), "url": f"{CARD}?thread_ts=1.2", "card": {"title": f"Pick {waits}?", "waits": waits}}
 
@@ -873,14 +888,16 @@ def test_a_red_pr_waiting_on_a_running_job_says_so_and_is_freed_when_the_job_end
     assert watch.run_pass(watching, T0 + timedelta(minutes=121)) == []
 
 
-def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a", "demo:j1-7-b"]}
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    said = waiting("demo:j1-7-a", "demo:j1-7-b")
+    assert watch.run_pass(watching, T0) == [f"{line}, posted {POSTED}" for line in said]
+    assert told == [{"text": "\n".join(said), "thread_ts": None}]
     asking(monkeypatch, demo, "demo:j1-7-a")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     asking(monkeypatch, demo)
@@ -889,7 +906,7 @@ def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(dem
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
 
 
-def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
     serve(monkeypatch, {})
     asked = f"{CARD[:-1]}9"
     own = question("demo:j1-9") | {"url": asked}
@@ -899,13 +916,38 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0) == [f"{line}, posted {POSTED}" for line in waiting("demo:j1-7-a")]
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "pr_cards": []})
     watch.view.refresh_cards(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
     asking(monkeypatch, demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
+
+
+def test_a_card_holding_a_built_job_is_posted_once_in_its_orders_thread_and_again_after_a_failed_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o1"]["thread"] = "1794200000.000100"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
+    posts: list[dict] = []
+
+    def post(name: str, sent: dict) -> dict:
+        posts.append(sent)
+        if len(posts) == 1:
+            raise slack.SlackError("Slack is down")
+        return {"permalink": POSTED}
+
+    monkeypatch.setattr(talk, "posted", post)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    [line] = waiting("demo:j1-7-a")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"{line}, posted {POSTED}"]
+    assert posts == [{"text": line, "thread_ts": "1794200000.000100"}] * 2
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=2)) == []
+    assert state.load(demo)["jobs"]["j1"]["waiting_said"] == ["demo:j1-7-a"]
 
 
 def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_waits_clears_them(
@@ -950,6 +992,33 @@ def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
     assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
     asking(monkeypatch, demo)
     assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
+
+
+def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_pr_takes_no_wait_on_his_card(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    url = "https://github.com/Forge-AI/monorepo/pull/43"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = True
+        state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
+    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
+    assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 2
+    assert "Forge-AI/monorepo#43 serves incident o1, whose fix lands on the recommended option while his card stays open" in capsys.readouterr().err
+    assert cli.main(["pr", "set", url, "--waits", "j1", "--drive", demo]) == 0
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+    assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
+
+
+def test_a_job_waits_only_on_his_cards_so_his_tap_frees_it(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(goal="root fix", state="waiting")
+    assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
+    assert "--waits j1: a job waits only on a card of his" in capsys.readouterr().err
+    assert cli.main(["job", "set", "j2", "--waits", "demo:j1-7-a", "--drive", demo]) == 0
+    assert state.load(demo)["jobs"]["j2"]["waits"] == ["demo:j1-7-a"]
 
 
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1046,8 +1115,15 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
         "EVENT catch-up dm=D123 since=9:00 AM orders=o1",
         "EVENT unheard question=Which? pick=Yes",
+        "FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built",
     ]
-    batched = [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]", f"PR {KEY}: checks failed [o1 j1]", "EVENT note"]
+    batched = [
+        f"PR {KEY}: checks passed [o1 j1]",
+        f"PR {KEY}: approved [o1 j1]",
+        f"PR {KEY}: checks failed [o1 j1]",
+        "EVENT note",
+        "WAITING-ON-HIM {card:demo:j1-7-a} blocks j1, built on lane/built, since 9:00 AM, posted https://acme.slack.com/archives/D123/p1",
+    ]
     assert watch.sent(watcher(demo), "root", waking + batched, T0) == []
     assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]
     assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)

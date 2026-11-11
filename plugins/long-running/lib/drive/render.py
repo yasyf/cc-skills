@@ -250,6 +250,13 @@ def when(iso: str) -> str:
     return f"{moment.strftime('%b %-d')} {clock(moment)}"
 
 
+def waiting_line(entry: dict) -> str:
+    """The line that tells him a card of his holds a built job, its card a reference the post links."""
+    card = entry["card"]
+    named = f"{{card:{card['card']['waits']}}}" if card["card"].get("waits") else card["url"]
+    return f"WAITING-ON-HIM {named} blocks {entry['job']}, built on {entry['branch']}, since {when(card['asked'])}"
+
+
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
     return {key: pr for key, pr in drive["prs"].items() if pr["job"] == job_id}
 

@@ -159,7 +159,11 @@ When a question card of his blocks incident work, such as a design card on the f
 thread hears it at once, in a line that opens with the card linked, says what it blocks, and names
 the recommended option the job builds on meanwhile. The job keeps building on that recommendation:
 its `ASK` resumes it in that turn with "build the recommended option meanwhile", which runs the
-job again, and it never waits on the card. `drive job set <j> --card <link>` or `--waits
+job again, and it never waits on the card. Its PR opens and lands on that recommendation while
+the card stays open: `drive pr add` takes it, `drive pr set --waits <card>` refuses on it, and a
+different pick of his starts a follow-up job on the same order. His pick, Nov 10 11:23 PM: "The
+repair lands on the recommendation, the question stays open, another pick is a follow-up: no
+incident waits; costs a second PR." `drive job set <j> --card <link>` or `--waits
 <card>` on a job of an open incident order refuses until `--told <link>` names the drive's post in
 the incident's thread that links the card. His words, Nov 10 10:48 PM: "I selected on that card,
 next time if thats blkocking an incident fucking tell me".

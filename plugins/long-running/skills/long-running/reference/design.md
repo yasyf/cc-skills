@@ -49,8 +49,12 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    names, and the ledger, `drive
    status`, `drive view`, the dashboard and his status tab show the job as built, with the branch
    and each card. `drive pr add` refuses any new PR for the job while one of its cards is open.
-   The watch drops each card as he answers it and says `FREE <j>` once, when the last is answered
-   and no question the job itself asked him is still open.
+   The minute a card starts holding a built job, the watch posts `WAITING-ON-HIM`, the card linked
+   with the job, its branch and since when, in the order's thread or else at his DM root; every
+   post the drive makes there opens with that line while the card is open, and `drive view` puts
+   that card first in his queue. A job waits only on his cards, never on another job, so his tap
+   frees it: the watch drops each card as he answers it and says `FREE <j>` once, when the last
+   is answered and no question the job itself asked him is still open, which wakes the coordinator.
    A handoff builder then opens the PR, rebuilding first wherever his pick differs from the
    recommended option it built.
 4. **Nothing lands around an open card.** A PR already open that carries a design card he has
@@ -59,7 +63,11 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    watch says `FREE <pr>` once, when the last is answered; nothing is closed for this. No change is
    landed, enqueued or decided on a recommended option while his card on it is open, and his order
    to land a change does not answer a design question still open on it: that card is redrawn in
-   front of him at once, in the thread of his order, and the change lands after he answers. His
+   front of him at once, in the thread of his order, and the change lands after he answers. An incident is the exception, by his pick of Nov 10
+   11:23 PM: "The repair lands on the recommendation, the question stays open, another pick is a
+   follow-up: no incident waits; costs a second PR." There the fix's PR opens and lands on the
+   recommended option, `drive pr set --waits <card>` refuses on it, and a different pick of his
+   starts a follow-up job on the same order. His
    question cards in his queue show how many green approved PRs and built branches wait on each and
    which features they block, and come most first; each feature names the cards that block it.
 5. **The builder carries the design.** Its brief's `Plan:` is the design, and `Decisions that

@@ -392,6 +392,11 @@ def job_set(args: argparse.Namespace) -> int:
         )
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
+    if jobs := [wait for wait in args.waits if wait in state.load(name)["jobs"]]:
+        raise DriveError(
+            f"--waits {', '.join(jobs)}: a job waits only on a card of his, by its Slack link or waits id, so his tap frees it;"
+            f" wait on the card {' or '.join(jobs)} asked him on, which drive status {jobs[0]} names"
+        )
     check_waits(name, args.waits)
     told_him(name, args)
     shown = args.card and shown_card(name, args.card)
@@ -430,11 +435,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     cards = [card for card in [args.card, *args.waits] if card and card not in data["jobs"]]
-    incidents = [
-        order_id
-        for order_id in [job["order"], *job["carries"]]
-        if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES
-    ]
+    incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     if not (cards and incidents):
         return
     if not args.told:
@@ -800,7 +801,7 @@ def pr_add(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
         cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"]]
-        if cards and key not in data["prs"]:
+        if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]):
             raise DriveError(
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
                 " the watch says FREE when the last is answered"
@@ -834,6 +835,13 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
+    known = state.load(name)
+    order = find(known["prs"], key, "drive PR")["order"]
+    if (cards := [wait for wait in args.waits if wait not in known["jobs"]]) and state.open_incidents(known, [order]):
+        raise DriveError(
+            f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
+            " stays open; a different pick of his starts a follow-up job on the same order"
+        )
     check_waits(name, args.waits)
     if args.exempt == INCIDENT_EXEMPTION:
         refuse_an_exempt_revert(name, key)
@@ -1270,8 +1278,8 @@ def parser() -> argparse.ArgumentParser:
         default=[],
         metavar="CARD|JOB",
         help=(
-            "a design card of his still open, by its Slack link or waits id, or a job, it waits on; repeat for each."
-            " The watch drops each as he answers it or the job ends, and says FREE once when the last is gone"
+            "a design card of his still open, by its Slack link or waits id, or for a PR a job, it waits on; repeat for each."
+            " The watch drops each as he answers it or the job ends, and says FREE once when the last is gone, which wakes the coordinator"
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")

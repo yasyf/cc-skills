@@ -479,6 +479,10 @@ def open_orders(data: dict) -> dict[str, dict]:
     return {key: order for key, order in data["orders"].items() if order["state"] not in CLOSED_ORDER_STATES}
 
 
+def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
+    return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
+
+
 def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
     """The channel and thread an order's promised line goes in: its thread, in his DM unless it is the thread of the Slack message the order came from, as an alert's is; else that message's."""
     source = order["from"].removeprefix("slack:").split("/") if order["from"].startswith("slack:") else [None, None]

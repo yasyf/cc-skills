@@ -52,7 +52,9 @@ def link(title: str, url: str | None) -> str:
 
 
 def queue_line(number: int, item: dict) -> str:
-    parts = [f"**{KIND_WORDS[item['kind']]}:** {link(item['title'], item['url'])}"]
+    kind = "WAITING-ON-HIM" if item.get("built") else KIND_WORDS[item["kind"]]
+    parts = [f"**{kind}:** {link(item['title'], item['url'])}"]
+    parts.extend(f"{built['job']} built on `{built['branch']}` waits on it" for built in item.get("built", []))
     if item.get("holds"):
         parts.append(f"holds up {item['holds']} finished")
     if item.get("blocks"):
