@@ -158,25 +158,50 @@ def test_checks_reads_a_queued_running_or_missing_rerun_as_pending(rollup: list[
     assert github.checks(rollup, failed) == verdict
 
 
+def job(name: str, conclusion: str | None, run: int, workflow: str = "FDE Docs") -> dict:
+    return {"name": name, "conclusion": conclusion, "detailsUrl": f"https://github.com/a/one/actions/runs/{run}/job/{run}0", "workflowName": workflow}
+
+
 @pytest.mark.parametrize(
     ("again", "verdict"),
     [("SUCCESS", "pass"), ("SKIPPED", "pass"), (None, "pending"), ("CANCELLED", "fail"), ("FAILURE", "fail")],
 )
-def test_a_cancelled_run_fails_a_head_only_when_no_other_run_of_its_check_passed_or_runs(again: str | None, verdict: str) -> None:
-    rollup = [*GREEN, {"name": "build", "conclusion": "CANCELLED"}, {"name": "build", "conclusion": again}]
+def test_a_cancelled_run_fails_a_head_only_when_no_other_run_of_its_workflow_passed_or_runs(again: str | None, verdict: str) -> None:
+    rollup = [*GREEN, job("build", "CANCELLED", 1), job("deploy", "CANCELLED", 1), job("build", again, 2)]
     assert github.checks(rollup, []) == verdict
 
 
-def test_a_duplicate_workflow_run_its_twin_cancelled_reads_pass_and_leaves_no_failed_check() -> None:
-    rollup = [
-        *GREEN,
-        {"name": "build", "conclusion": "CANCELLED"},
-        {"name": "deploy", "conclusion": "CANCELLED"},
-        {"name": "build", "conclusion": "SUCCESS"},
-        {"name": "deploy", "conclusion": "SKIPPED"},
+def test_a_duplicate_run_reads_pending_then_pass_while_its_later_jobs_are_not_yet_created() -> None:
+    cancelled = [*GREEN, job("build", "CANCELLED", 1), job("deploy", "CANCELLED", 1)]
+    said = [github.live(pr_read(rollup), stored()) for rollup in ([*cancelled, job("build", None, 2)], [*cancelled, job("build", "SUCCESS", 2), job("deploy", "SKIPPED", 2)])]
+    assert [(fresh["checks"], fresh["failed_checks"]) for fresh in said] == [("pending", []), ("pass", [])]
+
+
+@pytest.mark.parametrize(
+    "rollup",
+    [
+        [*GREEN, job("build", "SUCCESS", 1), job("deploy", "CANCELLED", 1)],
+        [*GREEN, job("build", "CANCELLED", 1), job("build", "SUCCESS", 2, workflow="Other")],
+        [*GREEN, {"name": "Socket", "conclusion": "CANCELLED", "detailsUrl": "https://socket.dev/x", "workflowName": ""}, {"name": "Socket", "conclusion": "SUCCESS"}],
+    ],
+)
+def test_a_cancelled_job_with_no_other_run_of_its_workflow_still_fails(rollup: list[dict]) -> None:
+    assert github.checks(rollup, []) == "fail"
+
+
+def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: pytest.MonkeyPatch) -> None:
+    contexts = [
+        {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "checkSuite": {"workflowRun": {"workflow": {"name": "FDE Docs"}}}},
+        {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "checkSuite": {"workflowRun": None}},
+        {"context": "buildkite/test", "state": "SUCCESS"},
     ]
-    fresh = github.live(pr_read(rollup), stored())
-    assert (fresh["checks"], fresh["failed_checks"]) == ("pass", [])
+    pr = node(commits={"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
+    monkeypatch.setattr(github, "run", lambda cmd: json.dumps({"data": {"r0": {"p1": pr}}}))
+    assert github.fetch(["a/one#1"])["a/one#1"]["checks"] == [
+        {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
+        {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},
+        {"context": "buildkite/test", "state": "SUCCESS"},
+    ]
 
 
 def test_a_check_that_failed_then_dropped_out_for_its_rerun_reads_pending_until_its_new_run_passes() -> None:
