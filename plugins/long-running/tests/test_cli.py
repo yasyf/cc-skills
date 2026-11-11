@@ -3469,9 +3469,9 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
     assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
 
 
-def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict]) -> None:
+def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict], lane: str = "root") -> None:
     monkeypatch.setattr(
-        cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}})
+        cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}})
     )
 
 
@@ -3496,6 +3496,27 @@ def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "fix": posted {line}')
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
+
+
+def test_order_posted_on_the_communicators_own_order_takes_the_report_its_handler_wrote_from_the_communicators_lane(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "which page shows a run's history?", "--thread", "1794200000.000100", "--owner", "communicator")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    line = slack_thread.post(state.now(), from_claude=True)
+    report_records(monkeypatch, {"664348": {"close": "o1"}})
+    assert cli.main(["order", "posted", "o1", line, "--record", "664348"]) == 2
+    assert (
+        "refused, the report is the coordinator's and o1 is the communicator's order, so it delivers nothing there: post your own report from the"
+        ' communicator\'s lane, cci post --kind report --lane communicator --attr close=o1 "<its first words>" with no --to, carrying this report\'s'
+        " facts, and pass that seq, or post with no record, a progress line"
+    ) in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["parts"]["which page shows a run's history?"]["posted"] is None
+    report_records(monkeypatch, {"664350": {"close": "o1"}}, lane="communicator")
+    assert run("order", "posted", "o1", line, "--record", "664350") == (0, f'o1 "which page shows a run\'s history?": posted {line}')
 
 
 def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_starts_it_in_one(

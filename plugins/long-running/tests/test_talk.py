@@ -290,8 +290,8 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
     assert len(posts) == 2
 
 
-def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
+def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root") -> None:
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
 
 def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(
@@ -320,14 +320,37 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
 
 
-def test_a_report_from_the_session_that_does_not_hold_its_order_posts_nothing(
-    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
+def test_a_report_delivers_on_an_order_only_from_the_lane_of_its_holder_and_a_refusal_names_the_report_the_handler_passes(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
-    report(monkeypatch, {"orders": "o1"})
-    with pytest.raises(DriveError, match=r"nothing posted: refused, the report is the coordinator's: o1 is the communicator's order"):
-        talk.say(demo, {"text": "The verb is live.", "thread_ts": "1794200000.000100", "order": "o1", "record": "661300"})
-    assert (posts, said(demo)) == ([], [])
+    thread = "1794200000.000100"
+    run("order", "add", "--project", "The drive", "--workstream", "Questions", "which page shows a run's history?", "--thread", thread, "--owner", "communicator")
+    run("order", "add", "--project", "The drive", "--workstream", "Run page", "show a run's history", "--thread", thread, "--owner", "coordinator")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    sent: list[tuple[str, ...]] = []
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: sent.append(argv) or {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"close": "o1"})
+    with pytest.raises(
+        DriveError,
+        match=(
+            r"nothing posted: refused, the report is the coordinator's and o1 is the communicator's order, so it delivers nothing there:"
+            r" post your own report from the communicator's lane, cci post --kind report --lane communicator --attr close=o1"
+        ),
+    ):
+        talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "order": "o1", "record": "664348"})
+    assert (sent, said(demo)) == ([], [])
+    report(monkeypatch, {"close": "o1"}, lane="communicator")
+    assert talk.say(demo, {"text": "The run page shows it.", "thread_ts": thread, "order": "o1", "record": "664350"}) == f'POSTED {answer}; o1 "which page shows a run\'s history?": posted {answer}'
+    report(monkeypatch, {"close": "o2"}, lane="communicator")
+    with pytest.raises(DriveError, match=r"refused, the report is the communicator's and o2 is the coordinator's order, so it delivers nothing there: pass the coordinator's own report on o2"):
+        talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "order": "o2", "record": "664351"})
+    report(monkeypatch, {"close": "o2"})
+    assert talk.say(demo, {"text": "The run page is live.", "thread_ts": thread, "order": "o2", "record": "664352"}) == f'POSTED {answer}; o2 "show a run\'s history": posted {answer}'
+    assert len(sent) == 2
 
 
 def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with(
