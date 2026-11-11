@@ -1,0 +1,1 @@
+{"isSidechain": false, "userType": "external", "entrypoint": "cli", "cwd": "/tmp", "version": "2.1.285", "gitBranch": "", "type": "user", "uuid": "u1", "sessionId": "communicator-fixture", "timestamp": "2026-11-11T17:40:00.000Z", "parentUuid": null, "message": {"role": "user", "content": "Slack message from him: ship the memory fix"}}

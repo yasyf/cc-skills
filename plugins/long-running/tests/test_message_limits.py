@@ -9,7 +9,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import limits, slack, state, talk
+from drive import limits, refs, slack, state, talk
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -159,6 +159,7 @@ JOSHS_PR = (
     " an Update sand button."
 )
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
+BREAK_GLASS = "Use break glass with machine profile then you don't need sso, I tell you this once a day"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
 STRAY_CHATS_ASK = f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
 Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Rowan's files are read.
@@ -526,7 +527,7 @@ def test_words_he_did_not_write_lift_nothing_and_the_refusal_names_them(
     reason = posted(transcript, text=said(400), thread_ts="1.2", asked=asked)
     assert reason.startswith("refused: this post is 400 words, and a line in his thread is at most 60 words")
     assert "It is not an answer, so it keeps that limit" in reason
-    assert f"nor in your brief: {named}. {NOT_HIS}" in reason
+    assert f"no answer of his a card there shows, nor your brief: {named}. {NOT_HIS}" in reason
 
 
 def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefed: Path, slack_thread: Thread) -> None:
@@ -534,6 +535,28 @@ def test_words_only_the_bot_wrote_in_the_thread_lift_nothing(talker: str, briefe
     reason = posted(briefed, text=AUDIT, thread_ts=AUDIT_THREAD, asked=CHECK_SIMPLE)
     assert reason.startswith("refused: this post is 106 words, and a line in his thread is at most 60 words")
     assert reason.endswith(NOT_HIS)
+
+
+def test_his_answer_on_a_card_in_the_thread_is_his_words_for_asked_and_for_jev(talker: str, transcript: Path, slack_thread: Thread) -> None:
+    his(slack_thread, "is the release out?")
+    slack_thread.messages.append({"ts": "1794418890.901979", "from_bot": True, "text": "", "shares": [{"text": f"Renew the sign-in or skip the hand repair?\n✓ <{HIS_PICK}|{BREAK_GLASS}> · 9:41am"}]})
+    reason = posted(transcript, text=said(100), thread_ts="1.2", asked=BREAK_GLASS)
+    assert reason is None
+    words = message_limits.his_words(call("slack_dm_status", transcript, text=said(100), thread_ts="1.2"))
+    assert [(word["id"], word["source"]) for word in words] == [("brief", "brief"), ("slack:1794310000.000000", "slack"), ("card:1794418890.901979:0", "card")]
+    assert words[2]["quote"] == f"<{HIS_PICK}|{BREAK_GLASS}> · 9:41am"
+    assert posted(transcript, text=said(100), thread_ts="1.2", asked="Use break glass every time").startswith("refused: this post is 100 words")
+
+
+def test_a_refused_post_carries_his_words_for_jev_and_one_the_checks_pass_carries_none(
+    talker: str, transcript: Path, slack_thread: Thread, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    his(slack_thread, "is the release out?")
+    for text, judged in ((said(61), True), (said(5), False)):
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text=text, thread_ts="1.2"))))
+        message_limits.main()
+        printed = capsys.readouterr().out
+        assert (json.loads(printed)["his_words"][1]["quote"] if printed else None) == ("is the release out?" if judged else None)
 
 
 def test_an_unreadable_thread_refuses_with_why(talker: str, briefed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -709,7 +732,7 @@ def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str,
 
 def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_posts_order_does(talker: str, transcript: Path) -> None:
     for plain in ("the thread", "that write thread", "that fix"):
-        assert say(transcript, text=f"The server stalled because {plain} held its lock.", order="o1") is None
+        assert say(transcript, text=f"The server stalled while {plain} held its lock.", order="o1") is None
     first = "Once the first PR lands, the alerts stop."
     assert say(transcript, text=first, order="o1") is None
     holds_pr("o2")
@@ -777,6 +800,42 @@ def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str
     assert posted(transcript, text=text, tap_prs=[url]) is None
     assert posted(transcript, text=text, card={"title": said(5), "body": text, "options": ["Yes", "No"], "waits": "demo:j1-7"}) is None
     assert "waits-without-card" in posted(transcript, text=text)
+
+
+def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not(talker: str, transcript: Path) -> None:
+    assert say(transcript, text="Merged.\nThe runs failed because the pool was full") == (
+        "refused: a line naming a cause carries {record:<seq>} of the record that measured it, on that line: The runs failed because the pool was full"
+    )
+    assert say(transcript, text='> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.') is None
+    assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
+
+
+def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["stand_ins"]["backup"] = "S3 replica"
+    assert say(transcript, text="The backup copy is current.") == (
+        "refused: this post calls a thing by a word he corrected, so write its proper term in that word's place:"
+        ' "backup" becomes "S3 replica" (his Nov 11 12:36 AM words "use the proper fucking terms for things")'
+    )
+    assert '"backups" becomes "S3 replica"' in posted(transcript, card={"title": "Restore from which backups?", "body": "One line.", "options": ["Yes", "No"]})
+    assert '"backup" becomes "S3 replica"' in say(transcript, text="The <https://example.com/replica|backup copy> is current.")
+    assert '"backup" becomes "S3 replica"' in say(transcript, text="Replica status.", visuals=[{"kind": "chart", "source": "{}", "caption": "The backup copy."}])
+    for text in ("The S3 replica is current.", 'You asked "is the backup current"; the S3 replica is.', "> Is the backup copy current?\nThe S3 replica is current."):
+        assert say(transcript, text=text) is None
+
+
+def test_a_pr_card_serving_drive_tooling_under_a_line_leaving_out_that_orders_words_is_found(talker: str, transcript: Path, run: Run) -> None:
+    tooling = "Drive tooling: a card named in a post shows under the line"
+    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    holds_pr("o1")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = tooling
+        data["prs"]["Forge-AI/monorepo#53618"]["serves"] = "o1"
+    url = "https://github.com/Forge-AI/monorepo/pull/53618"
+    assert say(transcript, text="land these", tap_prs=[url]) == (
+        f'refused: Forge-AI/monorepo#53618 serves a drive tooling order, so the line above its card quotes that order: put "{tooling}" in text'
+    )
+    assert say(transcript, text=f"_{tooling}_", tap_prs=[url]) is None
 
 
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:

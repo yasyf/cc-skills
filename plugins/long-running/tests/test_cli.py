@@ -1006,7 +1006,7 @@ def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_un
 
 def test_term_keeps_a_word_he_corrected_beside_its_proper_term_and_a_drive_saved_before_it_loads_with_none(run: Run, demo: str) -> None:
     assert state.load(demo)["stand_ins"] == {}
-    assert run("term", "backup", "S3 replica") == (0, 'say refuses "backup" from now on, naming "S3 replica"')
+    assert run("term", "backup", "S3 replica") == (0, 'say\'s hook finds "backup" from now on, naming "S3 replica", for Jev to judge against his words')
     assert state.load(demo)["stand_ins"] == {"backup": "S3 replica"}
     saved = json.loads(state.state_path(demo).read_text())
     del saved["stand_ins"]

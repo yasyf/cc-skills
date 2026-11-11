@@ -32,6 +32,7 @@ PROMISED_TIME = re.compile(
 )
 AHEAD = timedelta(hours=12)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
+CARD_ANSWER = re.compile(r"✓ ([^\n]+)")
 WAITING = "WAITING-ON-HIM"
 AWAY_RULE = "While he is away, a line of news to him that is not a card, a line saying what waits on him, an incident line or an answer to a message of his."
 TITLED = (
@@ -153,16 +154,62 @@ def unchecked(tool_input: dict) -> str | None:
     return "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings)
 
 
-def his_messages(payload: dict, dm: str) -> str:
-    """What he wrote in the thread the post goes to, read from Slack; in his DM with the app every message not the bot's is his."""
+def thread_words(payload: dict, dm: str) -> list[dict]:
+    """His words in the thread the post goes to, read from Slack, each as the evidence Jev cites: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line."""
     tool_input = payload["tool_input"]
     if tool_input.get("thread_ts"):
         where = ("--channel", dm, "--thread", tool_input["thread_ts"])
     elif tool_input.get("url"):
         where = ("--url", tool_input["url"])
     else:
-        return ""
-    return " ".join(message["text"] for message in slack.thread(*where, "--limit", str(slack.WHOLE_THREAD)) if not message.get("from_bot"))
+        return []
+    words = []
+    for message in slack.thread(*where, "--limit", str(slack.WHOLE_THREAD)):
+        said_at = slack.sent_at(message).isoformat()
+        if not message.get("from_bot"):
+            words.append({"id": f"slack:{message['ts']}", "source": "slack", "quote": message["text"], "said_at": said_at, "detail": "his message in the thread this post goes to"})
+            continue
+        cards = [message["text"], *(share.get("text") or "" for share in message.get("shares") or [])]
+        words += [
+            {"id": f"card:{message['ts']}:{index}", "source": "card", "quote": answer, "said_at": said_at, "detail": "his answer, as the card the bot drew in this thread shows it"}
+            for index, answer in enumerate(dict.fromkeys(answer for card in cards for answer in CARD_ANSWER.findall(card)))
+        ]
+    return words
+
+
+def unbacked(payload: dict, said: str) -> str | None:
+    """Why a line of say's post names a cause with no {record:} of the record that measured it."""
+    if payload["tool_name"] != SAY or not (lines := refs.unbacked(said)):
+        return None
+    return f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}"
+
+
+def corrected(tool_input: dict, drive: dict) -> str | None:
+    """Why a post calls a thing by a word he corrected, which `drive term` keeps beside its proper term."""
+    if (refusal := limits.stand_in_refusal(tool_input, drive["stand_ins"])) is None:
+        return None
+    return f"refused: {refusal}"
+
+
+def untooled(payload: dict, drive: dict, said: str) -> str | None:
+    """Why say's PR card goes under a line leaving out the words of the drive tooling order a PR on it serves."""
+    if payload["tool_name"] != SAY:
+        return None
+    stack = [key for each in payload["tool_input"].get("tap_prs") or [] if (key := state.pr_key(each)) in drive["prs"]]
+    if (refusal := talk.unquoted_tooling(drive, stack, said)) is None:
+        return None
+    return f"refused: {refusal}"
+
+
+def his_words(payload: dict) -> list[dict]:
+    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to, and the brief the handler posting it was started with, which quotes him."""
+    words = [{"id": "brief", "source": "brief", "quote": brief, "detail": "the brief the communicator started this handler with, quoting his words"}] if (brief := agents.brief(payload)) else []
+    if (drive := his_drive(payload.get("session_id") or "")) is None:
+        return words
+    try:
+        return words + thread_words(payload, drive["slack"]["channel"])
+    except slack.SlackError:
+        return words
 
 
 def edited_words(payload: dict, dm: str) -> int:
@@ -191,14 +238,15 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM does not go out as written: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, and then, refused at once with every finding, the post keeps its length, links what it names, asks no tap that is not owed, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
     if posted := coordinator_post(payload):
         return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
         return None
     dm = drive["slack"]["channel"]
     titled = 0
-    if payload["tool_name"] == SAY and refs.REF.search(said := payload["tool_input"].get("text") or ""):
+    said = payload["tool_input"].get("text") or ""
+    if payload["tool_name"] == SAY and refs.REF.search(said):
         try:
             found = refs.resolved(drive["name"], said)
         except DriveError as error:
@@ -227,6 +275,9 @@ def deny_reason(payload: dict) -> str | None:
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
             unchecked(tool_input),
+            unbacked(payload, said),
+            corrected(tool_input, drive),
+            untooled(payload, drive, said),
         ]
     )
     if refusal is None:
@@ -398,7 +449,7 @@ def over_length(payload: dict, dm: str) -> str | None:
     if len(unbriefed := unsaid(asked, agents.brief(payload))) < len(asked):
         return None
     try:
-        missing = unsaid(unbriefed, his_messages(payload, dm))
+        missing = unsaid(unbriefed, " ".join(word["quote"] for word in thread_words(payload, dm)))
     except slack.SlackError as error:
         return refusal + f" His thread could not be read to check asked, so it is not yet an answer: {error}."
     if len(missing) < len(asked):
@@ -406,8 +457,8 @@ def over_length(payload: dict, dm: str) -> str | None:
     named = ", ".join(f'"{part}"' for part in missing)
     return (
         refusal + " It is not an answer, so it keeps that limit: asked lifts the limit only with his own words, and these stand"
-        f" in no message of his in the thread this post goes to, nor in your brief: {named}. Copy each message of his this post"
-        " answers word for word, one per line, with … where you skip words."
+        f" in no message of his in the thread this post goes to, no answer of his a card there shows, nor your brief: {named}."
+        " Copy each message of his this post answers word for word, one per line, with … where you skip words."
     )
 
 
@@ -431,7 +482,7 @@ def main() -> None:
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
         )
     if reason:
-        print(json.dumps(denial(reason) | agents.ruled(reason)))
+        print(json.dumps(denial(reason) | agents.ruled(reason) | {"his_words": his_words(payload)}))
 
 
 if __name__ == "__main__":
