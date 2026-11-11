@@ -256,6 +256,7 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
         "headRefName": "land-it",
         "statusCheckRollup": [],
         "reviewDecision": "REVIEW_REQUIRED",
+        "labels": [],
         "url": "https://github.com/Forge-AI/monorepo/pull/42",
     }
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
