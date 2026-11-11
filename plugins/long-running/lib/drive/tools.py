@@ -14,6 +14,7 @@ OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief")
 ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
+DRIVE = {"type": "string", "description": "the drive this call acts on, as --drive names it; default the drive bound to this session, else the only drive"}
 OPS_HELP = (
     "{lead} Runs the ops in order, each one verb with its flags as fields, and returns one line per op. A refusal stops"
     " the call, keeps the lines of the ops that ran, and names the op, its fix and the ops left unrun: make the fix and"
@@ -97,7 +98,7 @@ def verb_tools() -> list[dict]:
                 "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
                 " the coordinator hears his catch-up itself."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "dry_run": DRY_RUN}},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
         },
         {
             "name": "record",
@@ -115,7 +116,7 @@ def verb_tools() -> list[dict]:
             ),
             "inputSchema": {
                 "type": "object",
-                "properties": {"records": {"type": "array", "minItems": 1, "items": RECORD}, "dry_run": DRY_RUN},
+                "properties": {"records": {"type": "array", "minItems": 1, "items": RECORD}, "drive": DRIVE, "dry_run": DRY_RUN},
                 "required": ["records"],
             },
         },
@@ -123,7 +124,7 @@ def verb_tools() -> list[dict]:
         {
             "name": "status",
             "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order. A handler, the coordinator or the meta session reads this, never the communicator.",
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "dry_run": DRY_RUN}},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
         {
@@ -133,7 +134,7 @@ def verb_tools() -> list[dict]:
                 " before building it or asking. Returns the sections carrying the most of them, best first, each under its"
                 " plan's title, id, status and the headings above it."
             ),
-            "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search"))["properties"], "dry_run": DRY_RUN}, "required": ["words"]},
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("plan", "search"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["words"]},
             "annotations": {"readOnlyHint": True},
         },
     ]
@@ -223,7 +224,7 @@ def ops_tool(group: str, typed: dict[str, dict]) -> dict:
         "description": OPS_HELP.format(lead=LEADS[group], verbs=", ".join(verbs)),
         "inputSchema": {
             "type": "object",
-            "properties": {"ops": {"type": "array", "minItems": 1, "items": {"oneOf": shapes}}, "dry_run": DRY_RUN},
+            "properties": {"ops": {"type": "array", "minItems": 1, "items": {"oneOf": shapes}}, "drive": DRIVE, "dry_run": DRY_RUN},
             "required": ["ops"],
         },
     }

@@ -2195,7 +2195,7 @@ def tool_command(args: argparse.Namespace) -> int:
     shapes = next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)["inputSchema"]["properties"]
     try:
         arguments = tools.parsed_arguments(json.load(sys.stdin), shapes)
-        print(tools.run(args.tool, state.resolve(), arguments))
+        print(tools.run(args.tool, state.resolve(arguments.pop("drive", None)), arguments))
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
     return 0

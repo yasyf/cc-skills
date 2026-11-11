@@ -1,9 +1,10 @@
+import io
 import json
 import subprocess
 from collections.abc import Callable
 
 import pytest
-from drive import card, cli, limits, reads, slack, state, tools, view
+from drive import card, cli, limits, mcp, reads, slack, state, tools, view
 from conftest import Withdrawals
 from drive.state import DriveError
 
@@ -101,6 +102,25 @@ def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_he
     assert run("plan", "search", "deploy", "freeze") == (0, 'no plan the coordinator keeps in cc-notes has a section on "deploy freeze"')
     listed = {tool["name"]: tool for tool in tools.verb_tools()}["search_plan"]
     assert (listed["inputSchema"]["required"], listed["annotations"]) == (["words"], {"readOnlyHint": True})
+
+
+def test_a_tool_call_naming_its_drive_acts_on_that_drive_from_a_session_no_drive_binds(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tools.run("order", demo, {"ops": [{"add": {"words": "Fix the card", "project": "The drive", "workstream": "Drive tooling"}}]})
+    run("start", "other", "--role", "coordinator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "bound-to-none")
+
+    def call(arguments: dict) -> tuple[int, str]:
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(arguments)))
+        code = cli.main(["tool", "status"])
+        printed = capsys.readouterr()
+        return code, printed.out + printed.err
+
+    assert call({}) == (2, "drive: several drives, pass --drive: demo, other\n")
+    assert "Fix the card" in call({"drive": demo})[1]
+    assert "Fix the card" not in call({"drive": "other"})[1]
+    assert all(tool["inputSchema"]["properties"]["drive"] == tools.DRIVE for tool in mcp.tool_list())
 
 
 def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_required_and_its_description(
@@ -329,8 +349,6 @@ def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run:
 
 
 def test_ops_or_their_items_sent_as_json_text_reach_the_tool_as_the_lists_they_spell() -> None:
-    from drive import mcp
-
     shapes = {tool["name"]: tool["inputSchema"]["properties"] for tool in mcp.tool_list()}
     ops = [{"set": {"url": "https://github.com/Forge-AI/monorepo/pull/42", "tap": True}}]
     assert tools.parsed_arguments({"ops": json.dumps(ops)}, shapes["pr"]) == {"ops": ops}
