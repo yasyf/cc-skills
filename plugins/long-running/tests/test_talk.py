@@ -110,7 +110,7 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
 
 
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": attrs}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": attrs}}))
 
 
 def test_a_post_for_a_report_delivers_the_part_its_job_answered(
@@ -133,6 +133,16 @@ def test_a_post_for_a_report_delivers_the_part_its_job_answered(
     later = state.now() + timedelta(minutes=30)
     gaps = watch.part_gaps(watch.Watcher(demo, offset=0, ticked_at=later), state.load(demo), later)
     assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
+
+
+def test_a_report_from_the_session_that_does_not_hold_its_order_posts_nothing(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, run: Callable[..., tuple[int, str]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    report(monkeypatch, {"orders": "o1"})
+    with pytest.raises(DriveError, match=r"nothing posted: refused, the report is the coordinator's: o1 is the communicator's order"):
+        talk.say(demo, {"text": "The verb is live.", "thread_ts": "1794200000.000100", "order": "o1", "record": "661300"})
+    assert (posts, said(demo)) == ([], [])
 
 
 def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with(

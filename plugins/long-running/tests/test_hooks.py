@@ -393,7 +393,7 @@ def drive_agent(subagent_type: str, prompt: str, model: str | None = None, sessi
 
 
 def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
-    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    communicator: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -425,6 +425,19 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt, "sonnet")) == (
         "refused, no agent started: o1 is a build order: its reader, designer and builder run on Opus; pass no model, or opus"
+    )
+
+
+def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str, run: Run, tmp_path: Path) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    brief = f"Serves: his order\nDrive: demo, order o1, job j1\nScratch: {tmp_path / 'j1'}"
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) is None
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["owner"] = "communicator"
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) == (
+        "refused, no agent started: o1 is the communicator's order, session not started: only the communicator adds its jobs,"
+        " starts its agents and posts its reports; send the communicator a record instead"
     )
 
 

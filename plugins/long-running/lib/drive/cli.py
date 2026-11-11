@@ -80,7 +80,14 @@ def order_add(args: argparse.Namespace) -> int:
         )
     if args.thread:
         check_thread(state.load(name), args.source, args.thread)
+    tooling = args.words.startswith(state.TOOLING)
+    if tooling and args.owner == "coordinator":
+        raise DriveError(
+            f'--owner coordinator: a "{state.TOOLING}" order is the communicator\'s, by his words of Nov 10 10:08 PM:'
+            ' "and remember toolingh/meta improvements dont go to coorfidnatror"; leave --owner out'
+        )
     with state.edit(name) as data:
+        owner = args.owner or ("communicator" if tooling else state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "coordinator")
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
@@ -107,6 +114,7 @@ def order_add(args: argparse.Namespace) -> int:
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
             "complex": args.complex,
+            "owner": owner,
             "project": args.project,
             "workstream": args.workstream,
             "proof": None,
@@ -302,12 +310,12 @@ def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up."""
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
-    return record["fields"].get("attrs", {})
+    return record["fields"].get("attrs", {}) | {"writer": record["lane"]}
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -328,6 +336,15 @@ def communicators_order(data: dict, order_id: str) -> dict:
     return find(data["orders"], order_id, "order")
 
 
+def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
+    """Why a report may not go in an order's thread: the drive's session that wrote it does not hold the order."""
+    role = state.LANE_ROLES.get(report.get("writer") or "")
+    if not (role and order_id in data["orders"]):
+        return None
+    held = state.held_elsewhere(data, order_id, role)
+    return held and f"refused, the report is the {role}'s: {held}"
+
+
 def reported_parts(data: dict, order_id: str, report: dict) -> list[str]:
     """The parts of the order a report's post delivers: the part it names, else each part of the order its job delivers."""
     if part := report.get("part"):
@@ -341,6 +358,8 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     """Record the drive's post in an order's thread: the promised time it keeps, the order's last line, and the parts its report delivers."""
     data = state.load(name)
     order = communicators_order(data, order_id)
+    if refused := report_refusal(data, order_id, report):
+        raise DriveError(refused)
     named = reported_parts(data, order_id, report)
     parts = pick_parts(order_id, order, named) if named else list(order["parts"])
     delivered = parts if named or len(parts) == 1 else []
@@ -366,8 +385,10 @@ def job_add(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
-        if refused := brief.job_refusal(name, data, args.order, args.kind):
+        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        if refused := state.held_elsewhere(data, args.order, role) or brief.job_refusal(name, data, args.order, args.kind):
             raise DriveError(f"refused, no job added: {refused}")
+        order["owner"] = order["owner"] or role
         beside = [
             f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
             for other_id in order["jobs"]
@@ -722,7 +743,8 @@ def job_launch(args: argparse.Namespace) -> int:
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
     root = checkout()
     text = sys.stdin.read() if args.brief == "-" else Path(args.brief or job["brief"]).read_text()
-    if refused := brief.brief_refusal(name, data, args.id, text, None):
+    role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text, None):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
     with state.edit(name) as data:
@@ -1382,6 +1404,14 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--complex", action="store_true", help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet")
+    verb.add_argument(
+        "--owner",
+        choices=state.ROLES,
+        help=(
+            "the one session that adds its jobs, starts its agents and posts its reports, refusing the other's; default: a"
+            ' "Drive tooling:" order the communicator, any other the role of the session adding it, else the coordinator'
+        ),
+    )
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files this order under, reusing one drive order unfiled lists as in use where it fits")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files this order under, reusing one in use where it fits")
     verb.set_defaults(run=order_add)

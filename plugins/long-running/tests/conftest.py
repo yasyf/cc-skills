@@ -4,7 +4,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, dashboard, github, orca, page, settled, slack, view, watch
+from drive import cli, dashboard, github, orca, page, settled, slack, state, view, watch
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -45,6 +45,14 @@ def run(state_root: Path, capsys: pytest.CaptureFixture[str]) -> Callable[..., t
 def demo(run: Callable[..., tuple[int, str]]) -> str:
     run("start", "demo", "--role", "coordinator", "--channel", "D123")
     return "demo"
+
+
+@pytest.fixture
+def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
+    run("start", demo, "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    return demo
 
 
 @pytest.fixture(autouse=True)
