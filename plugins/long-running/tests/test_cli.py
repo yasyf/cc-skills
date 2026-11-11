@@ -2311,33 +2311,16 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
 
 
-def test_a_builders_ready_names_prs_whose_tap_card_draws(
+def test_a_builders_ready_is_kept_whatever_its_prs_body_holds_or_lacks(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
-    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
-    assert code == 2
-    assert f"j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"What you'll hate most\" section in the body of {PR}" in err
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
-    on_github["body"] = CARD_BODY
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
-
-
-def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_screenshot_on_its_card_kept_where_the_drive_keeps_pictures(
-    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    seen = f"READY {PR}\nNATIVE: the Iris app's run page\n"
-    pictures = state.root() / "demo" / "pictures"
-    before, after = f"![1 · Before, dev]({pictures}/j779-run-page-before-de31bf9.png)\n", f"![2 · After, this PR]({pictures}/j779-run-page-after-e3aefbd.png)\n"
-    for show_me, alone in (("", False), (f"## Show me\n{before}", True)):
-        on_github["body"] = CARD_BODY + show_me
-        code, err = keep(monkeypatch, capsys, "j1", seen)
-        said = " ".join(err.split())
-        assert (code, card.SCREENSHOTS in said, 'the Show me picture "1 · Before, dev" is a file drawn by hand' in said) == (2, True, alone)
-    on_github["body"] = CARD_BODY + f"## Show me\n{before}{after}"
-    assert keep(monkeypatch, capsys, "j1", seen) == (0, "")
-    on_github["body"] = CARD_BODY
-    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nNATIVE: none: he never sees it\n") == (0, "")
+    for body, native in (
+        (CARD_BODY.replace("## What you'll hate most", "## Biggest surprise"), ""),
+        (CARD_BODY + "## Show me\n```\nbefore: 40 s\nafter: 2 s\n```\n", ""),
+        (CARD_BODY, "NATIVE: the Iris app's run page\n"),
+    ):
+        on_github["body"] = body
+        assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n{native}") == (0, "")
 
 
 def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
@@ -2354,12 +2337,10 @@ def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
         return json.dumps(on_github | {"url": PR.removesuffix("42") + cmd[3], "baseRefName": base, "headRefName": head})
 
     monkeypatch.setattr(card, "run", gh)
+    monkeypatch.setattr(card, "STACK_MOST", 1)
     code, err = keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n")
     assert code == 2
-    assert (
-        "j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"The stack\" section with the"
-        f" stack's one-line title then its summary in the body of {PR}"
-    ) in err
+    assert "j1: refused, nothing kept: the PRs it names would draw no tap card: its stack holds 2 PRs and a stack is at most 1," in err
     branches["43"] = ("main", "land-more")
     assert keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n") == (0, "")
 
@@ -2778,22 +2759,22 @@ def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr
     assert state.load("demo")["prs"][with_pr]["design"] == "none"
 
 
-def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_section(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
+@pytest.mark.parametrize(
+    "body",
+    [
+        CARD_BODY.replace("## What you'll hate most", "## Biggest surprise"),
+        CARD_BODY.split("## His words")[0],
+        CARD_BODY + '## Show me\n```\n(a) [{"dur_ms":7,"step":"wake"}]\n```\n',
+        CARD_BODY.replace("It lands without a second look.", "It lands without a second look. It follows cci 661229."),
+    ],
+    ids=["no what you'll hate most", "no his words", "an untagged fence", "a record id"],
+)
+def test_pr_set_tap_draws_his_card_whatever_its_body_holds_or_lacks(run: Run, with_pr: str, on_github: dict, body: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {PR}"
-    assert capsys.readouterr().err.strip() == f"drive: {with_pr}: {reason}"
+    on_github["body"] = body
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
     pr = state.load("demo")["prs"][with_pr]
-    assert (pr["wants_tap"], pr.get("serves")) == (False, None)
-    on_github["body"] = CARD_BODY.split("## His words")[0].replace("## What you'll hate most", "## Biggest surprise")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(
-        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
-        f" list naming his order in the body of {PR}. No order of his names {PR}: "
-    )
+    assert (pr["wants_tap"], pr["serves"]) == (True, "o1")
 
 
 def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the_release(
@@ -2804,17 +2785,10 @@ def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refuse(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_pr_set_serves_on_a_pr_added_with_tap_takes_a_body_of_one_summary(run: Run, with_pr: str, on_github: dict) -> None:
     on_github["body"] = "## Summary\nLands it."
-    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.startswith(
-        f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
-    )
-    assert state.load("demo")["prs"][with_pr].get("serves") is None
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    assert run("pr", "set", PR, "--serves", "o1")[0] == 0
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
 
 def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_communicator_sets_it(
@@ -2975,18 +2949,6 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is True
     on_github["body"] = CARD_BODY
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
-
-
-def test_a_tap_card_refuses_a_body_naming_record_ids(run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look. It follows cci 661229.")
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    assert capsys.readouterr().err.strip() == (
-        f"drive: {with_pr}: its tap card needs plain words for what each of cci 661229 is, in place of the record id, which says"
-        f" nothing to him in the body of {PR}"
-    )
-    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look, per his 11:23 PM card answer.")
-    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
 def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_while_drive_place_says_remote(

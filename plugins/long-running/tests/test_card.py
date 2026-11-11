@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import card, cli, github, limits, picture, render, state, view
+from drive import card, cli, github, picture, render, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -30,82 +30,6 @@ The plan said three retries; this does five.
 ## His words, step by step
 - "uploads should survive a flaky network" beside `upload.go:42`
 """
-RENEW_EXCHANGE = """The same agent at minute 10 and minute 15, before and after:
-
-```sh
-before  00:15  SandSQL inbox read with the pushed pass        -> refused, the pass expired
-before  00:15  model call through the api as "Agent <token>"  -> 401, the token expired
-after   00:10  POST /agent-hosts/agt_.../permission/renew {"writer":1}
-               -> 200 {"token":"eyJ...","tokenExpiresAt":"...T00:25:00Z","inbox":{"db":"inbox-agt_...","token":"sat1.inbox",...}}
-after   00:10  the same renew against an api replica from before this change -> 404, and the agent keeps its hold
-after   00:15  inbox read and model call on the renewed pair  -> 200
-after   00:10  the same ack from a pod that no longer holds the agent -> 409 {"error":"over"}, no pass minted
-```
-"""
-SESSIONS_EXCHANGE = """Each page of chats the list asks for.
-
-```sh
-# launch: the newest 50, plus where the next page starts
-GET /api/sessions?team=team_acme
--> { "sessions": [50 chats], "next": "1794294151630439:sess_01k..." }
-
-# a Show more click: every chat down to that cursor, then 50 older
-GET /api/sessions?team=team_acme&through=1794294151630439%3Asess_01k...
--> { "sessions": [100 chats], "next": "1794201022118000:sess_01h..." }
-```
-"""
-CONFLICT_RESPONSE = """What a pod that lost its hold gets back.
-
-```http
-HTTP/1.1 409 Conflict
-content-type: application/json
-
-{"error": "over"}
-```
-"""
-RENEW_REWRITTEN = """The same agent's calls at minute 15, before and after the pod renews at minute 10.
-
-| call at minute 15 | before | after |
-|---|---|---|
-| SandSQL inbox read | refused, the pass expired | 200 |
-| model call as the agent | 401, the token expired | 200 |
-| renew from a pod that lost the agent | no such route | 409, no pass minted |
-
-```mermaid
-sequenceDiagram
-  participant pod as cloud pod
-  participant api
-  pod->>api: minute 10, POST /agent-hosts/:hostId/permission/renew
-  api-->>pod: a fresh token and inbox pass, good to minute 25
-  pod->>api: minute 15, inbox read and model call
-  api-->>pod: both answered
-```
-"""
-RENEW_CALL = """The call the pod makes at minute 10.
-
-```http
-POST /agent-hosts/agt_1/permission/renew HTTP/1.1
-Authorization: Executor <pod token>
-
-{"writer": 1}
-```
-"""
-RENEW_HANDLER = """The handler that answers it.
-
-```go
-// POST /agent-hosts/{id}/permission/renew -> 200
-func (h *Hosts) Renew(w http.ResponseWriter, r *http.Request) {
-	held, err := h.placements.Held(r.Context(), r.PathValue("id"), writer(r))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusConflict)
-		return
-	}
-	writeJSON(w, h.mint(held))
-}
-```
-"""
-
-
 def pr_json(
     title: str = "Fix: retry flaky uploads",
     body: str = FIX_BODY,
@@ -406,56 +330,17 @@ ROWS = '[{"step": "before", "seconds": 40}, {"step": "after", "seconds": 2}]'
 
 
 @pytest.mark.parametrize(
-    ("chart", "refusal"),
+    "chart",
     [
-        (CHART.replace(ROWS, "[1]"), "the Show me ```chart fence is no chart Slack draws"),
-        (CHART.replace('"encoding": {', '"encoding": {"color": "step", '), "the Show me ```chart fence is no chart Slack draws"),
-        (CHART.replace('"seconds": 40', '"seconds": "40"'), 'the Show me ```chart fence has a row whose "seconds" is "40", and each value is a number'),
-        (CHART.replace('"after"', '"before"'), 'the Show me ```chart fence has the series "seconds" without exactly one row for each category'),
+        CHART.replace(ROWS, "[1]"),
+        CHART.replace('"encoding": {', '"encoding": {"color": "step", '),
+        CHART.replace('"seconds": 40', '"seconds": "40"'),
+        CHART.replace('"after"', '"before"'),
     ],
 )
-def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card_and_is_refused(chart: str, refusal: str) -> None:
+def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card(chart: str) -> None:
     body = f"## Show me\nEach wake, before and after.\n\n```chart\n{chart}\n```\n"
     assert card.render(pr_json(body=body), entry())["prs"][0]["show_me"] == "Each wake, before and after."
-    assert refusal in "; ".join(card.show_me_problems(pr_json(body=body)))
-
-
-@pytest.mark.parametrize(
-    ("shown", "refusal"),
-    [
-        (
-            "| run, seconds |\n|---|\n| r1, 4.2 s |",
-            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
-        ),
-        (
-            "| run, seconds |\n|---|\n| r1 \\| 4.2 s |",
-            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
-        ),
-        (
-            "| size | before | after |\n|---|---|---|\n| 1 GiB | time | time |\n| 2 GiB | time | time |",
-            'the Show me table headed "size | before | after" holds "time" in every cell',
-        ),
-        (
-            "```chart\n" + CHART.replace('"before"', '"before the queue drains"') + "\n```",
-            'the Show me ```chart fence has the label "before the queue drains", 23 characters, and each label holds 1 to 20, so Slack cannot draw it as its own chart',
-        ),
-    ],
-)
-def test_a_pr_show_me_table_or_chart_slack_cannot_draw_as_its_own_is_refused_naming_the_fix(shown: str, refusal: str) -> None:
-    problems = card.show_me_problems(pr_json(body=f"## Show me\nEach wake, before and after.\n{shown}\n"))
-    assert refusal in "; ".join(problems)
-
-
-@pytest.mark.parametrize("show_me", [RENEW_EXCHANGE, SESSIONS_EXCHANGE, CONFLICT_RESPONSE], ids=["calls and answers in an sh fence", "requests and JSON answers between comments", "a response dump"])
-def test_a_pr_show_me_of_an_http_exchange_is_refused_naming_what_to_draw_instead(show_me: str) -> None:
-    problems = "; ".join(card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")))
-    assert "is an HTTP exchange, raw data or tool output, and a picture of it shows him nothing" in problems
-    assert "a ```mermaid sequenceDiagram for calls between services, a ```compare or a markdown table for options or before and after" in problems
-
-
-@pytest.mark.parametrize("show_me", [RENEW_REWRITTEN, RENEW_CALL, RENEW_HANDLER], ids=["a table and a sequence diagram", "the request alone", "code naming its route in a comment"])
-def test_a_pr_show_me_drawing_what_an_http_exchange_means_or_the_call_alone_passes(show_me: str) -> None:
-    assert card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")) == []
 
 
 def test_record_ids_never_reach_a_card_line() -> None:
@@ -468,12 +353,6 @@ def test_record_ids_never_reach_a_card_line() -> None:
     assert first["surprise"] == "Uploads retry. A failed upload no longer loses the file."
     assert first["refresher"] == "We try again."
     assert first["plan"] == "The plan said three retries; this does five."
-
-
-def test_a_record_id_in_an_images_file_path_is_no_word_he_reads_but_one_in_its_alt_text_is() -> None:
-    shots = "## Show me\n![1 · Before, dev](/drive/scratch/j779/before-de31bf9.png)\n<img src=\"/drive/scratch/j779/after-e3aefbd.png\">\n"
-    assert card.record_ids(pr_json(body=shots)) == []
-    assert card.record_ids(pr_json(body=shots.replace("1 · Before, dev", "1 · Before, de31bf9"))) == ["de31bf9"]
 
 
 def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
@@ -648,88 +527,26 @@ def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypat
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
-def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.replace("## What you'll hate most", "## Biggest worry")
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    reason = f"its tap card needs a \"What you'll hate most\" section in the body of {URL}"
-    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
-        "cards": [],
-        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
-    }
-    assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
-
-
-SNIPPETS_SHOW_ME = """
-## Show me
-
-What `up` runs on the box just before its reboot, before and after:
-
-```sh
-sudo launchctl enable system/com.example.screensharing
-(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
-```
-
-```sh
-sudo launchctl enable system/com.example.screensharing
-for try in {1..60}; do [[ "$(sudo launchctl print system/com.example.disk-formatter 2>/dev/null)" == *"state = running"* ]] || break; sleep 5; done
-(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
-```
-
-The box's first-boot script loses its disk lines:
-
-```sh
-disk=$(diskutil list physical external | head -n1 | cut -d" " -f1)
-yes | diskutil repairDisk "$disk"
-```
-
-On a fresh box the host had formatted the disk before the reboot, and the login came up with no dialog.
-
-```mermaid
-flowchart LR
-  boot[first boot: scratch disk blank] --> job[the host's job formats it]
-  boot --> reboot[up reboots the box]
-  job -->|now: up waits for the job| clean[login finds the disk: clean desktop]
-```
-"""
-
-
-def test_a_tap_card_whose_show_me_draws_snippets_that_add_nothing_is_refused_naming_the_rule(
-    drive: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.parametrize(
+    "body",
+    [
+        FIX_BODY.replace("## What you'll hate most", "## Biggest worry"),
+        FIX_BODY.replace(f"## Summary\n{SUMMARY}\n\n", ""),
+        FIX_BODY.split("## His words, step by step")[0],
+        FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\n- none\n",
+        FIX_BODY + '\n## Show me\n```\n(a) [{"dur_ms":7,"step":"wake"}]\n```\n',
+        FIX_BODY + "\n## Show me\n```yaml\n# before: no AWS or Buildkite credential reaches a Sprite lane\nsprite: none\n```\n",
+        FIX_BODY.replace("instead of losing the file.", "instead of losing the file (cci 661229, j134)."),
+    ],
+    ids=["no what you'll hate most", "no summary", "no his words", "his words say none", "an untagged fence", "a yaml fence", "record ids"],
+)
+def test_a_tap_card_draws_with_approve_whatever_its_body_holds_or_lacks(drive: str, monkeypatch: pytest.MonkeyPatch, body: str) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
-    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY + SNIPPETS_SHOW_ME)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        "its tap card needs a Show me whose every picture shows what its words cannot (the Show me draws 3 code fences as 3 pictures"
-    )
-    assert limits.BIG_RULING in skipped["reason"]
-    assert skipped["reason"].endswith(f") in the body of {URL}")
-    diagram = FIX_BODY + "\n## Show me\n" + SNIPPETS_SHOW_ME.split("no dialog.\n", 1)[1]
-    monkeypatch.setattr(card, "run", answering(pr_json(body=diagram)))
-    assert [drawn["number"] for drawn in ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]] == [42]
-
-
-def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.split("## What you'll hate most")[0]
     monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        f"its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\" list naming his order"
-        f" in the body of {URL}. No order of his names {URL}: "
-    )
-    assert skipped["reason"].endswith("Never edit its body to quote his words for another change")
-    assert [event["kind"] for event in events(drive)] == ["refused"]
-
-
-def test_a_tap_card_asked_afresh_needs_a_summary_while_one_already_drawn_redraws_without_it(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY.replace(f"## Summary\n{SUMMARY}\n\n", ""))))
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert drawn["card"]["prs"][0]["summary"] == ""
-    key, known = "Forge-AI/monorepo#42", card.drive_prs()
-    assert card.tap_refusal(known, [key], card.read_all(known, [key])) == (
-        "its tap card needs a \"Summary\" section first, a sentence or two naming what the PR changes by its function,"
-        f" table, flag or service in the body of {URL}"
-    )
+    reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
+    assert [(drawn["number"], drawn["card"]["status"], drawn["card"]["options"]) for drawn in reply["cards"]] == [(42, "needs_you", ["Approve", "Hold"])]
+    assert reply["skipped"] == []
+    assert "refused" not in [event["kind"] for event in events(drive)]
 
 
 def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -805,33 +622,6 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
     assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
     assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
-
-
-@pytest.mark.parametrize(
-    "words",
-    [
-        "",
-        "None yet: no message or card pick of his names this bug. It reached the bug lane from a teammate's report.",
-        "- none",
-    ],
-)
-def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
-    drive: str, monkeypatch: pytest.MonkeyPatch, words: str
-) -> None:
-    body = FIX_BODY.split("## His words, step by step")[0] + f"## His words, step by step\n{words}\n"
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
-    assert skipped["reason"].startswith(
-        f"its tap card needs a \"His words, step by step\" list naming his order in the body of {URL}."
-        f" No order of his names {URL}: "
-    )
-    assert [event["kind"] for event in events(drive)] == ["refused"]
-
-
-def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    body = FIX_BODY.split("## His words, step by step")[0]
-    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
-    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"] == []
 
 
 def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1101,31 +891,10 @@ def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps
     assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
-def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_stack_card_with_no_stack_section_draws_titled_by_its_bottom_pr(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "STACK_HEADING", "no such section")
-    drawn = ask(asks(41, 42, 43))
-    assert drawn["cards"] == []
-    assert all("The stack" in skipped["reason"] for skipped in drawn["skipped"])
-
-
-def test_a_stack_refusal_names_each_section_every_pr_body_lacks(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
-    stacked_gh = card.run
-
-    def gh(cmd: list[str], **_: str) -> str:
-        pr = json.loads(stacked_gh(cmd))
-        if cmd[3] == "42":
-            pr["body"] = pr["body"].replace("## What you'll hate most", "## Biggest worry")
-        return json.dumps(pr)
-
-    monkeypatch.setattr(card, "run", gh)
-    drawn = ask(asks(41, 42, 43))
-    reason = (
-        f"its tap card needs a \"The stack\" section with the stack's one-line title then its summary in the body of"
-        f" {stack_url(41)}; a \"What you'll hate most\" section in the body of {stack_url(42)}"
-    )
-    assert drawn["cards"] == []
-    assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason, reason]
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["title"]) == ("needs_you", "New: 3 PRs: readers read both tables")
 
 
 def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1143,15 +912,15 @@ def test_exempt_and_yasyf_prs_are_not_counted_toward_a_stacks_cap(stacked: list[
             data["prs"][f"Forge-AI/monorepo#{number}"]["exempt"] = "test-only"
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
-    own = [(pr_json(url=f"https://github.com/yasyf/cc-skills/pull/{number}"), entry(wants_tap=False), ()) for number in (1, 2, 3)]
-    assert card.refusal(own, card.drawn_card(own), set()) == ""
+    own = {f"yasyf/cc-skills#{number}": ("demo", entry(wants_tap=False)) for number in (1, 2, 3)}
+    assert card.refusal(own, list(own)) == ""
 
 
-def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+def test_a_card_drawn_after_a_refusal_clears_it(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_MOST", 2)
     ask(asks(41, 42, 43))
     assert all(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"]["refused"] for n in (41, 42, 43))
-    monkeypatch.setattr(card, "STACK_HEADING", "the stack")
+    monkeypatch.setattr(card, "STACK_MOST", 4)
     assert len(ask(asks(41, 42, 43))["cards"]) == 1
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43))
 
@@ -1257,7 +1026,7 @@ def test_a_chain_that_cuts_through_a_stored_stack_keeps_every_pr_on_one_card(sta
 
 def test_a_grown_stack_refused_keeps_the_stack_it_had(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     ask(asks(41, 42, 43))
-    monkeypatch.setattr(card, "STACK_HEADING", "no such section")
+    monkeypatch.setattr(card, "STACK_MOST", 3)
     assert ask(asks(41, 42, 43, 44))["cards"] == []
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
     assert state.load("demo")["prs"]["Forge-AI/monorepo#41"]["stack"] == keys

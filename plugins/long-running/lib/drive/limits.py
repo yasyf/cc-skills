@@ -36,7 +36,6 @@ IMMEDIATE_FIX_RULING = 'his Nov 11 1:05 PM words "always do the immediate fix (o
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
-SCREENSHOT_RULING = 'his Nov 11 4:04 AM words "This is a visual change so it should have shown before and after screenshots"'
 HAND_DRAWN = ("asks", "pictures")
 BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
 AFTER = re.compile(r"\bafter\b", re.IGNORECASE)

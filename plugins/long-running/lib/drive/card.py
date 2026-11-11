@@ -28,12 +28,6 @@ STACK_CHARS = 700
 STACK_MOST = 4
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
-HIS_WORDS_HEADING = "his words, step by step"
-SCREENSHOTS = (
-    "a before and an after screenshot of what he sees change, two pictures in its Show me, or another PR's on the card,"
-    " captioned `1 · Before, dev` and `2 · After, this PR`, each build named in words rather than a sha, which Slack shows side by side,"
-    f" since the READY's NATIVE: line names a surface he sees ({limits.SCREENSHOT_RULING})"
-)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -68,7 +62,6 @@ PARENTHETICAL = re.compile(r"\s*\([^()\n]*\)")
 NOTHING = re.compile(
     r"(?:none|nothing(?: differ(?:s|ed))?|no (?:departures?|deviations?)(?: from the plan)?|n/a)[.!]?", re.IGNORECASE
 )
-NO_ORDER = re.compile(r"(?:none|nothing|n/a)\b", re.IGNORECASE)
 RECORD_ID = re.compile(
     r"\b(?:cc-notes|ccn|cci)\s+(?:task|note|answer|doc|plan|log|record|seq|row)s?\b"
     r"|\bcci\s+#?\d+"
@@ -143,11 +136,6 @@ def without_records(text: str) -> str:
         elif said := " ".join(part for part in SENTENCES.split(line) if not RECORD_ID.search(part)).strip():
             kept.append(said)
     return "\n".join(kept)
-
-
-def record_ids(pr: dict) -> list[str]:
-    """Each record id, which says nothing to him, a PR's body names outside its code, its links and its images' file paths; an image's alt text, which he reads, counts."""
-    return list(dict.fromkeys(RECORD_ID.findall(CODE.sub("", picture.IMAGE.sub(picture.alt, body_of(pr))))))
 
 
 def without_html(text: str) -> str:
@@ -354,11 +342,6 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     return card
 
 
-def names_his_order(pr: dict) -> bool:
-    words = first_paragraph(sections(body_of(pr)).get(HIS_WORDS_HEADING, ""))
-    return bool(words) and not NO_ORDER.match(words.lstrip("-*+ "))
-
-
 def stack_words(pr: dict) -> tuple[str, str]:
     """The stack's one-line title and its summary, from the `## The stack` section of its bottom PR's body."""
     text = without_records(without_html(sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
@@ -467,16 +450,6 @@ def exposure(key: str) -> str:
     )
 
 
-def show_me_problems(pr: dict) -> list[str]:
-    """Why a PR body's Show me draws nothing worth a picture on his card, or a table or chart Slack cannot draw as its own, by the visual, table and chart rules `drive job ask` holds a question's Show me to, each image in it, an `<img>` tag too, counted as the picture it draws under its alt text."""
-    show_me = picture.IMAGE.sub(
-        lambda image: f"![{picture.alt(image)}]({image[1] or image[2]})", sections(body_of(pr)).get("show me", "")
-    ).splitlines()
-    if not any(line.strip() for line in show_me):
-        return []
-    return [*limits.visual_problems(show_me, 0), *limits.chart_problems(show_me), *limits.placeholder_problems(show_me), *limits.column_problems(show_me)]
-
-
 def pictured(name: str, key: str, pr: dict, taken: set[str]) -> tuple[str, ...]:
     repo, number = key.split("#")
     label = f"{repo.split('/')[1]} PR {number}"
@@ -516,7 +489,7 @@ def remember(known: dict[str, tuple[str, dict]], stack: list[str]) -> None:
 
 
 def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
-    """Clears the refusal each member carries, so a body fixed after a refusal reads as drawn and a later refusal is told again."""
+    """Clears the refusal each member carries, so a PR drawn after a refusal reads as drawn and a later refusal is told again."""
     for key in members:
         name, entry = known[key]
         if not entry.get("refused"):
@@ -530,52 +503,15 @@ def drawn_card(shown: list[Member]) -> dict:
     return render_stack(shown) if len(shown) > 1 else render(*shown[0])
 
 
-def tooling(name: str, entry: dict) -> bool:
-    """Whether the PR serves a drive tooling order, a fix to a tool the drive runs on that no words of his ask for, so its card quotes that order instead."""
-    order = state.load(name)["orders"].get(entry.get("serves") or entry["order"])
-    return order is not None and order["text"].startswith(state.TOOLING)
-
-
-def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False, visual: bool = False) -> str:
-    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --serves` or a ready record, also needs each body's Summary, and one for a change he sees, by the READY's NATIVE: line, a before and an after screenshot in a Show me on it."""
-    tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or state.merges_untapped(state.pr_key(pr["url"])))]
-    if len(tapped) > STACK_MOST:
-        return (
-            f"its stack holds {len(tapped)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
-            f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
-            f" {state.NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
-        )
-    needs: dict[str, list[str]] = {}
-    if len(shown) > 1 and card["status"] == "needs_you" and shown[0][0]["body"] is not None and not stack_words(shown[0][0])[0]:
-        needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
-    unordered = []
-    for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
-        if card["status"] != "needs_you" or not offers_approval(pr, entry) or pr["body"] is None:
-            continue
-        if asking and not row["summary"]:
-            needs.setdefault(pr["url"], []).append("a \"Summary\" section first, a sentence or two naming what the PR changes by its function, table, flag or service")
-        if not row["hate_most"]:
-            needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
-        if shows := show_me_problems(pr):
-            needs.setdefault(pr["url"], []).append(f"a Show me whose every picture shows what its words cannot ({'; '.join(shows)})")
-        if not names_his_order(pr) and pr["url"] not in tools:
-            needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
-            unordered.append(pr["url"])
-        if ids := record_ids(pr):
-            needs.setdefault(pr["url"], []).append(f"plain words for what each of {', '.join(ids)} is, in place of the record id, which says nothing to him")
-    offered = [pr for pr, entry, *_ in shown if card["status"] == "needs_you" and offers_approval(pr, entry)]
-    if visual and offered and not any(limits.screenshots(sections(body_of(pr)).get("show me", "")) for pr, *_ in shown):
-        needs.setdefault(offered[-1]["url"], []).append(SCREENSHOTS)
-    if not needs:
+def refusal(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why his card may not draw these PRs: a stack past STACK_MOST PRs his tap lands, since his card shows each in its own section with its pictures. A PR's body never holds a card back."""
+    tapped = [key for key in members if not (known[key][1].get("exempt") or state.merges_untapped(key))]
+    if len(tapped) <= STACK_MOST:
         return ""
-    wanted = "; ".join(f"{' and '.join(each)} in the body of {url}" for url, each in needs.items())
-    if not unordered:
-        return f"its tap card needs {wanted}"
     return (
-        f"its tap card needs {wanted}. No order of his names {', '.join(unordered)}: its \"His words, step by step\" list"
-        " is missing, empty or says none, so it is a port, which lands with no card; drive tooling, which serves its own"
-        f" order with drive pr set <url> --tap --serves <the order opening \"{state.TOOLING}\"> and lands on his Approve,"
-        " or lands under an exempt class; or the drive's to drop. Never edit its body to quote his words for another change"
+        f"its stack holds {len(tapped)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
+        f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
+        f" {state.NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
     )
 
 
@@ -622,11 +558,6 @@ def read_all(known: dict[str, tuple[str, dict]], keys: list[str]) -> dict[str, d
     return reads
 
 
-def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict], visual: bool = False) -> str:
-    shown = [(reads[key], known[key][1], (), ()) for key in members]
-    return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])}, asking=True, visual=visual)
-
-
 def cards(asked: list[dict], redraw: bool = False) -> dict:
     """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw, until the asked PRs chain into a longer stack around it. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait or reader's verdict that holds back a fresh Approve shown on it rather than refusing it."""
     known = drive_prs()
@@ -654,7 +585,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
         held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
-        if reason := held or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
+        if reason := held or refusal(known, members):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
