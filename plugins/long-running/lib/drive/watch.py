@@ -36,7 +36,8 @@ NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
 STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card drawn"}
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
-OWN_MOVE = re.compile(r"^PR \S+: (?:new head|checks passed|approved)\b")
+OWN_MOVES = ("new head", "checks passed", "approved")
+OWN_MOVE = re.compile(rf"^PR \S+: (?:{'|'.join(OWN_MOVES)})\b")
 HANDING = "handoff post to the communicator"
 
 
@@ -109,6 +110,8 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, read in reads.items():
             pr = data["prs"][key]
             changes = pr_changes(pr, read)
+            if watcher.cards is not None and stuck_as(pr, view.holding(data, pr["waits"], watcher.cards), watcher.cards) != "ready":
+                changes = [change for change in changes if not change.startswith(OWN_MOVES)]
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)

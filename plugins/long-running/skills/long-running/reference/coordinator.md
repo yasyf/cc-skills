@@ -25,7 +25,7 @@
 
 | Event | Do |
 |---|---|
-| `PR … checks failed`, `conflicts with its base`, `changes requested` | A fresh builder with a handoff (the `jobs` page) carrying the event line. A `new head`, `checks passed` or `approved` alone is the job's own push or CI moving: nothing, unless the PR is now green and waits only on his tap, which takes the `READY` row for it. |
+| `PR … checks failed`, `conflicts with its base`, `changes requested` | A fresh builder with a handoff (the `jobs` page) carrying the event line. The watch says a `new head`, `checks passed` or `approved` only when the PR is now green and approved and waits only on his card: the `READY` row for it. |
 | `PR … merged` | A fresh builder with a handoff (the `jobs` page) to install and prove it live, or mark the order done when nothing is left to install. |
 | `PR … closed` | If he closed it, the order's work on it ends. Otherwise a fresh builder with a handoff (the `jobs` page) to reopen or replace it. |
 | `TAP Approve …` | A fresh builder with a handoff (the `jobs` page): land it. A stack card's Approve arrives as one `TAP Approve` per PR, bottom first; one handoff carries all of them. A PR that still waits on a card or job lands on its `FREE` row instead. |
