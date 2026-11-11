@@ -39,9 +39,9 @@ drive through cci, addressed to `root`, the coordinator.
 
 ## Pages
 
-The rest of this skill is pages, each printed whole by `drive manual <page>`. Both sessions read a
-page that way and use Read, Write or Edit on no file: a compaction reads back the files a session
-last read or wrote, never a command's output. His ruling, Nov 9 9:28 PM: "make sure we
+The rest of this skill is pages: `drive manual <page>` prints one, `drive manual <page> <row>` its
+rows naming `<row>`. Both sessions read them so, never by Read, Write or Edit: a compaction
+reads back files a session last read or wrote, not command output. His ruling, Nov 9 9:28 PM: "make sure we
 asap install something that makes compactions result in very minimal context, and even the state on
 disk needs to be maximally compact and very token efficient".
 

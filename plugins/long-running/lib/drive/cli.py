@@ -873,7 +873,14 @@ def context(args: argparse.Namespace) -> int:
 
 
 def manual(args: argparse.Namespace) -> int:
-    sys.stdout.write((PAGES / f"{args.page}.md").read_text())
+    text = (PAGES / f"{args.page}.md").read_text()
+    if not args.row:
+        sys.stdout.write(text)
+        return 0
+    rows = [line for line in text.splitlines() if line.startswith("| ") and args.row.casefold() in line.split("|")[1].casefold()]
+    if not rows:
+        raise DriveError(f"no row of drive manual {args.page} names {args.row}; drive manual {args.page} prints the page")
+    print("\n".join(rows))
     return 0
 
 
@@ -1217,6 +1224,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
     verb.add_argument("page", choices=sorted(path.stem for path in PAGES.glob("*.md")))
+    verb.add_argument("row", nargs="?", help="print only the table rows whose first cell names this, such as TAP or READY")
     verb.set_defaults(run=manual)
     verb = verbs.add_parser("context", parents=[drive_opt])
     verb.add_argument("--role", choices=state.ROLES, help="default: the role this session holds")
