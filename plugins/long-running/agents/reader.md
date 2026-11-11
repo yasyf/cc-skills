@@ -37,6 +37,9 @@ Write it with a heredoc under your scratch directory and record it with
 `drive job set <your job> --repro <file>`, which keeps a copy in the drive where `drive status`
 lists it, so a share reads that file instead of rebuilding the steps from your transcript.
 
+A tool that breaks on you is not a block: route around it, and send `cci post --kind defect --lane
+root --to communicator@<drive>` quoting its refusal, since the communicator starts every tool fix.
+
 Your answer goes to another agent, never to him, so it is not a write-up: it is the inputs the one
 writing to him needs, one fact a line, with no polish. The first line answers the question; then
 each fact with its link, number, path or exact quote, `REPRO:` the reproduction file's path when

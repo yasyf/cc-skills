@@ -1,6 +1,7 @@
 # Jobs
 
-Every job is the coordinator's, and runs as a background agent on this Mac but one. His ruling,
+Every job is the coordinator's but a drive tooling builder, the communicator's by its
+[Tooling](communicator.md#tooling), and each runs as a background agent on this Mac but one. His ruling,
 Nov 9 7:11 AM: "No I'm saying that should be true when load is high, lanes will mostly start
 remote". So while this Mac is over its load limit, a builder on Forge-AI/monorepo starts as a remote
 lane on a Sprite, where its builds and checks are local to that machine; under the limit it runs

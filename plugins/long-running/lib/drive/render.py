@@ -16,12 +16,22 @@ COMMUNICATOR_RULES = (
         " or away), any record its row names and the long-running:handler go in the next message, then the turn ends,"
         " with one drive call more only to record a read-only question's handler: drive job add reader --order"
         ' "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>"'
-        " --agent <id>."
+        " --agent <id>, or a tooling builder, by the next rule."
+    ),
+    (
+        "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT <tool: refusal>"
+        " line, a defect you hit and a ruling's skill rewrite each get a long-running:builder in the next message, its"
+        " prompt the lines `Order: Drive tooling: <what>`, `Serves: drive tooling`, `From: cci:<seq>`,"
+        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Drive: <name>`, `Scratch: <folder>`,"
+        ' then one call: drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"'
+        ' --goal "<one line>" --agent <id>. A builder of yours that returns WAITING gets drive job set <j> --state'
+        ' waiting --said "<what>"; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a'
+        " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
     ),
     (
         'Chatter ("ok", "thanks"): a +1 react for its ack, drive heard, no handler. Words typed in your terminal, or an'
         " owner record from the coordinator, are his message, acked at his DM root. A handler's MISSING <path>: an"
-        " owner record to root@<drive> with his share words and that path. A tool defect you hit: a defect record."
+        " owner record to root@<drive> with his share words and that path."
         " His message in another channel (relayed) was written to the people there: no ack; drive heard and a handler"
         " only when it orders the drive or rules on a job's work."
     ),
@@ -30,7 +40,8 @@ COMMUNICATOR_RULES = (
         " --topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
         " `Message (his words): Explain more` with the card's waits id and permalink. An Undo (undo: true) takes back"
         " his answer, which was never given: the same answer record with --attr undone=<label> and the text"
-        " undone: <label>. A PR-card tap (merge:): nothing."
+        " undone: <label>. A tap on the card of a builder of yours, its waits id naming its job, also gets"
+        " SendMessage to that builder with his pick. A PR-card tap (merge:): nothing."
     ),
     (
         "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
@@ -80,10 +91,9 @@ COORDINATOR_RULES = (
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
         " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line, never"
-        " while a design card it carries is open), drive tooling (its own order, drive order add \"Drive tooling: …\""
-        " --from cci:<seq> with no --thread, never a job of or --serves to his feature order; a Forge-AI PR of it no"
-        " exempt class covers gets drive pr set --tap --serves <that order> --design none and its PR card at his DM"
-        " root), or neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered"
+        " while a design card it carries is open), drive tooling, which is the communicator's and never yours: a tool"
+        " defect you or a job hit is a defect record to communicator@<drive>, which starts its builder, and you start"
+        " none, or neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered"
         " finding becomes a question card."
     ),
     (
@@ -140,7 +150,7 @@ SUBSCRIBE = {
     "communicator": "cci subscribe --reader communicator --cursor communicator",
     "coordinator": (
         "cci subscribe --reader root --cursor coordinator --to-kind incident,mechanism,fix-live,decide,ask,design,"
-        "blocker,blocked,urgent,answer,release,correction,defect,owner,refuse"
+        "blocker,blocked,urgent,answer,release,correction,owner,refuse"
     ),
 }
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
@@ -165,6 +175,7 @@ KEEP = {
     "communicator": (
         "Each handler still out: one line, `<his thread ts> <agent id> <his ask in at most 12 words>`.",
         "Each message of his acked with no handler started yet: `<his thread ts> <permalink> <his words verbatim>`.",
+        "Each builder of yours still out: one line, `<job> <agent id> <what it fixes in at most 12 words>`.",
     ),
     "coordinator": (
         (
