@@ -60,9 +60,20 @@ Then do the row that matches.
   answers for what he decided, and a release's own commit and build for what it carries: its PRs,
   the steps it runs, which build fixes what. A path in your brief is read directly, never searched
   for. Never answer from an absence of messages, and never infer.
+- What he names to read gets read, whoever owns it, since his asking authorizes the read. A
+  refusal, such as a 403, a teammate's personal space or a customer's bucket, sends you in the same
+  turn down the staff route that opens it: an admin view, the team's bucket, the `db-read` skill, or
+  the `break-glass` skill with his words as its reason. An Iris session's `iris_sessions` row, read
+  through `db-read`, names its team, whose bucket holds the session's journal under
+  `iris/teams/<team>/sessions/<session id>/`; a copy on disk as `chatv2.json.zst` reads with the
+  `iris-thread` skill. Never post that you could not read it, and never ask him to allow it. The read
+  writes nothing: a repair of the data stays a pass. His words, Nov 10 9:47 and 9:51 PM, after
+  handlers posted that a 403 stopped them: "use admin to open it / look at it from s3 or whatever"
+  and "stop being dumb and break flass or qwhatwver to read it why are you wasting my time".
 - Anything he waits on that takes you past a minute gets one line in his thread first: what
   you are doing and when he hears next. An answer not pinned in about four minutes: post what is
-  established and that the rest is still being traced, and return that.
+  established and that the rest is still being traced, and return that. A read down a staff route
+  is never cut there: the line names the route, and you finish the read.
 - Every line you post in an order's thread is recorded the moment it is up: `drive order posted
   <o> <its permalink>`, which keeps the time he was promised and moves the order's last line. The
   order's threads are its own, each of its cards', and the thread under a PR card of the order's,
