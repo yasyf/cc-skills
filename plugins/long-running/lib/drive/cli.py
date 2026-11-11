@@ -741,7 +741,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 def job_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
-    if args.kind == "builder" and not args.remote:
+    if args.kind == "builder" and not args.remote and not args.agent:
         refuse_a_local_builder(state.load(name), args.repo)
     if args.checks and args.kind != "reader":
         raise DriveError("--checks starts his-words check on a PR's head, which only a reader runs")
@@ -1354,10 +1354,11 @@ def remote_job(data: dict, job_id: str) -> dict:
     )
 
 
-def checkout() -> Path:
-    root = Path.cwd()
+def checkout(data: dict) -> Path:
+    """The checkout lanes are cloned from: the coordinator's recorded cwd, whatever folder drive runs in."""
+    root = Path(data["roles"]["coordinator"]["cwd"])
     if not (root / ".orca.json").is_file():
-        raise DriveError(f"{root} has no .orca.json; run this from the root of the checkout lanes clone")
+        raise DriveError(f"{root}, the drive's recorded checkout, has no .orca.json, so no lane can be cloned from it")
     return root
 
 
@@ -1459,7 +1460,7 @@ def job_launch(args: argparse.Namespace) -> int:
         remote_job(data, args.id)
     if not (args.brief or job.get("brief")):
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
-    root = checkout()
+    root = checkout(data)
     text = named_text(args.brief or job["brief"], "brief file")
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text):
@@ -1529,7 +1530,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
     """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, else on a fresh Sprite, or in a fresh worktree on this Mac, on the same Run."""
-    root = None if end.worktree else checkout()
+    root = None if end.worktree else checkout(state.load(name))
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         state.lane_died(job, dispatch, end.why, state.now())
@@ -1578,8 +1579,9 @@ def job_replies(args: argparse.Namespace) -> int:
 def job_end(args: argparse.Namespace) -> int:
     """Free a remote job's lane: its Sprite, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed; refused, ending nothing, while the Sprite of a job still at work holds what its next lane would not get."""
     name = state.resolve(args.drive)
-    job = started_job(state.load(name), args.id)
-    root = checkout()
+    data = state.load(name)
+    job = started_job(data, args.id)
+    root = checkout(data)
     if job["state"] not in state.FINISHED_JOB_STATES and (holds := orca.held(job["run"], job["dispatch"], root)):
         raise DriveError(
             f"{args.id}: refused, nothing ended: it is {job['state']}, and its next lane starts on a fresh Sprite without what"

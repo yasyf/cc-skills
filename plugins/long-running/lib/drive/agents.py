@@ -21,8 +21,14 @@ class Ruled(str):
         return made
 
 
+class Unjudged(str):
+    """A refusal its check decides by the call's shape alone, which Jev never weighs, so the same call gets the same verdict every time."""
+
+
 def ruled(reason: str) -> dict:
-    """The rule a refusal names for Jev, as the field the capt-hook pack reads."""
+    """The fields the capt-hook pack reads off a refusal: the rule Jev judges it by, or that no Jev judges it."""
+    if isinstance(reason, Unjudged):
+        return {"judged": False}
     return {"rule": reason.rule} if isinstance(reason, Ruled) else {}
 
 

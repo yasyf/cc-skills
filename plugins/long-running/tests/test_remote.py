@@ -212,6 +212,24 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
+def test_launch_clones_from_the_drives_recorded_checkout_whatever_folder_it_runs_in(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    state_folder = tmp_path / "state" / demo
+    (state_folder / "brief.md").write_text("Drive: demo, order o1, job j1\n")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
+    checkouts = []
+    fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+    monkeypatch.setattr(orca, "launch", lambda drive, lane, brief, checkout, *rest: checkouts.append(checkout.resolve()) or dict.fromkeys(fields, DISPATCH))
+    monkeypatch.chdir(state_folder)
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: {tmp_path}, the drive's recorded checkout, has no .orca.json, so no lane can be cloned from it\n"
+    (tmp_path / ".orca.json").write_text("{}")
+    assert run("job", "launch", "j1", "brief.md")[0] == 0
+    assert checkouts == [tmp_path.resolve()]
+
 def test_a_sprite_brief_carries_each_report_its_researched_and_plan_lines_name(demo: str) -> None:
     reports = state.report_path(demo, "j7").parent
     reports.mkdir(parents=True, exist_ok=True)
