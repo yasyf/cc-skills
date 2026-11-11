@@ -167,7 +167,7 @@ def deny_reason(payload: dict) -> str | None:
     return (
         unread(payload, dm)
         or over_length(payload, dm)
-        or unlinked(payload)
+        or unlinked(payload, drive)
         or untapped(payload)
         or unchecked(tool_input.get("text") or "")
     )
@@ -181,11 +181,11 @@ def untapped(payload: dict) -> str | None:
     return limits.tap_refusal("\n".join(tap_prs), prs)
 
 
-def unlinked(payload: dict) -> str | None:
-    """Why a handler's post names something he could open with no link where it is named; a PR card's line quotes his order and cc-slack draws its card, and the communicator's ack names nothing."""
+def unlinked(payload: dict, drive: dict) -> str | None:
+    """Why a handler's post names a PR or card the drive holds with no link where it is named; a PR card's line quotes his order and cc-slack draws its card, and the communicator's ack names nothing."""
     if not payload.get("agent_id") or payload["tool_input"].get("tap_prs"):
         return None
-    return limits.link_refusal(payload["tool_input"])
+    return limits.link_refusal(payload["tool_input"], limits.held(drive, payload["tool_input"].get("order")))
 
 
 def over_length(payload: dict, dm: str) -> str | None:
