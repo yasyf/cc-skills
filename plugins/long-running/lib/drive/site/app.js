@@ -35,6 +35,8 @@ const STOP_TONES = { blocked: 'bad', running: 'doing', built: 'you', waiting: 'w
 const PART_WORDS = { bad: 'Blocked', you: 'Waits on you', doing: 'Being built', waiting: 'Waiting', 'not started': 'Not started', done: 'Done' };
 const PART_COUNTS = { bad: 'blocked', you: 'waiting on you', doing: 'being built', waiting: 'waiting', 'not started': 'not started' };
 const NODE_KINDS = { part: 'Part', job: 'Job', pr: 'Change', card: 'Your question' };
+const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
+const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
 const PR_FIELDS = [
   ['refresher', 'In plain words'],
   ['surprise', 'Biggest surprise'],
@@ -95,10 +97,11 @@ function route() {
   return { screen: screen || 'queue', id };
 }
 
-function inline(text) {
+function inline(text, cite = model.repo) {
   const spans = [];
   const keep = (html) => `\u0000${spans.push(html) - 1}\u0000`;
-  let out = String(text)
+  let out = cite ? String(text).replace(SOURCE_CITE, (_, pre, path, from, to) => `${pre}${keep(sourceLink(cite, path, from, to))}`) : String(text);
+  out = out
     .replace(/`([^`]+)`/g, (_, code) => keep(`<code>${esc(code)}</code>`))
     .replace(/<(https?:\/\/[^|>\s]+)\|([^>]+)>/g, (_, url, label) => keep(link(label, url)))
     .replace(/<(https?:\/\/[^|>\s]+)>/g, (_, url) => keep(link(url, url)))
@@ -111,7 +114,14 @@ function inline(text) {
   return out.replace(/\u0000(\d+)\u0000/g, (_, n) => spans[Number(n)]);
 }
 
-function prose(text) {
+function sourceLink(cite, path, from, to) {
+  const [repo] = cite.split('#');
+  const head = model.review.find((entry) => entry.key === cite)?.head ?? 'HEAD';
+  const span = to ? `${from}-${to}` : from;
+  return `<a class="src" href="https://github.com/${esc(repo)}/blob/${esc(head)}/${esc(path)}#L${from}${to ? `-L${to}` : ''}" target="_blank" rel="noopener" data-src="${esc(cite)}" data-path="${esc(path)}" data-line="${from}" data-to="${to ?? from}">${esc(path.split('/').pop())}:${span}</a>`;
+}
+
+function prose(text, cite) {
   const blocks = [];
   const parts = String(text ?? '').split(/^```[^\n]*\n([\s\S]*?)^```\s*$/m);
   parts.forEach((part, i) => {
@@ -124,28 +134,28 @@ function prose(text) {
       if (!lines.length) continue;
       const heading = lines[0].match(/^(#{1,4})\s+(.*)$/);
       if (heading) {
-        blocks.push(`<h4 class="hd">${inline(heading[2])}</h4>`);
+        blocks.push(`<h4 class="hd">${inline(heading[2], cite)}</h4>`);
         lines.shift();
         if (!lines.length) continue;
       }
       if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
-        blocks.push(table(lines));
+        blocks.push(table(lines, cite));
       } else if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
-        blocks.push(`<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''))}</li>`).join('')}</ul>`);
+        blocks.push(`<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), cite)}</li>`).join('')}</ul>`);
       } else {
-        blocks.push(`<p>${lines.map(inline).join('<br>')}</p>`);
+        blocks.push(`<p>${lines.map((line) => inline(line, cite)).join('<br>')}</p>`);
       }
     }
   });
   return blocks.join('');
 }
 
-function table(lines) {
+function table(lines, cite) {
   const cells = (line) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
   const rows = lines.filter((line) => !/^\s*\|[\s:|-]+\|\s*$/.test(line)).map(cells);
   const [head, ...body] = rows;
-  return `<div class="tablewrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell)}</th>`).join('')}</tr></thead><tbody>${body
-    .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell)}</td>`).join('')}</tr>`)
+  return `<div class="tablewrap"><table><thead><tr>${head.map((cell) => `<th>${inline(cell, cite)}</th>`).join('')}</tr></thead><tbody>${body
+    .map((row) => `<tr>${row.map((cell) => `<td>${inline(cell, cite)}</td>`).join('')}</tr>`)
     .join('')}</tbody></table></div>`;
 }
 
@@ -223,7 +233,7 @@ function questionCard(item) {
 
 function prRow(pr, cardId, alone) {
   const fields = PR_FIELDS.filter(([key]) => pr[key])
-    .map(([key, label]) => `<dt>${label}</dt><dd>${fold(`${cardId}:${pr.url}:${key}`, prose(pr[key]), 2)}</dd>`)
+    .map(([key, label]) => `<dt>${label}</dt><dd>${fold(`${cardId}:${pr.url}:${key}`, prose(pr[key], prKey(pr.url)), 2)}</dd>`)
     .join('');
   const waits = [pr.blocks, pr.lands ? `Lands once ${pr.lands}` : ''].filter(Boolean).map(esc).join(' · ');
   return `<section class="pr">
@@ -515,7 +525,7 @@ async function openPR(key) {
       <div class="pr-main">
         <div class="dr-tabs"><button class="on" data-drtab="review">Code and review</button><button data-drtab="body">Description</button></div>
         <div class="dr-pane review-pane" data-pane="review"><p class="empty small">Opening the review of ${esc(key)}…</p></div>
-        <div class="dr-pane body-pane" data-pane="body" hidden>${prose(pr.body)}</div>
+        <div class="dr-pane body-pane" data-pane="body" hidden>${prose(pr.body, key)}</div>
       </div>
       <aside class="pr-side">
         <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
@@ -779,8 +789,48 @@ function jobRow(job, withFeature) {
       ${owner ? `<div class="meta">for ${featureLink(owner.id, owner.title)}</div>` : ''}
       ${job.said ? `<div class="now">${esc(job.said)}</div>` : ''}
       <div class="meta">${facts.filter(Boolean).map(esc).join(' · ')}</div>
+      ${job.files.length ? `<div class="files">${job.files.map((kind) => `<button class="linkish" data-file="${esc(job.id)}/${kind}" data-title="${esc(`${job.id} ${FILE_WORDS[kind].toLowerCase()}: ${job.goal}`)}">${FILE_WORDS[kind]}</button>`).join('')}</div>` : ''}
     </div>
   </li>`;
+}
+
+function openFile(file, title) {
+  const reader = $('#reader');
+  const url = `/artifact/${file}`;
+  reader.innerHTML = `<div class="dr-bar"><b>${esc(title)}</b><span class="acts"><a class="ext" href="${esc(url)}" target="_blank" rel="noopener">New tab ↗</a><button class="linkish" data-close>Close</button></span></div><iframe title="${esc(title)}" src="${esc(url)}"></iframe>`;
+  if (!reader.open) reader.showModal();
+}
+
+const sourceSeen = new Map();
+function sourceRows(a, found) {
+  const head = `<header>${esc(a.dataset.src.split('#')[0])} · ${esc(a.dataset.path)}</header>`;
+  if (!found) return `${head}<p>Reading the lines from GitHub…</p>`;
+  if (found.error) return `${head}<p>${esc(found.error)}</p>`;
+  return `${head}<pre>${found.lines.map((line) => `<span class="${line.n >= Number(a.dataset.line) && line.n <= Number(a.dataset.to) ? 'hl' : ''}"><i>${line.n}</i>${esc(line.text)}</span>`).join('')}</pre>`;
+}
+
+function hideSource() {
+  const tip = $('#srctip');
+  if (tip.matches(':popover-open')) tip.hidePopover();
+}
+
+function showSource(a) {
+  const tip = $('#srctip');
+  tip.dataset.key = a.href;
+  tip.innerHTML = sourceRows(a, sourceSeen.get(a.href));
+  if (!tip.matches(':popover-open')) tip.showPopover();
+  const box = a.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
+  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+  if (sourceSeen.has(a.href)) return;
+  const key = a.href;
+  fetch(`/api/source?${new URLSearchParams({ cite: a.dataset.src, path: a.dataset.path, line: a.dataset.line, to: a.dataset.to })}`)
+    .then((reply) => reply.json())
+    .catch((failure) => ({ error: `Could not reach the dashboard server (${failure.message}).` }))
+    .then((found) => {
+      sourceSeen.set(key, found);
+      if (tip.dataset.key === key && a.isConnected && tip.matches(':popover-open')) showSource(a);
+    });
 }
 
 function isStalled(job) {
@@ -1110,12 +1160,15 @@ document.addEventListener('click', (event) => {
   if (pr) return openPR(pr.dataset.pr);
   const asked = event.target.closest('button[data-ask]');
   if (asked) return openAsk(asked.dataset.ask);
+  const file = event.target.closest('button[data-file]');
+  if (file) return openFile(file.dataset.file, file.dataset.title);
   if (event.target.closest('#kbtn')) return openJump();
   if (event.target.closest('#notices')) return Notification.requestPermission().then(noticeButton);
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
-  if (event.target.closest('[data-close]') || event.target.id === 'drawer') return $('#drawer').close();
+  const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader') ? event.target : null);
+  if (closer) return closer.closest('dialog').close();
   const drtab = event.target.closest('[data-drtab]');
   if (drtab) {
     for (const button of document.querySelectorAll('[data-drtab]')) button.classList.toggle('on', button === drtab);
@@ -1138,6 +1191,17 @@ document.addEventListener('click', (event) => {
   if (!filter) return;
   historyFilter = filter.dataset.filter;
   render();
+});
+document.addEventListener('mouseover', (event) => {
+  const cited = event.target.closest('a[data-src]');
+  if (cited) showSource(cited);
+  else hideSource();
+});
+document.addEventListener('focusin', (event) => {
+  if (event.target.matches('a[data-src]')) showSource(event.target);
+});
+document.addEventListener('focusout', (event) => {
+  if (event.target.matches('a[data-src]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
   if (location.hash.startsWith('#group-')) return;
@@ -1187,6 +1251,7 @@ window.addEventListener('DOMContentLoaded', () => {
     if (key && !document.hidden) showReview(key, await startReview(key));
   }, REVIEW_KEEP_MS);
   $('#drawer').addEventListener('close', () => {
+    hideSource();
     reviewing = null;
     $('#drawer').classList.remove('wide');
   });

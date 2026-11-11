@@ -19,7 +19,8 @@
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
-newest first), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
+newest first; each job in these and a feature's `jobs` has `files`, the files the drive keeps for it, of `brief`,
+`report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
 thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and the `thread` under that card when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`), `milestones` and each feature's `text`, `note`,
@@ -40,7 +41,7 @@ import subprocess
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from drive import slack, state
+from drive import artifacts, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut
 
@@ -468,7 +469,7 @@ def build(drive: dict, found: dict, moment: datetime) -> dict:
     return {"drive": drive["name"], "at": state.stamp(moment), "counts": counts, "queue": waiting, "status": groups}
 
 
-def job_entry(job_id: str, job: dict) -> dict:
+def job_entry(job_id: str, job: dict, reports: set[str]) -> dict:
     return {
         "id": job_id,
         "feature": job["order"],
@@ -481,6 +482,7 @@ def job_entry(job_id: str, job: dict) -> dict:
         "prs": len(job["prs"]),
         "branch": job["branch"],
         "waits": len(job["waits"]),
+        "files": artifacts.kept(job_id, job, reports),
     }
 
 
@@ -573,8 +575,8 @@ def asks(drive: dict, moment: datetime, team_url: str) -> list[dict]:
     return sorted(entries, key=lambda entry: state.parse_time(entry["created"]), reverse=True)
 
 
-def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime) -> dict:
-    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs."""
+def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str]) -> dict:
+    """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose whole return the drive keeps."""
     model = build(drive, found, moment) | {"cards": source}
     plan = milestones(drive, found, moment)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
@@ -584,12 +586,12 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
             "text": order["text"],
             "note": said(order.get("note")),
             "created": order["created"],
-            "jobs": [job_entry(job_id, drive["jobs"][job_id]) for job_id in order["jobs"]],
+            "jobs": [job_entry(job_id, drive["jobs"][job_id], reports) for job_id in order["jobs"]],
         }
-    active = [job_entry(job_id, job) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
+    active = [job_entry(job_id, job, reports) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
     finished = [
-        job_entry(job_id, job)
+        job_entry(job_id, job, reports)
         for job_id, job in drive["jobs"].items()
         if job["state"] in state.FINISHED_JOB_STATES and moment - state.parse_time(job["updated"]) <= HISTORY_FOR
     ]

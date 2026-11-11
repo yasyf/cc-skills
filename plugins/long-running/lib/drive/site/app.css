@@ -179,6 +179,7 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .job.failed > .dot { background: var(--bad); }
 .job.done > .dot { background: var(--ok); }
 .job .title { font-weight: 560; }
+.job .files { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 4px; }
 .time { flex: none; width: 76px; color: var(--ink-3); font-size: 13px; font-variant-numeric: tabular-nums; padding-top: 1px; }
 .what { font-weight: 650; }
 .happened.order > .dot, .happened.tap > .dot { background: var(--you); }
@@ -278,6 +279,17 @@ th { background: var(--panel-3); color: var(--ink); font-weight: 650; }
 .drawer .del { color: var(--bad); }
 .drawer.wide { width: min(1680px, 96vw); height: 92vh; max-height: 92vh; overflow: hidden; }
 .drawer.wide[open] { display: flex; flex-direction: column; }
+.reader { width: min(1100px, 96vw); height: 92vh; max-height: 92vh; overflow: hidden; }
+.reader[open] { display: flex; flex-direction: column; }
+.reader iframe { flex: 1; width: 100%; border: 0; background: var(--panel); }
+a.src { color: #8ab8ff; font: 12.5px var(--mono); }
+.srctip { position: fixed; inset: auto; margin: 0; width: min(680px, calc(100vw - 16px)); padding: 8px 0 6px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel-3); color: var(--ink); box-shadow: 0 8px 28px rgba(0, 0, 0, .5); }
+.srctip header { padding: 0 10px 6px; color: var(--ink-3); font-size: 12px; overflow-wrap: anywhere; }
+.srctip p { margin: 0; padding: 0 10px 2px; color: var(--ink-2); font-size: 13px; }
+.srctip pre { margin: 0; padding: 0; overflow: hidden; border: 0; border-radius: 0; background: none; font: 12.5px/1.5 var(--mono); }
+.srctip pre span { display: block; padding: 0 10px; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.srctip pre .hl { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.srctip pre i { display: inline-block; min-width: 42px; color: var(--ink-3); font-style: normal; }
 .pr-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 400px; }
 .pr-main { display: flex; flex-direction: column; min-height: 0; padding: 0 18px 14px; }
 .review-pane { flex: 1; min-height: 0; }
