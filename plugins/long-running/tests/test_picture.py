@@ -83,6 +83,21 @@ def test_a_picture_is_drawn_once_and_again_when_the_renderer_changes(tmp_path, m
     assert json.loads((tmp_path / "pictures").glob("*/source.json").__next__().read_text())["kind"] == "arch"
 
 
+def test_a_picture_drawn_before_pictures_kept_their_source_gets_it_from_the_kept_fence_and_the_rest_are_counted_once(tmp_path, capsys) -> None:
+    source = 'export const placer = restate.object({\n  name: "Placer",\n})\n'
+    old, today, lost, redrawn = tmp_path / "b1501a9dfc231de0", tmp_path / "0123456789abcdef", tmp_path / "fedcba9876543210", tmp_path / "redraw" / "j1-2"
+    for home in (old, today, lost, redrawn):
+        home.mkdir(parents=True)
+        (home / "show-me.png").write_bytes(b"\x89PNG\r\n")
+    (today / "source.json").write_text(json.dumps({"kind": "mermaid", "source": "flowchart LR\n  a --> b"}))
+    picture.fill(tmp_path, [f"ASK Which owner?\nShow me:\nOne owner per team:\n```\n{source}```\n- One owner (recommended)\n"])
+    assert json.loads((old / "source.json").read_text()) == {"kind": "code:", "source": source}
+    assert json.loads((today / "source.json").read_text())["kind"] == "mermaid"
+    assert not (lost / "source.json").exists() and not (redrawn / "source.json").exists()
+    assert capsys.readouterr().err == "drive pictures: 1 drawn before pictures kept their source now keep it; 2 keep none the drive can find and stay as drawn\n"
+    assert (tmp_path / picture.SOURCED).exists()
+
+
 def test_a_local_image_is_used_where_it_is_and_a_missing_one_is_skipped(tmp_path) -> None:
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n")

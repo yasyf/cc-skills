@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -33,6 +34,25 @@ def test_edit_saves_atomically_and_leaves_no_temp(state_root: Path) -> None:
     assert state.load("demo")["orders"]["o1"]["text"] == "ship it"
     assert not (state_root / "demo" / "drive.json.tmp").exists()
     assert (state_root / "demo" / ".lock").exists()
+
+
+def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kept_question_or_pr_fence_once(state_root: Path) -> None:
+    make("demo")
+    drive = state_root / "demo"
+    (drive / "asks").mkdir()
+    (drive / "asks" / "j1.md").write_text("ASK Which entry point?\nShow me:\n```rust\nfn main() {}\n```\n- Keep main\n")
+    pr_card = {"card": {"prs": [{"description": "## Show me\n\n```sand\nbrowser::click(@page, @b) -> @r\n```\n"}]}}
+    (drive / "cards.json").write_text(json.dumps({"pr_cards": [pr_card], "questions": [], "source": "live", "team_url": ""}))
+    asked, landed = drive / "pictures" / "e133bc15ea5e3141", drive / "pictures" / "c704dc0a0eebbf8f"
+    for home in (asked, landed):
+        home.mkdir(parents=True)
+        (home / "show-me.png").write_bytes(b"\x89PNG\r\n")
+    state.load("demo")
+    assert json.loads((asked / "source.json").read_text()) == {"kind": "code:rust", "source": "fn main() {}\n"}
+    assert json.loads((landed / "source.json").read_text()) == {"kind": "code:sand", "source": "browser::click(@page, @b) -> @r\n"}
+    (asked / "source.json").unlink()
+    state.load("demo")
+    assert not (asked / "source.json").exists()
 
 
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:

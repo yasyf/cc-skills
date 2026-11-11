@@ -7,6 +7,8 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from drive import picture
+
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
 ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
@@ -218,7 +220,15 @@ def load(name: str) -> dict:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
     data.setdefault("answers", {})
+    if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
+        picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     return data
+
+
+def pr_bodies(name: str) -> list[str]:
+    if not cards_path(name).exists():
+        return []
+    return [row.get("description") or "" for card in json.loads(cards_path(name).read_text())["pr_cards"] for row in card["card"].get("prs") or []]
 
 
 def dm_thread(data: dict, order: dict) -> str | None:
