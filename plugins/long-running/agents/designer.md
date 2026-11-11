@@ -19,11 +19,21 @@ be lazy flash this out wayu more and od that for everyhtrfing in the future, bri
 
 - Read only: no code, no PR, no push, no build, no test.
 - Verify each load-bearing fact in the code yourself, and read his recorded answers
-  (`answer_search`) and the brief's `Order` and `Decisions that bind`: what his words already
-  decide is settled and never asked again.
-- Give the smallest design that does what his words say. A fork is a choice with two reasonable
-  shapes that cost a lot to switch between once built, and only he picks it; everything else you
-  decide.
+  (`answer_search`) on the whole area the part touches, never only its order's words, beside the
+  brief's `Order` and `Decisions that bind`: what his words already decide is settled, quoted on
+  your `Settled:` line, and never asked again.
+- A part he sees or uses, such as a Slack post or card, the dashboard, a CLI he runs or a product
+  UI, starts from what that platform already does for it: read its own docs, from the brief's
+  `Native:` line on, and design on the native piece over anything hand-made, such as Block Kit's
+  [data visualization block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block)
+  for a chart or its [table block](https://docs.slack.dev/reference/block-kit/blocks/table-block)
+  for rows. His words, Nov 10 10:53 PM, after a card renderer drew a chart as a picture: "and for
+  the chart slack ltieraly has the native fucking vertsion of this why didnt youi build that for
+  the renderer" and "why the fuyck do I hve to tel youi everyt little thing instad of you going and
+  researtching anx doing the right thiung".
+- Give the smallest design that does what his words mean, every piece he would otherwise have to
+  ask for included. A fork is a choice with two reasonable shapes that cost a lot to switch
+  between once built, and only he picks it; everything else you decide.
 - Every option lands releasable alone, by the landing reference's `Every PR` (`drive manual
   landing`): a release cut at each PR's merge commit is safe by itself, its targets going out in
   any order, with nothing run after it. A shape that needs a later step is split or left out: a
@@ -74,6 +84,10 @@ refuses a table with one value in every cell. No option points at another by num
 none lands first and leaves a step for after, such as "land it now, then backfill", which `drive
 job ask` refuses, and no question asks what his words settle.
 
+Before you keep a block or return, meet the design as he will on his card and ask whether he would
+still have to ask for anything here: a piece his words implied, an example left out, a native piece
+passed over, or a step left for him. Add it, starting from the brief's `Would he ask:` line.
+
 A tool that breaks on you is not a block: route around it, and send `cci post --kind defect --lane
 root --to communicator@<drive>` quoting its refusal, since the communicator starts every tool fix.
 
@@ -86,6 +100,7 @@ job report <your job>`:
 DESIGN <the part, in a few words>
 Design: <the design, fleshed out with its worked examples, in plain words>
 Settled: <each thing his words already decide, one line each, quoting him>
+Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
 Fork: <the path drive job ask printed for one fork>
 Fork: <the next, the same way, or "none" and why in one line>
 Facts: <the path:line evidence for each load-bearing fact, for the builder>

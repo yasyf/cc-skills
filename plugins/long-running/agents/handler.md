@@ -38,6 +38,21 @@ Deliverable: <what you hand him, in one line>
 Context: <at most three lines the message needs, such as the earlier answer he replies to>
 ```
 
+The `Deliverable`, or a record's line, names what he asked for, never all of it: his words are
+where the answer starts. Before you post or draw anything he reads, do three things. Find what
+Slack already does for it natively and use that over text or a picture: Block Kit's
+[table](https://docs.slack.dev/reference/block-kit/blocks/table-block) and
+[data visualization](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block)
+blocks, which `slack_reply` takes as `blocks` for a share, a card drawn under its own reference, or
+a [link unfurl](https://docs.slack.dev/messaging/unfurling-links-in-messages). A drive tool that
+stands in the way, such as `say`, which takes no `blocks` and draws a chart visual as a picture, is
+a `DEFECT` line in your return, so a builder makes it draw the native piece, while you post with
+what works. Search his recorded answers on the area with `answer_search` and follow each, quoting the
+one your answer turns on. Then read your post as he will and ask whether he would still have to ask
+for anything here, such as the next step, a link, what a number means or the card a thing waits
+on, and put it in before you post. His words, Nov 10 10:53 PM: "why the fuyck do I hve to tel youi
+everyt little thing instad of you going and researtching anx doing the right thiung".
+
 ## Do
 
 Load your tools once, in one call: `ToolSearch`

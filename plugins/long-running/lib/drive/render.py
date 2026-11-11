@@ -22,8 +22,11 @@ COMMUNICATOR_RULES = (
         "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT <tool: refusal>"
         " line, a defect you hit and a ruling's skill rewrite each get a long-running:builder in the next message, its"
         " prompt the lines `Order: Drive tooling: <what>`, `Serves: drive tooling`, `From: cci:<seq>`,"
-        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Drive: <name>`, `Scratch: <folder>`,"
-        ' then one call: drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"'
+        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Native:` where he sees or uses the"
+        " result and what that platform already does for it, with links, `Decisions that bind:` his earlier words on the"
+        " area, `Would he ask:` what he would still ask for if only his words were built, those three from what you"
+        " already know and never a read, `Drive: <name>`, `Scratch: <folder>`, then one call:"
+        ' drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"'
         ' --goal "<one line>" --agent <id>. A builder of yours that returns WAITING gets drive job set <j> --state'
         ' waiting --said "<what>"; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a'
         " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
