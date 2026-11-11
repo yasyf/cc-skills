@@ -1887,7 +1887,7 @@ def term(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     with state.edit(name) as data:
         data["stand_ins"][args.stand_in] = args.term
-    line = f'say refuses "{args.stand_in}" from now on, naming "{args.term}"'
+    line = f'say\'s hook finds "{args.stand_in}" from now on, naming "{args.term}", for Jev to judge against his words'
     return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
 
 
@@ -2766,7 +2766,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
     verb.set_defaults(run=heard)
     verb = verbs.add_parser(
-        "term", parents=both, help="he corrected a word: say refuses it from now on, naming the proper term his words or the code use"
+        "term", parents=both, help="he corrected a word: say's hook finds it from now on for Jev to judge, naming the proper term his words or the code use"
     )
     verb.add_argument("stand_in", metavar="stand-in", help="the word he corrected, as a post used it")
     verb.add_argument("term", help="the proper term to use in its place, his word or the code's")

@@ -17,8 +17,9 @@ INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
     " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>} and the"
     " record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
-    " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}; a line naming a"
-    " cause with no {record:} refuses the post. It posts exactly the words `cc-slack check-post` passed and adds none."
+    " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. Its hook finds a line"
+    " naming a cause with no {record:} and each `cc-slack check-post` finding, and Jev judges them against his words;"
+    " it posts exactly the words the hook let out and adds none."
     " The drive's verbs are tools too: heard, record for the records between the two sessions, order, job and pr taking"
     " several ops a call, and status; each takes dry_run."
 )
@@ -55,9 +56,9 @@ SAY = {
         " links under the first clause of its own words, at most ten, or under the words after a |. Returns POSTED"
         " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
         " question asked under its waits id, and with order"
-        " the line recording the post on it. A refusal posts nothing and names its fix, as for a reference that names"
-        " nothing, a line naming a cause (because, caused) with no {record:}, or a word `cc-slack check-post` finds:"
-        " make the fix and call again. The communicator's ack to his message is one sentence: what he asked and what"
+        " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
+        " or a finding Jev upheld against his words, such as a line naming a cause (because, caused) with no {record:}"
+        " or a word `cc-slack check-post` flags: make the fix and call again. The communicator's ack to his message is one sentence: what he asked and what"
         " happens next."
     ),
     "inputSchema": {

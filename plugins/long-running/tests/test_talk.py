@@ -11,7 +11,6 @@ from drive import (
     dashboard,
     picture,
     reads,
-    refs,
     slack,
     state,
     talk,
@@ -151,13 +150,14 @@ def test_a_card_no_question_keeps_moves_each_wait_on_it_to_the_new_card_when_ask
     assert (data["jobs"]["j2"]["waits"], data["prs"]["yasyf/cc-skills#7"]["waits"]) == ([POSTED], [POSTED])
 
 
-def test_a_line_naming_a_cause_with_no_record_posts_nothing(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with pytest.raises(DriveError, match=r"nothing posted: a line naming a cause carries \{record:<seq>\} .*: The runs failed because the pool was full$"):
-        talk.say(demo, {"text": "Merged.\nThe runs failed because the pool was full", "dry_run": True})
-    assert (posts, said(demo)) == ([], [])
-    talk.say(demo, {"text": '> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.'})
-    assert len(posts) == 1
-    assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
+def test_say_posts_the_words_its_hook_judged_and_checks_none_of_them_again(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
+    checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
+    with state.edit(demo) as data:
+        data["stand_ins"]["backup"] = "S3 replica"
+    text = "The fence held, the backup copy is current, and the runs failed because the pool was full."
+    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 0 pictures: {text}"
+    talk.say(demo, {"text": text})
+    assert ([argv[-1] for argv in posts], checked.texts) == ([text], [])
 
 
 def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_source(
@@ -211,42 +211,6 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
     assert posts[0] == ("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
-
-
-def test_a_pr_card_serving_drive_tooling_posts_only_under_a_line_quoting_that_order(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
-) -> None:
-    tooling = "Drive tooling: a card named in a post shows under the line"
-    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["text"] = tooling
-        data["prs"]["yasyf/cc-skills#7"]["serves"] = "o1"
-    for dry_run in (True, False):
-        with pytest.raises(DriveError, match=rf'yasyf/cc-skills#7 serves a drive tooling order, .*nothing was posted: put "{tooling}" in text'):
-            talk.say(demo, {"text": "land these", "tap_prs": [PR_URL], "dry_run": dry_run})
-    assert (posts, said(demo)) == ([], [])
-    talk.say(demo, {"text": f"_{tooling}_", "tap_prs": [PR_URL]})
-    assert posts[0][-1] == f"_{tooling}_"
-
-
-def test_a_tooling_order_whose_words_check_post_refuses_draws_its_pr_card_once_reworded(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    flagged = "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path"
-    reworded = "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path"
-    monkeypatch.setattr(slack, "check_post", lambda text, asked: ["1:97 drive-term 'j844': say what happens to the reader's work instead"] if "j844" in text else [])
-    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
-    with state.edit(demo) as data:
-        data["orders"]["o1"]["text"] = flagged
-        data["prs"]["yasyf/cc-skills#7"]["serves"] = "o1"
-    for dry_run in (True, False):
-        with pytest.raises(DriveError, match=r"nothing posted: `cc-slack check-post` finds this .*\n1:97 drive-term 'j844'"):
-            talk.say(demo, {"text": flagged, "tap_prs": [PR_URL], "dry_run": dry_run})
-    assert (posts, said(demo)) == ([], [])
-    assert run("order", "set", "o1", "--words", reworded)[0] == 0
-    assert talk.say(demo, {"text": reworded, "tap_prs": [PR_URL], "dry_run": True}) == f"DRY his DM root, 0 pictures, PR card for 1 PRs: {reworded}"
-    talk.say(demo, {"text": reworded, "tap_prs": [PR_URL]})
-    assert posts == [("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", reworded)]
 
 
 @pytest.mark.parametrize(
@@ -431,53 +395,9 @@ def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_wait
     assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "*Catch-up since 5:20 PM*\nThe fix is live."]
 
 
-def test_words_check_post_finds_anything_in_go_nowhere(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
-    checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
-    with pytest.raises(DriveError, match=r"nothing posted: `cc-slack check-post` finds this in the post's words.*\n1:5 drive-term 'fence'"):
-        talk.say(demo, {"text": "{pr:7|a chart fence draws} is live."})
-    assert checked.texts == [f"<{PR_URL}|a chart fence draws> is live."]
-    assert (posts, said(demo)) == ([], [])
-
-
-def test_say_checks_its_words_with_each_message_of_his_it_answers(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
-    talk.say(demo, {"text": "It has two merges left.", "asked": ["how far along is the drive?", "and the deploy?"]})
-    talk.say(demo, {"text": "The deploy is out.", "asked": '["is the deploy out?"]'})
-    talk.say(demo, {"text": "Merged."})
-    assert checked.asked == [["how far along is the drive?", "and the deploy?"], ["is the deploy out?"], []]
-
-
 def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
     talk.say(demo, {"text": "{pr:7|the run page fix} and {pr:yasyf/cc-skills#4250|the card that draws charts} are live."})
     assert posts[0][-1] == f"<{PR_URL}|the run page fix> and <https://github.com/yasyf/cc-skills/pull/4250|the card that draws charts> are live."
     assert said(demo)[0]["text"] == f"[the run page fix]({PR_URL}) and [the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
     with pytest.raises(DriveError, match=r"\{pr:yasyf/cc-skills#4250\} names no PR of the drive's"):
         talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})
-
-
-def test_a_word_he_corrected_is_refused_naming_its_proper_term_and_the_proper_term_or_a_quote_of_him_posts(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
-        data["stand_ins"]["backup"] = "S3 replica"
-    with pytest.raises(DriveError) as refused:
-        talk.say(demo, {"text": "The backup copy is current."})
-    assert str(refused.value) == (
-        "nothing posted: this post calls a thing by a word he corrected, so write its proper term in that word's place:"
-        ' "backup" becomes "S3 replica" (his Nov 11 12:36 AM words "use the proper fucking terms for things")'
-    )
-    with pytest.raises(DriveError, match='"backups" becomes "S3 replica"'):
-        talk.say(demo, {"card": {"title": "Restore from which backups?", "body": "One line.", "options": ["Yes", "No"]}})
-    assert (posts, said(demo)) == ([], [])
-    talk.say(demo, {"text": "The S3 replica is current."})
-    talk.say(demo, {"text": 'You asked "is the backup current"; the S3 replica is.'})
-    assert len(posts) == 2
-
-
-def test_a_word_he_corrected_is_refused_in_a_links_words_or_a_visuals_caption_and_posts_in_a_quote_line_of_his(demo: str, posts: list[tuple[str, ...]]) -> None:
-    with state.edit(demo) as data:
-        data["stand_ins"]["backup"] = "S3 replica"
-    with pytest.raises(DriveError, match='"backup" becomes "S3 replica"'):
-        talk.say(demo, {"text": "The <https://example.com/replica|backup copy> is current."})
-    with pytest.raises(DriveError, match='"backup" becomes "S3 replica"'):
-        talk.say(demo, {"text": "Replica status.", "visuals": [{"kind": "chart", "source": "{}", "caption": "The backup copy."}]})
-    assert (posts, said(demo)) == ([], [])
-    talk.say(demo, {"text": "> Is the backup copy current?\nThe S3 replica is current."})
-    assert posts[0][-1] == "> Is the backup copy current?\nThe S3 replica is current."

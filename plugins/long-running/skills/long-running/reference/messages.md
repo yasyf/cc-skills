@@ -285,8 +285,8 @@ When it is answered, replaced or redone:
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
 - The line above it quotes that order at his DM root: his words, or the tooling order's
-  "Drive tooling: …" words. `say` refuses a PR card whose PR serves a drive tooling order while its
-  text leaves out that order's words, naming them, and posts nothing. Those words pass
+  "Drive tooling: …" words. The say hook finds a PR card whose PR serves a drive tooling order while
+  its text leaves out that order's words, naming them, for Jev to judge. Those words pass
   `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
   port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
   every class that lands with no tap.
@@ -390,8 +390,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   copy change", nor a coined one such as "backup", "bucket history" or "chat format", since it names
   nothing he can open: "use the proper fucking terms for things". A product or tool he uses keeps its
   name, in backticks. When he corrects a word, the handler for his message runs
-  `drive term <the word> "<the proper term>"`, and `say` refuses a post using that word from then on,
-  naming the term.
+  `drive term <the word> "<the proper term>"`, and from then on the say hook finds a post using that
+  word, naming the term, for Jev to judge against his words.
 - Name only what the message needs, and a mechanism only when he asked about it.
 - Every line stands alone, because he reads it with no other context: "you always have to assume I
   don't have any other context". A number, fraction, size or ratio says what it measures, why it has
@@ -532,21 +532,29 @@ GET 2 page ranges
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
-- What check-post passed is what he reads: `say` adds no words of its own, and runs check-post again
-  on the words it sends, each reference drawn as its words, refusing the post on any finding.
-  Check-post reads the words under each link, so a card, PR, order or record title it flags is named in the
-  post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
-- A post that answers him hands check-post each message of his in `asked` as `--asked`, so a drive
-  word he used there, such as "the drive" in his question about the drive, passes in the answer.
-  The same word in a post that answers nothing he said with it is still flagged.
+- A finding refuses nothing on its own. The hook hands the post and every finding, check-post's and
+  the drive's own, to Jev with his words: his messages in the thread it goes to, each answer of his a
+  card there shows, the brief that quotes him and the session's recent turns, as the cc-slack
+  permission hook judges a write without a ticket. The post goes out when his words show the findings
+  do not hold against it, and comes back with Jev's reason when a rule of his does. His words: "stop
+  hard coding it and just use jev evaluating my message and rules to see if it's ok to send".
+- What the hook let out is what he reads: `say` adds no words of its own and checks nothing again.
+  Check-post reads the words under each link, so a card, PR, order or record title it flags is named
+  in the post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
+- A post that answers him passes each message of his in `asked`, and check-post gets them as
+  `--asked`, so a drive word he used there, such as "the drive" in his question about the drive,
+  passes in the answer. When each stands word for word in his messages in that thread, an answer of
+  his a card there shows, or the brief, the length limit lifts with no judge; otherwise Jev reads the
+  same words.
 - A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
   the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
   it. A check that fails on a post refuses it rather than let it out unchecked, and so does a
   check-post that exits 1 naming no finding.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
-  runs. A post check-post flags, one over its limit, one naming something he could open with no link
-  there, or one asking a tap that is not owed comes back once, with every finding and what to fix.
+  runs. A post Jev upholds a finding on, one check-post flags, one over its limit, one naming
+  something he could open with no link there, or one asking a tap that is not owed, comes back once,
+  with every finding, Jev's reason and what to fix.
 - Then read it as he will, on a phone, with no other context. Does he know what changed, whether he
   must act, and when he hears next? Does every number, term and reference make sense with nothing
   else open, and does each thing he could open carry its link right there?
