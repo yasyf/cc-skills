@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, limits, public_check, settled, slack, state, view
+from drive import agents, github, limits, public_check, settled, slack, state, superseded, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import expanded, runnable, templates
@@ -486,21 +486,23 @@ def body_reason(script: str, shell: Shell) -> str | None:
     return next(filter(None, posted), None)
 
 
-def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str], str]]:
-    """The kind, attrs, addressed lanes and text of each record a script posts with `cci post`."""
+def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]]:
+    """The kind, attrs, addressed lanes, text, url and answered seqs of each record a script posts with `cci post`."""
     posts = []
     for _, words, _ in commands(script, shell):
         if found := landing_of(words, (CCI_POST,)):
             _, positionals, options = found
             attrs = dict(pair.split("=", 1) for value in options.get("attr", []) for pair in value.split(","))
             to = [lane for value in options.get("to", []) for lane in value.split(",")]
-            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, to, " ".join(positionals) or (options.get("text") or [""])[-1]))
+            answered = [seq for value in options.get("re", []) for seq in value.split(",")]
+            text = " ".join(positionals) or (options.get("text") or [""])[-1]
+            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, to, text, (options.get("url") or [None])[-1], answered))
     return posts
 
 
-def misrouted(posts: list[tuple[str, dict[str, str], list[str], str]], drives: dict[str, dict], session: str) -> str | None:
+def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None, list[str]]], drives: dict[str, dict], session: str) -> str | None:
     """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect not to the session holding drive tooling, or a communicator's record not to the session hearing the order it serves."""
-    for kind, attrs, to, _ in posts:
+    for kind, attrs, to, *_ in posts:
         if (routed := state.routed(drives, session, kind, attrs, to)) != list(dict.fromkeys(to)):
             return MISROUTED.format(kind=kind, lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
     return None
@@ -523,9 +525,9 @@ def judged_reason(payload: dict) -> str | None:
     session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
-    if names and (unkept := next(filter(None, (settled.ask_refusal(names, attrs, text) for kind, attrs, _, text in posts if kind == "ask")), None)):
+    if names and (unkept := next(filter(None, (settled.ask_refusal(names, attrs, text) for kind, attrs, _, text, *_ in posts if kind == "ask")), None)):
         return unkept
-    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, _, _ in posts)), None)):
+    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, *_ in posts)), None)):
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
@@ -536,11 +538,14 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or puts up a drive's public PR body showing what only a private place may."""
-    _, shell = shell_of(payload)
+    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, puts up a drive's public PR body showing what only a private place may, or posts with `cci post` an owner or answer record of his words on an open card of his, which only the drive's `record` tool closes in the same call."""
+    names, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
         return exposed
+    unclosed = (superseded.unclosed_refusal(names, kind, attrs, url, answered) for kind, attrs, _, _, url, answered in cci_posts(command, shell))
+    if names and (left_up := next(filter(None, unclosed), None)):
+        return left_up
     return script_reason(command, shell)
 
 
