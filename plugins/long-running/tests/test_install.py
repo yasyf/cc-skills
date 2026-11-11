@@ -528,7 +528,6 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
     assert git.orca_calls == []
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
-        "solo communicator: no terminal recorded, skipped",
         "solo coordinator: no terminal recorded, skipped",
     ]
 

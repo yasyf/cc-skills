@@ -50,7 +50,7 @@ STACK_REASON = (
     " part alone. Name every open PR of it: `stack-enqueue {every}`"
 )
 COORDINATOR_STEP = (
-    "Refused on purpose: the coordinator does no order's work itself, so its turn never blocks, and `{step}` is such"
+    "Refused on purpose: the coordinator and the meta session do no order's work themselves, so a turn never blocks, and `{step}` is such"
     ' work. Start a job with this step (`drive job add <kind> --order <o> --goal "<the step>"`), or hand it to the job'
     " that owns it with `drive job resume <j> -`"
 )
@@ -161,8 +161,9 @@ CCI_POST = Landing(
     }),
 )
 MISROUTED = (
-    "A communicator's {kind} record goes to the coordinator session hearing the order it serves, and {named} is not its"
-    " lane; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
+    "This {kind} record goes to {lanes}: a defect to the session holding drive tooling, the communicator's owner, answer,"
+    " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
+    " post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
 )
 
 
@@ -497,12 +498,11 @@ def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list
     return posts
 
 
-def misrouted(posts: list[tuple[str, dict[str, str], list[str], str]], drives: dict[str, dict]) -> str | None:
-    """Why a communicator's `cci post` names a coordinator lane other than the one hearing the order its record serves, which the cci `post` tool's hook readdresses."""
+def misrouted(posts: list[tuple[str, dict[str, str], list[str], str]], drives: dict[str, dict], session: str) -> str | None:
+    """Why a drive session's `cci post` names lanes other than the drive routes its record to, which the cci `post` tool's hook readdresses: a defect not to the session holding drive tooling, or a communicator's record not to the session hearing the order it serves."""
     for kind, attrs, to, _ in posts:
-        if (routed := state.routed(drives, kind, attrs, to)) != list(dict.fromkeys(to)):
-            named = ", ".join(lane for lane in to if lane not in routed)
-            return MISROUTED.format(kind=kind, named=named, flags=" ".join(f"--to {lane}" for lane in routed))
+        if (routed := state.routed(drives, session, kind, attrs, to)) != list(dict.fromkeys(to)):
+            return MISROUTED.format(kind=kind, lanes=", ".join(routed), flags=" ".join(f"--to {lane}" for lane in routed))
     return None
 
 
@@ -518,7 +518,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, or is the coordinator's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -527,9 +527,9 @@ def judged_reason(payload: dict) -> str | None:
         return unkept
     if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, _, _ in posts)), None)):
         return misnamed
-    if posts and (wrong := misrouted(posts, state.communicated(names, session))):
+    if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
-    coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) == "coordinator" for name in names)
+    coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) in ("coordinator", "meta") for name in names)
     if coordinates and (step := own_work(command, shell)):
         return COORDINATOR_STEP.format(step=step)
     return None

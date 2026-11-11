@@ -117,6 +117,22 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
     assert text.endswith(render.FIRST_CALL["communicator"])
 
 
+def test_the_meta_sessions_context_gives_its_rules_and_drive_tooling_leaves_the_communicators_once_it_binds() -> None:
+    drive = sample()
+    text = render.context(drive, "meta")
+    assert text.startswith("You are the meta session of drive demo: you hold drive tooling: every tool fix, every skill rewrite")
+    assert "The communicator: not started. The coordinator: session s1." in text.splitlines()[0]
+    assert text.splitlines()[1] == "Hold no Slack channel."
+    assert "cci subscribe --reader meta --cursor meta" in text
+    for rule in render.META_RULES:
+        assert rule in text
+    assert text.endswith(render.FIRST_CALL["meta"])
+    assert render.NO_META.format(name="demo") in render.context(drive, "communicator")
+    drive["roles"]["meta"] = {"session": "s3", "cwd": "/work", "started": "2026-11-11T12:40:00-08:00"}
+    assert render.NO_META.format(name="demo") not in render.context(drive, "communicator")
+    assert "The meta session: session s3." in render.context(drive, "coordinator").splitlines()[0]
+
+
 def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> None:
     drive = sample()
     passed = state.now() - timedelta(minutes=30)
@@ -130,13 +146,13 @@ def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> N
 def test_context_size_does_not_grow_with_open_orders() -> None:
     few, many = sample(), sample()
     many["orders"] |= {f"o{n}": order(f"order {n} " + "x" * 200, order_state="open") for n in range(10, 110)}
-    for role in ("communicator", "coordinator"):
+    for role in state.ROLES:
         assert len(render.context(many, role)) == len(render.context(few, role)) < 10_000
 
 
 def test_compact_instructions_keep_only_what_the_disk_does_not_hold() -> None:
     drive = sample()
-    for role in ("communicator", "coordinator"):
+    for role in state.ROLES:
         text = render.compact_instructions(drive, role)
         assert text.startswith("These instructions replace the default summary sections.")
         assert f"is at most {render.KEEP_LIMIT[role]} characters" in text

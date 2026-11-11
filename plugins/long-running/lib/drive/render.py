@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, told_in_thread
+from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title, told_in_thread
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
@@ -87,33 +87,24 @@ COMMUNICATOR_RULES = (
     ),
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
-        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post, and every'
-        " time, a repeat too, the tooling start below for the order `Drive tooling: post feedback: <his words>`, with"
-        ' no card: his words "When I give feedback on posts keep iterating on the library, tooling etc don\'t get'
-        ' complacent" name the library that draws posts and cards, cc-slack check-post and the drive tools, never only'
-        " the post. Its ack says that post and the code that let it through are being fixed. A SendMessage to a"
-        " builder already on that post adds his words to it, never in place of that order."
+        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post and posts'
+        " his words as an owner record carrying a ruling attr; that record reaches the meta session, which starts the"
+        " order `Drive tooling: post feedback: <his words>` every time, a repeat too, since his words \"When I give"
+        " feedback on posts keep iterating on the library, tooling etc don't get complacent\" name the library that"
+        " draws posts and cards, cc-slack check-post and the drive tools, never only the post. Its ack says that post"
+        " and the code that let it through are being fixed."
     ),
     (
-        "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT line, a defect"
-        " you hit, his feedback on a post or card and a ruling's skill rewrite each get, in your next message, one job"
-        ' call, ops `[{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from: "<its'
-        ' From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background'
-        " long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,"
-        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling or feedback, `Research: the"
-        " Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`. The order's"
-        " words reach him verbatim on the line above its PR card, so drive order add refuses words cc-slack check-post"
-        " flags, such as a job, order or record id or a bare PR number; drive order set <o> --words rewords an older one."
-        " A defect record naming a job whose order its drive tooling brief gave you gets no order or reader: start its"
-        " long-running:builder, the prompt its `Read your brief first:` line."
+        "Drive tooling (a fix to a tool the drive runs on, the skill rewrite a ruling of his asks for, the install of a"
+        " released tool) is the meta session's, never yours or the coordinator's, so you start no reader, designer or"
+        " builder for it: a handler's DEFECT line and a defect you hit each get one record call, kind defect, with the"
+        " refusal verbatim, which reaches the meta session, and the owner record his ruling's or feedback's handler"
+        " posts with its ruling attr reaches it beside the coordinator."
     ),
     (
-        'Its DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`, then a'
-        " long-running:builder with the same lines plus `Serves: drive tooling` and `Researched: <the reader's job>`"
-        " for the Research line; its DESIGN line the same with a design job and a long-running:designer. A builder of"
-        " yours that returns WAITING needs nothing, since its line set its job waiting; any other result gets a handler"
-        " briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a handoff record from the watch a builder briefed"
-        " `Handoff: <seq> Drive: <name> Scratch: <folder>`."
+        "An agent you started before the meta session bound still returns to you: WAITING needs nothing, since its line"
+        " set its job waiting, and any other result gets a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`,"
+        " which hands it to the meta session."
     ),
     (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
@@ -148,13 +139,13 @@ COORDINATOR_RULES = (
         " never the whole page, a cut slice, a cached copy or drive … --help, which flood context or drop the row."
     ),
     (
-        "Start a builder only for a port of #N (pr set `port_of`, no PR card), an order of his (pr set tap, `serves"
-        " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line) or drive tooling, which is the"
-        " communicator's: his words on drive tooling are its order, never one you add, and a tool defect you or a job"
-        " hit is a defect record to communicator@<drive> with the refusal verbatim. An order of yours whose builder"
-        ' serves drive tooling becomes the communicator\'s with its brief op `serves: "drive tooling"`: start no agent on'
-        " it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or card nothing else: another lane's PR goes back to"
-        " it, and an unordered finding becomes a question card."
+        "Start a builder only for a port of #N (pr set `port_of`, no PR card) or an order of his (pr set tap, `serves"
+        " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line). Drive tooling is the meta"
+        " session's, never yours: his words on drive tooling are its order, never one you add, and a tool defect you or"
+        " a job hit is one record call, kind defect, with the refusal verbatim, which reaches it. An order of yours whose"
+        ' builder serves drive tooling becomes the meta session\'s with its brief op `serves: "drive tooling"`: start no'
+        " agent on it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or"
+        " card nothing else: another lane's PR goes back to it, and an unordered finding becomes a question card."
     ),
     (
         "A ready record asks only for a tap drive status <pr> shows still owed, never one he gave or one on a PR merged"
@@ -221,17 +212,77 @@ COORDINATOR_RULES = (
         " label; each unknown gets a job, and he gets its result or nothing."
     ),
 )
-RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}
+META_RULES = (
+    (
+        "He never reads this terminal, and you post nothing to Slack, since his reply under a post reaches only the"
+        " session that posted it: what he should see goes to communicator@<drive> as a report record opening POST, its"
+        " first line what changed for him and each thing he could open with its URL beside it, and a question for him"
+        " as an ask record; the communicator's handler posts both."
+    ),
+    (
+        "You hold drive tooling alone: every fix to a tool the drive runs on (a hook, the drive CLI, the watch, cards,"
+        " cc-slack check-post, CI plumbing), every rewrite of this skill a ruling of his asks for, and every install of"
+        " a released tool, each a background job you start. You never touch his product orders, their jobs or PRs:"
+        ' drive order add refuses you an order not opening "Drive tooling:", and job add an order the coordinator holds.'
+    ),
+    (
+        "A defect record from any session or job, a defect you hit, and an owner record carrying a ruling attr each"
+        ' get, in this turn, one job call, ops `[{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind:'
+        ' "build", from: "<its From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}]`,'
+        " then a background long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,"
+        " his words verbatim for a ruling or feedback, `Research: the Researched: block this build needs`, `Drive:"
+        " <name>, order <o>, job <j>`, `Scratch: <folder>`. His feedback on a post or card is the order `Drive tooling:"
+        " post feedback: <his words>` every time, a repeat too. The order's words reach him verbatim on the line above"
+        " its PR card, so drive order add refuses words cc-slack check-post flags, such as a job, order or record id or a"
+        " bare PR number. A defect record naming a job whose order a brief serving drive tooling gave you gets no order"
+        " or reader: start its long-running:builder, the prompt its `Read your brief first:` line."
+    ),
+    (
+        'A reader\'s DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`,'
+        " then a long-running:builder with the reader's lines plus `Serves: drive tooling` and `Researched: <the"
+        " reader's job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer."
+        " A handoff record from the watch gets a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`, and"
+        " one from the communicator's handler carries the result of an agent the communicator started: act on it as on"
+        " your own agent's."
+    ),
+    (
+        "A builder's DONE gets a POST report record to communicator@<drive> with `--attr close=<o>`: which tool now"
+        " works, what it unblocks and the proof from the surface he uses; a ruling's rewrite lists each rule as it now"
+        " reads in the installed skill, in his ruling's thread. READY on a Forge-AI PR gets drive pr set <url> --tap"
+        " --serves <o> --design none, or with an EXEMPT line drive pr set <url> --exempt <class> and a builder briefed"
+        " `Handoff: LAND <url> Drive: <name> Scratch: <folder>`. ASK gets an ask record to communicator@<drive> with"
+        " `--attr ask=<its path> --attr job=<j>`; BUILT and WAITING need nothing; BLOCKED gets drive job set <j> --state"
+        " stopped and a fresh builder on another route; an AFTER line goes in a POST report, and a DEFECT line gets its"
+        " own order and reader."
+    ),
+    (
+        "Every record and result has its row in drive manual meta: before acting on one these rules do not spell out,"
+        " read that row alone with drive manual meta <row>. Never block: your own calls are the drive's tools, cci, a"
+        " job's transcript and the verbs the skill names, since work in your turn holds every record behind it."
+    ),
+)
+NO_META = (
+    "No meta session is bound to drive {name}, so drive tooling is yours until one binds, and its records reach you:"
+    " a defect record, a handler's DEFECT line, a defect you hit, his ruling and his feedback on a post or card each get"
+    " the job call and reader of drive manual meta defect, and a reader's or builder's result the row of drive manual"
+    " meta that names it."
+)
+RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES, "meta": META_RULES}
 COORDINATOR_KINDS = (
     "--to-kind incident,mechanism,fix-live,decide,ask,design,blocker,blocked,urgent,answer,release,correction,owner,refuse,handoff"
     " --batch-kinds done,evidence"
 )
 SUBSCRIBE = {
     "communicator": "cci subscribe --reader communicator --cursor communicator",
+    "meta": "cci subscribe --reader meta --cursor meta",
     "coordinator": f"cci subscribe --reader root --cursor coordinator {COORDINATOR_KINDS}",
 }
-OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
-JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
+OTHERS = {"communicator": ("coordinator", "meta"), "coordinator": ("communicator", "meta"), "meta": ("communicator", "coordinator")}
+JOB = {
+    "communicator": "you talk to him",
+    "coordinator": "you run his orders, jobs, events, landings and installs",
+    "meta": "you hold drive tooling: every tool fix, every skill rewrite a ruling of his asks for and every install of a released tool",
+}
 REPROS_SHOWN = 5
 NOT_READY_CHARS = 240
 WHOLE = sys.maxsize
@@ -257,6 +308,11 @@ FIRST_CALL = {
         " time you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
         "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__incident,mcp__plugin_long-running_drive__status."
     ),
+    "meta": (
+        "The drive's order, job, pr, record and status tools load once, the first time you reach for one: ToolSearch"
+        " select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,mcp__plugin_long-running_drive__pr,"
+        "mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__status."
+    ),
 }
 READS = {
     "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
@@ -266,6 +322,10 @@ READS = {
         " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>. A Bash result over"
         " 6,000 characters arrives as its first 2 KB and the path of the whole, so cap no output with cut, head or tail:"
         " grep that path for the part you need."
+    ),
+    "meta": (
+        "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., drive job report <j>, cci,"
+        " and the skill's pages, drive manual <page> <row>, your own rows in drive manual meta."
     ),
 }
 KEEP = {
@@ -282,8 +342,13 @@ KEEP = {
         "His words no `drive order add` or cc-notes answer holds yet, verbatim, each with its permalink.",
         "The step you were in the middle of, in one line, with the `drive manual <page> <row>` that states it.",
     ),
+    "meta": (
+        "Each agent of yours still out: one line, `<job> <agent id> <what it fixes in at most 12 words>`.",
+        "Each record you took whose job call has not run yet: `<seq> <what it asks in at most 12 words>`.",
+        "The step you were in the middle of, in one line, with the `drive manual <page> <row>` that states it.",
+    ),
 }
-KEEP_LIMIT = {"communicator": 1500, "coordinator": 3000}
+KEEP_LIMIT = {"communicator": 1500, "coordinator": 3000, "meta": 1500}
 
 
 def cut(text: str, limit: int) -> str:
@@ -389,7 +454,7 @@ def held_channels(drive: dict, role: str) -> list[str]:
     slack = drive["slack"]
     if role == "communicator":
         return [f"his DM {slack['channel']}" if slack["channel"] else "no DM set"]
-    return slack.get("watch", [])
+    return slack.get("watch", []) if role == "coordinator" else []
 
 
 def hold_line(drive: dict, role: str) -> str:
@@ -465,8 +530,9 @@ def opening(drive: dict, role: str, project: str | None) -> list[str]:
     if project is None:
         return [
             (
-                f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}."
-                " A background agent this session started ignores this block."
+                f"You are the {title(role)} of drive {drive['name']}: {JOB[role]}. "
+                + " ".join(f"The {title(other)}: {who(drive, other)}." for other in OTHERS[role])
+                + " A background agent this session started ignores this block."
             ),
             hold_line(drive, role),
         ]
@@ -491,8 +557,9 @@ def context(drive: dict, role: str, project: str | None = None) -> str:
     lines = [
         *opening(drive, role, project),
         f"Subscribe: cci drive use {drive['name']}, then {subscribe(role, project)}",
-        f"{role.capitalize()} rules:",
+        f"{title(role).capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
+        *([NO_META.format(name=drive["name"])] if role == "communicator" and "meta" not in drive["roles"] else []),
         filed_line(drive),
     ]
     if role == "coordinator":
@@ -516,7 +583,7 @@ def compact_instructions(drive: dict, role: str) -> str:
     return "\n".join(
         [
             (
-                f"These instructions replace the default summary sections. The summary of the {role} of drive"
+                f"These instructions replace the default summary sections. The summary of the {title(role)} of drive"
                 f" {drive['name']} is at most {KEEP_LIMIT[role]} characters and holds only:"
             ),
             *(f"{number}. {item}" for number, item in enumerate(KEEP[role], 1)),

@@ -8,7 +8,7 @@ from drive import state
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not read a Slack thread or channel itself: the whole read lands in its own context."""
+    """Why a drive's coordinator, communicator or meta session may not read a Slack thread or channel itself: the whole read lands in its own context."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""

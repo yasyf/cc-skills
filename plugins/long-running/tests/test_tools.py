@@ -186,6 +186,36 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform"}]})
 
 
+def test_a_bound_meta_session_hears_each_defect_and_his_ruling_and_keeps_its_own_defect(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    defect, ruling = {"kind": "defect", "text": "cc-slack delete hides --url"}, {"kind": "owner", "text": "cards say why", "ruling": "abc1234"}
+    tools.run("record", demo, {"records": [defect, ruling]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "tooler")
+    run("start", demo, "--role", "meta")
+    with pytest.raises(DriveError, match="a defect it hits is its own: one job call adds its order and reader, by drive manual meta defect"):
+        tools.run("record", demo, {"records": [defect]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    tools.run("record", demo, {"records": [defect, ruling, {"kind": "owner", "text": "ship the run page"}]})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    tools.run("record", demo, {"records": [defect]})
+    assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
+        ("communicator", [("defect", ["communicator@demo"]), ("owner", ["root@demo"])]),
+        ("communicator", [("defect", ["meta@demo"]), ("owner", ["root@demo", "meta@demo"]), ("owner", ["root@demo"])]),
+        ("root", [("defect", ["meta@demo"])]),
+    ]
+
+
 def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -15,7 +15,7 @@ from drive import artifacts, brief, github, limits, orca, picture, place, reads,
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
-ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator"}
+ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator", "meta": "meta session"}
 INCIDENT_FIX = "fix"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [state.INCIDENT_STOP, "cause"]}
 FREEZE_FOR = timedelta(hours=12)
@@ -77,8 +77,8 @@ def start(args: argparse.Namespace) -> int:
             f" --command \"claude … -- '/long-running {args.name} as the {args.role}: run Start or resume for that role'\" --json,"
             " whose whole command drive manual start prints"
         )
-    if args.project and args.role == "communicator":
-        raise DriveError("--project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project")
+    if args.project and args.role != "coordinator":
+        raise DriveError(f"--project binds a sub-coordinator, which holds the coordinator role; the {state.title(args.role)} holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
@@ -86,11 +86,12 @@ def start(args: argparse.Namespace) -> int:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
         elif project := state.session_project(data, session):
             raise DriveError(
-                f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator and"
-                " the communicator are sessions of their own, so start this role from another session"
+                f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator,"
+                " the communicator and the meta session are sessions of their own, so start this role from another session"
             )
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
+        taken = tooling_taken(data) if args.role == "meta" else []
         if args.channel:
             data["slack"]["channel"] = args.channel
         watched_channels = data["slack"].setdefault("watch", [])
@@ -99,8 +100,17 @@ def start(args: argparse.Namespace) -> int:
     seen = orca_place(held, run_show)
     watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
     seat = f"sub-coordinator for {args.project}" if args.project else args.role
-    text = f"{render.context(data, args.role, args.project)}\n\n{watched}{seat}: session {held['session']}, {seen}"
+    moved = f"the meta session holds {', '.join(taken)} now, the drive tooling orders the communicator held\n" if taken else ""
+    text = f"{render.context(data, args.role, args.project)}\n\n{watched}{moved}{seat}: session {held['session']}, {seen}"
     return emit(args, text, {**data, "orca": {seat: seen}})
+
+
+def tooling_taken(data: dict) -> list[str]:
+    """Give the meta session each open order the communicator holds but its read-only questions: the drive tooling orders, and those a brief serving drive tooling gave it; their ids."""
+    taken = [order_id for order_id, order in state.open_orders(data).items() if order["owner"] == "communicator" and order["kind"] != "answer"]
+    for order_id in taken:
+        data["orders"][order_id]["owner"] = "meta"
+    return taken
 
 
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
@@ -172,15 +182,23 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             return held, state.load(name)["orders"][held], [*noted, f"{held} already holds these words, so no order was added"], []
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
-    if tooling and args.owner == "coordinator":
-        raise DriveError(
-            f'--owner coordinator: a "{state.TOOLING}" order is the communicator\'s, by his words of Nov 10 10:08 PM:'
-            ' "and remember toolingh/meta improvements dont go to coorfidnatror"; leave --owner out'
-        )
     if tooling:
         check_tooling_words(args.words)
     with state.edit(name) as data:
-        owner = args.owner or ("communicator" if tooling else state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "coordinator")
+        role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+        holder = state.tooling_holder(data)
+        if tooling and args.owner not in (None, holder):
+            raise DriveError(
+                f'--owner {args.owner}: a "{state.TOOLING}" order is the {state.title(holder)}\'s, by his words of Nov 10 10:08 PM:'
+                ' "and remember toolingh/meta improvements dont go to coorfidnatror", and of Nov 11 12:31 PM: "A third session, a'
+                ' tooling/meta coordinator, owns every tool fix, skill rewrite and install"; leave --owner out'
+            )
+        if role == "meta" and not tooling:
+            raise DriveError(
+                f'refused, no order added: the meta session adds only "{state.TOOLING}" orders and never touches his product orders,'
+                f" which are the coordinator's; send his words to root@{name} as an owner record"
+            )
+        owner = args.owner or (holder if tooling else role or "coordinator")
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
@@ -661,9 +679,9 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
         f'post your own report from the communicator\'s lane, cci post --kind report --lane communicator --attr close={order_id} "<its first words>"'
         " with no --to, carrying this report's facts, and pass that seq"
         if holder == "communicator"
-        else f"pass the coordinator's own report on {order_id}"
+        else f"pass the {state.title(holder)}'s own report on {order_id}"
     )
-    return f"refused, the report is the {writer}'s and {order_id} is the {holder}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
+    return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
 def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
@@ -861,9 +879,10 @@ def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: 
     """Refuse a job carrying, or a PR serving, an order across the line between drive tooling and his feature work: the coordinator acts on no "Drive tooling:" order, and a tooling order's job or PR never carries or serves his feature order, nor the reverse."""
     order = find(data["orders"], other, "order")
     if tooling(order) and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
+        holder = state.tooling_holder(data)
         raise DriveError(
-            f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the communicator acts on: send a'
-            f" defect record to communicator@{name} naming what it needs, and the communicator's builder takes it over"
+            f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the {state.title(holder)} acts on: send a'
+            f" defect record to {holder}@{name} naming what it needs, and the {state.title(holder)}'s builder takes it over"
         )
     if tooling(order) == tooling(data["orders"][own]) or own == other:
         return
@@ -1328,19 +1347,19 @@ def job_brief(args: argparse.Namespace) -> int:
     ]
     text = "\n".join(lines) + "\n"
     written.write_text(text)
-    given = brief.SERVES_TOOLING.search(text) and not state.communicators(order)
     with state.edit(name) as data:
         data["jobs"][args.id].update(brief=str(written), brief_flags=flags)
-        if given:
-            data["orders"][job["order"]]["owner"] = "communicator"
+        holder = state.tooling_holder(data)
+        if given := bool(brief.SERVES_TOOLING.search(text)) and data["orders"][job["order"]]["owner"] != holder:
+            data["orders"][job["order"]]["owner"] = holder
     line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
     if given:
         line += (
-            f"\n{job['order']} is the communicator's order now, since a builder serving drive tooling is its alone: only the communicator"
+            f"\n{job['order']} is the {state.title(holder)}'s order now, since a builder serving drive tooling is its alone: only the {state.title(holder)}"
             f" starts {args.id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
-            f" communicator@{name} a defect record naming {args.id} and its `Read your brief first:` line"
+            f" {holder}@{name} a defect record naming {args.id} and its `Read your brief first:` line"
         )
     return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
 
@@ -2289,7 +2308,7 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
     verb.add_argument("name")
     verb.add_argument(
-        "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs orders and jobs"
+        "--role", required=True, choices=state.ROLES, help="communicator talks to him; coordinator runs his orders and jobs; meta holds drive tooling: its fixes, skill rewrites and installs"
     )
     verb.add_argument("--channel", help="his DM channel id")
     verb.add_argument(
@@ -2346,8 +2365,9 @@ def parser() -> argparse.ArgumentParser:
         "--owner",
         choices=state.ROLES,
         help=(
-            "the one session that adds its jobs, starts its agents and posts its reports, refusing the other's; default: a"
-            ' "Drive tooling:" order the communicator, any other the role of the session adding it, else the coordinator'
+            "the one session that adds its jobs, starts its agents and posts its reports, refusing the others'; default: a"
+            ' "Drive tooling:" order the meta session, or the communicator while none is bound, any other the role of the'
+            " session adding it, else the coordinator"
         ),
     )
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
@@ -2925,7 +2945,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repo")
     verb.add_argument("--timeout", type=int, default=900)
     verb.set_defaults(run=install_plugin)
-    verb = verbs.add_parser("reload", help="type /reload-plugins into both sessions of every drive on this Mac, queued behind a turn still running after 30 seconds")
+    verb = verbs.add_parser("reload", help="type /reload-plugins into each session of every drive on this Mac, queued behind a turn still running after 30 seconds")
     verb.set_defaults(run=reload_plugins)
 
     verb = verbs.add_parser("setup")

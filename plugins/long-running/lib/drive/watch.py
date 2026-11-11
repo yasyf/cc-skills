@@ -1248,7 +1248,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owing = [
         key
         for key, order in data["orders"].items()
-        if hears(watcher, data, key) and not state.communicators(order) and owes_line(order, data["jobs"], moment)
+        if hears(watcher, data, key) and not state.holder_lane(order) and owes_line(order, data["jobs"], moment)
     ]
     return [f"TICK {' '.join(owing)}"] if owing else []
 
@@ -1284,10 +1284,11 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
 
 
-def communicators_line(line: str, data: dict) -> bool:
+def holder_line(line: str, data: dict) -> str | None:
+    """The lane of the session holding the order a line is about, when that is the communicator or the meta session rather than a coordinator."""
     found = ABOUT.search(line)
     order = found and data["orders"].get(found["order"] or found["named"])
-    return bool(order) and state.communicators(order)
+    return state.holder_lane(order) if order else None
 
 
 def needs_step(line: str, data: dict) -> bool:
@@ -1315,15 +1316,17 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: an order's the communicator holds to the communicator, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
-    if not lines and not watcher.unsent.get("communicator"):
+    """Hand each line to the one who acts on it: an order's the communicator or the meta session holds to that session, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
+    if not lines and not any(watcher.unsent.get(lane) for lane in state.HOLDERS):
         return []
     data = state.load(watcher.name)
-    tooled = [line for line in lines if communicators_line(line, data) and needs_step(line, data)]
+    held: dict[str, list[str]] = {lane: [] for lane in state.HOLDERS}
     moves: dict[str, list[str]] = {}
     kept = []
     for line in lines:
-        if communicators_line(line, data):
+        if holder := holder_line(line, data):
+            if needs_step(line, data):
+                held[holder].append(line)
             continue
         if job_id := lane_move(line, data):
             moves.setdefault(job_id, []).append(line)
@@ -1334,7 +1337,7 @@ def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
             reads.run([str(DRIVE), "job", "resume", job_id, "\n".join(said), "--drive", watcher.name], Path(data["roles"]["coordinator"]["cwd"]))
         except reads.ReadError as error:
             kept += [f"{line}; drive job resume {job_id} failed: {error}" for line in said]
-    return kept + sent(watcher, "communicator", tooled, moment)
+    return kept + [failure for lane, said in held.items() for failure in sent(watcher, lane, said, moment)]
 
 
 def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
@@ -1345,7 +1348,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
     data = state.load(watcher.name)
     refusal, unsent = None, []
     for line in owed:
-        kind = "handoff" if lane == "communicator" or wakes(line, data) else "evidence"
+        kind = "handoff" if lane in state.HOLDERS or wakes(line, data) else "evidence"
         topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
         argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, "--text", line]
         try:
@@ -1353,7 +1356,7 @@ def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> lis
         except reads.ReadError as error:
             unsent.append(line)
             refusal = error
-    what = {"communicator": "handoff post to the communicator", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {watcher.project}")
+    what = {"communicator": "handoff post to the communicator", "meta": "handoff post to the meta session", "root": "post to the coordinator"}.get(lane, f"post to the sub-coordinator for {watcher.project}")
     if refusal is None:
         watcher.failures.pop(what, None)
         return []

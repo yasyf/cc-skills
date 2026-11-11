@@ -20,8 +20,8 @@ REPRO = re.compile(r"^REPRO:[ \t]*\S", re.MULTILINE)
 LEFT = re.compile(r"^(?:NEXT|UNPROVEN):.*$", re.MULTILINE)
 STEPS = r"(?:runs?|re-?runs?|fills?|back-?fills?|migrates?|applies|apply|executes?|triggers?|kicks?\s+off|flips?|enables?|patch(?:es)?|repairs?)"
 LEFT_FOR = re.compile(
-    r"\b(?:until|unless|once|after|when)\s+(?:the\s+)?(?:coordinator|communicator|handler|owner|someone|another\s+(?:lane|agent|job))\b"
-    rf"|\b(?:coordinator|communicator|handler|someone(?:\s+else)?)\s+(?:must\s+|should\s+|needs?\s+to\s+|has\s+to\s+|will\s+|then\s+)?{STEPS}\b",
+    r"\b(?:until|unless|once|after|when)\s+(?:the\s+)?(?:coordinator|communicator|meta\s+session|handler|owner|someone|another\s+(?:lane|agent|job))\b"
+    rf"|\b(?:coordinator|communicator|meta\s+session|handler|someone(?:\s+else)?)\s+(?:must\s+|should\s+|needs?\s+to\s+|has\s+to\s+|will\s+|then\s+)?{STEPS}\b",
     re.IGNORECASE,
 )
 LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rate[- ]limit\w*|limit\w*|max(?:imum)?)\b", re.IGNORECASE)
@@ -46,9 +46,9 @@ def carried(prompt: str) -> str:
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
 
 
-def gives_tooling(job_id: str, order_id: str) -> str:
-    """The verb that gives an order to the communicator: a brief whose builder serves drive tooling, which only the communicator starts."""
-    return f'`drive job brief {job_id} --serves "drive tooling"` gives {order_id} to the communicator'
+def gives_tooling(job_id: str, order_id: str, holder: str) -> str:
+    """The verb that gives an order to the session holding drive tooling: a brief whose builder serves drive tooling, which only that session starts."""
+    return f'`drive job brief {job_id} --serves "drive tooling"` gives {order_id} to the {state.title(holder)}'
 
 
 def block_lines(text: str) -> list[str]:

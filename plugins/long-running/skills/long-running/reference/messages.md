@@ -573,5 +573,5 @@ GET 2 page ranges
   post these checks pass. The post is fixed in place, and every time, a repeat too, its own Tooling
   order changes `cc-slack check-post`, a drive hook or the library that draws posts and cards, so
   the next post of that class is refused or drawn right before he reads it, by
-  [communicator.md](communicator.md#what-each-input-gets). His words: "When I give feedback on posts
+  [meta.md](meta.md#records-and-inputs). His words: "When I give feedback on posts
   keep iterating on the library, tooling etc don't get complacent".

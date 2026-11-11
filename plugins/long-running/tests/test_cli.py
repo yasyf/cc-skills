@@ -174,8 +174,8 @@ def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinator
     assert capsys.readouterr().err.strip() == "drive: --project Platform: session iris-1 is the sub-coordinator for Iris of drive demo; bind Platform's from another session"
     assert cli.main(["start", "demo", "--role", "communicator"]) == 2
     assert capsys.readouterr().err.strip() == (
-        "drive: --role communicator: session iris-1 is the sub-coordinator for Iris in drive demo; the top coordinator and the communicator"
-        " are sessions of their own, so start this role from another session"
+        "drive: --role communicator: session iris-1 is the sub-coordinator for Iris in drive demo; the top coordinator, the communicator and"
+        " the meta session are sessions of their own, so start this role from another session"
     )
     data = state.load("demo")
     assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"]) == (["Iris"], "session-under-test", False)
@@ -239,6 +239,36 @@ def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
     assert "o3 is the communicator's order, session communicator-session" in capsys.readouterr().err
 
 
+def test_the_meta_session_takes_the_communicators_tooling_orders_and_holds_each_new_one_but_no_product_order(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "--kind", "answer", "what does the watch hold")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    assert cli.main(["start", "demo", "--role", "meta", "--project", "The drive"]) == 2
+    assert "the meta session holds no project" in capsys.readouterr().err
+    code, out = run("start", "demo", "--role", "meta")
+    assert code == 0
+    assert out.startswith("You are the meta session of drive demo: you hold drive tooling")
+    assert "the meta session holds o1 now, the drive tooling orders the communicator held\nmeta: session meta-session" in out
+    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator"]
+    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page"]) == 2
+    assert 'the meta session adds only "Drive tooling:" orders and never touches his product orders' in capsys.readouterr().err
+    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: cards say why") == (0, "o3")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the watch says why") == (0, "o4")
+    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "communicator"]) == 2
+    assert "a \"Drive tooling:\" order is the meta session's" in capsys.readouterr().err
+    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["meta", "communicator", "meta", "meta"]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    assert cli.main(["job", "add", "reader", "--order", "o1", "--goal", "read it"]) == 2
+    assert "o1 is the meta session's order, session meta-session" in capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-session")
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "research: a verb for owners")[0] == 0
+
+
 def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: str) -> None:
     with state.locked("demo"):
         saved = json.loads(state.state_path("demo").read_text())
@@ -300,7 +330,8 @@ def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_wheth
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
     run("start", "demo", "--role", "coordinator", "--project", "The drive")
     state.pid_path("demo", "Iris").write_text(f"{os.getpid()}\n")
-    assert run("status")[1].splitlines()[3:5] == [
+    assert run("status")[1].splitlines()[3:6] == [
+        "meta: not started; Hold no Slack channel.",
         f"sub-coordinator Iris: lane iris, session iris-1, in no Orca terminal; its watch runs as pid {os.getpid()}",
         "sub-coordinator The drive: lane the-drive, session drive-1, in no Orca terminal; its watch is not running; drive watch --project 'The drive' from its session starts it",
     ]
@@ -3752,7 +3783,7 @@ def test_status_names_the_open_incidents_and_each_running_job_whose_session_ende
     run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
     run("job", "add", "builder", "--order", "o2", "--goal", "fix it")
     lines = run("status")[1].splitlines()
-    assert lines[3:5] == [
+    assert lines[4:6] == [
         "Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:",
         "o1 open incident: errors on the api; record 3fa2c1",
     ]
@@ -3760,7 +3791,7 @@ def test_status_names_the_open_incidents_and_each_running_job_whose_session_ende
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
     run("start", "demo", "--role", "coordinator")
     gone = [f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}" for job_id in ("j1", "j2", "j3")]
-    assert run("status")[1].splitlines()[5:8] == gone
+    assert run("status")[1].splitlines()[6:9] == gone
     assert run("status", "o2")[1].splitlines()[1] == gone[2]
 
 

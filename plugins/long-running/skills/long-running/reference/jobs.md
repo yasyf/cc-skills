@@ -11,13 +11,16 @@ Contents:
 
 ## Who owns a job and where it runs
 
-- Every job is the coordinator's except a drive tooling order's reader, designer and builder, which
-  the communicator starts under its own "Drive tooling:" order, by
-  [Tooling](communicator.md#tooling). An order of the coordinator's whose builder serves drive
-  tooling becomes the communicator's when `drive job brief <j> --serves "drive tooling"` writes that
-  brief: from then on only the communicator starts its agents and posts its reports, and the watch
-  sends it the order's lines. The coordinator starts no agent on it and sends `communicator@<drive>`
-  a `defect` record naming the job and its `Read your brief first:` line.
+- Every job is the coordinator's except two kinds. A drive tooling order's reader, designer and
+  builder are the meta session's, started under its own "Drive tooling:" order by [meta.md](meta.md),
+  so neither the communicator nor the coordinator starts a tooling job. The reader of his read-only
+  question is the communicator's, under its `answer` order. An order of the coordinator's whose
+  builder serves drive tooling becomes the meta session's when
+  `drive job brief <j> --serves "drive tooling"` writes that brief: from then on only the meta
+  session starts its agents and posts its reports, and the watch sends it the order's lines. The
+  coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
+  `Read your brief first:` line. A drive with no meta session bound gives all of this to the
+  communicator, as before the meta session existed.
 - At most eight builders run on this Mac at once, counting Orca workers started here with
   `drive job launch --local`; lanes on a Sprite do not count, and `drive job add builder` refuses a
   ninth without `--remote`. Before you start a Forge-AI/monorepo builder, run `drive place` and start

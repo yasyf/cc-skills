@@ -20,7 +20,7 @@ INSTRUCTIONS = (
     " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. Its hook finds a line"
     " naming a cause with no {record:} and each `cc-slack check-post` finding, and Jev judges them against his words;"
     " it posts exactly the words the hook let out and adds none."
-    " The drive's verbs are tools too: heard, record for the records between the two sessions, order, job and pr taking"
+    " The drive's verbs are tools too: heard, record for the records between the drive's sessions, order, job and pr taking"
     " several ops a call, and status; each takes dry_run."
 )
 TEXT = {"type": "string"}
@@ -92,7 +92,8 @@ SAY = {
                     " or every part when its close attr names the order; a record naming neither is a progress line delivering"
                     " no part, whatever job it names, and so is a post with no record. The record is the order's holder's: on an"
                     " order the communicator holds, such as his read-only question, a report the handler posts from the communicator's"
-                    " lane, since a coordinator's report is refused there. catch_up=true makes it his catch-up, opening *Catch-up"
+                    " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
+                    " there. catch_up=true makes it his catch-up, opening *Catch-up"
                     " since <when he was last heard>* in place of any title"
                 ),
             },
