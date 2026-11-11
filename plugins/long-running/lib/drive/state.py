@@ -208,8 +208,8 @@ def new_drive(
     }
 
 
-def load(name: str) -> dict:
-    """Read a drive; one saved with a single driver session reads as that session coordinating."""
+def saved(name: str) -> dict:
+    """A drive as saved, with the sessions bound to it: one saved with a single driver session reads as that session coordinating."""
     try:
         data = json.loads(state_path(name).read_text())
     except FileNotFoundError:
@@ -219,6 +219,12 @@ def load(name: str) -> dict:
     data.setdefault("subcoordinators", {})
     for held in data["roles"].values():
         held.setdefault("terminal", None)
+    return data
+
+
+def load(name: str) -> dict:
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone."""
+    data = saved(name)
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -707,9 +713,10 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
+    """The drives that bind the session, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
-        bound += [(held["started"], name) for held in bound_sessions(load(name)).values() if held["session"] == session]
+        bound += [(held["started"], name) for held in bound_sessions(saved(name)).values() if held["session"] == session]
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 

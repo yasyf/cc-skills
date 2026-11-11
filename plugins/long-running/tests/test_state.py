@@ -245,6 +245,15 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     assert state.session_role(state.load("other"), "me") == "communicator"
 
 
+def test_resolving_a_sessions_drive_loads_no_drive_it_is_not_bound_to(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("mine", "me")
+    make("other", "someone-else")
+    loaded = []
+    monkeypatch.setattr(state, "load", lambda name: loaded.append(name) or {})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
+    assert (state.resolve(), state.session_drives("someone-else"), loaded) == ("mine", ["other"], [])
+
+
 def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordinator_holds_the_coordinator_role_for_its_project_alone(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
