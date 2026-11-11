@@ -24,6 +24,8 @@ TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 ROLES = ("communicator", "coordinator")
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator"}
+DRIVE_LANES = ("root", "communicator", "coordinator", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
+NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
 LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
@@ -37,6 +39,9 @@ OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
+NOT_LANE = re.compile(r"[^a-z0-9]+")
+WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 
 
 class DriveError(Exception):
@@ -63,20 +68,29 @@ def events_path(name: str) -> Path:
     return drive_dir(name) / "events.jsonl"
 
 
-def pid_path(name: str) -> Path:
-    return drive_dir(name) / "watchd.pid"
+def project_lane(project: str) -> str:
+    """The cci lane of a project's sub-coordinator: its name lowercased, each run of other characters a dash."""
+    return NOT_LANE.sub("-", project.lower()).strip("-")
+
+
+def watch_suffix(project: str | None) -> str:
+    return f"-{project_lane(project)}" if project else ""
+
+
+def pid_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watchd{watch_suffix(project)}.pid"
 
 
 def monitor_pid_path(name: str) -> Path:
     return drive_dir(name) / "watch.pid"
 
 
-def watch_log_path(name: str) -> Path:
-    return drive_dir(name) / "watch.log"
+def watch_log_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.log"
 
 
-def cursor_path(name: str) -> Path:
-    return drive_dir(name) / "watch.cursor"
+def cursor_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.cursor"
 
 
 def held_path(name: str) -> Path:
@@ -174,6 +188,7 @@ def new_drive(
     return {
         "name": name,
         "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
+        "subcoordinators": {},
         "slack": {"channel": channel, "page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
@@ -191,6 +206,7 @@ def load(name: str) -> dict:
         raise DriveError(f"no drive named {name}") from None
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
+    data.setdefault("subcoordinators", {})
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -211,10 +227,15 @@ def load(name: str) -> dict:
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
+        order.setdefault("shipped", {})
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
+    mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job.setdefault("carries", {})
+        job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
+        job.setdefault("waiting_said", [])
+        job.setdefault("waiting_claims", {})
         job.setdefault("waits", [])
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
@@ -379,6 +400,9 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worktree": None,
         "prs": [],
         "waits": [],
+        "waiting_said": [],
+        "waiting_claims": {},
+        "mail_seen": 0,
         "state": "running",
         "said": None,
         "may_settle": None,
@@ -448,7 +472,79 @@ def next_id(records: dict, prefix: str) -> str:
 
 
 def session_role(data: dict, session: str | None) -> str | None:
-    return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+    """The role a session holds; a sub-coordinator's is coordinator, so every rule of that role binds it too."""
+    role = next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+    return role or ("coordinator" if session_project(data, session) else None)
+
+
+def session_project(data: dict, session: str | None) -> str | None:
+    """The project a session is the sub-coordinator for, or None for any other session."""
+    return next((project for project, held in data["subcoordinators"].items() if session and held["session"] == session), None)
+
+
+def bound_sessions(data: dict) -> dict[str, dict]:
+    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`."""
+    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
+
+
+def projects(data: dict) -> list[str]:
+    return sorted({order["project"] for order in data["orders"].values() if order["project"]})
+
+
+def order_lane(data: dict, order: dict) -> str:
+    """The cci lane of the coordinator session that hears an order: the sub-coordinator's for its project, else root."""
+    return project_lane(order["project"]) if order["project"] in data["subcoordinators"] else "root"
+
+
+def heard_lane(data: dict, order_id: str) -> str:
+    """The cci lane of the coordinator session hearing an order now, which an event about it is written with."""
+    return order_lane(data, data["orders"][order_id]) if data["subcoordinators"] else "root"
+
+
+def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
+    """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
+    links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
+    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+
+
+def thread_order(data: dict, thread: str | None) -> str | None:
+    """The newest order in a thread of his, its own or the thread of a card its jobs drew, or None when no order is in it."""
+    return next(
+        (order_id for order_id, order in reversed(data["orders"].items()) if thread and thread in (order["thread"], *(ts for _, ts in card_threads(data, order)))),
+        None,
+    )
+
+
+def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
+    """The cci lane of the coordinator session a communicator's owner, answer, posted or refused record serves: the one hearing the order of the job its attr job or waits id names, else the newest order in its thread; None for another kind, or a record naming neither."""
+    if kind not in ROUTED_KINDS:
+        return None
+    named = WAITS_ID.fullmatch(attrs.get("waits") or "")
+    if job := data["jobs"].get(attrs.get("job") or (named[2] if named and named[1] == data["name"] else "")):
+        return order_lane(data, data["orders"][job["order"]])
+    order_id = thread_order(data, attrs.get("thread"))
+    return order_id and order_lane(data, data["orders"][order_id])
+
+
+def routed(drives: dict[str, dict], kind: str, attrs: dict, to: list[str]) -> list[str]:
+    """Where a communicator's record goes: each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order the record serves there."""
+    made = []
+    for entry in to:
+        lane, _, name = entry.partition("@")
+        if (data := drives.get(name)) and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
+            entry = f"{serving}@{name}"
+        made.append(entry)
+    return list(dict.fromkeys(made))
+
+
+def communicated(names: list[str], session: str | None) -> dict[str, dict]:
+    """Each drive of names the session is the communicator of, by name."""
+    return {name: data for name in names if session_role(data := load(name), session) == "communicator"}
+
+
+def hears(data: dict, order: dict, project: str | None) -> bool:
+    """Whether the coordinator session for project hears an order: a sub-coordinator its project's, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
+    return order["project"] == project if project else order["project"] not in data["subcoordinators"]
 
 
 def agent_gone(data: dict, job: dict) -> bool:
@@ -472,10 +568,8 @@ def last_started(data: dict) -> str:
 def session_drives(session: str) -> list[str]:
     bound = []
     for name in names():
-        data = load(name)
-        if role := session_role(data, session):
-            bound.append((data["roles"][role]["started"], name))
-    return [name for _, name in sorted(bound, reverse=True)]
+        bound += [(held["started"], name) for held in bound_sessions(load(name)).values() if held["session"] == session]
+    return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
 def resolve(name: str | None = None) -> str:
@@ -507,15 +601,17 @@ def events_end(name: str) -> int:
     return path.stat().st_size if path.exists() else 0
 
 
-def watch_cursor(name: str) -> int:
-    """The events offset the drive's watch has read up to; the log's end for a drive whose watch never ran."""
-    path = cursor_path(name)
-    return int(path.read_text()) if path.exists() else events_end(name)
+def watch_cursor(name: str, project: str | None = None) -> int:
+    """The events offset the drive's watch, or a project's, has read up to: for a watch that never ran, the log's end, or for a project's where the log ended as its sub-coordinator was first bound."""
+    path = cursor_path(name, project)
+    if path.exists():
+        return int(path.read_text())
+    return load(name)["subcoordinators"][project]["from"] if project else events_end(name)
 
 
-def save_watch_cursor(name: str, offset: int) -> None:
-    path = cursor_path(name)
-    tmp = path.with_name("watch.cursor.tmp")
+def save_watch_cursor(name: str, offset: int, project: str | None = None) -> None:
+    path = cursor_path(name, project)
+    tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(f"{offset}\n")
     os.replace(tmp, path)
 

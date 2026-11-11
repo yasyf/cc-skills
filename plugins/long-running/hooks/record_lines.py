@@ -217,8 +217,15 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
             yield from report_refusals(payload, drive, role, records, index)
 
 
+def readdressed(drives: dict[str, dict], record: dict) -> dict:
+    """The communicator's owner, answer, posted or refused record with each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order it serves."""
+    entries = listed(record.get("to"))
+    to = state.routed(drives, kind(record), attrs(record), entries)
+    return record if to == entries else record | {"to": to}
+
+
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it one line, the rest in its body for whoever acts on it."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it one line, the rest in its body for whoever acts on it, and each of the communicator's records for a coordinator sent to the coordinator session hearing the order it serves."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -226,12 +233,13 @@ def decision(payload: dict) -> dict | None:
     records = tool_input.get("records") or [tool_input]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    cut = [limits.shortened(record) for record in records]
-    if not any(cut):
+    drives = state.communicated(names, payload.get("session_id"))
+    made = [limits.shortened(routed) or routed for routed in (readdressed(drives, record) for record in records)]
+    if made == records:
         return None
     if tool_input.get("records"):
-        return {"updatedInput": tool_input | {"records": [new or old for new, old in zip(cut, records)]}}
-    return {"updatedInput": cut[0]}
+        return {"updatedInput": tool_input | {"records": made}}
+    return {"updatedInput": made[0]}
 
 
 def main() -> None:

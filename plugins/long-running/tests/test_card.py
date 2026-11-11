@@ -604,6 +604,17 @@ def test_refused_appends_one_event_per_new_reason(drive: str) -> None:
     ]
 
 
+def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(drive: str) -> None:
+    assert ask({"refused": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": "card needs a title"}]}) == {"refused": 1}
+    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["order"] = "o1"
+        cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "label": "Approve", "action_ts": "", "source": "s"}
+    assert ask({"answer": answer}) == {"ok": True}
+    assert [(event["kind"], event["lane"]) for event in events(drive)] == [("refused", "root"), ("tap", "iris")]
+
+
 def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: str) -> None:
     copy = state.new_drive("copy", "coordinator", "s2", "/work", "D123")
     copy["prs"] = {"Forge-AI/monorepo#42": {**entry(), "updated": "2026-11-11T00:20:00-08:00"}}

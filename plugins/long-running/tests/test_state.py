@@ -105,6 +105,35 @@ def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to
     assert state.load("demo")["answers"]["a1"]["jobs"] == {}
 
 
+def test_a_drive_saved_with_one_mail_cursor_per_run_reads_it_as_the_mark_of_each_job_on_that_run(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
+    data["jobs"] = {"j1": base | {"run": "run_a"}, "j2": base | {"run": "run_a"}, "j3": base | {"run": "run_b"}, "j4": base | {"where": "local"}}
+    data["lane_mail"] = {"run_a": 41}
+    state.create(data)
+    loaded = state.load("demo")
+    assert {job_id: job["mail_seen"] for job_id, job in loaded["jobs"].items()} == {"j1": 41, "j2": 41, "j3": 0, "j4": 0}
+    assert "lane_mail" not in loaded
+
+
+def test_a_mail_cursor_an_old_watch_writes_again_after_the_migration_raises_each_mark_on_its_run_and_never_lowers_one(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
+    data["jobs"] = {"j1": base | {"run": "run_a"}, "j2": base | {"run": "run_a"}, "j3": base | {"run": "run_b"}}
+    data["lane_mail"] = {"run_a": 41}
+    state.create(data)
+    migrated = state.load("demo")
+    migrated["jobs"]["j2"]["mail_seen"] = 45
+    migrated["jobs"]["j3"]["mail_seen"] = 12
+    migrated["lane_mail"] = {"run_a": 43, "run_b": 9}
+    state.save("demo", migrated)
+    loaded = state.load("demo")
+    assert {job_id: job["mail_seen"] for job_id, job in loaded["jobs"].items()} == {"j1": 43, "j2": 45, "j3": 12}
+    assert "lane_mail" not in loaded
+
+
 def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_through_that_dispatch(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
@@ -191,6 +220,34 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
         data["roles"]["communicator"] = {"session": "me", "cwd": "/work", "started": "2026-11-09T11:00:00-08:00"}
     assert state.resolve() == "other"
     assert state.session_role(state.load("other"), "me") == "communicator"
+
+
+def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordinator_holds_the_coordinator_role_for_its_project_alone(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo", "top", "2026-11-11T01:00:00-08:00")
+    saved = json.loads(state.state_path("demo").read_text())
+    del saved["subcoordinators"]
+    saved["orders"] = {
+        order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project}
+        for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
+    }
+    state.state_path("demo").write_text(json.dumps(saved))
+    with state.edit("demo") as data:
+        assert data["subcoordinators"] == {}
+        data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
+    data = state.load("demo")
+    assert [state.session_role(data, session) for session in ("top", "iris", "nobody")] == ["coordinator", "coordinator", None]
+    assert [state.session_project(data, session) for session in ("top", "iris")] == [None, "Iris"]
+    assert (state.session_drives("iris"), state.session_drives("top")) == (["demo"], ["demo"])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris")
+    assert state.resolve() == "demo"
+    orders = data["orders"]
+    assert [order_id for order_id, order in orders.items() if state.hears(data, order, "Iris")] == ["o1"]
+    assert [order_id for order_id, order in orders.items() if state.hears(data, order, None)] == ["o2", "o3"]
+    assert [state.order_lane(data, order) for order in orders.values()] == ["iris", "root", "root"]
+    assert [state.project_lane(project) for project in ("Iris", "The drive", "SandSQL", "Platform / infra")] == ["iris", "the-drive", "sandsql", "platform-infra"]
+    assert list(state.bound_sessions(data)) == ["coordinator", "sub-coordinator Iris"]
 
 
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:

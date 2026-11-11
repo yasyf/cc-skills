@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import textwrap
@@ -14,6 +15,7 @@ from drive import artifacts, brief, github, limits, orca, picture, place, reads,
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator"}
 INCIDENT_FIX = "fix"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [state.INCIDENT_STOP, "cause"]}
 FREEZE_FOR = timedelta(hours=12)
@@ -71,18 +73,69 @@ def start(args: argparse.Namespace) -> int:
             f" --command \"claude … -- '/long-running {args.name} as the {args.role}: run Start or resume for that role'\" --json,"
             " whose whole command drive manual start prints"
         )
+    if args.project and args.role == "communicator":
+        raise DriveError("--project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project")
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
-        data["roles"][args.role] = fresh["roles"][args.role]
+        if args.project:
+            bind_subcoordinator(data, args.project, fresh["roles"][args.role])
+        elif project := state.session_project(data, session):
+            raise DriveError(
+                f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator and"
+                " the communicator are sessions of their own, so start this role from another session"
+            )
+        else:
+            data["roles"][args.role] = fresh["roles"][args.role]
         if args.channel:
             data["slack"]["channel"] = args.channel
         watched_channels = data["slack"].setdefault("watch", [])
         watched_channels.extend(channel for channel in dict.fromkeys(args.watch) if channel not in watched_channels)
-    seen = orca_place(data["roles"][args.role], run_show)
-    watched = f"{watch.ensure(args.name)}\n" if args.role == "coordinator" else ""
-    text = f"{render.context(data, args.role)}\n\n{watched}{args.role}: {render.who(data, args.role)}, {seen}"
-    return emit(args, text, {**data, "orca": {args.role: seen}})
+    held = fresh["roles"][args.role]
+    seen = orca_place(held, run_show)
+    watched = f"{watch.ensure(args.name, args.project)}\n" if args.role == "coordinator" else ""
+    seat = f"sub-coordinator for {args.project}" if args.project else args.role
+    text = f"{render.context(data, args.role, args.project)}\n\n{watched}{seat}: session {held['session']}, {seen}"
+    return emit(args, text, {**data, "orca": {seat: seen}})
+
+
+def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
+    """Bind this session as the project's sub-coordinator, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
+    if project not in (filed := state.projects(data)):
+        raise DriveError(f"--project {project}: no order is filed under it; the projects in use: {', '.join(filed) or 'none'}")
+    session = held["session"]
+    if role := next((role for role, bound in data["roles"].items() if session and bound["session"] == session), None):
+        raise DriveError(
+            f"--project {project}: session {session} holds the {ROLE_NAMES[role]} role of drive {data['name']}; a sub-coordinator is a session"
+            " of its own, so bind it from another session"
+        )
+    if (other := state.session_project(data, session)) not in (None, project):
+        raise DriveError(f"--project {project}: session {session} is the sub-coordinator for {other} of drive {data['name']}; bind {project}'s from another session")
+    bound = data["subcoordinators"].get(project)
+    if clash := lane_clash(data, project, bound is None):
+        raise DriveError(f"--project {project}: {clash}; file its orders under a project whose lane no one else takes")
+    data["subcoordinators"][project] = held | {"from": bound["from"] if bound else state.events_end(data["name"])}
+
+
+def lane_clash(data: dict, project: str, first: bool) -> str | None:
+    """What already takes the project's cci lane: another sub-coordinator's, a lane of the drive's own, a lane cci records of the drive were posted as before its first binding, or a numbered copy of another lane, as cci reads a name ending in -<digits>."""
+    lane = state.project_lane(project)
+    if numbered := state.NUMBERED_LANE.fullmatch(lane):
+        return f"its lane {lane} ends in -<digits>, which cci reads as a numbered copy of lane {numbered['stem']}"
+    if other := next((other for other in data["subcoordinators"] if other != project and state.project_lane(other) == lane), None):
+        return f"its lane {lane} is the lane of the sub-coordinator for {other}"
+    if lane in state.DRIVE_LANES:
+        return f"its lane {lane} is the drive's own {lane} lane"
+    if first and lane_posted(data["name"], lane):
+        return f"its lane {lane} is a lane cci records of drive {data['name']} were posted as"
+    return None
+
+
+def lane_posted(name: str, lane: str) -> bool:
+    try:
+        return bool(reads.run(["cci", "grep", ".", "--lane", lane, "--drive", name, "--limit", "1", "--json"], Path.cwd()).strip())
+    except reads.ReadError as error:
+        raise DriveError(f"cci could not say whether records of drive {name} were posted as lane {lane}: {error}") from None
 
 
 def order_add(args: argparse.Namespace) -> int:
@@ -139,6 +192,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "withdrawn": None,
             "jobs": [],
             "releases": {},
+            "shipped": {},
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
@@ -1348,7 +1402,9 @@ def pr_set(args: argparse.Namespace) -> int:
     untapped = ""
     if args.no_tapped:
         repo, number = key.split("#")
-        state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why)
+        state.append_event(
+            name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why, lane=state.heard_lane(data, order)
+        )
         untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}"
     withdrawn: list[str] = []
     if why := withdrawal(args):
@@ -1666,9 +1722,18 @@ def heard(args: argparse.Namespace) -> int:
     if news:
         state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news))
     line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
+    filed = thread_order(data, args.thread) if args.thread else None
+    lane = filed and state.project_lane(filed[1]["project"])
+    routed = f"; {filed[0]} in this thread is filed under {filed[1]['project']}: his owner record goes --to {lane}, its sub-coordinator's lane" if filed else ""
     pairs = filing_pairs(data)
-    filed = f"\nin use as project / workstream: {'; '.join(f'{project} / {workstream}' for project, workstream in pairs)}" if pairs else ""
-    return emit(args, line + filed, {"away": args.away, "back": back, "since": since, "catch_up": news, "in_use": pairs})
+    in_use = f"\nin use as project / workstream: {'; '.join(f'{project} / {workstream}' for project, workstream in pairs)}" if pairs else ""
+    return emit(args, line + routed + in_use, {"away": args.away, "back": back, "since": since, "catch_up": news, "in_use": pairs, "to": lane})
+
+
+def thread_order(data: dict, thread: str) -> tuple[str, dict] | None:
+    """The newest order in the thread, when it is filed under a project a sub-coordinator is bound for."""
+    order_id = state.thread_order(data, thread)
+    return (order_id, data["orders"][order_id]) if order_id and data["orders"][order_id]["project"] in data["subcoordinators"] else None
 
 
 def overlay_live(data: dict) -> str:
@@ -1752,7 +1817,9 @@ def status(args: argparse.Namespace) -> int:
     if args.ids:
         only(data, args.ids)
     pr_fields = overlay_live(data)
-    seen = {role: with_build(orca_place(held, name_show), held) for role, held in data["roles"].items()}
+    for project, held in data["subcoordinators"].items():
+        held["watch"] = watch.holder(state.pid_path(name, project))
+    seen = {role: with_build(orca_place(held, name_show), held) for role, held in state.bound_sessions(data).items()}
     named = bool(args.ids)
     return emit(args, render.status_text(data, pr_fields, seen, named), render.status_data(data, pr_fields, seen, named))
 
@@ -1766,10 +1833,11 @@ def with_build(place: str, held: dict) -> str:
 def context(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
-    role = args.role or state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    role = args.role or state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}; pass --role")
-    print(render.context(data, role))
+    print(render.context(data, role, None if args.role else state.session_project(data, session)))
     return 0
 
 
@@ -1811,15 +1879,23 @@ def dashboard_command(args: argparse.Namespace) -> int:
 
 
 def watch_events(args: argparse.Namespace) -> int:
-    """Run the watch with --loop; else start it as its own process unless one runs, and point the coordinator's cci channel at its records when this is the coordinator's session."""
+    """Run the watch with --loop; else start it as its own process unless one runs, and point the cci channel of the coordinator session it posts to at its records when this is that session. A project's watch starts only from the session of that project's sub-coordinator."""
     if args.loop:
-        return watch.main(args.drive)
+        return watch.main(args.drive, args.project)
     name = state.resolve(args.drive)
-    print(watch.ensure(name))
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
-    if state.session_role(state.load(name), session) == "coordinator":
+    data = state.load(name)
+    project = state.session_project(data, session)
+    if args.project and project != args.project:
+        bound = (data["subcoordinators"].get(args.project) or {}).get("session") or "none bound"
+        raise DriveError(
+            f"--project {args.project}: only the sub-coordinator for {args.project} starts its watch, from its own session ({bound});"
+            f" bind one with drive start {name} --role coordinator --project {shlex.quote(args.project)}"
+        )
+    print(watch.ensure(name, args.project))
+    if project == args.project and state.session_role(data, session) == "coordinator":
         try:
-            watch.listen(name, session)
+            watch.listen(name, session, args.project)
         except reads.ReadError as error:
             raise DriveError(f"the watch runs, but the coordinator's cci channel was not pointed at it: {error}") from None
     return 0
@@ -1921,6 +1997,14 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--channel", help="his DM channel id")
     verb.add_argument(
         "--watch", action="append", default=[], metavar="CHANNEL", help="another channel the coordinator subscribes to, kept across restarts"
+    )
+    verb.add_argument(
+        "--project",
+        metavar="NAME",
+        help=(
+            "with --role coordinator, bind this session as the sub-coordinator for a project orders are filed under, beside"
+            " the top coordinator, and start that project's watch"
+        ),
     )
     verb.set_defaults(run=start)
 
@@ -2394,6 +2478,14 @@ def parser() -> argparse.ArgumentParser:
         "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers"
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
+    verb.add_argument(
+        "--thread",
+        metavar="TS",
+        help=(
+            "the thread his message is in: when its newest order is filed under a project with a sub-coordinator, the line"
+            " names that sub-coordinator's lane as where his owner record goes, --to <lane>, in place of root"
+        ),
+    )
     verb.set_defaults(run=heard)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
@@ -2415,6 +2507,14 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=dashboard_command)
     verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
+    verb.add_argument(
+        "--project",
+        metavar="NAME",
+        help=(
+            "the watch of that project's sub-coordinator, started only from its session: the lines of the orders filed under"
+            " it, their jobs and PRs, posted to its lane; the drive's own watch leaves those lines out"
+        ),
+    )
     verb.set_defaults(run=watch_events)
     cards = verbs.add_parser("cards", help="his open question cards").add_subparsers(dest="action", required=True)
     verb = cards.add_parser(

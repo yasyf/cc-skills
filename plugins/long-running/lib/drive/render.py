@@ -1,9 +1,10 @@
 import json
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
 
-from drive.state import ROLES, agent_gone, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, promise_thread
+from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 COMMUNICATOR_RULES = (
@@ -196,12 +197,13 @@ COORDINATOR_RULES = (
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}
+COORDINATOR_KINDS = (
+    "--to-kind incident,mechanism,fix-live,decide,ask,design,blocker,blocked,urgent,answer,release,correction,owner,refuse,handoff"
+    " --batch-kinds done,evidence"
+)
 SUBSCRIBE = {
     "communicator": "cci subscribe --reader communicator --cursor communicator",
-    "coordinator": (
-        "cci subscribe --reader root --cursor coordinator --to-kind incident,mechanism,fix-live,decide,ask,design,"
-        "blocker,blocked,urgent,answer,release,correction,owner,refuse,handoff --batch-kinds done,evidence"
-    ),
+    "coordinator": f"cci subscribe --reader root --cursor coordinator {COORDINATOR_KINDS}",
 }
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
@@ -359,6 +361,12 @@ def role_line(drive: dict, role: str, seen: dict[str, str]) -> str:
     return f"{role}: {who(drive, role)}{place}; {hold_line(drive, role)}"
 
 
+def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
+    """A sub-coordinator's project, cci lane, session, where he opens it, and whether its watch runs."""
+    watching = f"its watch runs as pid {held['watch']}" if held["watch"] else f"its watch is not running; {shlex.join(['drive', 'watch', '--project', project])} from its session starts it"
+    return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
+
+
 def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[str]:
     limit = WHOLE if whole else 80
     lines = [f"- {order_line(order_id, order, limit, promise_thread(drive, order))}"]
@@ -374,12 +382,12 @@ def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[st
     return lines
 
 
-def owed_lines(drive: dict) -> list[str]:
+def owed_lines(drive: dict, project: str | None = None) -> list[str]:
     moment = now()
     owed_now = [
         (parse_time(owed_at(order)), order_id)
         for order_id, order in open_orders(drive).items()
-        if owed(order) and parse_time(owed_at(order)) <= moment
+        if hears(drive, order, project) and owed(order) and parse_time(owed_at(order)) <= moment
     ]
     return [f"- {order_id} line owed since {clock(due)}" for due, order_id in sorted(owed_now)]
 
@@ -395,21 +403,51 @@ def filed_line(drive: dict) -> str:
     )
 
 
-def context(drive: dict, role: str) -> str:
-    """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads."""
-    lines = [
+def subscribe(role: str, project: str | None = None) -> str:
+    """The cci subscribe command of a role's session; a project's sub-coordinator's reads its own lane at its own cursor."""
+    if project is None:
+        return SUBSCRIBE[role]
+    lane = project_lane(project)
+    return f"cci subscribe --reader {lane} --cursor coordinator-{lane} {COORDINATOR_KINDS}"
+
+
+def opening(drive: dict, role: str, project: str | None) -> list[str]:
+    """Who the session is: its role, or the project it is the sub-coordinator for with its cci lane, and who holds the other sessions."""
+    if project is None:
+        return [
+            (
+                f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}."
+                " A background agent this session started ignores this block."
+            ),
+            hold_line(drive, role),
+        ]
+    lane = project_lane(project)
+    return [
         (
-            f"You are the {role} of drive {drive['name']}: {JOB[role]}. The {OTHER[role]}: {who(drive, OTHER[role])}."
-            " A background agent this session started ignores this block."
+            f"You are the sub-coordinator for project {project} of drive {drive['name']}: you run his orders filed under"
+            f" {project}, their jobs, events, landings and installs, while the top coordinator starts, approves and rolls"
+            f" back production cuts. The top coordinator: {who(drive, 'coordinator')}. The communicator:"
+            f" {who(drive, 'communicator')}. A background agent this session started ignores this block."
         ),
-        hold_line(drive, role),
-        f"Subscribe: cci drive use {drive['name']}, then {SUBSCRIBE[role]}",
+        (
+            f"Your cci lane is {lane}: post with --lane {lane}; the watch for {project} and the communicator's records reach"
+            f" you at {lane}@{drive['name']}."
+        ),
+        "Hold no Slack channel: the top coordinator holds the drive's.",
+    ]
+
+
+def context(drive: dict, role: str, project: str | None = None) -> str:
+    """The SessionStart block: a session's role, its rules, one line per item that needs it now, and the reads; a sub-coordinator's names its project, its cci lane and its subscription."""
+    lines = [
+        *opening(drive, role, project),
+        f"Subscribe: cci drive use {drive['name']}, then {subscribe(role, project)}",
         f"{role.capitalize()} rules:",
         *(f"{number}. {rule}" for number, rule in enumerate(RULES[role], 1)),
         filed_line(drive),
     ]
     if role == "coordinator":
-        lines.extend(owed_lines(drive))
+        lines.extend(owed_lines(drive, project))
     lines += [
         (
             f"This block comes from long-running {json.loads(PLUGIN_JSON.read_text())['version']}, installed now. The"
@@ -451,6 +489,7 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
         "name": drive["name"],
         "pr_fields": pr_fields,
         "roles": drive["roles"],
+        "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
         "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
         "orders": orders,
@@ -467,6 +506,7 @@ def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
         lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))
         return "\n".join(lines)
     lines.extend(role_line(drive, role, seen) for role in ROLES)
+    lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
     if incidents := [incident_line(order_id, order) for order_id, order in open_orders(drive).items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
     lines.extend(agentless_lines(drive))

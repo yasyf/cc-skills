@@ -488,6 +488,25 @@ def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_tw
     assert json.loads(reloads.read_text())["coordinator"]["version"] == "1.0.3"
 
 
+def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each_session(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    with state.edit("demo") as data:
+        data["subcoordinators"]["Iris"] = {"session": "demo-iris", "terminal": "term_iris", "cwd": "/work", "started": state.stamp()}
+    git = fake(["unused"], set())
+    git.together = threading.Barrier(3, timeout=5)
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.typed_into("term_iris") == [waited("term_iris", "30000"), sent("term_iris")]
+    assert capsys.readouterr().out.splitlines() == [
+        "installed long-running@skills 1.0.3",
+        "demo communicator: reloaded in term_comm",
+        "demo coordinator: reloaded in term_coord",
+        "demo sub-coordinator Iris: reloaded in term_iris",
+    ]
+    assert json.loads((state.drive_dir("demo") / install.RELOADS).read_text())["sub-coordinator Iris"]["version"] == "1.0.3"
+
+
 def test_a_reload_never_sent_leaves_no_stamp_so_the_next_install_sends_it(fake: Callable[..., FakeGit]) -> None:
     start_drive("demo", communicator="term_comm")
     git = fake(["unused"], set())

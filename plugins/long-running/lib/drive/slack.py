@@ -79,12 +79,6 @@ def redraw_pr_cards(url: str) -> int:
     return cc_slack("redraw-pr-cards", "--pr", url)["redrawing"]
 
 
-def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
-    """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
-    links = (state.CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
-    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
-
-
 def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
     """Whether a thread hangs from the drive's own post naming a PR the drive holds on the order, as that PR's card does in every state, tapped or not."""
     if not root or not root.get("from_claude"):
@@ -98,14 +92,14 @@ def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     carriers = (data["orders"][data["jobs"][job_id]["order"]] for job_id in order["jobs"])
     joined = [other for other in carriers if order["incident"] and other["incident"] and other is not order]
     own = filter(None, (state.promise_thread(data, other) for other in [order, *joined]))
-    return list(dict.fromkeys([*own, *card_threads(data, order)]))
+    return list(dict.fromkeys([*own, *state.card_threads(data, order)]))
 
 
 def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
     """When the drive posted in an order's threads, its own and each of its cards' past the card itself, oldest first among each thread's most recent messages, and why a thread could not be read."""
     if not (threads := order_threads(data, order)):
         return [], "it has no thread to read; give it one with drive order set --thread"
-    cards = set(card_threads(data, order))
+    cards = set(state.card_threads(data, order))
     posts: list[datetime] = []
     unread = None
     for where in threads:

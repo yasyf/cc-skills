@@ -143,21 +143,21 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
     return entry["version"]
 
 
-def reload_session(drive: str, role: str, version: str, updated: datetime, deadline: float) -> str:
-    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too."""
+def reload_session(drive: str, seat: str, version: str, updated: datetime, deadline: float) -> str:
+    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too. A seat is a role, or `sub-coordinator <project>`."""
     from drive import orca
 
-    who = f"{drive} {role}"
-    terminal = state.load(drive)["roles"].get(role, {}).get("terminal")
+    who = f"{drive} {seat}"
+    terminal = state.bound_sessions(state.load(drive)).get(seat, {}).get("terminal")
     if not terminal:
         return f"{who}: no terminal recorded, skipped"
-    if sent := claim_reload(drive, role, version, updated):
+    if sent := claim_reload(drive, seat, version, updated):
         return f"{who}: already reloaded onto {sent['version']}"
     wait = max(0.001, min(RELOAD_WAIT_SECONDS, deadline - clock() - orca.SUBMIT_SECONDS))
     try:
         idle = orca.reload_plugins(terminal, int(wait * 1000))
     except orca.OrcaError as error:
-        unclaim_reload(drive, role, version)
+        unclaim_reload(drive, seat, version)
         return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal)}"
     if idle:
         return f"{who}: reloaded in {terminal}"
@@ -185,7 +185,8 @@ def unclaim_reload(drive: str, role: str, version: str) -> None:
 
 
 def reload_sessions(version: str, updated: datetime, deadline: float) -> list[str]:
-    sessions = [(name, role) for name in state.names() for role in state.ROLES]
+    """Reload every session of every drive: the communicator, the top coordinator and each sub-coordinator."""
+    sessions = [(name, seat) for name in state.names() for seat in dict.fromkeys([*state.ROLES, *state.bound_sessions(state.load(name))])]
     with ThreadPoolExecutor() as pool:
         return list(pool.map(lambda session: reload_session(*session, version, updated, deadline), sessions))
 

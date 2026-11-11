@@ -10,17 +10,18 @@ from drive import reads, render, state, watch
 
 
 def role_context(session: str) -> str | None:
-    """The role's context for the session holding one; a coordinator's session also gets the watch started unless it runs, and its cci channel pointed at the watch's records."""
+    """The role's context for the session holding one; a coordinator's session, or a project's sub-coordinator's, also gets its watch started unless it runs, and its cci channel pointed at that watch's records."""
     bound = state.session_drives(session)
     if not bound:
         return None
     data = state.load(bound[0])
     role = state.session_role(data, session)
+    project = state.session_project(data, session)
     if role == "coordinator":
-        watch.ensure(bound[0])
+        watch.ensure(bound[0], project)
         with contextlib.suppress(reads.ReadError):
-            watch.listen(bound[0], session)
-    return render.context(data, role)
+            watch.listen(bound[0], session, project)
+    return render.context(data, role, project)
 
 
 def skill_body() -> str:
