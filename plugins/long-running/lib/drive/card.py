@@ -595,7 +595,8 @@ def refused(asks: list[dict]) -> dict:
             if entry.get("refused") == ask["reason"]:
                 continue
             entry["refused"] = ask["reason"]
-        state.append_event(name, "refused", **ask)
+            lane = state.heard_lane(data, entry["order"])
+        state.append_event(name, "refused", **ask, lane=lane)
         told += 1
     return {"refused": told}
 
@@ -630,6 +631,7 @@ def answered(ask: dict) -> dict:
                 head=entry["head"],
                 source=ask["source"],
                 action_ts=ask["action_ts"],
+                lane=state.heard_lane(data, entry["order"]),
             )
     return {"ok": True}
 
@@ -677,6 +679,7 @@ def released(release: dict) -> dict:
             order["updated"] = created
             running = state.running_stops(data, order_id)
             reopened[order_id] = {"resume": running[0]} if running else {"job": state.incident_job(data, name, order_id, state.INCIDENT_STOP, created).split()[0]}
+            reopened[order_id]["lane"] = state.heard_lane(data, order_id)
     for order_id, owner in reopened.items():
         state.append_event(name, "stop", order=order_id, release=release["name"], link=release["link"], **owner)
     return {"reopened": list(reopened)}

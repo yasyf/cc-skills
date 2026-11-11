@@ -15,6 +15,7 @@ from drive import artifacts, brief, github, limits, orca, picture, place, reads,
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+ROLE_NAMES = {"coordinator": "top coordinator", "communicator": "communicator"}
 INCIDENT_FIX = "fix"
 INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [state.INCIDENT_STOP, "cause"]}
 FREEZE_FOR = timedelta(hours=12)
@@ -79,6 +80,11 @@ def start(args: argparse.Namespace) -> int:
     with state.edit_or_create(args.name, fresh) as data:
         if args.project:
             bind_subcoordinator(data, args.project, fresh["roles"][args.role])
+        elif project := state.session_project(data, session):
+            raise DriveError(
+                f"--role {args.role}: session {session} is the sub-coordinator for {project} in drive {args.name}; the top coordinator and"
+                " the communicator are sessions of their own, so start this role from another session"
+            )
         else:
             data["roles"][args.role] = fresh["roles"][args.role]
         if args.channel:
@@ -94,10 +100,42 @@ def start(args: argparse.Namespace) -> int:
 
 
 def bind_subcoordinator(data: dict, project: str, held: dict) -> None:
-    """Bind this session as the project's sub-coordinator, replacing any session bound for it before; refused for a project no order is filed under."""
+    """Bind this session as the project's sub-coordinator, replacing any session bound for it before, and keep where the event log ended at its first binding, which its watch reads from; refused for a project no order is filed under, a session holding another seat, and a lane another seat, record or numbered name of the drive takes."""
     if project not in (filed := state.projects(data)):
         raise DriveError(f"--project {project}: no order is filed under it; the projects in use: {', '.join(filed) or 'none'}")
-    data["subcoordinators"][project] = held
+    session = held["session"]
+    if role := next((role for role, bound in data["roles"].items() if session and bound["session"] == session), None):
+        raise DriveError(
+            f"--project {project}: session {session} holds the {ROLE_NAMES[role]} role of drive {data['name']}; a sub-coordinator is a session"
+            " of its own, so bind it from another session"
+        )
+    if (other := state.session_project(data, session)) not in (None, project):
+        raise DriveError(f"--project {project}: session {session} is the sub-coordinator for {other} of drive {data['name']}; bind {project}'s from another session")
+    bound = data["subcoordinators"].get(project)
+    if clash := lane_clash(data, project, bound is None):
+        raise DriveError(f"--project {project}: {clash}; file its orders under a project whose lane no one else takes")
+    data["subcoordinators"][project] = held | {"from": bound["from"] if bound else state.events_end(data["name"])}
+
+
+def lane_clash(data: dict, project: str, first: bool) -> str | None:
+    """What already takes the project's cci lane: another sub-coordinator's, a lane of the drive's own, a lane cci records of the drive were posted as before its first binding, or a numbered copy of another lane, as cci reads a name ending in -<digits>."""
+    lane = state.project_lane(project)
+    if numbered := state.NUMBERED_LANE.fullmatch(lane):
+        return f"its lane {lane} ends in -<digits>, which cci reads as a numbered copy of lane {numbered['stem']}"
+    if other := next((other for other in data["subcoordinators"] if other != project and state.project_lane(other) == lane), None):
+        return f"its lane {lane} is the lane of the sub-coordinator for {other}"
+    if lane in state.DRIVE_LANES:
+        return f"its lane {lane} is the drive's own {lane} lane"
+    if first and lane_posted(data["name"], lane):
+        return f"its lane {lane} is a lane cci records of drive {data['name']} were posted as"
+    return None
+
+
+def lane_posted(name: str, lane: str) -> bool:
+    try:
+        return bool(reads.run(["cci", "grep", ".", "--lane", lane, "--drive", name, "--limit", "1", "--json"], Path.cwd()).strip())
+    except reads.ReadError as error:
+        raise DriveError(f"cci could not say whether records of drive {name} were posted as lane {lane}: {error}") from None
 
 
 def order_add(args: argparse.Namespace) -> int:

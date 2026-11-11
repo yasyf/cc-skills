@@ -197,6 +197,13 @@ class WatchProcess:
 
 
 @pytest.fixture(autouse=True)
+def posted_lanes(monkeypatch: pytest.MonkeyPatch) -> set[str]:
+    lanes: set[str] = set()
+    monkeypatch.setattr(cli, "lane_posted", lambda name, lane: lane in lanes)
+    return lanes
+
+
+@pytest.fixture(autouse=True)
 def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
     process = WatchProcess()
 

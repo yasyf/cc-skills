@@ -137,6 +137,61 @@ def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_u
     assert (data["subcoordinators"], "communicator" in data["roles"]) == ({}, False)
 
 
+TAKEN = "file its orders under a project whose lane no one else takes"
+
+
+def test_start_refuses_a_project_whose_lane_another_sub_coordinator_the_drive_its_records_or_a_numbered_name_takes(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], posted_lanes: set[str]
+) -> None:
+    for project in ("A/B", "A B", "Root", "Iris 2", "Handler", "Memory"):
+        run("order", "add", "--project", project, "--workstream", "W", f"work for {project}")
+    posted_lanes.add("memory")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-1")
+    assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
+    refusals = {}
+    for number, project in enumerate(("A B", "Root", "Iris 2", "Handler", "Memory")):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"other-{number}")
+        assert cli.main(["start", "demo", "--role", "coordinator", "--project", project]) == 2
+        refusals[project] = capsys.readouterr().err.strip()
+    assert refusals == {
+        "A B": f"drive: --project A B: its lane a-b is the lane of the sub-coordinator for A/B; {TAKEN}",
+        "Root": f"drive: --project Root: its lane root is the drive's own root lane; {TAKEN}",
+        "Iris 2": f"drive: --project Iris 2: its lane iris-2 ends in -<digits>, which cci reads as a numbered copy of lane iris; {TAKEN}",
+        "Handler": f"drive: --project Handler: its lane handler is the drive's own handler lane; {TAKEN}",
+        "Memory": f"drive: --project Memory: its lane memory is a lane cci records of drive demo were posted as; {TAKEN}",
+    }
+    first = state.load("demo")["subcoordinators"]["A/B"]["from"]
+    run("order", "add", "--project", "A/B", "--workstream", "W", "more work")
+    posted_lanes.add("a-b")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "ab-2")
+    assert run("start", "demo", "--role", "coordinator", "--project", "A/B")[0] == 0
+    bound = state.load("demo")["subcoordinators"]
+    assert ({project: held["session"] for project, held in bound.items()}, bound["A/B"]["from"]) == ({"A/B": "ab-2"}, first)
+
+
+def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinators_session_takes_no_role(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Iris"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: --project Iris: session session-under-test holds the top coordinator role of drive demo; a sub-coordinator is a session"
+        " of its own, so bind it from another session"
+    )
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    assert run("start", "demo", "--role", "coordinator", "--project", "Iris")[0] == 0
+    assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project Platform: session iris-1 is the sub-coordinator for Iris of drive demo; bind Platform's from another session"
+    assert cli.main(["start", "demo", "--role", "communicator"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: --role communicator: session iris-1 is the sub-coordinator for Iris in drive demo; the top coordinator and the communicator"
+        " are sessions of their own, so start this role from another session"
+    )
+    data = state.load("demo")
+    assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"]) == (["Iris"], "session-under-test", False)
+
+
 def test_heard_names_the_lane_of_the_sub_coordinator_his_threads_order_is_filed_under_and_its_tool_says_the_same(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2657,9 +2712,9 @@ def fake_module(monkeypatch: pytest.MonkeyPatch, name: str, main: Callable[..., 
 
 def test_watch_loop_runs_the_watch_with_the_drive_flag(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
-    monkeypatch.setattr(cli.watch, "main", lambda name: calls.append(name) or 0)
+    monkeypatch.setattr(cli.watch, "main", lambda name, project: calls.append((name, project)) or 0)
     assert run("watch", "--loop", "--drive", "demo")[0] == 0
-    assert calls == ["demo"]
+    assert calls == [("demo", None)]
 
 
 def test_card_dispatches_stdin_and_stdout(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

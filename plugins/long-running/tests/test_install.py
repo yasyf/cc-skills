@@ -497,7 +497,7 @@ def test_an_install_reloads_each_sub_coordinator_beside_both_roles_stamping_each
     git = fake(["unused"], set())
     git.together = threading.Barrier(3, timeout=5)
     assert install.main("long-running@skills", None, None, 900) == 0
-    assert git.typed_into("term_iris") == [waited("term_iris", "890000"), sent("term_iris")]
+    assert git.typed_into("term_iris") == [waited("term_iris", "30000"), sent("term_iris")]
     assert capsys.readouterr().out.splitlines() == [
         "installed long-running@skills 1.0.3",
         "demo communicator: reloaded in term_comm",

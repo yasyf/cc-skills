@@ -1047,6 +1047,23 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
     assert mailboxes == {}
 
 
+def test_two_watches_reading_one_run_each_take_the_mail_of_the_jobs_they_hear_and_lose_none(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o2", "--goal", "run page", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", ask=None, report=None)
+        cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
+    first = message("question", "READY run page", id="msg_iris", from_handle="dispatch:ctx_lane0002")
+    second = message("question", "READY remote builder", id="msg_top")
+    monkeypatch.setattr(orca, "mail", lambda run_id: [first, second])
+    top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
+    assert watch.lane_lines(top, T0) == []
+    assert watch.lane_lines(iris, T0) == ["JOB j2 o2 READY run page"]
+    assert watch.lane_lines(top, T0) == ["JOB j1 o1 READY remote builder"]
+    assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}
+
+
 def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = "PR: Fix: x https://github.com/Forge-AI/monorepo/pull/8\nrebased on https://github.com/Forge-AI/monorepo/pull/9"
     deliver(monkeypatch, [message("status", body)])

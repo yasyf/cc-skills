@@ -212,14 +212,11 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
     fixes: dict[str, dict[str, None]] = {}
-    for owner in owners:
-        for wait in owner["waits"]:
-            if wait in out and state.open_incidents(data, [owner["order"]]):
-                fixes.setdefault(owner["order"], {})[out[wait]] = None
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if not heard_job(watcher, data, job) or view.open_cards(job, watcher.cards):
                 continue
+            fixing(data, job, out, fixes)
             if (ended := released(data, job, watcher.cards, out)) and job["state"] not in state.FINISHED_JOB_STATES:
                 job["updated"] = state.stamp(moment)
                 for order_id in [job["order"], *job["carries"]]:
@@ -230,8 +227,11 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}")
         redraws = []
         for key, pr in data["prs"].items():
+            if not hears(watcher, data, pr["order"]):
+                continue
+            fixing(data, pr, out, fixes)
             waited = pr["waits"]
-            if hears(watcher, data, pr["order"]) and (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
+            if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
             if pr["waits"] != waited and pr["state"] == "open":
                 redraws.append(pr["url"])
@@ -246,6 +246,14 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for order_id, shipping in fixes.items()
         if order_id not in pending
     ]
+
+
+def fixing(data: dict, owner: dict, out: dict[str, str], fixes: dict[str, dict[str, None]]) -> None:
+    """Note each release out that ships an open incident order's job or PR, read under the lock that drops its wait, so only the watch dropping it says the fix is live."""
+    if state.open_incidents(data, [owner["order"]]):
+        for wait in owner["waits"]:
+            if wait in out:
+                fixes.setdefault(owner["order"], {})[out[wait]] = None
 
 
 def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -285,32 +293,42 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
+    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option, each wait claimed as said under the lock before its post so no other watch posts it too; a post that fails gives its claims back and goes again next read."""
     if watcher.cards is None:
         return []
     from drive import talk
 
-    data = state.load(watcher.name)
+    if not unsaid_waits(watcher, state.load(watcher.name)):
+        return []
     cards: dict[str, list[dict]] = {}
-    for entry in view.waiting_on_him(data, watcher.cards):
-        if hears(watcher, data, entry["order"]) and entry["wait"] not in data["jobs"][entry["job"]].get("waiting_said", []):
+    with state.edit(watcher.name) as data:
+        for entry in unsaid_waits(watcher, data):
+            data["jobs"][entry["job"]].setdefault("waiting_said", []).append(entry["wait"])
             cards.setdefault(entry["card"]["url"], []).append(entry)
     lines = []
     for url, entries in cards.items():
         try:
             reply = talk.posted(watcher.name, {"text": PAUSED, "thread_ts": view.card_thread(url)})
         except (state.DriveError, slack.SlackError) as error:
+            with state.edit(watcher.name) as data:
+                for entry in entries:
+                    data["jobs"][entry["job"]]["waiting_said"].remove(entry["wait"])
             lines += failed(watcher, "waiting post", "built-and-paused reply", error, moment)
             continue
         watcher.failures.pop("waiting post", None)
-        with state.edit(watcher.name) as data:
-            for entry in entries:
-                data["jobs"][entry["job"]].setdefault("waiting_said", []).append(entry["wait"])
         lines += [
             f"WAITING-ON-HIM {entry['wait']} blocks {entry['job']}, built on {entry['branch']}, since {when(entry['card']['asked'])}, posted {reply['permalink']}"
             for entry in entries
         ]
     return lines
+
+
+def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
+    return [
+        entry
+        for entry in view.waiting_on_him(data, watcher.cards)
+        if hears(watcher, data, entry["order"]) and entry["wait"] not in data["jobs"][entry["job"]].get("waiting_said", [])
+    ]
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
@@ -379,32 +397,34 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept."""
+    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept. A Run carries one count of the mail read from it, so a message from a lane whose job another watch hears stops this watch's read of that Run there, judged under the lock that moves the count, and that watch reads it."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
-    lanes: dict[str, dict[str, str]] = {}
-    for job_id, job in live_lanes(watcher, data).items():
-        for dispatch in [job["dispatch"], *(ended["dispatch"] for ended in job.get("deaths", []))]:
-            lanes.setdefault(job["run"], {})[f"dispatch:{dispatch}"] = job_id
+    lanes = lane_handles(live_lanes(watcher, data))
     lines, messages = [], []
-    for run, handles in lanes.items():
+    for run in lanes:
         source = f"lane mail of {run}"
         try:
-            messages += [(run, handles, message) for message in orca.mail(run)]
+            messages += [(run, message) for message in orca.mail(run)]
         except orca.OrcaError as error:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
-    refusals, said = ask_refusals(watcher, data, messages, moment)
+    refusals, said = ask_refusals(watcher, data, lanes, messages, moment)
     lines += said
     if messages:
         with state.edit(watcher.name) as data:
             seen = data.setdefault("lane_mail", {})
-            for run, handles, message in messages:
-                if message["sequence"] <= seen.get(run, 0):
+            everyone = lane_handles(remote_lanes(data))
+            stopped: set[str] = set()
+            for run, message in messages:
+                if run in stopped or message["sequence"] <= seen.get(run, 0):
+                    continue
+                job_id = everyone.get(run, {}).get(message["from_handle"])
+                if job_id and not heard_job(watcher, data, data["jobs"][job_id]):
+                    stopped.add(run)
                     continue
                 seen[run] = message["sequence"]
-                job_id = handles.get(message["from_handle"])
                 if not job_id or message["type"] == "heartbeat":
                     continue
                 state.keep_reply(watcher.name, job_id, message)
@@ -418,12 +438,12 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 
 
-def ask_refusals(watcher: Watcher, data: dict, messages: list[tuple[str, dict[str, str], dict]], moment: datetime) -> tuple[dict[str, str], list[str]]:
+def ask_refusals(watcher: Watcher, data: dict, lanes: dict[str, dict[str, str]], messages: list[tuple[str, dict]], moment: datetime) -> tuple[dict[str, str], list[str]]:
     """The reply sending each new `ASK` a remote lane asked back to it, by its message id, when `drive job ask` would refuse it: its words and its card are checked here as it arrives, so an `ASK` out of shape never wakes the coordinator, who checks one in shape against his recorded answers alone. One cc-slack could not check goes on to the coordinator, whose `drive job ask <j>` checks it again."""
     seen = data.get("lane_mail", {})
     refusals, lines = {}, []
-    for run, handles, message in messages:
-        job_id = handles.get(message["from_handle"])
+    for run, message in messages:
+        job_id = lanes[run].get(message["from_handle"])
         if not job_id or message["sequence"] <= seen.get(run, 0) or message["type"] != "question" or not reads.asks(message["body"] or ""):
             continue
         try:
@@ -453,12 +473,25 @@ def kept_read(job: dict) -> str | None:
     return reads.request(job["report"] or "") if job.get("ask") else None
 
 
-def live_lanes(watcher: Watcher, data: dict) -> dict[str, dict]:
+def remote_lanes(data: dict) -> dict[str, dict]:
     return {
         job_id: job
         for job_id, job in data["jobs"].items()
-        if job.get("where") == "remote" and job.get("dispatch") and job.get("run") and job["state"] in LIVE_JOB_STATES and heard_job(watcher, data, job)
+        if job.get("where") == "remote" and job.get("dispatch") and job.get("run") and job["state"] in LIVE_JOB_STATES
     }
+
+
+def live_lanes(watcher: Watcher, data: dict) -> dict[str, dict]:
+    return {job_id: job for job_id, job in remote_lanes(data).items() if heard_job(watcher, data, job)}
+
+
+def lane_handles(jobs: dict[str, dict]) -> dict[str, dict[str, str]]:
+    """Each Run's dispatch handles, the dead ones a job replaced included, by the job each belongs to."""
+    lanes: dict[str, dict[str, str]] = {}
+    for job_id, job in jobs.items():
+        for dispatch in [job["dispatch"], *(ended["dispatch"] for ended in job.get("deaths", []))]:
+            lanes.setdefault(job["run"], {})[f"dispatch:{dispatch}"] = job_id
+    return lanes
 
 
 def track_lane_prs(data: dict, job_id: str, body: str) -> None:
@@ -533,24 +566,18 @@ def event_line(event: dict, prs: dict) -> str:
     suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
         return f"TAP {event['label']} {key}{suffix}"
-    details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at"))
+    details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at", "lane"))
     return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
 
-def heard_event(watcher: Watcher, data: dict, event: dict) -> bool:
-    """Whether the watch hears an event: one about a PR the drive tracks or an order of the drive by that order, any other by the drive's own watch alone."""
-    pr = data["prs"].get(f"{event.get('repo')}#{event.get('number')}")
-    order_id = pr["order"] if pr else event.get("order")
-    return hears(watcher, data, order_id) if order_id in data["orders"] else watcher.project is None
-
-
 def event_lines(watcher: Watcher) -> list[str]:
+    """Each new event the watch hears: one is written with the lane of the coordinator session hearing its order then, so a binding or a refiling after it moves it to no other watch, and one written with no lane is the drive's own watch's."""
     events = list(state.read_events(watcher.name, watcher.offset))
     if not events:
         return []
     watcher.offset = events[-1][1]
-    data = state.load(watcher.name)
-    return [event_line(event, data["prs"]) for event, _ in events if event["kind"] != "said" and heard_event(watcher, data, event)]
+    prs = state.load(watcher.name)["prs"]
+    return [event_line(event, prs) for event, _ in events if event["kind"] != "said" and event.get("lane", "root") == watcher.lane]
 
 
 def overdue(order: dict, moment: datetime, away: bool) -> bool:
@@ -1146,13 +1173,11 @@ def loop_argv(drive: Path, name: str, project: str | None) -> list[str]:
 
 
 def ensure(name: str, project: str | None = None) -> str:
-    """Start the drive's watch, or a project's, as its own process unless one runs, its output in its own log; the line saying which. A project's watch first reads the events from where the drive's own watch stands, so no line of that project falls between the two."""
+    """Start the drive's watch, or a project's, as its own process unless one runs, its output in its own log; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
     watcher = f"the watch for {project}" if project else "the watch"
     reader = f"the sub-coordinator for {project}" if project else "the coordinator"
     if pid := holder(state.pid_path(name, project)):
         return f"{watcher} runs as pid {pid} and posts its lines to {reader} over cci; arm no Monitor for it"
-    if project and not state.cursor_path(name, project).exists():
-        state.save_watch_cursor(name, state.watch_cursor(name), project)
     env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE}
     with state.watch_log_path(name, project).open("a") as log:
         started = subprocess.Popen(

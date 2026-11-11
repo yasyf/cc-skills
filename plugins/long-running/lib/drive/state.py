@@ -24,6 +24,8 @@ TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 ROLES = ("communicator", "coordinator")
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator"}
+DRIVE_LANES = ("root", "communicator", "coordinator", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
+NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
 LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
@@ -484,6 +486,11 @@ def order_lane(data: dict, order: dict) -> str:
     return project_lane(order["project"]) if order["project"] in data["subcoordinators"] else "root"
 
 
+def heard_lane(data: dict, order_id: str) -> str:
+    """The cci lane of the coordinator session hearing an order now, which an event about it is written with."""
+    return order_lane(data, data["orders"][order_id]) if data["subcoordinators"] else "root"
+
+
 def hears(data: dict, order: dict, project: str | None) -> bool:
     """Whether the coordinator session for project hears an order: a sub-coordinator its project's, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
     return order["project"] == project if project else order["project"] not in data["subcoordinators"]
@@ -544,9 +551,11 @@ def events_end(name: str) -> int:
 
 
 def watch_cursor(name: str, project: str | None = None) -> int:
-    """The events offset the drive's watch, or a project's, has read up to; the log's end for a watch that never ran."""
+    """The events offset the drive's watch, or a project's, has read up to: for a watch that never ran, the log's end, or for a project's where the log ended as its sub-coordinator was first bound."""
     path = cursor_path(name, project)
-    return int(path.read_text()) if path.exists() else events_end(name)
+    if path.exists():
+        return int(path.read_text())
+    return load(name)["subcoordinators"][project]["from"] if project else events_end(name)
 
 
 def save_watch_cursor(name: str, offset: int, project: str | None = None) -> None:

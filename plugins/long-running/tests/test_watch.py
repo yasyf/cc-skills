@@ -534,10 +534,10 @@ def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_a
     assert (watch_process.ensured, watch_process.listened) == ([demo, demo], [(demo, "session-under-test")])
 
 
-def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1") -> None:
+def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1", cwd: str = "/work") -> None:
     with state.edit(name) as data:
         data["orders"]["o1"]["project"] = project
-        data["subcoordinators"][project] = {"session": session, "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
+        cli.bind_subcoordinator(data, project, {"session": session, "terminal": None, "cwd": cwd, "started": state.stamp(T0)})
 
 
 def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_drives_watch_the_rest(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -552,8 +552,8 @@ def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_dri
         data["orders"]["o4"] = order(text="a page for alerts", jobs=[], project=None, updated=still)
     calls = serve(monkeypatch, {KEY: read(checks=RED), OTHER: read(checks=RED)})
     iris, top = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris"), watcher(demo)
-    for number in (42, 43):
-        state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=number, label="Approve")
+    for number, order_id in ((42, "o1"), (43, "o2")):
+        state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=number, label="Approve", lane=state.heard_lane(state.load(demo), order_id))
     state.append_event(demo, "unheard", question="Which?", pick="Yes")
     assert watch.run_pass(iris, T0) == [f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]", 'ORPHAN o3 "the logs page": no job']
     assert watch.run_pass(top, T0) == [
@@ -576,13 +576,19 @@ def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_boun
     calls = serve(monkeypatch, reads)
     top = watcher(demo)
     assert watch.run_pass(top, T0) == [f"PR {KEY}: checks failed [o1 j1]"]
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold", lane=state.heard_lane(state.load(demo), "o1"))
     sub_coordinated(demo)
-    iris = watch.Watcher(demo, offset=top.offset, ticked_at=T0, project="Iris")
-    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    assert state.load(demo)["subcoordinators"]["Iris"]["from"] == state.events_end(demo)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve", lane=state.heard_lane(state.load(demo), "o1"))
+    iris = watch.Watcher(demo, offset=state.watch_cursor(demo, "Iris"), ticked_at=T0, project="Iris")
     reads[KEY] = read(state="MERGED", mergeCommit="ccc333", checks=RED)
     later = T0 + timedelta(minutes=2)
-    assert watch.run_pass(top, later) == []
-    assert watch.run_pass(iris, later) == [f"PR {KEY}: merged [o1 j1]", f"TAP Approve {KEY} [o1 j1]"]
+    assert watch.run_pass(top, later) == [f"TAP Hold {KEY} [o1 j1]"]
+    assert watch.run_pass(iris, later) == [
+        f"PR {KEY}: merged [o1 j1]",
+        f"TAP Approve {KEY} [o1 j1]",
+        'ORPHAN o1 "ship the watch": j1 waits on "nothing named" and no open PR, card or due time can wake it',
+    ]
     assert calls == [[KEY], [KEY]]
 
 
@@ -605,8 +611,8 @@ def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_st
     assert REAL_ENSURE(demo, "Iris") == "started the watch for Iris as pid 4242; it posts its lines to the sub-coordinator for Iris over cci, so arm no Monitor for it"
     [(argv, options)] = started
     assert (argv, options["stdout"].name) == ([str(watch.DRIVE), "watch", "--loop", "--drive", demo, "--project", "Iris"], str(state.drive_dir(demo) / "watch-iris.log"))
-    assert state.watch_cursor(demo, "Iris") == state.events_end(demo)
-    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    assert (state.cursor_path(demo, "Iris").exists(), state.watch_cursor(demo, "Iris")) == (False, state.load(demo)["subcoordinators"]["Iris"]["from"])
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve", lane="iris")
     serve(monkeypatch, {})
     sent = posts(monkeypatch)
     run_watch(demo, monkeypatch, "Iris")
@@ -838,6 +844,18 @@ def test_a_local_agent_is_judged_by_its_transcript(
     write_transcript(tmp_path / "config", entries, quiet)
     job_of = {"session": "session-under-test", "agent": "a1", "kind": "builder"}
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+
+
+def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "config"))
+    path = tmp_path / "config" / "projects" / "-iris" / "iris-1" / "subagents" / "agent-a1.jsonl"
+    path.parent.mkdir(parents=True)
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in (CALLING, FINISHED)))
+    stamp = (state.now() - timedelta(minutes=10)).timestamp()
+    os.utime(path, (stamp, stamp))
+    sub_coordinated(demo, cwd="/iris")
+    job_of = {"session": "iris-1", "agent": "a1", "kind": "builder"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == 'j1\'s agent finished and its result is not recorded: "DONE shipped"'
 
 
 def test_a_local_agent_from_another_session_or_with_no_transcript_is_gone(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1141,6 +1159,31 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
+
+
+def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_drives_watch_posts(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": []})
+    watch.view.refresh_cards(demo)
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["project"] = "Iris"
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
+    iris = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
+    posts: list[dict] = []
+    nested: list[list[str]] = []
+
+    def post(name: str, said: dict) -> dict:
+        posts.append(said)
+        if not nested:
+            nested.append([])
+            sub_coordinated(demo)
+            nested[0] = watch.run_pass(iris, T0)
+        return {"permalink": POSTED}
+
+    monkeypatch.setattr(talk, "posted", post)
+    assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
+    assert (posts, nested) == ([paused()], [[]])
 
 
 def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
@@ -1522,6 +1565,36 @@ def test_an_open_incident_order_is_told_to_close_once_a_release_ships_its_fix_an
     assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {shipped}, nothing else holds it", f"FREE j2 o2: {shipped}, nothing else holds it", live]
     assert watch.wakes(live, state.load(demo))
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+
+
+def test_a_release_out_as_a_sub_coordinator_is_bound_mid_read_says_its_fix_is_live_once_from_the_watch_dropping_its_wait(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    published = [release(2, "2026-11-09T15:00:00Z", "api")]
+    iris = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
+    nested: list[list[str]] = []
+
+    def github_run(cmd: list[str]) -> str:
+        if not nested:
+            nested.append([])
+            sub_coordinated(demo)
+            nested[0] = watch.run_pass(iris, T0)
+        return json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n"
+
+    monkeypatch.setattr(watch.github, "run", github_run)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, project="Iris")
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+    shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
+    assert watch.run_pass(watcher(demo), T0) == []
+    assert nested == [
+        [
+            f"FREE j1 o1: {shipped}, nothing else holds it",
+            f"LIVE o1: {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
+        ]
+    ]
 
 
 def test_an_incident_order_waiting_on_two_releases_is_told_its_fix_is_live_only_once_both_shipped(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
