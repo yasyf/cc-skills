@@ -5,47 +5,13 @@ from collections.abc import Callable
 import agent_brief
 import pytest
 from conftest import RESEARCH
-from drive import agents
 
 Run = Callable[..., tuple[int, str]]
-HIS_BRIEF = (
-    "Message (his words): why is this card asking again?\n"
-    "Link: https://poetic-technology.slack.com/archives/D123/p1794380463481959\n"
-    "Thread: D123 1794380463.481959\n"
-    "Drive: demo\n"
-    "Scratch: /scratch/h1\n"
-    "Deliverable: his answer, in his thread"
-)
 
 
 def started(subagent_type: str, prompt: str, model: str | None = None) -> dict:
     tool_input = {"subagent_type": subagent_type, "prompt": prompt, "description": "d"} | ({"model": model} if model else {})
     return {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "Agent", "tool_input": tool_input}
-
-
-def test_a_handlers_prompt_is_its_brief_alone(communicator: str) -> None:
-    retyped = agent_brief.deny_reason(started("long-running:handler", f"{HIS_BRIEF}\nDo not answer the card; he picked nothing."))
-    assert retyped.startswith("refused: a handler's prompt is its brief alone")
-    assert "`Do not answer the card; he picked nothing.` is more" in retyped
-    assert retyped.endswith("drop the line")
-    assert agents.ruled(retyped) == {"judged": False}
-    assert agent_brief.deny_reason(started("long-running:handler", "Record: 661229 Drive: durable-agents Scratch: /scratch/h1")) is None
-    context = "\nContext: he replies to the card drawn at 11:21 PM\nits question: the bucket copy\nits options: skip or wait"
-    his_lines = HIS_BRIEF.replace("again?", "again?\nand again?")
-    assert agent_brief.deny_reason(started("long-running:handler", f"{his_lines}{context}")) is None
-    assert "`and the drive's own rules` is more" in agent_brief.deny_reason(
-        started("long-running:handler", f"{HIS_BRIEF}{context}\nand the drive's own rules")
-    )
-
-
-def test_a_handler_on_a_light_model_runs_on_opus(communicator: str) -> None:
-    his = started("long-running:handler", HIS_BRIEF, "sonnet")
-    assert agent_brief.deny_reason(his) is None
-    assert agent_brief.heavier(his) == {"subagent_type": "long-running:handler", "prompt": HIS_BRIEF, "description": "d"}
-    assert agent_brief.heavier(started("long-running:handler", HIS_BRIEF)) is None
-    ready = "Record: 663488\nThread: 1.2\nDrive: demo\nScratch: /scratch/h1"
-    assert agent_brief.heavier(started("long-running:handler", ready, "haiku")) == {"subagent_type": "long-running:handler", "prompt": ready, "description": "d"}
-    assert agent_brief.heavier(started("long-running:reader", ready, "sonnet")) is None
 
 
 def test_a_design_job_starts_only_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -65,7 +65,7 @@ stop, records the agent on that job, and its first call after a `SendMessage` ma
 again. A `long-running:handler` is never recorded this way, even when its brief, the brief file it names or
 the record it is briefed with names a job, so a handler started to run `drive job launch <j>` leaves
 `<j>` to the lane it launches and its return sets nothing on `<j>`. A handler holds a job only when
-the communicator names it with `agent` as it adds a read-only question's reader job. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
+the communicator names it with `agent`, the id the `handler` tool returned, as it adds a read-only question's reader job. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
 state and said line of every job but a codex job:
 
 | First line | The job's state |

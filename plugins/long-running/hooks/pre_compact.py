@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import render, state
+from drive import agents, render, state
 
 
 def instructions(payload: dict) -> str | None:
@@ -19,7 +19,7 @@ def instructions(payload: dict) -> str | None:
 
 def main() -> None:
     try:
-        text = instructions(json.load(sys.stdin))
+        text = instructions(agents.seen(json.load(sys.stdin)))
     except Exception:
         return
     if text:

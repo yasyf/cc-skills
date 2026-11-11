@@ -7,11 +7,12 @@ import shlex
 import shutil
 import sys
 import textwrap
+import uuid
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import artifacts, brief, github, land, limits, orca, picture, place, reads, render, settled, slack, state, watch
+from drive import agents, artifacts, brief, github, land, limits, orca, picture, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -44,7 +45,7 @@ TOLD_LINK = (
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status", "search_plan")
+MCP_TOOLS = ("say", "heard", "handler", "record", "order", "job", "pr", "incident", "status", "search_plan")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -2082,6 +2083,29 @@ def heard(args: argparse.Namespace) -> int:
     return emit(args, "away" if args.away else "heard", watch.hear(name, state.now(), args.away))
 
 
+def handler(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    if extra := agents.beyond_brief(args.brief):
+        raise DriveError(
+            f"refused: a handler's brief is its lines alone, every line under one of {', '.join(render.HANDLER_LABELS)};"
+            f" `{render.cut(extra, 44)}` is more: a rule in a brief overrides its agent definition, so drop the line"
+        )
+    if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
+        watch.hear(name, state.now(), args.away)
+    if folder := agents.scratch(args.brief):
+        folder.mkdir(parents=True, exist_ok=True)
+    handler_id = uuid.uuid4().hex[:8]
+    with state.edit(name) as data:
+        data["handlers"][handler_id] = {"session": None, "started": state.stamp()}
+    try:
+        agents.start_handler(name, handler_id, args.brief)
+    except reads.ReadError as error:
+        with state.edit(name) as data:
+            del data["handlers"][handler_id]
+        raise DriveError(f"claude --bg started no handler: {error}") from None
+    return emit(args, f"started {handler_id}", {"handler": handler_id})
+
+
 def term(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     with state.edit(name) as data:
@@ -2988,6 +3012,20 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
     verb.set_defaults(run=heard)
+    verb = verbs.add_parser(
+        "handler",
+        parents=both,
+        help=(
+            "start a handler on its brief as its own claude --bg session, recording that he wrote when the brief carries his"
+            " words; its line comes back as one cci record when it ends; prints started <its id>"
+        ),
+    )
+    verb.add_argument(
+        "brief",
+        help=f"the handler's brief: its lines, each opening with one of {', '.join(label + ':' for label in render.HANDLER_LABELS)}",
+    )
+    verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away, for a brief carrying his words")
+    verb.set_defaults(run=handler)
     verb = verbs.add_parser(
         "term", parents=both, help="he corrected a word: say's hook finds it from now on for Jev to judge, naming the proper term his words or the code use"
     )

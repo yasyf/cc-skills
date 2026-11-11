@@ -49,7 +49,9 @@ def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
 
 
 def transcript(job: dict) -> Path | None:
-    """A local job's transcript on this Mac, when its session still holds it."""
+    """A local job's transcript on this Mac, when its session still holds it; a handler's is its own session's."""
+    if own := job.get("transcript"):
+        return Path(own)
     if not (job.get("agent") and job.get("session")):
         return None
     return next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)

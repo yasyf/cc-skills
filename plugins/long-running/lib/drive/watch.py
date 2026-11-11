@@ -986,7 +986,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
         return f"{job_id}'s agent ended with an earlier session"
     if not job.get("agent"):
         return f"{job_id} has no agent recorded"
-    path = transcript(holder, job["agent"])
+    path = Path(own) if (own := state.own_transcript(data, job)) else transcript(holder, job["agent"])
     if not path.exists():
         return f"{job_id}'s agent {job['agent']} has no transcript"
     quiet = moment - datetime.fromtimestamp(path.stat().st_mtime).astimezone()

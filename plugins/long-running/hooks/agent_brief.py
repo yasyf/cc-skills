@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, place, render, state
+from drive import agents, brief, place, state
 from drive.render import cut, when
 
 DESIGNER = "long-running:designer"
@@ -24,19 +24,6 @@ DATA_PASS = re.compile(
 )
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
 DATA_PASS_RULE = "A builder whose Goal itself runs a pass, migration, backfill or bulk repair over a team's data, rather than building a PR or check named for one."
-LABELS = render.HANDLER_LABELS
-LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in LABELS)}):")
-
-
-def beyond_brief(prompt: str) -> str | None:
-    """The first line of a handler's prompt that is no line of its brief: each line opens with a brief label, his words may run on below their label, and Context runs to at most three lines."""
-    label, context = None, 0
-    for line in prompt.strip().splitlines():
-        if found := LABEL.match(line):
-            label, context = found[1], 1
-        elif line.strip() and not (label == "Message (his words)" or (label == "Context" and (context := context + 1) <= 3)):
-            return line.strip()
-    return None
 
 
 def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
@@ -133,7 +120,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the meta session's alone, or the communicator's while none is bound, and a builder starts here only under this Mac's cap of builders."""
+    """Why a drive session may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler starts with the drive's handler tool, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the meta session's alone, or the communicator's while none is bound, and a builder starts here only under this Mac's cap of builders."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -155,10 +142,11 @@ def deny_reason(payload: dict) -> str | None:
             f"refused: Fable runs only the coordinator and {DESIGNER}; start {kind or 'this agent'} on its own default"
             " model, or `sonnet` for a one-fact lookup"
         )
-    if kind == agents.HANDLER and (extra := beyond_brief(prompt)):
+    if kind == agents.HANDLER:
         return agents.Unjudged(
-            f"refused: a handler's prompt is its brief alone, every line under one of {', '.join(LABELS)}; `{cut(extra, 44)}` is"
-            " more: a rule in a prompt overrides its agent definition, so drop the line"
+            "refused: a handler starts with the drive's handler tool, this prompt its brief, as its own claude --bg session"
+            " whose line comes back as one cci record, never through the Agent tool, whose launch and finish notices add"
+            " 2,232 characters to your context"
         )
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
@@ -168,22 +156,10 @@ def deny_reason(payload: dict) -> str | None:
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None
 
 
-def heavier(payload: dict) -> dict | None:
-    """The Agent call a drive session meant: a handler passed Sonnet or Haiku runs on its own Opus, the model dropped, since even a ready record draws his PR card."""
-    call = payload["tool_input"]
-    if payload.get("agent_id") or call.get("subagent_type") != agents.HANDLER or not state.session_drives(payload.get("session_id") or ""):
-        return None
-    if not any(word in (call.get("model") or "") for word in brief.LIGHT_MODELS):
-        return None
-    return {key: value for key, value in call.items() if key != "model"}
-
-
 def main() -> None:
-    payload = json.load(sys.stdin)
+    payload = agents.seen(json.load(sys.stdin))
     if reason := deny_reason(payload):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}} | agents.ruled(reason)))
-    elif made := heavier(payload):
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 
 
 if __name__ == "__main__":

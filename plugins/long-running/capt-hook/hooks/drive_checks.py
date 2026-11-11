@@ -165,10 +165,10 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
         Input(tool="Agent", tool_input={"subagent_type": HANDLER, "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow(),
         Input(
             tool="Agent",
-            tool_input={"subagent_type": HANDLER, "prompt": "Record: 1\nPost the question card with say(card=...)"},
+            tool_input={"subagent_type": HANDLER, "prompt": "Record: 1"},
             session_id=COMMUNICATOR,
             decide=UNCONFIRMED,
-        ): Block(pattern="a handler's prompt is its brief alone"),
+        ): Block(pattern="a handler starts with the drive's handler tool"),
         Input(
             tool="Agent",
             tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill each team's missing memory rows"},

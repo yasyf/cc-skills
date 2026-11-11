@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import agents, state
 
 
 def deny_reason(payload: dict) -> str | None:
@@ -24,7 +24,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def main() -> None:
-    if reason := deny_reason(json.load(sys.stdin)):
+    if reason := deny_reason(agents.seen(json.load(sys.stdin))):
         print(
             json.dumps(
                 {

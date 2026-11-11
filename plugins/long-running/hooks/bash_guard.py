@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import install, orca, state
+from drive import agents, install, orca, state
 from drive.orca import OrcaError
 from drive.shell import runnable, simple_commands
 
@@ -212,7 +212,7 @@ def deny_reason(payload: dict) -> str | None:
 
 def main() -> None:
     try:
-        payload = json.load(sys.stdin)
+        payload = agents.seen(json.load(sys.stdin))
         reason = deny_reason(payload)
     except ValueError:
         return

@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import agents, state
 
 CLOSING = "Sent."
 TAIL = 1_000_000
@@ -61,7 +61,7 @@ def turn_text(transcript: Path) -> list[str]:
 
 
 def main() -> None:
-    if reason := block_reason(json.load(sys.stdin)):
+    if reason := block_reason(agents.seen(json.load(sys.stdin))):
         print(json.dumps({"decision": "block", "reason": reason}))
 
 

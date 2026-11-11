@@ -33,7 +33,7 @@ TAIL_BYTES = 65536
 
 
 def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
+    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, handler, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
     name = payload["tool_name"]
     call = payload["tool_input"]
     if name == "Skill":
@@ -49,8 +49,8 @@ def communicator_call(payload: dict) -> str:
     return (
         f"Refused on purpose: the communicator does not run {payload['tool_name']} itself, since work in its turn holds his"
         f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."
-        f" Start a background long-running:handler briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
-        " it does the read, draft or post and returns one line."
+        f" Start a handler with the drive's handler tool, briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
+        " it does the read, draft or post and its line comes back as one cci record."
     )
 
 
@@ -160,7 +160,7 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def main() -> None:
-    if reason := deny_reason(json.load(sys.stdin)):
+    if reason := deny_reason(agents.seen(json.load(sys.stdin))):
         print(
             json.dumps(
                 {

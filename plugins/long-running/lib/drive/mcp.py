@@ -22,8 +22,9 @@ INSTRUCTIONS = (
     " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}. Its hook finds a line"
     " naming a cause with no {record:} and each `cc-slack check-post` finding, and Jev judges them against his words;"
     " it posts exactly the words the hook let out and adds none."
-    " The drive's verbs are tools too: heard, record for the records between the drive's sessions, order, job and pr taking"
-    " several ops a call, and status; each takes dry_run, and drive, the drive it acts on when this session is bound to none or several."
+    " The drive's verbs are tools too: heard, handler, which starts a handler as its own session, record for the"
+    " records between the drive's sessions, order, job and pr taking several ops a call, and status; each takes"
+    " dry_run, and drive, the drive it acts on when this session is bound to none or several."
 )
 TEXT = {"type": "string"}
 VISUAL = {

@@ -7,7 +7,7 @@ Run this page when a drive starts and after every restart, resume and compaction
 
 ## Open each session in Orca
 
-1. Start each session in its own Orca terminal with the commands below, because he finds each in Orca's sidebar and opens it with one command. A tmux session, `nohup`, `claude --bg` or other headless start shows nothing in Orca.
+1. Start each session in its own Orca terminal with the commands below, because he finds each in Orca's sidebar and opens it with one command. A tmux session, `nohup`, `claude --bg` or other headless start shows nothing in Orca. His pick lifts the ban on `claude --bg` for handlers only, which `drive handler` starts that way: "drive handler starts each as a claude --bg session that ends by posting one cci line: compacting every 6.5 hours, 1.6 GB while one runs".
 2. Whoever starts the drive runs them. `<worktree>` is the drive's checkout, the monorepo checkout's root for a monorepo drive; add a repository Orca does not list first with `orca repo add --path <its main checkout>`. The first command names the worktree after the drive in Orca's sidebar. The fourth starts the meta session, which holds drive tooling. The last starts a sub-coordinator, the coordinator session for one project beside the top, once an order is filed under `<project>`; `<lane>` is that name lowercased, each run of other characters a dash (`Iris` is `iris`).
 
 ```sh

@@ -58,12 +58,12 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
     reason = output["hookSpecificOutput"]["permissionDecisionReason"]
     assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert reason.startswith(f"Refused on purpose: the communicator does not run {SLACK}slack_thread itself")
-    assert "Start a background long-running:handler" in reason
+    assert "Start a handler with the drive's handler tool" in reason
     assert communicator_calls.deny_reason(call("Bash", command="cc-transcript show /x/agent-a1.jsonl")).startswith(
         "Refused on purpose: the communicator does not run Bash itself"
     )
     assert communicator_calls.deny_reason(call("Skill", skill="cc-slack:slack")) is not None
-    assert communicator_calls.deny_reason(call("Agent", subagent_type="long-running:handler", prompt="Record: 9 Drive: demo")) is None
+    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__handler", brief="Record: 9 Drive: demo")) is None
     for own in (
         call(SLACK + "slack_reply", channel_id="D123", thread_ts="1.2", text="On it: the fix ships next."),
         call(SLACK + "slack_react", channel_id="D123", ts="1.2", name="+1"),

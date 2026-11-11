@@ -30,6 +30,7 @@ NO_TAP_OWNER = "yasyf"
 MONOREPO = "Forge-AI/monorepo"
 ROLES = ("communicator", "coordinator", "meta")
 HOLDERS = ("communicator", "meta")
+HANDLER_ENV = "LONG_RUNNING_HANDLER"
 LANE_ROLES = {"communicator": "communicator", "root": "coordinator", "meta": "meta"}
 DRIVE_LANES = ("root", "communicator", "coordinator", "meta", "handler", "builder", "reader", "designer", "root-tooling", "root-skill", "root-dashboard", "watch")
 NUMBERED_LANE = re.compile(r"(?P<stem>.+)-\d+")
@@ -218,6 +219,7 @@ def new_drive(
         "name": name,
         "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
         "subcoordinators": {},
+        "handlers": {},
         "slack": {"channel": channel, "page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
@@ -238,6 +240,7 @@ def saved(name: str) -> dict:
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
+    data.setdefault("handlers", {})
     for held in data["roles"].values():
         held.setdefault("terminal", None)
     return data
@@ -659,9 +662,23 @@ def next_id(records: dict, prefix: str) -> str:
 
 
 def session_role(data: dict, session: str | None) -> str | None:
-    """The role a session holds; a sub-coordinator's is coordinator, so every rule of that role binds it too."""
+    """The role a session holds; a sub-coordinator's is coordinator and a handler's the communicator's, so every rule of that role binds it too."""
     role = next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
-    return role or ("coordinator" if session_project(data, session) else None)
+    if role:
+        return role
+    if session_project(data, session):
+        return "coordinator"
+    return "communicator" if handler_id(data, session) else None
+
+
+def handler_id(data: dict, session: str | None) -> str | None:
+    """The handler a `claude --bg` session runs for the communicator, as its SessionStart hook bound it."""
+    return next((handler for handler, held in data["handlers"].items() if session and held["session"] == session), None)
+
+
+def own_transcript(data: dict, job: dict) -> str | None:
+    """The transcript of a job a handler holds, its own claude --bg session's rather than one beside the communicator's: the bound handler's while it runs, the job's own once it ended."""
+    return job.get("transcript") or (data["handlers"].get(job.get("agent")) or {}).get("transcript")
 
 
 def session_project(data: dict, session: str | None) -> str | None:
@@ -791,10 +808,11 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
-    """The drives that bind the session, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
+    """The drives that bind the session, a handler's included, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
-        bound += [(held["started"], name) for held in bound_sessions(saved(name)).values() if held["session"] == session]
+        data = saved(name)
+        bound += [(held["started"], name) for held in [*bound_sessions(data).values(), *data["handlers"].values()] if held["session"] == session]
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
