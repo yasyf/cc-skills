@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import hashlib
 import json
 import mmap
@@ -7,6 +8,7 @@ import re
 import shlex
 import subprocess
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -18,7 +20,6 @@ from drive.render import cut, not_ready, subscribe, when
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
 FAILURES_BEFORE_SAYING = 3
-ANSWERED_ELSEWHERE = "answer_conflict"
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
@@ -461,11 +462,12 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next."""
+    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept. Each job keeps the sequence of the newest of its messages taken, judged and moved under the lock, so a watch reads a Run back to the oldest mark of the jobs it hears there, takes only their mail and passes over the rest, and a job's mail no watch has taken waits for whichever watch hears it next. A message its job's history already keeps is never taken again, so a watch whose mark another install's save lost replays nothing."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes = lane_handles(live_lanes(watcher, data))
     lines, messages = [], []
+    kept = functools.cache(lambda job_id: {reply["id"] for reply in state.replies(watcher.name, job_id)})
     for run, handles in lanes.items():
         source = f"lane mail of {run}"
         try:
@@ -474,7 +476,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
-    refusals, said = ask_refusals(watcher, data, lanes, messages, moment)
+    refusals, said = ask_refusals(watcher, data, lanes, messages, kept, moment)
     lines += said
     if messages:
         with state.edit(watcher.name) as data:
@@ -484,7 +486,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"]:
                     continue
                 data["jobs"][job_id]["mail_seen"] = message["sequence"]
-                if message["type"] == "heartbeat":
+                if message["type"] == "heartbeat" or message["id"] in kept(job_id):
                     continue
                 state.keep_reply(watcher.name, job_id, message)
                 if message["from_handle"] != f"dispatch:{data['jobs'][job_id]['dispatch']}":
@@ -497,12 +499,14 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 
 
-def ask_refusals(watcher: Watcher, data: dict, lanes: dict[str, dict[str, str]], messages: list[tuple[str, dict]], moment: datetime) -> tuple[dict[str, str], list[str]]:
+def ask_refusals(
+    watcher: Watcher, data: dict, lanes: dict[str, dict[str, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]], moment: datetime
+) -> tuple[dict[str, str], list[str]]:
     """The reply sending each new `ASK` a remote lane asked back to it, by its message id, when `drive job ask` would refuse it: its words and its card are checked here as it arrives, so an `ASK` out of shape never wakes the coordinator, who checks one in shape against his recorded answers alone. One cc-slack could not check goes on to the coordinator, whose `drive job ask <j>` checks it again."""
     refusals, lines = {}, []
     for run, message in messages:
         job_id = lanes[run].get(message["from_handle"])
-        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or ""):
+        if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or "") or message["id"] in kept(job_id):
             continue
         try:
             limits.shape(message["body"], watcher.name, job_id)
@@ -562,7 +566,7 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through, or Orca says it already holds another answer, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
+    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through, or, with no line since nothing is owed on it, Orca says it already holds another answer, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines = []
     for job_id, job in live_lanes(watcher, data).items():
@@ -575,10 +579,9 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
             try:
                 orca.reply(watcher.name, job["run"], message_id, said)
             except orca.OrcaError as error:
-                if error.code != ANSWERED_ELSEWHERE:
+                if error.code != orca.ANSWERED_ELSEWHERE:
                     lines += read_failed(watcher, source, error, moment)
                     continue
-                lines.append(f"WATCH {job_id}'s read {message_id} was answered outside the watch, so the watch stops answering it")
             else:
                 lines += [f"JOB {job_id} {job['order']} READ unanswered, its lane was told why: {why}"] if why else []
             watcher.failures.pop(source, None)
@@ -1286,17 +1289,17 @@ def main(drive_name: str | None = None, project: str | None = None) -> int:
 
 
 def watching(watcher: Watcher) -> None:
-    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place; a crash wakes the coordinator session it posts to first."""
+    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place before a pass, so no pass runs older code on a drive a newer install saved; a crash wakes the coordinator session it posts to first."""
     state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
     try:
         while True:
+            if (newer := upgraded()) and not any(watcher.unsent.values()):
+                os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
             read_from, moment = watcher.offset, state.now()
             for line in sent(watcher, watcher.lane, run_pass(watcher, moment), moment):
                 print(line, flush=True)
             if watcher.offset != read_from:
                 state.save_watch_cursor(watcher.name, watcher.offset, watcher.project)
-            if (newer := upgraded()) and not any(watcher.unsent.values()):
-                os.execv(newer, loop_argv(newer, watcher.name, watcher.project))
             time.sleep(POLL_SECONDS)
     except Exception as error:
         stopped(watcher, error)

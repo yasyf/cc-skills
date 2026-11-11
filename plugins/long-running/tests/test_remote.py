@@ -82,6 +82,17 @@ def rooted(run: Run, demo: str) -> str:
     return demo
 
 
+def answered_elsewhere(calls: list[tuple[str, ...]]) -> Callable[..., dict]:
+    def call(*args: str) -> dict:
+        calls.append(args)
+        if args[0] != "reply":
+            return {}
+        refusal = {"ok": False, "error": {"code": "answer_conflict", "message": f"Question {args[2]} already has a different answer."}}
+        return orca.result_of("orchestration reply", subprocess.CompletedProcess(["orca"], 0, json.dumps(refusal), ""))
+
+    return call
+
+
 def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[str]:
     queue, calls = list(batches), []
 
@@ -293,6 +304,24 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
             "--body",
             "PR checks failed",
         ),
+    ]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"]) == (None, "running")
+
+
+def test_resume_sends_to_the_dispatch_when_orca_already_holds_another_answer_to_the_open_question(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+    monkeypatch.setattr(orca, "call", answered_elsewhere(calls))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ask="msg_q1", state="waiting")
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: sent to dispatch {DISPATCH}")
+    assert calls == [
+        ("run-use", "--id", RUN),
+        ("reply", "--id", "msg_q1", "--run", RUN, "--body", "PR checks failed"),
+        ("run-use", "--id", DRIVE_RUN),
+        ("send", "--to", f"dispatch:{DISPATCH}", "--run", RUN, "--subject", "From the coordinator", "--body", "PR checks failed"),
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (None, "running")
@@ -647,7 +676,7 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
         [
             message("heartbeat", "alive"),
             message("status", "building the watch"),
-            message("status", "no body", body=None),
+            message("status", "no body", body=None, id="msg_status_empty"),
             message("question", "Which fixture keeps the hold test deterministic?\nLOG https://buildkite.com/forge/test/builds/1 is red on it"),
             message("worker_done", "DONE elsewhere", from_handle="dispatch:ctx_other"),
         ],
@@ -803,36 +832,13 @@ def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_fr
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
 
 
-def test_a_read_someone_already_answered_is_dropped_and_said_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     deliver(monkeypatch, [message("question", "READ ccn answer search x", id="relay_6779eb1e29a6")])
     monkeypatch.setattr(reads, "answer", lambda question, root: "x")
     replies = []
-
-    def answered(*args: str) -> dict:
-        replies.append(args)
-        if args[0] == "reply":
-            done = subprocess.CompletedProcess(
-                ["orca"],
-                0,
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": {
-                            "code": "answer_conflict",
-                            "message": "Question relay_6779eb1e29a6 already has a different answer.",
-                        },
-                    }
-                ),
-                "",
-            )
-            return orca.result_of("orchestration reply", done)
-        return {}
-
-    monkeypatch.setattr(orca, "call", answered)
+    monkeypatch.setattr(orca, "call", answered_elsewhere(replies))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == [
-        "WATCH j1's read relay_6779eb1e29a6 was answered outside the watch, so the watch stops answering it"
-    ]
+    assert watch.run_pass(watching, T0) == []
     assert state.load(remote)["jobs"]["j1"]["reads"] == {}
     assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
     assert [args for args in replies if args[0] == "reply"] == [
@@ -987,6 +993,31 @@ def test_mail_from_a_worker_the_job_replaced_is_only_kept(remote: str, monkeypat
     job = state.load(remote)["jobs"]["j1"]
     assert (job.get("reads"), job["report"]) == (None, None)
     assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_done"]
+
+
+def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(
+    remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
+) -> None:
+    kept = [
+        message("question", ASK_IN_SHAPE, id="msg_ask"),
+        message("question", "READ ccn answer search x", id="msg_read"),
+        message("worker_done", "WAITING CI on the fix", id="msg_waiting"),
+    ]
+    done = message("worker_done", "DONE merged and installed", id="msg_done")
+    deliver(monkeypatch, kept, [*kept, done])
+    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.lane_lines(watching, T0) == ["JOB j1 o1 ASK Where should the nightly store copy run?", "JOB j1 o1 WAITING CI on the fix"]
+    checked = len(drawing.cards)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(mail_seen=0, state="running")
+    assert watch.lane_lines(watching, T0 + timedelta(seconds=5)) == ["JOB j1 o1 DONE merged and installed"]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["mail_seen"]) == (None, "done", done["sequence"])
+    assert (len(drawing.cards), len([args for args in replies if args[0] == "reply"])) == (checked, 1)
+    assert [json.loads(line)["id"] for line in state.replies_path(remote, "j1").read_text().splitlines()] == ["msg_ask", "msg_read", "msg_waiting", "msg_done"]
 
 
 def test_every_result_and_question_a_lane_sends_stays_readable_after_the_next_one_replaces_its_report(
