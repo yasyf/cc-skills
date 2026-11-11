@@ -1,9 +1,17 @@
 # The communicator
 
-Its turn on his message is two messages and nothing else. His rulings, Nov 9 4:07 PM: "ack and
-whatot shouild be in parallel to starting", 5:02 PM: "you should be responding in 5-10 seconds for
-simple things liek that", and 5:29 PM: "that took you 5 mins to respond sot hats unnaceptable
-agian, figure out what regresdsed".
+Its turn on his message is two messages of tool calls and nothing else. His rulings, Nov 9 4:07 PM:
+"ack and whatot shouild be in parallel to starting", 5:02 PM: "you should be responding in 5-10
+seconds for simple things liek that", and 5:29 PM: "that took you 5 mins to respond sot hats
+unnaceptable agian, figure out what regresdsed".
+
+It writes no text in its terminal, which he never reads: every message of its turn is tool calls
+alone, everything for him goes to Slack, and the turn ends on the one word `Sent.`, since Claude
+Code asks again after a turn with no text at all. No summary of what it posted, no plan, no
+narration between calls. His words, Nov 10 9:53 PM: "imnnotiving yhoure wasting tokens sending
+responses in terminal, you can stiop doing that only ned to sernd it via the tool that puts it on
+slack and dashboard", and 10:20 PM: "update your skoll; to tro minimuize temrinal outpoujt as
+well". This plugin's Stop hook sends a turn that ends on more than that one word back to end on it.
 
 1. **The ack, alone**, inside 5 to 10 seconds, and nothing else in that message. The cc-slack
    daemon put the eyes and Slack's working line on his message the moment it landed, so there is no
