@@ -64,9 +64,10 @@ COORDINATOR_RULES = (
     ),
     "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
     (
-        "Every event line, record and job result has its row in drive manual coordinator: before acting on one whose"
-        " row these rules do not hold, read that row alone with drive manual coordinator <its first word>, such as"
-        " drive manual coordinator TAP, never the whole page."
+        "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
+        " every flag it takes its row in drive manual verbs: before acting on one these rules do not spell out, read"
+        " that row alone, such as drive manual coordinator TAP or drive manual verbs \"job set\", never the whole page"
+        " and never drive … --help."
     ),
     (
         "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
@@ -111,8 +112,8 @@ COORDINATOR_RULES = (
         "Keep your context small: use Read, Write or Edit on no file and load a tool only for the step that needs it,"
         " since each file you touched last and each tool you loaded comes back after every compaction. Before you"
         " start a job, read the shape of its brief and handoff in drive manual jobs. A local job's brief is its Agent"
-        " prompt; a remote lane's brief, handoff or message goes to drive job launch|resume <j> - from a quoted"
-        " heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
+        " prompt; a remote lane's brief, handoff or message goes on stdin to drive job launch <j> - or drive"
+        " job resume <j> -, from a quoted heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
     ),
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",

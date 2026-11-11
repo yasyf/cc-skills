@@ -84,7 +84,7 @@ itself.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
   tap. Return `READY <url>` when only his tap is left, or a port only its check against #N, naming
   every PR of a stack bottom first (`READY <url> <url> …`) so he gets one card for it, with a
-  `SERVES:` line saying what it is: `port of #N`, `drive tooling: <what it unblocks>`, or the order
+  `SERVES:` line saying what it is: `port of #N`, `Drive tooling: <what it unblocks>`, or the order
   of his it carries out, quoted. Return
   `WAITING <what>` while CI or a queue runs.
 
