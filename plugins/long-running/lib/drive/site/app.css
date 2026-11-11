@@ -245,6 +245,7 @@ a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; tex
 
 .kick { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; color: var(--muted); font-size: 12px; font-weight: 550; }
 .said { margin: 0 0 16px; padding: 10px 16px; border-left: 3px solid #a8c0ad; color: var(--ink-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+.quote { margin: 0 0 10px; padding: 2px 14px; border-left: 3px solid var(--line); color: var(--ink-2); overflow-wrap: anywhere; }
 .factlist { display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px; margin: 0 0 8px; }
 .factlist dt { color: var(--muted); font-size: 12px; padding-top: 1px; }
 .factlist dd { margin: 0; overflow-wrap: anywhere; }

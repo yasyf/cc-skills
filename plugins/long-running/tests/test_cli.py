@@ -1144,8 +1144,19 @@ def test_job_card_reworking_says_atop_the_body_that_the_question_is_being_redone
     assert limits.card_words(redone) == limits.card_words(plain)
 
 
+def open_card(n: int, card: dict) -> dict:
+    return {
+        "question": card["title"],
+        "options": card["options"],
+        "recommended": card["recommended"],
+        "asked": state.stamp(),
+        "url": f"https://acme.slack.com/archives/D123/p179430000000010{n}",
+        "card": card,
+    }
+
+
 def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_could_not_redraw(
-    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, asking: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     kept = []
@@ -1153,16 +1164,69 @@ def test_cards_redraw_prints_each_open_cards_card_in_one_pass_and_names_each_it_
         monkeypatch.setattr("sys.stdin", io.StringIO(text))
         kept.append(run("job", "ask", asking, "-")[1])
     printed = [run("job", "card", path, "--waits", f"demo:j1-{n}")[1] for n, path in enumerate(kept)]
-    shown = [
-        {"question": "q", "options": [], "recommended": "", "asked": state.stamp(), "url": f"https://acme.slack.com/archives/D123/p179430000000010{n}", "card": {"waits": waits}}
-        for n, waits in enumerate(["demo:j1-0", "demo:j1-1", "demo:hier-1"])
-    ]
+    unasked = json.loads(printed[0]) | {"waits": "demo:hier-1"}
+    unanswerable = {"title": "Which way?", "body": "One line.", "options": [], "recommended": "", "waits": "demo:hier-2", "drive": "demo"}
+    shown = [open_card(n, card) for n, card in enumerate([*map(json.loads, printed), unasked, unanswerable])]
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": shown, "pr_cards": []})
+    jobs = state.load("demo")["jobs"]
     assert cli.main(["cards", "redraw"]) == 2
     out, err = capsys.readouterr()
-    assert out.splitlines() == printed
-    assert "demo:hier-1: no job's question keeps its ASK file; draw it with drive job card <its file> --waits demo:hier-1" in err
+    assert out.splitlines() == [*printed, json.dumps(unasked)]
+    assert "demo:hier-2: the ASK is out of shape" in err and "0 options; an ASK has" in err
+    assert (state_root / "demo" / "asks" / "hier-1.md").is_file()
+    assert state.load("demo")["jobs"] == jobs
     assert run("cards", "redraw", "--waits", "demo:j1-1") == (0, printed[1])
+    assert cli.main(["cards", "redraw", "--waits", "demo:j1-9"]) == 2
+    assert "demo:j1-9: not one of his open cards" in capsys.readouterr().err
+
+
+def test_cards_redraw_draws_a_card_from_the_ask_a_question_linked_to_it_keeps_when_it_asks_the_cards_question(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    path = run("job", "ask", asking, "-")[1]
+    printed = run("job", "card", path, "--waits", "demo:j1-7")[1]
+    shown = open_card(0, json.loads(printed))
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"][0] |= {"waits": None, "card": shown["url"]}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    assert run("cards", "redraw") == (0, printed)
+    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(path, "demo:j1-7")]
+
+
+def test_cards_redraw_rebuilds_a_card_whose_linked_question_asks_something_else_and_keeps_it_in_that_questions_place(
+    run: Run, asking: str, state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1])
+    printed = run("job", "card", kept[1], "--waits", "demo:j1-8")[1]
+    shown = open_card(0, json.loads(printed))
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"] = [data["jobs"]["j1"]["questions"][0] | {"waits": None, "card": shown["url"]}]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
+    rebuilt = state_root / "demo" / "asks" / "j1-8.md"
+    assert limits.redrawn(rebuilt.read_text()).title == json.loads(printed)["title"]
+    assert [(question["file"], question["waits"], question["card"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (str(rebuilt), "demo:j1-8", shown["url"])
+    ]
+    assert run("cards", "redraw", "--waits", "demo:j1-8") == (0, printed)
+
+
+def test_job_card_from_a_relative_path_gives_the_question_kept_there_its_waits_id(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    kept = Path(run("job", "ask", asking, str(block))[1])
+    monkeypatch.chdir(kept.parent)
+    assert run("job", "card", kept.name, "--waits", "demo:j1-7")[0] == 0
+    assert [question["waits"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == ["demo:j1-7"]
 
 
 def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(

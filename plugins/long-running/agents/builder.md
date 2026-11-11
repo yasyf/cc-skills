@@ -329,7 +329,9 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
   `chart` fence (a Vega-Lite spec) for numbers, which Slack draws as its own chart, its title at
   most 50 characters, each label at most 20, at most 12 series and 20 categories, 2 charts a card;
   and an `arch` fence for components. Use a fence naming its language (`sand`, `sql`, `go`) for a
-  code or API shape, the real call itself, and a screenshot on a line of its own for a UI. Two or
+  code or API shape, the real call itself, a screenshot on a line of its own for a UI, and a draft
+  message or quote as its sentences on `> ` lines, which Slack shows as its own quote, never a
+  picture of text. Two or
   more pictures draw side by side as one Slack gallery, so open each caption with its option's
   number as the card numbers them, the recommended option 1, and a middle dot: `1 · Feed first`.
   Split a mixed visual into its parts, the diagram in its own fence and each table as a markdown
@@ -344,7 +346,7 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     name such as `event::on` passes;
   - an option that points at another by number or position, or lands a change first and leaves a
     step for after ("land it now, then backfill");
-  - a fence naming no language, or `text`; JSON, YAML, logs, a terminal session, command output or a
+  - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, command output or a
     stack trace in any fence; a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits; a gallery caption with no option number; a left-to-right flow past
     four nodes;

@@ -174,6 +174,7 @@ Its Show me:
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
 | a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
 | words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
+| a draft message or a quote | quote | its sentences, each line opening with `> `, which Slack shows as its own quote, links and all |
 | a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
 
 - Put a caption line of at most 25 words just above each fence. `drive job card` makes it the
@@ -193,8 +194,10 @@ Its Show me:
   Sand by its own grammar.
 - Split a mixed visual into its parts: the diagram in its own fence, and each table as a markdown
   table, never one picture made from both.
-- Keep words and raw data out of fences. `drive job ask` refuses:
-  - a fence naming no language or `text`, and one holding JSON, YAML, logs, a terminal session,
+- Never draw text as a picture. A draft message or a quote shows as Slack's quote of its sentences,
+  and `drive job card` draws a fence holding one the same way, links and all.
+- Keep other words and raw data out of fences. `drive job ask` refuses:
+  - a fence naming no language or `text` that holds no message or quote, and one holding JSON, YAML, logs, a terminal session,
     command output or a stack trace, whatever language it names;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;

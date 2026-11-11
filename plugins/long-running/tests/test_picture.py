@@ -181,6 +181,57 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
     assert tried == ["code:sand", "code:proto", "code:go", "mermaid", "dot"]
 
 
+def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draws_as_a_code_picture_only_when_it_holds_code(
+    tmp_path, monkeypatch
+) -> None:
+    tried = []
+
+    def draw(kind: str, source: str, out) -> None:
+        tried.append(kind)
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "visual_png", draw)
+    show_me = [
+        "The DM as drafted:",
+        "```",
+        "Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+        "",
+        "Can you take it? You'll know whether gil's files live in R2 or in its own bucket.",
+        "```",
+        "```markdown",
+        "Thanks for the quick fix to the copy, it works on every team I tried tonight.",
+        "```",
+        "```",
+        "func grant(team string) error {",
+        '\treturn fmt.Errorf("no bucket for %s", team)',
+        "}",
+        "```",
+        "```",
+        "GET journal/0001.ltx",
+        "```",
+        "```",
+        "api -> broker -> bucket",
+        "```",
+    ]
+    shown = picture.drawn(tmp_path / "pictures", show_me)
+    assert [line.split("](")[0] for line in shown] == [
+        "The DM as drafted",
+        "> Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+        ">",
+        "> Can you take it? You'll know whether gil's files live in R2 or in its own bucket.",
+        "> Thanks for the quick fix to the copy, it works on every team I tried tonight.",
+        "![Code",
+        "```",
+        "GET journal/0001.ltx",
+        "```",
+        "```",
+        "api -> broker -> bucket",
+        "```",
+    ]
+    assert tried == ["code:"]
+    assert picture.sources("\n".join(show_me[6:9])) == []
+
+
 def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp_path, monkeypatch) -> None:
     dumps = iter(["<html><body></body></html>", '<html data-print data-drawn="40x20"><body></body></html>'])
     sizes = []

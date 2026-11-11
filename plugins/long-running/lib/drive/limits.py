@@ -73,6 +73,8 @@ FEATURE = re.compile(r"^\*[^*\n]+\*[ \t]*$", re.MULTILINE)
 FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
 SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
+OPTIONS_HEADING = re.compile(r"options:", re.IGNORECASE)
+QUOTE = ">"
 REDONE = "*This question is being redone:* "
 REBUILT = "Direct fix: none: rebuilt from the posted card"
 POSTED_PICTURE = re.compile(r"!\[(?P<caption>[^\]]*)\]\((?P<path>/[^)\s]+)\)")
@@ -305,10 +307,11 @@ def question(text: str, kept: bool = False) -> Question:
     if not lines or not lines[0].startswith("ASK "):
         raise DriveError("an ASK block opens with `ASK <the question, one line>`")
     title, rest = lines[0].removeprefix("ASK ").strip(), lines[1:]
-    first_option = next((index for index, line in enumerate(rest) if line.startswith("- ")), len(rest))
+    first_option = options_start(rest)
     summary, above = rest[:first_option], rest[first_option:]
     show_me, after = shown_and_options(example[0] if example else "")
-    after = above + after
+    headings = [line for line in above + after if OPTIONS_HEADING.fullmatch(line)]
+    after = [line for line in above + after if not OPTIONS_HEADING.fullmatch(line)]
     options = [line.removeprefix("- ").strip() for line in after if line.startswith("- ")]
     marked = [option for option in options if RECOMMENDED.search(option)]
     options = [RECOMMENDED.sub("", option) for option in options]
@@ -319,6 +322,8 @@ def question(text: str, kept: bool = False) -> Question:
             " the recommendation, what happens meanwhile"
         )
     problems += show_me_problems(show_me, bool(example and above), kept, len(options))
+    if headings and not kept:
+        problems.append(f'"{headings[0]}" is not a line of an ASK block: the `- ` options follow the Show me directly, with no heading')
     if strays := [line for line in after if not line.startswith("- ")]:
         problems.append(f"only `- ` option lines follow the Show me, then `Findings:`; these are neither: {strays}")
     if len(options) not in OPTION_COUNT:
@@ -393,14 +398,22 @@ def redrawn(text: str) -> Question:
 
 
 def shown_and_options(example: str) -> tuple[list[str], list[str]]:
-    """The Show me's lines as written, fences and blank lines kept, and the lines from the first `- ` line outside a fence on."""
-    lines, fenced = example.strip("\n").splitlines(), False
+    """The Show me's lines as written, fences and blank lines kept, and the lines where the options start on."""
+    lines = example.strip("\n").splitlines()
+    start = options_start(lines)
+    return lines[:start], [line.strip() for line in lines[start:] if line.strip()]
+
+
+def options_start(lines: list[str]) -> int:
+    """Where the options start: the first `- ` line outside a code fence, or a bare `Options:` line just above it, which no ASK block holds and a block kept before the drive refused one still may."""
+    fenced = False
     for index, line in enumerate(lines):
         if not fenced and line.strip().startswith("- "):
-            return lines[:index], [line.strip() for line in lines[index:] if line.strip()]
+            above = [at for at in range(index) if lines[at].strip()]
+            return above[-1] if above and OPTIONS_HEADING.fullmatch(lines[above[-1]].strip()) else index
         if FENCE.match(line):
             fenced = not fenced
-    return lines, []
+    return len(lines)
 
 
 def captions(show_me: list[str]) -> list[str]:
@@ -470,7 +483,7 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool, option
     problems = [
         f'Show me line "{line}" is {words(line)} words; outside a code fence each is a caption of at most {OPTION_WORDS}'
         for line in captions(show_me)
-        if not line.startswith("|") and words(line) > OPTION_WORDS
+        if not line.startswith(("|", QUOTE)) and words(line) > OPTION_WORDS
     ]
     problems += [
         f'Show me line "{line}" holds a picture inside a sentence or table, which cc-slack draws as text; put each picture'
@@ -492,17 +505,19 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool, option
 
 
 def visual_problems(show_me: list[str], options: int) -> list[str]:
-    """Why a Show me would draw nothing worth a picture: a fence of words or a mock, a fence of raw data or tool output, a constant, a code picture per option, a picture drawn by hand, PRs listed by number, a chart, compare or arch whose JSON does not draw, or no visual at all."""
+    """Why a Show me would draw nothing worth a picture: a fence of words or a mock, a fence of raw data or tool output, a constant, a code picture per option, a picture drawn by hand, PRs listed by number, a chart, compare or arch whose JSON does not draw, or no visual at all. A draft message or a quote, as `> ` lines or a fence of sentences, is none of these: his card shows it as a quote of its text."""
     text = "\n".join(show_me)
-    fences = list(picture.FENCE.finditer(text))
+    every = list(picture.FENCE.finditer(text))
+    fences = [fence for fence in every if not picture.quoted(fence[1], fence[2])]
     named = [fence for fence in fences if fence[1].lower() not in picture.WORDS]
     raw = [(fence, what) for fence in named if (what := picture.raw(fence[1], fence[2]))]
     drawn = [fence for fence in named if not picture.raw(fence[1], fence[2])]
     code = [fence for fence in drawn if fence[1].lower() not in picture.DIAGRAMS]
     problems = [
         f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a mock or words'
-        " drawn as a picture: name the language of real code, put real rows in a markdown table, draw the flow in a ```mermaid"
-        f" or ```arch fence, or leave the Show me out ({WORDS_RULING}; {MOCK_RULING})"
+        " in a code block: name the language of real code, write a message or quote as plain sentences, which his card shows as a"
+        " quote, put real rows in a markdown table, draw the flow in a ```mermaid or ```arch fence, or leave the Show me out"
+        f" ({WORDS_RULING}; {MOCK_RULING})"
         for fence in fences
         if fence[1].lower() in picture.WORDS
     ]
@@ -536,7 +551,8 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
             f" so post them as one PR card through say's tap_prs and leave the Show me out ({STACK_RULING})"
         )
     problems += [f"the Show me ```{fence[1]} fence {problem}" for fence in drawn if (problem := json_problem(fence[1].lower(), fence[2]))]
-    if not drawn and not raw and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
+    quoted = len(fences) < len(every) or any(line.startswith(QUOTE) for line in captions(show_me))
+    if not quoted and not drawn and not raw and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
         problems.append(
             f"the Show me holds no visual, only words: add the kind that shows what the words cannot, {VISUALS}, or leave out"
             f" the `Show me:` line when nothing does ({LIBRARY_RULING}; {WORDS_RULING})"

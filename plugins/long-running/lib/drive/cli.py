@@ -692,7 +692,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     if not JOB_ID.fullmatch(args.ask):
         if not args.waits:
             raise DriveError(f"{args.ask}: a card drawn from a file needs --waits <drive>:<job>-<the ask record's seq>; drive job card <j> draws a job's newest kept ASK")
-        return named_file(args.ask, "ASK block file"), args.waits
+        return named_file(args.ask, "ASK block file").resolve(), args.waits
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
     kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
@@ -718,31 +718,28 @@ def question_card(name: str, path: Path, waits: str, reworking: str | None = Non
     card = asked.card(name, waits) | {"body": limits.card_body(summary, show_me)}
     if job_id in data["jobs"]:
         with state.edit(name) as data:
-            keep_waits(data["jobs"][job_id], str(path), waits)
+            keep_waits(data["jobs"][job_id], path, waits)
     return card
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
-    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards whose ASK file a job's question keeps; each card that does not redraw is named once the rest are printed."""
+    """Print, one JSON line each in one pass, the card `drive job card` prints for each of his open question cards, drawn from the ASK file `ask_source` finds for it; each card that does not redraw is named once the rest are printed."""
     from drive import view
 
     name = state.resolve(args.drive)
     view.refresh_cards(name)
     if (found := view.live_cards(name)) is None:
         raise DriveError(f"his open cards could not be read: {view.stored_cards(name)[1]}")
-    kept = {question["waits"]: question["file"] for job in state.load(name)["jobs"].values() for question in job["questions"] if question["waits"] and question["file"]}
-    shown = [waits for card in found["questions"] if (waits := card["card"].get("waits"))]
+    shown = {waits: card for card in found["questions"] if (waits := card["card"].get("waits"))}
     drawn, missed = [], []
     for waits in args.waits or shown:
         if waits not in shown:
             missed.append(f"{waits}: not one of his open cards")
-        elif waits not in kept:
-            missed.append(f"{waits}: no job's question keeps its ASK file; draw it with drive job card <its file> --waits {waits}")
-        else:
-            try:
-                drawn.append(question_card(name, Path(kept[waits]), waits))
-            except DriveError as error:
-                missed.append(f"{waits}: {error}")
+            continue
+        try:
+            drawn.append(question_card(name, ask_source(name, shown[waits]), waits))
+        except DriveError as error:
+            missed.append(f"{waits}: {error}")
     if drawn:
         emit(args, "\n".join(map(json.dumps, drawn)), drawn)
     if missed:
@@ -750,9 +747,42 @@ def cards_redraw(args: argparse.Namespace) -> int:
     return 0
 
 
-def keep_waits(job: dict, file: str, waits: str) -> None:
+def ask_source(name: str, shown: dict) -> Path:
+    """The ASK file his open card draws again: the one a job's question keeps under the card's waits id; else the one kept by a question linked to the card whose ASK asks what the card asks; else one rebuilt from the card as the drive stored it, kept on a question of its own in the job its waits id names, which takes the place of every question of that job holding the waits id or linked to the card."""
+    from drive import view
+
+    waits, url, title = shown["card"]["waits"], shown["url"], shown["card"]["title"]
+    kept = [question for job in state.load(name)["jobs"].values() for question in job["questions"] if question["file"]]
+    if held := next((question["file"] for question in kept if question["waits"] == waits), None):
+        return Path(held)
+    linked = [question["file"] for question in kept if question["card"] and view.message_key(question["card"]) == view.message_key(url)]
+    if asked := next((file for file in linked if asks(Path(file), title)), None):
+        return Path(asked)
+    rebuilt = state.rebuilt_ask(name, waits)
+    if not rebuilt.exists():
+        rebuilt.write_text(limits.rebuilt(shown["card"]))
+    with state.edit(name) as data:
+        if job := data["jobs"].get(waits.partition(":")[2].partition("-")[0]):
+            job["questions"] = [
+                question
+                for question in job["questions"]
+                if question["waits"] != waits and not (question["card"] and view.message_key(question["card"]) == view.message_key(url))
+            ]
+            job["questions"].append(state.new_question(str(rebuilt), title, shown["asked"], card=url) | {"waits": waits})
+    return rebuilt
+
+
+def asks(file: Path, title: str) -> bool:
+    """Whether a kept ASK file redraws the question titled title; one kept under rules it no longer meets redraws none."""
+    try:
+        return limits.redrawn(file.read_text()).title == title
+    except DriveError:
+        return False
+
+
+def keep_waits(job: dict, file: Path, waits: str) -> None:
     """Give the waits id to the newest question kept in the file; a question of the job that held it before, which this card redraws, hands over its card and leaves the job."""
-    question = next((question for question in reversed(job["questions"]) if question["file"] == file), None)
+    question = next((question for question in reversed(job["questions"]) if question["file"] and Path(question["file"]).resolve() == file.resolve()), None)
     if question is None:
         return
     redrawn = next((other["card"] for other in job["questions"] if other is not question and other["waits"] == waits and other["card"]), None)
@@ -2036,10 +2066,11 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="print the card drive job card prints for each of his open question cards, one JSON line each",
         description=(
-            "Redraw his open question cards in one pass: for each open card whose ASK file a job's question keeps, print"
-            " the JSON `drive job card <that file> --waits <its waits id>` prints, one line each, for say(card=…). Each"
-            " card that does not redraw, one no job's question keeps a file for or one whose redraw is refused, is named"
-            " once the rest are printed, and the verb exits 2."
+            "Redraw his open question cards in one pass: for each open card, print the JSON `drive job card <its ASK file>"
+            " --waits <its waits id>` prints, one line each, for say(card=…). Its ASK file is the one a job's question keeps"
+            " under its waits id, else the one a question linked to the card keeps when it asks the card's question, else"
+            " asks/<waits id>.md rebuilt from the card as posted, which a question of its job then keeps. Each card that does"
+            " not redraw, one whose redraw is refused, is named once the rest are printed, and the verb exits 2."
         ),
     )
     verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")

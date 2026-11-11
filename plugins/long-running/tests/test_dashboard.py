@@ -150,6 +150,25 @@ def web(tmp_path: Path, script: str, given: object = None) -> object:
     return json.loads(subprocess.run(["node", str(runner), str(app), script], input=json.dumps(given), capture_output=True, text=True, check=True).stdout)
 
 
+def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_links_and_never_as_a_picture(tmp_path: Path) -> None:
+    body = "\n".join(
+        [
+            "*Show me*",
+            "The DM as drafted",
+            "> Hey Josh! The grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+            ">",
+            "> Can you take it?",
+            "After the quote.",
+        ]
+    )
+    shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
+    assert shown == (
+        "<p><b>Show me</b></p><p>The DM as drafted</p>"
+        '<blockquote class="quote">Hey Josh! The grant throws <a href="https://sentry.io/1" target="_blank" rel="noopener">this error</a> at 9:29 PM.<br><br>Can you take it?</blockquote>'
+        "<p>After the quote.</p>"
+    )
+
+
 def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_path: Path) -> None:
     for kind, surfaces in web(tmp_path, WEB_RENDER, COMPONENTS):
         for surface, shown in surfaces.items():

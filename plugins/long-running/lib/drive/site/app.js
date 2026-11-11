@@ -171,6 +171,7 @@ function up() {
 const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
 const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
 const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
+const QUOTE_LINE = /^\s*>\s?/;
 
 function inline(text, cite = model.repo) {
   const spans = [];
@@ -216,11 +217,8 @@ function prose(text, cite) {
         lines.shift();
         if (!lines.length) continue;
       }
-      if (lines.some((line) => PICTURE_LINE.test(line))) {
-        blocks.push(...lines.map((line) => {
-          const shot = line.match(PICTURE_LINE);
-          return shot ? shown(shot[2], shot[1]) : `<p>${inline(line, cite)}</p>`;
-        }));
+      if (lines.some((line) => PICTURE_LINE.test(line) || QUOTE_LINE.test(line))) {
+        blocks.push(...lineBlocks(lines, cite));
       } else if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
         blocks.push(table(lines, cite));
       } else if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
@@ -231,6 +229,26 @@ function prose(text, cite) {
     }
   });
   return blocks.join('');
+}
+
+function lineBlocks(lines, cite) {
+  const blocks = [];
+  let quote = [];
+  const flush = () => {
+    if (quote.length) blocks.push(`<blockquote class="quote">${quote.map((line) => inline(line, cite)).join('<br>')}</blockquote>`);
+    quote = [];
+  };
+  for (const line of lines) {
+    if (QUOTE_LINE.test(line)) {
+      quote.push(line.replace(QUOTE_LINE, ''));
+      continue;
+    }
+    flush();
+    const shot = line.match(PICTURE_LINE);
+    blocks.push(shot ? shown(shot[2], shot[1]) : `<p>${inline(line, cite)}</p>`);
+  }
+  flush();
+  return blocks;
 }
 
 function fenced(language, source) {
