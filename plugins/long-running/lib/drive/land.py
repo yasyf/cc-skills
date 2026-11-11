@@ -61,7 +61,28 @@ def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
         and not running(pr)
         for pr in prs
     )
-    return fit and any((pr["lander"] or {}).get("head") != pr["head"] for pr in prs)
+    return fit and any(not tried(data, pr) for pr in prs)
+
+
+def tried(data: dict, pr: dict) -> bool:
+    """Whether a lander tried the PR's head and nothing it waited on has moved since: one that found PRs below it without his Approve tries again once he approves each of them or it merges."""
+    lander = pr["lander"] or {}
+    if lander.get("head") != pr["head"]:
+        return False
+    return not lander.get("below") or not all(key in data["prs"] and (approved(data["prs"][key]) or data["prs"][key]["state"] == "merged") for key in lander["below"])
+
+
+def unapproved_below(data: dict, keys: list[str]) -> list[str]:
+    """The open PRs stack-enqueue would queue with keys, below one of them in its native GitHub stack or under one through its base, that he has not approved."""
+    under = dict.fromkeys(key for target in keys for key in github.below(target) if key not in keys)
+    return [key for key in under if not (key in data["prs"] and approved(data["prs"][key]))]
+
+
+def held_below(keys: list[str], below: list[str]) -> str:
+    return (
+        f"not landed: {', '.join(below)} sits below {', '.join(keys)} in its stack without his Approve, and stack-enqueue queues a stack from its bottom, "
+        "so his Approve on a PR above would land it too; it lands once he approves each of them or they merge"
+    )
 
 
 def units(data: dict, keys: list[str], cards: dict) -> list[tuple[str, ...]]:
@@ -128,16 +149,32 @@ def spawn(name: str, keys: tuple[str, ...]) -> int:
         ).pid
 
 
-def run(name: str, keys: list[str]) -> str:
-    """Land one unit his Approve covers, or one yasyf/* PR, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not."""
+def run(name: str, keys: list[str], dry_run: bool = False) -> str:
+    """Land one unit his Approve covers, or one yasyf/* PR, then record what came of it on each PR and as a landing event, which the watch says on the PR's line: a failure wakes its job, a queued one does not. A unit with a PR below it he has not approved is not queued, since stack-enqueue would queue that PR too. A dry run says what it would do and records nothing."""
     data = state.load(name)
     if refused := [key for key in keys if not (state.merges_untapped(key) or state.queued_on_tap(key) and approved(data["prs"][key]))]:
         raise state.DriveError(f"{', '.join(refused)}: the drive lands a yasyf/* PR, or a Forge-AI/monorepo PR he approved, and no other")
-    outcome = merged(keys[0]) if state.merges_untapped(keys[0]) else enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys)
+    below: list[str] = []
+    if state.merges_untapped(keys[0]):
+        outcome = "would merge it with gh pr merge --squash --admin, then install each plugin it changes" if dry_run else merged(keys[0])
+    else:
+        try:
+            below = unapproved_below(data, keys)
+        except github.GithubError as error:
+            outcome = f"not landed: {cut(str(error), SAID_CHARS)}"
+        else:
+            if below:
+                outcome = held_below(keys, below)
+            elif dry_run:
+                outcome = f"would queue {', '.join(keys)} through stack-enqueue --watch: every PR below it is merged or approved by him"
+            else:
+                outcome = enqueued(name, Path(data["roles"]["coordinator"]["cwd"]), keys)
+    if dry_run:
+        return outcome
     with state.edit(name) as data:
         for key in keys:
             pr = data["prs"][key]
-            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome}
+            pr["lander"] = (pr["lander"] or {"head": pr["head"], "pid": os.getpid(), "at": state.stamp()}) | {"outcome": outcome, "below": below}
             repo, number = key.split("#")
             state.append_event(name, "landing", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
     return outcome
@@ -161,12 +198,11 @@ def enqueued(name: str, checkout: Path, keys: list[str]) -> str:
 
 
 def merged(key: str) -> str:
-    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, then install from its merge commit each plugin of this Mac it changes; what came of it."""
+    """Merge a yasyf/* PR with --admin past its checks, by his rule for his own repositories, with gh itself since ccx's GitHub gateway refuses a merge, then install from its merge commit each plugin of this Mac it changes; what came of it."""
     repo, number = key.split("#")
-    try:
-        github.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"])
-    except github.GithubError as error:
-        return f"not landed: gh pr merge --squash --admin refused it: {cut(str(error), SAID_CHARS)}"
+    done = subprocess.run(["gh", "pr", "merge", number, "-R", repo, "--squash", "--admin"], capture_output=True, text=True)
+    if done.returncode:
+        return f"not landed: gh pr merge --squash --admin refused it: {cut(' '.join(done.stderr.split()), SAID_CHARS)}"
     try:
         sha = github.run(["gh", "pr", "view", number, "-R", repo, "--json", "mergeCommit", "-q", ".mergeCommit.oid"]).strip()
         files = github.run(["gh", "api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename"]).splitlines()

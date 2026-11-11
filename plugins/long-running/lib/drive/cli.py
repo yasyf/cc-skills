@@ -1991,7 +1991,7 @@ def pr_tapped(args: argparse.Namespace) -> int:
 
 def pr_land(args: argparse.Namespace) -> int:
     keys = [state.pr_key(url) for url in args.urls]
-    outcome = land.run(state.resolve(args.drive), keys)
+    outcome = land.run(state.resolve(args.drive), keys, args.dry_run)
     return emit(args, outcome, {"keys": keys, "outcome": outcome})
 
 
@@ -2983,6 +2983,7 @@ def parser() -> argparse.ArgumentParser:
         help="what the watch, his Approve and pr add start: queue PRs he approved through stack-enqueue --watch, or merge a yasyf/* PR with --admin and install it",
     )
     verb.add_argument("urls", nargs="+", help="one PR, or a stack bottom first")
+    verb.add_argument("--dry-run", action="store_true", help="say what it would do, refusing as it would, and land and record nothing")
     verb.set_defaults(run=pr_land)
 
     verbs.add_parser("place", parents=both, help="where the next monorepo builder starts").set_defaults(run=place_job)
