@@ -206,6 +206,8 @@ def load(name: str) -> dict:
         order.setdefault("workstream", None)
         order.setdefault("kind", None)
         order.setdefault("complex", False)
+        order.setdefault("options_only", False)
+        order.setdefault("once", False)
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
@@ -439,6 +441,11 @@ def next_id(records: dict, prefix: str) -> str:
 
 def session_role(data: dict, session: str | None) -> str | None:
     return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+
+
+def agent_gone(data: dict, job: dict) -> bool:
+    """Whether the job's agent ended with its session, which no role holds any more."""
+    return session_role(data, job.get("session")) is None
 
 
 def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:

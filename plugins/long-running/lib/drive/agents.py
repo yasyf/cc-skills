@@ -34,9 +34,9 @@ def record(seq: str) -> str:
 
 
 def free(data: dict, job_id: str) -> bool:
-    """Whether an agent at work on the job takes it: the job exists, nobody stopped it, and no agent runs it already."""
+    """Whether an agent at work on the job takes it: the job exists, nobody stopped it, and no agent runs it already but one that ended with its session, which no role holds any more."""
     job = data["jobs"].get(job_id)
-    return bool(job) and job["state"] != "stopped" and not (job["state"] == "running" and job["agent"])
+    return bool(job) and job["state"] != "stopped" and not (job["state"] == "running" and job["agent"] and not state.agent_gone(data, job))
 
 
 def hold(payload: dict) -> None:

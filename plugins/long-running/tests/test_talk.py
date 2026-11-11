@@ -81,15 +81,15 @@ def test_a_card_he_answered_or_the_drive_withdrew_still_links_by_its_waits_id(de
 def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his_words(
     demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
 ) -> None:
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners", "--thread", "1794200000.000100")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "a verb for owners", "--thread", "1794200000.000100")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: one owner per order")
     view.refresh_cards(demo)
     talk.say(demo, {"text": "{order:o1} is live; {order:o2} is next."})
     assert posts[0][-1] == (
-        "<https://acme.slack.com/archives/D123/p1794200000000100|Drive tooling: a verb for owners> is live;"
+        "<https://acme.slack.com/archives/D123/p1794200000000100|a verb for owners> is live;"
         f" <{dashboard.link(demo)}#/feature/o2|Drive tooling: one owner per order> is next."
     )
-    assert said(demo)[0]["text"] == "[Drive tooling: a verb for owners](#/feature/o1) is live; [Drive tooling: one owner per order](#/feature/o2) is next."
+    assert said(demo)[0]["text"] == "[a verb for owners](#/feature/o1) is live; [Drive tooling: one owner per order](#/feature/o2) is next."
     with pytest.raises(DriveError, match=r"\{order:o9\} names no order"):
         talk.say(demo, {"text": "{order:o9} is next."})
 
@@ -212,7 +212,7 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
     assert str(refused.value) == (
         "nothing posted: refused, thread 1794200090.000700 is none of o1's threads, its own, its cards' or its PRs' cards':"
         " 1794200000.000100; post it in one of them, or post it with no order and record the part it delivers with drive order"
-        " posted o1 <its permalink> --part <that part>"
+        " posted o1 <its permalink> --record <the report's seq>"
     )
     with pytest.raises(DriveError, match="nothing posted: refused, his DM root is none of o1's threads"):
         talk.say(demo, {"text": "The copy stalls on the lock.", "order": "o1"})

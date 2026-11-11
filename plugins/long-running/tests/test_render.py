@@ -32,6 +32,7 @@ def order(
         "last_line": None,
         "project": None,
         "workstream": None,
+        "incident": False,
     }
 
 

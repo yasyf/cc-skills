@@ -60,6 +60,13 @@ def due_stamp(text: str) -> str:
 def start(args: argparse.Namespace) -> int:
     if not DRIVE_NAME.fullmatch(args.name):
         raise DriveError(f"drive names are letters, digits, dot, dash and underscore: {args.name}")
+    if not orca.in_terminal():
+        raise DriveError(
+            f"drive start {args.name} --role {args.role}: refused, this session runs in no Orca terminal, so he cannot open it from Orca;"
+            f" start the session in one with orca terminal create --worktree path:{os.getcwd()} --title {args.name}-{args.role}"
+            f" --command \"claude … -- '/long-running {args.name} as the {args.role}: run Start or resume for that role'\" --json,"
+            " whose whole command drive manual start prints"
+        )
     session = os.environ.get("CLAUDE_CODE_SESSION_ID")
     fresh = state.new_drive(args.name, args.role, session, os.getcwd(), args.channel, orca.own_terminal())
     with state.edit_or_create(args.name, fresh) as data:
@@ -89,9 +96,16 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     from_thread = source_thread(args.source)
+    if (args.incident or args.joins) and args.options_only:
+        raise DriveError(
+            "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks;"
+            " add it without --incident and --joins when he asked for options only, or without --options-only when it is an incident"
+        )
+    tooling = args.words.startswith(state.TOOLING)
+    if tooling and args.thread:
+        raise DriveError(f'--thread {args.thread}: refused, a "{state.TOOLING}" order\'s posts go at his DM root, in no thread; add it again without --thread')
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
-    tooling = args.words.startswith(state.TOOLING)
     if tooling and args.owner == "coordinator":
         raise DriveError(
             f'--owner coordinator: a "{state.TOOLING}" order is the communicator\'s, by his words of Nov 10 10:08 PM:'
@@ -102,11 +116,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
-        incidents = [
-            f"{other_id} {other['state']} incident: {other['text'][:80]}; {other['note'] or 'no record'}"
-            for other_id, other in state.open_orders(data).items()
-            if args.incident and not joined and other["incident"]
-        ]
+        incidents = [render.incident_line(other_id, other) for other_id, other in state.open_orders(data).items() if args.incident and not joined and other["incident"]]
         order_id = state.next_id(data["orders"], "o")
         order = data["orders"][order_id] = {
             "text": args.words,
@@ -127,6 +137,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
             "complex": args.complex,
+            "options_only": args.options_only,
+            "once": args.once,
             "owner": owner,
             "project": args.project,
             "workstream": args.workstream,
@@ -293,7 +305,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
         )
         raise DriveError(
             f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
-            f" a post that delivers a part somewhere else is recorded with --part <that part>{joins}"
+            f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{joins}"
         )
     return slack.sent_at(posted), ours
 
@@ -321,13 +333,22 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    if args.thread and order["text"].startswith(state.TOOLING):
+        raise DriveError(f'--thread {args.thread}: refused, {args.id} is a "{state.TOOLING}" order, whose posts go at his DM root, in no thread; leave --thread out')
+    if args.proof is not None:
+        check_proof(args.proof)
+    if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
+        raise DriveError(
+            f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
+            " an incident takes --no-options-only, and an order limited to options --no-incident"
+        )
     destination = order | {"thread": args.thread or order["thread"]}
     if args.thread:
         check_thread(data, destination)
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
-    changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
+    changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn, "options_only": args.options_only, "once": args.once}
     moment = state.now()
     due = state.parse_due(args.due, moment) if args.due else None
     if due and due <= moment:
@@ -385,10 +406,25 @@ def order_set(args: argparse.Namespace) -> int:
     return emit(args, render.order_line(args.id, order) + promised, {"id": args.id, **order})
 
 
+def check_proof(proof: str) -> None:
+    """Refuse a proof that is a claim: one line naming no link and no file that exists, where a check's link, file or pasted output proves it."""
+    named = [found.rstrip(".") for found in brief.PROOF.findall(proof)]
+    if "\n" in proof.strip() or any(found.startswith("http") or Path(found).expanduser().exists() for found in named):
+        return
+    raise DriveError(
+        f'--proof "{proof}": refused, a proof is the check itself, its link, its saved file or its output, never a claim of what it showed:'
+        " rerun the check and paste its output, or link its run"
+    )
+
+
+def filing_pairs(data: dict) -> list[tuple[str, str]]:
+    return sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
+
+
 def order_unfiled(args: argparse.Namespace) -> int:
     data = state.load(state.resolve(args.drive))
     unfiled = {order_id: order for order_id, order in state.open_orders(data).items() if not (order["project"] and order["workstream"])}
-    named = sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
+    named = filing_pairs(data)
     lines = [
         f"{order_id} needs {' and '.join(field for field in ('project', 'workstream') if not order[field])}: {render.cut(order['text'], 120)}"
         for order_id, order in unfiled.items()
@@ -420,7 +456,7 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
     report = report_attrs(seq)
     closes = report.get("close", "").split()
     if not closes:
-        raise DriveError(f"record {seq} has no close attr, so it closes no order; an orders attr only says what its line is about")
+        raise DriveError(f"record {seq} has no close attr, so it closes no order: a report names each order its post finishes in its close attr")
     if order_id not in closes:
         raise DriveError(f"record {seq} does not close {order_id}: its close attr names only {', '.join(closes)}")
     return report
@@ -437,10 +473,16 @@ def report_attrs(seq: str) -> dict:
 
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    if not args.undo:
-        report = (report_attrs(args.record) if args.record else {}) | ({"part": args.part} if args.part else {})
-        return emit(args, *record_post(name, args.id, args.link, report))
     order = communicators_order(state.load(name), args.id)
+    if not args.undo:
+        report = report_attrs(args.record) if args.record else {}
+        if args.part and report.get("part") != args.part:
+            named = f"record {args.record}'s part attr names {report.get('part') or 'none'}" if args.record else "no report record names it"
+            raise DriveError(
+                f'--part "{args.part}": refused, {named}; a post delivers a part only through the report record whose part attr names it:'
+                " pass --record <that record's seq>"
+            )
+        return emit(args, *record_post(name, args.id, args.link, report))
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
     with state.edit(name) as data:
         data["orders"][args.id]["parts"][undone]["posted"] = None
@@ -449,7 +491,10 @@ def order_posted(args: argparse.Namespace) -> int:
 
 def communicators_order(data: dict, order_id: str) -> dict:
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
-        raise DriveError("only the communicator records a post in an order's thread or takes back a part's mark")
+        raise DriveError(
+            "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
+            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
+        )
     return find(data["orders"], order_id, "order")
 
 
@@ -471,15 +516,15 @@ def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
     where = f"thread {thread}" if thread else "his DM root"
     return (
         f"refused, {where} is none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
-        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --part <that part>"
+        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --record <the report's seq>"
     )
 
 
 def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
-    """The parts of the order a post delivers: the part its report or --part names, each part of an order its report closes, or the one part of an order a post carrying no report answers. A report naming neither part nor close is a progress line that delivers none, whatever job it names."""
+    """The parts of the order a post delivers: the part its report names, or each part of an order its report closes. A post whose report names neither part nor close, whatever job it names, or that carries no report is a progress line that delivers none, on an order of one part as on one of several."""
     if part := report.get("part"):
         return pick_parts(order_id, order, [part])
-    if order_id in report.get("close", "").split() or not report and len(order["parts"]) == 1:
+    if order_id in report.get("close", "").split():
         return list(order["parts"])
     return []
 
@@ -1103,6 +1148,8 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: {exposed}")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
+        if data["orders"][job["order"]]["once"]:
+            raise DriveError(f"refused, {job['order']} is a repair he asked to run once: run it, and put up no PR for it")
         cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if state.card_wait(data, wait)]
         if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]):
             raise DriveError(
@@ -1466,7 +1513,9 @@ def heard(args: argparse.Namespace) -> int:
     if news:
         state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news))
     line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
-    return emit(args, line, {"away": args.away, "back": back, "since": since, "catch_up": news})
+    pairs = filing_pairs(data)
+    filed = f"\nin use as project / workstream: {'; '.join(f'{project} / {workstream}' for project, workstream in pairs)}" if pairs else ""
+    return emit(args, line + filed, {"away": args.away, "back": back, "since": since, "catch_up": news, "in_use": pairs})
 
 
 def overlay_live(data: dict) -> str:
@@ -1755,6 +1804,10 @@ def parser() -> argparse.ArgumentParser:
         help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet; --no-complex marks a one-fact lookup, and an answer order asking several questions with neither starts no Sonnet lane",
     )
     verb.add_argument(
+        "--options-only", action="store_true", help="he asked for options only: no builder or codex job starts on it until he picks, only a reader or designer"
+    )
+    verb.add_argument("--once", action="store_true", help="a repair he asked to run once: its job runs it and puts up no PR")
+    verb.add_argument(
         "--owner",
         choices=state.ROLES,
         help=(
@@ -1772,7 +1825,7 @@ def parser() -> argparse.ArgumentParser:
         "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"
     )
     verb.add_argument("--note", help="where the order stands, in a few words")
-    verb.add_argument("--proof", help="the link that proves it done")
+    verb.add_argument("--proof", help="the check that proves it done: its link, its saved file or its pasted output, never a one-line claim of what it showed")
     verb.add_argument("--thread", help="the ts of the thread the order's lines go in")
     verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
     verb.add_argument(
@@ -1782,6 +1835,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--kind", choices=state.ORDER_KINDS, help="sort it again: an answer whose work turns out to need a build becomes a build")
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
+    verb.add_argument(
+        "--options-only", action=argparse.BooleanOptionalAction, help="limit it to options, so no builder or codex job starts on it, or lift that once he picks"
+    )
+    verb.add_argument("--once", action=argparse.BooleanOptionalAction, help="mark or unmark it as a repair he asked to run once, which puts up no PR")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(
@@ -1792,14 +1849,14 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=order_set)
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project or workstream yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
-    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, or the answer a part owes him; a part delivered elsewhere, as a share in another channel, names --part")
+    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
     posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; one in the order's threads keeps a promised time and moves the order's last line")
     posted.add_argument("--undo", action="store_true", help="take back the delivered mark of the part --part names, so it counts as undelivered again")
     verb.add_argument(
         "--part",
-        help="the part the post delivers, which counts in any channel; with none, the only part of an order of one, and no part of an order of several: a progress line, both only in the order's threads",
+        help="with --undo, the part whose mark it takes back; otherwise only the part the --record report's part attr names, since a part is delivered by its report record alone",
     )
     verb.add_argument(
         "--record",
@@ -1841,7 +1898,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
-    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, owner=None)
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, options_only=False, once=False, owner=None)
     verb = incident.add_parser(
         "stop",
         parents=both,

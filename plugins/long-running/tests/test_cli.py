@@ -226,6 +226,7 @@ def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_sw
     monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repos/acme"))
     monkeypatch.setattr(orca, "holds_session", lambda terminal, held: shown["holds"] and held == session)
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_abc")
+    monkeypatch.delenv("TMUX")
     setting = "orca repo set --repo path:/repos/acme --external-worktree-visibility show"
     hidden = "not visible in Orca, which hides the worktrees it did not make for this repository"
 
@@ -2578,14 +2579,15 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "posted", "o1", answer, "--part", "why")[0] == 0
+    report_records(monkeypatch, {"661300": {"part": "why"}})
+    assert run("order", "posted", "o1", answer, "--record", "661300")[0] == 0
     run("order", "set", "o1", "--parts", "why", "what")
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert parts == {"why": {"posted": answer, "orphan_said": None}, "what": state.new_part()}
 
 
 def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
-    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back, find the cause", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
     run("start", "demo", "--role", "communicator")
@@ -2601,22 +2603,24 @@ def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_ke
     assert (order["due"], order["kept"]) == (promised["next_due"], None)
     assert order["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
     assert [part["posted"] for part in order["parts"].values()] == [None, None, None]
-    assert run("order", "posted", "o1", line, "--part", "rollback")[0] == 0
+    report_records(monkeypatch, {"661300": {"part": "rollback"}, "661301": {"part": "fix"}})
+    assert run("order", "posted", "o1", line, "--record", "661300")[0] == 0
     marks = {part: kept["posted"] for part, kept in state.load("demo")["orders"]["o1"]["parts"].items()}
     assert marks == {"stop the harm": None, "rollback": line, "cause": None}
-    assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
+    assert cli.main(["order", "posted", "o1", line, "--record", "661301"]) == 2
     assert 'o1 has no part fix; its parts are "stop the harm", "rollback", "cause"' in capsys.readouterr().err
 
 
-def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread") -> None:
+def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "stop the harm, roll back", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     line = slack_thread.post(state.now(), from_claude=True)
-    run("order", "posted", "o1", line, "--part", "stop the harm")
-    run("order", "posted", "o1", line, "--part", "rollback")
+    report_records(monkeypatch, {"661300": {"part": "stop the harm"}, "661301": {"part": "rollback"}})
+    run("order", "posted", "o1", line, "--record", "661300")
+    run("order", "posted", "o1", line, "--record", "661301")
     assert run("order", "posted", "o1", "--undo")[0] == 2
     assert run("order", "posted", "o1", "--part", "stop the harm", "--undo") == (0, 'o1 "stop the harm": not delivered')
     parts = state.load("demo")["orders"]["o1"]["parts"]
@@ -2624,7 +2628,7 @@ def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str,
 
 
 def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
-    run: Run, demo: str, slack_thread: "Thread"
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "how fast can restore go?", "--thread", "1794100000.000100")
     run("job", "add", "design", "--order", "o1", "--goal", "faster restore")
@@ -2636,12 +2640,13 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     assert run("order", "posted", "o1", answer)[0] == 2
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100"))
-    assert run("order", "posted", "o1", answer)[0] == 0
+    report_records(monkeypatch, {"661300": {"job": "j1", "part": "how fast can restore go?"}})
+    assert run("order", "posted", "o1", answer, "--record", "661300") == (0, f'o1 "how fast can restore go?": posted {answer}')
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer
 
 
 def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_thread(
-    run: Run, demo: str, slack_thread: "Thread"
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
@@ -2655,13 +2660,14 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line)[0] == 2
     slack_thread.messages[0] = root | {"text": f"New: approve web search? — ✓ *Approve* · answered 7:10pm · <{PR}|monorepo PR 42>"}
-    assert run("order", "posted", "o1", line) == (0, f'o1 "ship web search": posted {line}')
+    report_records(monkeypatch, {"661300": {"job": "j1", "part": "ship web search"}})
+    assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "ship web search": posted {line}')
     order = state.load("demo")["orders"]["o1"]
     assert (order["parts"]["ship web search"]["posted"], order["last_line"]) == (line, state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
 def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
-    run: Run, demo: str, slack_thread: "Thread"
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parts = ["answer why it fails silently", "tell the two stopped people now"]
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
@@ -2672,7 +2678,8 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
     told = slack_thread.post(state.now(), from_claude=True).replace("/D123/", "/C0SHARE01/")
     before = state.load("demo")["orders"]["o1"]
     assert run("order", "posted", "o1", told)[0] == 2
-    assert run("order", "posted", "o1", told, "--part", parts[1]) == (
+    report_records(monkeypatch, {"661300": {"part": parts[1]}})
+    assert run("order", "posted", "o1", told, "--record", "661300") == (
         0,
         f'o1 "{parts[1]}": posted {told}, outside his threads, so it is no line to him and keeps no promised time',
     )
@@ -2716,7 +2723,7 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_
     ) in capsys.readouterr().err
     alert = "SandSQL replica lanes unproven on staging"
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
-    assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
+    assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
 
 
 def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time(
@@ -2733,7 +2740,7 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_p
     assert run("order", "posted", "o2", line)[0] == 2
     with state.edit("demo") as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
-    assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
+    assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     assert state.load("demo")["orders"]["o2"]["kept"] == slack.sent_at(slack_thread.messages[-1]).isoformat()
 
 
@@ -2752,13 +2759,17 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
     moment = state.now()
-    reports = {"21": ("o1", moment - timedelta(seconds=35)), "22": ("o1", moment + timedelta(minutes=2)), "23": ("o2", moment + timedelta(seconds=30))}
+    fix = "ship the background-thread fix"
+    reports = {
+        "21": ({"close": "o1"}, moment - timedelta(seconds=35)),
+        "22": ({"close": "o1"}, moment + timedelta(minutes=2)),
+        "23": ({"close": "o2", "part": state.whole_order(fix)}, moment + timedelta(seconds=30)),
+    }
     monkeypatch.setattr(
         cli.reads,
         "run",
-        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": {"close": reports[argv[2]][0]}}}),
+        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
     )
-    fix = "ship the background-thread fix"
     for text in ("unfreeze and release", fix):
         run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
@@ -2789,7 +2800,7 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
 
 
 def test_a_handler_closes_only_an_order_its_report_record_closes(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     attrs = {"10": {"orders": "o1", "thread": "1794200000.000100"}, "11": {"orders": "o1", "close": "o2"}, "12": {"close": "o2 o1"}}
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
@@ -2800,7 +2811,8 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     assert run("order", "set", "o1", "--state", "done")[0] == 2
-    assert run("order", "set", "o1", "--state", "done", "--record", "10")[0] == 2
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "10"]) == 2
+    assert "record 10 has no close attr, so it closes no order: a report names each order its post finishes in its close attr" in capsys.readouterr().err
     assert run("order", "set", "o1", "--state", "done", "--record", "11")[0] == 2
     assert state.load("demo")["orders"]["o1"]["state"] == "open"
     assert run("order", "set", "o1", "--state", "done", "--record", "12")[0] == 0
@@ -2823,10 +2835,169 @@ def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_
     assert (order["state"], order["note"]) == ("dropped", "he called it off")
 
 
-def test_only_the_communicator_marks_an_answer_posted(run: Run, demo: str) -> None:
+def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_told_to_send_a_report_record(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why?")
-    assert run("order", "posted", "o1", "https://acme.slack.com/archives/D1/p2")[0] == 2
+    assert cli.main(["order", "posted", "o1", "https://acme.slack.com/archives/D1/p2"]) == 2
+    assert (
+        "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
+        " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
+    ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
+
+
+def report_records(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, dict]) -> None:
+    monkeypatch.setattr(
+        cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}})
+    )
+
+
+def test_a_part_is_delivered_only_by_the_report_record_that_names_it_and_a_post_with_none_is_a_progress_line(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the unfurl", "--thread", "1794200000.000100", "--parts", "fix")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"661300": {"part": "fix"}, "661301": {}})
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
+    assert (
+        '--part "fix": refused, no report record names it; a post delivers a part only through the report record whose part attr names it:'
+        " pass --record <that record's seq>"
+    ) in capsys.readouterr().err
+    assert cli.main(["order", "posted", "o1", line, "--part", "fix", "--record", "661301"]) == 2
+    assert "record 661301's part attr names none" in capsys.readouterr().err
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
+    assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] is None
+    assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "fix": posted {line}')
+    assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == line
+
+
+def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_starts_it_in_one(
+    run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    monkeypatch.delenv("ORCA_TERMINAL_HANDLE")
+    monkeypatch.delenv("TMUX")
+    assert cli.main(["start", "demo", "--role", "coordinator"]) == 2
+    refused = capsys.readouterr().err
+    assert "drive start demo --role coordinator: refused, this session runs in no Orca terminal, so he cannot open it from Orca" in refused
+    assert f"orca terminal create --worktree path:{tmp_path} --title demo-coordinator" in refused
+    assert not state.exists("demo")
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")
+    monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
+    assert run("start", "demo", "--role", "coordinator")[0] == 0
+
+
+def test_a_drive_tooling_order_takes_no_thread_since_its_posts_go_at_his_dm_root(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
+    assert cli.main([*tooling, "--thread", "1794378983.440769"]) == 2
+    assert (
+        '--thread 1794378983.440769: refused, a "Drive tooling:" order\'s posts go at his DM root, in no thread; add it again without --thread'
+    ) in capsys.readouterr().err
+    assert run(*tooling) == (0, "o1")
+    assert cli.main(["order", "set", "o1", "--thread", "1794378983.440769"]) == 2
+    assert 'o1 is a "Drive tooling:" order, whose posts go at his DM root, in no thread; leave --thread out' in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["thread"] is None
+
+
+def test_a_proof_is_the_checks_link_file_or_output_never_a_claim(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "unquarantine the flaky test")
+    assert cli.main(["order", "set", "o1", "--state", "done", "--proof", "unquarantined"]) == 2
+    assert '--proof "unquarantined": refused, a proof is the check itself' in (refused := capsys.readouterr().err)
+    assert "rerun the check and paste its output, or link its run" in refused
+    assert state.load("demo")["orders"]["o1"]["state"] == "open"
+    saved = tmp_path / "check.txt"
+    saved.write_text("12 passed")
+    for proof in ("https://github.com/acme/app/actions/runs/123", f"saved at {saved}", "$ pytest tests/test_flaky.py\n12 passed in 3.1s"):
+        assert run("order", "set", "o1", "--proof", proof)[0] == 0
+        assert state.load("demo")["orders"]["o1"]["proof"] == proof
+
+
+def test_an_order_limited_to_options_starts_no_builder_or_codex_job_until_he_picks(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "give me options for the cache layout", "--options-only")
+    for kind in ("builder", "codex"):
+        assert cli.main(["job", "add", kind, "--order", "o1", "--goal", "build it"]) == 2
+        refused = capsys.readouterr().err
+        assert f"o1 is limited to options: he picks one before anything is built, so no {kind} starts on it" in refused
+        assert "drive order set o1 --no-options-only" in refused
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "research the options") == (0, "j1")
+    assert run("job", "add", "designer", "--order", "o1", "--goal", "draw his options")[0] == 0
+    run("order", "set", "o1", "--no-options-only")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build his pick")[0] == 0
+
+
+def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_start_at_the_alert(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for joined in ([], ["--joins", "o1"]):
+        assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "give me options only", "--incident", "--parts", "fix", "--options-only", *joined]) == 2
+        assert "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert" in capsys.readouterr().err
+    assert (state.load("demo")["orders"], state.load("demo")["jobs"]) == ({}, {})
+    run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix")
+    run("order", "add", "--project", "p", "--workstream", "w", "give me options for the api fix", "--parts", "fix", "--options-only")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research the options", "--part", "fix")
+    for changed in (["o1", "--options-only"], ["o2", "--incident"]):
+        assert cli.main(["order", "set", *changed]) == 2
+        assert f"{changed[0]}: refused, an incident order is never limited to options" in capsys.readouterr().err
+    orders = state.load("demo")["orders"]
+    assert [(order["incident"], order["options_only"]) for order in orders.values()] == [(True, False), (False, True)]
+    assert run("order", "set", "o2", "--incident", "--no-options-only")[0] == 0
+
+
+def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, demo: str) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
+    with state.locked("demo"):
+        saved = json.loads(state.state_path("demo").read_text())
+        for field in ("options_only", "once"):
+            del saved["orders"]["o1"][field]
+        state.state_path("demo").write_text(json.dumps(saved))
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["options_only"], order["once"]) == (False, False)
+
+
+def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "rerun the backfill once", "--once")
+    run("job", "add", "builder", "--order", "o1", "--goal", "run the backfill")
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert "refused, o1 is a repair he asked to run once: run it, and put up no PR for it" in capsys.readouterr().err
+    assert state.load("demo")["prs"] == {}
+    run("order", "set", "o1", "--no-once")
+    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42")
+
+
+def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix", "first check")
+    run("order", "set", "o1", "--note", "record 3fa2c1")
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix it")
+    lines = run("status")[1].splitlines()
+    assert lines[3:5] == [
+        "Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:",
+        "o1 open incident: errors on the api; record 3fa2c1",
+    ]
+    assert not [line for line in lines if "no live agent" in line]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
+    run("start", "demo", "--role", "coordinator")
+    gone = [f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}" for job_id in ("j1", "j2", "j3")]
+    assert run("status")[1].splitlines()[5:8] == gone
+    assert run("status", "o2")[1].splitlines()[1] == gone[2]
+
+
+def test_heard_prints_the_project_and_workstream_pairs_in_use(run: Run, demo: str) -> None:
+    assert run("heard") == (0, "heard")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
+    assert run("heard") == (0, "heard\nin use as project / workstream: Billing / Invoices; The drive / Releases")
 
 
 def test_version_names_the_plugin_version(capsys: pytest.CaptureFixture[str]) -> None:
