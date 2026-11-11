@@ -37,6 +37,12 @@
         ]
       },
       {
+        "matcher": "mcp__plugin_cc-slack_cc-slack__slack_(thread|history)",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" no_slack_reads.py" }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" landing_guard.py" }
