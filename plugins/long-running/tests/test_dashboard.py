@@ -287,7 +287,7 @@ def test_cited_code_is_read_at_its_prs_head_or_the_drives_default_branch_and_onl
     board = dashboard.Board("demo", [])
     board.heads, board.repo = {"yasyf/cc-skills#41": "abc123"}, "Forge-AI/monorepo"
     read = []
-    monkeypatch.setattr(dashboard.github, "run", lambda cmd: read.append(cmd[2]) or "one\ntwo\nthree\n")
+    monkeypatch.setattr(dashboard.github, "run", lambda cmd, **_: read.append(cmd[2]) or "one\ntwo\nthree\n")
     server, port = serving(board)
     replies = {}
     for cite, path in (("yasyf/cc-skills#41", "a/b.py"), ("Forge-AI/monorepo", "go/c.go"), ("yasyf/other", "a/b.py"), ("Forge-AI/monorepo", "../etc/passwd")):
