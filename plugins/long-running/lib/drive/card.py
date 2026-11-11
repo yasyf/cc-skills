@@ -520,12 +520,12 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
     return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
-def patched(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why a tap PR is one patch too many: two PRs serving its order merged already, and it names none it takes out while the order has no design job."""
+def patched(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
+    """Why a tap PR his card still asks him to approve is one patch too many: two PRs serving its order merged already, and it names none it takes out while the order has no design job."""
     reasons = []
     for key in members:
         name, entry = known[key]
-        if not entry["wants_tap"]:
+        if not offers_approval(reads[key], entry):
             continue
         data = state.load(name)
         order = entry.get("serves") or entry["order"]
@@ -555,7 +555,7 @@ def read_all(keys: list[str]) -> dict[str, dict]:
 
 def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
     shown = [(reads[key], known[key][1], (), ()) for key in members]
-    return patched(known, members) or refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])})
+    return patched(known, members, reads) or refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])})
 
 
 def cards(asked: list[dict]) -> dict:
@@ -584,7 +584,7 @@ def cards(asked: list[dict]) -> dict:
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key]), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
         held = "" if on_his_card(known, reads, members) else waiting(known, members)
-        if reason := held or patched(known, members) or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
+        if reason := held or patched(known, members, reads) or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

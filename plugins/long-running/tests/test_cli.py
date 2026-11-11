@@ -3450,7 +3450,7 @@ def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, 
     owner = state.load("demo")["owner"]
     assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
     refusal = capsys.readouterr().err
-    assert 'his words repeat o1 "ship the unfurl fix and its check", part "fix", and no running, waiting or built job carries it' in refusal
+    assert 'his words repeat o1 "ship the unfurl fix and its check", part "fix", and no running, waiting or built job or open card of his carries it' in refusal
     assert 'start its job with drive job add <kind> --order o1 --part <part> --goal "<its deliverable>", file a defect with this refusal verbatim' in refusal
     assert state.load("demo")["owner"] == owner
     assert cli.main(["heard", "--part", "fix"]) == 2
@@ -3465,6 +3465,21 @@ def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, 
     with state.edit("demo") as data:
         data["jobs"]["j1"]["state"] = "done"
     assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
+
+
+def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
+    run("job", "add", "design", "--order", "o1", "--part", "fix", "--goal", "pick how the card unfurls")
+    run("job", "set", "j1", "--card", DESIGN_CARD)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+    question = {"question": "Which unfurl?", "options": ["Bot", "Link"], "recommended": "Bot", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which unfurl?"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": []})
+    view.refresh_cards("demo")
+    assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards("demo")
+    assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 2
 
 
 def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_to_four(
@@ -3499,6 +3514,22 @@ def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_t
         "3. orca terminal send --terminal term_coordinator --text /exit --enter",
         "4. wait until ps -p 4242 lists nothing",
         f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: create the terminal resuming {held['session']} in {held['cwd']}",
+    ]
+
+
+def test_drive_move_reads_a_role_recorded_before_roles_kept_a_terminal_as_in_none(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "claude_pids", lambda session: [])
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    with state.edit("demo") as data:
+        del data["roles"]["coordinator"]["terminal"]
+    code, out = run("move", "coordinator", "--his-word", his)
+    session = state.load("demo")["roles"]["coordinator"]["session"]
+    assert code == 0
+    assert out.splitlines()[2:4] == [
+        f"3. tmux send-keys -t <pane> /exit Enter under tmux, its pane the one tmux list-panes -a lists with its claude line, or claude stop {session} for a claude --bg session",
+        f"4. wait none: no ~/.claude/sessions/<pid>.json names {session}, so its process has exited",
     ]
 
 

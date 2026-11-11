@@ -212,6 +212,8 @@ def load(name: str) -> dict:
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
+    for held in data["roles"].values():
+        held.setdefault("terminal", None)
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])

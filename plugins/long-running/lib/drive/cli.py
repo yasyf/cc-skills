@@ -1698,7 +1698,7 @@ def heard(args: argparse.Namespace) -> int:
     moment = state.now()
     with state.edit(name) as data:
         if args.repeats or args.part:
-            refuse_an_unheld_repeat(data, args.repeats, args.part)
+            refuse_an_unheld_repeat(name, data, args.repeats, args.part)
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
         data["owner"] = {"heard": state.stamp(moment), "away": args.away}
@@ -1733,21 +1733,25 @@ def term(args: argparse.Namespace) -> int:
     return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
 
 
-def refuse_an_unheld_repeat(data: dict, order_id: str | None, named: list[str]) -> None:
-    """His words repeat a part of an open order: refuse when no running, waiting or built job carries it, since the drive dropped it."""
+def refuse_an_unheld_repeat(name: str, data: dict, order_id: str | None, named: list[str]) -> None:
+    """His words repeat a part of an open order: refuse when no running, waiting or built job carries it and no done job's card of his still open waits on it, since the drive dropped it."""
+    from drive import view
+
     if order_id is None:
         raise DriveError("--part names the part his words repeat of the order --repeats names: pass --repeats <o> with it")
     order = find(data["orders"], order_id, "order")
-    unheld = [
-        part
-        for part in pick_parts(order_id, order, named)
-        if not any(job["state"] not in state.FINISHED_JOB_STATES and part in state.job_parts(job, order_id) for job in data["jobs"].values())
+    found = view.live_cards(name)
+    holding = [
+        job
+        for job in data["jobs"].values()
+        if job["state"] not in state.FINISHED_JOB_STATES or job["state"] == "done" and view.open_cards(job, found)
     ]
+    unheld = [part for part in pick_parts(order_id, order, named) if not any(part in state.job_parts(job, order_id) for job in holding)]
     if unheld:
         parts = ", ".join(f'"{part}"' for part in unheld)
         raise DriveError(
             f'his words repeat {order_id} "{render.cut(order["text"], 200)}", part {parts}, and no running, waiting or built job'
-            f" carries it, so the drive dropped it: start its job with drive job add <kind> --order {order_id} --part <part> --goal"
+            f" or open card of his carries it, so the drive dropped it: start its job with drive job add <kind> --order {order_id} --part <part> --goal"
             ' "<its deliverable>", file a defect with this refusal verbatim, then run heard again'
         )
 
@@ -2576,7 +2580,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--repeats",
         metavar="ORDER",
-        help="the open order a part of which his words repeat, such as asking where it is; refused while no running, waiting or built job carries that part",
+        help="the open order a part of which his words repeat, such as asking where it is; refused while no running, waiting or built job carries that part and no card of his a done job asked on is still open",
     )
     verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
     verb.set_defaults(run=heard)
