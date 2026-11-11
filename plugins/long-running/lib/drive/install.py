@@ -70,8 +70,8 @@ def git(clone: str, *args: str, deadline: float) -> str:
     return run(["git", "-C", clone, *args], deadline)
 
 
-def release_ref(clone: str, plugin: str, deadline: float) -> str | None:
-    """The release the marketplace's default branch names for the plugin, read over git, which the GitHub API's rate limit does not reach."""
+def newest_release(clone: str, plugin: str, deadline: float) -> tuple[str, str] | None:
+    """The release the marketplace's default branch names for the plugin and the plugin's folder in it, read over git, which the GitHub API's rate limit does not reach."""
     git(clone, *FETCH, f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
     marketplace = json.loads(git(clone, "show", f"{DEFAULT_BRANCH}:.claude-plugin/marketplace.json", deadline=deadline))
     entry = next((entry for entry in marketplace["plugins"] if entry["name"] == plugin), None)
@@ -79,45 +79,84 @@ def release_ref(clone: str, plugin: str, deadline: float) -> str | None:
         raise UnknownPlugin(f"the {marketplace['name']} marketplace names no plugin {plugin}")
     source = entry["source"]
     if isinstance(source, dict):
-        if tag := source.get("ref"):
-            git(clone, *FETCH, f"+refs/tags/{tag}:refs/tags/{tag}", deadline=deadline)
-        return tag
+        if not (tag := source.get("ref")):
+            return None
+        fetch_tag(clone, tag, deadline)
+        return tag, str(PurePosixPath(source.get("path", ".")))
     manifest = PurePosixPath(source) / ".claude-plugin" / "plugin.json"
-    return git(clone, "log", "-1", "--first-parent", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
+    ref = git(clone, "log", "-1", "--first-parent", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
+    return ref, str(PurePosixPath(source))
 
 
-def contains(clone: str, ref: str, sha: str, deadline: float) -> bool:
-    return git(clone, "rev-list", "--count", sha, f"^{ref}", deadline=deadline).strip() == "0"
+def fetch_tag(clone: str, tag: str, deadline: float) -> None:
+    git(clone, *FETCH, f"+refs/tags/{tag}:refs/tags/{tag}", deadline=deadline)
 
 
-def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> str:
-    last = "none read"
+def holds(clone: str, build: str, sha: str, deadline: float) -> bool:
+    """Whether build holds every commit on sha's first-parent line but its merges, so a release's version sync merged into the default branch is held once the line below the merge is."""
+    return git(clone, "rev-list", "--count", "--first-parent", "--no-merges", sha, f"^{build}", deadline=deadline).strip() == "0"
+
+
+def binary_lacking(clone: str, repo: str, binruns: list[str], sha: str, deadline: float) -> str | None:
+    """The first binary a plugin runs through a binrun file from a GitHub release of repo whose tag lacks sha, as `cci from release v0.54.27`: the release is built at its tag, cut before the version sync carrying it merges into the default branch, so a commit landing in between is in the plugin's files but not in its binary."""
+    for text in binruns:
+        spec = json.loads(text[text.index("{") :])
+        providers = [provider for platform in spec.get("platforms", {}).values() for provider in platform["providers"]]
+        for tag in sorted({provider["tag"] for provider in providers if provider["type"] == "github-release" and provider["repo"].lower() == repo.lower()}):
+            fetch_tag(clone, tag, deadline)
+            if not holds(clone, tag, sha, deadline):
+                return f"{spec['name']} from release {tag}"
+    return None
+
+
+def release_lacking(clone: str, repo: str, plugin: str, sha: str, deadline: float) -> str | None:
+    """What of the newest release the marketplace names for the plugin lacks sha, its commit or a binary it pins, or None once it holds sha."""
+    named = newest_release(clone, plugin, deadline)
+    if named is None:
+        return "the marketplace names no release of it"
+    ref, folder = named
+    if not holds(clone, ref, sha, deadline):
+        return f"the newest, {ref}, lacks it"
+    paths = git(clone, "ls-tree", "-r", "--name-only", ref, "--", folder, deadline=deadline).splitlines()
+    binruns = [git(clone, "show", f"{ref}:{path}", deadline=deadline) for path in paths if path.endswith(".binrun")]
+    if binary := binary_lacking(clone, repo, binruns, sha, deadline):
+        return f"the newest, {ref}, runs {binary}, which lacks it"
+    return None
+
+
+def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> None:
+    last = "no release read"
     failure = ""
     run(["git", "init", "--bare", "--quiet", clone], deadline)
     git(clone, "remote", "add", "origin", f"https://github.com/{repo}", deadline=deadline)
     while True:
         try:
-            ref = release_ref(clone, plugin, deadline)
-            last = ref or "none named"
+            lacking = release_lacking(clone, repo, plugin, sha, deadline)
             failure = ""
-            if ref and contains(clone, ref, sha, deadline):
-                return ref
+            if lacking is None:
+                return
+            if lacking != last:
+                print(f"drive install: waiting for a {plugin} release holding {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
+            last = lacking
         except UnknownPlugin:
             raise
         except InstallError as error:
             failure = f" (last read failed: {error})"
         left = deadline - clock()
         if left <= 0:
-            raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release containing {sha[:12]}; last ref {last}{failure}")
+            raise InstallError(f"timed out after {timeout}s waiting for a {plugin} release holding {sha[:12]}; {last}{failure}")
         sleep(min(POLL_SECONDS, left))
 
 
-def check_holds(clone: str, key: str, entry: dict, sha: str, deadline: float) -> None:
-    """Refuse an update that left the plugin at a commit without the awaited sha, as a marketplace clone holding moved tags does."""
+def check_holds(clone: str, repo: str, key: str, entry: dict, sha: str, deadline: float) -> None:
+    """Refuse an update that left the plugin at a commit without the awaited sha, as a marketplace clone holding moved tags does, or running a binary from a release without it."""
     commit = entry["gitCommitSha"]
     git(clone, *FETCH, commit, deadline=deadline)
-    if not contains(clone, commit, sha, deadline):
+    if not holds(clone, commit, sha, deadline):
         raise InstallError(f"{key} is still at {entry['version']} ({commit[:12]}) after the update, which does not hold {sha[:12]}, the sha awaited")
+    binruns = [path.read_text() for path in sorted(Path(entry["installPath"]).rglob("*.binrun"))]
+    if binary := binary_lacking(clone, repo, binruns, sha, deadline):
+        raise InstallError(f"{key} {entry['version']} runs {binary} after the update, which does not hold {sha[:12]}, the sha awaited")
 
 
 def installed(key: str) -> dict:
@@ -131,13 +170,14 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
     plugin, _, marketplace = key.partition("@")
     with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
         if sha:
-            await_release(clone, repo or marketplace_repo(marketplace), plugin, sha, deadline, timeout)
+            repo = repo or marketplace_repo(marketplace)
+            await_release(clone, repo, plugin, sha, deadline, timeout)
         with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
             run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
             run(["claude", "plugin", "update", key], deadline)
             entry = installed(key)
         if sha:
-            check_holds(clone, key, entry, sha, deadline)
+            check_holds(clone, repo, key, entry, sha, deadline)
     if after := AFTER_UPDATE.get(plugin):
         run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
     return entry["version"]
@@ -224,7 +264,7 @@ def restart_dashboards(key: str, deadline: float) -> list[str]:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release containing sha, update the plugin, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
+    """Wait for a release holding sha, its commit and each binary it pins, update the plugin, print the installed version, then restart each drive dashboard serving other code and reload every drive session on this Mac."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout)

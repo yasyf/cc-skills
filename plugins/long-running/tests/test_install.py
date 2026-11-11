@@ -13,6 +13,10 @@ from drive import dashboard, install, state
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
 SHOW_MARKETPLACE = ["show", f"{install.DEFAULT_BRANCH}:.claude-plugin/marketplace.json"]
+FOLDER = "plugins/long-running"
+INBOX = "yasyf/cc-inbox"
+INBOX_MANIFEST = "plugin/.claude-plugin/plugin.json"
+CCI_BINRUN = "plugin/bin/cci.binrun"
 IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
 BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
@@ -34,6 +38,7 @@ class FakeGit:
         self.waits: dict[str, dict] = {}
         self.dashboards: dict[str, dict] = {}
         self.installed_sha: str | None = None
+        self.install_root = Path("/cache")
         self.together = threading.Barrier(1)
 
     def clock(self) -> float:
@@ -73,19 +78,19 @@ class FakeGit:
     def answer(self, cmd: list[str]) -> str:
         verb = cmd[3:] if cmd[:2] == ["git", "-C"] else []
         if verb == SHOW_MARKETPLACE:
-            source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "ref": self.next_ref()}
+            source = self.path or {"source": "git-subdir", "url": f"https://github.com/{REPO}", "path": FOLDER, "ref": self.next_ref()}
             return json.dumps({"name": "skills", "plugins": [{"name": "long-running", "source": source}]})
         if verb[:1] == ["log"]:
             return self.next_ref() + "\n"
         if verb[:2] == ["rev-list", "--count"]:
-            return "0\n" if verb[3].removeprefix("^") in self.holding else "4\n"
+            return "0\n" if verb[-1].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
             plugin = cmd[3].partition("@")[0]
             entry = {
                 "scope": "user",
                 "version": "1.0.3",
                 "lastUpdated": "2026-11-09T10:00:00.000Z",
-                "installPath": f"/cache/{plugin}/1.0.3",
+                "installPath": str(self.install_root / plugin / "1.0.3"),
                 "gitCommitSha": self.installed_sha or self.refs[0],
             }
             stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z", "installPath": "/cache/old"}
@@ -130,6 +135,16 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
     return make
 
 
+def holds(sha: str, build: str) -> list[str]:
+    return ["rev-list", "--count", "--first-parent", "--no-merges", sha, f"^{build}"]
+
+
+def binrun(name: str, repo: str, version: str) -> str:
+    provider = {"type": "github-release", "repo": repo, "tag": f"v{version}", "name": f"{name}_{version}_darwin_arm64.tar.gz"}
+    spec = {"schema": 1, "name": name, "kind": "release-binary", "version": {"static": version}, "platforms": {"macos-aarch64": {"path": name, "providers": [provider]}}}
+    return "#!/usr/bin/env binrun\n" + json.dumps(spec, indent=2)
+
+
 def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
     fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -143,9 +158,10 @@ def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
         [*install.FETCH, f"+HEAD:{install.DEFAULT_BRANCH}"],
         SHOW_MARKETPLACE,
         [*install.FETCH, "+refs/tags/long-running--v1.0.3:refs/tags/long-running--v1.0.3"],
-        ["rev-list", "--count", SHA, "^long-running--v1.0.3"],
+        holds(SHA, "long-running--v1.0.3"),
+        ["ls-tree", "-r", "--name-only", "long-running--v1.0.3", "--", FOLDER],
         [*install.FETCH, "long-running--v1.0.3"],
-        ["rev-list", "--count", SHA, "^long-running--v1.0.3"],
+        holds(SHA, "long-running--v1.0.3"),
     ]
     assert git.claude_calls() == [
         ["claude", "plugin", "marketplace", "update", "skills"],
@@ -163,8 +179,34 @@ def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
     out, err = capsys.readouterr()
     assert out == ""
     assert err.strip() == f"drive install: long-running@skills is still at 1.0.3 (0ldc0mm1t5ha) after the update, which does not hold {SHA[:12]}, the sha awaited"
-    assert git.git_calls()[-2:] == [[*install.FETCH, "0ldc0mm1t5ha99"], ["rev-list", "--count", SHA, "^0ldc0mm1t5ha99"]]
+    assert git.git_calls()[-2:] == [[*install.FETCH, "0ldc0mm1t5ha99"], holds(SHA, "0ldc0mm1t5ha99")]
     assert git.orca_calls == []
+
+
+def test_an_update_running_a_binary_from_a_release_without_the_sha_is_refused_naming_the_release(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.install_root = tmp_path / "cache"
+    bin_dir = git.install_root / "long-running" / "1.0.3" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "codex-ask.binrun").write_text(binrun("codex-ask", REPO, "1.15.2"))
+    (bin_dir / "codex-ask.binrun.tmpl").write_text("{{ not json }}")
+    assert install.main("long-running@skills", SHA, None, 900) == 1
+    assert capsys.readouterr().err.strip() == (
+        f"drive install: long-running@skills 1.0.3 runs codex-ask from release v1.15.2 after the update, which does not hold {SHA[:12]}, the sha awaited"
+    )
+    assert git.git_calls()[-2:] == [[*install.FETCH, "+refs/tags/v1.15.2:refs/tags/v1.15.2"], holds(SHA, "v1.15.2")]
+
+
+def test_a_binary_released_from_another_repo_is_not_held_to_the_sha(fake: Callable[..., FakeGit], tmp_path: Path) -> None:
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.install_root = tmp_path / "cache"
+    bin_dir = git.install_root / "long-running" / "1.0.3" / "bin"
+    bin_dir.mkdir(parents=True)
+    (bin_dir / "slop-cop.binrun").write_text(binrun("slop-cop", "yasyf/slop-cop", "0.1.75"))
+    assert install.main("long-running@skills", SHA, None, 900) == 0
+    assert not [call for call in git.git_calls() if "v0.1.75" in call[-1]]
 
 
 def test_a_github_api_rate_limit_cannot_stall_an_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
@@ -185,26 +227,31 @@ def test_a_tag_behind_the_sha_is_polled_until_a_new_tag_catches_up(
     assert len(git.claude_calls()) == 2
 
 
-def test_a_timeout_names_the_last_ref_and_installs_nothing(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_wait_names_each_new_release_lacking_the_sha_and_its_timeout_the_last(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
     git = fake(["long-running--v1.0.1", "long-running--v1.0.2"], set())
     code = install.main("long-running@skills", SHA, None, 60)
     assert code == 1
     assert git.sleeps == [20, 20, 20]
-    assert "last ref long-running--v1.0.2" in capsys.readouterr().err
+    waited, *_, timed_out = capsys.readouterr().err.splitlines()
+    assert waited == f"drive install: waiting for a long-running release holding {SHA[:12]}: the newest, long-running--v1.0.1, lacks it"
+    assert timed_out.startswith(f"drive install: timed out after 60s waiting for a long-running release holding {SHA[:12]}; the newest, long-running--v1.0.2, lacks it")
     assert git.claude_calls() == []
 
 
 @pytest.mark.parametrize(
-    ("path", "manifest"),
-    [("./captain_hook", "captain_hook/.claude-plugin/plugin.json"), ("./", ".claude-plugin/plugin.json")],
+    ("path", "manifest", "folder"),
+    [("./captain_hook", "captain_hook/.claude-plugin/plugin.json", "captain_hook"), ("./", ".claude-plugin/plugin.json", ".")],
 )
 def test_a_path_source_waits_for_the_manifest_commit_that_contains_the_sha(
-    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], path: str, manifest: str
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str], path: str, manifest: str, folder: str
 ) -> None:
     git = fake(["0ld5ync", "n3w5ync"], {"n3w5ync"}, path=path)
     assert install.main("long-running@skills", SHA, None, 900) == 0
     assert ["log", "-1", "--first-parent", "--format=%H", install.DEFAULT_BRANCH, "--", manifest] in git.git_calls()
-    assert ["rev-list", "--count", SHA, "^n3w5ync"] in git.git_calls()
+    assert holds(SHA, "n3w5ync") in git.git_calls()
+    assert ["ls-tree", "-r", "--name-only", "n3w5ync", "--", folder] in git.git_calls()
     assert not [call for call in git.git_calls() if "refs/tags/" in call[-1]]
     assert git.sleeps == [20]
     assert capsys.readouterr().out.strip() == "installed long-running@skills 1.0.3"
@@ -282,26 +329,65 @@ def commit_files(repo: Path, message: str, files: dict[str, str]) -> str:
     return git_in(repo, "rev-parse", "HEAD")
 
 
-def test_a_release_merged_into_the_default_branch_contains_its_merge_commit(tmp_path: Path) -> None:
+@pytest.fixture
+def inbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     origin = tmp_path / "origin"
     origin.mkdir()
     git_in(origin, "init", "-q", "-b", "main")
     marketplace = {"name": "cc-inbox", "plugins": [{"name": "cc-inbox", "source": "./plugin"}]}
-    manifest = "plugin/.claude-plugin/plugin.json"
-    commit_files(origin, "base", {".claude-plugin/marketplace.json": json.dumps(marketplace), manifest: '{"version": "1"}'})
-    commit_files(origin, "code", {"code.go": "package main"})
-    git_in(origin, "checkout", "-q", "-b", "sync")
-    commit_files(origin, "sync to 2", {manifest: '{"version": "2"}'})
+    files = {
+        ".claude-plugin/marketplace.json": json.dumps(marketplace),
+        INBOX_MANIFEST: json.dumps({"version": "0.54.26"}),
+        CCI_BINRUN: binrun("cci", INBOX, "0.54.26"),
+        "internal/grep.go": "package grep",
+    }
+    commit_files(origin, "base", files)
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", f"url.{origin.as_uri()}.insteadOf")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", f"https://github.com/{INBOX}")
+    return origin
+
+
+def tag_release(origin: Path, version: str) -> None:
+    git_in(origin, "checkout", "-q", "-b", f"sync-{version}")
+    commit_files(origin, f"chore: sync cci.binrun + manifest to v{version}", {INBOX_MANIFEST: json.dumps({"version": version}), CCI_BINRUN: binrun("cci", INBOX, version)})
+    git_in(origin, "tag", f"v{version}")
     git_in(origin, "checkout", "-q", "main")
-    git_in(origin, "merge", "-q", "--no-ff", "-m", "merge sync", "sync")
-    merge = git_in(origin, "rev-parse", "HEAD")
-    clone = str(tmp_path / "clone")
-    deadline = install.clock() + 120
-    install.run(["git", "init", "--bare", "--quiet", clone], deadline)
-    install.git(clone, "remote", "add", "origin", origin.as_uri(), deadline=deadline)
-    ref = install.release_ref(clone, "cc-inbox", deadline)
-    assert ref == merge
-    assert install.contains(clone, ref, merge, deadline)
+
+
+def merge_release(origin: Path, version: str) -> str:
+    git_in(origin, "merge", "-q", "--no-ff", "-m", f"Merge sync-{version}", f"sync-{version}")
+    return git_in(origin, "rev-parse", "HEAD")
+
+
+def test_a_release_tagged_before_a_fix_landed_waits_for_the_next_though_its_sync_merged_after_the_fix(
+    inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tag_release(inbox, "0.54.27")
+    fix = commit_files(inbox, "Fix: cci grep prints its cut line once", {"internal/grep.go": "package grep\n\nfunc cut() {}"})
+    synced = merge_release(inbox, "0.54.27")
+    released: list[str] = []
+
+    def release_next(seconds: float) -> None:
+        tag_release(inbox, "0.54.28")
+        released.append(merge_release(inbox, "0.54.28"))
+
+    monkeypatch.setattr(install, "sleep", release_next)
+    install.await_release(str(tmp_path / "clone"), INBOX, "cc-inbox", fix, install.clock() + 120, 120)
+    assert len(released) == 1
+    assert capsys.readouterr().err.splitlines() == [
+        f"drive install: waiting for a cc-inbox release holding {fix[:12]}: the newest, {synced}, runs cci from release v0.54.27, which lacks it"
+    ]
+
+
+def test_a_release_sync_merged_straight_back_holds_its_own_merge_commit(
+    inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    tag_release(inbox, "0.54.27")
+    synced = merge_release(inbox, "0.54.27")
+    monkeypatch.setattr(install, "sleep", lambda seconds: pytest.fail("waited for a release that already holds its own sync merge"))
+    install.await_release(str(tmp_path / "clone"), INBOX, "cc-inbox", synced, install.clock() + 120, 120)
+    assert capsys.readouterr().err == ""
 
 
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
