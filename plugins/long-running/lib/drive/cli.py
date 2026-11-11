@@ -141,9 +141,16 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
     threads = slack.order_threads(data, data["orders"][order_id])
     ours = not threads or posted.get("thread_ts") in {thread for _, thread in threads} or slack.names_order_pr(data, order_id, root)
     if not (ours or named_part):
+        joins = (
+            "; when his message at the root of that thread is another alert on this incident, that alert is its own order, which the"
+            f' coordinator records with drive order add "<his alert>" --from slack:{slack.CARD_LINK.search(link)[1]}/{root["ts"]}'
+            f" --thread {root['ts']} --joins {order_id}, and this line goes on that order"
+            if data["orders"][order_id]["incident"] and root and root.get("from_user")
+            else ""
+        )
         raise DriveError(
             f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
-            " a post that delivers a part somewhere else is recorded with --part <that part>"
+            f" a post that delivers a part somewhere else is recorded with --part <that part>{joins}"
         )
     return slack.sent_at(posted), ours
 
