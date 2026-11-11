@@ -181,11 +181,9 @@ FIRST_CALL = {
         "mcp__plugin_cc-inbox_cci__post"
     ),
     "coordinator": (
-        "Your first call now, before anything else, loads every tool you reach for between compactions, in one"
-        " ToolSearch: select:Monitor,SendMessage,TaskStop,mcp__plugin_cc-notes_cc-notes__answer_add,"
-        "mcp__plugin_cc-notes_cc-notes__answer_search,mcp__plugin_cc-notes_cc-notes__answer_show,"
-        "mcp__plugin_cc-notes_cc-notes__answer_edit,mcp__plugin_cc-slack_cc-slack__slack_thread; then arm Monitor"
-        " `drive watch` (timeout 1800000) unless one is running."
+        "Arm Monitor `drive watch` now (timeout 1800000) unless one is running. A compaction keeps every tool you"
+        " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
+        " answer_add with no ToolSearch first."
     ),
 }
 READS = {
