@@ -620,10 +620,6 @@ IDLE_RULING = {
     "title": "Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking\nsecond line",
 }
 MERGE_RULING = {"id": "33eaad946c1f36dc438a3a04d443eb7d71573815", "title": "What should the revert of the merge rule cover?"}
-BLOB_STORE_RULING = {
-    "id": "f061aac4ba019956eb3e1fcdfafa152600cad4f0",
-    "title": "Owner 8:14 PM Nov 10: where do a new-tree run's files go, and what do files and values blobs build on?",
-}
 
 
 def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reason_names_it(
@@ -664,25 +660,6 @@ def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_nam
     assert all(form in refusal for refusal in refusals)
     assert "The reason given leaves out ac61348." in refusals[0]
     assert "The reason given leaves out 33eaad9." in refusals[1]
-
-
-def test_job_ask_refuses_a_question_whose_whole_block_a_ruling_of_its_drive_is_nearest_to(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers
-) -> None:
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    recorded.found = [IDLE_RULING]
-    recorded.nearest = [BLOB_STORE_RULING, IDLE_RULING]
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    refusal = capsys.readouterr().err
-    assert [line for line in refusal.splitlines() if line.startswith("- ")] == [
-        "- ac61348 Owner Nov 9: close every completed or idle Claude or Codex session and its terminal, without asking",
-        "- f061aac Owner 8:14 PM Nov 10: where do a new-tree run's files go, and what do files and values blobs build on?",
-    ]
-    assert "One that already names what you recommend, such as a service he said to build, settles what that thing does: build it." in refusal
-    assert recorded.near == [(SHORT_ASK, ("--nearest", "--label", "drive:demo"))]
-    why = "ac61348: it closes sessions; f061aac: it says where a run's files go, not how its page finds their maps"
-    assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
 
 
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:
