@@ -164,11 +164,11 @@ def said(text: str | None) -> str:
     return cut(without_records(text or ""), NOW_CHARS)
 
 
-def thread_url(drive: dict, team_url: str, thread: str | None) -> str | None:
-    channel = drive["slack"]["channel"]
-    if not (team_url and channel and thread):
+def thread_url(drive: dict, team_url: str, order: dict) -> str | None:
+    """Slack's link to the thread an order's lines go in, in the channel that thread is in."""
+    if not (team_url and (where := state.promise_thread(drive, order))):
         return None
-    return f"{team_url}archives/{channel}/p{thread.replace('.', '')}"
+    return f"{team_url}archives/{where[0]}/p{where[1].replace('.', '')}"
 
 
 def pr_title(pr: dict) -> str:
@@ -263,7 +263,7 @@ def late_item(drive: dict, order: dict, team_url: str) -> dict:
         "detail": said(order.get("note")),
         "since": order["created"],
         "due": state.owed_at(order),
-        "url": thread_url(drive, team_url, order.get("thread")),
+        "url": thread_url(drive, team_url, order),
         "links": [],
     }
 
@@ -373,7 +373,7 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "late": is_late(order, moment),
         "proof": order.get("proof"),
         "updated": order["updated"],
-        "url": thread_url(drive, found["team_url"], order.get("thread")),
+        "url": thread_url(drive, found["team_url"], order),
         "prs": [pr_entry(pr) for pr in prs],
         "built": [built_entry(drive, job_id, found) for job_id in order["jobs"] if drive["jobs"][job_id]["state"] == "built"],
         "cards": blocking(drive, jobs, prs, found),
@@ -428,7 +428,7 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
     prs = drive["prs"]
     happened = []
     for order_id, order in drive["orders"].items():
-        url = thread_url(drive, team_url, order.get("thread"))
+        url = thread_url(drive, team_url, order)
         swears = len(SWEARS.findall(order["text"]))
         happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id, "swears": swears})
         if order["state"] == "done":

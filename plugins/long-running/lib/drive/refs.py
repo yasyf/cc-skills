@@ -90,9 +90,7 @@ def order(name: str, data: dict, order_id: str) -> dict:
     if order_id not in data["orders"]:
         raise DriveError(f"{{order:{order_id}}} names no order of the drive's; drive status lists them")
     board = f"#/feature/{order_id}"
-    where = state.promise_thread(data, data["orders"][order_id])
-    team_url = view.stored_cards(name)[0]["team_url"]
-    url = f"{team_url}archives/{where[0]}/p{where[1].replace('.', '')}" if where and team_url else dashboard.link(name) + board
+    url = view.thread_url(data, view.stored_cards(name)[0]["team_url"], data["orders"][order_id]) or dashboard.link(name) + board
     return {"kind": "order", "title": view.plain(data["orders"][order_id]["text"], view.TITLE_CHARS), "url": url, "board": board}
 
 

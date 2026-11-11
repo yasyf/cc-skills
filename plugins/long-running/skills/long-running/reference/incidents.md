@@ -58,8 +58,8 @@ changed and when, its findings the suspects, and its root cause the verdict.
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
   cause. Read `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it, with no job of
-  its own: `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread
-  <ts> --joins <o> --project "<o's project>" --workstream "<o's workstream>"`. It takes the parts
+  its own: `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --joins
+  <o> --project "<o's project>" --workstream "<o's workstream>"`. It takes the parts
   his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
   `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
   closed or no incident, and `drive order posted` refuses a line in another alert's thread on an
@@ -73,8 +73,8 @@ changed and when, its findings the suspects, and its root cause the verdict.
 2. Read the open incident orders on the dashboard's top strip. One on the same failing service
    makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
    starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
-   words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --record "<service> on
-   <cluster>: <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`.
+   words, or the alert text>" --from slack:<channel>/<ts> --record "<service> on <cluster>:
+   <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`.
    - `--release`, when a release or new build came before the break, gives it the parts `fix` and
      `first check`. With neither flag they are `fix`, `rollback` and `cause`, and with
      `--no-rollback`, when no build lacks the failing path, `fix`, `stop` and `cause`.
