@@ -325,8 +325,9 @@ stack the PRs form on its own, as `drive card` groups them.
 Write the block to a new file under your scratch directory, one per question, and run
 `drive job ask --check <file>`, which checks its words and the card cc-slack draws from it and prints
 every fix or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
-and names each fix, and return the path it prints. On a Sprite, send it as On a Sprite says, and the
-watch runs the same check.
+and names each fix, and return the path it prints. A kept block you will not return, such as an
+earlier wording of the same question, counts as open until `drive job ask <your job> --drop <its path>`
+throws it away. On a Sprite, send it as On a Sprite says, and the watch runs the same check.
 
 ````
 ASK <the question, one line>

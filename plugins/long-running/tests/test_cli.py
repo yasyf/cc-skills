@@ -1577,6 +1577,35 @@ def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its
     ]
 
 
+def test_job_ask_drop_throws_away_a_near_copy_kept_with_no_card_so_nothing_counts_or_sends_it(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    near_copy = "ASK How should a finished run's files be laid out so its page opens with no guessing?"
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace(SHORT_ASK.split("\n")[0], near_copy)))
+    copy = run("job", "ask", asking, "-")[1]
+    assert f"no card drawn yet, kept in {copy}" in run("status")[1]
+    assert cli.main(["job", "ask", asking, "--drop", first]) == 2
+    assert f"kept in {first} is on his card {link}, which only his answer closes" in capsys.readouterr().err
+    code, out = run("job", "ask", asking, "--drop", copy)
+    assert code == 0 and out.startswith('j1 no longer asks "How should') and f"kept in {copy} is dropped and the file deleted" in out
+    job = state.load("demo")["jobs"]["j1"]
+    assert [(question["file"], question["waits"], question["card"]) for question in job["questions"]] == [(first, "demo:j1-7", link)]
+    assert job["said"] == SHORT_ASK.split("\n")[0].removeprefix("ASK ")
+    assert not Path(copy).exists()
+    status = run("status")[1]
+    assert copy not in status and f"card {link} (demo:j1-7)" in status
+    assert settled.ask_refusal(["demo"], {"ask": copy, "job": "j1"}, near_copy).startswith(f"refused: {copy} keeps no question of j1")
+    assert json.loads(run("job", "card", asking)[1])["title"] == job["said"]
+
+
 def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_on_that_card(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
