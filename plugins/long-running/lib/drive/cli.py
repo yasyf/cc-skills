@@ -886,7 +886,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report or a kept DESIGN return. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report or a kept DESIGN return. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused. With --drop, throw away a question the job kept with no card drawn for it."""
     if args.check:
         limits.shape(named_text(args.check, "ASK block file"), "check", "ask", args.unsettled)
         print("ready")
@@ -894,12 +894,37 @@ def job_ask(args: argparse.Namespace) -> int:
     if args.id is None:
         raise DriveError("name the job whose ASK this keeps: drive job ask <j> <file>; drive job ask --check <file> only checks its shape")
     name = state.resolve(args.drive)
+    if args.drop:
+        dropped = Path(args.drop).expanduser()
+        question = drop_ask(name, args.id, dropped)
+        line = f'{args.id} no longer asks "{render.cut(question["title"] or "", 80)}": its question kept in {dropped} is dropped and the file deleted, so no ask record may name it'
+        return emit(args, line, {"id": args.id, "dropped": str(dropped), "title": question["title"]})
     job = find(state.load(name)["jobs"], args.id, "job")
     text = named_text(args.file, "ASK block file") if args.file else asked_report(name, args.id, job)
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     kept, asked, question = keep_ask(name, args.id, text, args.unsettled)
     return emit(args, str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], **vars(asked)})
+
+
+def drop_ask(name: str, job_id: str, file: Path) -> dict:
+    """Throw away a question the job kept with no card drawn or being drawn for it, such as a near copy of one already asking him: it leaves the job's questions, so nothing counts it open and no ask record may name it, and its file is deleted unless another of the job's questions keeps it; a question on a card is refused, since only his answer to that card closes it."""
+    with state.edit(name) as data:
+        job = find(data["jobs"], job_id, "job")
+        if (question := state.kept_in(job, file)) is None:
+            raise DriveError(f"{file} keeps no question of {job_id}; drive status {job_id} names the file each of its questions is kept in")
+        if drawn := question["card"] or question["waits"]:
+            raise DriveError(
+                f'refused, nothing dropped: {job_id}\'s question "{render.cut(question["title"] or "", 80)}" kept in {file} is on his card {drawn},'
+                " which only his answer closes; drop only a question kept with no card drawn for it"
+            )
+        job["questions"] = [other for other in job["questions"] if other is not question]
+        if job["said"] == question["title"] and job["questions"]:
+            job["said"] = job["questions"][-1]["title"]
+        job["updated"] = state.stamp()
+    if state.kept_in(job, file) is None:
+        file.unlink(missing_ok=True)
+    return question
 
 
 def asked_report(name: str, job_id: str, job: dict) -> str | None:
@@ -2421,7 +2446,7 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "ask",
         parents=both,
-        help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting",
+        help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting; --drop throws away one kept with no card",
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
             " decided, the recommendation, what happens meanwhile, answering his next question: why, did he already decide"
@@ -2459,6 +2484,15 @@ def parser() -> argparse.ArgumentParser:
         "--unsettled",
         metavar="WHY",
         help="one string naming every recorded answer of his the refusal listed, by id, and why it does not settle this question",
+    )
+    verb.add_argument(
+        "--drop",
+        metavar="FILE",
+        help=(
+            "in place of the file, throw away the job's question kept in this file with no card drawn or being drawn for it, one kept"
+            " by mistake such as a near copy of a question already asking him: it leaves the job's open questions and the file is"
+            " deleted, so no ask record may name it; refused for a question on a card, which only his answer closes"
+        ),
     )
     verb.set_defaults(run=job_ask)
     verb = job.add_parser(
