@@ -38,8 +38,8 @@ def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("LONG_RUNNING_STATE", str(root))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     monkeypatch.delenv("LONG_RUNNING_DRIVE", raising=False)
-    monkeypatch.delenv("ORCA_TERMINAL_HANDLE", raising=False)
-    monkeypatch.delenv("TMUX", raising=False)
+    monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")
+    monkeypatch.setenv("TMUX", "/private/tmp/tmux-501/default,1,0")
     monkeypatch.chdir(tmp_path)
     return root
 

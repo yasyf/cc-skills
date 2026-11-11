@@ -79,8 +79,13 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
 
 
 def job_refusal(name: str, data: dict, order_id: str, kind: str) -> str | None:
-    """Why a job of this kind may not start on the order: an answer order is one reader's, and a build order's builder or designer waits on its reader's research, and on a design lane when that research found a choice for him."""
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, and on a design lane when that research found a choice for him."""
     order = data["orders"][order_id]
+    if order["options_only"] and kind in ("builder", "codex"):
+        return (
+            f"{order_id} is limited to options: he picks one before anything is built, so no {kind} starts on it; start a reader or a designer"
+            f" until he picks, drive job add design --order {order_id}, and once he picks, drive order set {order_id} --no-options-only"
+        )
     if order["kind"] == "answer" and kind != "reader":
         return (
             f"{order_id} is an answer order: one reader researches it and answers him, with no {kind} beside it; work its"

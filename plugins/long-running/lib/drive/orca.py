@@ -78,6 +78,11 @@ def call(*args: str) -> dict:
     return request("orchestration", *args, "--full")
 
 
+def in_terminal() -> bool:
+    """Whether this session runs in an Orca terminal, directly or in a tmux started in one."""
+    return "ORCA_TERMINAL_HANDLE" in os.environ
+
+
 def own_terminal() -> str | None:
     """This session's Orca terminal, or None outside one; tmux inherits the handle of the terminal it started in."""
     return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")

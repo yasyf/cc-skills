@@ -283,6 +283,20 @@ def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, 
     return f"{order_id} {order['state']}{due}{where}: {cut(order['text'], limit)}"
 
 
+def incident_line(order_id: str, order: dict) -> str:
+    return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}"
+
+
+def agentless_lines(drive: dict) -> list[str]:
+    """Each running job on this Mac whose session no role holds any more, since its agent ended with that session."""
+    sessions = {held["session"] for held in drive["roles"].values()}
+    return [
+        f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}"
+        for job_id, job in drive["jobs"].items()
+        if job["state"] == "running" and job.get("where") != "remote" and job.get("session") not in sessions
+    ]
+
+
 def pr_line(key: str, pr: dict) -> str:
     tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if owed_step(pr) == "card" else "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
@@ -447,12 +461,16 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
 
 
 def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool = False) -> str:
-    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line."""
+    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line and each of their running jobs with no live agent."""
     lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders; PR fields {pr_fields}"]
     if named:
+        lines.extend(agentless_lines(drive))
         lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))
         return "\n".join(lines)
     lines.extend(role_line(drive, role, seen) for role in ROLES)
+    if incidents := [incident_line(order_id, order) for order_id, order in open_orders(drive).items() if order["incident"]]:
+        lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
+    lines.extend(agentless_lines(drive))
     for order_id, order in open_orders(drive).items():
         lines.extend(order_block(drive, order_id, order, False))
     repros = sorted(

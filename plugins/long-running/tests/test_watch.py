@@ -626,7 +626,8 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     assert cli.main(["start", demo, "--role", "communicator"]) == 0
     assert cli.main(["order", "posted", "o2", his, "--drive", demo]) == 2
-    assert cli.main(["order", "posted", "o2", answer, "--drive", demo]) == 0
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"job": "j2"}}}))
+    assert cli.main(["order", "posted", "o2", answer, "--record", "661300", "--drive", demo]) == 0
     capsys.readouterr()
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     part = state.load(demo)["orders"]["o2"]["parts"]["why do old runs fail?"]

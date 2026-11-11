@@ -206,6 +206,8 @@ def load(name: str) -> dict:
         order.setdefault("workstream", None)
         order.setdefault("kind", None)
         order.setdefault("complex", False)
+        order.setdefault("options_only", False)
+        order.setdefault("once", False)
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
