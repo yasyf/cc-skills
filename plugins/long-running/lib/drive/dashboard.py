@@ -1,4 +1,5 @@
 import functools
+import http.client
 import json
 import mimetypes
 import os
@@ -489,11 +490,11 @@ def serve(name: str, port: int) -> None:
 
 
 def serving(name: str, port: int) -> dict | None:
-    """The model the drive's port serves, or None when nothing answers there."""
+    """The model the drive's port serves, or None when nothing answers there, an answer cut off as the old dashboard stops included."""
     try:
         with urllib.request.urlopen(url_of(port) + "api/view", timeout=30) as answer:
             drawn = json.load(answer)
-    except (urllib.error.URLError, ConnectionError, TimeoutError):
+    except (urllib.error.URLError, ConnectionError, TimeoutError, http.client.IncompleteRead):
         return None
     if drawn.get("drive") != name:
         raise DriveError(f"port {port} serves something else; pass --port")
