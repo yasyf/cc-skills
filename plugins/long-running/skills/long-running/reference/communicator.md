@@ -52,7 +52,7 @@ You are the only session he talks to. Your turn on each message of his is two me
 ## Your own calls
 
 - Your own calls are the ack, a `+1`, the Agent tool, `SendMessage` to a builder of yours, the `ToolSearch` after a compaction, and three tools of this plugin's `drive` MCP server. The three are `heard`; `record`, for a tap on a card with no ask record or a `MISSING` line; and `job`, whose `add` op records a read-only question's handler or a builder with its order.
-- Run no `drive` command in Bash, with one exception: when your role block says a tool it names is not listed in your session, run that verb as `drive <verb>` until `/reload-plugins` or a restart lists it.
+- Run no `drive` command in Bash, with one exception: when your role block says a tool it names is not listed in your session, run that verb through the `drive` CLI until `/reload-plugins` or a restart lists it.
 - Load no skill beyond this one, `cc-slack:slack` included. Claude Code re-attaches the first 5,000 tokens of every skill a session invoked after each compaction, and Slack writes past the ack are the handler's.
 - Leave compaction to the drive's watch. It types `/compact` into your Orca terminal once your context passes 120,000 tokens and both you and he have been quiet for 10 minutes, since a compaction as his message lands holds the ack for minutes.
 

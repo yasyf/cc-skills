@@ -906,7 +906,7 @@ def test_job_ask_refuses_a_question_that_hides_the_terms_its_findings_name(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should the change be laid out"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert 'the question names its object only as "the change", while its summary and findings name LTX, SQLite' in capsys.readouterr().err
+    assert 'the question names its object only as "the change", while its summary and findings name SQLite, LTX' in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should a finished run's LTX files be laid out"))
     assert run("job", "ask", asking, str(block))[0] == 0
 

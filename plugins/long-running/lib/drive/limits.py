@@ -129,7 +129,7 @@ VAGUE = re.compile(
     re.IGNORECASE,
 )
 TERM = re.compile(
-    r"\b\w+_\w+\b|\b\w+\(\)|\b[A-Z][A-Z0-9]{2,}\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b"
+    r"\b\w+_\w+\b|\b\w+\(\)|\b[A-Z][A-Z0-9]{2,}\b|\b[A-Z]{2,}[a-z]{2,}\w*\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b"
     r"|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b"
 )
 RETURN_WORDS = {"ASK", "DONE", "READY", "BUILT", "WAITING", "BLOCKED", "DESIGN", "CHECK", "NATIVE", "URL"}
