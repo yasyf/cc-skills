@@ -112,7 +112,10 @@ limit".
 - A time promised to him is set with `--due` by the coordinator in the same turn, so the watch
   holds the drive to it, from Slack's own record and never a session's word: `drive order add --due`
   counts from the ack that named the time, `drive order set --due` from the next line in the order's
-  thread, and `DUE` repeats every 10 minutes until a drive post is in that thread. His ruling, Nov 9
+  thread, and `DUE` repeats every 10 minutes until a drive post is in that thread. The handler
+  records each line it posts there with `drive order posted <o> <link>`: a line that delivers a
+  part names it with `--part`, and a progress or incident line names none, so it keeps the time
+  and delivers no part. His ruling, Nov 9
   5:24 PM: "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at
   the whims of an agent".
 - No post in his DM goes out unchecked. The hook runs `cc-slack check-post` on the exact words of

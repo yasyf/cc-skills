@@ -11,7 +11,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import Answers
+from conftest import Answers, Thread, Withdrawals
 from drive import card, cli, github, orca, slack, state
 
 Run = Callable[..., tuple[int, str]]
@@ -1049,11 +1049,49 @@ def test_setting_parts_keeps_what_a_kept_part_recorded(
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
     answer = slack_thread.post(state.now(), from_claude=True)
-    assert run("order", "posted", "o1", answer)[0] == 2
     assert run("order", "posted", "o1", answer, "--part", "why")[0] == 0
     run("order", "set", "o1", "--parts", "why", "what")
     parts = state.load("demo")["orders"]["o1"]["parts"]
     assert parts == {"why": {"posted": answer, "orphan_said": None}, "what": state.new_part()}
+
+
+def test_a_post_naming_no_part_of_an_order_of_several_is_a_progress_line_that_keeps_its_promised_time(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "stop the harm, roll back, find the cause", "--thread", "1794200000.000100", "--due", "+10m", "--parts", "stop the harm", "rollback", "cause")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    run("order", "set", "o1", "--due", "+40m")
+    promised = state.load("demo")["orders"]["o1"]
+    assert promised["due"] != promised["next_due"]
+    line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["due"], order["kept"]) == (promised["next_due"], None)
+    assert order["last_line"] == state.stamp(slack.sent_at(slack_thread.messages[-1]))
+    assert [part["posted"] for part in order["parts"].values()] == [None, None, None]
+    assert run("order", "posted", "o1", line, "--part", "rollback")[0] == 0
+    marks = {part: kept["posted"] for part, kept in state.load("demo")["orders"]["o1"]["parts"].items()}
+    assert marks == {"stop the harm": None, "rollback": line, "cause": None}
+    assert cli.main(["order", "posted", "o1", line, "--part", "fix"]) == 2
+    assert 'o1 has no part fix; its parts are "stop the harm", "rollback", "cause"' in capsys.readouterr().err
+
+
+def test_the_communicator_takes_back_a_parts_delivered_mark(run: Run, demo: str, slack_thread: "Thread") -> None:
+    run("order", "add", "stop the harm, roll back", "--thread", "1794200000.000100", "--parts", "stop the harm", "rollback")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    line = slack_thread.post(state.now(), from_claude=True)
+    run("order", "posted", "o1", line, "--part", "stop the harm")
+    run("order", "posted", "o1", line, "--part", "rollback")
+    assert run("order", "posted", "o1", "--undo")[0] == 2
+    assert run("order", "posted", "o1", "--part", "stop the harm", "--undo") == (0, 'o1 "stop the harm": not delivered')
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert (parts["stop the harm"]["posted"], parts["rollback"]["posted"]) == (None, line)
 
 
 def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(

@@ -200,7 +200,8 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
 - `WAITING <what, in plain words>`: CI, a review, a merge queue, another PR.
 - `ASK <path>`: only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. Write the
   block to a file under your scratch directory in this shape, run `drive job ask <your job>
-  <file>`, which refuses it out of shape and names each fix, and return the path it prints:
+  <file>`, which refuses it out of shape and names each fix, and return the path it prints, a
+  new file for each question you keep:
 
   ````
   ASK <the question, one line>

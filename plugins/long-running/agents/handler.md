@@ -63,6 +63,12 @@ Then do the row that matches.
 - Anything he waits on that takes you past a minute gets one line in his thread first: what
   you are doing and when he hears next. An answer not pinned in about four minutes: post what is
   established and that the rest is still being traced, and return that.
+- Every line you post in an order's thread is recorded the moment it is up: `drive order posted
+  <o> <its permalink>`, which keeps the time he was promised and moves the order's last line. A
+  line that delivers a part names it, `--part "<part>"` from the record's `part` attr; a progress
+  or incident line names none, and on an order of several parts it delivers none. An order of one
+  part takes the line as its answer. A part marked delivered by mistake comes back off with
+  `drive order posted <o> --part "<part>" --undo`.
 - Never stop, signal or touch a session, process, build or release, never run tests, never
   search recursively under `~`, `~/.claude` or `/tmp`, and read a transcript only through
   `cc-transcript`.
