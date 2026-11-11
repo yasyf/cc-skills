@@ -8,9 +8,8 @@ from drive import state
 from drive.install import config_dir
 
 PLUGIN = "cc-slack@cc-slack"
-MESSAGE_LINK = re.compile(r"/archives/[A-Z0-9]+/p(\d{10})(\d{6})")
+MESSAGE_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})")
 WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
-RECENT = 50
 WHOLE_THREAD = 1000
 
 
@@ -96,15 +95,16 @@ def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
 
 
 def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
-    """When the drive posted in an order's threads, its own and each of its cards' past the card itself, oldest first among each thread's most recent messages, and why a thread could not be read."""
+    """When the drive posted in an order's threads, its own and each of its cards' past the card itself, oldest first among each thread's messages since its promised time, and why a thread could not be read."""
     if not (threads := order_threads(data, order)):
         return [], "it has no thread to read; give it one with drive order set --thread"
     cards = set(state.card_threads(data, order))
+    since = str(int(state.parse_time(order["promised"]).timestamp()))
     posts: list[datetime] = []
     unread = None
     for where in threads:
         try:
-            messages = thread("--channel", where[0], "--thread", where[1], "--limit", str(RECENT))
+            messages = thread("--channel", where[0], "--thread", where[1], "--since-ts", since, "--limit", str(WHOLE_THREAD))
         except SlackError as error:
             unread = unread or f"its thread {where[1]} could not be read: {error}"
             continue
@@ -137,18 +137,18 @@ def thread_of(channel: str, ts: str) -> str:
 
 
 def message_and_root(link: str) -> tuple[dict, dict | None]:
-    """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call."""
+    """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call; a reply's link with no thread_ts reads the reply alone, so its parent is read from its own thread."""
     match = MESSAGE_LINK.search(link)
     if not match:
         raise SlackError(f"not a Slack message link: {link}")
     messages = thread("--url", link, "--limit", str(WHOLE_THREAD))
-    ts = f"{match[1]}.{match[2]}"
+    ts = f"{match[2]}.{match[3]}"
     found = next((message for message in messages if message["ts"] == ts), None)
     if found is None:
         raise SlackError(f"no message {ts} in the thread at --url {link}")
-    if (root := found.get("thread_ts")) in (None, ts):
+    if (parent := found.get("thread_ts")) in (None, ts):
         return found, None
-    return found, next((message for message in messages if message["ts"] == root), None)
+    return found, next((message for message in messages if message["ts"] == parent), None) or root(match[1], parent)
 
 
 def message_at(ts: str, *where: str) -> dict:

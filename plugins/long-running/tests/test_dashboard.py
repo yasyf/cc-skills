@@ -84,6 +84,7 @@ def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_w
     card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
+    board.revisions = {card: ("Fix: approve web search?", [])}
     asked = []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label, via)) or {"answered": True, "label": label})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
@@ -103,6 +104,7 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent
     card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
     board.answers = {card: ["Approve", "Hold"]}
+    board.revisions = {card: ("Fix: approve web search?", [])}
     asked = []
     monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label})
     monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
@@ -127,6 +129,28 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent
     assert sent == (200, {"answered": True, "label": "Hold"})
     assert late == (409, {"error": dashboard.SENT})
     assert asked == [(card, "Hold")]
+
+
+def test_an_answer_held_while_its_card_is_drawn_again_for_another_pr_head_never_reaches_cc_slack(monkeypatch: pytest.MonkeyPatch) -> None:
+    card = "https://acme.slack.com/archives/D1/p100"
+    board = dashboard.Board("demo", [])
+    board.answers = {card: ["Approve", "Hold"]}
+    board.revisions = {card: dashboard.revision({"title": "Fix: approve web search?", "prs": [{"head": "aaa1111"}]})}
+    asked = []
+    monkeypatch.setattr(dashboard, "answer_card", lambda card, label, via: asked.append((card, label)) or {"answered": True, "label": label})
+    monkeypatch.setattr(dashboard.view, "refresh_cards", lambda name: None)
+    monkeypatch.setattr(dashboard, "UNDO_SECONDS", 2)
+    server, port = serving(board)
+    held = {}
+    clicked = threading.Thread(target=lambda: held.update(reply=post_answer(port, f"http://box:{port}", card, "Approve")))
+    clicked.start()
+    while card not in board.held:
+        time.sleep(0.01)
+    board.revisions = {card: dashboard.revision({"title": "Fix: approve web search?", "prs": [{"head": "bbb2222"}]})}
+    clicked.join()
+    server.shutdown()
+    assert held["reply"] == (409, {"error": dashboard.REDRAWN})
+    assert asked == []
 
 
 WEB_RUNNER = """
