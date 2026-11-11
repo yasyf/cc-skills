@@ -330,7 +330,9 @@ The steps, in order:
    fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the
-   service's other releases until its root fix releases.
+   service's other releases until its root fix releases. An order with a reporter gets
+   `drive order set <o> --proof <that run>` first, so this report's handler posts the fix-live note
+   in the thread the bug was reported in, by [messages.md](messages.md).
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.
@@ -338,5 +340,5 @@ The steps, in order:
    affected users' runs succeed, not that a monitor went quiet.
 
 Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
-the thread, which takes it off the dashboard's top strip, since the strip shows live incidents
-only.
+the thread and its reporter, if any, has heard, which takes it off the dashboard's top strip, since
+the strip shows live incidents only.

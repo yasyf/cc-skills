@@ -36,6 +36,7 @@ UNLISTED = {"-h", "--help", "--drive", "--json"}
 FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 DIRECT_FIX = "Direct fix: on the primary, beside the queries it serves\n"
 DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
     "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + DIRECT_FIX
@@ -3484,6 +3485,59 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     for order_id in ("o2", "o3", "o4"):
         assert run("order", "set", order_id, "--state", "done", "--record", "13")[0] == 0
     assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o2", "o3", "o4")] == ["done", "done", "done"]
+
+
+def note_in(slack_thread: "Thread", ts: str, thread: str = "1794400100.000200", channel: str = "C0REPORTS01") -> str:
+    slack_thread.messages.append({"ts": ts, "thread_ts": thread, "from_claude": True})
+    return f"https://acme.slack.com/archives/{channel}/p{ts.replace('.', '')}?thread_ts={thread}"
+
+
+def test_an_order_with_a_reporter_closes_done_only_once_its_one_fix_live_note_is_recorded_and_one_without_closes_as_before(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--thread", "1794200000.000100", "--reporter", REPORTED)
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the watch", "--thread", "1794200000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    report_records(monkeypatch, {"30": {"close": "o1,o2"}})
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "30"]) == 2
+    assert f"o1: refused, its bug was reported in {REPORTED}, and no fix-live note there is recorded." in capsys.readouterr().err
+    assert run("order", "set", "o2", "--state", "done", "--record", "30")[0] == 0
+    note = note_in(slack_thread, "1794418000.000100")
+    assert cli.main(["order", "told", "o1", note]) == 2
+    assert "o1: refused, it keeps no proof that its fix is live, so a note now would come before the fix" in capsys.readouterr().err
+    run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
+    assert cli.main(["order", "told", "o1", slack_thread.post(state.now(), from_claude=True)]) == 2
+    assert f"is not the drive's post in {REPORTED}, the thread the bug was reported in" in capsys.readouterr().err
+    assert run("order", "told", "o1", note) == (0, f"o1: told in the reporter's thread, {note}")
+    assert cli.main(["order", "told", "o1", note_in(slack_thread, "1794418060.000100")]) == 2
+    assert f"o1: refused, the thread its bug was reported in heard it is fixed once, in {note}, and hears it only once" in capsys.readouterr().err
+    assert run("order", "set", "o1", "--state", "done", "--record", "30")[0] == 0
+    assert [state.load("demo")["orders"][order_id]["state"] for order_id in ("o1", "o2")] == ["done", "done"]
+
+
+def test_a_reporter_the_bot_cannot_reach_is_told_through_him_and_only_his_words_take_a_reporter_off(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "fix it", "--reporter", "C0REPORTS01/1794400100.000200"]) == 2
+    assert "refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>" in capsys.readouterr().err
+    for words in ("fix the deploy", "fix the cache"):
+        run("order", "add", "--project", "p", "--workstream", "w", words, "--thread", "1794200000.000100", "--reporter", "slack:C0REPORTS01/1794400100.000200")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
+    instead = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "told", "o1", instead, "--unreachable") == (0, f"o1: said to him in place of the reporter's thread, {instead}")
+    assert "out of the bot's reach, so he was told in" in run("order", "show", "o1")[1]
+    ours = slack_thread.post(state.now() - timedelta(minutes=2), from_claude=True)
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    assert run("order", "set", "o2", "--no-reporter", ours)[0] == 2
+    assert run("order", "set", "o2", "--no-reporter", his)[0] == 0
+    assert state.load("demo")["orders"]["o2"]["reporter"] is None
 
 
 def test_the_communicator_drops_an_order_no_record_names_with_a_note_and_closes_one_done_only_by_its_record(

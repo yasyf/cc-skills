@@ -17,6 +17,7 @@ RUNNING = [{"name": "test", "conclusion": None}]
 GREEN = [{"name": "test", "conclusion": "SUCCESS"}]
 RED = [{"name": "test", "conclusion": "FAILURE"}]
 ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session expires?"
+REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 
 
@@ -2103,6 +2104,23 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert watch.clock_lines(watching, due) == [line]
     assert watch.clock_lines(watching, due + timedelta(minutes=10)) == []
     assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
+    assert watch.wakes(line, state.load(demo))
+    tooling_order(demo, "running")
+    assert watch.communicators_line(line, state.load(demo))
+
+
+def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_once_ten_minutes_on(demo: str) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"] |= {"reporter": state.reporter(REPORTED), "proof": "https://buildkite.com/forge/release/builds/14185"}
+    watching = watcher(demo)
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=9)) == []
+    line = (
+        f"TELL o1: its fix is proven live and nothing moved on it for 10 minutes, but {REPORTED}, the thread its bug was reported in,"
+        " has not heard it is fixed: send its report with --attr close=o1, whose handler posts the fix-live note there and records it"
+        " with drive order told o1 <its permalink>; done refuses until then"
+    )
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=10)) == [line]
+    assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
     assert watch.communicators_line(line, state.load(demo))

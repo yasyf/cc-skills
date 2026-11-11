@@ -321,8 +321,19 @@ merged and installed, listing each rule now in the skill.
 
 **A fix-live note in a bug report's thread.**
 
-- Post it once per bug, after the fix ships and is checked, never before: one or two plain sentences
-  saying what is fixed and since when, with the link.
+- The drive owes it to whoever reported a bug the drive fixes, in the thread of the report, the moment
+  the fix is live. His words, the day a hand repair went live and the reporter never heard: "Did you
+  let him know it's fixed? … I told him since you never did, fix that". The order keeps that thread
+  from the share or link in his words, `drive order add --reporter`, and `drive status` says on the
+  order's line whether that thread heard.
+- Post it once per bug, once the coordinator keeps the proof the fix is live with `--proof`, never
+  before: one or two plain sentences saying what is fixed and since when, with the link. The handler
+  of the report on that order posts it with `slack_reply` in the same step as his own line, then
+  records it with `drive order told`. When the bot cannot post in that thread, the handler says it to
+  him in the order's thread instead and records that line with `--unreachable`.
+- The drive holds it to once and to after the fix: `drive order set --state done` refuses an order
+  with a reporter until the note is recorded, the watch says `TELL` once when the proof sat 10 minutes
+  with no note, and the post hook refuses a second note in that thread and one before the proof.
 - It needs no card and no approval, because he granted it standing: "we have authorization to message
   once in bug fix threads after we ship the fix … it needs to be in plain simple English no jargon, no
   crazy shit, and no asks".

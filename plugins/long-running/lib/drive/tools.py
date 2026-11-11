@@ -10,7 +10,7 @@ from drive import cli, limits, state, talk
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
-OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
+OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
 ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
@@ -20,7 +20,10 @@ OPS_HELP = (
     " send those ops again."
 )
 LEADS = {
-    "order": "His orders: add records one from his words, set changes one, posted records the communicator's post on one.",
+    "order": (
+        "His orders: add records one from his words, set changes one, posted records the communicator's post on one, told records"
+        " the one fix-live note in the thread the bug it fixes was reported in."
+    ),
     "job": "The drive's jobs: add starts one on an order's parts, set changes one, brief writes its brief.",
     "pr": "The drive's PRs: add records one a job opened, set changes one.",
     "incident": (

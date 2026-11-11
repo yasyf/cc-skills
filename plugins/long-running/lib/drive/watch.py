@@ -25,7 +25,8 @@ FAILURES_BEFORE_SAYING = 3
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "LIVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
+TELL_AFTER = timedelta(minutes=10)
+WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "NOT READY at")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
@@ -52,7 +53,7 @@ STUCK_WORDS = {
     "card": "green and approved with no card drawn",
     "landing": "green, approved and exempt, and not landed",
 }
-ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
 
 
@@ -766,6 +767,30 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     return lines
 
 
+def owes_tell(order: dict, moment: datetime) -> bool:
+    """Whether the bug report an order fixes is owed its fix-live note and the watch has not said so: the order keeps its proof, nothing moved on it for ten minutes, and no note is recorded."""
+    reporter = order["reporter"]
+    return bool(reporter and order["proof"] and not reporter["told"] and not reporter["tell_said"] and moment - state.parse_time(order["updated"]) >= TELL_AFTER)
+
+
+def tell_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each open order proven live whose bug report's thread has not heard it is fixed ten minutes on, said once."""
+    data = state.load(watcher.name)
+    if not (owing := [order_id for order_id, order in heard_orders(watcher, data).items() if owes_tell(order, moment)]):
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for order_id in owing:
+            reporter = data["orders"][order_id]["reporter"]
+            reporter["tell_said"] = state.stamp(moment)
+            lines.append(
+                f"TELL {order_id}: its fix is proven live and nothing moved on it for 10 minutes, but {reporter['link']}, the thread its bug"
+                f" was reported in, has not heard it is fixed: send its report with --attr close={order_id}, whose handler posts the fix-live"
+                f" note there and records it with drive order told {order_id} <its permalink>; done refuses until then"
+            )
+    return lines
+
+
 def ran_out(job: dict, moment: datetime) -> bool:
     return bool(job["due"]) and state.parse_time(job["due"]) <= moment
 
@@ -1229,7 +1254,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1251,6 +1276,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
     lines += clock_lines(watcher, moment)
+    lines += tell_lines(watcher, moment)
     lines += orphan_lines(watcher, moment, {order_id for order_id, _ in due})
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
