@@ -24,8 +24,22 @@ you built up.
 
 1. Make a worktree for the change where your global instructions put worktrees, from the
    repository's default branch, or check out the branch the brief names to adopt.
-2. Search before you write: the code, the plan section in the brief, and his recorded
-   answers (`answer_search`) for anything the change touches. A design choice that neither
+2. Search before you write: the code, the plan section in the brief, and his recorded answers
+   (`answer_search`) on the whole area the change touches, never only the words of its order,
+   quoting each one you follow on your report's `RULINGS:` line. His words say what he wants,
+   never every piece of it, and the rest is yours to find. When he sees or uses what you build,
+   such as a Slack post or card, the dashboard, a CLI he runs or a product UI, read that
+   platform's own docs for what it already does for the job, from the brief's `Native:` line on,
+   and build on the native piece over anything hand-made: Slack's Block Kit has a
+   [data visualization block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block)
+   for line, bar, area and pie charts,
+   [table](https://docs.slack.dev/reference/block-kit/blocks/table-block) and
+   [data table](https://docs.slack.dev/reference/block-kit/blocks/data-table-block) blocks, and
+   [link unfurls](https://docs.slack.dev/messaging/unfurling-links-in-messages). His words, Nov 10
+   10:53 PM, after a card renderer drew a chart as a picture: "and for the chart slack ltieraly
+   has the native fucking vertsion of this why didnt youi build that for the renderer" and "why
+   the fuyck do I hve to tel youi everyt little thing instad of you going and researtching anx
+   doing the right thiung". A design choice that neither
    the brief's `Plan` nor his answers settle is his: two reasonable shapes that cost a lot to
    switch between once built, such as a data layout or file format, a schema or migration
    shape, a lock, queue or scheduler, a public or Sand-facing API shape, or a new background
@@ -53,7 +67,12 @@ you built up.
    with no `Runs as:` line for such work returns `ASK` for one. His ruling, Nov 10 3:38 AM:
    "And remember any passes MUST be done with a service account in the cluster of the respective
    team never form a user role".
-4. Open the PR the repository's way (its own submit wrapper if it has one, otherwise the
+4. Before you open it, meet the result as he will, the post, card, page or command itself, and
+   ask whether he would still have to ask for anything here: a piece his words implied but did
+   not name, a hand-made stand-in for what the platform does natively, a name with no link, a
+   number with no meaning, or a step left for him. Close each gap inside the order yourself,
+   starting from the brief's `Would he ask:` line; one that is a design fork goes back as `ASK`.
+   Then open the PR the repository's way (its own submit wrapper if it has one, otherwise the
    `open-pr` skill), with the body sections the PR card reads under these exact headings,
    detailed in the landing reference of the long-running skill, which `drive manual landing`
    prints and a remote lane's brief carries whole: `## The stack`, the
@@ -100,9 +119,11 @@ you built up.
 ## Tooling
 
 The communicator starts you for drive tooling with a brief of a few lines: `Order: Drive tooling:
-<what>`, `Serves: drive tooling`, `From:`, his words for a ruling, `Drive`, `Scratch`, and an `After:`
-line when a hook refused a post he ordered. Read what `From` names yourself: `cci show <seq>` for a
-defect record, his message for a ruling, and his recorded answers for the decisions that bind. Your
+<what>`, `Serves: drive tooling`, `From:`, his words for a ruling, `Native:`, `Decisions that
+bind:` and `Would he ask:` from what it already knew, `Drive`, `Scratch`, and an `After:` line when
+a hook refused a post he ordered. Those three lines are where steps 2 and 4 start, never where they
+end. Read what `From` names yourself: `cci show <seq>` for a defect record, his message for a ruling,
+and his recorded answers for the decisions that bind. Your
 order is the one whose `from` in `drive status --json` is your `From`, and your job its newest. A
 ruling's rewrite changes the section of this skill it touches in place, and your report lists each
 rule now in the installed skill. Copy an `After:` line into your report as `AFTER:`, and a tool that
@@ -222,8 +243,10 @@ inputs a handler writes his message from, one fact a line, with no polish: `PR:`
 `SERVES:` `port of #N` or the order of his it carries out, quoted from your brief, `CHANGE:` what
 changed for him, `CHECK:` the proof with its link or number, `DESIGN:` on a `READY`, each design
 decision the PR makes beside the answer id or card permalink of his that settled it, or `none`,
-`INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction file's path when you saved
-one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
+`NATIVE:` what the platform he sees it on already does for this and what the change builds on,
+with links, or `none: he never sees it`, `RULINGS:` each ruling of his on the area you followed,
+quoted with its time, `INSTALL:` and `PROVE:` once the PR is open, `REPRO:` the reproduction
+file's path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
 number or path the message needs. An `ASK` keeps no report: `drive job ask` keeps its block.
 
 - `DONE <proof link or one-line proof>`: live and checked.

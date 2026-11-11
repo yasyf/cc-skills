@@ -123,12 +123,19 @@ Order: Drive tooling: <what it fixes or changes, one line>
 Serves: drive tooling
 From: cci:<the defect record's seq> | slack:<channel>/<his message's ts> | agent:<the handler's agent id>
 Ruling (his words): <a ruling only: verbatim, with its time and permalink>
+Native: <where he sees or uses the result, such as a Slack post or card, the dashboard or a CLI he runs, and what that platform already does for it that you know, with links, such as Block Kit's chart and table blocks; "none" when he never sees it>
+Decisions that bind: <his earlier words on the area that you already hold, verbatim with their times>
+Would he ask: <what he would still have to ask for if only his words were built>
 Drive: <name>
 Scratch: <its scratch folder>
 ```
 
 The builder reads the record or his message, his recorded answers and the code itself, and finds its
-order and job in `drive status` by its `From`. Once the Agent tool returns its id, one call records
+order and job in `drive status` by its `From`. You write `Native`, `Decisions that bind` and `Would
+he ask` from what you already know, never a read, since passing his words alone as the whole spec
+built a card renderer that drew a chart as a picture though Slack has its own chart block; the
+builder researches the platform, searches his answers and closes each gap itself, by its agent
+definition. Once the Agent tool returns its id, one call records
 it: `drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"
 --goal "<one line>" --agent <id>`, with no `--thread`. It lands and installs a `yasyf/*` PR itself.
 Its result gets a handler, its card's tap gets `SendMessage`, and every later event on its PRs

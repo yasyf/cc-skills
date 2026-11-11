@@ -81,7 +81,9 @@ Done when: <the check that proves it, e.g. installed and the installed version c
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
-Decisions that bind: <every ruling of his that touches this, his words verbatim with their time and what they imply here, from answer_search; never an id alone>
+Decisions that bind: <every ruling of his on the whole area this touches, never only on the order's own words: his words verbatim with their time and what they imply here, from answer_search; never an id alone>
+Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
+Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, never a pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case; a card of his that blocks it never stops it: build the recommended option meanwhile; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>
 Scratch: <the job's scratch folder>
@@ -103,12 +105,25 @@ himan-quality write ups they just need to dump their context back … I mean the
 would-be wriute ups", and his pick, Nov 10 2:08 AM: "Job reports, alerts, role-to-role notes and
 CI events arrive as one line each, CI events batched per 5 minutes".
 
-- **His words, never a stand-in.** A brief's `Order` and `Decisions that bind` carry what he wrote,
-  verbatim, and so does every cc-notes answer: never a paraphrase, a bot's summary, a card
-  option's label, or an answer id standing in for words he wrote. A tap's label is his answer only
-  to that card's question. A ruling travels by its words and what they imply through every
-  compaction, restart, handoff and `SendMessage`. An id carried alone loses it, since an answer's
-  title is the question and his words are in its body.
+- **His words, never a stand-in, and never the whole spec.** A brief's `Order` and `Decisions that
+  bind` carry what he wrote, verbatim, and so does every cc-notes answer: never a paraphrase, a
+  bot's summary, a card option's label, or an answer id standing in for words he wrote. A tap's
+  label is his answer only to that card's question. A ruling travels by its words and what they
+  imply through every compaction, restart, handoff and `SendMessage`. An id carried alone loses it,
+  since an answer's title is the question and his words are in its body. His words say what he
+  wants, never every piece of it, so a job whose result he sees or uses, a Slack post or card, the
+  dashboard, a CLI he runs or a product UI, does three things its brief's `Native`, `Decisions that
+  bind` and `Would he ask` lines start it on. It reads that platform's own docs for what it
+  already does for the job and builds on that over anything hand-made; it searches his recorded
+  answers on the whole area and quotes each it follows; and before it returns it meets its result
+  as he will and closes each thing he would still have to ask for. His words, Nov 10 10:53 PM,
+  after a card renderer drew a chart as a picture though Slack has a
+  [chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block): "and
+  for the chart slack ltieraly has the native fucking vertsion of this why didnt youi build that
+  for the renderer" and "why the fuyck do I hve to tel youi everyt little thing instad of you going
+  and researtching anx doing the right thiung". The same miss on Oct 6, when a lane moved charts
+  to images: "thread as the native slack charts like current not images, why are you trying to
+  revert it to images?"
 - **His approval of a release approves it, right then.** His order or card pick to ship, release or
   approve a release, or the coordinator's record of either, approves that release and its approve
   gate at once, migrations, deletes and replaces included: the job passes `--order <his answer id>`
