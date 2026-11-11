@@ -170,7 +170,9 @@ each caption outside the fences is one line of at most 25 words. A comparison go
 table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`. `drive job card`
 draws each fenced block but a mermaid one as a picture of the code, highlighted in the language its
 fence names, the way a PR card's Show me is drawn, and puts it on a line of its own where the fence
-was; a fence that names no language is drawn as freeze guesses it, or as plain text. cc-slack draws
+was. A `sand` fence is highlighted as V, the closest language freeze knows, since freeze has no Sand;
+a fence naming a language freeze does not know, or naming none it can guess, is drawn as plain text,
+and one that does not draw at all stays on the card as text, so a picture never refuses a card. cc-slack draws
 each picture line as an image where it sits, uploaded to the drive's private bucket, and the table as
 a table; a picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there.
 His words, Nov 10 8:38 PM, under cards whose code had gone out as raw monospace text: "code used to

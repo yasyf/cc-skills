@@ -62,17 +62,47 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
 
 
-def test_a_question_cards_show_me_draws_each_fence_but_mermaid_and_plain_text_when_freeze_cannot_guess(tmp_path, monkeypatch) -> None:
+def test_a_question_cards_show_me_draws_sand_as_v_plain_text_where_freeze_cannot_highlight_and_keeps_a_fence_that_does_not_draw(tmp_path, monkeypatch) -> None:
     tried = []
 
     def freeze(language: str, source: str, out) -> None:
         tried.append(language)
-        if not language and source.startswith("GET"):
+        if source.startswith("broken") or language in ("", "sand", "proto"):
             raise picture.PictureError("Language Unknown")
         out.write_bytes(b"\x89PNG\r\n")
 
     monkeypatch.setattr(picture, "freeze", freeze)
-    show_me = ["Before:", "```", "GET journal/0001.ltx", "```", "```go", "return nil", "```", "```mermaid", "flowchart LR", "```", "After."]
+    show_me = [
+        "Before:",
+        "```",
+        "GET journal/0001.ltx",
+        "```",
+        "```sand",
+        "fn note() -> int {",
+        "```",
+        "```proto",
+        "message Run {}",
+        "```",
+        "```go",
+        "broken",
+        "```",
+        "```mermaid",
+        "flowchart LR",
+        "```",
+        "After.",
+    ]
     shown = picture.drawn(tmp_path / "pictures", show_me)
-    assert [line.split("](")[0] for line in shown] == ["Before:", "![Show me", "![Show me (2)", "```mermaid", "flowchart LR", "```", "After."]
-    assert tried == ["", "text", "go"]
+    assert [line.split("](")[0] for line in shown] == [
+        "Before:",
+        "![Show me",
+        "![Show me (2)",
+        "![Show me (3)",
+        "```go",
+        "broken",
+        "```",
+        "```mermaid",
+        "flowchart LR",
+        "```",
+        "After.",
+    ]
+    assert tried == ["", "text", "v", "proto", "text", "go", "text"]
