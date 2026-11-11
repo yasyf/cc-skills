@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Thread
+from conftest import Thread, WatchProcess
 from drive import cli, github, reads, render, slack, state, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -76,6 +76,9 @@ def serve(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[
 
 def watcher(name: str, moment: datetime = T0) -> watch.Watcher:
     return watch.Watcher(name, offset=state.events_end(name), ticked_at=moment)
+
+
+REAL_ENSURE = watch.ensure
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
@@ -182,19 +185,18 @@ def run_watch(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
         watch.main(name)
 
 
-def test_a_restarted_watch_replays_events_written_while_none_ran(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_a_restarted_watch_replays_events_written_while_none_ran(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
+    sent = posts(monkeypatch)
     state.append_event(demo, "shown", repo="Forge-AI/monorepo", number=7)
     run_watch(demo, monkeypatch)
-    assert capsys.readouterr().out == ""
+    assert sent == []
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
     run_watch(demo, monkeypatch)
-    assert capsys.readouterr().out == f"TAP Approve {KEY} [o1 j1]\n"
+    assert posted(sent) == [("handoff", f"root@{demo}", f"TAP Approve {KEY} [o1 j1]")]
     assert state.watch_cursor(demo) == state.events_end(demo)
     run_watch(demo, monkeypatch)
-    assert capsys.readouterr().out == ""
+    assert len(sent) == 1
 
 
 def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -229,6 +231,10 @@ def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -
     return sent
 
 
+def posted(sent: list[list[str]]) -> list[tuple[str, str, str]]:
+    return [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[argv.index("--text") + 1]) for argv in sent]
+
+
 def test_a_drive_tooling_orders_lines_go_to_the_communicator_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     tooling_order(demo, "waiting")
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
@@ -236,10 +242,10 @@ def test_a_drive_tooling_orders_lines_go_to_the_communicator_and_never_the_coord
     watching = watcher(demo)
     state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
     assert watch.run_pass(watching, T0) == []
-    assert sent == [
-        ["cci", "post", "--drive", demo, "--lane", "root", "--kind", "handoff", "--to", f"communicator@{demo}", "--text", line]
-        for line in (f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]")
+    assert posted(sent) == [
+        ("handoff", f"communicator@{demo}", line) for line in (f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]")
     ]
+    assert {argv[argv.index("--lane") + 1] for argv in sent} == {"watch"}
 
 
 def test_a_tooling_prs_moves_while_its_builder_runs_are_the_builders_own(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -439,24 +445,8 @@ def test_an_event_with_line_breaks_stays_one_line(demo: str, monkeypatch: pytest
 
 
 def test_second_instance_exits_quietly(demo: str, capsys: pytest.CaptureFixture[str]) -> None:
-    state.pid_path(demo).write_text(f"{os.getpid()}\n")
+    state.pid_path(demo).write_text(f"{os.getppid()}\n")
     assert watch.main(demo) == 0
-    assert capsys.readouterr().out == ""
-
-
-def test_only_the_coordinator_runs_the_watch(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with state.edit(demo) as data:
-        data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
-    assert watch.main(demo) == 0
-    assert capsys.readouterr().out == ""
-    assert not state.pid_path(demo).exists()
-
-
-def test_no_drive_exits_quietly(state_root: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    assert watch.main(None) == 0
     assert capsys.readouterr().out == ""
 
 
@@ -465,6 +455,66 @@ def test_stale_pid_file_is_claimed_and_released(demo: str, monkeypatch: pytest.M
     monkeypatch.setattr(watch, "run_pass", lambda watching, moment: [])
     run_watch(demo, monkeypatch)
     assert not state.pid_path(demo).exists()
+
+
+def test_the_watch_waits_for_one_an_older_install_ran_under_a_monitor_and_sends_the_lines_it_held_once(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    passes = []
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: passes.append(moment) or [])
+    sent = posts(monkeypatch)
+    state.held_path(demo).write_text(f"PR {KEY}: approved [o1 j1]\n")
+    state.monitor_pid_path(demo).write_text(f"{os.getppid()}\n")
+    run_watch(demo, monkeypatch)
+    assert (passes, sent) == ([], [])
+    state.monitor_pid_path(demo).write_text("999999999\n")
+    run_watch(demo, monkeypatch)
+    run_watch(demo, monkeypatch)
+    assert len(passes) == 2
+    assert posted(sent) == [("evidence", f"root@{demo}", f"PR {KEY}: approved [o1 j1]")]
+
+
+def test_a_crashed_watch_wakes_the_coordinator_before_it_ends(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(watch, "run_pass", crash)
+    sent = posts(monkeypatch)
+    with pytest.raises(OSError):
+        watch.main(demo)
+    assert posted(sent) == [("handoff", f"root@{demo}", "WATCH stopped: disk full; drive watch starts it again")]
+    assert not state.pid_path(demo).exists()
+
+
+def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    started = []
+
+    class Started:
+        pid = 4242
+
+        def __init__(self, argv: list[str], **options: object) -> None:
+            started.append((argv, options))
+
+    monkeypatch.setattr(watch.subprocess, "Popen", Started)
+    assert REAL_ENSURE(demo).startswith("started the watch as pid 4242;")
+    [(argv, options)] = started
+    assert argv == [str(watch.DRIVE), "watch", "--loop", "--drive", demo]
+    assert "CLAUDE_CODE_SESSION_ID" not in options["env"] and options["start_new_session"]
+    state.pid_path(demo).write_text(f"{os.getppid()}\n")
+    assert REAL_ENSURE(demo).startswith(f"the watch runs as pid {os.getppid()} ")
+    assert len(started) == 1
+
+
+def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_at_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(demo) as data:
+        data["roles"]["communicator"] = {"session": "talker", "cwd": "/work", "started": state.stamp(T0)}
+    assert cli.main(["watch", "--drive", demo]) == 0
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    assert cli.main(["watch", "--drive", demo]) == 0
+    assert capsys.readouterr().out == f"the watch runs for {demo}\n" * 2
+    assert (watch_process.ensured, watch_process.listened) == ([demo, demo], [(demo, "session-under-test")])
 
 
 REAL_LOCAL_GAP = watch.local_gap
@@ -511,7 +561,8 @@ def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
     assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
     assert state.load(demo)["orders"]["o2"]["jobs"] == ["j2", "j1"]
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    assert run("job", "set", "j1", "--state", "done")[0] == 0
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", "DONE carried it")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o2 "stack 2": no job']
 
 
@@ -875,10 +926,9 @@ def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
     url = "https://github.com/Forge-AI/monorepo/pull/43"
-    assert cli.main(["job", "set", "j1", "--state", "built", "--waits", "demo:j1-7-a", "--drive", demo]) == 2
-    assert "--branch" in capsys.readouterr().err
-    assert cli.main(["job", "set", "j1", "--state", "built", "--branch", "lane/built", "--waits", "demo:j1-7-a", "--drive", demo]) == 0
-    assert capsys.readouterr().out.strip() == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
+    with state.edit(demo) as data:
+        state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
+    assert render.job_line("j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
     assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 2
     assert "j1 waits on his answer to demo:j1-7-a" in capsys.readouterr().err
     assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
@@ -969,39 +1019,68 @@ def test_unknown_model_flags_only_a_build_without_the_model(tmp_path: Path) -> N
     assert watch.unknown_model("2.1.400", "claude-fable-5-2", tmp_path) is None
 
 
-def test_lines_that_wait_go_out_together_once_every_five_minutes_and_taps_go_at_once(demo: str) -> None:
-    watching = watcher(demo)
-    first = f"PR {KEY}: checks passed [o1 j1]"
-    assert watch.delivered(watching, [first], T0) == [first]
-    held = [f"PR {KEY}: approved [o1 j1]", 'ORPHAN o1 "ship": no job']
-    assert watch.delivered(watching, held[:1], T0 + timedelta(minutes=1)) == []
-    assert watch.delivered(watching, held[1:], T0 + timedelta(minutes=4)) == []
-    tap = f"TAP Approve {KEY} [o1 j1]"
-    assert watch.delivered(watching, [tap], T0 + timedelta(minutes=4, seconds=5)) == [tap, *held]
-    merged = f"PR {KEY}: merged [o1 j1]"
-    assert watch.delivered(watching, [merged], T0 + timedelta(minutes=6)) == []
-    assert watch.delivered(watching, [], T0 + timedelta(minutes=9, seconds=5)) == [merged]
-    assert watch.delivered(watching, [], T0 + timedelta(minutes=20)) == []
-
-
-def test_promised_times_lane_reports_and_his_return_never_wait(demo: str) -> None:
-    watching = watcher(demo)
-    assert watch.delivered(watching, [f"PR {KEY}: checks failed [o1 j1]"], T0)
-    urgent = [
+def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_batch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch)
+    waking = [
+        f"TAP Approve {KEY} [o1 j1]",
         'DUE o1 "ship" was due 10:00 AM: no line in its thread since 9:00 AM',
+        'ORPHAN o1 "ship": no job',
+        'ANSWER a1 "one new tool": 1 card with no mark',
         "JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/42",
         'LANE j1 o1 died on Sprite s1: gone, while it worked on "watch".',
         "EVENT catch-up dm=D123 since=9:00 AM orders=o1",
         "EVENT unheard question=Which? pick=Yes",
     ]
-    for line in urgent:
-        assert watch.delivered(watching, [line], T0 + timedelta(minutes=1)) == [line]
+    batched = [f"PR {KEY}: checks passed [o1 j1]", f"PR {KEY}: approved [o1 j1]", f"PR {KEY}: checks failed [o1 j1]", "EVENT note"]
+    assert watch.sent(watcher(demo), "root", waking + batched, T0) == []
+    assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]
+    assert len({argv[argv.index("--topic") + 1] for argv in sent}) == len(sent)
 
 
-def test_lines_held_when_the_watch_stops_are_delivered_by_the_next_watch(demo: str) -> None:
-    state.save_held_lines(demo, [f"PR {KEY}: approved [o1 j1]"])
-    restarted = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, held=state.held_lines(demo))
-    assert watch.delivered(restarted, [], T0) == [f"PR {KEY}: approved [o1 j1]"]
+@pytest.mark.parametrize(("job_state", "kind"), [("running", "evidence"), ("waiting", "handoff"), ("done", "handoff")])
+def test_a_prs_merge_or_red_wakes_the_coordinator_only_when_no_running_job_takes_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, job_state: str, kind: str
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = job_state
+    sent = posts(monkeypatch)
+    moves = [f"PR {KEY}: {move} [o1 j1]" for move in ("merged", "checks failed", "conflicts with its base", "changes requested", "still red for 30 minutes")]
+    watch.sent(watcher(demo), "root", moves, T0)
+    assert posted(sent) == [(kind, f"root@{demo}", line) for line in moves]
+
+
+def test_a_line_the_coordinator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = posts(monkeypatch, [False, False, False, True])
+    watching = watcher(demo)
+    line = f"TAP Approve {KEY} [o1 j1]"
+    said = [watch.sent(watching, "root", [line] if second == 0 else [], T0 + timedelta(seconds=second)) for second in (0, 5, 10, 15, 20)]
+    assert said == [[], [], ["WATCH post to the coordinator failed 3 times in a row: cci post exited 1: no drive demo"], [], []]
+    assert [argv[-1] for argv in sent] == [line]
+
+
+def test_a_prs_move_resumes_the_remote_lane_waiting_on_it_and_reaches_the_coordinator_when_the_resume_fails(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(where="remote", dispatch="d-1", state="waiting")
+    calls, outcomes = [], [True, False]
+
+    def resume(argv: list[str], checkout: Path) -> str:
+        calls.append(argv)
+        if not outcomes.pop(0):
+            raise reads.ReadError("orca exited 1")
+        return ""
+
+    monkeypatch.setattr(watch.reads, "run", resume)
+    watching = watcher(demo)
+    red, approved, merged = (f"PR {KEY}: {move} [o1 j1]" for move in ("checks failed", "approved", "merged"))
+    assert watch.handed(watching, [red, approved], T0) == [approved]
+    assert calls == [[str(watch.DRIVE), "job", "resume", "j1", red, "--drive", demo]]
+    assert watch.handed(watching, [merged], T0) == [f"{merged}; drive job resume j1 failed: orca exited 1"]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "running"
+    assert watch.handed(watching, [merged], T0) == [merged]
+    assert len(calls) == 2
 
 
 def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_until_it_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1016,7 +1095,7 @@ def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_unt
 
     line = 'ANSWER a1 "one new tool": 1 card with no mark, standing, superseded or reopened by it; drive answer a1 lists them'
     assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
-    assert watch.delivered(watching, [line], T0 + timedelta(minutes=20)) == [line]
+    assert watch.wakes(line, state.load(demo))
     with state.edit(demo) as data:
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []

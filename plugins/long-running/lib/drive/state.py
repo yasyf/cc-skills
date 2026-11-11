@@ -14,6 +14,8 @@ JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "BLOCKED": "failed"}
+BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
+BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
@@ -55,7 +57,15 @@ def events_path(name: str) -> Path:
 
 
 def pid_path(name: str) -> Path:
+    return drive_dir(name) / "watchd.pid"
+
+
+def monitor_pid_path(name: str) -> Path:
     return drive_dir(name) / "watch.pid"
+
+
+def watch_log_path(name: str) -> Path:
+    return drive_dir(name) / "watch.log"
 
 
 def cursor_path(name: str) -> Path:
@@ -232,14 +242,17 @@ def agent_job(data: dict, agent: str | None) -> str | None:
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, a reader's answer or DESIGN to done, since a design lane takes its choice on, with that line as its said line; an ASK's is set by drive job ask, and a BUILT's branch and cards by hand."""
+    """Move a running job to the state its result line opens with, with that line as its said line: a reader's answer or DESIGN to done, since a design lane takes its choice on, and `BUILT <branch>, waits on <cards>` to built on that branch, waiting on each card; an ASK's is set by drive job ask."""
     job = data["jobs"][job_id]
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
-    taken = "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
+    built = BUILT_LINE.match(line)
+    taken = "built" if built else "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
     if job["state"] != "running" or not taken:
         return
     job.update(state=taken, said=line, updated=stamp())
+    if built:
+        job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))
     if taken == "done":
         drop_carries(data, job_id)
 
@@ -418,17 +431,14 @@ def save_watch_cursor(name: str, offset: int) -> None:
     os.replace(tmp, path)
 
 
-def held_lines(name: str) -> list[str]:
-    """The watch lines held for the next batch when the watch last stopped, so a restart delivers them."""
+def take_held_lines(name: str) -> list[str]:
+    """The lines a watch run under a Monitor held for its next batch when it stopped, once, so the watch process delivers them."""
     path = held_path(name)
-    return path.read_text().splitlines() if path.exists() else []
-
-
-def save_held_lines(name: str, lines: list[str]) -> None:
-    path = held_path(name)
-    tmp = path.with_name("watch.held.tmp")
-    tmp.write_text("".join(f"{line}\n" for line in lines))
-    os.replace(tmp, path)
+    if not path.exists():
+        return []
+    lines = path.read_text().splitlines()
+    path.unlink()
+    return lines
 
 
 def read_events(name: str, offset: int = 0) -> Iterator[tuple[dict, int]]:

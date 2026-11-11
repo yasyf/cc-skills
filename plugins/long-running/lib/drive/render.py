@@ -98,7 +98,7 @@ COORDINATOR_RULES = (
         " Agent prompt is the line brief prints, Read your brief first: <path>, whose Drive line names the job: the"
         " agent's first Bash, Read, Write or Edit call, or its stop, records it on that job, its first after a"
         " SendMessage runs the job again, and the line it returns sets its state and said line, so no job set follows"
-        " a start, a wake or any result but BUILT."
+        " a start, a wake or any result; job set takes state stopped alone."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
@@ -126,7 +126,7 @@ COORDINATOR_RULES = (
         " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
         " long-running:designer on Fable, which fleshes the design out with worked examples and keeps each fork as an"
         " ASK block, its Show me in code above the options; each fork is one question card. A builder may build the"
-        " recommended option meanwhile and return BUILT: job set state built, branch <b>, waits [each card]. It opens"
+        " recommended option meanwhile and return `BUILT <branch>, waits on <each card>`, which sets its job built. It opens"
         " no PR until he answers them all: pr add refuses, and FREE says when."
     ),
     (
@@ -177,7 +177,7 @@ SUBSCRIBE = {
     "communicator": "cci subscribe --reader communicator --cursor communicator",
     "coordinator": (
         "cci subscribe --reader root --cursor coordinator --to-kind incident,mechanism,fix-live,decide,ask,design,"
-        "blocker,blocked,urgent,answer,release,correction,owner,refuse"
+        "blocker,blocked,urgent,answer,release,correction,owner,refuse,handoff --batch-kinds done,evidence"
     ),
 }
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
@@ -197,7 +197,9 @@ FIRST_CALL = {
         "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__job"
     ),
     "coordinator": (
-        "Arm Monitor `drive watch` now (timeout 1800000) unless one is running. A compaction keeps every tool you"
+        "The watch runs as its own process and posts its lines to you over cci: a line you act on now as a handoff"
+        " record, the rest as evidence records together at most every five minutes; arm no Monitor for it, and run"
+        " drive watch only when a WATCH stopped line says it ended. A compaction keeps every tool you"
         " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
         " answer_add with no ToolSearch first. The drive's order, job, pr and status tools load once, the first time"
         " you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"

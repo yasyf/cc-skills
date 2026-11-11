@@ -23,7 +23,7 @@ fable)", and 9:38 PM, which makes the design lane the one exception (`design`).
   never waits on the communicator. The `communicator` page quotes his rulings on both, Nov 9 4:07
   and 5:02 PM and Nov 10 9:53 and 10:20 PM.
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
-  agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
+  agents that each own one deliverable end to end), routes **events** from the drive's watch, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
   post reaches only the session that posted it.
 

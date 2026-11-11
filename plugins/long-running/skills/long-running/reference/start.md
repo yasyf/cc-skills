@@ -96,13 +96,16 @@ disagree. On Nov 10 the communicator, which had loaded 1.0.14 on Nov 9, kept pas
 3. `cci drive use <name>`, then the block's `Subscribe:` line: `cci subscribe --reader communicator
    --cursor communicator`, or the coordinator's `cci subscribe --reader root --cursor coordinator`
    with a `--to-kind` list that adds `refuse` to the kinds cci's root hears by default, so a
-   refused `ask` wakes it. The named cursor
+   refused `ask` wakes it, and `handoff`, the watch's lines it acts on now, with `--batch-kinds
+   done,evidence` for the watch's other lines. The named cursor
    resumes where the role's last session stopped, so a record sent while it was down arrives now.
 4. The communicator handles each reply `cc-slack dm-owed` lists by its table: he wrote them while
    no session held his DM.
-5. The coordinator arms `Monitor` with `drive watch`, `timeout_ms` 1800000, and arms it again at
-   every expiry notice; a second copy, or one in the communicator's session, exits on its own. Then
-   it reads `drive status`. A restart ends every background agent, so a job whose agent is gone gets
+5. The coordinator's `drive start` starts the watch as its own process unless one runs, and each
+   start of a coordinator session, compactions included, does the same and points its cci channel
+   at the watch: a line it acts on now arrives as a `handoff` record, the rest as `evidence`
+   records together at most every five minutes. It arms no Monitor for the watch; a `WATCH stopped`
+   line says the process ended, and `drive watch` starts it again. Then it reads `drive status`. A restart ends every background agent, so a job whose agent is gone gets
    a fresh one only when something needs it: a `running` job now, a `waiting` job when its next
    event arrives. The fresh brief carries a handoff: branch, PR, the job's last `said` line, and
    the earlier brief's `Order`, `Serves` and `Decisions that bind` in his words, never an answer id

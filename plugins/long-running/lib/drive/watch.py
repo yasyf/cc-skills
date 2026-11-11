@@ -1,7 +1,11 @@
+import contextlib
+import hashlib
 import json
 import mmap
 import os
 import re
+import shlex
+import subprocess
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -9,8 +13,7 @@ from pathlib import Path
 
 from drive import dashboard, github, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
-from drive.render import cut, when
-from drive.state import DriveError
+from drive.render import SUBSCRIBE, cut, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -19,8 +22,11 @@ ANSWERED_ELSEWHERE = "answer_conflict"
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
-BATCH_EVERY = timedelta(minutes=5)
-AT_ONCE = ("TAP ", "DUE ", "ANSWER ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ")
+WAKES = ("TAP ", "DUE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ", "WATCH stopped")
+OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red")
+PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
+LANE = "watch"
+DRIVE = Path(__file__).resolve().parents[2] / "bin" / "drive"
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -38,7 +44,6 @@ STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card dra
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
 OWN_MOVE = re.compile(rf"^PR \S+: (?:{'|'.join(OWN_MOVES)})\b")
-HANDING = "handoff post to the communicator"
 
 
 @dataclass
@@ -52,9 +57,7 @@ class Watcher:
     page_shape: str | None = None
     cards: dict | None = None
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
-    held: list[str] = field(default_factory=list)
-    printed_at: datetime | None = None
-    unsent: list[str] = field(default_factory=list)
+    unsent: dict[str, list[str]] = field(default_factory=dict)
 
 
 def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetime) -> list[str]:
@@ -780,37 +783,68 @@ def needs_step(line: str, data: dict) -> bool:
     return not OWN_MOVE.match(line) and data["jobs"][ABOUT.search(line)["job"]]["state"] != "running"
 
 
+def lane_move(line: str, data: dict) -> str | None:
+    """The remote lane a PR's move goes to: its job's, when that lane returned and waits for its next event."""
+    found = PR_EVENT.match(line)
+    if not found or not found["change"].startswith(OWNER_MOVES):
+        return None
+    job = data["jobs"][found["job"]]
+    return found["job"] if job.get("where") == "remote" and job.get("dispatch") and job["state"] == "waiting" else None
+
+
+def wakes(line: str, data: dict) -> bool:
+    """Whether the coordinator acts on the line now: his tap, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR merged or red whose job is not running to take it."""
+    if line.startswith(WAKES):
+        return True
+    found = PR_EVENT.match(line)
+    return bool(found) and found["change"].startswith(OWNER_MOVES) and data["jobs"][found["job"]]["state"] != "running"
+
+
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    if not lines and not watcher.unsent:
+    """Hand each line to the one who acts on it: a drive tooling order's to the communicator, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
+    if not lines and not watcher.unsent.get("communicator"):
         return []
     data = state.load(watcher.name)
-    owed = watcher.unsent + [line for line in lines if tooling(line, data) and needs_step(line, data)]
-    kept = [line for line in lines if not tooling(line, data)]
-    watcher.unsent, refusal = [], None
-    for line in owed:
+    tooled = [line for line in lines if tooling(line, data) and needs_step(line, data)]
+    moves: dict[str, list[str]] = {}
+    kept = []
+    for line in lines:
+        if tooling(line, data):
+            continue
+        if job_id := lane_move(line, data):
+            moves.setdefault(job_id, []).append(line)
+        else:
+            kept.append(line)
+    for job_id, said in moves.items():
         try:
-            reads.run(
-                ["cci", "post", "--drive", watcher.name, "--lane", "root", "--kind", "handoff", "--to", f"communicator@{watcher.name}", "--text", line[:LINE_LIMIT]],
-                Path(data["roles"]["coordinator"]["cwd"]),
-            )
+            reads.run([str(DRIVE), "job", "resume", job_id, "\n".join(said), "--drive", watcher.name], Path(data["roles"]["coordinator"]["cwd"]))
         except reads.ReadError as error:
-            watcher.unsent.append(line)
-            refusal = error
-    if refusal is None:
-        watcher.failures.pop(HANDING, None)
-        return kept
-    return kept + failed(watcher, HANDING, HANDING, refusal, moment)
+            kept += [f"{line}; drive job resume {job_id} failed: {error}" for line in said]
+    return kept + sent(watcher, "communicator", tooled, moment)
 
 
-def delivered(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """What the coordinator hears from this pass: taps, promised times, his answers that leave cards unmarked, lane reports, a dead lane, his return and his late answer at once; every other line waits so they arrive together at most once every five minutes, and goes out with anything that goes sooner."""
-    now = [line for line in lines if line.startswith(AT_ONCE)]
-    held = watcher.held + [line for line in lines if not line.startswith(AT_ONCE)]
-    if not now and (not held or watcher.printed_at and moment - watcher.printed_at < BATCH_EVERY):
-        watcher.held = held
+def sent(watcher: Watcher, lane: str, lines: list[str], moment: datetime) -> list[str]:
+    """Post each line, after any that failed to post before, to the lane over cci: a coordinator's line it acts on now wakes it, its others reach it together at most every five minutes, and a line that fails goes again next pass, said from its third failure in a row."""
+    owed = watcher.unsent.pop(lane, []) + lines
+    if not owed:
         return []
-    watcher.held, watcher.printed_at = [], moment
-    return now + held
+    data = state.load(watcher.name)
+    refusal, unsent = None, []
+    for line in owed:
+        kind = "handoff" if lane == "communicator" or wakes(line, data) else "evidence"
+        topic = f"watch-{hashlib.sha1(line.encode()).hexdigest()[:10]}"
+        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", kind, "--to", f"{lane}@{watcher.name}", "--topic", topic, "--text", line]
+        try:
+            reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]))
+        except reads.ReadError as error:
+            unsent.append(line)
+            refusal = error
+    what = "handoff post to the communicator" if lane == "communicator" else "post to the coordinator"
+    if refusal is None:
+        watcher.failures.pop(what, None)
+        return []
+    watcher.unsent[lane] = unsent
+    return failed(watcher, what, what, refusal, moment)
 
 
 def alive(pid: int) -> bool:
@@ -823,10 +857,15 @@ def alive(pid: int) -> bool:
     return True
 
 
+def holder(path: Path) -> int | None:
+    held = path.read_text().strip() if path.exists() else ""
+    return int(held) if held.isdigit() and alive(int(held)) else None
+
+
 def claim(name: str) -> bool:
     path = state.pid_path(name)
     with state.locked(name):
-        if path.exists() and (held := path.read_text().strip()).isdigit() and alive(int(held)):
+        if holder(path) not in (None, os.getpid()):
             return False
         path.write_text(f"{os.getpid()}\n")
     return True
@@ -839,26 +878,73 @@ def release(name: str) -> None:
             path.unlink()
 
 
+def ensure(name: str) -> str:
+    """Start the drive's watch as its own process unless one runs, its output in the drive's watch.log; the line saying which."""
+    if pid := holder(state.pid_path(name)):
+        return f"the watch runs as pid {pid} and posts its lines to the coordinator over cci; arm no Monitor for it"
+    env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE}
+    with state.watch_log_path(name).open("a") as log:
+        started = subprocess.Popen(
+            [str(DRIVE), "watch", "--loop", "--drive", name],
+            cwd=state.drive_dir(name),
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    return f"started the watch as pid {started.pid}; it posts its lines to the coordinator over cci, so arm no Monitor for it"
+
+
+def listen(name: str, session: str) -> None:
+    """Point the coordinator session's cci channel at the watch's records: a line it acts on now wakes it, and the rest arrive together at most every five minutes."""
+    argv = [*shlex.split(SUBSCRIBE["coordinator"]), "--drive", name]
+    reads.run(argv, Path(state.load(name)["roles"]["coordinator"]["cwd"]), os.environ | {"CLAUDE_CODE_SESSION_ID": session})
+
+
+def upgraded() -> Path | None:
+    """The drive of the newest installed long-running, when the watch runs from the plugin cache and a newer one is installed."""
+    if not DRIVE.is_relative_to((config_dir() / "plugins" / "cache").resolve()):
+        return None
+    plugins = json.loads((config_dir() / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    installs = [entry for key, entries in plugins.items() if key.partition("@")[0] == "long-running" for entry in entries]
+    newest = Path(max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")["installPath"]) / "bin" / "drive"
+    return None if newest.resolve() == DRIVE else newest
+
+
+def stopped(watcher: Watcher, error: Exception) -> None:
+    line = f"WATCH stopped: {cut(str(error) or type(error).__name__, 200)}; drive watch starts it again"
+    with contextlib.suppress(reads.ReadError):
+        sent(watcher, "root", [line], state.now())
+
+
 def main(drive_name: str | None = None) -> int:
-    try:
-        name = state.resolve(drive_name)
-    except DriveError:
-        return 0
-    if state.session_role(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID")) != "coordinator":
-        return 0
+    """Run the drive's watch until it stops, once a watch an older install ran under a Monitor has ended."""
+    name = state.resolve(drive_name)
     if not claim(name):
         return 0
-    watcher = Watcher(name, offset=state.watch_cursor(name), ticked_at=state.now(), held=state.held_lines(name))
-    state.save_watch_cursor(name, watcher.offset)
     try:
-        while True:
-            read_from, held, moment = watcher.offset, watcher.held, state.now()
-            for line in delivered(watcher, run_pass(watcher, moment), moment):
-                print(line, flush=True)
-            if watcher.held != held:
-                state.save_held_lines(name, watcher.held)
-            if watcher.offset != read_from:
-                state.save_watch_cursor(name, watcher.offset)
+        while holder(state.monitor_pid_path(name)):
             time.sleep(POLL_SECONDS)
+        watching(Watcher(name, offset=state.watch_cursor(name), ticked_at=state.now(), unsent={"root": state.take_held_lines(name)}))
     finally:
         release(name)
+    return 0
+
+
+def watching(watcher: Watcher) -> None:
+    """Hand each pass's lines to whoever acts on them, and let a newer install take over in place; a crash wakes the coordinator first."""
+    state.save_watch_cursor(watcher.name, watcher.offset)
+    try:
+        while True:
+            read_from, moment = watcher.offset, state.now()
+            for line in sent(watcher, "root", run_pass(watcher, moment), moment):
+                print(line, flush=True)
+            if watcher.offset != read_from:
+                state.save_watch_cursor(watcher.name, watcher.offset)
+            if (newer := upgraded()) and not any(watcher.unsent.values()):
+                os.execv(newer, [str(newer), "watch", "--loop", "--drive", watcher.name])
+            time.sleep(POLL_SECONDS)
+    except Exception as error:
+        stopped(watcher, error)
+        raise

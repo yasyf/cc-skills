@@ -70,7 +70,7 @@ tokens of every skill a session invoked after each compaction, and Slack writes 
 the handler's.
 
 It compacts only at a quiet moment, never at its context limit mid-conversation, since a compaction
-as his message lands holds the ack for minutes. The coordinator's `drive watch` does it: once the
+as his message lands holds the ack for minutes. The drive's watch does it: once the
 communicator's context passes 120,000 tokens and both it and he have been quiet for 10 minutes, the
 watch types `/compact` into the communicator's Orca terminal. A compaction that comes anyway, such
 as one forced at its context limit, still acks him: cc-slack's compaction hook marks the session,
