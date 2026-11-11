@@ -34,6 +34,7 @@ LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
+UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
@@ -438,7 +439,7 @@ def first_line(text: str) -> str:
 
 
 def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str | None:
-    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer."""
+    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, and for an `ASK` that `drive job ask` keeps it, since a file of the job's already under `asks/` holds an earlier question."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -457,8 +458,11 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
             job.update(ask=None, state="running")
         state.take_result(data, job_id, job["said"])
     line = f"JOB {job_id} {job['order']} {job['said']}"
-    asked = reads.logs(body) if job.get("ask") == message["id"] else None
-    return f"{line}; drive job resume reads {asked} ahead of your answer" if asked else line
+    if job.get("ask") != message["id"]:
+        return line
+    if asked := reads.logs(body):
+        return f"{line}; drive job resume reads {asked} ahead of your answer"
+    return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:

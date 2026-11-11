@@ -948,13 +948,13 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
 
 def asking(data: dict, title: str, cards: dict | None) -> list[tuple[str, dict]]:
     """Each job's open question asking him what this title asks, oldest first, by its job, his words under its card closing it as his pick does: one question has one card, so every ask of it after the first redraws that card."""
-    from drive import superseded, view
+    from drive import superseded
 
     return [
         (job_id, question)
         for job_id, job in data["jobs"].items()
-        for question in view.open_questions(job, cards)
-        if state.same_question(question["title"], title) and not superseded.said_on(data, question["card"])
+        for question in superseded.unanswered(data, job, cards)
+        if state.same_question(question["title"], title)
     ]
 
 
@@ -1008,7 +1008,7 @@ def question_card(name: str, path: Path, waits: str, reworking: str | None = Non
     data = state.load(name)
     job_id = waits.partition(":")[2].partition("-")[0]
     if job := data["jobs"].get(job_id):
-        question = kept_in(job, path) or next(
+        question = state.kept_in(job, path) or next(
             (question for other, question in reversed(asking(data, asked.title, view.live_cards(name))) if other == job_id and question["file"]), None
         )
         if question and Path(question["file"]).resolve() != path.resolve():
@@ -1085,14 +1085,9 @@ def asks(file: Path, title: str) -> bool:
         return False
 
 
-def kept_in(job: dict, file: Path) -> dict | None:
-    """The job's newest question kept in this ASK file."""
-    return next((question for question in reversed(job["questions"]) if question["file"] and Path(question["file"]).resolve() == file.resolve()), None)
-
-
 def keep_waits(job: dict, file: Path, waits: str) -> None:
     """Give the waits id to the newest question kept in the file; a question of the job that held it before, which this card redraws, hands over its card and leaves the job."""
-    question = kept_in(job, file)
+    question = state.kept_in(job, file)
     if question is None:
         return
     redrawn = next((other["card"] for other in job["questions"] if other is not question and other["waits"] == waits and other["card"]), None)

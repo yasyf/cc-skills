@@ -723,7 +723,8 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     deliver(monkeypatch, [message("question", sent)])
     monkeypatch.setattr(github, "fetch", lambda keys: {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent.splitlines()[0]}"]
+    kept = f"; {watch.UNKEPT_ASK.format(job='j1')}" if sent is ASK_IN_SHAPE else ""
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent.splitlines()[0]}{kept}"]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
     assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
@@ -941,7 +942,7 @@ def test_an_ask_in_shape_wakes_the_coordinator_once_its_card_draws(remote: str, 
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0) == ["JOB j1 o1 ASK Where should the nightly store copy run?"]
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}"]
     assert [card["waits"] for card in drawing.cards] == [f"{remote}:j1-0"]
     assert replies == []
     job = state.load(remote)["jobs"]["j1"]
@@ -959,10 +960,10 @@ def test_an_ask_cc_slack_cannot_check_goes_on_to_the_coordinator_and_says_so_fro
     deliver(monkeypatch, *([message("question", ASK_IN_SHAPE, id=f"msg_ask{index}")] for index in range(3)))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     passes = [watch.run_pass(watching, T0 + timedelta(seconds=seconds)) for seconds in (0, 70, 140)]
-    assert passes[:2] == [["JOB j1 o1 ASK Where should the nightly store copy run?"]] * 2
+    assert passes[:2] == [[f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}"]] * 2
     assert passes[2] == [
         "WATCH remote ASK check failed 3 times in a row: cc-slack: no such file",
-        "JOB j1 o1 ASK Where should the nightly store copy run?",
+        f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}",
     ]
 
 
@@ -1025,7 +1026,7 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.lane_lines(watching, T0) == ["JOB j1 o1 ASK Where should the nightly store copy run?", "JOB j1 o1 WAITING CI on the fix"]
+    assert watch.lane_lines(watching, T0) == [f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}", "JOB j1 o1 WAITING CI on the fix"]
     checked = len(drawing.cards)
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(mail_seen=0, state="running")

@@ -88,10 +88,6 @@ COORDINATOR_WORK = (
 TRANSCRIPT_READ = ("orca", "orchestration", "worker-read")
 RELEASE_CUTS = frozenset({"start", "approve", "rollback"})
 PLAN_ONLY = frozenset({"--plan", "--dry-run"})
-UNKEPT_ASK = (
-    "An ask record names the ASK `drive job ask` kept (--attr ask=<the path it printed>), and the communicator draws"
-    " its card from that file; keep the question with `drive job ask <j> <file>`, then post the record with that path"
-)
 
 
 @dataclass(frozen=True)
@@ -486,20 +482,21 @@ def body_reason(script: str, shell: Shell) -> str | None:
     return next(filter(None, posted), None)
 
 
-def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str]]]:
-    """The kind, attrs and addressed lanes of each record a script posts with `cci post`."""
+def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str], str]]:
+    """The kind, attrs, addressed lanes and text of each record a script posts with `cci post`."""
     posts = []
     for _, words, _ in commands(script, shell):
         if found := landing_of(words, (CCI_POST,)):
-            options = found[2]
+            _, positionals, options = found
             attrs = dict(pair.split("=", 1) for value in options.get("attr", []) for pair in value.split(","))
-            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, [lane for value in options.get("to", []) for lane in value.split(",")]))
+            to = [lane for value in options.get("to", []) for lane in value.split(",")]
+            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, to, " ".join(positionals) or (options.get("text") or [""])[-1]))
     return posts
 
 
-def misrouted(posts: list[tuple[str, dict[str, str], list[str]]], drives: dict[str, dict]) -> str | None:
+def misrouted(posts: list[tuple[str, dict[str, str], list[str], str]], drives: dict[str, dict]) -> str | None:
     """Why a communicator's `cci post` names a coordinator lane other than the one hearing the order its record serves, which the cci `post` tool's hook readdresses."""
-    for kind, attrs, to in posts:
+    for kind, attrs, to, _ in posts:
         if (routed := state.routed(drives, kind, attrs, to)) != list(dict.fromkeys(to)):
             named = ", ".join(lane for lane in to if lane not in routed)
             return MISROUTED.format(kind=kind, named=named, flags=" ".join(f"--to {lane}" for lane in routed))
@@ -519,15 +516,14 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, or is the coordinator's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, or is the coordinator's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
-    asks = [attrs.get("ask") for kind, attrs, _ in posts if kind == "ask"]
-    if asks and names and not all(settled.kept(names, ask) for ask in asks):
-        return UNKEPT_ASK
-    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, _ in posts)), None)):
+    if names and (unkept := next(filter(None, (settled.ask_refusal(names, attrs, text) for kind, attrs, _, text in posts if kind == "ask")), None)):
+        return unkept
+    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, _, _ in posts)), None)):
         return misnamed
     if posts and (wrong := misrouted(posts, state.communicated(names, session))):
         return wrong

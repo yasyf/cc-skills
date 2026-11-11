@@ -124,6 +124,11 @@ def said_on(data: dict, card: str | None) -> list[dict]:
     return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
 
 
+def unanswered(data: dict, job: dict, found: dict | None) -> list[dict]:
+    """The questions a job asked him that neither his answer to their card nor his words under it have closed."""
+    return [question for question in view.open_questions(job, found) if not said_on(data, question["card"])]
+
+
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
     """Why this card may not be redrawn with another question: his words under it already answered it."""
     drawn = next((question for question in job["questions"] if question["waits"] == waits and question["card"] and question["file"] != file), None)

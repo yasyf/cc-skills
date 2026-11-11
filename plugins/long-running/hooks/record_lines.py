@@ -9,12 +9,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, limits, settled, slack, state
 
-UNKEPT_ASK = (
-    "refused: an ask record names the ASK `drive job ask` kept, as the attr `ask` set to the path it printed, and the"
-    " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
-    " record again with that path"
-)
-UNJOBBED = "refused: an ask record names the job that kept its ASK, which his answer resumes; post it again with `--attr job=<j>`, the j in the ASK's file name"
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
     "refused: a {agent} posts nothing to him, since the communicator's handler is the one voice he hears; keep what you found"
@@ -78,15 +72,6 @@ def addressed(record: dict, lane: str) -> bool:
     return any(entry.split("@", 1)[0] == lane for entry in listed(record.get("to")))
 
 
-def unkept(record: dict, names: list[str]) -> str | None:
-    """Why an ask record may not go out: it names no ASK `drive job ask` kept, which the communicator draws its card from, or no job his answer resumes."""
-    if kind(record) != "ask":
-        return None
-    if not settled.kept(names, attrs(record).get("ask")):
-        return UNKEPT_ASK
-    return None if attrs(record).get("job") else UNJOBBED
-
-
 def untapped(record: dict, prs: dict[str, dict]) -> str | None:
     """Why a ready record, which asks him to tap each PR it names, or a report or ask that asks for a tap, names a PR the drive owes no tap on."""
     if kind(record) not in ("ready", "report", "ask") or (kind(record) != "ready" and not TAP_ASKED.search(record.get("text") or "")):
@@ -103,7 +88,7 @@ def unkinded(record: dict) -> str | None:
 def completed(names: list[str], drive: dict, record: dict) -> dict:
     """The record with what the drive already knows filled in: an ask's kept file as its ask attr when it attaches that file as its path, and a ready record's kind, read from the order its order attr names, when its text names none."""
     named = attrs(record)
-    if kind(record) == "ask" and not named.get("ask") and settled.kept(names, record.get("path")):
+    if kind(record) == "ask" and not named.get("ask") and settled.keeper(names, record.get("path")):
         return record | {"attrs": named | {"ask": record["path"]}}
     order = drive["orders"].get(named.get("order") or "")
     if kind(record) != "ready" or order is None or KIND_NAMED.search(record.get("text") or ""):
@@ -223,7 +208,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield misaddressed(payload, record)
         yield lifted(record)
         yield limits.misnamed(kind(record), attrs(record))
-        yield unkept(record, names)
+        yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
         yield unkinded(record)
         yield untapped(record, prs)
         if kind(record) == "report" and addressed(record, "communicator"):

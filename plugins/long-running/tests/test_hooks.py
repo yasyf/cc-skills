@@ -15,7 +15,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, WatchProcess
-from drive import agents, state
+from drive import agents, settled, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -910,15 +910,20 @@ def asked_from_bash(command: str, session: str) -> dict:
     return bash(command) | {"session_id": session}
 
 
-def test_bash_posts_a_drive_ask_only_when_it_carries_a_kept_ask(demo: str, no_calls: list[list[str]]) -> None:
+def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_question(demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
-    kept = state.drive_dir(demo) / "asks" / "j1.md"
+    kept = state.drive_dir(demo) / "asks" / "j1-0.md"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "Close these sessions?", state.stamp())]
     for command in (
         "cci post --kind ask --lane root --to communicator@demo 'Close these sessions?'",
         "cd /work && cci post --lane root --kind=ASK --attr job=j1 'Close these sessions?'",
         "zsh -c \"cci post --kind ask 'Close these sessions?'\"",
     ):
-        assert landing_guard.deny_reason(asked_from_bash(command, session)) == landing_guard.UNKEPT_ASK
+        assert landing_guard.deny_reason(asked_from_bash(command, session)) == settled.UNKEPT_ASK
+    other = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Which sessions stay?'"
+    assert "which this record does not ask" in landing_guard.deny_reason(asked_from_bash(other, session))
     carried = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Close these sessions?'"
     assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
