@@ -226,6 +226,29 @@ def new_part() -> dict:
     return {"posted": None, "orphan_said": None}
 
 
+def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:
+    return {
+        "order": order_id,
+        "kind": kind,
+        "goal": goal,
+        "agent": None,
+        "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
+        "parts": parts,
+        "carries": {},
+        "questions": [],
+        "where": "local",
+        "repo": None,
+        "branch": None,
+        "worktree": None,
+        "prs": [],
+        "waits": [],
+        "state": "running",
+        "said": None,
+        "created": created,
+        "updated": created,
+    }
+
+
 def new_question(file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None) -> dict:
     return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card}
 

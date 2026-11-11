@@ -294,17 +294,81 @@ def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_st
     )
 
 
-def test_an_incident_order_names_every_open_incident_with_its_record(run: Run, demo: str) -> None:
-    run("order", "add", "SandSQL fork copies fail on plat", "--incident")
+def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incident_with_its_record(run: Run, demo: str) -> None:
+    run("order", "add", "SandSQL fork copies fail on plat", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
     run("order", "add", "the dashboard is slow")
-    run("order", "add", "an old outage", "--incident")
+    run("order", "add", "an old outage", "--incident", "--parts", "rollback", "fix", "cause")
     run("order", "set", "o3", "--state", "done")
-    assert run("order", "add", "SandSQL mint endpoint failing", "--incident") == (
+    assert run("order", "add", "sandsql-api times out on plat", "--incident", "--parts", "fix", "first check") == (
         0,
-        "o4\no1 open incident: SandSQL fork copies fail on plat; record 3fa2c1",
+        "o4\n"
+        'j6 on "fix": start its agent now and record it with drive job set j6 --agent <id>\n'
+        'j7 on "first check": start its agent now and record it with drive job set j7 --agent <id>\n'
+        "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1",
     )
+    data = state.load("demo")
+    assert data["orders"]["o4"]["jobs"] == ["j6", "j7"]
+    assert [(job["kind"], job["parts"], job["agent"], job["state"]) for job in (data["jobs"]["j6"], data["jobs"]["j7"])] == [
+        ("codex", ["fix"], None, "running"),
+        ("codex", ["first check"], None, "running"),
+    ]
     assert run("order", "add", "why is the dashboard slow?") == (0, "o5")
+
+
+def test_an_incident_order_with_no_fix_part_is_refused_unless_it_joins_an_open_incident(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["order", "add", "SandSQL release 60 failed", "--incident", "--parts", "first check"]) == 2
+    assert 'an incident order starts its fix job at the alert, beside diagnosis: name "fix" among --parts' in capsys.readouterr().err
+    assert state.load("demo")["orders"] == {}
+    run("order", "add", "SandSQL release 60 failed", "--incident", "--parts", "fix", "first check")
+    run("order", "set", "o1", "--note", "record 3fa2c1")
+    assert run("order", "add", "SandSQL mint endpoint failing", "--joins", "o1") == (
+        0,
+        "o2\njoins o1: record 3fa2c1; its owner job carries this order with --carries o2",
+    )
+    joined = state.load("demo")["orders"]["o2"]
+    assert (joined["incident"], joined["note"], joined["jobs"]) == (True, "record 3fa2c1", [])
+    run("order", "add", "the dashboard is slow")
+    assert cli.main(["order", "add", "the dashboard is slower", "--joins", "o3"]) == 2
+    assert "--joins o3: name an open incident order; o3 is open, not an incident" in capsys.readouterr().err
+
+
+def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "runs fail for one team", "--parts", "first check")
+    assert cli.main(["order", "set", "o1", "--incident"]) == 2
+    assert 'o1: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "fix" part' in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["incident"] is False
+    run("order", "set", "o1", "--parts", "first check", "fix")
+    run("job", "add", "codex", "--order", "o1", "--goal", "fix: runs fail", "--part", "fix", "--agent", "a-1")
+    assert run("order", "set", "o1", "--incident")[0] == 0
+    assert state.load("demo")["orders"]["o1"]["incident"] is True
+
+
+def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so(
+    run: Run, demo: str, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "SandSQL mint endpoint failing", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD]) == 2
+    assert "j1 works on incident o1: a card that blocks it is said in the incident's thread at once" in capsys.readouterr().err
+    moment = state.now()
+    elsewhere = slack_thread.post(moment, from_claude=True, thread_ts="1794100000.000100", text=f"<{DESIGN_CARD}|the store card> blocks the fix")
+    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", elsewhere]) == 2
+    assert "name the drive's own post in the incident's thread, 1794200000.000100" in capsys.readouterr().err
+    unlinked = slack_thread.post(moment + timedelta(seconds=1), from_claude=True, text="the store card blocks the fix")
+    assert cli.main(["job", "set", "j1", "--card", DESIGN_CARD, "--told", unlinked]) == 2
+    assert f"does not link {DESIGN_CARD}" in capsys.readouterr().err
+    said = slack_thread.post(
+        moment + timedelta(seconds=2),
+        from_claude=True,
+        text=f"<{DESIGN_CARD}|Your card on where the store lives> blocks the fix's release; it builds on the recommended shared store meanwhile.",
+    )
+    assert run("job", "set", "j1", "--card", DESIGN_CARD, "--told", said)[0] == 0
+    assert [question["card"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [DESIGN_CARD]
+    run("order", "add", "the dashboard is slow")
+    run("job", "add", "builder", "--order", "o2", "--goal", "speed it up")
+    assert run("job", "set", "j3", "--card", DESIGN_CARD)[0] == 0
 
 
 def test_order_add_json(run: Run, demo: str) -> None:

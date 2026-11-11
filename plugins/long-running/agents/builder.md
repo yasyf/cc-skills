@@ -144,7 +144,8 @@ the cut that ships its fix, the default branch's head included when its first ch
 works, so pass `--order <the incident's answer id>`, but never a revert's: a PR or build that takes a
 change out lands only on his tap, on a card stating the bug in it. On an incident nothing stops between the merge and the build:
 no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,
-no question. Start the build at the fix commit with the cut the incident reference names, report its
+no question. Lift the service's freeze the brief's `Incident:` line names with `tools/ci release
+unfreeze <id>`, start the build at the fix commit with the cut the incident reference names, report its
 link, and run any read while it builds; the release's approve gate is the only check. Never cut a
 hotfix from the live commit before a first check found the default branch's newest build fails too.
 Your return is the inputs to a write-up, never the write-up: the facts, commands, links and results,

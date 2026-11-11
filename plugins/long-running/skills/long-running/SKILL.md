@@ -92,8 +92,9 @@ a third fix for one symptom is a class fix that deletes the earlier patches.
   (`jobs`).
 - Never stop, signal, or close another session unless he named it.
 - Never run tests locally; CI grades.
-- Never hold, freeze, or reorder work he did not hold, freeze, or reorder. A build or release he
-  started is his: never cancel, retry, reorder or approve it, and start no release while it runs.
+- Never hold, freeze, or reorder work he did not, but for the freeze of a service a release broke
+  (`incidents`). A build or release he started is his: never cancel, retry, reorder or approve it,
+  and start no release while it runs.
   One of ours that must stop gets a `report` to the communicator first, then its job stops it.
 - Never re-derive state from memory or infer it: `drive status`, GitHub and transcripts are the
   truth, and what a release carries (its PRs, the steps it runs, which build fixes what) is read
