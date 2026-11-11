@@ -1,3 +1,4 @@
+import itertools
 import json
 import re
 import shlex
@@ -25,6 +26,7 @@ READ_VERBS = (
     ("ccn", "doc", "search"),
     ("ccn", "doc", "show"),
 )
+QUERY_VERBS = ("search", "grep")
 BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
 BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
@@ -67,13 +69,18 @@ def read_log(url: str, checkout: Path) -> str:
 
 
 def read_records(command: str, checkout: Path) -> str:
+    """Run one listed record read; a search or grep takes its words up to the first flag as one query, quoted or not."""
     try:
         argv = shlex.split(command)
     except ValueError as error:
         raise ReadError(str(error)) from None
-    if not any(tuple(argv[: len(verb)]) == verb for verb in READ_VERBS):
+    verb = next((verb for verb in READ_VERBS if tuple(argv[: len(verb)]) == verb), None)
+    if verb is None:
         allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
         raise ReadError(f"only these reads run here: {allowed}")
+    query = list(itertools.takewhile(lambda word: not word.startswith("-"), argv[len(verb) :]))
+    if verb[-1] in QUERY_VERBS and query:
+        argv = [*verb, " ".join(query), *argv[len(verb) + len(query) :]]
     output = run(argv, checkout).strip()
     if len(output) <= BUDGET:
         return output

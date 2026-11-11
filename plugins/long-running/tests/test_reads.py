@@ -132,6 +132,26 @@ def test_a_record_read_runs_the_allowed_command_from_the_checkout(
     ]
 
 
+@pytest.mark.parametrize(
+    ("command", "argv"),
+    [
+        ("ccn answer search sandsql shrink", ["ccn", "answer", "search", "sandsql shrink"]),
+        ('ccn answer search "sandsql shrink"', ["ccn", "answer", "search", "sandsql shrink"]),
+        ("ccn note search sandsql evict --limit 5", ["ccn", "note", "search", "sandsql evict", "--limit", "5"]),
+        ("cci grep sandsql restore --drive d", ["cci", "grep", "sandsql restore", "--drive", "d"]),
+        ("ccn search --limit 5 x", ["ccn", "search", "--limit", "5", "x"]),
+        ("ccn answer show 5299250c9a85 abc", ["ccn", "answer", "show", "5299250c9a85", "abc"]),
+    ],
+)
+def test_a_search_read_passes_its_words_before_the_first_flag_as_one_query(
+    command: str, argv: list[str], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls = []
+    monkeypatch.setattr(reads, "run", lambda ran, checkout: calls.append(ran) or "his words")
+    reads.answer(f"READ {command}", tmp_path)
+    assert calls == [argv]
+
+
 @pytest.mark.parametrize("command", ["cci post --text hi", "ccn answer add x", "ccn -R / answer search x", "rm -rf ."])
 def test_a_record_read_refuses_anything_but_a_listed_read(
     command: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
