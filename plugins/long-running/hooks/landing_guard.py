@@ -324,10 +324,10 @@ def judged_by(key: str, session: str) -> tuple[str, dict] | None:
 
 
 def open_cards(name: str, pr: dict) -> list[str]:
-    """His open cards a drive PR or its job waits on, outside an open incident, whose repair lands on the recommended option."""
+    """His open cards a drive PR or its job waits on, outside an open incident, whose repair lands on the recommended option, and outside an immediate fix, which lands while he picks the proper fix."""
     data = state.load(name)
     job = data["jobs"][pr["job"]]
-    if state.open_incidents(data, [job["order"], *job["carries"]]):
+    if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
     waits = list(dict.fromkeys([*pr["waits"], *job["waits"]]))
     return [wait for wait in view.holding(data, waits, view.live_cards(name)) if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]

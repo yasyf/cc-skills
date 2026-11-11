@@ -56,7 +56,10 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
 card as it stands: `drive job card <j>` draws it with no file written by hand. The fix your evidence points at is an
 option, recommended, or a line says why another is, and a `Direct fix:` line names it by its words,
-or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. Start no other line with `- `, since
+or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. On an
+incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
+picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
+report` refuses a `DESIGN` without it. Start no other line with `- `, since
 `drive job report` counts each as an option. A check of a PR for the coordinator's `READY` row opens
 `READY <pr url>…` when every step it checks matches, or `NOT READY <pr url>…: <what fails>`, several
 verdicts joined by `; `, each naming before its `: ` only the PRs it judges, since the drive keeps each

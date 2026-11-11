@@ -180,7 +180,7 @@ class wherever he sees it, and its order's thread gets one line naming the class
 - `ci-only`: only CI configuration and CI tooling.
 - `flake fix`: the whole change fixes one named flaking test, in test or fixture code, and adds no
   timeout.
-- `incident fix`: the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
+- `incident fix`: the immediate fix, such as the stop, or the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
   not one and waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it
   reverts a change.
 

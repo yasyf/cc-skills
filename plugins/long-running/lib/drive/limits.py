@@ -32,6 +32,7 @@ BIG_RULING = 'his Nov 10 10:09 PM words "look at these images they are insane, t
 GALLERY_RULING = 'his Nov 10 10:55 PM words "should be shown gallery style labeled with each option (e.g 1, 2)"'
 HAND_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all … here we could have done a mermaid chart"'
 NATIVE_RULING = 'his Nov 10 11:01 PM words "the two tables should be rendered in slack natively"'
+IMMEDIATE_FIX_RULING = 'his Nov 11 1:05 PM words "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix"'
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
@@ -86,6 +87,8 @@ PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
+INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NEXT_QUESTION = re.compile(
     r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
     r"|next|then|once|meanwhile|held|holds|waits?|waiting|awaits?|awaiting|paused|pending|until|blocked)\b",
@@ -320,8 +323,8 @@ def from_ask(card: dict) -> str:
     return FROM_ASK.format(waits=waits) if waits and not waits.startswith(PERMISSION_WAITS) else ""
 
 
-def question(text: str, kept: bool = False, unsettled: str | None = None) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, and an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why."""
+def question(text: str, kept: bool = False, unsettled: str | None = None, hurting: bool = False) -> Question:
+    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why, and a question on a bug hurting someone now names the immediate fix shipping while he picks."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -399,14 +402,16 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
         problems += direct_fix_problems(findings[0], options, RECOMMENDED.sub("", marked[0]), summary)
+    if hurting and not kept:
+        problems += interim_fix_problems("".join(findings[:1]))
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
 
 
-def shape(text: str, drive: str, job_id: str, unsettled: str | None = None) -> Question:
+def shape(text: str, drive: str, job_id: str, unsettled: str | None = None, hurting: bool = False) -> Question:
     """The question a job's ASK block puts to him once both of its checks pass: its words, then the card it draws, which cc-slack refuses in its own words. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; only `drive job ask <j>` then checks it against his recorded answers."""
-    asked = question(text, unsettled=unsettled)
+    asked = question(text, unsettled=unsettled, hurting=hurting)
     if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     return asked
@@ -504,6 +509,19 @@ def direct_fix_problems(findings: str, options: list[str], recommended: str, sum
         " recommend it, or add a summary sentence that names it by those words and says why another option is better"
     )
     return [unexplained]
+
+
+def interim_fix_problems(findings: str) -> list[str]:
+    """Whether the findings of a choice on a bug hurting someone now name the immediate fix or rollback that ships while he picks, by the link of its PR, release, rollback or repair or the job building it, or say with `Interim fix: none: <why>` that nobody is hurt now."""
+    named = INTERIM_FIX.search(findings)
+    if named and (NO_DIRECT_FIX.match(named[1]) or SHIPPING.search(named[1])):
+        return []
+    unnamed = (
+        "it asks him for the proper fix of a bug hurting someone now, so `Findings:` carries `Interim fix: <the link of the PR,"
+        " release, rollback or repair that ships the immediate fix while he picks, or the job building it>`, which his pick"
+        f" replaces, or `Interim fix: none: <why nobody is hurt now>` ({IMMEDIATE_FIX_RULING})"
+    )
+    return [unnamed]
 
 
 def next_question_problems(summary: list[str], findings: str) -> list[str]:

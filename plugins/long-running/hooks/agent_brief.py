@@ -40,7 +40,7 @@ def beyond_brief(prompt: str) -> str | None:
 
 
 def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
-    """Why the job a brief's Drive line names may not start this agent: a design job runs only as the designer, and a codex lane on a build order waits on its reader's research like the builder."""
+    """Why the job a brief's Drive line names may not start this agent: a design job runs only as the designer, and a codex lane on a build order waits on its reader's research like the builder, unless it ships the order's immediate fix."""
     match = brief.BRIEF_JOB.search(text)
     job = data["jobs"].get(match[1]) if match else None
     if job is None:
@@ -52,7 +52,7 @@ def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
             f"refused: {match[1]} is a design job, which runs only as {DESIGNER}, since only that definition keeps it read"
             f" only and its forks in his cards' shape; start it again with subagent_type {DESIGNER}"
         )
-    if job["kind"] != "codex" or order["kind"] != "build" or order["incident"] or brief.HANDOFF.search(text) or brief.research(name, data, order_id):
+    if job["kind"] != "codex" or order["kind"] != "build" or order["incident"] or state.IMMEDIATE_FIX in job["parts"] or brief.HANDOFF.search(text) or brief.research(name, data, order_id):
         return None
     return (
         f"refused: {match[1]} is a codex lane on {order_id}, a build order, which starts only once an Opus reader has kept"

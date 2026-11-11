@@ -96,6 +96,13 @@ def test_landing_while_his_card_on_it_is_open_is_refused_naming_the_card_to_wait
     assert landing_guard.deny_reason(bash("stack-enqueue 42")) == reason
 
 
+def test_the_immediate_fix_lands_while_his_card_on_the_proper_fix_is_open(drive_pr: str, no_calls: None) -> None:
+    approve(drive_pr)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"] |= {"waits": [CARD], "parts": [state.IMMEDIATE_FIX]}
+    assert landing_guard.deny_reason(bash("stack-enqueue 42")) is None
+
+
 def test_landing_once_he_answered_the_card_passes(drive_pr: str, no_calls: None) -> None:
     approve(drive_pr)
     with state.edit("demo") as data:

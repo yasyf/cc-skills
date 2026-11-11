@@ -1987,9 +1987,60 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
     assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "done"
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
-    assert "j1 returned DESIGN: the choice its research found goes to him as cards before any builder" in capsys.readouterr().err
+    assert "j1 returned DESIGN: the choice its research found goes to him as cards, and the recommended option's builder starts beside them" in capsys.readouterr().err
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
+
+
+def test_the_immediate_fix_starts_at_once_past_the_research_the_design_and_options_only(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(
+        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build",
+        "--parts", "the copy", "immediate fix", "--options-only",
+    )
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
+    assert "o1 is limited to options: he picks one before the proper fix is built" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "stop the harm") == (0, "j1")
+    run("order", "set", "o1", "--no-options-only")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--goal", "build it"]) == 2
+    assert 'starts at once on its own "immediate fix" part, added with drive order set o1 --parts "the copy" "immediate fix"' in capsys.readouterr().err
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH) == (0, "")
+    assert run("job", "add", "codex", "--order", "o1", "--part", "immediate fix", "--goal", "stop it another way")[0] == 0
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "the copy", "--part", "immediate fix", "--goal", "both"]) == 2
+    assert 'the "immediate fix" part is a job of its own: its PR lands at once' in capsys.readouterr().err
+    assert cli.main(["job", "set", "j1", "--part", "the copy"]) == 2
+    assert 'the "immediate fix" part is a job of its own' in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["parts"] == ["immediate fix"]
+
+
+def test_a_readers_design_on_a_reported_bug_names_the_immediate_fix_shipping_while_he_picks(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(
+        "order", "add", "--project", "p", "--workstream", "w", "fix the stuck restores", "--kind", "build",
+        "--thread", "1794200000.000100", "--reporter", REPORTED, "--parts", "the copy", "immediate fix",
+    )
+    assert run("job", "add", "builder", "--order", "o1", "--part", "immediate fix", "--goal", "repair the stuck restores") == (0, "j1")
+    run("job", "add", "reader", "--order", "o1", "--part", "the copy", "--goal", "research: the copy")
+    code, err = keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH)
+    assert (code, "a reader's DESIGN on a bug hurting someone now names its immediate fix" in err) == (2, True)
+    assert keep(monkeypatch, capsys, "j2", DESIGN_RESEARCH + "Interim fix: j1 repairs the stuck restores\n") == (0, "")
+
+
+def test_a_builder_landing_prs_he_approved_starts_with_no_research(run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "set", "o1", "--kind", "build")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land it"]) == 2
+    assert "o1 is a build order, so its builder starts only once an Opus reader has kept" in capsys.readouterr().err
+    assert cli.main(["job", "add", "codex", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
+    assert "--lands names the PRs a builder lands" in capsys.readouterr().err
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it"]) == 2
+    assert f"--lands {with_pr}: it may not land yet, no tap from him yet" in capsys.readouterr().err
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--lands", "https://github.com/Forge-AI/monorepo/pull/43", "--goal", "land it"]) == 2
+    assert "--lands Forge-AI/monorepo#43: no drive PR" in capsys.readouterr().err
+    run("pr", "set", PR, "--tapped", "Approve", "--tap-source", "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589")
+    assert run("job", "add", "builder", "--order", "o1", "--lands", PR, "--goal", "land it")[0] == 0
 
 
 def test_a_readers_kept_design_return_is_the_ask_its_card_draws(
@@ -2550,18 +2601,16 @@ def test_pr_set_refuses_a_revert_the_incident_fix_exemption_and_names_the_tap_ca
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: incident fix")
 
 
-def test_pr_set_refuses_the_incident_fix_exemption_on_an_incidents_stop(
-    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident_fix(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
     run("job", "add", "builder", "--order", "o1", "--part", "stop", "--goal", "ship the stop")
     run("pr", "add", PR, "--job", "j4")
-    assert cli.main(["pr", "set", PR, "--exempt", "incident fix"]) == 2
-    refusal = capsys.readouterr().err
-    assert 'Forge-AI/monorepo#42: refused, it is o1\'s stop, which turns the failing path off, and a stop never lands as an "incident fix"' in refusal
-    assert f"Draw his tap card with drive pr set {PR} --tap --serves o1 --design none, its body quoting the bug from o1's record (record 5f6b2b5)" in refusal
-    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] is None
+    on_github.update(title="Fix: table moves stop rerunning on every write", body=CARD_BODY)
+    assert run("pr", "set", PR, "--exempt", "incident fix")[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
 
 
 def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
@@ -3743,7 +3792,7 @@ def test_an_order_limited_to_options_starts_no_builder_or_codex_job_until_he_pic
     for kind in ("builder", "codex"):
         assert cli.main(["job", "add", kind, "--order", "o1", "--goal", "build it"]) == 2
         refused = capsys.readouterr().err
-        assert f"o1 is limited to options: he picks one before anything is built, so no {kind} starts on it" in refused
+        assert f"o1 is limited to options: he picks one before the proper fix is built, so no {kind} starts on it" in refused
         assert "drive order set o1 --no-options-only" in refused
     assert run("job", "add", "reader", "--order", "o1", "--goal", "research the options") == (0, "j1")
     assert run("job", "add", "designer", "--order", "o1", "--goal", "draw his options")[0] == 0

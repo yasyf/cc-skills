@@ -79,10 +79,13 @@ approving a PR settles only that PR's landing, so the check never counts an answ
 `kind:approval`.
 
 A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
-job may build the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
-his words on that order ask for options only; then no builder starts before his pick, because he
-wants to choose the fix. Outside an incident's repair, `drive pr add` refuses a PR while its job
-waits on an open card of his, and no Approve is drawn while a design card the PR waits on is open.
+job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
+his words on that order ask for options only; then no builder starts on the proper fix before his
+pick, because he wants to choose the fix. Outside an incident's repair, `drive pr add` refuses a
+proper-fix PR while its job waits on an open card of his, and no Approve is drawn while a design
+card the PR waits on is open. The immediate fix of a bug hurting someone now is never held: its own
+`immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and
+the proper fix replaces it.
 
 A question card is the job's `ASK` as `drive job ask` kept it. Its question names each thing by its
 proper technical term, the function, flag, file, service, or table, by [messages.md](messages.md).
@@ -95,7 +98,11 @@ leaves a mechanism such as polling, a push or an event a bare word, as "Polls on
 
 The fix the job's diagnosis points at is always an option, the recommended one unless the summary
 names it and says why another is better. The findings' `Direct fix:` line names it, or reads
-`Direct fix: none: <why>`, and `drive job ask` refuses a block without one. No option asks a
+`Direct fix: none: <why>`, and `drive job ask` refuses a block without one. On a bug hurting
+someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
+immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
+or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are
+refused without it. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 

@@ -65,11 +65,14 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    process), or a limit, capacity or architecture question your work turns up. Stop before building
    either shape and return `ASK` with options from your evidence, even mid-build. The exception: when
    `Decisions that bind` names an open card's option to build, build it, push the branch, open no PR
-   and return `BUILT`. He ruled the recommended option may be built but no PR goes up until he
-   answers, and `drive pr add` refuses a PR while your job waits on an open card.
+   and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
+   goes up until he answers, and `drive pr add` refuses a PR while your job waits on an open card.
+   A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
 4. Write the change:
-   - Fix the cause: no pin, flag, header, cap, retry, timer or wait stands in for it, since he ruled
-     for fundamental fixes over hacks.
+   - Fix the cause. When a bug hurts someone now, its immediate fix ships at once on its own
+     `immediate fix` part while he picks the proper fix, which replaces it, by his words "always do
+     the immediate fix (or rollback if prudent) in parallel to giving me options for the proper
+     fix"; no pin, flag, header, cap, retry, timer or wait outlives the fix of the cause.
    - On a `Drive tooling: post feedback:` order, fix what let the post through, never the post, which
      its handler already fixed: a rule in `cc-slack check-post` with its case in
      `check_post_test.py`, a check in `lib/drive/limits.py` or a hook, or the library that draws posts
@@ -86,6 +89,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
      `kubectl`, or from another cluster with copied credentials: a `kubectl exec` or
      `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
+     An urgent hand repair of the records a bug left stuck is the immediate fix, not a pass: run it at
+     once through this Mac's machine-profile break-glass, by his words "manually repair his stuck
+     ones with machine profile break glass asap".
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
@@ -205,8 +211,9 @@ event needs. The first four events then return as step 7 says.
   coordinator's message says to.
 - An incident brief's incident order approves the cut that ships its fix, the default branch's head
   included when its first check proved that build works: pass `--order <the incident's answer id>`.
-  It never approves a revert: a PR or build that takes a change out lands only on his tap, on a card
-  stating the bug in it.
+  A rollback to an older build, when prudent, is an immediate fix it approves. It never approves a
+  revert: a PR or build that takes a change out lands only on his tap, on a card stating the bug in
+  it.
 - On an incident nothing stops between the merge and the build: no dry run, no read of what the cut
   covers or what caused the break, no comparison of open builds, no question. Lift the service's
   freeze the brief's `Incident:` line names with `tools/ci release unfreeze <id>`, start the build at
@@ -352,13 +359,16 @@ Show me:
 - <option>
 Findings:
 Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
+Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 <the evidence, for the record: what was hit, what was measured, the cause, what each option changes and costs>
 ````
 
 - The options come from the job's own evidence: the fix its diagnosis points at is always one, and
   the recommended one unless the summary names it and says why another is better. `Direct fix:`
   names that option by its words, whole or up to the colon that ends its first part, or says
-  `none: <why>` when no diagnosis points at one.
+  `none: <why>` when no diagnosis points at one. On an incident or a bug a reporter shared,
+  `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
+  summary names it; `drive job ask` refuses the block without it.
 - The summary answers his next question: why, did he already decide this, is it a port, what comes
   after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
   carries `Next question: none: <why>`.

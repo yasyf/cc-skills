@@ -155,9 +155,11 @@ COORDINATOR_RULES = (
         "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"
         " background process, any two shapes costly to switch; when unsure it counts) first gets one"
         " long-running:designer, and each fork reaches him as one question card, since a shape he never chose is costly"
-        " to undo. A builder may build the recommended option meanwhile, unless his words on that order ask for options"
-        " only, and return `BUILT <branch>, waits on <each card>`, which sets its job built; it opens no PR until he"
-        " answers every card: pr add refuses, and FREE says when."
+        " to undo. The recommended option's builder starts beside the cards, unless his words on that order ask for"
+        " options only, and returns `BUILT <branch>, waits on <each card>`, which sets its job built; it opens no PR until"
+        " he answers every card: pr add refuses, and FREE says when. A bug hurting someone now is no fork for its"
+        " immediate fix, or a rollback when prudent: its own `immediate fix` part's builder starts at once, options-only"
+        " orders too, its PR waits on none of his cards, and the proper fix replaces it."
     ),
     (
         "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
@@ -183,7 +185,8 @@ COORDINATOR_RULES = (
         " release:<service>:<owner>/<repo>#<n>, not `--due` alone. A build order's first job is an Opus"
         " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
         " brief carries `Researched: <that reader's job>`, which the brief op writes, and a reader's DESIGN return"
-        " starts the designer."
+        " starts the designer. The immediate fix and a red default branch's fix-forward, each on its own `immediate fix`"
+        " part, and a builder landing PRs he approved (`job add builder --lands <PR>`) start at once, before any reader."
     ),
     (
         "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
@@ -240,7 +243,9 @@ META_RULES = (
     (
         'A reader\'s DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`,'
         " then a long-running:builder with the reader's lines plus `Serves: drive tooling` and `Researched: <the"
-        " reader's job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer."
+        " reader's job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer,"
+        " and the recommended option's builder beside its cards, and an `immediate fix` part's builder at once when the"
+        " defect blocks someone now."
         " A handoff record from the watch gets a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`, and"
         " one from the communicator's handler carries the result of an agent the communicator started: act on it as on"
         " your own agent's."

@@ -17,6 +17,7 @@ JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_STOP = "stop"
+IMMEDIATE_FIX = "immediate fix"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
@@ -858,6 +859,11 @@ def open_orders(data: dict) -> dict[str, dict]:
 
 def open_incidents(data: dict, order_ids: list[str]) -> list[str]:
     return [order_id for order_id in order_ids if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in CLOSED_ORDER_STATES]
+
+
+def hurts_now(order: dict) -> bool:
+    """Whether the bug an order fixes hurts someone now, as an incident or a bug someone reported does, so its immediate fix ships at once while he picks the proper fix."""
+    return bool(order["incident"] or order["reporter"])
 
 
 def running_stops(data: dict, order_id: str) -> list[str]:

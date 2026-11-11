@@ -27,9 +27,9 @@ LEADS = {
     "job": "The drive's jobs: add starts one on an order's parts, set changes one, brief writes its brief.",
     "pr": "The drive's PRs: add records one a job opened, set changes one.",
     "incident": (
-        "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the job"
-        " that turns the failing path off; freeze holds the service's other releases; release reopens the stop when a"
-        " release starts."
+        "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the"
+        " immediate fix that turns the failing path off and lands at once as an incident fix until the root fix replaces"
+        " it; freeze holds the service's other releases; release reopens the stop when a release starts."
     ),
 }
 TEXT = {"type": "string"}

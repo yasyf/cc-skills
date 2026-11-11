@@ -75,12 +75,14 @@ Show me:
 - <another option, the same way; two to four in all>
 Findings:
 Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
+Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 <the design in plain words, what his words already settle, and what each option changes and costs>
 ````
 
 - Put the option you recommend first, since a builder may build it on a pushed branch while he
-  decides; `drive job ask` refuses a block whose recommended option is not the first. The summary's last line says what happens meanwhile, or that nothing is built until he
-  picks when his order asks for options only.
+  decides; `drive job ask` refuses a block whose recommended option is not the first. The summary's last line says what happens meanwhile: the recommended option built on a
+  branch, or nothing built until he picks when his order asks for options only, and the immediate
+  fix or rollback already shipping when a bug hurts someone now, which `Interim fix:` links.
 - Draw the options from the job's own evidence. The fix its diagnosis points at is always one, and
   the recommended one unless the summary names it and says why another is better: "so why was that
   not the suggested optin to me, or even any of the options?" `Direct fix:` names it by its words,
