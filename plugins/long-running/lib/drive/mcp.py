@@ -90,7 +90,7 @@ SAY = {
                     " makes it his catch-up, opening *Catch-up since <when he was last heard>* in place of any title"
                 ),
             },
-            "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing"},
+            "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing, refused as the post would be"},
         },
     },
 }

@@ -3084,6 +3084,45 @@ def test_a_drive_tooling_order_takes_no_thread_since_its_posts_go_at_his_dm_root
     assert state.load("demo")["orders"]["o1"]["thread"] is None
 
 
+def drive_terms(text: str) -> list[str]:
+    return [f"1:{found.start() + 1} drive-term {found[0]!r}: say what happens to the reader's work instead" for found in re.finditer(r"(?<![\w./:-])[oj]\d{2,}\b", text)]
+
+
+@pytest.mark.parametrize(
+    ("flagged", "reworded"),
+    [
+        (
+            "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path",
+            "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path",
+        ),
+        (
+            "Drive tooling: say refuses the PR card of o341, whose words check-post refuses",
+            "Drive tooling: say refuses a PR card whose tooling order's words check-post refuses",
+        ),
+    ],
+)
+def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_them(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch, flagged: str, reworded: str
+) -> None:
+    monkeypatch.setattr(slack, "check_post", drive_terms)
+    filed = ["order", "add", "--project", "p", "--workstream", "w"]
+    assert cli.main([*filed, flagged]) == 2
+    refused = capsys.readouterr().err
+    assert 'a "Drive tooling:" order\'s words reach him verbatim, quoted on the line above its PR card' in refused
+    assert refused.endswith("\n".join(drive_terms(flagged)) + "\n")
+    assert run(*filed, reworded) == (0, "o1")
+    assert run(*filed, "send j844's numbers to o341's thread") == (0, "o2")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["text"] = flagged
+    assert cli.main(["order", "set", "o1", "--words", flagged]) == 2
+    assert capsys.readouterr().err == refused
+    assert cli.main(["order", "set", "o1", "--words", "the thread reader opens a teammate's session"]) == 2
+    assert cli.main(["order", "set", "o2", "--words", "Drive tooling: send the numbers"]) == 2
+    assert capsys.readouterr().err.count('--words: refused, only a "Drive tooling:" order\'s words change') == 2
+    assert run("order", "set", "o1", "--words", reworded)[0] == 0
+    assert [order["text"] for order in state.load("demo")["orders"].values()] == [reworded, "send j844's numbers to o341's thread"]
+
+
 def test_a_proof_is_the_checks_link_file_or_output_never_a_claim(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

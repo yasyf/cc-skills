@@ -175,11 +175,32 @@ def test_a_pr_card_serving_drive_tooling_posts_only_under_a_line_quoting_that_or
     with state.edit(demo) as data:
         data["orders"]["o1"]["text"] = tooling
         data["prs"]["yasyf/cc-skills#7"]["serves"] = "o1"
-    with pytest.raises(DriveError, match=rf'yasyf/cc-skills#7 serves a drive tooling order, .*nothing was posted: put "{tooling}" in text'):
-        talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    for dry_run in (True, False):
+        with pytest.raises(DriveError, match=rf'yasyf/cc-skills#7 serves a drive tooling order, .*nothing was posted: put "{tooling}" in text'):
+            talk.say(demo, {"text": "land these", "tap_prs": [PR_URL], "dry_run": dry_run})
     assert (posts, said(demo)) == ([], [])
     talk.say(demo, {"text": f"_{tooling}_", "tap_prs": [PR_URL]})
     assert posts[0][-1] == f"_{tooling}_"
+
+
+def test_a_tooling_order_whose_words_check_post_refuses_draws_its_pr_card_once_reworded(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    flagged = "Drive tooling: the thread reader cannot open a teammate's session (defect 661904, j844): its script takes only a local path"
+    reworded = "Drive tooling: the thread reader cannot open a teammate's session: its script takes only a local path"
+    monkeypatch.setattr(slack, "check_post", lambda text: ["1:97 drive-term 'j844': say what happens to the reader's work instead"] if "j844" in text else [])
+    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = flagged
+        data["prs"]["yasyf/cc-skills#7"]["serves"] = "o1"
+    for dry_run in (True, False):
+        with pytest.raises(DriveError, match=r"nothing posted: `cc-slack check-post` finds this .*\n1:97 drive-term 'j844'"):
+            talk.say(demo, {"text": flagged, "tap_prs": [PR_URL], "dry_run": dry_run})
+    assert (posts, said(demo)) == ([], [])
+    assert run("order", "set", "o1", "--words", reworded)[0] == 0
+    assert talk.say(demo, {"text": reworded, "tap_prs": [PR_URL], "dry_run": True}) == f"DRY his DM root, 0 pictures, PR card for 1 PRs: {reworded}"
+    talk.say(demo, {"text": reworded, "tap_prs": [PR_URL]})
+    assert posts == [("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", reworded)]
 
 
 @pytest.mark.parametrize(

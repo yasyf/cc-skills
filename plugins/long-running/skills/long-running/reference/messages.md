@@ -268,9 +268,10 @@ When it is answered, replaced or redone:
   class covers, which serves its own order by [Scope](scope.md).
 - The line above it quotes that order at his DM root: his words, or the tooling order's
   "Drive tooling: …" words. `say` refuses a PR card whose PR serves a drive tooling order while its
-  text leaves out that order's words, naming them, and posts nothing. A port never gets one: he reads
-  "port of #N landed" in its order's thread once it lands, and so for every class that lands with no
-  tap.
+  text leaves out that order's words, naming them, and posts nothing. Those words pass
+  `cc-slack check-post`, which `drive order add` and `drive order set <o> --words` run on them. A
+  port never gets one: he reads "port of #N landed" in its order's thread once it lands, and so for
+  every class that lands with no tap.
 - `say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>, thread_ts=<his thread>)`
   makes cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with
   Approve and Hold while it waits on him. It also posts the card's permalink under its question in
