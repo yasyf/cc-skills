@@ -699,6 +699,14 @@ def test_a_phrase_said_twice_is_refused_at_each_clause_and_once_across_a_cards_o
     assert posted(transcript, card=card).count('"their PR" in the question or an option') == 1
 
 
+def test_a_pr_that_exists_keeps_its_link_whatever_its_state_and_one_not_opened_yet_needs_none(talker: str, transcript: Path) -> None:
+    holds_pr("o1")
+    for standing in ("The first PR waits on your tap.", "The first PR has not merged."):
+        assert say(transcript, text=standing, order="o1").startswith('refused: "The first PR" names something he could open with no link there')
+    for unopened in ("No PR yet.", "A PR goes up next.", "The first PR is next."):
+        assert say(transcript, text=unopened, order="o1") is None
+
+
 def test_a_post_refused_several_ways_hears_every_way_at_once_after_its_thread_read(talker: str, transcript: Path, checked: Checked) -> None:
     holds_pr("o1")
     checked.findings = ["1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"]

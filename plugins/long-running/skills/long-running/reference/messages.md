@@ -389,8 +389,9 @@ Nothing to post; a line that says where things stand links it.
   and say which words and the clause they sit in. A link whose words name its kind, such as
   `<url|the update-button PR>`, covers the message's other mentions of that kind, such as "that
   PR". A mention inside a code fence, a generic one such as "every engineer's PR", and one in a
-  clause saying it is not there or not there yet, such as "its PR goes up first" or "no PR is open
-  yet", name nothing to link. Slack draws no `[label](url)` link, so the check refuses one and
+  clause saying it does not exist yet, such as "its PR goes up first", "the PR is next" or "no PR
+  is open yet", name nothing to link. One that exists keeps its link whatever its state, "has not
+  merged" or "waits on your tap" included. Slack draws no `[label](url)` link, so the check refuses one and
   shows the `<url|label>` to write.
 - **Numbers over adjectives.** "129 of 476 passed, up from 100" beats "much better".
 - **Answer his next question in the same message**: why, did he already decide this, is it a

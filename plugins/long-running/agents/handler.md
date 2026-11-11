@@ -206,7 +206,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
   reword around the refusal. A post that links one by words naming its kind, such as
   `<url|the update-button PR>`, covers its other mentions of that kind, such as "that PR"; a
   mention inside a code fence, a generic one such as "every engineer's PR", and one in a clause
-  saying it is not there or not there yet, such as "its PR goes up first", need no link. A
+  saying it does not exist yet, such as "its PR goes up first" or "the PR is next", need no link; one
+  that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included. A
   plain noun that opens nothing, such as a server's write thread or a fix in general, needs no link. A URL you do not have is read from its source, never left out.
 - Every post stands alone: he reads it with no other context, so assume he has none, even when the
   record you were sent assumes it. A number, fraction, size or ratio says what it measures, why

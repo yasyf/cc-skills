@@ -81,7 +81,11 @@ MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\((https?://[^)\s]+)\)")
 FENCED = re.compile(r"^[ \t]*```.*?^[ \t]*```[^\n]*$", re.MULTILINE | re.DOTALL)
 MASK = "\x00"
 CLAUSE_BREAK = re.compile(r"[.;:,!?]+(?=\s|$)|\n")
-NOT_YET = re.compile(r"\b(?:yet|(?:is|comes|goes) next|being (?:written|built)|when it opens|goes up|lands here|waits on)\b", re.IGNORECASE)
+UNBUILT = re.compile(
+    rf"\b(?:no|without(?:\s+an?)?)\s+(?:{COUNT}\s+)?(?:[\w-]+\s+)?(?:{KINDS})(?![-\w])|\bnone\b(?!\s+of)|\bgoes up\b|\b(?:is|comes|goes) next\b"
+    r"|\bwill open\b|\bopens next\b|\bbeing (?:written|built)\b|\bwhen it opens\b|\bnot (?:yet )?(?:open|opened|up)\b|n't (?:yet )?(?:open|opened|up|gone up)\b",
+    re.IGNORECASE,
+)
 GENERIC = re.compile(r"\b(?:every|each|any|such|all)\s+$", re.IGNORECASE)
 LINK = re.compile(r"<[^<>|]+\|([^<>]*)>")
 NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECASE)
@@ -491,7 +495,7 @@ def held(data: dict, order: str | None) -> tuple[str, ...]:
 
 
 def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> list[str]:
-    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it is not there or not there yet."""
+    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it does not exist yet, such as "its PR goes up first" or "no PR yet"; one that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included."""
     labels = [label for line in linked for label in LINK.findall(line)]
     linked_kinds = {kind(found) for label in labels for found in KIND.findall(label)}
     markdown = [found for line in linked for found in MARKDOWN_LINK.finditer(FENCED.sub(" ", line))]
@@ -513,7 +517,7 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> lis
                 if kind(named) not in kinds or kind(named) in linked_kinds or GENERIC.search(bare, 0, match.start()):
                     continue
                 read, written = clause(line, bare, match.start(), match.end())
-                if NEGATION.search(read) or NOT_YET.search(read):
+                if UNBUILT.search(read):
                     continue
                 if is_plain:
                     problems.append(
