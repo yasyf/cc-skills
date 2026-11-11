@@ -98,7 +98,7 @@ def post_words(post: dict) -> int:
 def post_refusal(post: dict, edited: int = 0) -> str | None:
     """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
-        return card_refusal(card, post.get("text") or "")
+        return card_refusal(card)
     count = post_words(post)
     features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
@@ -108,12 +108,17 @@ def post_refusal(post: dict, edited: int = 0) -> str | None:
     return f"refused: this post is {count} words, and {shape} is at most {limit} words{edit} ({READING}). {LINE_REST}"
 
 
-def card_refusal(card: dict, beside: str) -> str | None:
-    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted."""
+def question_words(title: str, summary: list[str], options: list[str]) -> int:
+    """The words he reads on a question card, counted alike by `drive job ask` and the post hook: its question, summary and options."""
+    return sum(map(words, [title, *summary, *options]))
+
+
+def card_refusal(card: dict) -> str | None:
+    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is never drawn."""
     options = card.get("options") or []
     long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
     summary = SHOWN.split(card.get("body") or "", maxsplit=1)[0]
-    count = words(card.get("title") or "") + words(summary) + words(beside) + sum(map(words, options))
+    count = question_words(card.get("title") or "", summary.splitlines(), options)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, what he gets and what it costs: {', '.join(long)}"] if long else []
     if count > QUESTION_WORDS:
         problems.append(
@@ -159,7 +164,7 @@ def question(text: str) -> Question:
         if words(option) > OPTION_WORDS
     ]
     shown = [title, *summary, *options]
-    if (count := sum(map(words, shown))) > QUESTION_WORDS:
+    if (count := question_words(title, summary, options)) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
     problems += [f'plain words only: "{found}" is {what}' for what, pattern in NOT_PLAIN for found in pattern.findall(plain)]

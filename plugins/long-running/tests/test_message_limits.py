@@ -8,7 +8,8 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import slack
+from drive import limits, slack
+from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
 READ_THREAD = slack.thread
@@ -157,6 +158,25 @@ JOSHS_FIX = (
     " an Update sand button."
 )
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
+SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
+KENTS_ASK = f"""ASK Kent's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
+Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Kent's files are read.
+Show me:
+<https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
+```
+func Create(ctx context.Context, s Session, writer int64) (*DurableAgent, error) {{
+```
+Both builds use the same folder, and the old one never sees the new app's server, so it starts its own there.
+```
+old:  ~/.sand/sandsql-pair/primary/data/db/<chat>.db   finds a running server through server.json
+new:  ~/.sand/sandsql-pair/primary/data/db/<chat>.db   records its server in primary.json, never server.json
+```
+- New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them. (recommended)
+- New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
+- Kent first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
+Findings:
+Kent sees Untitled, unstarted chats marked state_missing that must be forked.
+"""
 
 
 def said(count: int) -> str:
@@ -260,7 +280,8 @@ def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(ta
     long_option = posted(transcript, card=card | {"options": [said(26), "No"]})
     assert "each option is one line of at most 25 words" in long_option
     assert "is 26 words" in long_option
-    too_long = posted(transcript, card=card, text=said(26), asked="explain the layout in full")
+    assert posted(transcript, card=card, text=said(26)) is None
+    too_long = posted(transcript, card=card | {"title": said(36)}, asked="explain the layout in full")
     assert too_long == (
         "refused: this card is 151 words, and a question with its summary and options is at most 150 words in all; its Show"
         " me goes under a `*Show me*` line in the body, drawn whole and not counted (the coordinator's reading of his Nov 9"
@@ -519,6 +540,22 @@ def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str,
     assert "\"teammate's landed fix\" in the question or an option names something he could open, and those draw no links" in refusal
     assert posted(transcript, card=card | {"body": JOSHS_FIX}) is None
     assert "in the question or an option" in posted(transcript, card=card | {"body": JOSHS_FIX.replace("fix>", "change>")})
+
+
+def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
+    asked = limits.question(KENTS_ASK)
+    card = {
+        "title": asked.title,
+        "body": "\n".join([*asked.summary, "*Show me*", *asked.show_me]),
+        "options": asked.options,
+        "recommended": asked.recommended,
+        "waits": "demo:j585-7",
+    }
+    assert posted(transcript, card=card, text="Kent's stray chats: pick a fix") is None
+    with pytest.raises(DriveError, match="the question, summary and options are 151 words; at most 150"):
+        limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
+    longer = [*asked.options[:2], asked.options[2].replace("costs time.", "costs time and money.")]
+    assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
 
 def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:
