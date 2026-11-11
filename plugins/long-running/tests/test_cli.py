@@ -1721,7 +1721,7 @@ def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, 
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap]})
     view.refresh_cards("demo")
     settled: list[tuple[str, ...]] = []
-    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "already_answered": False, "label": args[4], "other": False, "at": "now"})
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "label": args[4], "at": "now"})
     return settled
 
 
@@ -1807,6 +1807,18 @@ def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_
     data = state.load("demo")
     assert (data["jobs"]["j2"]["state"], data["jobs"]["j3"]["carries"]) == ("stopped", {"o1": ["land it"]})
     assert "j3" in data["orders"]["o1"]["jobs"]
+
+
+def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": False, "already_answered": True, "label": "Tree", "at": "now"})
+    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    assert cli.main(["answer", "a1", "--superseded", "demo:j2-7=stop"]) == 2
+    assert f"{DESIGN_CARD} already shows his answer 'Tree'" in capsys.readouterr().err
+    data = state.load("demo")
+    assert (data["answers"]["a1"]["cards"]["demo:j2-7"], data["jobs"]["j2"]["state"]) == (None, "running")
 
 
 def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_marked_and_settles_it_once(
