@@ -536,11 +536,18 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
     assert job["report"].endswith("CHANGE: y")
 
 
+@pytest.mark.parametrize(
+    "said",
+    [
+        "LOG {url}",
+        "j1 READ: LOG {url} (#7 head 1234abc), failing while it still runs. Give every failed job's name.",
+    ],
+)
 def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
-    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    said: str, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     url = "https://buildkite.com/forge/test/builds/121531"
-    deliver(monkeypatch, [message("question", f"LOG {url}", id="msg_log")])
+    deliver(monkeypatch, [message("question", said.format(url=url), id="msg_log")])
     asked, replies = [], []
     monkeypatch.setattr(reads, "answer", lambda question, root: asked.append((question, root)) or "ERROR: journal write")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
@@ -554,6 +561,23 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     ]
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
+
+
+def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    question = "LOG https://buildkite.com/forge/test/builds/1"
+    deliver(monkeypatch, [message("question", question, id="msg_log")])
+
+    def refuse(question: str, root: Path) -> str:
+        raise reads.ReadError("tools/ci bk api exited 1: 404 Not Found")
+
+    monkeypatch.setattr(reads, "answer", refuse)
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    why = f"{question}: tools/ci bk api exited 1: 404 Not Found"
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [f"JOB j1 o1 READ unanswered, its lane was told why: {why}"]
+    assert ("reply", "--id", "msg_log", "--run", RUN, "--body", why) in replies
+    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
 
 
 def test_a_read_answer_orca_refuses_is_retried_until_it_goes_through_and_said_from_the_third_refusal(

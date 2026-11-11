@@ -42,10 +42,14 @@ holds the whole latest report. `drive job replies <j>` prints every result and q
 sent, oldest first, each with its time, for a line that points at an earlier reply. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
 ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with
 a blocking question: `LOG <url>` for a red Buildkite or GitHub Actions check, `READ <command>` for
-a `cci` or `ccn` read the builder agent lists. The watch answers it itself, with no event: it runs
+a `cci` or `ccn` read the builder agent lists. The question's first line opens with the read, after
+the lane's job id when it writes one; `READ: LOG <url>` reads as `LOG <url>`, and text after a `LOG`
+URL is ignored. The watch answers it itself, with no event: it runs
 `tools/ci bk`, `ccx vcs job-log`, `cci` or `ccn` in the directory the coordinator started the
-drive from and replies with the output, cut to 12,000 characters. A command off that list gets a
-refusal naming the list. A lane whose wait ends waits again on the same question, so the watch
+drive from and replies with the output, cut to 12,000 characters. A read that fails, such as a
+command off that list or a tool that exits non-zero, replies with why and is a
+`JOB <j> <o> READ unanswered` line. A question that opens any other way, such as
+`READ: please send <file>`, is a `JOB` line for you to answer. A lane whose wait ends waits again on the same question, so the watch
 keeps each question queued on its job until the answer goes through, past a refused reply or a
 watch restart. Its `WATCH the answer to <j>'s read failed` line needs nothing from you. The watch registers each PR a lane's `READY` or `PR:` line
 links as that job's, wanting his tap, and reads the lane's Dispatch from Orca each minute: a
