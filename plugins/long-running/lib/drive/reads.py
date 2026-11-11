@@ -46,27 +46,35 @@ class ReadError(Exception):
 
 
 def request(body: str) -> str | None:
-    """The read a remote lane's question asks for, from its first line past the lane's job id: `LOG <url>`, `READ:` before it and whatever follows the URL aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
+    """The read a remote lane's question asks for when its first line, past the lane's job id, opens with one: every `LOG <url>` the question names, with `READ:` before the first and any other text aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
     line = JOB_ID.sub("", body.strip().partition("\n")[0], count=1)
-    if log := LOG.match(READ_MARK.sub("", line, count=1)):
-        return f"LOG {log[1]}"
+    if LOG.match(READ_MARK.sub("", line, count=1)):
+        return logs(body)
     return line if READ.match(line) else None
 
 
+def logs(body: str) -> str | None:
+    """Every `LOG <url>` a question names, wherever it names them, as one read; None when it names none."""
+    urls = dict.fromkeys(LOG.findall(body))
+    return f"LOG {' '.join(urls)}" if urls else None
+
+
 def answer(question: str, checkout: Path) -> str:
-    """Answer a read question with this Mac's credentials and records, never with nothing; ReadError says why it could not."""
-    log = LOG.fullmatch(question)
-    said = read_log(log[1], checkout) if log else read_records(READ.fullmatch(question)[1], checkout)
+    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs; ReadError says why it could not."""
+    if question.startswith("LOG "):
+        urls = question.split()[1:]
+        said = "\n\n".join(read_log(url, checkout, BUDGET // len(urls)) for url in urls)
+    else:
+        said = read_records(READ.fullmatch(question)[1], checkout)
     return said or f"{question}: empty, the read printed nothing"
 
 
-def read_log(url: str, checkout: Path) -> str:
+def read_log(url: str, checkout: Path, budget: int) -> str:
     if build := BUILDKITE_BUILD.search(url):
         job = BUILDKITE_JOB.search(url)
-        return buildkite(build[1], build[2], job[1] if job else None, checkout)
+        return buildkite(build[1], build[2], job[1] if job else None, checkout, budget)
     if job := ACTIONS_JOB.search(url):
-        budget = str(BUDGET // CHARS_PER_TOKEN)
-        return run(["ccx", "vcs", "job-log", job[2], "-R", job[1], "--budget", budget], checkout)
+        return run(["ccx", "vcs", "job-log", job[2], "-R", job[1], "--budget", str(budget // CHARS_PER_TOKEN)], checkout)
     raise ReadError("not a Buildkite build or job URL, or a GitHub Actions job URL")
 
 
@@ -89,7 +97,7 @@ def read_records(command: str, checkout: Path) -> str:
     return f"[first {BUDGET} of {len(output)} characters]\n{output[:BUDGET]}"
 
 
-def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path) -> str:
+def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path, budget: int) -> str:
     ci = str(checkout / "tools" / "ci")
     build = json.loads(run([ci, "bk", "api", f"/pipelines/{pipeline}/builds/{number}"], checkout))
     jobs = [
@@ -100,7 +108,7 @@ def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path) ->
     if not jobs:
         missing = f"no job {job_id}" if job_id else "no failed job"
         return f"{build['web_url']} is {build['state']} with {missing}"
-    share = BUDGET // len(jobs)
+    share = budget // len(jobs)
     return "\n\n".join(
         f"== {job['name']}: {job['state']}, exit {job['exit_status']}, {job['web_url']}\n"
         + excerpt(run([ci, "bk", "log", pipeline, number, job["id"]], checkout), share)
