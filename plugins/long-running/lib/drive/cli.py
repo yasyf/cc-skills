@@ -17,7 +17,6 @@ INCIDENT_FIX = "fix"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
-PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
 SHIM = """#!/bin/sh
@@ -1095,7 +1094,7 @@ def parser() -> argparse.ArgumentParser:
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
 
     root = argparse.ArgumentParser(prog="drive", description="State and events of a long-running drive.")
-    root.add_argument("--version", action="version", version=f"drive {json.loads(PLUGIN_JSON.read_text())['version']}")
+    root.add_argument("--version", action="version", version=f"drive {json.loads(render.PLUGIN_JSON.read_text())['version']}")
     verbs = root.add_subparsers(dest="verb", required=True)
 
     verb = verbs.add_parser("start", parents=[json_opt], help="create the drive or bind one of its two roles to this session")
