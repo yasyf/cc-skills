@@ -226,6 +226,7 @@ button.al.bad::before { content: ""; display: inline-block; width: 7px; height: 
 .job, .happened { display: flex; gap: 12px; align-items: flex-start; padding: 12px 20px; border-top: 1px solid var(--line); }
 .job:first-child, .happened:first-child { border-top: none; }
 .job > .dot, .happened > .dot { flex: none; margin-top: 7px; }
+.job > .body, .happened > .body { min-width: 0; overflow-wrap: anywhere; }
 .job.running > .dot { background: var(--accent); }
 .job.waiting > .dot, .job.built > .dot { background: var(--warm); }
 .job.failed > .dot { background: var(--bad); }
