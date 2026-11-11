@@ -303,8 +303,8 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
     assert run("order", "add", "sandsql-api times out on plat", "--incident", "--parts", "fix", "first check") == (
         0,
         "o4\n"
-        'j6 on "fix": start its agent now and record it with drive job set j6 --agent <id>\n'
-        'j7 on "first check": start its agent now and record it with drive job set j7 --agent <id>\n'
+        'j6 on "fix": start its agent now, its brief ending Drive: demo, order o4, job j6\n'
+        'j7 on "first check": start its agent now, its brief ending Drive: demo, order o4, job j7\n'
         "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1",
     )
     data = state.load("demo")
@@ -846,6 +846,34 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
     assert run("job", "report", "j1")[0] == 2
+
+
+@pytest.mark.parametrize(
+    ("kind", "first", "taken"),
+    [
+        ("builder", "DONE installed 1.0.76", "done"),
+        ("builder", "READY https://github.com/yasyf/cc-skills/pull/1", "waiting"),
+        ("builder", "WAITING: CI on #7", "waiting"),
+        ("design", "DESIGN the table move", "waiting"),
+        ("builder", "BLOCKED no order of his names this", "failed"),
+        ("reader", "The flag exists since 1.0.40", "done"),
+        ("builder", "BUILT lr-move, waits on demo:j1-3", None),
+        ("builder", "I pushed the fix", None),
+    ],
+)
+def test_a_kept_report_sets_a_running_job_from_its_first_line(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, kind: str, first: str, taken: str | None
+) -> None:
+    run("order", "add", "ship it")
+    run("job", "add", kind, "--order", "o1", "--goal", "ship")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
+    run("job", "set", "j2", "--state", "stopped")
+    for job_id in ("j1", "j2"):
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\nCHECK: build 12\n"))
+        run("job", "report", job_id, "-")
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, first) if taken else ("running", None))
+    assert (jobs["j2"]["state"], jobs["j2"]["said"]) == ("stopped", None)
 
 
 def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:

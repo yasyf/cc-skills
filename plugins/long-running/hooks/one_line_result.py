@@ -9,10 +9,6 @@ from drive import state
 RESULT_CHARS = 500
 
 
-def agent_job(data: dict, agent: str | None) -> str | None:
-    return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
-
-
 def block_reason(payload: dict) -> str | None:
     """Why a drive session's background agent may not stop yet: its final message lands whole in that session's context, so it is one line."""
     if payload.get("stop_hook_active"):
@@ -27,7 +23,7 @@ def block_reason(payload: dict) -> str | None:
     lines = message.splitlines()
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
         return None
-    job = agent_job(data, payload.get("agent_id")) or "<your job>"
+    job = state.agent_job(data, payload.get("agent_id")) or "<your job>"
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job} -` from a quoted"
         " heredoc, then end"
@@ -42,9 +38,23 @@ def block_reason(payload: dict) -> str | None:
     )
 
 
+def take_result(payload: dict) -> None:
+    """Set the job a drive session's background agent holds from the line it returned, so nobody types its state."""
+    names = state.session_drives(payload.get("session_id") or "")
+    lines = (payload.get("last_assistant_message") or "").strip().splitlines()
+    if not names or not lines:
+        return
+    if job_id := state.agent_job(state.load(names[0]), payload.get("agent_id")):
+        with state.edit(names[0]) as data:
+            state.take_result(data, job_id, lines[0].strip())
+
+
 def main() -> None:
-    if reason := block_reason(json.load(sys.stdin)):
+    payload = json.load(sys.stdin)
+    if reason := block_reason(payload):
         print(json.dumps({"decision": "block", "reason": reason}))
+        return
+    take_result(payload)
 
 
 if __name__ == "__main__":

@@ -17,15 +17,20 @@ with this Mac's `DEVBOX_AWS_PROFILE`.
 `description`, and the brief as `prompt`, plus `model: "sonnet"` for a reader only when its
 question is a one-fact lookup: a reader runs on Opus otherwise, since a read that needs research or
 a judgment call goes to Opus from the start, by his Nov 10 8:57 PM ruling; a design lane's call is in [Design first](design.md). **Never pass `name`.** Agent teams are on here, and a
-named agent becomes a teammate that never wakes on events. Record the agent id the call
-returns: `drive job add <kind> --order <o> --goal "<one line>" --agent <id> [--part "<part>"]...`.
+named agent becomes a teammate that never wakes on events. Add the job first,
+`drive job add <kind> --order <o> --goal "<one line>" [--part "<part>"]...`, so the brief's
+`Drive:` line names it: drive records on that job the agent the call starts, and marks the job
+running again on each `SendMessage` to that agent. The line the agent returns, or the first line
+it pipes to `drive job report <j> -`, sets the job's state and said line: `DONE` and a reader's
+answer make it done, `READY`, `WAITING` and `DESIGN` waiting, and `BLOCKED` failed; `drive job ask`
+already set an `ASK`'s, and only a `BUILT` is recorded by hand, with its branch and cards.
 The watch reads the agent's transcript, never the stored state: a running job whose agent ended
 its turn, wrote nothing for 30 minutes, or belonged to an earlier session makes its
 parts `ORPHAN`s.
 
 **Remote.** `drive job add builder --order <o> --goal "<one line>" --remote`, then run
 `drive job launch <j> - <<'BRIEF'`, the brief, and `BRIEF` from the monorepo checkout's root with
-`run_in_background: true`; a job added with neither `--remote` nor `--agent` launches the same way, since no agent of this Mac holds it. A brief, handoff or message for a lane always goes on stdin that way,
+`run_in_background: true`; a job added without `--remote` that no agent of this Mac holds launches the same way. A brief, handoff or message for a lane always goes on stdin that way,
 `drive job resume <j> -` included, never through a file the coordinator writes: Claude Code reads the
 files a session wrote back into its context after every compaction. It starts the builder through the
 `orca` skill's launcher as an Orca worker on a Sprite, on an Orca Run of its own that only this
@@ -35,12 +40,13 @@ terminal holds a lane's Run only for a worker start or an answer. The rest of th
 drive's own Run, which no lane mails. Such a line Orca still types in the
 seconds a call holds a lane's Run needs nothing: the watch makes that mail `JOB` events, so never
 run the `orca orchestration check` it names. A lane that started no worker runs here instead, never
-silently: start it with the Agent tool, record it with `drive job set <j> --agent <id>`, and
+silently: start it with the Agent tool on its brief, whose `Drive:` line records the agent, and
 say so in the order's next report. A failure after worker-start ran may have left the lane
 live, so a reader checks its attempt before anything starts it again. The lane reports through
 Orca mail, and `drive watch` turns each report into a `JOB <j> <o> <line>` event that opens with
 the `DONE`, `READY`, `BUILT`, `WAITING`, `ASK` or `BLOCKED` a background agent returns, taken from a
-final report's subject, which the builder sends as its first line; `drive status --json`
+final report's subject, which the builder sends as its first line and which sets the job's state
+as a local agent's line does; `drive status --json`
 holds the whole latest report. `drive job replies <j>` prints every result and question the lane
 sent, oldest first, each with its time, for a line that points at an earlier reply. A Sprite holds no Buildkite or AWS credentials, by his least-privilege
 ruling, and no copy of the drive's cci or cc-notes records, so a lane reads through this Mac with

@@ -17,7 +17,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive job set <j>` | `--state running/waiting/built/done/failed/stopped`; `--said "<its line>"`; `--agent <id>`; `--branch <b>`; `--pr <url>`...; `--repro <file>`; `--part "<part>"`..., of its own order or of the one `--carries <o>` names, another order it delivers for; `--card <link>`, a question card it asked on, kept beside its others, each carrying its parts until he answers it; `--waits <card or job>`...; `--no-waits`, dropping every wait first; `--told <link>`, the drive's line in an incident's thread linking the card, which a job on an open incident order needs before it takes a card |
 | `drive job ask <j> [<file>]` | keeps the question beside the job's other open ones; the ASK block's file, `-` for stdin, default a remote lane's latest report; `--unsettled "<why>"`: each answer of his the refusal listed, by id, and why it does not settle this |
 | `drive job card <file>` | the card a kept ASK block draws, as JSON, and gives the question kept in that file its waits id; `--waits <drive>:<j>-<seq>`, required |
-| `drive job report <j> [-]` | `-` keeps the return piped on stdin; with nothing, prints the kept one |
+| `drive job report <j> [-]` | `-` keeps the return piped on stdin, its first line setting a running job's state and said line; with nothing, prints the kept one |
 | `drive job launch <j> <brief>` | starts a remote job's lane on a Sprite; `-` reads the brief from stdin |
 | `drive job resume <j> "<text>"` | answers a remote lane or sends its next event; `-` reads the text from stdin |
 | `drive job replies <j>` | each result and question a remote lane sent, oldest first |

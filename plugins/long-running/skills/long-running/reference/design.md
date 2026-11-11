@@ -26,10 +26,10 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
 1. **One design lane, first.** The part's first job is the drive's one Fable job: read only, the
    design alone, no code and no PR, fleshed out with worked examples before any question goes to
    him.
-   Start it with the Agent tool: `subagent_type` `long-running:designer`, `model` `fable`, `effort`
+   Add it with `drive job add design --order <o> --part "<part>" --goal "<one line>"`, then start
+   it with the Agent tool: `subagent_type` `long-running:designer`, `model` `fable`, `effort`
    `medium`, `run_in_background: true`, a short `description`, never a `name`, and the brief as
-   `prompt`; record it with `drive job add design --order <o> --part "<part>" --goal "<one line>"
-   --agent <id>`. Its brief is the job brief in [Jobs](jobs.md) with no `Serves`, `Done when` or
+   `prompt`, whose `Drive:` line records the agent. Its brief is the job brief in [Jobs](jobs.md) with no `Serves`, `Done when` or
    `Handoff` line, and a `Plan:` that names what exists: the files, PRs and findings it starts
    from. Its return, by its agent definition, opens `DESIGN <part>` and carries the design in
    plain words with a worked example of each piece, such as the calls of an API, imperative beside

@@ -12,6 +12,7 @@ CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
+RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "BLOCKED": "failed"}
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
@@ -206,6 +207,21 @@ def drop_carries(data: dict, job_id: str) -> None:
     for order_id in data["jobs"][job_id]["carries"]:
         data["orders"][order_id]["jobs"].remove(job_id)
     data["jobs"][job_id]["carries"] = {}
+
+
+def agent_job(data: dict, agent: str | None) -> str | None:
+    return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
+
+
+def take_result(data: dict, job_id: str, line: str) -> None:
+    """Move a running job to the state its result line opens with, a reader's answer to done, with that line as its said line; an ASK's is set by drive job ask, and a BUILT's branch and cards by hand."""
+    job = data["jobs"][job_id]
+    taken = RESULT_STATES.get(re.match(r"[A-Z]*", line)[0], "done" if job["kind"] == "reader" else None)
+    if job["state"] != "running" or not taken:
+        return
+    job.update(state=taken, said=line, updated=stamp())
+    if taken == "done":
+        drop_carries(data, job_id)
 
 
 def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
