@@ -394,3 +394,65 @@ await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00' });
 done({ source: drawn.textContent, same: document.querySelector('#main .visual-host pre') === drawn });
 """, board(history=[said]))
     assert shown == {"source": "flowchart LR", "same": True}
+
+
+def test_a_picture_opens_in_a_lightbox_in_place_and_steps_to_the_next_one_on_the_same_card(tmp_path: Path) -> None:
+    pictures = [{"kind": "image", "source": "", "caption": caption, "picture": f"/{caption}.png"} for caption in ("before", "after")]
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "two shots", "detail": "", "url": None, "feature": "o1", "visuals": pictures, "prs": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+const first = document.querySelector('#main [data-shot]');
+first.focus();
+first.click();
+await wait(50);
+const box = document.querySelector('#lightbox');
+const opened = { open: box.open, hash: location.hash, shown: box.querySelector('.lb-stage img').getAttribute('src'), caption: box.querySelector('.lb-caption').textContent, count: box.querySelector('.lb-bar .meta').textContent };
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+await wait(50);
+const stepped = { shown: box.querySelector('.lb-stage img').getAttribute('src'), count: box.querySelector('.lb-bar .meta').textContent };
+box.querySelector('[data-close]').click();
+await wait(50);
+done({ opened, stepped, closed: !box.open, focus: document.activeElement === first });
+""", board(history=[said]))
+    assert seen == {
+        "opened": {"open": True, "hash": "#/history", "shown": "/api/picture?path=%2Fbefore.png", "caption": "before", "count": "1 of 2"},
+        "stepped": {"shown": "/api/picture?path=%2Fafter.png", "count": "2 of 2"},
+        "closed": True,
+        "focus": True,
+    }
+
+
+def test_every_figure_enlarges_into_the_lightbox_drawn_from_the_same_source(tmp_path: Path) -> None:
+    figure = {"kind": "mermaid", "source": "flowchart LR\n  run --> server", "caption": "the flow", "picture": "/flow.png"}
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "a flow", "detail": "", "url": None, "feature": "o1", "visuals": [figure], "prs": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+document.querySelector('#main [data-enlarge]').click();
+await wait(50);
+const host = document.querySelector('#lightbox .visual-host');
+done({ open: document.querySelector('#lightbox').open, kind: host.dataset.visual, source: host.dataset.source, caption: document.querySelector('#lightbox .lb-caption').textContent });
+""", board(history=[said]))
+    assert seen == {"open": True, "kind": "mermaid", "source": "flowchart LR\n  run --> server", "caption": "the flow"}
+
+
+def test_moving_focus_into_a_folded_summary_opens_it_and_its_picture_opens_in_the_lightbox(tmp_path: Path) -> None:
+    body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
+    item = {
+        "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
+        "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
+    }
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const fold = document.querySelector('#main .fold');
+const before = { long: fold.classList.contains('long'), open: fold.classList.contains('open') };
+fold.querySelector('[data-shot]').focus();
+await wait(50);
+const after = { open: document.querySelector('#main .fold').classList.contains('open'), focused: document.activeElement.matches('[data-shot]') };
+document.activeElement.click();
+await wait(50);
+done({ before, after, lightbox: document.querySelector('#lightbox').open, hash: location.hash });
+""", board(queue=[item]))
+    assert seen == {"before": {"long": True, "open": False}, "after": {"open": True, "focused": True}, "lightbox": True, "hash": "#/queue/all"}

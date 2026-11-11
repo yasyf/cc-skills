@@ -70,6 +70,7 @@ const ICONS = {
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
+  enlarge: '<path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>',
 };
 
 let model = null;
@@ -98,6 +99,7 @@ const slotted = new Map();
 const followed = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
 let reviewing = null;
+let viewing = null;
 
 const $ = (selector) => document.querySelector(selector);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -176,7 +178,7 @@ function inline(text, cite = model.repo) {
     .replace(/`([^`]+)`/g, (_, code) => keep(`<code>${esc(code)}</code>`))
     .replace(/<(https?:\/\/[^|>\s]+)\|([^>]+)>/g, (_, url, label) => keep(link(label, url)))
     .replace(/<(https?:\/\/[^|>\s]+)>/g, (_, url) => keep(link(url, url)))
-    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => keep(`<a class="shot" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(alt)}" loading="lazy"></a>`))
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => keep(picture(url, alt)))
     .replace(/\[([^\]]+)\]\((#\/[^)\s]+)\)/g, (_, label, route) => keep(`<a class="ref" href="${esc(route)}">${esc(label)}</a>`))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => keep(link(label, url)))
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\S*/g, (url, number) => keep(link(`#${number}`, url)));
@@ -240,12 +242,48 @@ function shown(path, caption) {
 }
 
 function shot(path, caption) {
-  const src = `/api/picture?path=${encodeURIComponent(path)}`;
-  return `<a class="shot" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(caption)}" loading="lazy"></a>`;
+  return picture(`/api/picture?path=${encodeURIComponent(path)}`, caption);
+}
+
+function picture(src, caption) {
+  return `<button type="button" class="shot" data-shot="${esc(src)}" data-caption="${esc(caption)}" aria-label="${esc(caption ? `Enlarge ${caption}` : 'Enlarge the picture')}"><img src="${esc(src)}" alt="${esc(caption)}" loading="lazy"></button>`;
 }
 
 function visual(kind, source, caption = '') {
-  return `<figure class="visual"><div class="visual-host" data-visual="${esc(kind)}" data-source="${esc(source)}"></div>${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`;
+  return `<figure class="visual"><div class="visual-host" data-visual="${esc(kind)}" data-source="${esc(source)}"></div><button type="button" class="enlarge" data-enlarge aria-label="Enlarge${caption ? ` ${esc(caption)}` : ''}" title="Enlarge">${icon('enlarge')}</button>${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`;
+}
+
+function gallery(item) {
+  const group = item.closest('article, li, aside, section, .pr-pane, .dr-pane, .ask-box') ?? item.parentElement;
+  return [...group.querySelectorAll('[data-shot], figure.visual')];
+}
+
+function openLightbox(item) {
+  const items = gallery(item);
+  viewing = { items, at: items.indexOf(item), opener: document.activeElement };
+  drawLightbox();
+  $('#lightbox').showModal();
+}
+
+function drawLightbox() {
+  const { items, at } = viewing;
+  const item = items[at];
+  const host = item.querySelector('.visual-host');
+  const caption = host ? item.querySelector('figcaption')?.textContent ?? '' : item.dataset.caption;
+  const stage = host ? visual(host.dataset.visual, host.dataset.source) : `<img src="${esc(item.dataset.shot)}" alt="${esc(caption)}">`;
+  const original = host ? '' : `<a class="ext" href="${esc(item.dataset.shot)}" target="_blank" rel="noopener">Open the original ↗</a>`;
+  const steps = items.length > 1 ? `<button class="lb-step" data-step="-1" aria-label="Previous"${at === 0 ? ' disabled' : ''}>‹</button><button class="lb-step next" data-step="1" aria-label="Next"${at === items.length - 1 ? ' disabled' : ''}>›</button>` : '';
+  $('#lightbox').innerHTML = `<div class="lb-bar"><span class="meta">${items.length > 1 ? `${at + 1} of ${items.length}` : ''}</span><span class="acts">${original}<button class="linkish" data-close autofocus>Close</button></span></div>
+    <div class="lb-stage${host ? '' : ' photo'}">${stage}</div>
+    ${caption ? `<p class="lb-caption">${esc(caption)}</p>` : ''}${steps}`;
+  drawFigures($('#lightbox'));
+}
+
+function stepLightbox(delta) {
+  const at = viewing.at + delta;
+  if (!viewing.items[at]) return;
+  viewing.at = at;
+  drawLightbox();
 }
 
 async function drawFigures(root) {
@@ -256,6 +294,7 @@ async function drawFigures(root) {
   for (const host of hosts) {
     try {
       await (await loaded).draw(host, host.dataset.visual, host.dataset.source);
+      if (host.dataset.visual.startsWith('code:')) host.insertAdjacentHTML('afterbegin', `<div class="code-bar"><span>${esc(host.dataset.visual.slice(5) || 'code')}</span><button type="button" class="linkish" data-copy>Copy</button></div>`);
     } catch (failure) {
       host.innerHTML = `<p class="refused">This ${esc(host.dataset.visual.split(':')[0])} did not draw (${esc(failure.message)}), so here is what it is drawn from.</p><pre><code>${esc(host.dataset.source)}</code></pre>`;
     }
@@ -1476,7 +1515,19 @@ document.addEventListener('click', (event) => {
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
-  const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader') ? event.target : null);
+  const shown = event.target.closest('#main [data-shot], #drawer [data-shot], #main [data-enlarge], #drawer [data-enlarge]');
+  if (shown) return openLightbox(shown.closest('figure.visual') ?? shown);
+  const stepped = event.target.closest('#lightbox [data-step]');
+  if (stepped) return stepLightbox(Number(stepped.dataset.step));
+  if (event.target.matches('#lightbox .photo img')) return event.target.parentElement.classList.toggle('actual');
+  const copied = event.target.closest('[data-copy]');
+  if (copied) {
+    navigator.clipboard.writeText(copied.closest('.visual-host').dataset.source).then(() => {
+      copied.textContent = 'Copied';
+    });
+    return;
+  }
+  const closer = event.target.closest('[data-close]') ?? (event.target.matches('#drawer, #reader, #lightbox, .lb-stage') ? event.target : null);
   if (closer) return closer.closest('dialog').close();
   const drtab = event.target.closest('[data-drtab]');
   if (drtab) {
@@ -1485,7 +1536,7 @@ document.addEventListener('click', (event) => {
     return;
   }
   const folded = event.target.closest('.fold.long');
-  if (folded && !event.target.closest('a')) {
+  if (folded && !event.target.closest('a, button') && !getSelection().toString()) {
     const id = folded.dataset.fold;
     if (expanded.has(id)) expanded.delete(id);
     else expanded.add(id);
@@ -1521,6 +1572,11 @@ document.addEventListener('mouseover', (event) => {
   hideSource();
 });
 document.addEventListener('focusin', (event) => {
+  const folded = event.target.closest('.fold.long:not(.open)');
+  if (folded) {
+    expanded.add(folded.dataset.fold);
+    render();
+  }
   if (event.target.matches('#main .choice[data-preview]')) preview(event.target);
   if (event.target.matches('a[data-src]')) showSource(event.target);
   else if (event.target.matches('[data-tip]')) showTip(event.target);
@@ -1572,6 +1628,10 @@ document.addEventListener('keydown', (event) => {
       return answer(currentItem().answer, option);
     }
   }
+  if ($('#lightbox').open && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+    event.preventDefault();
+    return stepLightbox(event.key === 'ArrowLeft' ? -1 : 1);
+  }
   if (!$('#jump').open) return;
   const rows = [...document.querySelectorAll('#jumplist [data-jump]')];
   if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
@@ -1604,6 +1664,11 @@ window.addEventListener('DOMContentLoaded', () => {
     const key = reviewing;
     if (key) showReview(key, await startReview(key));
   }, REVIEW_KEEP_MS);
+  $('#lightbox').addEventListener('close', () => {
+    viewing.opener?.focus({ preventScroll: true });
+    viewing = null;
+    $('#lightbox').replaceChildren();
+  });
   $('#drawer').addEventListener('close', () => {
     hideSource();
     reviewing = null;
