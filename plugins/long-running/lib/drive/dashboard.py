@@ -248,7 +248,7 @@ class Board:
             self.answers = answers
             self.heads = heads
             self.pictures = pictures
-            self.threads = {entry["thread"] for entry in model["review"] if entry["thread"]}
+            self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
             self.reports = reports
             self.repo = repo
             self.channel = model["channel"]
@@ -320,7 +320,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             if not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
             elif ts not in board.threads:
-                self.answered(404, {"error": f"{ts} is not the thread of a PR card of this drive"})
+                self.answered(404, {"error": f"{ts} is not the thread of a card of yours on this drive"})
             else:
                 try:
                     self.answered(200, cc_slack("thread", "--channel", board.channel, "--thread", ts, "--limit", THREAD_MESSAGES))
