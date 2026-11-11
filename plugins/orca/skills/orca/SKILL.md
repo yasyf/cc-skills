@@ -422,6 +422,13 @@ origin or landed. A worktree with uncommitted or unpushed work stays. Add
 `orca-reclaim.py --run <run> --dispatch <ctx>` closes its idle terminal and
 reclaims its worktree.
 
+`orca-reclaim.py --run <run> --held <ctx>` changes nothing. It prints what that
+Dispatch's Sprite holds that a fresh Sprite would not get, or nothing: uncommitted
+changes, an unpushed HEAD, or each branch or stash with commits on no remote,
+by name. A root whose job outlives the lane, such as one waiting on CI, reads it
+before `--done`: `--done` keeps such a Sprite, but it stops the lane that could
+push the work.
+
 When `orca worktree rm` answers with an error such as `runtime_unavailable`
 but the directory is gone, the reclaimer counts the worktree as removed. The
 Orca error prints on its own `error` line, and a dropped runtime connection
@@ -486,7 +493,8 @@ runs `cc-remote destroy` through `WORKER_CC_REMOTE` or `ccRemote`, under
 `CC_REMOTE_CONFIG` or `ccRemoteConfig`, and removes its Orca environment. It
 does this only once no unsettled Dispatch shares the workspace, the terminal
 reads idle twice, and the checkout, read over ssh, is clean in every worktree,
-holds no commit off origin on another branch or stash, and has its HEAD on origin or landed; `--done` skips the idle check. GitHub answers whether the HEAD
+holds no other branch or stash with commits on no remote, and has its HEAD on origin or landed; `--done` skips the idle check.
+A branch counts as on a remote when its tip is on an origin ref the Sprite holds, or GitHub has it as a branch's head or a landed PR's. GitHub answers whether the HEAD
 is on origin or landed, for the Sprite's own origin, so the check doesn't depend
 on which checkout you run from. A Sprite without a GitHub origin is kept, and so
 is one GitHub can't answer for, such as under a rate limit, while the rest of

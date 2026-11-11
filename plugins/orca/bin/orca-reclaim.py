@@ -354,7 +354,7 @@ class Checkout:
     on_trunk: bool
     repository: str
     environment: str | None = None
-    off_origin: int = 0
+    off_origin: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -599,7 +599,8 @@ class CcRemote:
 
     def checkout(self, sprite: Sprite) -> Checkout | str:
         git_c = f"git -C {shlex.quote(sprite.root)}"
-        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {git_c} rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin && {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || git -C \"$tree\" status --porcelain || echo unreadable; done | wc -l && {git_c} status --porcelain=v2 --branch"]
+        off_origin = f"{{ {git_c} for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash | while read -r ref name tip; do [ -z \"$({git_c} rev-list -1 \"$ref\" --not HEAD --remotes=origin)\" ] || printf '%s:%s ' \"$name\" \"$tip\"; done; echo; }}"
+        argv = ["ssh", "-F", sprite.ssh_config, "-o", "BatchMode=yes", sprite.host, f"{git_c} remote get-url origin && {off_origin} && {git_c} worktree list --porcelain | sed -n 's/^worktree //p' | while read -r tree; do [ ! -e \"$tree\" ] || git -C \"$tree\" status --porcelain || echo unreadable; done | wc -l && {git_c} status --porcelain=v2 --branch"]
         done = subprocess.run(argv, capture_output=True, text=True)
         if done.returncode != 0:
             return f"ssh to {sprite.host} could not read {sprite.root}: {(done.stderr.strip().splitlines() or [f'exit {done.returncode}'])[-1]}"
@@ -620,7 +621,7 @@ class CcRemote:
             head=head,
             on_trunk=on_trunk,
             repository=hub["slug"],
-            off_origin=int(off_origin),
+            off_origin=tuple(ref.rpartition(":")[::2] for ref in off_origin.split()),
         )
 
     def remote(self, slug: str) -> Remote:
@@ -676,14 +677,23 @@ def terminal_action(worker: Worker, live: set[str], orca: Orca, ended: dict[str,
 def unsaved(checkout: Checkout, remote: Remote) -> str | None:
     if checkout.dirty:
         return "uncommitted changes"
-    if checkout.off_origin:
-        return f"{checkout.off_origin} commits off origin on its other branches or stashes"
     try:
+        if off := [name for name, tip in checkout.off_origin if tip not in remote.heads and tip not in remote.landed]:
+            return f"commits on no remote on {', '.join(off)}"
         if not (checkout.on_trunk or checkout.head in remote.heads or checkout.head in remote.landed):
             return f"unpushed commits on {checkout.branch or checkout.head[:10]}"
     except GitHubRefusal as refused:
         return str(refused)
     return None
+
+
+def held(run: str, dispatch: str, orca: Orca, cc_remote: CcRemote) -> str | None:
+    worker = next((worker for worker in orca.workers(run) if worker.dispatch == dispatch), None)
+    sprite = worker and cc_remote.sprites().get((worker.workspace, worker.terminal))
+    if sprite is None:
+        return None
+    checkout = cc_remote.checkout(sprite)
+    return checkout if isinstance(checkout, str) else unsaved(checkout, cc_remote.remote(checkout.repository))
 
 
 def sprite_action(worker: Worker, sprite: Sprite, live_workspaces: set[str], ended: dict[str, str], orca: Orca, cc_remote: CcRemote) -> Action:
@@ -1034,13 +1044,15 @@ def main() -> int:
         "git worktree remove without --force and so refuses modified or untracked files, and no Mac process scan applies. "
         "A settled dispatch whose worktree and terminal a cc-remote Sprite task records, with the workspace still recorded, has its Sprite destroyed "
         "with cc-remote destroy, WORKER_CC_REMOTE, else ccRemote in the working directory's .orca.json, else cc-remote on PATH, under the CC_REMOTE_CONFIG it inherits, else ccRemoteConfig in that .orca.json, which refuses a machine without that workspace's label, and its Orca environment removed, once no unsettled dispatch "
-        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no commit off origin on another branch or stash, and has its HEAD on origin "
+        "shares the workspace, its terminal reads idle twice (skipped under --done), and its checkout, read over ssh, is clean in every worktree, holds no other branch or stash with commits on no remote, whose tip GitHub does not hold as a branch's head or a landed PR's either, and has its HEAD on origin "
         "or landed, which GitHub answers for the Sprite's own origin from any working directory; when GitHub cannot answer, such as under a rate limit, the Sprite is kept and named. A removal Orca answers with an error, such as runtime_unavailable when the runtime drops the connection, still counts as removed when "
         "the worktree's directory is gone afterwards, and the Orca error follows on its own error line. A worktree Orca answers selector_not_found for, because it "
         "no longer tracks it, is removed with git worktree remove after the same checks, and kept and named when git refuses. Cleanup is paused until $XDG_STATE_HOME/orca-gc/resumed, default ~/.local/state/orca-gc/resumed, "
         "exists: a paused pass changes nothing, and a pause set mid-pass is read before each candidate and again right before its stop, release, "
         "terminal close, worktree removal, or Sprite destroy, which it skips and names, while an operation already started runs to completion. "
         "--dry-run reads through a pause. "
+        "--held reads, and changes nothing: it prints what the Sprite of one dispatch holds that a fresh Sprite would not get, by the same "
+        "checkout read that keeps a Sprite, such as uncommitted changes or each branch or stash with commits on no remote, or prints nothing. "
         "--new is the recurring pass. Without --run it takes one Run a pass, those no pass has swept first, then the one swept longest ago, and skips a Run whose "
         f"coordinator terminal is open, a legacy Run, the unbound Run, and each Run git config --global --get-all {SKIP_RUNS} names. "
         f"In that Run it sweeps up to {SWEPT_BATCH} settled dispatches with an open terminal or a worktree still on disk, those no pass has swept first, newest first, "
@@ -1057,6 +1069,7 @@ def main() -> int:
     parser.add_argument("--run", help="the Orca Run id; --new without it takes the next Run in turn")
     parser.add_argument("--dispatch", action="append", default=[], metavar="CTX", help="only this settled dispatch; repeatable")
     parser.add_argument("--done", action="append", default=[], metavar="CTX", help="worker-stop this dispatch, close its terminal, and reclaim its worktree; repeatable")
+    parser.add_argument("--held", metavar="CTX", help="print what this dispatch's Sprite holds on no remote, or nothing, and change nothing")
     parser.add_argument("--new", action="store_true", help="the recurring pass: a bounded batch of settled dispatches, capped closes and removals, backing off when Orca is slow")
     parser.add_argument("--shells", action="store_true", help="with --new, also close empty Orca shells quiet for three days")
     parser.add_argument("--dry-run", action="store_true", help="print what gc would do and change nothing")
@@ -1067,6 +1080,11 @@ def main() -> int:
         parser.error("--shells runs only with --new")
     if not args.new and not args.run:
         parser.error("--run is required without --new")
+    if args.held and (args.new or args.dispatch or args.done or args.dry_run):
+        parser.error("--held only reads one dispatch; drop --new, --dispatch, --done and --dry-run")
+    if args.held:
+        print(held(args.run, args.held, Orca(), CcRemote()) or "")
+        return 0
     if args.new:
         tally = sweep(args.run, args.shells, args.dry_run, Orca(), Git(), CcRemote(), Pause(RESUMED))
     else:

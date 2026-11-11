@@ -686,6 +686,8 @@ def job_add(args: argparse.Namespace) -> int:
 
 def job_set(args: argparse.Namespace) -> int:
     """Change a job; a state it already holds changes nothing, and stopped is the one state set by hand."""
+    from drive import view
+
     name = state.resolve(args.drive)
     known = state.load(name)
     held = find(known["jobs"], args.id, "job")["state"]
@@ -704,11 +706,18 @@ def job_set(args: argparse.Namespace) -> int:
         fix_kept(state.load(name), args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
-    if jobs := [wait for wait in args.waits if wait in state.load(name)["jobs"]]:
-        raise DriveError(
-            f"--waits {', '.join(jobs)}: a job waits only on a card of his, by its Slack link or waits id, so his tap frees it;"
-            f" wait on the card {' or '.join(jobs)} asked him on, which drive status {jobs[0]} names"
+    if jobs := [wait for wait in args.waits if wait in known["jobs"]]:
+        found = view.live_cards(name)
+        holds = [
+            *(card for job_id in jobs for card in view.open_cards(known["jobs"][job_id], found)),
+            *(key for job_id in jobs for key in map(state.pr_key, known["jobs"][job_id]["prs"]) if (pr := known["prs"].get(key)) and pr["state"] == "open"),
+        ]
+        instead = (
+            f"open on {' and '.join(jobs)}: {', '.join(holds)}; wait on the one this job needs, as --waits {holds[0]}"
+            if holds
+            else f"nothing is open on {' and '.join(jobs)} to wait on, no card of his and no PR"
         )
+        raise DriveError(f"--waits {', '.join(jobs)}: a job waits on his card, a PR the drive tracks or a release, never on another job; {instead}")
     check_waits(name, args.waits)
     told_him(name, args)
     known = state.load(name)
@@ -1373,15 +1382,25 @@ def job_replies(args: argparse.Namespace) -> int:
 
 
 def job_end(args: argparse.Namespace) -> int:
+    """Free a remote job's lane: its Sprite, or its terminal and clean worktree on this Mac. The job keeps the state its line set, with its waits, PRs and carried parts, so a waiting job's next event starts its next lane and nothing waiting on it is freed; refused, ending nothing, while the Sprite of a job still at work holds what its next lane would not get."""
     name = state.resolve(args.drive)
-    data = state.load(name)
-    job = started_job(data, args.id)
-    reclaimed = orca.reclaim(job["run"], job["dispatch"], checkout())
+    job = started_job(state.load(name), args.id)
+    root = checkout()
+    if job["state"] not in state.FINISHED_JOB_STATES and (holds := orca.held(job["run"], job["dispatch"], root)):
+        raise DriveError(
+            f"{args.id}: refused, nothing ended: it is {job['state']}, and its next lane starts on a fresh Sprite without what"
+            f" {job['workspace']} holds: {holds}. Have this lane push it first with drive job resume {args.id}"
+            ' "push what is on no remote, then return your line", then end it'
+        )
+    reclaimed = orca.reclaim(job["run"], job["dispatch"], root)
     with state.edit(name) as data:
         ended = data["jobs"][args.id]
-        ended.update(state=ended["state"] if ended["state"] in state.FINISHED_JOB_STATES else "done", ask=None, updated=state.stamp())
-        state.drop_carries(data, args.id)
-    return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})
+        state.lane_died(ended, job["dispatch"], "ended by drive job end", state.now())
+        ended.update(ask=None, updated=state.stamp())
+        if ended["state"] in state.FINISHED_JOB_STATES:
+            state.drop_carries(data, args.id)
+    line = f"{args.id}'s lane ended; {args.id} stays {ended['state']}"
+    return emit(args, "\n".join(filter(None, [reclaimed, line])), {"id": args.id, "reclaim": reclaimed, "state": ended["state"]})
 
 
 def pr_add(args: argparse.Namespace) -> int:
@@ -2562,7 +2581,15 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_replies)
-    verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite, or its terminal and clean worktree on this Mac")
+    verb = job.add_parser(
+        "end",
+        parents=both,
+        help=(
+            "free a remote job's lane once it returned its line: its Sprite, or its terminal and clean worktree on this Mac. The job"
+            " stays in the state its line set, with its waits, PRs and carried parts; refused while the Sprite of a job not yet done"
+            " holds a branch or stash with commits on no remote, or uncommitted changes, naming each"
+        ),
+    )
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
     verb = job.add_parser("show", parents=both, help="drive status for these ids")

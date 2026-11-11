@@ -937,6 +937,14 @@ class SpriteTest(unittest.TestCase):
         self.assertEqual(cc_remote.destroyed, [])
         self.assertIn("keep pool-abc unpushed commits on v3/lane", out)
 
+    def test_held_names_what_only_a_lanes_sprite_holds_and_changes_nothing(self):
+        orca = FakeOrca([sprite_row("ctx_s", status="running")])
+        unpushed = FakeCcRemote(self.hosted, {"pool-abc": checkout(SPRITE.root, off_origin=(("tallies-final", "d" * 40), ("stash", "e" * 40)))})
+        self.assertEqual(orca_gc.held("run_x", "ctx_s", orca, unpushed), "commits on no remote on tallies-final, stash")
+        self.assertIsNone(orca_gc.held("run_x", "ctx_s", orca, FakeCcRemote(self.hosted)))
+        self.assertIsNone(orca_gc.held("run_x", "ctx_other", orca, unpushed))
+        self.assertEqual((orca.calls, unpushed.destroyed), ([], []))
+
     def test_an_unreadable_checkout_keeps_the_sprite(self):
         cc_remote = FakeCcRemote(self.hosted, {"pool-abc": "ssh to pool-abc could not read /home/sprite/repo: timeout"})
         _, out = run_gc(FakeOrca([sprite_row("ctx_s")]), FakeGit({}), cc_remote=cc_remote)
@@ -1212,7 +1220,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n0\n0\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://token@github.com/acme/repo.git\n\n0\n# branch.oid " + "a" * 40 + "\n# branch.head (detached)\n? scratch.txt\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.github_trunk.cache_clear()
@@ -1227,7 +1235,7 @@ class OrcaArgvTest(unittest.TestCase):
 
     def test_a_sprite_without_a_github_origin_is_kept_by_name(self):
         original = orca_gc.subprocess.run
-        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n0\n0\n# branch.oid x\n# branch.head dev\n", "")
+        orca_gc.subprocess.run = lambda command, **_: orca_gc.subprocess.CompletedProcess(command, 0, "https://token@gitlab.example/acme/repo\n\n0\n# branch.oid x\n# branch.head dev\n", "")
         try:
             found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
         finally:
@@ -1260,7 +1268,7 @@ class OrcaArgvTest(unittest.TestCase):
 
         def fake(command, **_):
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n0\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 1, "", "gh: API rate limit exceeded (HTTP 403)")
 
         orca_gc.subprocess.run = fake
@@ -1268,8 +1276,8 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertEqual(found, "GitHub could not answer: gh: API rate limit exceeded (HTTP 403)")
 
     def test_commits_on_another_branch_keep_a_tree_whose_head_is_saved(self):
-        held = orca_gc.unsaved(checkout(head="a" * 40, off_origin=6), REMOTE)
-        self.assertEqual(held, "6 commits off origin on its other branches or stashes")
+        held = orca_gc.unsaved(checkout(head="a" * 40, off_origin=(("pushed-elsewhere", "a" * 40), ("tallies-final", "d" * 40), ("stash", "e" * 40))), REMOTE)
+        self.assertEqual(held, "commits on no remote on tallies-final, stash")
 
     def test_uncommitted_work_in_another_worktree_reads_as_dirty(self):
         original = orca_gc.subprocess.run
@@ -1280,7 +1288,7 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n0\n2\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n\n2\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake
@@ -1288,7 +1296,7 @@ class OrcaArgvTest(unittest.TestCase):
         self.assertTrue(found.dirty)
         self.assertIn("worktree list --porcelain", argv[0][-1])
 
-    def test_the_sprite_read_counts_other_branches_and_stashes(self):
+    def test_the_sprite_read_names_each_branch_and_stash_with_commits_on_no_remote(self):
         original = orca_gc.subprocess.run
         self.addCleanup(setattr, orca_gc.subprocess, "run", original)
         orca_gc.github_trunk.cache_clear()
@@ -1297,13 +1305,14 @@ class OrcaArgvTest(unittest.TestCase):
         def fake(command, **_):
             argv.append(command)
             if command[0] == "ssh":
-                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\n6\n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
+                return orca_gc.subprocess.CompletedProcess(command, 0, "https://github.com/acme/repo\ntallies-final:" + "d" * 40 + " stash:" + "e" * 40 + " \n0\n# branch.oid " + "a" * 40 + "\n# branch.head dev\n", "")
             return orca_gc.subprocess.CompletedProcess(command, 0, '{"default_branch": "dev", "status": "behind"}', "")
 
         orca_gc.subprocess.run = fake
         found = orca_gc.CcRemote(Path("/nonexistent")).checkout(SPRITE)
-        self.assertEqual(found.off_origin, 6)
-        self.assertIn("rev-list --count --branches --glob=refs/stash --not HEAD --remotes=origin", argv[0][-1])
+        self.assertEqual(found.off_origin, (("tallies-final", "d" * 40), ("stash", "e" * 40)))
+        self.assertIn("for-each-ref --format='%(refname) %(refname:short) %(objectname)' refs/heads refs/stash", argv[0][-1])
+        self.assertIn('rev-list -1 "$ref" --not HEAD --remotes=origin', argv[0][-1])
 
     def test_a_rate_limit_on_the_landed_check_reads_as_unsaved_not_a_crash(self):
         class Limited:
