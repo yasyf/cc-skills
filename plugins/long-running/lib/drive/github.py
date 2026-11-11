@@ -7,7 +7,7 @@ BATCH = 50
 FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
-    "... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }"
+    "... on CheckRun { name conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state } } } } } } }"
 )
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
@@ -18,6 +18,7 @@ COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
 CANDIDATE = "rc/"
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
+RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
 
 
 class GithubError(Exception):
@@ -77,7 +78,7 @@ def flatten(node: dict) -> dict:
         "isDraft": node["isDraft"],
         "headRefOid": node["headRefOid"],
         "mergeCommit": (node["mergeCommit"] or {}).get("oid"),
-        "checks": rollup["contexts"]["nodes"] if rollup else [],
+        "checks": [context(check) for check in rollup["contexts"]["nodes"]] if rollup else [],
         "reviewDecision": node["reviewDecision"],
         "mergeable": node["mergeable"],
         "title": node["title"],
@@ -97,10 +98,28 @@ def failed_before(stored: dict, head: str) -> list[str]:
     return stored["failed_checks"] if stored["head"] == head else []
 
 
+def context(node: dict) -> dict:
+    """A check run or status from the GraphQL rollup in the shape `gh pr view --json statusCheckRollup` gives it, naming a check run's workflow as workflowName, empty for a check no workflow ran."""
+    if "checkSuite" not in node:
+        return node
+    run = node["checkSuite"]["workflowRun"]
+    return {key: value for key, value in node.items() if key != "checkSuite"} | {"workflowName": run["workflow"]["name"] if run else ""}
+
+
+def run_of(check: dict) -> tuple[str, str] | None:
+    """The workflow and run id of a GitHub Actions check run, read from its details URL; None for a status or a check no workflow ran."""
+    found = RUN_URL.search(check.get("detailsUrl") or "")
+    return (check["workflowName"], found["run"]) if found else None
+
+
 def counted(rollup: list[dict]) -> list[dict]:
-    """The check runs and statuses that speak for one head: all but a cancelled run whose check, by name, passed or is still running in another run on that head, as when a newer run of a workflow cancels its duplicate."""
-    again = {check_name(check) for check in rollup if outcome(check) not in FAILED}
-    return [check for check in rollup if outcome(check) != "CANCELLED" or check_name(check) not in again]
+    """The check runs and statuses that speak for one head: all but the cancelled jobs of a workflow run when another run of the same workflow on that head passed or is still running, as when a newer run cancels its duplicate."""
+    going = {run_of(check) for check in rollup if outcome(check) not in FAILED} - {None}
+    return [check for check in rollup if outcome(check) != "CANCELLED" or not superseded(run_of(check), going)]
+
+
+def superseded(run: tuple[str, str] | None, going: set[tuple[str, str]]) -> bool:
+    return run is not None and any(workflow == run[0] and number != run[1] for workflow, number in going)
 
 
 def checks(rollup: list[dict], failed: list[str]) -> str:
