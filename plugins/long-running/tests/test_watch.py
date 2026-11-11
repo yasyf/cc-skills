@@ -1356,6 +1356,7 @@ def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_h
     assert watch.run_pass(watching, T0 + timedelta(minutes=32)) == [
         f"FREE {KEY} j1 o1: demo:j1-7-b answered or done, nothing else holds it",
         f"WATCH his open card for {state.pr_url(KEY)} still names the waits that ended, since its redraw failed: cc-slack exited 1",
+        f"CARD his card for {KEY} is drawing: green and approved, ready record sent to the communicator",
     ]
     assert redraws.asked == [state.pr_url(KEY)] * 2
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=33)) == []
@@ -2105,7 +2106,7 @@ def test_his_approve_of_a_monorepo_pr_wakes_the_coordinator_only_when_it_is_red_
 
 def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_wakes_its_job(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     waiting_job(demo)
-    reads = {KEY: read(labels=[{"name": github.EJECTED_LABEL}])}
+    reads = {KEY: read(labels=[github.EJECTED_LABEL])}
     serve(monkeypatch, reads)
     watching = watcher(demo)
     lines = watch.run_pass(watching, T0)
@@ -2115,29 +2116,26 @@ def test_a_pr_trunk_ejects_from_the_merge_queue_is_said_once_and_wakes_its_job(d
 
 
 def test_a_yasyf_lander_merges_with_admin_and_installs_each_plugin_its_merge_changes(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[list[str]] = []
-    answers = {"merge": "", "view": "ccc333ddd444eee\n", "api": "plugins/long-running/lib/drive/land.py\nREADME.md\n"}
+    answers = {"view": "ccc333ddd444eee\n", "api": "plugins/long-running/lib/drive/land.py\nREADME.md\n"}
 
     def gh(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s") -> str:
-        calls.append(cmd)
         return answers[cmd[2] if cmd[1] == "pr" else cmd[1]]
 
-    installs: list[list[str]] = []
+    runs: list[list[str]] = []
     monkeypatch.setattr(github, "run", gh)
     monkeypatch.setattr(install, "touched", lambda repo, files: ["long-running@skills"] if "plugins/long-running/lib/drive/land.py" in files else [])
     monkeypatch.setattr(
-        land.subprocess, "run", lambda argv, **kwargs: installs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
+        land.subprocess, "run", lambda argv, **kwargs: runs.append(argv) or land.subprocess.CompletedProcess(argv, 0, "long-running@skills 1.0.4 installed\n", "")
     )
     assert land.merged("yasyf/cc-skills#7") == "merged at ccc333ddd444; long-running@skills 1.0.4 installed"
-    assert calls[0] == ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"]
-    assert installs == [[str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee"]]
+    assert runs == [
+        ["gh", "pr", "merge", "7", "-R", "yasyf/cc-skills", "--squash", "--admin"],
+        [str(land.DRIVE), "install", "long-running@skills", "--sha", "ccc333ddd444eee"],
+    ]
 
 
 def test_a_yasyf_merge_gh_refuses_is_said_as_not_landed(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refuse(cmd: list[str], cwd: str | None = None, timeout: int = 120, max_age: str = "0s") -> str:
-        raise github.GithubError("required status check is failing")
-
-    monkeypatch.setattr(github, "run", refuse)
+    monkeypatch.setattr(land.subprocess, "run", lambda argv, **kwargs: land.subprocess.CompletedProcess(argv, 1, "", "required status check is failing\n"))
     assert land.merged("yasyf/cc-skills#7") == "not landed: gh pr merge --squash --admin refused it: required status check is failing"
 
 

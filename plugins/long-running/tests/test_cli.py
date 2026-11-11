@@ -2515,7 +2515,7 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
 
 
 def test_pr_add_of_a_yasyf_pr_starts_one_lander_that_merges_and_installs_it(
-    run: Run, demo: str, on_github: dict, landers: list[tuple[str, ...]]
+    run: Run, communicator: str, on_github: dict, landers: list[tuple[str, ...]]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
@@ -2830,7 +2830,7 @@ def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only
         'drive: Forge-AI/monorepo#42 --serves o1: refused, o1 is a "Drive tooling:" order, which only the communicator acts on:'
         " send a defect record to communicator@demo naming what it needs, and the communicator's builder takes it over"
     )
-    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is False
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"].get("serves") is None
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
     code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert code == 0
