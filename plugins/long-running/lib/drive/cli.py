@@ -25,6 +25,10 @@ JOB_ID = re.compile(r"j\d+")
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
+BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "interactions", "would_he_ask", "plan", "incident", "scratch")
+BRIEF_NEEDS = ("serves", "done_when", "where")
+READER_RESEARCH = "the Researched: block this build needs"
+NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
 TOLD_LINK = (
     "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink,"
     " which `cc-slack check-post` refuses."
@@ -342,6 +346,14 @@ def order_set(args: argparse.Namespace) -> int:
             f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
             " an incident takes --no-options-only, and an order limited to options --no-incident"
         )
+    proof = args.proof or (order["proof"] if args.state == "done" else None)
+    if proof and (seen := surface(data, order)) and not brief.SEEN_PROOF.search(proof):
+        raise DriveError(
+            f"{'--proof' if args.proof else 'its proof'} {proof}: refused, {args.id} builds something he uses ({seen}), so it is proven"
+            " done on that surface: a recording of each step through it (agent-browser's recording, or screencapture -v of the window)"
+            " or the link of the live post; data fetched from an API or a command's output does not show what he sees"
+            + ("" if args.proof else "; close it with --proof <that recording or link>")
+        )
     destination = order | {"thread": args.thread or order["thread"]}
     if args.thread:
         check_thread(data, destination)
@@ -419,6 +431,12 @@ def check_proof(proof: str) -> None:
 
 def filing_pairs(data: dict) -> list[tuple[str, str]]:
     return sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
+
+
+def surface(data: dict, order: dict) -> str | None:
+    """Where he sees or uses an order's result, by the Native line of a brief of one of its jobs; None when no brief names a surface."""
+    natives = [(data["jobs"][job_id].get("brief_flags") or {}).get("native") for job_id in order["jobs"]]
+    return next((native for native in natives if native and not NO_SURFACE.match(native)), None)
 
 
 def order_unfiled(args: argparse.Namespace) -> int:
@@ -560,6 +578,8 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 def job_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
+    if args.kind == "builder" and not args.remote:
+        refuse_a_local_builder(state.load(name), args.repo)
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -610,6 +630,9 @@ def job_set(args: argparse.Namespace) -> int:
         )
     check_waits(name, args.waits)
     told_him(name, args)
+    known = state.load(name)
+    for order_id in args.carries:
+        refuse_a_crossed_order(name, known, find(known["jobs"], args.id, "job")["order"], order_id, f"{args.id} --carries")
     shown = args.card and shown_card(name, args.card)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
@@ -667,6 +690,27 @@ def job_clock(job_id: str, due: str | None) -> str | None:
     if at <= moment:
         raise DriveError(f"{job_id}: refused, no clock set: {render.when(state.stamp(at))} is already past; set a time to come")
     return state.stamp(at)
+
+
+def tooling(order: dict) -> bool:
+    return order["text"].startswith(state.TOOLING)
+
+
+def refuse_a_crossed_order(name: str, data: dict, own: str, other: str, acting: str) -> None:
+    """Refuse a job carrying, or a PR serving, an order across the line between drive tooling and his feature work: the coordinator acts on no "Drive tooling:" order, and a tooling order's job or PR never carries or serves his feature order, nor the reverse."""
+    order = find(data["orders"], other, "order")
+    if tooling(order) and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
+        raise DriveError(
+            f'{acting} {other}: refused, {other} is a "{state.TOOLING}" order, which only the communicator acts on: send a'
+            f" defect record to communicator@{name} naming what it needs, and the communicator's builder takes it over"
+        )
+    if tooling(order) == tooling(data["orders"][own]) or own == other:
+        return
+    kinds = {True: "a drive tooling order", False: "an order of his feature work"}
+    raise DriveError(
+        f"{acting} {other}: refused, {own} is {kinds[tooling(data['orders'][own])]} and {other} is {kinds[tooling(order)]}, and"
+        f" one job or PR never carries both: start a job on {other} with drive job add <kind> --order {other}"
+    )
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
@@ -742,7 +786,13 @@ def job_ask(args: argparse.Namespace) -> int:
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.shape(text, name, args.id, args.unsettled)
-    shown ="\n".join([asked.title, *asked.summary, *asked.options])
+    said = "\n".join([asked.title, *asked.summary]).casefold()
+    if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == args.id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
+        raise DriveError(
+            f'{args.id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
+            f" and what in the target tree forces a choice #{unnamed[0]} did not make, such as what that tree lacks"
+        )
+    shown = "\n".join([asked.title, *asked.summary, *asked.options])
     matched = job["may_settle"]
     if not matched or matched["title"] != asked.title:
         found = settled.matching(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
@@ -905,19 +955,36 @@ def keep_repro(name: str, job_id: str, source: str) -> str:
     return str(kept)
 
 
-def place_job(args: argparse.Namespace) -> int:
-    data, moment = state.load(state.resolve(args.drive)), state.now()
-    local_builders = sum(
+def local_builders(data: dict) -> int:
+    """The builders running on this Mac: its agents still at work, and its Orca workers whose lane has not ended."""
+    moment = state.now()
+    return sum(
         job["kind"] == "builder"
         and job["state"] == "running"
-        and job.get("where") != "remote"
-        and watch.local_gap(job_id, job, data, moment) is None
+        and (
+            state.on_mac(job) and not any(death["dispatch"] == job.get("dispatch") for death in job.get("deaths", []))
+            if job.get("where") == "remote"
+            else watch.local_gap(job_id, job, data, moment) is None
+        )
         for job_id, job in data["jobs"].items()
     )
+
+
+def place_job(args: argparse.Namespace) -> int:
+    builders = local_builders(state.load(state.resolve(args.drive)))
     share, ceiling = place.busy(), place.limit()
-    where, why = place.verdict(share, ceiling, local_builders)
-    payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": local_builders}
+    where, why = place.verdict(share, ceiling, builders)
+    payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": builders}
     return emit(args, f"{where}: {why}", payload)
+
+
+def refuse_a_local_builder(data: dict, repo: str | None) -> None:
+    """A builder starts on this Mac only under its cap of local builders, and a monorepo builder only while drive place says local."""
+    builders = local_builders(data)
+    monorepo = (repo or "").casefold() == place.MONOREPO.casefold()
+    where, why = place.verdict(place.busy() if monorepo else 0.0, place.limit(), builders)
+    if where == "remote":
+        raise DriveError(f"refused, no job added: {why}, so this builder starts remote: add --remote, or wait until drive place says local")
 
 
 def remote_job(data: dict, job_id: str) -> dict:
@@ -940,30 +1007,50 @@ def checkout() -> Path:
 
 
 def job_brief(args: argparse.Namespace) -> int:
-    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words whole, the earlier jobs' transcripts, and the lines the call names."""
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words whole, the earlier jobs' transcripts, and the lines the call names, each flag it leaves out kept from the job's earlier brief but a handoff's event."""
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
     order = data["orders"][job["order"]]
+    earlier_flags = job.get("brief_flags") or {}
+    kept = [flag for flag in BRIEF_FLAGS if not getattr(args, flag) and earlier_flags.get(flag)]
+    flags = {flag: getattr(args, flag) or earlier_flags.get(flag) for flag in BRIEF_FLAGS}
+    if missing := [f"--{flag.replace('_', '-')}" for flag in BRIEF_NEEDS if not flags[flag]]:
+        raise DriveError(f"{args.id} has no earlier brief to keep {', '.join(missing)} from: name each")
+    if job["state"] == "waiting" and job["prs"] and not (job.get("agent") or job.get("dispatch") or args.handoff):
+        raise DriveError(
+            f"{args.id} is an adopted PR's job, waiting with no agent on {', '.join(job['prs'])}: its builder starts only on an event"
+            " that needs action, failed checks, requested changes, a new head or his tap; when the watch reports one, brief it"
+            " with --handoff <the PR, its head and the event line verbatim>"
+        )
+    if flags["native"] and not NO_SURFACE.match(flags["native"]) and not flags["interactions"]:
+        raise DriveError(
+            f"{args.id}'s result is something he uses, by --native: name each click or step he takes on it with --interactions,"
+            " which its builder walks through and records as its proof"
+        )
     checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
-    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in args.ruling]
+    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in flags["ruling"] or []]
     earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
-    building = job["kind"] in brief.RESEARCHED_KINDS and order["kind"] == "build" and not order["incident"]
-    found = brief.research(name, data, job["order"]) if building else None
-    scratch = Path(args.scratch).expanduser() if args.scratch else state.drive_dir(name) / "scratch" / args.id
+    planned = order["kind"] == "build" and not order["incident"]
+    found = brief.research(name, data, job["order"]) if planned and job["kind"] in brief.RESEARCHED_KINDS else None
+    scratch = Path(flags["scratch"]).expanduser() if flags["scratch"] else state.drive_dir(name) / "scratch" / args.id
     scratch.mkdir(parents=True, exist_ok=True)
     fields = {
         "Order (his words)": order["text"],
-        "Serves": args.serves,
+        "Serves": flags["serves"],
         "Goal": job["goal"],
-        "Done when": args.done_when,
-        "Where": args.where,
-        "Runs as": args.runs_as,
+        "Done when": flags["done_when"],
+        "Where": flags["where"],
+        "Runs as": flags["runs_as"],
         "Handoff": args.handoff,
         "Decisions that bind": rulings or "none named; search his answers on the area",
+        "Research": planned and job["kind"] == "reader" and READER_RESEARCH,
         "Researched": found and found[0],
-        "Plan": args.plan,
-        "Incident": args.incident,
+        "Native": flags["native"],
+        "Interactions": flags["interactions"],
+        "Would he ask": flags["would_he_ask"],
+        "Plan": flags["plan"],
+        "Incident": flags["incident"],
         "Scratch": str(scratch),
         "Transcripts": earlier,
         "Drive": f"{name}, order {job['order']}, job {args.id}",
@@ -977,9 +1064,11 @@ def job_brief(args: argparse.Namespace) -> int:
     ]
     written.write_text("\n".join(lines) + "\n")
     with state.edit(name) as data:
-        data["jobs"][args.id]["brief"] = str(written)
+        data["jobs"][args.id].update(brief=str(written), brief_flags=flags)
     line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
-    return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier})
+    if kept:
+        line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
+    return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
@@ -1144,6 +1233,12 @@ def pr_add(args: argparse.Namespace) -> int:
     url = state.pr_url(key)
     if exposed := card.exposure(key):
         raise DriveError(f"{key}: {exposed}")
+    read = github_pr(key)
+    refuse_an_unkinded_title(key, read, None)
+    known = state.load(name)
+    added = find(known["jobs"], args.job, "job")
+    if not args.tap and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
+        refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job} --tap. ")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
         if data["orders"][job["order"]]["once"]:
@@ -1206,6 +1301,8 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.no_tapped:
         refuse_a_tap_of_his(name, key, dropped)
     order = known["prs"][key]["order"]
+    if args.serves:
+        refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
     if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
@@ -1217,9 +1314,13 @@ def pr_set(args: argparse.Namespace) -> int:
     except github.GithubError as error:
         raise DriveError(f"{key}: could not read from GitHub whether each release it would wait on is out: {error}; run this again") from None
     args.waits = [wait for wait in args.waits if wait not in shipped]
-    if args.exempt == INCIDENT_EXEMPTION:
-        refuse_an_exempt_stop(known, key)
-        refuse_an_exempt_revert(name, key)
+    if args.port_of or args.tap or args.exempt == INCIDENT_EXEMPTION:
+        read = github_pr(key)
+        if args.port_of or args.tap:
+            refuse_an_unkinded_title(key, read, args.port_of)
+        if args.exempt == INCIDENT_EXEMPTION:
+            refuse_an_exempt_stop(known, key)
+            refuse_an_exempt_revert(known, key, order, read)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
     served = ""
@@ -1373,20 +1474,38 @@ def refuse_an_exempt_stop(data: dict, key: str) -> None:
     )
 
 
-def refuse_an_exempt_revert(name: str, key: str) -> None:
-    """A PR whose title or body says it reverts a change takes that change out, which no incident order approves: it lands only on his tap, on a card stating the bug in that change."""
+def github_pr(key: str) -> dict:
     from drive import card
 
     if not (read := card.read(key)):
-        raise DriveError(f"{key}: could not read it from GitHub to check that it reverts nothing")
+        raise DriveError(f"{key}: could not read it from GitHub to check its title and body")
+    return read
+
+
+def refuse_an_unkinded_title(key: str, read: dict, port_of: int | None) -> None:
+    """A PR's title opens with the kind his card names it by, Fix:, New:, Cleanup: or Port:, or a prefix his card reads as one, and a port's title opens Port:."""
+    from drive import card
+
+    kind, plain = card.kind_and_title(read["title"])
+    if kind != "Change" and (kind == "Port" or not port_of):
+        return
+    repo, number = key.split("#")
+    opening, retitled = (f"Port:, since it is a port of #{port_of}", f"Port: {plain}") if port_of else ("Fix:, New:, Cleanup: or Port:", f"<Fix|New|Cleanup|Port>: {plain}")
+    title = read["title"]
+    raise DriveError(
+        f'{key}: refused, its title "{title}" does not open {opening}, the kind of change his card names it by:'
+        f' retitle it with gh pr edit {number} -R {repo} --title "{retitled}", then run this again'
+    )
+
+
+def refuse_an_exempt_revert(data: dict, key: str, order_id: str, read: dict, adding: str = "") -> None:
+    """A PR whose title or body says it reverts a change takes that change out, which no incident order approves: it lands only on his tap, on a card stating the bug in that change."""
     if not REVERT.search(f"{read['title']}\n{read['body']}"):
         return
-    data = state.load(name)
-    order_id = find(data["prs"], key, "drive PR")["order"]
     record = data["orders"][order_id]["note"] or "none noted yet"
     raise DriveError(
         f'{key}: refused, it reverts a change, and a revert never lands as an "{INCIDENT_EXEMPTION}": no incident order approves it,'
-        f" only his tap does. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {order_id} --design none,"
+        f" only his tap does. {adding}Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {order_id} --design none,"
         f" its body stating the bug in the change it takes out, with that change's PR and evidence, from {order_id}'s record ({record})"
     )
 
@@ -2087,14 +2206,23 @@ def parser() -> argparse.ArgumentParser:
             "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
             " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer, its title and"
             " body whole; Transcripts from each earlier job on the order; Scratch, by default a folder of the drive's;"
-            " the Drive line; and each line the flags name. Its first line, `Read your brief first: <path>`, is a local"
+            " the Drive line; a reader's on a build order, Research: the Researched: block this build needs; and each line"
+            " the flags name. A flag left out keeps the job's earlier brief's, all but --handoff, and the output names each kept;"
+            " a first brief names --serves, --done-when and --where. An adopted PR's job, waiting with no agent, is briefed only"
+            " with --handoff for an event that needs action. Its first line, `Read your brief first: <path>`, is a local"
             " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
         ),
     )
     verb.add_argument("id", help="the job")
-    verb.add_argument("--serves", required=True, help='"port of #N", "drive tooling" or "his order"')
-    verb.add_argument("--done-when", required=True, help="the check that proves it done")
-    verb.add_argument("--where", required=True, help="the repo, base branch, and any branch or PR to adopt")
+    verb.add_argument("--serves", help='"port of #N", "drive tooling" or "his order"; a first brief names it')
+    verb.add_argument("--done-when", help="the check that proves it done; a first brief names it")
+    verb.add_argument("--where", help="the repo, base branch, and any branch or PR to adopt; a first brief names it")
+    verb.add_argument(
+        "--native",
+        help='where he sees or uses the result and what that platform already does for it, with links; "none" for work he never sees',
+    )
+    verb.add_argument("--interactions", help="each click or step he takes on the result, which its builder walks through and records; needed when --native names a surface")
+    verb.add_argument("--would-he-ask", help="what he would still have to ask for if only his words were built")
     verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts")
     verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
     verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")

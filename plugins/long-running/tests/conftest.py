@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -6,6 +7,7 @@ from pathlib import Path
 import pytest
 from drive import (
     agents,
+    card,
     cli,
     dashboard,
     github,
@@ -30,6 +32,13 @@ LIVE_WORKER = {
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"lastOutputAt": None},
 }
+CARD_BODY = """## What you'll hate most
+It lands without a second look.
+
+## His words, step by step
+- "land it" beside `land.py:1`
+"""
+
 RESEARCH = """DONE researched the store copy
 Researched:
 rulings: none on the copy path
@@ -232,3 +241,22 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 
     monkeypatch.setattr(settled, "matched", matched)
     return answers
+
+
+@pytest.fixture(autouse=True)
+def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
+    pr = {
+        "title": "Fix: land it",
+        "body": CARD_BODY,
+        "comments": [],
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefOid": "abc",
+        "baseRefName": "main",
+        "headRefName": "land-it",
+        "statusCheckRollup": [],
+        "reviewDecision": "REVIEW_REQUIRED",
+        "url": "https://github.com/Forge-AI/monorepo/pull/42",
+    }
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
+    return pr

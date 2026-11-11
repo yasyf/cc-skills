@@ -782,6 +782,17 @@ def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[st
     assert all(skipped["reason"].startswith("its stack holds 3 PRs and a stack is at most 2,") for skipped in drawn["skipped"])
 
 
+def test_exempt_and_yasyf_prs_are_not_counted_toward_a_stacks_cap(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_MOST", 2)
+    with state.edit("demo") as data:
+        for number in (41, 42, 43):
+            data["prs"][f"Forge-AI/monorepo#{number}"]["exempt"] = "test-only"
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
+    own = [(pr_json(url=f"https://github.com/yasyf/cc-skills/pull/{number}"), entry(wants_tap=False), ()) for number in (1, 2, 3)]
+    assert card.refusal(own, card.drawn_card(own), set()) == ""
+
+
 def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "STACK_HEADING", "no such section")
     ask(asks(41, 42, 43))

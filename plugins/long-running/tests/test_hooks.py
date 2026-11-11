@@ -374,8 +374,12 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:designer", model="fable")) is None
     unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt="Order (his words): fix it\nGoal: fix it")
     assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")
-    for scoped in ("Order: Drive tooling: x\nServes: drive tooling", "Handoff: 661200 Drive: demo Scratch: /s"):
-        assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=scoped)) is None
+    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt="Handoff: 661200 Drive: demo Scratch: /s")) is None
+    tooling = "Order: Drive tooling: x\nServes: drive tooling"
+    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=tooling)) == (
+        "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
+        " communicator@demo naming the tool and its refusal verbatim, and the communicator's builder takes it over"
+    )
     written = tmp_path / "jobs" / "j1.brief.md"
     written.parent.mkdir()
     written.write_text("Order (his words): fix it\nServes: his order\n")
@@ -385,6 +389,7 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
     assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:handler", name="desk")).startswith(
         "refused: the communicator starts no named agent"
     )
+    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:builder", prompt=tooling)) is None
     assert agent_brief.deny_reason({**named, "agent_id": "a-1"}) is None
     assert hook_output(agent_brief, monkeypatch, capsys, json.dumps(started_by_role("someone-else", name="desk"))) == ""
 

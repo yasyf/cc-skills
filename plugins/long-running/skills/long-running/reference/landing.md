@@ -26,13 +26,18 @@ for its repository says, then return `DONE <proof>`.
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order.
 - Keep a stack to four PRs at most, because his card shows each PR of a stack in its own section with
-  its pictures; `drive pr set --tap` refuses a longer one and says how to split or fold it.
+  its pictures; `drive pr set --tap` refuses a longer one and says how to split or fold it. Exempt and
+  `yasyf/*` PRs, which land with no tap, are not counted.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
   repository whose title check demands `fix:` or `feat:` keeps that prefix; the card reads either.
+  `drive pr add` refuses a title the card cannot name the kind of, `drive pr set --tap` one retitled
+  since, and `drive pr set --port-of` one not opening `Port:`, each giving the `gh pr edit --title`
+  that fixes it.
 - Write the body for him in plain words that name each function, syscall, flag, file, path, service or
   table by its proper term, never a vague stand-in, in his words "use the proper fucking terms for
   things". Leave out ids he cannot open (cc-notes, cci, job, order, or waits ids) and hashes: a sentence
-  carrying a record id is dropped from his card.
+  carrying a record id is dropped from his card, and `drive pr set --tap` refuses a body naming one
+  outside its code and links, telling you to say what each is in plain words.
 - Each section stands alone, because he reads it with no other context. A number, fraction, size, or
   ratio says what it measures, why that value, and gives one example. A mechanism gets one plain
   sentence before it is used. Nothing points at a list, finding, thread, or PR the card does not show.
