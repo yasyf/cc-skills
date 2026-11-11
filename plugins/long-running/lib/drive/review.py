@@ -23,6 +23,7 @@ LIVE_SECONDS = 3
 SERVED = {"ai.request.created", "comment.created"}
 TAILNET_LINE = re.compile(r"^tailnet: (\S+)$", re.M)
 LOCAL_LINE = re.compile(r"^(https?://\S+)$", re.M)
+STARTED_HEAD = "started-head"
 
 PROMPT = """You are the review assistant behind the drive dashboard's embedded cc-review of {key}. This directory is that review's scope and your session owns it. Handle the one event below, then stop. Never edit a file.
 
@@ -89,14 +90,20 @@ class Assistant:
                     raise DriveError(" ".join(started.stderr.split()) or f"cc-review start exited {started.returncode}")
                 url = (TAILNET_LINE.search(started.stdout) or LOCAL_LINE.search(started.stdout))[1]
                 self.urls[(key, head)] = url
+                (scope / STARTED_HEAD).write_text(head)
         if viewing:
             self.attach(key)
         return url
 
+    def started(self, key: str, head: str) -> bool:
+        """Whether the PR's review was started at head, by this dashboard or an earlier one, since cc-review keeps a review open across dashboard restarts."""
+        path = self.scope(key) / STARTED_HEAD
+        return path.is_file() and path.read_text() == head
+
     def warm(self, waiting: Iterable[tuple[str, str]]) -> None:
-        """Start the review of each PR waiting on his tap at its head in the background, once per head, so it opens at once."""
+        """Start the review of each PR waiting on his tap at its head in the background, once per head across dashboard restarts, so it opens at once and a restart reads nothing from GitHub for a review already started."""
         with self.lock:
-            fresh = [pair for pair in waiting if pair not in self.warmed]
+            fresh = [pair for pair in waiting if pair not in self.warmed and not self.started(*pair)]
             self.warmed.update(fresh)
         for pair in fresh:
             self.warming.put(pair)
