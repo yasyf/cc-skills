@@ -102,18 +102,23 @@ lifts it.
 3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`) waits for the release that contains the merge, updates the plugin, and
-     prints the installed version. It refuses, naming the installed version, its sha and the merge sha,
+     prints the installed version. Installs run at once take turns on the update under one flock on
+     `plugins/.update.lock` in the Claude config directory, a few seconds each, since Claude Code
+     re-clones a stale marketplace into one fixed `<marketplace>..clone` directory and two clones at
+     once delete each other's files. It refuses, naming the installed version, its sha and the merge sha,
      when the update left the plugin at a commit without the merge, as a marketplace clone holding moved
      tags does. Installing long-running also restarts each drive's dashboard still serving other code, a
      line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
      the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
      and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
-     every drive's coordinator and communicator terminal on this Mac once each is idle, within
-     `--timeout`. It prints a line per session. A session another install already reloaded after this
-     update is not sent it again, so installs run at once reload a session once. One still busy at the
-     deadline or refused by Orca names the `orca terminal send` command that types it: run that once the
-     session is idle. No post asks him to type `/reload-plugins`.
+     every drive's coordinator and communicator terminal on this Mac once each is idle. A session still
+     busy after 30 seconds gets it typed into its prompt, where Claude Code holds it until the turn ends,
+     since a turn can run for 20 minutes. It prints a line per session. A session another install
+     already reloaded after this update is not sent it again, so installs run at once reload a session
+     once. One showing a menu or refused by Orca names the `orca terminal send` command that types it:
+     run that once the session is idle. `drive reload` does the same for every drive session with no
+     install, whatever installs reloaded before. No post asks him to type `/reload-plugins`.
    - A tool this Mac runs: follow its repository's release flow, install the release that contains the
      merge, and read the installed version back. Fix the source and release it; a hand patch to an
      installed copy is lost at the next release.

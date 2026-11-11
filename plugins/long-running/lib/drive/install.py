@@ -17,6 +17,8 @@ DEFAULT_BRANCH = "refs/heads/default"
 FETCH = ("fetch", "--quiet", "--filter=blob:none", "--no-tags", "origin")
 AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
 RELOADS = "reloads.json"
+UPDATE_LOCK = ".update.lock"
+RELOAD_WAIT_SECONDS = 30
 
 
 class InstallError(Exception):
@@ -130,9 +132,10 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
     with tempfile.TemporaryDirectory(prefix="drive-install-") as clone:
         if sha:
             await_release(clone, repo or marketplace_repo(marketplace), plugin, sha, deadline, timeout)
-        run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
-        run(["claude", "plugin", "update", key], deadline)
-        entry = installed(key)
+        with state.flocked(config_dir() / "plugins" / UPDATE_LOCK):
+            run(["claude", "plugin", "marketplace", "update", marketplace], deadline)
+            run(["claude", "plugin", "update", key], deadline)
+            entry = installed(key)
         if sha:
             check_holds(clone, key, entry, sha, deadline)
     if after := AFTER_UPDATE.get(plugin):
@@ -141,7 +144,7 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
 
 
 def reload_session(drive: str, role: str, version: str, updated: datetime, deadline: float) -> str:
-    """Type /reload-plugins into one drive session's Orca terminal once it is idle, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too."""
+    """Type /reload-plugins into one drive session's Orca terminal once it is idle, or after RELOAD_WAIT_SECONDS into its busy prompt, which loads an install's skills, agents and new hooks with nothing restarted, unless another install sent it one after this install's update, which loaded this one too."""
     from drive import orca
 
     who = f"{drive} {role}"
@@ -150,13 +153,15 @@ def reload_session(drive: str, role: str, version: str, updated: datetime, deadl
         return f"{who}: no terminal recorded, skipped"
     if sent := claim_reload(drive, role, version, updated):
         return f"{who}: already reloaded onto {sent['version']}"
+    wait = max(0.001, min(RELOAD_WAIT_SECONDS, deadline - clock() - orca.SUBMIT_SECONDS))
     try:
-        orca.reload_plugins(terminal, max(1, int((deadline - clock() - orca.SUBMIT_SECONDS) * 1000)))
+        idle = orca.reload_plugins(terminal, int(wait * 1000))
     except orca.OrcaError as error:
         unclaim_reload(drive, role, version)
-        why = "still busy at the deadline" if error.code == orca.TIMEOUT else f"not reloaded ({error})"
-        return f"{who}: {why}; send it with: {orca.reload_command(terminal)}"
-    return f"{who}: reloaded in {terminal}"
+        return f"{who}: not reloaded ({error}); send it with: {orca.reload_command(terminal)}"
+    if idle:
+        return f"{who}: reloaded in {terminal}"
+    return f"{who}: busy for {wait:.0f}s, so /reload-plugins is queued in {terminal} and runs when its turn ends"
 
 
 def claim_reload(drive: str, role: str, version: str, updated: datetime) -> dict | None:
@@ -183,6 +188,16 @@ def reload_sessions(version: str, updated: datetime, deadline: float) -> list[st
     sessions = [(name, role) for name in state.names() for role in state.ROLES]
     with ThreadPoolExecutor() as pool:
         return list(pool.map(lambda session: reload_session(*session, version, updated, deadline), sessions))
+
+
+def reload_main() -> int:
+    """Reload every drive session on this Mac now, as an install does after its update, whatever installs reloaded them before."""
+    from drive import orca, render
+
+    version = json.loads(render.PLUGIN_JSON.read_text())["version"]
+    for line in reload_sessions(version, state.now(), clock() + RELOAD_WAIT_SECONDS + orca.SUBMIT_SECONDS):
+        print(line)
+    return 0
 
 
 def restart_dashboards(key: str, deadline: float) -> list[str]:

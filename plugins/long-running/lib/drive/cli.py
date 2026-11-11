@@ -1523,6 +1523,12 @@ def install_plugin(args: argparse.Namespace) -> int:
     return install.main(args.plugin, args.sha, args.repo, args.timeout)
 
 
+def reload_plugins(args: argparse.Namespace) -> int:
+    from drive import install
+
+    return install.reload_main()
+
+
 def default_bin_dir() -> Path:
     if xdg := os.environ.get("XDG_BIN_HOME"):
         return Path(xdg)
@@ -2059,6 +2065,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--repo")
     verb.add_argument("--timeout", type=int, default=900)
     verb.set_defaults(run=install_plugin)
+    verb = verbs.add_parser("reload", help="type /reload-plugins into both sessions of every drive on this Mac, queued behind a turn still running after 30 seconds")
+    verb.set_defaults(run=reload_plugins)
 
     verb = verbs.add_parser("setup")
     verb.add_argument("--bin-dir")
