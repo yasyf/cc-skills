@@ -89,7 +89,7 @@ def test_coordinator_context_gives_rules_reads_and_monitor_but_no_order_list() -
     assert "j1" not in text
     assert render.READS["coordinator"] in text
     assert "drive manual coordinator" in text and "drive manual jobs" in text
-    assert text.endswith(render.MONITOR_LINE)
+    assert text.endswith(render.FIRST_CALL["coordinator"])
 
 
 def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
@@ -103,8 +103,8 @@ def test_communicator_context_gives_rules_and_tools_but_no_order_list() -> None:
         assert rule in text
     for row in ("+1 react", "--away", "drive job add reader", "Explain more", "merge:", "MISSING <path>", "defect record", "Sent."):
         assert row in text
-    assert render.MONITOR_LINE not in text
-    assert text.endswith(render.SLACK_TOOLS_LINE)
+    assert render.FIRST_CALL["coordinator"] not in text
+    assert text.endswith(render.FIRST_CALL["communicator"])
 
 
 def test_coordinator_context_names_each_order_whose_promised_line_is_owed() -> None:
