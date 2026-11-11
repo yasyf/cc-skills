@@ -460,7 +460,7 @@ document.activeElement.click();
 await wait(50);
 done({ before, after, lightbox: document.querySelector('#lightbox').open, hash: location.hash });
 """, board(queue=[item]))
-    assert seen == {"before": {"long": True, "open": False}, "after": {"open": True, "focused": True}, "lightbox": True, "hash": "#/queue/all"}
+    assert seen == {"before": {"long": True, "open": False}, "after": {"open": True, "focused": True}, "lightbox": True, "hash": "#/queue/all/1794382453.859209"}
 
 
 def test_a_click_on_a_picture_inside_a_folded_summary_opens_the_lightbox_and_leaves_the_fold_as_it_was(tmp_path: Path) -> None:
@@ -553,3 +553,19 @@ done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.que
         "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "sheet": False},
     }
     assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
+
+
+def test_a_card_link_opens_that_card_and_the_queue_keeps_its_place_in_the_address(tmp_path: Path) -> None:
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/question/1794382453.859300';
+await wait(100);
+const opened = { title: document.querySelector('#item-title').textContent, hash: location.hash };
+document.querySelector('#main [data-move="-1"]').click();
+await wait(50);
+done({ opened, moved: { title: document.querySelector('#item-title').textContent, hash: location.hash } });
+""", board(queue=[QUESTION, second]))
+    assert seen == {
+        "opened": {"title": "Shard it?", "hash": "#/queue/question/1794382453.859300"},
+        "moved": {"title": "Raise the limit?", "hash": "#/queue/question/1794382453.859209"},
+    }

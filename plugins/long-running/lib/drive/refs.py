@@ -31,14 +31,16 @@ def open_cards(name: str) -> list[dict]:
 
 
 def card(cards: list[dict], data: dict, waits: str) -> dict:
-    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens the queue it waits in. A question card he answered or the drive withdrew keeps its permalink, so it is found among the questions the drive drew."""
+    """A card by its waits id: Slack draws it under a link naming it, and the dashboard opens that card in the queue it waits in. A question card he answered or the drive withdrew keeps its permalink, so it is found among the questions the drive drew, and the dashboard opens the task it was asked for."""
     for entry in reversed(cards):
         if entry["card"].get("waits") == waits:
             queue = "tap" if waits.startswith("merge:") else "question"
-            return {"kind": "card", "title": entry["card"]["title"], "url": entry["url"], "board": f"#/queue/{queue}"}
-    for question in (question for job in data["jobs"].values() for question in reversed(job["questions"])):
-        if question["waits"] == waits and question["card"]:
-            return {"kind": "card", "title": question["title"] or "his question card", "url": question["card"], "board": "#/queue/question"}
+            ts = view.message_key(entry["url"])
+            return {"kind": "card", "title": entry["card"]["title"], "url": entry["url"], "board": f"#/queue/{queue}/{ts[:-6]}.{ts[-6:]}"}
+    for job in data["jobs"].values():
+        for question in reversed(job["questions"]):
+            if question["waits"] == waits and question["card"]:
+                return {"kind": "card", "title": question["title"] or "his question card", "url": question["card"], "board": f"#/feature/{job['order']}"}
     raise DriveError(f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive>` lists each open card's waits id")
 
 

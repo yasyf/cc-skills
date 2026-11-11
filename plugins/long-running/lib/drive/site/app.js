@@ -392,11 +392,17 @@ function shownQueue(filter) {
 }
 
 function current(list) {
-  let at = list.findIndex((item) => noticeKey(item) === queueAt);
+  const named = route().path[1];
+  let at = named ? list.findIndex((item) => item.answer && cardTs(item.answer) === named) : -1;
+  if (at < 0) at = list.findIndex((item) => noticeKey(item) === queueAt);
   if (at < 0) at = Math.min(queueSlot, list.length - 1);
   queueSlot = Math.max(at, 0);
   queueAt = list[at] ? noticeKey(list[at]) : null;
   return at;
+}
+
+function queueHref(filter, item) {
+  return `#/queue/${filter}${item?.answer ? `/${cardTs(item.answer)}` : ''}`;
 }
 
 function currentItem() {
@@ -411,6 +417,7 @@ function move(delta) {
   if (!list[at] || noticeKey(list[at]) === queueAt) return;
   queueAt = noticeKey(list[at]);
   queueSlot = at;
+  history.replaceState(history.state, '', queueHref(filterOf(route().id), list[at]));
   picked = null;
   composing = null;
   window.scrollTo(0, 0);
@@ -561,6 +568,7 @@ function queueScreen(id) {
   const list = shownQueue(filter);
   const at = current(list);
   const item = list[at];
+  if (location.hash !== queueHref(filter, item)) history.replaceState(history.state, '', queueHref(filter, item));
   const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
@@ -1449,8 +1457,8 @@ function render() {
     reviews.delete(key);
   }
   const html = (screens[screen] ?? queueScreen)();
-  const arrived = pageOf(location.hash) !== shownHash;
-  shownHash = pageOf(location.hash);
+  const arrived = pageKey() !== shownHash;
+  shownHash = pageKey();
   $('#main').classList.toggle('arrived', arrived);
   if (arrived) $('#main').innerHTML = html;
   else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
@@ -1462,8 +1470,9 @@ function render() {
   return arrived;
 }
 
-function pageOf(hash) {
-  return /^#\/now(?:\/|$)/.test(hash) ? '#/now' : hash;
+function pageKey() {
+  const { screen, path } = route();
+  return screen === 'now' ? 'now' : screen === 'queue' ? `queue/${filterOf(path[0])}` : location.hash;
 }
 
 function morph(old, made) {
