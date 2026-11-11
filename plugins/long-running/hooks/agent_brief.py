@@ -12,10 +12,17 @@ BUILDER = "long-running:builder"
 HANDLER = "long-running:handler"
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
+SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 SERVED = re.compile(r"port of #\d+|drive tooling|his order", re.IGNORECASE)
 ORDER_WORDS = re.compile(r"^Order(?: \(his words\))?:(.*)$", re.MULTILINE)
 GOAL = re.compile(r"^Goal:(.*)$", re.MULTILINE)
-DATA_PASS = re.compile(r"\bback-?fill|\bbulk[- ]repair|\bmigrat\w*\s+(?:\w+\s+){0,3}?(?:data|rows|records)\b", re.IGNORECASE)
+NOT_A_PR_NAME = r"(?!['’]s\b|\s+(?:stack|PRs?|checks?|tests?|cards?)\b)"
+DATA_PASS = re.compile(
+    rf"^\s*(?:[\w-]+:\s+)?(?:back-?fill|bulk[- ]repair|repair|migrate|convert)\b{NOT_A_PR_NAME}"
+    rf"|^\s*(?:[\w-]+:\s+)?(?:re-?)?run\b(?:\W+\w+){{0,4}}?\W+(?:back-?fill|bulk[- ]repair|cleanup|migration|conversion|repair)s?\b{NOT_A_PR_NAME}"
+    r"|\b(?:is|are|gets?)\s+(?:back-?filled|bulk[- ]repaired|migrated|converted|repaired)\b",
+    re.IGNORECASE,
+)
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
 LABELS = ("Record", "Job", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in LABELS)}):")
@@ -62,7 +69,7 @@ def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
 
 
 def builder_refusal(text: str) -> str | None:
-    """Why a builder's brief may not start it: it names no scope, its Serves line names none of the three, or it runs a pass over a team's data with no Runs as line."""
+    """Why a builder's brief may not start it: it names no scope, its Serves line names none of the three, or its Goal's own action is a pass over a team's data, not a PR or check named for one, with no Runs as line."""
     if not SCOPED.search(text):
         return (
             "refused: a builder's brief, in its prompt or the brief file the prompt names, carries a `Serves:` line, `port of"
@@ -83,12 +90,12 @@ def builder_refusal(text: str) -> str | None:
         return None
     job = brief.BRIEF_JOB.search(text)
     return (
-        f"refused: this builder's Goal runs a pass over a team's data (`{found[0]}`) and its brief has no `Runs as:` line;"
-        " a pass, migration, backfill or bulk repair over a team's data runs as a service account in that team's cluster,"
-        " started from a pipeline or an in-cluster schedule, never under a person's sign-in: write the brief again with"
-        f" drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\""
+        f"refused: this builder's Goal reads as a pass over a team's data (`{found[0].strip()}`) and its brief has no `Runs as:`"
+        " line; a pass, migration, backfill or bulk repair over a team's data runs as a service account in that team's"
+        " cluster, started from a pipeline or an in-cluster schedule, never under a person's sign-in: write the brief again"
+        f" with drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\", or --runs-as"
+        " \"none: <why>\" when the job runs no pass"
     )
-SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 
 
 def deny_reason(payload: dict) -> str | None:

@@ -39,8 +39,9 @@ Contents:
 The `agent_brief` hook refuses an Agent call that sets `name`, since a named agent joins the agent
 team and never wakes on events; Fable on any agent but `long-running:designer`; a design job on any
 other type; a build order's codex lane before its reader's research is kept; and a builder whose
-brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal
-backfills, bulk-repairs or migrates rows with no `Runs as:` line. The `scratch_folder` hook refuses
+brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own
+action backfills, bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:`
+line; a Goal that only names a PR, stack or check for a pass is not one. The `scratch_folder` hook refuses
 `sonnet` or `haiku` on any lane of a build order or a complex answer order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's
 builder or designer whose brief lacks the `Researched:` line the `brief` op writes once its reader's
 research is kept. Each refusal names its fix: do it, never route around it.
@@ -164,7 +165,7 @@ Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, un
 Goal: <the deliverable, one sentence>
 Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a recording of each click, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
-Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule>
+Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule; `none: <why>` when the hook reads a pass in a Goal that runs none>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when the call names none>
 Research: <a build order's reader only: the Researched: block this build needs>

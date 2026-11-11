@@ -88,11 +88,25 @@ def test_a_builders_serves_line_names_one_of_the_three(demo: str) -> None:
 
 
 def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) -> None:
-    brief = "Order (his words): plat's runs are missing\nServes: his order\nGoal: backfill run rows for team plat"
+    order = "Order (his words): plat's runs are missing\nServes: his order\n"
+    brief = f"{order}Goal: backfill run rows for team plat"
     refused = agent_brief.deny_reason(started("long-running:builder", brief))
-    assert refused.startswith("refused: this builder's Goal runs a pass over a team's data (`backfill`) and its brief has no `Runs as:` line")
-    assert refused.endswith('drive job brief <j> --runs-as "<service account, how it starts>"')
-    runs_as = f"{brief}\nRuns as: svc-plat-backfill in the plat cluster, a cronjob"
-    assert agent_brief.deny_reason(started("long-running:builder", runs_as)) is None
-    migration = "Order (his words): plat's runs need a column\nServes: his order\nGoal: write a migration adding a column"
-    assert agent_brief.deny_reason(started("long-running:builder", migration)) is None
+    assert refused.startswith("refused: this builder's Goal reads as a pass over a team's data (`backfill`) and its brief has no `Runs as:` line")
+    assert refused.endswith('--runs-as "<service account, how it starts>", or --runs-as "none: <why>" when the job runs no pass')
+    for runs_as in ("svc-plat-backfill in the plat cluster, a cronjob", "none: it edits PR bodies"):
+        assert agent_brief.deny_reason(started("long-running:builder", f"{brief}\nRuns as: {runs_as}")) is None
+    for goal, word in (
+        ("repair the two Cargill databases whose bucket prefixes are empty", "repair"),
+        ("queued: migrate old-runner runs as each cluster's service account", "queued: migrate"),
+        ("run the merged cleanup delete_old_generations on plat", "run the merged cleanup"),
+        ("plat's run rows are backfilled", "are backfilled"),
+    ):
+        assert f"(`{word}`)" in agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}"))
+    for goal in (
+        "write a migration adding a column",
+        "the Show me of three PRs is redrawn as one compare each so the backfill stack's tap card draws",
+        "rerun the backfill stack's red check",
+        "api: ✨ a service account's API key runs admin backfills through its own permission",
+        "migrate tests to pytest",
+    ):
+        assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None

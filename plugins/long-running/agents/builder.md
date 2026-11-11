@@ -81,7 +81,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
      `kubectl`, or from another cluster with copied credentials: a `kubectl exec` or
-     `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work gets an `ASK`.
+     `kubectl create job` a person types runs as that person. A brief with no `Runs as:` line for such work, or one saying `none`, gets an `ASK`.
    - Before you push, compile the Go or Rust you touched and run nothing else: tests, typechecks
      (TypeScript included), linters and review bots are CI's, and a local run only repeats them. When
      this Mac's load gate refuses a Rust or Go check in Forge-AI/monorepo, run it on the remote
