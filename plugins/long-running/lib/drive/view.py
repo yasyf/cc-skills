@@ -21,7 +21,7 @@
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
 newest first), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
 thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
-`not ready` or `decided`, with its Slack card and the `thread` under that card when it has one), `incidents` (his
+`not ready` or `decided`, with its `head`, its Slack card and the `thread` under that card when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`), `milestones` and each feature's `text`, `note`,
 `created` and `jobs`.
 
@@ -527,6 +527,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "key": key,
         "title": pr_title(pr),
         "url": pr["url"],
+        "head": pr["head"],
         "group": group,
         "feature": pr["order"],
         "feature_title": plain(order.get("text", ""), TITLE_CHARS),

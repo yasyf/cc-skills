@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, slack, state, view
+from drive import github, install, review, slack, state, view
 from drive.state import DriveError
 
 CODE = str(Path(__file__).resolve().parent)
@@ -39,10 +39,10 @@ ANSWER_SECONDS = 60
 CERT_SECONDS = 120
 CERT_REFRESH_SECONDS = 24 * 60 * 60
 PR_FIELDS = "title,body,url,state,isDraft,additions,deletions,changedFiles,headRefName,baseRefName,reviewDecision"
-DIFF_LINES = 6000
 THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
 THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
+REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
 HELD = "an answer to this card is already being sent"
@@ -127,10 +127,7 @@ def relay(text: str, under: str) -> dict:
 
 def pr_read(key: str) -> dict:
     repo, number = key.split("#")
-    read = json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
-    diff = github.run(["gh", "pr", "diff", number, "-R", repo])
-    lines = diff.splitlines()
-    return read | {"diff": "\n".join(lines[:DIFF_LINES]), "diff_lines": len(lines)}
+    return json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
 
 
 def changes(name: str) -> Iterator[None]:
@@ -202,12 +199,13 @@ class Board:
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
         self.unders: set[str] = set()
-        self.prs: set[str] = set()
+        self.heads: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
         self.channel = ""
         self.holding = threading.Lock()
         self.held: dict[str, threading.Event] = {}
+        self.assistant = review.Assistant(name)
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -224,19 +222,20 @@ class Board:
         model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS}
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
-        prs = {entry["key"] for entry in model["review"]}
+        heads = {entry["key"]: entry["head"] for entry in model["review"]}
         cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
         pictures = {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
         with self.changed:
             self.body = body
             self.answers = answers
             self.unders = set(answers) | {ask["url"] for ask in model["asks"] if ask["url"]}
-            self.prs = prs
+            self.heads = heads
             self.pictures = pictures
             self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]} | {entry["thread"] for entry in model["review"] if entry["thread"]}
             self.channel = model["channel"]
             self.version += 1
             self.changed.notify_all()
+        self.assistant.warm((entry["key"], entry["head"]) for entry in model["review"] if entry["group"] == "you")
 
     def follow(self) -> None:
         built = None
@@ -281,10 +280,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             page = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{host}"
             if host not in hosts or self.headers.get("Origin") != page:
                 self.send_error(403)
-            elif self.path not in ("/api/answer", "/api/undo", "/api/say"):
+            elif self.path not in ("/api/answer", "/api/undo", "/api/say") and not REVIEW_PATH.fullmatch(self.path):
                 self.send_error(404)
             elif not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
+            elif found := REVIEW_PATH.fullmatch(self.path):
+                self.review(f"{found[1]}#{found[2]}")
             elif self.path == "/api/say":
                 self.say(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
             elif self.path == "/api/undo":
@@ -314,13 +315,22 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
         def pull_request(self, key: str) -> None:
             if not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
-            elif key not in board.prs:
+            elif key not in board.heads:
                 self.answered(404, {"error": f"{key} is not an open PR of this drive"})
             else:
                 try:
                     self.answered(200, pr_read(key))
                 except github.GithubError as error:
                     self.answered(502, {"error": str(error)})
+
+        def review(self, key: str) -> None:
+            if key not in board.heads:
+                self.answered(404, {"error": f"{key} is not an open PR of this drive"})
+                return
+            try:
+                self.answered(200, {"url": board.assistant.url(key, board.heads[key])})
+            except (DriveError, install.InstallError, subprocess.TimeoutExpired) as error:
+                self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
             """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first."""
@@ -415,6 +425,12 @@ def serve(name: str, port: int) -> None:
     for address in [LOOPBACK] + (net.ips if net else []):
         server = Server(address, port, page, certificate if address != LOOPBACK else None)
         threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    def stopped(signum: int, frame: object) -> None:
+        board.assistant.stop()
+        sys.exit(0)
+
+    signal.signal(signal.SIGTERM, stopped)
     board.follow()
 
 
