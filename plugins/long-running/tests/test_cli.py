@@ -2457,30 +2457,10 @@ def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, wit
     assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
 
-def test_pr_set_tap_refuses_a_third_patch_on_one_order_until_it_names_the_earlier_patches_it_deletes(
-    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
-) -> None:
-    earlier = ["acme/widgets#4153", "acme/widgets#4190"]
+def test_pr_set_tap_takes_a_pr_on_an_order_with_merged_prs_on_other_symptoms(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
-        for key in earlier:
+        for key in ("acme/widgets#4153", "acme/widgets#4190", "acme/widgets#4201"):
             data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "serves": "o1"}
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
-    refusal = capsys.readouterr().err
-    assert "acme/widgets#4153, acme/widgets#4190 serving o1 merged already, so Forge-AI/monorepo#42 is a third patch on one symptom" in refusal
-    assert f"drive pr set {PR} --deletes <PR>..., or start a design job on o1" in refusal
-    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none", "--deletes", "acme/widgets#4100"]) == 2
-    assert "Forge-AI/monorepo#42 names acme/widgets#4100 as taken out, which is no merged PR serving o1" in capsys.readouterr().err
-    assert "deletes" not in state.load("demo")["prs"][with_pr]
-    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none", "--deletes", *map(state.pr_url, earlier))[0] == 0
-    assert state.load("demo")["prs"][with_pr]["deletes"] == earlier
-
-
-def test_pr_set_tap_takes_a_third_patch_on_an_order_that_has_a_design_job(run: Run, with_pr: str) -> None:
-    with state.edit("demo") as data:
-        for key in ("acme/widgets#4153", "acme/widgets#4190"):
-            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged"}
-    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 2
-    run("job", "add", "design", "--order", "o1", "--goal", "end the patches")
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 

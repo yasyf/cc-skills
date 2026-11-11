@@ -296,9 +296,10 @@ When it is answered, replaced or redone:
 - His Approve lands exactly those PRs, bottom first. A PR added later gets its own card when posted
   alone. Posted with the rest of its stack, it joins one new card for them all, and cc-slack marks
   each older card of those PRs replaced, with a link to the new one.
-- Each PR gets its own section: its title, link and Open button, then its Refresher, its biggest
-  surprise and what he will hate most. Where it stands and what it waits on follow only when that is
-  not green and his tap, and how it differs from the plan only when it does. Its Show me comes last,
+- Each PR gets its own section: its title, link and Open button, then its Summary of what it
+  changes, its Refresher, its biggest surprise and what he will hate most. Where it stands and what it waits on follow only when that is
+  not green and his tap, and how it differs from the plan only when it does. A card already posted
+  redraws on every change with what holds it now, such as a reader's `NOT READY`, in place of Approve. Its Show me comes last,
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
