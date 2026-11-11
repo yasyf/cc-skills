@@ -18,6 +18,7 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
+| A question card's Show me, the worked example between its summary and options | none: drawn whole as code, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
@@ -38,7 +39,9 @@ follow-up the post went to. A refusal says which limit applied and why: no `aske
 answer; quotes it could not find, named; or an edit's own length. An edit that rewords a line is
 held to that line's length and 10 words more, since putting the proper terms into three 55 to 70
 word lines on Nov 10 grew them by 2 to 6 words and the cap cut what they said. A question card keeps
-its 150 words whatever it quotes.
+its 150 words whatever it quotes, and its Show me counts toward none of them and is never cut to fit them: on
+Nov 10 at 4:55 PM a handler drew "a short code sketch, not the full Show me, because of the 150-word
+limit".
 
 ## The short form
 
@@ -51,19 +54,20 @@ its 150 words whatever it quotes.
   gets one catch-up.
 - Short, held there by the tooling. These limits are the coordinator's reading of his Nov 9 9:33 PM
   words, "your messages need to be way shorter rewrite this for a human": a line in his thread is
-  at most 60 words, a summary of two or more features at most 120, a question card with its options
-  at most 150 in all, each option one line of at most 25 words saying what he gets and what it
-  costs, and no separate findings post, ever. This plugin's hook refuses a post in his DM over its
+  at most 60 words, a summary of two or more features at most 120, a question card's question,
+  summary and options at most 150 in all with its Show me drawn whole outside that count, each
+  option one line of at most 25 words saying what he gets and what it costs, and no separate
+  findings post, ever. This plugin's hook refuses a post in his DM over its
   limit, from the communicator or any handler, with the count, the limit and what would pass, and
   `drive job ask` refuses an `ASK` that would draw a card over it. An answer to a question or order
   of his in that thread, a ruling's installed confirmation included, goes out whole once the call
   quotes each message of his it answers as `asked`.
 - A bold line and at most two sentences. A table only for three or more parallel items.
-- Name each PR by its title, linked, and say what it serves: the order of his it carries out, in
-  his words, "port of #N", or "Drive tooling:" and what it unblocks. Anything else goes in by what
-  it is, never by a name he has not used himself, such as a pipeline step, an id or a function name,
-  by [What goes in](#what-goes-in); no PRs past the one being decided, and no mechanism he did not
-  ask about.
+- Link each thing you name that he could open, where you name it, by [What goes in](#what-goes-in).
+  A PR's link text says what it does, and the line says what it serves: the order of his it carries
+  out, in his words, "port of #N", or "Drive tooling:" and what it unblocks. Anything else goes in by what
+  it is, never by a name he has not used himself, such as a pipeline step, an id or a function name.
+  Name only what the message needs, and no mechanism he did not ask about.
 - Every card and line in a feature's thread is about that feature. Drive tooling, such as a fix to
   the launcher its builders start from, goes at his DM root under its own words, never in the
   thread of a feature it unblocks and never under his words for that feature. His ruling, Nov 10
@@ -136,12 +140,21 @@ summary of one feature is a line, 60 words at most.
 **A question card**, which a handler draws from an `ask` record: the job's `ASK` as `drive job ask`
 kept it, with nothing posted before or after it. Title: its question, in one sentence. Body: its
 summary, one to three lines: what was found and what is being decided, the recommendation, and
-what happens meanwhile. That first line is how he gets the results of the investigation before the
-pick, by his Nov 9 6:22 PM words, "you need to give me the results of the investigation etc before
-sahowing this to me". Two to four options, each one line of at most 25 words saying what he gets
-and what it costs, the card 150 words in all. The findings stay in the job's file: Explain more on
-the card posts the one section its question rests on, in plain words, and that is the only way they
-reach him.
+what happens meanwhile, then a `*Show me*` line and the block's Show me under it, as written. That
+first line is how he gets the results of the investigation before the pick, by his Nov 9 6:22 PM
+words, "you need to give me the results of the investigation etc before sahowing this to me". The
+Show me is the worked example he picks from, above the options: the real code, call, query or text
+the choice changes, before and after, or one example for each option. For an API question it is
+the calls themselves in code, such as an imperative API beside the declarative one. His words, Nov
+10 4:38 PM, under a design card that had none: "this would also satidyt the rtequriement you care
+curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Code goes
+in ``` fences that name no language, since Slack shows a fence's language as the first line of the
+code, and each caption outside the fences is one line of at most 25 words. cc-slack draws each
+fenced block as a code block of its own, whole, and the Show me counts toward no limit. Two to four
+options, each one line of at most 25 words saying what he gets and what it costs, the title,
+summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
+posts the one section its question rests on, in plain words, and that is the only way they reach
+him.
 
 The card is one `slack_dm_status(card=…, thread_ts=<his thread>)` call. cc-slack posts a card that
 names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
@@ -151,8 +164,15 @@ the `ask` record with a `posted` record carrying the card's permalink and `waits
 still comes back as an `answer` record, so card posted and he answered stay two states. To change
 the words of a card he has not answered, draw it again under its `waits` id. That one call edits
 the card where it sits, redraws every copy of it already in a thread, and posts one fresh copy
-beside it. No option asks a reporter or anyone else to retry, confirm or check: the drive
-proves a fix itself. When something waits on his
+beside it. While a card he has not answered is being redone, it says so where it sits and keeps its
+buttons. The moment a redo starts, the coordinator sends an `ask` record with `--attr
+ask=<the card's kept file>`, `--attr waits=<its waits id>` and `--attr reworking=<what is being
+redone, and when it is back>`. The handler draws the card again under that id from that file, its
+title, body and options unchanged, with one fact, `Being reworked`, holding those words. A pick he taps meanwhile stands, as on any card.
+The redone `ask` comes under the same `waits` id and draws the new words with no fact. His words, Nov
+10 4:44 PM: "when the card is being re-wqritten it shgould be updated to say tghat, but still keep
+the opotonbs inc ase I want to click ione". No option asks a reporter or anyone else to retry,
+confirm or check: the drive proves a fix itself. When something waits on his
 answer, set `waits` to `<drive>:<job>-<the ask record's seq>` and `recommended`; when work continues
 on the recommended pick, leave both out and say in the body which option is being built. Set `drive`
 to the drive's name on every card: cc-slack reads a `waits` card that names its drive as the drive's
@@ -247,7 +267,7 @@ Nothing to post; a line that says where things stand links it.
   it stands in a record or a log: "waiting on a manual roll press" becomes "waiting for the button a
   person must press before a customer cluster's changes go out". His words, Nov 10 1:03 PM, under a
   line that said the first: "I dunno what a roll press is". A product or tool he uses keeps its name
-  in backticks. No list of PRs past the one being decided, and no mechanism he did not ask about.
+  in backticks. Only what the message needs goes in, and no mechanism he did not ask about.
 - **It stands alone.** He reads every line with no other context, so assume he has none. His
   words, Nov 9 9:12 PM: "What is the sixteenth? You say it with no context you always have to
   assume I don't have any other context". A number, fraction, size or ratio says what it
@@ -261,9 +281,17 @@ Nothing to post; a line that says where things stand links it.
   It used to fetch the last 64 KiB of every file; now it fetches the last one-sixteenth of each file
   (about 6 KiB of a 97 KiB file), never more than 64 KiB.
   ```
-- **Name every PR by its title, linked**, once: `<url|the run page shows its history>`, and say
-  what it serves: the order of his it carries out, in his words, or "port of #N" with the old PR
-  linked. Link every build, alert, time, and earlier decision you mention.
+- **Everything he could open is linked where it is named**: a PR, a teammate's fix, a card, a
+  release, a build, an alert, a thread or an earlier decision. His words, Nov 10 4:36 PM, under a
+  card that said "A teammate's fix landed at 2:12 PM today" and linked no fix: "fix ur skill prompt
+  bc this should ahve lnked josh’s PR< never mention somehting and expect me to go look it up
+  myself". The link's words say what the thing is: a PR by what it does,
+  `<url|the run page shows its history>`, never by its number alone, with what it serves: the order
+  of his it carries out, in his words, or "port of #N" with the old PR linked. Each other PR the
+  message names is linked the same way, never dropped to keep to one. A card's title and options
+  draw no links, so whatever they name is linked in its summary or a Show me caption. `drive job
+  ask` and this plugin's hook refuse an `ASK` or a post that names such a thing with no link there,
+  and say which words.
 - **Numbers over adjectives.** "129 of 476 passed, up from 100" beats "much better".
 - **Answer his next question in the same message**: why, did he already decide this, is it a
   port, what comes after, why it is held.
@@ -338,23 +366,35 @@ question cards, which he answered at 9:33 PM on Nov 9.
 > new side reads it. … *How a run's files are laid out.* A run's journal is a SQLite database that a
 > replication tool (our own copy of Litestream) uploads to the team's bucket as many small files…
 
-Rewritten, each question is its card and nothing else, about 120 words with its options:
+Rewritten, each question is its card and nothing else, about 120 words with its options, and its
+Show me drawn whole above them:
 
-```
+````
 *How should a finished run's files be laid out so its page opens without guessing?*
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
 Meanwhile nothing is built on either layout, and the run page works as it does today.
+*Show me*
+The requests a finished run's page makes today, then with one snapshot file:
+```
+GET journal/0001.ltx  last 64 KiB, guessing where the map starts
+... 180 files, one guess each
+```
+```
+GET snapshot.ltx      map at a fixed place
+GET 2 page ranges
+```
 [One snapshot file per finished run (Recommended): written when the run ends, old runs backfilled; any finished run opens in 3 requests]
 [A map file beside each journal file: no guessing, but still one request per file and twice the objects]
 [Map at the start of the file: changes the shared file format and still needs a length read first]
-```
+````
 
 ## Before it goes out
 
 The hook passes the exact words of every post through `cc-slack check-post` and counts them as they
-go out. A post it flags or one over its limit comes back refused with what to fix, and a handler's
-line in his thread comes back until that handler has read the thread. Then the handler
+go out. A post it flags, one over its limit, or a handler's post naming something he could open
+with no link there comes back refused with what to fix, and a handler's line in his thread comes
+back until that handler has read the thread. Then the handler
 reads it as he will, on a phone, with no context: does he know what changed, whether he
-must act, and when he hears next, and does every number, term and reference in it make sense with
-nothing else open?
+must act, and when he hears next, does every number, term and reference in it make sense with
+nothing else open, and does each thing it names that he could open carry its link right there?

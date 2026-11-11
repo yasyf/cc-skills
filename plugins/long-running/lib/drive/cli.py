@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -268,16 +269,16 @@ def job_set(args: argparse.Namespace) -> int:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads; with no file, a remote lane's latest report."""
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
     name = state.resolve(args.drive)
     job = find(state.load(name)["jobs"], args.id, "job")
-    text = Path(args.file).expanduser().read_text() if args.file else job.get("report")
+    text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text() if args.file else job.get("report")
     if not text:
-        raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in")
+        raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.question(text)
     if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), os.getcwd(), args.unsettled, "--unsettled"):
         raise DriveError(refused)
-    kept = state.drive_dir(name) / "asks" / f"{args.id}.md"
+    kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
@@ -889,14 +890,18 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's ASK in the drive, refused unless it is in the shape he reads, and set the job waiting",
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
-            " decided, the recommendation, what happens meanwhile), two to four `- ` options of at most 25 words with"
-            " exactly one ending (recommended), at most 150 words in all, in plain words, then `Findings:` with the"
-            " evidence. Keep it in the drive and print its path, which the ask record carries; refuse it with every way"
-            " it is out of shape, and while a recorded answer of his may already settle it."
+            " decided, the recommendation, what happens meanwhile), `Show me:` and its worked example (code in ```"
+            " fences, captions of at most 25 words), two to four `- ` options of at most 25 words with exactly one ending"
+            " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
+            " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"
+            " its own and print its path, which the ask record carries; refuse it with every way it is out of shape, and"
+            " while a recorded answer of his may already settle it."
         ),
     )
     verb.add_argument("id")
-    verb.add_argument("file", nargs="?", help="the file holding the ASK block; default: a remote lane's latest report")
+    verb.add_argument(
+        "file", nargs="?", help="the file holding the ASK block, or - to read it from stdin; default: a remote lane's latest report"
+    )
     verb.add_argument(
         "--unsettled",
         metavar="WHY",

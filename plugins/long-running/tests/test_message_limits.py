@@ -30,13 +30,13 @@ HOW_IT_GOT_THERE = (
     " empty folder.\n\n*Not known:* who removed the files. A rule on Acme's bucket or a direct delete is what is left;"
     " the logs that would tell them apart need Acme's bucket-owner access.\n\n*Why nobody noticed:* a sleeping"
     " database is trusted as backed up at server start, with no look at the bucket.\n\n*Why the rollout stayed aborted:*"
-    " the release refuses to switch while an old abort exists, and nothing clears it; the retry at 3:31 AM did.\n\n*Now:*"
+    " a release refuses to switch while an old abort exists, and nothing clears it; the retry at 3:31 AM did.\n\n*Now:*"
     " the new replica of <https://ci.example.com/builds/14185|build #14185> is still not ready 18 minutes in,"
     " held by Acme's registry database, which is behind. A fix is on it; the rollout gives up at about 3:51 AM unless"
     " it catches up. Next line 3:55 AM."
 )
 SWITCH_LINE = (
-    "*The release switch failed again at 3:51 AM; production still serves from the old version.* Acme's registry"
+    "*<https://ci.example.com/builds/14185|The release switch> failed again at 3:51 AM; production still serves from the old version.* Acme's registry"
     " database has uploaded no LTX files since Nov 9 5:09 PM, so the new SandSQL replica never became ready. Its"
     " snapshot is being rewritten, then the switch retries. Next line by 4:10 AM.\n\n*How it got into this state:* the"
     " LTX files under three Acme databases' bucket prefixes were removed after upload; our epoch cleanup keeps the"
@@ -122,20 +122,20 @@ REWORDINGS = [
         ("*Table size was not the cause.* The new replica restored its stored copy, which ends at write 22, but its readiness"
         " check needs write 23, so it never passed and logged no error.\n\nThe largest database (13 GB) caught up in about two"
         " minutes, so splitting large tables would not have changed tonight. Production still serves from the old replica."
-        " The fix is being written; next line by 3:25 AM."),
+        " A fix is being written; next line by 3:25 AM."),
         ("*Table size was not the cause.* The new replica restored the snapshot from the bucket, which ends at write 22, but"
         " its readiness check needs write 23, so it never passed and logged no error.\n\nThe largest database (13 GB) caught"
         " up in about two minutes, so splitting large tables would not have changed tonight. Production still serves from"
-        " the old replica. The fix is being written; next line by 3:25 AM."),
+        " the old replica. A fix is being written; next line by 3:25 AM."),
     ),
     (
         "1794309557.014979",
         ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing history files are back in its bucket, which was empty"
         " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has an empty"
-        " history folder.\n\nThe release job is finishing the switch, then runs the full release. Next line by 3:40 AM."),
+        " history folder.\n\nThe release job is finishing the switch, then runs a full release. Next line by 3:40 AM."),
         ("*Acme's stuck database is repaired, 3:15 AM.* Its 3 missing LTX files are back in its bucket, which was empty"
         " before.\n\nA replica rebuilt from them matches the primary byte for byte. A second Acme database also has no LTX"
-        " files in its bucket.\n\nThe release job is finishing the switch, then runs the full release. Next line by 3:40 AM."),
+        " files in its bucket.\n\nThe release job is finishing the switch, then runs a full release. Next line by 3:40 AM."),
     ),
     (
         "1794310226.425819",
@@ -150,6 +150,13 @@ REWORDINGS = [
 
 
 THREADS = ("1.2", BAD_STATE_THREAD, DB_THREAD, AUDIT_THREAD, HARDWARE_THREAD)
+
+TEAMMATES_FIX = "A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand button."
+JOSHS_FIX = (
+    "<https://github.com/Forge-AI/monorepo/pull/53618|Josh Lorincz's fix> landed at 2:12 PM today: every locked chat shows"
+    " an Update sand button."
+)
+SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
 
 
 def said(count: int) -> str:
@@ -255,8 +262,9 @@ def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(ta
     assert "is 26 words" in long_option
     too_long = posted(transcript, card=card, text=said(26), asked="explain the layout in full")
     assert too_long == (
-        "refused: this card is 151 words, and a question with its options is at most 150 words in all (the coordinator's"
-        ' reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human").'
+        "refused: this card is 151 words, and a question with its summary and options is at most 150 words in all; its Show"
+        " me goes under a `*Show me*` line in the body, drawn whole and not counted (the coordinator's reading of his Nov 9"
+        ' 9:33 PM words "your messages need to be way shorter rewrite this for a human").'
     )
 
 
@@ -455,7 +463,8 @@ def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo:
 def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thread(talker: str, unread: Path) -> None:
     refusal = (
         "refused: your transcript shows no read of his thread 1.2 in the last 10 minutes, so this line could miss what he"
-        f" said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2, limit=1000), then post."
+        f" said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2, limit=1000), then post. When the"
+        " tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
     )
     assert posted(unread, text="Fixed.", thread_ts="1.2") == refusal
     reads(lane_of(unread), "1.3")
@@ -480,18 +489,80 @@ def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_threa
     assert message_limits.deny_reason(payload) is None
 
 
+def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str, transcript: Path) -> None:
+    refusal = posted(transcript, text=TEAMMATES_FIX)
+    assert refusal.startswith(
+        "refused: \"teammate's fix\" names something he could open with no link there; put those words in its link,"
+        " <url|teammate's fix>, so he opens it where it is named"
+    )
+    assert '"never mention somehting and expect me to go look it up myself"' in refusal
+    assert posted(transcript, text=JOSHS_FIX) is None
+    assert posted(transcript, text='He wrote "the fix is in" at noon; a fix for the rest is being written.') is None
+    assert "says only a number" in posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|#53618> landed.")
+    assert "is a number he cannot open" in posted(transcript, text="Josh's change, #53618, landed.")
+    assert posted(transcript, text=TEAMMATES_FIX, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
+    ack = call("slack_dm_status", transcript, text=TEAMMATES_FIX)
+    del ack["agent_id"]
+    assert message_limits.deny_reason(ack) is None
+
+
+def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str, transcript: Path) -> None:
+    card = {
+        "title": "A teammate's fix landed first: keep it or replace it?",
+        "body": TEAMMATES_FIX,
+        "options": ["Keep theirs (recommended)", "Replace it; it undoes a teammate's landed fix"],
+        "waits": "demo:j1-7",
+    }
+    refusal = posted(transcript, card=card)
+    assert "\"teammate's fix\" names something he could open with no link there" in refusal
+    assert "\"A teammate's fix\" in the question or an option names something he could open" not in refusal
+    assert "\"teammate's landed fix\" in the question or an option names something he could open, and those draw no links" in refusal
+    assert posted(transcript, card=card | {"body": JOSHS_FIX}) is None
+    assert "in the question or an option" in posted(transcript, card=card | {"body": JOSHS_FIX.replace("fix>", "change>")})
+
+
+def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:
+    card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
+    assert posted(transcript, card=card | {"body": said(40) + "\n" + SHOW_ME}) is None
+    assert "this card is 431 words" in posted(transcript, card=card | {"body": said(40) + "\n" + SHOW_ME.removeprefix("*Show me*\n")})
+    assert "names something he could open" in posted(transcript, card=card | {"body": said(40) + "\n*Show me*\nThe fix, after:\n```\nx\n```"})
+    assert posted(transcript, card=card | {"body": said(40) + "\n*Show me*\n```\nthe fix #41\n```"}) is None
+
+
+def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: str, unread: Path) -> None:
+    lane = lane_of(unread)
+    saved = "/Users/me/.claude/projects/p/s/tool-results/mcp-plugin_cc-slack_cc-slack-slack_thread-1.txt"
+    at = datetime.now(UTC).isoformat()
+    use = {"type": "tool_use", "id": "long", "name": message_limits.THREAD_READ, "input": {"channel_id": DM, "thread_ts": "1.2", "limit": 1000}}
+    notice = (
+        "Error: result (111,642 characters across 1 line) exceeds maximum allowed tokens. Output has been saved to"
+        f" {saved}. Format: Plain text - For targeted searches (find a string): use grep on the file directly."
+    )
+    result = {"type": "tool_result", "tool_use_id": "long", "content": [{"type": "text", "text": notice}]}
+    opened = {"type": "tool_use", "id": "open", "name": "Bash", "input": {"command": f"python3 -c 'print(open(\"{saved}\").read()[-80000:])'"}}
+    printed = {"type": "tool_result", "tool_use_id": "open", "content": "the newest messages"}
+    with lane.open("a") as transcript:
+        for row in ({"type": "assistant", "message": {"content": [use]}}, {"type": "user", "message": {"content": [result]}}):
+            transcript.write(json.dumps(row | {"timestamp": at}) + "\n")
+    assert posted(unread, text="Fixed.", thread_ts="1.2").startswith("refused: your transcript shows no read of his thread 1.2")
+    with lane.open("a") as transcript:
+        for row in ({"type": "assistant", "message": {"content": [opened]}}, {"type": "user", "message": {"content": [printed]}}):
+            transcript.write(json.dumps(row | {"timestamp": at}) + "\n")
+    assert posted(unread, text="Fixed.", thread_ts="1.2") is None
+
+
 def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, transcript: Path, checked: Checked) -> None:
     checked.findings = ["1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"]
-    reason = posted(transcript, text="See #41 now.", thread_ts="1.2")
+    reason = posted(transcript, text="See 41 now.", thread_ts="1.2")
     assert reason == (
         "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n"
         "1:5 bare-number '#41': link it as <url|#N> or <url|deploy #N>"
     )
-    edit = call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text="See #41 then.")
+    edit = call("slack_edit", transcript, channel_id=DM, ts="1.3", thread_ts="1.2", text="See 41 then.")
     assert message_limits.deny_reason(edit).startswith("refused: `cc-slack check-post` finds this")
     share = call("slack_reply", transcript, channel_id="C0B75AL4XEW", thread_ts="1.2", text="See #41 there.")
     assert message_limits.deny_reason(share) is None
-    assert checked.texts == ["See #41 now.", "See #41 then."]
+    assert checked.texts == ["See 41 now.", "See 41 then."]
     checked.findings = []
     assert posted(transcript, text="See <https://github.com/yasyf/cc-skills/pull/41|the fix> now.", thread_ts="1.2") is None
 

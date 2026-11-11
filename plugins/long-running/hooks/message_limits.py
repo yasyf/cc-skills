@@ -21,9 +21,11 @@ BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
+SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
 UNREAD = (
     "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
-    " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post."
+    " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post. When the"
+    " tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
 )
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
@@ -63,8 +65,10 @@ def brief(payload: dict) -> str:
 
 
 def last_read(path: Path, dm: str, thread: str) -> datetime | None:
-    """When this handler last called slack_thread on the thread, by its own transcript, counting only a call that did not fail."""
+    """When this handler last read the thread, by its own transcript: a slack_thread call on it that did not fail, and when the tool saved a long thread to a file, only once a later call of this handler opened that file."""
     calls: dict[str, datetime] = {}
+    others: dict[str, str] = {}
+    saved: dict[str, datetime] = {}
     read = None
     with path.open() as transcript:
         for line in transcript:
@@ -73,9 +77,24 @@ def last_read(path: Path, dm: str, thread: str) -> datetime | None:
             for part in content if isinstance(content, list) else []:
                 if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id"), part["input"].get("thread_ts")) == (dm, thread):
                     calls[part["id"]] = datetime.fromisoformat(row["timestamp"])
-                elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls and not part.get("is_error"):
-                    read = calls[part["tool_use_id"]]
+                elif part.get("type") == "tool_use":
+                    others[part["id"]] = json.dumps(part.get("input"))
+                elif part.get("type") != "tool_result" or part.get("is_error"):
+                    continue
+                elif part.get("tool_use_id") in calls:
+                    at = calls[part["tool_use_id"]]
+                    if file := SAVED.search(result_text(part)):
+                        saved[file.group(1)] = at
+                    else:
+                        read = max(read or at, at)
+                elif opened := [file for file in saved if file in others.get(part.get("tool_use_id"), "")]:
+                    read = max([saved.pop(file) for file in opened] + ([read] if read else []))
     return read
+
+
+def result_text(part: dict) -> str:
+    content = part.get("content")
+    return content if isinstance(content, str) else " ".join(piece.get("text", "") for piece in content or [])
 
 
 def unread(payload: dict, dm: str) -> str | None:
@@ -152,7 +171,14 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
-    return unread(payload, dm) or over_length(payload, dm) or unchecked(tool_input.get("text") or "")
+    return unread(payload, dm) or over_length(payload, dm) or unlinked(payload) or unchecked(tool_input.get("text") or "")
+
+
+def unlinked(payload: dict) -> str | None:
+    """Why a handler's post names something he could open with no link where it is named; a PR card's line quotes his order and cc-slack draws its card, and the communicator's ack names nothing."""
+    if not payload.get("agent_id") or payload["tool_input"].get("tap_prs"):
+        return None
+    return limits.link_refusal(payload["tool_input"])
 
 
 def over_length(payload: dict, dm: str) -> str | None:

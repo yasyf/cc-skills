@@ -66,7 +66,8 @@ you built up.
    split or fold anything bigger. Every section stands alone, since he reads the card with
    no other context: a number, fraction, size or ratio says what it measures, why that
    value, and gives one example; a mechanism gets one plain sentence before it is used;
-   nothing points at a list, finding, thread or PR the card does not show.
+   nothing points at a list, finding, thread or PR the card does not show, and each PR, fix,
+   build or release it names is linked where it is named.
 5. Register it: `drive pr add <url> --job <your job id>`, adding `--tap` when the repository
    needs his tap before landing.
 6. Return as soon as the PR is registered: `WAITING` naming the checks or review still out, or
@@ -201,19 +202,29 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   block to a file under your scratch directory in this shape, run `drive job ask <your job>
   <file>`, which refuses it out of shape and names each fix, and return the path it prints:
 
-  ```
+  ````
   ASK <the question, one line>
   <one to three lines: what was found and what is being decided; the recommendation; what happens meanwhile>
+  Show me:
+  <a caption of at most 25 words>
+  ```
+  <the real code, call, query or text the choice changes, before and after, or one example per option>
+  ```
   - <option: what he gets and what it costs, at most 25 words> (recommended)
   - <option>
   Findings:
   <the evidence, for the record: what was hit, what was measured, the cause, what each option changes and costs>
-  ```
+  ````
 
-  The question, summary and options are all he reads, at most 150 words in plain words: no file
-  paths, table or function names, internal ids, or PRs past the one being decided. Each option
-  stands alone in full words and never points at another by number or position. The findings
-  stay on disk: his tap on Explain more posts the one section his question rests on.
+  The question, summary and options are at most 150 words in plain words: no file paths, table
+  or function names or internal ids. Each thing they name that he could open, such as a PR or a
+  teammate's fix, is linked in the summary, `<url|the fix that adds the update button>`, since
+  the card's title and options draw no links. A PR goes in by what it does, never by number
+  alone, and every PR the question turns on is linked, never dropped. The Show me is drawn whole
+  on his card outside the 150 words, its fences naming no language; for an API question it is the
+  calls in code. Each option stands alone in full words and never points at another by number or
+  position. The findings stay on disk: his tap on Explain more posts the one section his question
+  rests on.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 
