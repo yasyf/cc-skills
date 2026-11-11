@@ -70,8 +70,8 @@ its root cause the verdict.
    drive:<name> --label incident`, then `drive order set <o> --note "record <id>"`. `--incident`
    puts the order on the dashboard's top strip until it closes; an incident order made without it
    gets `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
-3. In the next message, start every job the order printed, and the freeze when a release broke the
-   service, by [Freeze the broken service](#freeze-the-broken-service). Each job is a
+3. In the next message, start every job the order printed, and no freeze, which waits until users
+   are unblocked by [Freeze the broken service](#freeze-the-broken-service). Each job is a
    `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the answer id from step
    1, the record's id and the brief template's `Incident:` line written out in full, its `Drive:`
    line naming the job, which records the agent as it starts. The watch says a job has no agent
@@ -120,32 +120,36 @@ its root cause the verdict.
      reader --order <o> --goal "Sentry read: <what>" --part "<its part>"`, so its brief's `Drive:`
      line records the agent, and send its result to the codex job with `SendMessage`. On Nov 10 two first checks came back blocked at
      "Sign in to Sentry", and a reader with the Sentry tools answered the same question in six minutes.
-4. A `report` to the communicator for his first line: the fix job and where it started, the diagnosis
-   job beside it, and the freeze when one went on.
+4. A `report` to the communicator for his first line: the fix job and where it started, and the
+   diagnosis job beside it.
 
 ## Freeze the broken service
 
-When a release breaks a service, that service's other releases freeze the moment it does and stay
-frozen until the fix merges, and the fix's own releases always pass. In the message of step 3, a
-`long-running:builder` on Opus fast mode, added first with `drive job add builder --order <o> --part
-fix --goal "freeze <service> until the fix merges"` so its brief's `Drive:` line records the agent, runs `tools/ci release freeze
-<component> --reason "<the incident>: <what fails>, held until its fix merges" --until <RFC 3339 time
-12 hours out>`, the bare component covering every stack it deploys, and returns the freeze's id,
-which goes on the order's note beside the record's.
+Bringing the service back comes first, and nothing slows it: while users are still blocked, no
+freeze goes on, since a freeze can hold the release that brings the service back. Once a rollback,
+a release of the default branch or a first fix unblocks users, the service's other releases freeze
+until its root fix is released. The root fix then goes out alone: freeze, merge the root fix, lift
+the freeze, release. His words, Nov 10: at 10:42 PM "why the fuck didnt youj put a
+ssql freeze until this was merged", at 10:48 PM, with SandSQL still failing, "dont freeze ssql now
+wtf fix it frist", and at 10:52 PM, once it had recovered, "well now its fixed so u can freeze,
+mnerge the fix, unfreeze and release". Together they are the request for a freeze the monorepo
+`release` skill waits for, given once for every release that breaks a service.
+
+In the turn users are unblocked, start a `long-running:builder` on Opus fast mode, added first with
+`drive job add builder --order <o> --part fix --goal "freeze <service> until its root fix releases"`
+so its brief's `Drive:` line records the agent. It runs `tools/ci release freeze <component> --reason
+"<the incident>: held until its root fix releases" --until <RFC 3339 time 12 hours out>`, the bare
+component covering every stack it deploys. It returns the freeze's id, which goes on the order's
+note beside the record's.
 
 - From an agent, only the session that set a freeze releases through it. A builder of the
   coordinator's sets it, so each builder the coordinator starts, sharing that session, starts the
-  fix's release through it. He does too, since a person releases through a freeze his own agent
-  session set, and a rollback skips every freeze.
-- The job that merges the fix lifts it with `tools/ci release unfreeze <id>` in that turn, before the
-  fix's build starts. A fix release the freeze still refuses gets it lifted in that turn, never a
-  wait.
-- It goes on in the alert turn or never: once the fix job has started, a freeze could only slow or
-  block the fix's release, so a later turn sets none.
-
-His words, Nov 10 10:42 PM: "why the fuck didnt youj put a ssql freeze until this was merged", then
-10:48 PM: "dont freeze ssql now wtf fix it frist". The 10:42 PM words are the request for a freeze
-the monorepo `release` skill waits for, given once for every release that breaks a service.
+  root fix's release through it. He does too, since a person releases through a freeze his own
+  agent session set, and a rollback skips every freeze.
+- The job that merges the root fix lifts the freeze with `tools/ci release unfreeze <id>` in that
+  turn, before the fix's build starts.
+- A freeze found on while users are still blocked is lifted in that turn, since it can only slow or
+  block the release that unblocks them.
 
 ## His card on an incident
 
@@ -244,6 +248,8 @@ and the new time.
 
 ## After users are unblocked
 
+In the turn users are unblocked, the service's other releases freeze until its root fix releases, by
+[Freeze the broken service](#freeze-the-broken-service).
 While the rollback unblocks users, the fix job keeps building the root fix, with a design step first
 by [Design first](design.md) when the cause is a design, and its regression tests ride in that same PR.
 When releasing the default branch was the fix, the commits the first check found past the live one are
@@ -274,11 +280,12 @@ names the thing it points at.
 The steps, in order:
 
 1. **Running:** the fix job and where it started, beside the first check, or beside the rollback and
-   the cause hunt, and the freeze when one went on.
+   the cause hunt.
 2. **The fix is a release:** after a first check whose build worked, releasing the default branch
    fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
-4. **Users unblocked:** whose runs succeed again, on a real machine.
+4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the service's
+   other releases until its root fix releases.
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.
