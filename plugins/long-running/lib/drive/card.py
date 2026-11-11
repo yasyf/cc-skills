@@ -21,6 +21,7 @@ STACK_KINDS = ("New", "Fix", "Port", "Cleanup")
 REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
+STACK_MOST = 4
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
@@ -450,6 +451,11 @@ def tooling(name: str, entry: dict) -> bool:
 
 
 def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: set[str]) -> str:
+    if len(shown) > STACK_MOST:
+        return (
+            f"its stack holds {len(shown)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
+            " with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one"
+        )
     needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]

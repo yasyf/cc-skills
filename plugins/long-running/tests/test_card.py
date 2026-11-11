@@ -638,6 +638,14 @@ def test_a_stack_refusal_names_each_section_every_pr_body_lacks(stacked: list[li
     assert [skipped["reason"] for skipped in drawn["skipped"]] == [reason, reason, reason]
 
 
+def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "STACK_MOST", 2)
+    drawn = ask(asks(41, 42, 43))
+    assert drawn["cards"] == []
+    assert len(drawn["skipped"]) == 3
+    assert all(skipped["reason"].startswith("its stack holds 3 PRs and a stack is at most 2,") for skipped in drawn["skipped"])
+
+
 def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "STACK_HEADING", "no such section")
     ask(asks(41, 42, 43))

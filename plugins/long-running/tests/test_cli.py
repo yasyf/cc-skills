@@ -54,6 +54,7 @@ GET 2 page ranges
 - Map at the start of each file: changes the shared file format and still needs a length read first
 
 Findings:
+Direct fix: none: a design choice, with no defect behind it
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
@@ -613,6 +614,7 @@ A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed fix.
 Findings:
+Direct fix: Keep theirs, close ours
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
 """
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
@@ -640,6 +642,18 @@ def test_job_ask_refuses_a_fix_named_with_no_link_and_keeps_the_linked_copy(
     block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their fix, then ours"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert '"their fix" names something he could open with no link there' in capsys.readouterr().err
+
+
+def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says_why_not(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    other = TEAMMATE_FIX_SHOWN.replace("Direct fix: Keep theirs, close ours", "Direct fix: Add our status line beside their always-on button")
+    block.write_text(other)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert 'the direct fix "Add our status line beside their always-on button" is an option but not the recommended one' in capsys.readouterr().err
+    block.write_text(other.replace("Ours waits unlanded meanwhile.", "Ours waits; add our status line beside their always-on button only if the download state beats a review."))
+    assert run("job", "ask", asking, str(block))[0] == 0
 
 
 def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -697,6 +711,7 @@ I recommend landing both together, run history first; meanwhile both stay open.
 - Move the run page change onto dev without run history, and leave that one with you
 
 Findings:
+Direct fix: Land both now, run history first
 The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
 """
 
@@ -811,6 +826,37 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     status = run("status")[1]
     assert f"card {link} (demo:j1-7)" in status
     assert "asks him: Where should" not in status
+
+
+def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new_question(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    view.refresh_cards("demo")
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1])
+    run("job", "card", kept[0], "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    reply = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
+    assert run("answer", "a1", "--words", "its one snapshot file, just wait for the copy", "--link", reply) == (
+        0,
+        "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it",
+    )
+    assert cli.main(["job", "card", kept[1], "--waits", "demo:j1-7"]) == 2
+    refusal = capsys.readouterr().err
+    assert 'demo:j1-7: his words under that card answer it' in refusal
+    assert '"its one snapshot file, just wait for the copy"' in refusal
+    assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"] if question["waits"] == "demo:j1-7"] == [kept[0]]
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
+    assert cli.main(["job", "ask", asking, "-"]) == 2
+    assert f"- a1 his words under this job's card {link}: its one snapshot file, just wait for the copy" in capsys.readouterr().err
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
+    assert run("job", "ask", asking, "-", "--unsettled", "a1: he picked the layout, not when it is written")[0] == 0
 
 
 IDLE_RULING = {

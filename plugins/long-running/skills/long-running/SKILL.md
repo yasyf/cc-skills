@@ -96,6 +96,9 @@ a third fix for one symptom is a class fix that deletes the earlier patches.
   (`incidents`). A build or release he started is his: never cancel, retry, reorder or approve it,
   and start no release while it runs.
   One of ours that must stop gets a `report` to the communicator first, then its job stops it.
+- Never redraw a card his words under it answered, a direction included: they are his answer, the
+  card closes showing them, and the work goes ahead on them. Never leave the fix a job's diagnosis
+  points at out of its card's options (`scope`).
 - Never re-derive state from memory or infer it: `drive status`, GitHub and transcripts are the
   truth, and what a release carries (its PRs, the steps it runs, which build fixes what) is read
   from that release's commit and build.

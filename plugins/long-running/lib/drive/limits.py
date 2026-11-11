@@ -40,6 +40,8 @@ SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
 FENCE = re.compile(r"^[ \t]*```")
 PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
+DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?|fix(?:es)?|releases?|builds?|alerts?|threads?|asks?"
 DETERMINERS = r"the|this|that|these|those|its|his|her|their|our|your|my"
@@ -246,6 +248,8 @@ def question(text: str, kept: bool = False) -> Question:
         )
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
+    elif not kept and len(marked) == 1:
+        problems += direct_fix_problems(findings[0], options, RECOMMENDED.sub("", marked[0]), summary)
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
@@ -271,6 +275,39 @@ def captions(show_me: list[str]) -> list[str]:
         elif not fenced and line.strip():
             kept.append(line.strip())
     return kept
+
+
+def direct_fix_problems(findings: str, options: list[str], recommended: str, summary: list[str]) -> list[str]:
+    """Whether the findings name the option that is the fix the job's own diagnosis points at, which every question offers and recommends unless its summary says why not, or say no diagnosis points at one."""
+    named = DIRECT_FIX.search(findings)
+    if not named:
+        missing = (
+            "no `Direct fix:` line under `Findings:`: name the option that is the fix its diagnosis points at, by its words,"
+            " or write `Direct fix: none: <why>` when no diagnosis points at one; that fix is always an option, and the"
+            " recommended one unless the summary says why not"
+        )
+        return [missing]
+    if NO_DIRECT_FIX.match(named[1]):
+        return []
+    fix = named[1].casefold()
+    option = next((option for option in options if fix in (option.strip().casefold(), option_head(option).casefold())), None)
+    if option is None:
+        unnamed = (
+            f"`Direct fix: {named[1]}` names no option: the fix its diagnosis points at is always an option, so add it, or"
+            " repeat the words of the option it is, whole or up to its first colon"
+        )
+        return [unnamed]
+    if option == recommended or option_head(option).casefold() in " ".join(summary).casefold():
+        return []
+    unexplained = (
+        f'the direct fix "{option_head(option)}" is an option but not the recommended one, and the summary never says why not:'
+        " recommend it, or add a summary sentence that names it by those words and says why another option is better"
+    )
+    return [unexplained]
+
+
+def option_head(option: str) -> str:
+    return option.split(":")[0].strip()
 
 
 def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> list[str]:
