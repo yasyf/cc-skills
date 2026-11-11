@@ -228,6 +228,8 @@ def load(name: str) -> dict:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
     data.setdefault("answers", {})
+    for answer in data["answers"].values():
+        answer.setdefault("jobs", {})
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():

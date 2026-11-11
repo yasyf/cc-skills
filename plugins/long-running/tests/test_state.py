@@ -96,6 +96,15 @@ def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions
     assert jobs["j3"]["questions"] == []
 
 
+def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to_mark(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    moment = "2026-11-09T14:00:00-08:00"
+    data["answers"] = {"a1": {"words": "Tree", "link": "https://acme.slack.com/archives/D1/p1", "at": moment, "said": moment, "cards": {"demo:j2-7": {"mark": "stands"}}}}
+    state.create(data)
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {}
+
+
 def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_through_that_dispatch(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")
