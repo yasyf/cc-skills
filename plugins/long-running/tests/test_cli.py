@@ -1686,6 +1686,17 @@ def test_pr_tapped_with_hold_exits_one(run: Run, with_pr: str) -> None:
     assert "held by him" in out
 
 
+def test_pr_set_tapped_records_only_a_tap_his_permalink_shows(run: Run, with_pr: str) -> None:
+    assert run("pr", "set", PR, "--tapped", "Hold")[0] == 2
+    for unlinked in ("recorded", "migrated hold: breaks:a client on an older build cannot read it", "drive applying his rule 18082c8"):
+        with pytest.raises(SystemExit):
+            run("pr", "set", PR, "--tapped", "Hold", "--tap-source", unlinked)
+    assert state.load("demo")["prs"][with_pr]["tap"] is None
+    link = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794173216327589"
+    assert run("pr", "set", PR, "--tapped", "Approve", "--tap-source", link)[0] == 0
+    assert state.load("demo")["prs"][with_pr]["tap"]["source"] == link
+
+
 def test_pr_set_fundamental_clears_the_tap(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
         data["prs"][with_pr]["tap"] = {"label": "Approve", "at": state.stamp(), "head": "abc", "source": "slack"}
