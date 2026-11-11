@@ -304,7 +304,7 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option. Each wait is claimed under the lock before its post with the pid of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, so a watch dying between its post and saying it is the one way he is told twice."""
+    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option. Each wait is claimed under the lock before its post with the pid and start time of the watch claiming it, so no other watch posts it too, and is said once the post goes through; a post that fails gives its claims back and goes again next read, and a claim whose watch died before saying it is taken again, its pid running another process since or none, so a watch dying between its post and saying it is the one way he is told twice."""
     if watcher.cards is None:
         return []
     from drive import talk
@@ -312,9 +312,10 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
     if not unsaid_waits(watcher, state.load(watcher.name)):
         return []
     cards: dict[str, list[dict]] = {}
+    claimer = {"pid": os.getpid(), "started": started(os.getpid())}
     with state.edit(watcher.name) as data:
         for entry in unsaid_waits(watcher, data):
-            data["jobs"][entry["job"]]["waiting_claims"][entry["wait"]] = os.getpid()
+            data["jobs"][entry["job"]]["waiting_claims"][entry["wait"]] = claimer
             cards.setdefault(entry["card"]["url"], []).append(entry)
     lines = []
     for url, entries in cards.items():
@@ -345,8 +346,13 @@ def unsaid_waits(watcher: Watcher, data: dict) -> list[dict]:
         for entry in view.waiting_on_him(data, watcher.cards)
         if hears(watcher, data, entry["order"])
         and entry["wait"] not in (job := data["jobs"][entry["job"]])["waiting_said"]
-        and not ((claimer := job["waiting_claims"].get(entry["wait"])) and alive(claimer))
+        and not ((claimer := job["waiting_claims"].get(entry["wait"])) and started(claimer["pid"]) == claimer["started"])
     ]
+
+
+def started(pid: int) -> str | None:
+    """When the process holding pid started, as ps prints it, which a pid the system hands to another process changes; None when no process holds it."""
+    return subprocess.run(["ps", "-o", "lstart=", "-p", str(pid)], capture_output=True, text=True, check=False).stdout.strip() or None
 
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:

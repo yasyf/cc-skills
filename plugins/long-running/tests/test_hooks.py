@@ -585,7 +585,7 @@ def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-sub")
     assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
     sub, top = {"session_id": "drive-sub"}, {"session_id": "session-under-test"}
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash") | sub) is None
+    assert [landing_guard.deny_reason(bash("stack-enqueue 42") | session) for session in (sub, top)] == [None, None]
     cuts = ("tools/ci release start api dashboard", "tools/ci release approve releases/2026-11-11/3", "cd /work && ci release rollback releases/2026-11-11/3 api")
     refused = [landing_guard.deny_reason(bash(command) | sub) for command in cuts]
     assert refused[0] == (

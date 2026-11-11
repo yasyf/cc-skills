@@ -40,6 +40,8 @@ AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
+WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
+ROUTED_KINDS = ("owner", "answer", "posted", "refused")
 
 
 class DriveError(Exception):
@@ -231,7 +233,7 @@ def load(name: str) -> dict:
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job.setdefault("carries", {})
-        job.setdefault("mail_seen", mail.get(job.get("run"), 0))
+        job["mail_seen"] = max(job.get("mail_seen", 0), mail.get(job.get("run"), 0))
         job.setdefault("waiting_said", [])
         job.setdefault("waiting_claims", {})
         job.setdefault("waits", [])
@@ -497,6 +499,22 @@ def order_lane(data: dict, order: dict) -> str:
 def heard_lane(data: dict, order_id: str) -> str:
     """The cci lane of the coordinator session hearing an order now, which an event about it is written with."""
     return order_lane(data, data["orders"][order_id]) if data["subcoordinators"] else "root"
+
+
+def thread_order(data: dict, thread: str | None) -> str | None:
+    """The newest order in a thread of his, or None when no order is in it."""
+    return next((order_id for order_id, order in reversed(data["orders"].items()) if thread and order["thread"] == thread), None)
+
+
+def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
+    """The cci lane of the coordinator session a communicator's owner, answer, posted or refused record serves: the one hearing the order of the job its attr job or waits id names, else the newest order in its thread; None for another kind, or a record naming neither."""
+    if kind not in ROUTED_KINDS:
+        return None
+    named = WAITS_ID.fullmatch(attrs.get("waits") or "")
+    if job := data["jobs"].get(attrs.get("job") or (named[2] if named and named[1] == data["name"] else "")):
+        return order_lane(data, data["orders"][job["order"]])
+    order_id = thread_order(data, attrs.get("thread"))
+    return order_id and order_lane(data, data["orders"][order_id])
 
 
 def hears(data: dict, order: dict, project: str | None) -> bool:

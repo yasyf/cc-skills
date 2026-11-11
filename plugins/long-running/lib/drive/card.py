@@ -644,7 +644,7 @@ def question_answered(ask: dict) -> dict:
     if name not in state.names():
         raise state.DriveError(f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached")
     item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": ask.get("undone")}
-    item |= {"waits": ask["waits"]} if tools.WAITS.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
+    item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     [seq] = tools.sent(name, "communicator", [tools.post(item, state.load(name), "root")])
     return {"ok": True, "seq": seq}

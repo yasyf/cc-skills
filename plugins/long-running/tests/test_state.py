@@ -117,6 +117,23 @@ def test_a_drive_saved_with_one_mail_cursor_per_run_reads_it_as_the_mark_of_each
     assert "lane_mail" not in loaded
 
 
+def test_a_mail_cursor_an_old_watch_writes_again_after_the_migration_raises_each_mark_on_its_run_and_never_lowers_one(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
+    data["jobs"] = {"j1": base | {"run": "run_a"}, "j2": base | {"run": "run_a"}, "j3": base | {"run": "run_b"}}
+    data["lane_mail"] = {"run_a": 41}
+    state.create(data)
+    migrated = state.load("demo")
+    migrated["jobs"]["j2"]["mail_seen"] = 45
+    migrated["jobs"]["j3"]["mail_seen"] = 12
+    migrated["lane_mail"] = {"run_a": 43, "run_b": 9}
+    state.save("demo", migrated)
+    loaded = state.load("demo")
+    assert {job_id: job["mail_seen"] for job_id, job in loaded["jobs"].items()} == {"j1": 43, "j2": 45, "j3": 12}
+    assert "lane_mail" not in loaded
+
+
 def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_through_that_dispatch(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

@@ -311,6 +311,26 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
     assert "Hold with slack_watch: his DM D123" in out.splitlines()
 
 
+def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_whether_its_watch_runs(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-1")
+    run("start", "demo", "--role", "coordinator", "--project", "The drive")
+    state.pid_path("demo", "Iris").write_text(f"{os.getpid()}\n")
+    assert run("status")[1].splitlines()[3:5] == [
+        f"sub-coordinator Iris: lane iris, session iris-1, in no Orca terminal; its watch runs as pid {os.getpid()}",
+        "sub-coordinator The drive: lane the-drive, session drive-1, in no Orca terminal; its watch is not running; drive watch --project 'The drive' from its session starts it",
+    ]
+    listed = json.loads(run("status", "--json")[1])["subcoordinators"]
+    assert {project: (held["lane"], held["session"], held["watch"]) for project, held in listed.items()} == {
+        "Iris": ("iris", "iris-1", os.getpid()),
+        "The drive": ("the-drive", "drive-1", None),
+    }
+
+
 def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:

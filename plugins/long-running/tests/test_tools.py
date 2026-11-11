@@ -127,6 +127,34 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
         tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform"}]})
 
 
+def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_its_jobs_or_threads_order_whatever_lane_it_names(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    other = "1794200000.000200"
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = THREAD, other
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    records = [
+        {"kind": "owner", "text": "also the logs page", "thread": THREAD, "to": "root"},
+        {"kind": "owner", "text": "and the alert", "thread": other, "to": "iris"},
+        {"kind": "answer", "text": "Ring", "re": ["7"], "attrs": {"job": "j1"}, "thread": other},
+        {"kind": "defect", "text": "cc-slack say fails", "thread": THREAD},
+    ]
+    said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
+    assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said] == [
+        ("owner", ["iris@demo"]),
+        ("owner", ["root@demo"]),
+        ("answer", ["iris@demo"]),
+        ("defect", ["root@demo"]),
+    ]
+
+
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps(ANSWER))
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")

@@ -217,8 +217,18 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
             yield from report_refusals(payload, drive, role, records, index)
 
 
+def readdressed(drive: dict, record: dict) -> dict:
+    """The communicator's owner, answer, posted or refused record with each coordinator lane it names replaced by the lane of the coordinator session hearing the order it serves."""
+    if not (lane := state.serving_lane(drive, kind(record), attrs(record))):
+        return record
+    coordinators = {f"{held}@{drive['name']}" for held in ("root", *map(state.project_lane, drive["subcoordinators"]))}
+    entries = listed(record.get("to"))
+    to = list(dict.fromkeys(f"{lane}@{drive['name']}" if entry in coordinators else entry for entry in entries))
+    return record if to == entries else record | {"to": to}
+
+
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it one line, the rest in its body for whoever acts on it."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it one line, the rest in its body for whoever acts on it, and each of the communicator's records for a coordinator sent to the coordinator session hearing the order it serves."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
@@ -226,12 +236,14 @@ def decision(payload: dict) -> dict | None:
     records = tool_input.get("records") or [tool_input]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    cut = [limits.shortened(record) for record in records]
-    if not any(cut):
+    drive = state.load(names[0])
+    routed = [readdressed(drive, record) for record in records] if state.session_role(drive, payload.get("session_id")) == "communicator" else records
+    made = [limits.shortened(record) or record for record in routed]
+    if made == records:
         return None
     if tool_input.get("records"):
-        return {"updatedInput": tool_input | {"records": [new or old for new, old in zip(cut, records)]}}
-    return {"updatedInput": cut[0]}
+        return {"updatedInput": tool_input | {"records": made}}
+    return {"updatedInput": made[0]}
 
 
 def main() -> None:

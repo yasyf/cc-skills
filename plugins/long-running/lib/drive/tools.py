@@ -3,7 +3,6 @@ import contextlib
 import io
 import json
 import os
-import re
 import shlex
 import subprocess
 
@@ -12,7 +11,6 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
 OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
-WAITS = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 OPS_HELP = (
@@ -47,8 +45,9 @@ RECORD = {
         "to": {
             "type": "string",
             "description": (
-                "the lane it goes to in place of the other session's, such as the sub-coordinator's lane heard names for his"
-                " thread; an answer naming waits goes to the lane of the coordinator session that hears that job's order"
+                "the lane it goes to in place of the other session's; the communicator's owner or answer record goes to the"
+                " coordinator session hearing the order of the job it answers, else of its thread's newest order, whatever"
+                " lane this names"
             ),
         },
         "attrs": {"type": "object", "additionalProperties": TEXT},
@@ -291,7 +290,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, data: dict, other: str) -> dict:
-    """The cci record an item posts as, to the lane it names, else the other session's, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record; his answer to a question card from the communicator goes to the lane of the coordinator session hearing that job's order, a sub-coordinator's for its project."""
+    """The cci record an item posts as, to the lane it names, else the other session's, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record; the communicator's owner or answer record goes, whatever lane it names, to the coordinator session hearing the order of the job it answers, else of the newest order in its thread, a sub-coordinator's for its project."""
     drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through cci post, whose hook reads it")
@@ -301,20 +300,18 @@ def post(item: dict, data: dict, other: str) -> dict:
         if item.get(key):
             made[key] = item[key]
     if waits := item.get("waits"):
-        if not (named := WAITS.fullmatch(waits)):
+        if not (named := state.WAITS_ID.fullmatch(waits)):
             raise DriveError(f"{waits} is no question card's waits id, <drive>:<j>-<seq>; a PR card's tap needs no record")
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
         attrs["job"], made["re"] = named[2], [named[3]]
-        if other == "root" and (job := data["jobs"].get(named[2])):
-            other = state.order_lane(data, data["orders"][job["order"]])
-    lanes = ["root", "communicator", *map(state.project_lane, data["subcoordinators"])]
-    if (to := item.get("to") or other) not in lanes:
-        raise DriveError(f"to {to}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")
-    made["to"] = [f"{to}@{drive}"]
     for attr in ("thread", "ruling"):
         if item.get(attr):
             attrs[attr] = item[attr]
+    lanes = ["root", "communicator", *map(state.project_lane, data["subcoordinators"])]
+    if (to := (other == "root" and state.serving_lane(data, item["kind"], attrs)) or item.get("to") or other) not in lanes:
+        raise DriveError(f"to {to}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")
+    made["to"] = [f"{to}@{drive}"]
     if item.get("undone"):
         attrs["undone"], text = text, f"undone: {text}"
     made |= {"text": text} | ({"attr": attrs} if attrs else {})

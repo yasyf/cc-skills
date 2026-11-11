@@ -1,4 +1,5 @@
 import json
+import shlex
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -360,6 +361,12 @@ def role_line(drive: dict, role: str, seen: dict[str, str]) -> str:
     return f"{role}: {who(drive, role)}{place}; {hold_line(drive, role)}"
 
 
+def subcoordinator_line(project: str, held: dict, seen: dict[str, str]) -> str:
+    """A sub-coordinator's project, cci lane, session, where he opens it, and whether its watch runs."""
+    watching = f"its watch runs as pid {held['watch']}" if held["watch"] else f"its watch is not running; {shlex.join(['drive', 'watch', '--project', project])} from its session starts it"
+    return f"sub-coordinator {project}: lane {project_lane(project)}, session {held['session']}, {seen[f'sub-coordinator {project}']}; {watching}"
+
+
 def order_block(drive: dict, order_id: str, order: dict, whole: bool) -> list[str]:
     limit = WHOLE if whole else 80
     lines = [f"- {order_line(order_id, order, limit, promise_thread(drive, order))}"]
@@ -482,6 +489,7 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
         "name": drive["name"],
         "pr_fields": pr_fields,
         "roles": drive["roles"],
+        "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
         "slack": {"channel": drive["slack"]["channel"], "watch": drive["slack"].get("watch", [])},
         "orders": orders,
@@ -498,6 +506,7 @@ def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
         lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))
         return "\n".join(lines)
     lines.extend(role_line(drive, role, seen) for role in ROLES)
+    lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
     if incidents := [incident_line(order_id, order) for order_id, order in open_orders(drive).items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
     lines.extend(agentless_lines(drive))

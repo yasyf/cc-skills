@@ -1732,8 +1732,8 @@ def heard(args: argparse.Namespace) -> int:
 
 def thread_order(data: dict, thread: str) -> tuple[str, dict] | None:
     """The newest order in the thread, when it is filed under a project a sub-coordinator is bound for."""
-    threaded = [(order_id, order) for order_id, order in data["orders"].items() if order["thread"] == thread]
-    return threaded[-1] if threaded and threaded[-1][1]["project"] in data["subcoordinators"] else None
+    order_id = state.thread_order(data, thread)
+    return (order_id, data["orders"][order_id]) if order_id and data["orders"][order_id]["project"] in data["subcoordinators"] else None
 
 
 def overlay_live(data: dict) -> str:
@@ -1817,7 +1817,9 @@ def status(args: argparse.Namespace) -> int:
     if args.ids:
         only(data, args.ids)
     pr_fields = overlay_live(data)
-    seen = {role: with_build(orca_place(held, name_show), held) for role, held in data["roles"].items()}
+    for project, held in data["subcoordinators"].items():
+        held["watch"] = watch.holder(state.pid_path(name, project))
+    seen = {role: with_build(orca_place(held, name_show), held) for role, held in state.bound_sessions(data).items()}
     named = bool(args.ids)
     return emit(args, render.status_text(data, pr_fields, seen, named), render.status_data(data, pr_fields, seen, named))
 

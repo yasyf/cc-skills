@@ -1201,15 +1201,33 @@ def test_a_built_job_whose_watch_died_after_claiming_its_card_and_before_posting
         return {"permalink": POSTED}
 
     monkeypatch.setattr(talk, "posted", post)
+    gone = {"pid": 999999999, "started": "Mon Nov  9 08:00:00 2026"}
     with monkeypatch.context() as dying, pytest.raises(OSError):
-        dying.setattr(watch.os, "getpid", lambda: 999999999)
+        dying.setattr(watch.os, "getpid", lambda: gone["pid"])
+        dying.setattr(watch, "started", lambda pid: gone["started"])
         watch.run_pass(watcher(demo), T0)
-    assert state.load(demo)["jobs"]["j1"]["waiting_claims"] == {"demo:j1-7-a": 999999999}
+    assert state.load(demo)["jobs"]["j1"]["waiting_claims"] == {"demo:j1-7-a": gone}
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == waiting("demo:j1-7-a")
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=2)) == []
     assert posts == [paused()] * 2
     job = state.load(demo)["jobs"]["j1"]
     assert (job["waiting_said"], job["waiting_claims"]) == (["demo:j1-7-a"], {})
+
+
+def test_a_built_jobs_claim_whose_watch_died_and_whose_pid_now_runs_another_process_is_taken_by_the_next_watch(
+    demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]
+) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "waiting_claims": {"demo:j1-7-a": {"pid": os.getpid(), "started": "Mon Nov  9 08:00:00 2026"}}}
+    assert watch.run_pass(watcher(demo), T0) == waiting("demo:j1-7-a")
+    assert told == [paused()]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] |= {"waiting_said": [], "waiting_claims": {"demo:j1-7-a": {"pid": os.getpid(), "started": watch.started(os.getpid())}}}
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == []
+    assert told == [paused()]
 
 
 def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:

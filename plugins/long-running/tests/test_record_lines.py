@@ -236,3 +236,32 @@ def test_a_job_is_called_stuck_only_after_a_read_of_its_transcript(demo: str, tu
     assert "j702" in refusal(record_lines.decision(coordinator(turn, **stuck)))
     called(turn, "read", "Bash", {"command": "drive job replies j702"})
     assert record_lines.decision(coordinator(turn, **stuck)) is None
+
+
+def test_the_communicators_record_for_a_coordinator_goes_to_the_session_hearing_the_order_it_serves_whatever_lane_it_names(
+    run: Callable[..., tuple[int, str]], demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = THREAD, OTHER
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    root = ["root@demo"]
+    records = [
+        {"kind": "owner", "text": "also the logs page", "to": root, "attrs": {"thread": THREAD}},
+        {"kind": "answer", "text": "Ring", "to": root, "re": ["7"], "attrs": {"job": "j1", "maps": "none"}},
+        {"kind": "posted", "text": "card up demo:j1-8", "to": root, "resolves": ["8"], "attrs": {"waits": "demo:j1-8"}},
+        {"kind": "refused", "text": "cc-slack refused the card", "to": root, "resolves": ["9"], "attrs": {"job": "j1"}},
+        {"kind": "owner", "text": "and the alert", "to": ["iris@demo"], "attrs": {"thread": OTHER}},
+        {"kind": "owner", "text": "a new order", "to": root},
+        {"kind": "report", "text": "FYI j1 merged", "attrs": {"close": "o1"}},
+    ]
+    made = record_lines.decision(post("talker", records=records))["updatedInput"]["records"]
+    assert [record.get("to") for record in made] == [["iris@demo"]] * 4 + [root, root, None]
+    assert record_lines.decision(post("talker", **records[0]))["updatedInput"] == records[0] | {"to": ["iris@demo"]}
+    assert record_lines.decision(post("talker", **records[5])) is None
+    assert record_lines.decision(post("iris-1", **records[0])) is None
