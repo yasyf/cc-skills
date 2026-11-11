@@ -144,7 +144,7 @@ def unchecked(tool_input: dict) -> str | None:
     if not (text := tool_input.get("text") or ""):
         return None
     try:
-        findings = slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")))
+        findings = slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")), tool_input.get("asked") or "")
     except slack.SlackError as error:
         return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
     if not findings:
@@ -181,18 +181,7 @@ def squashed(text: str) -> str:
 
 def quotes(asked: str | list[str]) -> list[str]:
     """Each stretch of his words that asked quotes: one message of his per entry or line, cut where the quote skips some of them."""
-    return [part for entry in messages(asked) for piece in BETWEEN_QUOTES.split(entry) if (part := piece.strip().strip(QUOTE_MARKS).strip())]
-
-
-def messages(asked: str | list[str]) -> list[str]:
-    """The messages of his asked holds: a list's entries, a string that is a JSON list of strings, as a list arrives through a tool whose schema declares no asked, or the one string."""
-    if isinstance(asked, list):
-        return asked
-    try:
-        listed = json.loads(asked)
-    except json.JSONDecodeError:
-        return [asked]
-    return listed if isinstance(listed, list) and all(isinstance(entry, str) for entry in listed) else [asked]
+    return [part for entry in slack.messages(asked) for piece in BETWEEN_QUOTES.split(entry) if (part := piece.strip().strip(QUOTE_MARKS).strip())]
 
 
 def unsaid(parts: list[str], said: str) -> list[str]:

@@ -128,12 +128,13 @@ def slack_thread(monkeypatch: pytest.MonkeyPatch) -> Thread:
 class Checked:
     findings: list[str] = field(default_factory=list)
     texts: list[str] = field(default_factory=list)
+    asked: list[list[str]] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def checked(monkeypatch: pytest.MonkeyPatch) -> Checked:
     check = Checked()
-    monkeypatch.setattr(slack, "check_post", lambda text: check.texts.append(text) or list(check.findings))
+    monkeypatch.setattr(slack, "check_post", lambda text, asked: check.texts.append(text) or check.asked.append(asked) or list(check.findings))
     return check
 
 

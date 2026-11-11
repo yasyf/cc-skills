@@ -3398,7 +3398,7 @@ def test_a_drive_tooling_order_takes_no_thread_since_its_posts_go_at_his_dm_root
     assert state.load("demo")["orders"]["o1"]["thread"] is None
 
 
-def drive_terms(text: str) -> list[str]:
+def drive_terms(text: str, asked: list[str]) -> list[str]:
     return [f"1:{found.start() + 1} drive-term {found[0]!r}: say what happens to the reader's work instead" for found in re.finditer(r"(?<![\w./:-])[oj]\d{2,}\b", text)]
 
 
@@ -3423,7 +3423,7 @@ def test_a_drive_tooling_orders_words_pass_check_post_since_his_pr_card_quotes_t
     assert cli.main([*filed, flagged]) == 2
     refused = capsys.readouterr().err
     assert 'a "Drive tooling:" order\'s words reach him verbatim, quoted on the line above its PR card' in refused
-    assert refused.endswith("\n".join(drive_terms(flagged)) + "\n")
+    assert refused.endswith("\n".join(drive_terms(flagged, [])) + "\n")
     assert run(*filed, reworded) == (0, "o1")
     assert run(*filed, "send j844's numbers to o341's thread") == (0, "o2")
     with state.edit("demo") as data:

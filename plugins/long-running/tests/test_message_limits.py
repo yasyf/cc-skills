@@ -1036,7 +1036,7 @@ def test_every_post_to_his_dm_passes_check_post_on_its_exact_words(talker: str, 
 
 
 def test_a_post_check_post_cannot_check_does_not_go_out(talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def broken(text: str) -> list[str]:
+    def broken(text: str, asked: list[str]) -> list[str]:
         raise slack.SlackError("the cc-slack@cc-slack plugin is not installed")
 
     monkeypatch.setattr(slack, "check_post", broken)
@@ -1054,11 +1054,29 @@ def test_check_post_runs_the_installed_cc_slack_on_the_exact_words(tmp_path: Pat
     )
     launcher.chmod(0o755)
     monkeypatch.setattr(slack, "launcher", lambda: str(launcher))
-    assert CHECK_POST("See #41 now.") == ["1:5 bare-number '#41': link it"]
+    assert CHECK_POST("See #41 now.", []) == ["1:5 bare-number '#41': link it"]
     assert (tmp_path / "words").read_text() == "See #41 now."
     launcher.write_text("#!/bin/sh\necho 'usage: check-post <file|->' >&2\nexit 2\n")
     with pytest.raises(slack.SlackError, match="usage: check-post"):
-        CHECK_POST("See #41 now.")
+        CHECK_POST("See #41 now.", [])
+
+
+def test_check_post_passes_each_message_he_asked_and_refuses_an_exit_that_names_no_finding(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    launcher = tmp_path / "cc-slack"
+    launcher.write_text(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{tmp_path / 'argv'}'\n/bin/cat > /dev/null\n")
+    launcher.chmod(0o755)
+    monkeypatch.setattr(slack, "launcher", lambda: str(launcher))
+    assert CHECK_POST("The drive has two PRs left.", ["how far along is the drive?", "- and the deploy?"]) == []
+    assert (tmp_path / "argv").read_text().splitlines() == ["check-post", "-", "--asked=how far along is the drive?", "--asked=- and the deploy?"]
+    launcher.write_text("#!/bin/sh\necho 'Error: unknown flag: --asked' >&2\nexit 1\n")
+    with pytest.raises(slack.SlackError, match="unknown flag: --asked"):
+        CHECK_POST("The drive has two PRs left.", ["how far along is the drive?"])
+
+
+def test_a_post_answering_him_is_checked_with_each_message_of_his_it_quotes(talker: str, transcript: Path, checked: Checked) -> None:
+    assert posted(transcript, text="It has two merges left.", thread_ts="1.2", asked=["how far along is the drive?"]) is None
+    assert posted(transcript, text="Merged.", thread_ts="1.2") is None
+    assert checked.asked == [["how far along is the drive?"], []]
 
 
 def test_main_prints_a_pretooluse_denial(
