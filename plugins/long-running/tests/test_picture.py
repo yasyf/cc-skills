@@ -1,6 +1,7 @@
 import html
 import json
 import re
+from pathlib import Path
 
 from drive import limits, picture
 
@@ -97,7 +98,7 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
 
 
-def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_and_leaves_out_words_and_what_does_not_draw(tmp_path, monkeypatch) -> None:
+def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_keeps_words_as_written_and_leaves_out_what_does_not_draw(tmp_path, monkeypatch) -> None:
     tried = []
 
     def draw(kind: str, source: str, out) -> None:
@@ -136,8 +137,26 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_and_lea
         "After.",
     ]
     shown = picture.drawn(tmp_path / "pictures", show_me)
-    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "", "", "", "", "![The flow", "After."]
+    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "```", "GET journal/0001.ltx", "```", "", "", "", "![The flow", "After."]
     assert tried == ["code:sand", "code:proto", "code:go", "mermaid"]
+
+
+def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp_path, monkeypatch) -> None:
+    dumps = iter(["<html><body></body></html>", '<html data-print data-drawn="40x20"><body></body></html>'])
+    sizes = []
+
+    def headless(page, *args: str) -> str:
+        sizes.append(args[0])
+        if shot := next((arg.removeprefix("--screenshot=") for arg in args if arg.startswith("--screenshot=")), None):
+            Path(shot).write_bytes(b"\x89PNG\r\n")
+            return ""
+        return next(dumps)
+
+    monkeypatch.setattr(picture, "headless", headless)
+    out = tmp_path / "dot.png"
+    picture.visual_png("dot", "digraph { a -> b }", out)
+    assert out.is_file()
+    assert sizes == ["--window-size=1200,1200", "--window-size=1200,1200", "--window-size=40,20"]
 
 
 def test_a_card_whose_show_me_leaves_nothing_to_show_has_no_show_me() -> None:

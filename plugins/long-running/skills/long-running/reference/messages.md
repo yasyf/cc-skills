@@ -249,8 +249,9 @@ its layout and buttons with plain text, and cc-slack refuses it. While a card he
 buttons. The moment a redo starts, the coordinator sends an `ask` record with `--attr
 ask=<the card's kept file>`, `--attr waits=<its waits id>` and `--attr reworking=<what is being
 redone, and when it is back>`. The handler draws the card again under that id from that file, its
-title, body and options unchanged, with one fact, `Being reworked`, holding those words. A pick he taps meanwhile stands, as on any card.
-The redone `ask` comes under the same `waits` id and draws the new words with no fact. His words, Nov
+title, body and options unchanged, plus one line atop its body saying the question is being redone and why, which
+`drive job card <its ask file> --waits <its waits id> --reworking "<those words>"` draws. A pick he taps meanwhile stands, as on any card.
+The redone `ask` comes under the same `waits` id and draws the new words with no such line. His words, Nov
 10 4:44 PM: "when the card is being re-wqritten it shgould be updated to say tghat, but still keep
 the opotonbs inc ase I want to click ione". No option asks a reporter or anyone else to retry,
 confirm or check: the drive proves a fix itself. When something waits on his

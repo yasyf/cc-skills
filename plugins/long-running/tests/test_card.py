@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
-from drive import card, cli, state
+from drive import card, cli, limits, picture, state
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -399,6 +399,56 @@ def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive:
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
     }
     assert [(event["kind"], event["reason"]) for event in events(drive)] == [("refused", reason)]
+
+
+SNIPPETS_SHOW_ME = """
+## Show me
+
+What `up` runs on the box just before its reboot, before and after:
+
+```sh
+sudo launchctl enable system/com.example.screensharing
+(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
+```
+
+```sh
+sudo launchctl enable system/com.example.screensharing
+for try in {1..60}; do [[ "$(sudo launchctl print system/com.example.disk-formatter 2>/dev/null)" == *"state = running"* ]] || break; sleep 5; done
+(sleep 1; sudo shutdown -r now) </dev/null >/dev/null 2>&1 &
+```
+
+The box's first-boot script loses its disk lines:
+
+```sh
+disk=$(diskutil list physical external | head -n1 | cut -d" " -f1)
+yes | diskutil repairDisk "$disk"
+```
+
+On a fresh box the host had formatted the disk before the reboot, and the login came up with no dialog.
+
+```mermaid
+flowchart LR
+  boot[first boot: scratch disk blank] --> job[the host's job formats it]
+  boot --> reboot[up reboots the box]
+  job -->|now: up waits for the job| clean[login finds the disk: clean desktop]
+```
+"""
+
+
+def test_a_tap_card_whose_show_me_draws_snippets_that_add_nothing_is_refused_naming_the_rule(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=FIX_BODY + SNIPPETS_SHOW_ME)))
+    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
+    assert skipped["reason"].startswith(
+        "its tap card needs a Show me whose every picture shows what its words cannot (the Show me draws 3 code fences as 3 pictures"
+    )
+    assert limits.BIG_RULING in skipped["reason"]
+    assert skipped["reason"].endswith(f") in the body of {URL}")
+    diagram = FIX_BODY + "\n## Show me\n" + SNIPPETS_SHOW_ME.split("no dialog.\n", 1)[1]
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=diagram)))
+    assert [drawn["number"] for drawn in ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]] == [42]
 
 
 def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
