@@ -1,4 +1,6 @@
+import html
 import json
+import re
 
 from drive import limits, picture
 
@@ -20,6 +22,36 @@ DOC = {
     "edges": [{"from": "body", "to": "drive", "label": "Show me"}, {"from": "drive", "to": "him"}],
     "path": {"steps": [{"from": "body", "to": "drive"}]},
 }
+MERMAID_LOOK = r"""<!doctype html>
+<html><body><div id="visual"></div><script type="module">VISUALS
+const host = document.getElementById("visual");
+await draw(host, "mermaid", "flowchart LR\n  boot[first boot: instance store blank] -->|now: up waits| job[AWS job formats it]");
+await document.fonts.ready;
+const look = (selector) => getComputedStyle(host.querySelector(selector));
+const svg = host.querySelector("svg");
+const box = svg.viewBox.baseVal;
+const drawn = svg.getBBox();
+document.documentElement.dataset.look = JSON.stringify({
+  node: { fill: look(".node rect").fill, border: look(".node rect").stroke, corner: look(".node rect").rx, shadow: look(".node rect").filter },
+  text: { size: look(".nodeLabel").fontSize, font: look(".nodeLabel").fontFamily.split(",")[0] },
+  edge: { size: look(".edgeLabel p").fontSize, color: look(".edgeLabel p").color, behind: look(".labelBkg").backgroundColor },
+  margin: Math.round(Math.max(drawn.x - box.x, box.x + box.width - drawn.x - drawn.width, drawn.y - box.y, box.y + box.height - drawn.y - drawn.height)),
+});
+</script></body></html>
+"""
+LOOK = re.compile(r'<html[^>]*\bdata-look="([^"]*)"')
+
+
+def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with_quiet_edge_labels_and_no_margin_past_the_diagram(tmp_path) -> None:
+    page = tmp_path / "look.html"
+    page.write_text(MERMAID_LOOK.replace("VISUALS", picture.VISUALS.read_text(), 1))
+    dumped = picture.headless(page, "--window-size=1200,1200", "--no-sandbox", "--dump-dom")
+    assert json.loads(html.unescape(LOOK.search(dumped)[1])) == {
+        "node": {"fill": "rgb(246, 248, 250)", "border": "rgb(175, 184, 193)", "corner": "6px", "shadow": "none"},
+        "text": {"size": "15px", "font": "-apple-system"},
+        "edge": {"size": "13px", "color": "rgb(82, 81, 78)", "behind": "rgb(255, 255, 255)"},
+        "margin": 4,
+    }
 
 
 def test_sources_lists_diagrams_and_images_in_the_order_they_appear() -> None:

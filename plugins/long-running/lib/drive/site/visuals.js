@@ -31,9 +31,9 @@ const CHART = {
 };
 const MERMAID_THEME = {
   fontFamily: SANS,
-  fontSize: "13px",
+  fontSize: "15px",
   primaryColor: "#f6f8fa",
-  primaryBorderColor: "#8c959f",
+  primaryBorderColor: "#afb8c1",
   primaryTextColor: INK,
   secondaryColor: "#ffffff",
   tertiaryColor: "#fbfbfa",
@@ -42,7 +42,10 @@ const MERMAID_THEME = {
   clusterBorder: "#d1d9e0",
   lineColor: MUTED,
   textColor: INK,
+  useGradient: false,
+  dropShadow: "none",
 };
+const MERMAID_CSS = `.node rect{rx:6px;ry:6px}.edgeLabel,.edgeLabel p{color:${MUTED};font-size:13px}.labelBkg{background:#fff}`;
 const DOT_FONT = { fontname: "Helvetica,Arial,sans-serif", fontsize: 12 };
 const CSS = `
 .visual-code{margin:0;padding:8px 12px;width:max-content;max-width:760px;box-sizing:border-box;font:12.5px/1.5 ${MONO};color:#1f2328;background:#f6f8fa;border:1px solid #d1d9e0;border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
@@ -154,8 +157,9 @@ async function mermaid(host, source) {
       securityLevel: "strict",
       theme: "base",
       themeVariables: MERMAID_THEME,
+      themeCSS: MERMAID_CSS,
       fontFamily: SANS,
-      flowchart: { padding: 8, nodeSpacing: 28, rankSpacing: 36 },
+      flowchart: { padding: 12, nodeSpacing: 20, rankSpacing: 28, wrappingWidth: 170, diagramPadding: 4 },
       sequence: { actorMargin: 40, boxMargin: 6, messageMargin: 28, mirrorActors: false },
     });
     return diagrams;
