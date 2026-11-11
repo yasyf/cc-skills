@@ -307,7 +307,8 @@ def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(ta
     long_option = posted(transcript, card=card | {"options": [said(26), "No"]})
     assert "each option is one line of at most 25 words" in long_option
     assert "is 26 words" in long_option
-    assert posted(transcript, card=card, text=said(26)) is None
+    assert posted(transcript, card=card, text=" ".join(["beside"] * 26)).startswith("refused: this card is 151 words")
+    assert posted(transcript, card=card, text=said(40)) is None
     too_long = posted(transcript, card=card | {"title": said(36)}, asked="explain the layout in full")
     assert too_long == (
         "refused: this card is 151 words, and a question with its summary and options is at most 150 words in all; its Show"
@@ -570,18 +571,12 @@ def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str,
 
 
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
-    asked = limits.question(KENTS_ASK)
-    card = {
-        "title": asked.title,
-        "body": "\n".join([*asked.summary, "*Show me*", *asked.show_me]),
-        "options": asked.options,
-        "recommended": asked.recommended,
-        "waits": "demo:j585-7",
-    }
-    assert posted(transcript, card=card, text="Kent's stray chats: pick a fix") is None
+    card = limits.question(KENTS_ASK).card("demo", "demo:j585-7")
+    assert posted(transcript, card=card) is None
+    assert posted(transcript, card=card, text="Kent's stray chats: pick a fix").startswith("refused: this card is 155 words")
     with pytest.raises(DriveError, match="the question, summary and options are 151 words; at most 150"):
         limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
-    longer = [*asked.options[:2], asked.options[2].replace("costs time.", "costs time and money.")]
+    longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
 

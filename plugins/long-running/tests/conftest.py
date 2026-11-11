@@ -83,6 +83,19 @@ def checked(monkeypatch: pytest.MonkeyPatch) -> Checked:
 
 
 @dataclass
+class Drawing:
+    refusal: str | None = None
+    cards: list[dict] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def drawing(monkeypatch: pytest.MonkeyPatch) -> Drawing:
+    draw = Drawing()
+    monkeypatch.setattr(slack, "draw_refusal", lambda card: draw.cards.append(card) or draw.refusal)
+    return draw
+
+
+@dataclass
 class Withdrawals:
     cards: list[str] = field(default_factory=list)
     asked: list[tuple[str, str]] = field(default_factory=list)

@@ -78,6 +78,11 @@ class Question:
     options: list[str]
     recommended: str
 
+    def card(self, drive: str, waits: str) -> dict:
+        """The question card a handler draws from this block."""
+        body = "\n".join([*self.summary, "*Show me*", *self.show_me])
+        return {"title": self.title, "body": body, "options": self.options, "recommended": self.recommended, "waits": waits, "drive": drive}
+
 
 def words(text: str) -> int:
     return len(WORD.findall(TOKEN.sub(" link ", LABELLED.sub(r" \1 ", text))))
@@ -98,7 +103,7 @@ def post_words(post: dict) -> int:
 def post_refusal(post: dict, edited: int = 0) -> str | None:
     """Why a post to his DM is over the length a routine line, summary or card gets, or None when it fits; an edit may reword the post it edits, edited words long, at its own length and a few words more."""
     if card := post.get("card"):
-        return card_refusal(card)
+        return card_refusal(card, post.get("text") or "")
     count = post_words(post)
     features = len(FEATURE.findall(post.get("text") or ""))
     limit, shape = (SUMMARY_WORDS, f"a summary of {features} features") if features >= 2 else (LINE_WORDS, "a line in his thread")
@@ -113,11 +118,12 @@ def question_words(title: str, summary: list[str], options: list[str]) -> int:
     return sum(map(words, [title, *summary, *options]))
 
 
-def card_refusal(card: dict) -> str | None:
-    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is never drawn."""
+def card_refusal(card: dict, beside: str) -> str | None:
+    """Why a question card is over his length; its Show me, everything under the body's `*Show me*` line, is drawn whole and never counted, and a post's text beside the card is drawn atop its body unless the body holds it already, as cc-slack draws it."""
     options = card.get("options") or []
     long = [f'"{option}" is {words(option)} words' for option in options if words(option) > OPTION_WORDS]
-    summary = SHOWN.split(card.get("body") or "", maxsplit=1)[0]
+    body = card.get("body") or ""
+    summary = SHOWN.split(body if beside.strip() in body else f"{beside}\n{body}", maxsplit=1)[0]
     count = question_words(card.get("title") or "", summary.splitlines(), options)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, what he gets and what it costs: {', '.join(long)}"] if long else []
     if count > QUESTION_WORDS:

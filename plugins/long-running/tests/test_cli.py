@@ -11,7 +11,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import Answers, Thread, Withdrawals
+from conftest import Answers, Drawing, Thread, Withdrawals
 from drive import card, cli, github, orca, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -420,6 +420,26 @@ def test_job_ask_refuses_a_question_over_150_words(
     block.write_text(f"ASK Which?\n{line}\n{line}\n{line}\n- Yes (recommended)\n- No\nFindings:\nmeasured\n")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "the question, summary and options are 153 words; at most 150 in all" in capsys.readouterr().err
+
+
+def test_job_ask_refuses_a_card_cc_slack_would_not_draw_in_its_own_words(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str], drawing: Drawing
+) -> None:
+    row = "no event and no versions      unknowable     the second option, so a next loss names its actor"
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("... 180 files, one guess each", row))
+    drawing.refusal = (
+        'card body points at an option by number or position with "second option": the card draws the recommended option'
+        " first and renumbers the rest, so name the option in its own words"
+    )
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert f"cc-slack would not draw it: {drawing.refusal}" in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert not (state_root / "demo" / "asks").exists()
+    [card] = drawing.cards
+    assert card["waits"] == "demo:j1-0"
+    assert card["recommended"] == card["options"][0]
+    assert row in card["body"].split("\n*Show me*\n")[1].splitlines()
 
 
 def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str, tmp_path: Path) -> None:
