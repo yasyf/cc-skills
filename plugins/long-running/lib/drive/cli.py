@@ -371,7 +371,9 @@ def job_set(args: argparse.Namespace) -> int:
             job["parts"] = list(dict.fromkeys([*job["parts"], *added]))
         if args.state == "done":
             state.drop_carries(data, args.id)
-        if args.agent:
+        if args.agent and args.agent.startswith(state.DISPATCH_PREFIX):
+            job.update(state.local_lane(args.agent), agent=None)
+        elif args.agent:
             job["where"] = "local"
             job["session"] = os.environ.get("CLAUDE_CODE_SESSION_ID")
         if args.repro:
@@ -549,8 +551,8 @@ def remote_job(data: dict, job_id: str) -> dict:
     if job.get("agent"):
         raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage")
     raise DriveError(
-        f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>,"
-        f" or start an Agent here whose brief ends Drive: <drive>, order <order>, job {job_id}"
+        f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>, as an Orca"
+        f" worker on this Mac with drive job launch {job_id} <brief> --local, or start an Agent here whose brief ends Drive: <drive>, order <order>, job {job_id}"
     )
 
 
@@ -620,14 +622,15 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching so the watch reads it as starting until the launch could have finished."""
     name = state.resolve(args.drive)
     with state.edit(name) as data:
         unstarted = find(data["jobs"], args.id, "job")
+        if dispatch := unstarted.get("dispatch"):
+            raise DriveError(f"{args.id} already started as dispatch {dispatch}")
         if not unstarted.get("agent"):
-            unstarted["where"] = "remote"
+            unstarted.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
         job = remote_job(data, args.id)
-    if dispatch := job.get("dispatch"):
-        raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     if not (args.brief or job.get("brief")):
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
     root = checkout()
@@ -639,13 +642,13 @@ def job_launch(args: argparse.Namespace) -> int:
         data["jobs"][args.id]["run"] = run
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     kept.parent.mkdir(exist_ok=True)
-    kept.write_text(orca.vm_brief(name, args.id, text))
-    receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run)
+    kept.write_text(orca.vm_brief(name, args.id, text, job["route"]))
+    receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run, job["route"])
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
         job.update(started, brief=str(kept), ask=None, report=None, updated=state.stamp())
-    return emit(args, f"{args.id} started on Sprite {started['workspace']} as dispatch {started['dispatch']}", started)
+    return emit(args, f"{args.id} started {orca.place(job)} as dispatch {started['dispatch']}", started)
 
 
 def bound(args: argparse.Namespace) -> int:
@@ -668,10 +671,10 @@ def job_resume(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     job = started_job(state.load(name), args.id)
     try:
-        end = orca.lane_end(job["dispatch"])
+        end = orca.lane_end(job)
     except orca.OrcaError as error:
         raise DriveError(
-            f"{args.id}'s lane cannot be checked, so nothing was sent: {error}; resume it again once Orca reaches its Sprite"
+            f"{args.id}'s lane cannot be checked, so nothing was sent: {error}; resume it again once Orca reaches its lane {orca.ON_MAC if state.on_mac(job) else 'on its Sprite'}"
         ) from None
     if end:
         return restart(args, name, job["dispatch"], end)
@@ -685,7 +688,7 @@ def job_resume(args: argparse.Namespace) -> int:
 
 
 def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEnd) -> int:
-    """Start the job's next worker with a handoff: in the terminal of a worker that finished while its Sprite is up, else on a fresh Sprite on the same Run."""
+    """Start the job's next worker with a handoff: in the terminal of a worker that finished while Orca holds it, on its Sprite or on this Mac, else on a fresh Sprite, or in a fresh worktree on this Mac, on the same Run."""
     root = None if end.worktree else checkout()
     with state.edit(name) as data:
         job = data["jobs"][args.id]
@@ -695,31 +698,34 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
     taking_over = orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), ended, job, args.text, end)
     kept.parent.mkdir(exist_ok=True)
-    kept.write_text(orca.vm_brief(name, args.id, taking_over))
+    kept.write_text(orca.vm_brief(name, args.id, taking_over, job["route"]))
     lane = orca.lane_name(name, attempt)
+    was = orca.place(job)
     if end.worktree:
         receipt = orca.start_after(name, lane, kept, job, end.worktree)
     else:
-        receipt = orca.launch(name, lane, kept, root, job["run"])
+        receipt = orca.launch(name, lane, kept, root, job["run"], job["route"])
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         data["jobs"][args.id].update(
             started, handoff=str(kept), ask=None, report=None, reads={}, state="running", updated=state.stamp()
         )
     carrying = "a handoff carrying its brief, its branch, its last line, its report, its PRs and the message"
+    local = state.on_mac(job)
     if end.worktree:
         line = (
-            f"{args.id}: its lane on Sprite {ended['workspace']} had finished ({end.why}), so the message was not sent to "
-            f"it; started the job's next worker in its terminal on the same Sprite as dispatch {started['dispatch']} with "
-            f"{carrying}"
+            f"{args.id}: its lane {was} had finished ({end.why}), so the message was not sent to it; started the job's "
+            f"next worker in its terminal {orca.ON_MAC if local else 'on the same Sprite'} as dispatch {started['dispatch']} "
+            f"with {carrying}"
         )
     else:
         line = (
-            f"{args.id}: its lane on Sprite {ended['workspace']} was dead ({end.why}), so the message was not sent to it; "
-            f"relaunched the job on Sprite {started['workspace']} as dispatch {started['dispatch']} with {carrying}; work "
-            f"not pushed from {ended['workspace']} is not carried over"
+            f"{args.id}: its lane {was} was dead ({end.why}), so the message was not sent to it; relaunched the job "
+            f"{'in a fresh worktree ' + orca.ON_MAC if local else orca.place({**job, **started})} as dispatch "
+            f"{started['dispatch']} with {carrying}; work not pushed from {'its worktree' if local else ended['workspace']} "
+            "is not carried over"
         )
-    how = "started on its Sprite" if end.worktree else "relaunched"
+    how = f"started {orca.ON_MAC if local else 'on its Sprite'}" if end.worktree else "relaunched"
     return emit(args, line, {"id": args.id, "how": how, "ended": ended, **started})
 
 
@@ -1416,10 +1422,15 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
     verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
     verb.set_defaults(run=job_brief)
-    verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
+    verb = job.add_parser("launch", parents=both, help="start a remote job's Orca lane on a Sprite, or on this Mac with --local")
     verb.add_argument("id", help="the job")
     verb.add_argument(
         "brief", nargs="?", help="the file holding the job's brief, or - to read it from stdin; default the one drive job brief wrote"
+    )
+    verb.add_argument(
+        "--local",
+        action="store_true",
+        help="start it as an Orca worker on this Mac, in a fresh worktree of this checkout's Orca repository, read like a Sprite's lane",
     )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
@@ -1428,9 +1439,9 @@ def parser() -> argparse.ArgumentParser:
         help="answer a remote lane's question, or send it the next event",
         description=(
             "Answer a remote lane's question, or send it the next event, once Orca shows its worker alive. When its "
-            "worker finished and its Sprite is still up, start the job's next worker in its terminal there; when its "
-            "worker is dead, relaunch the job on a fresh Sprite on the same Run, where work the dead lane had not pushed "
-            "is not carried over. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
+            "worker finished and Orca still holds its terminal, on its Sprite or on this Mac, start the job's next worker "
+            "in that terminal; when its worker is dead, relaunch the job on a fresh Sprite, or in a fresh worktree on this "
+            "Mac, on the same Run, where work the dead lane had not pushed is not carried over. Either new worker gets a handoff carrying the job's brief, its branch, its last line, "
             "its report, its PRs and this text. When Orca cannot reach the lane's Sprite, or refuses what would deliver "
             "this text, exit 2 with Orca's refusal."
         ),
@@ -1447,7 +1458,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("id")
     verb.set_defaults(run=job_replies)
-    verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite")
+    verb = job.add_parser("end", parents=both, help="end a done remote lane and free its Sprite, or its terminal and clean worktree on this Mac")
     verb.add_argument("id")
     verb.set_defaults(run=job_end)
 

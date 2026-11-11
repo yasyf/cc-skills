@@ -258,7 +258,7 @@ def live_lanes(data: dict) -> dict[str, dict]:
     return {
         job_id: job
         for job_id, job in data["jobs"].items()
-        if job.get("where") == "remote" and job.get("dispatch") and job["state"] in LIVE_JOB_STATES
+        if job.get("where") == "remote" and job.get("dispatch") and job.get("run") and job["state"] in LIVE_JOB_STATES
     }
 
 
@@ -533,10 +533,15 @@ def ended_gap(job_id: str, ended: dict, moment: datetime) -> str | None:
     return f"{job_id}'s lane ended {minutes(gone)} minutes ago ({cut(ended['why'], 60)}), was not resumed and its result is not recorded"
 
 
+def launching(job: dict, moment: datetime) -> bool:
+    """Whether the job's lane launch began within the time one takes, so a job with no dispatch yet is starting, not stuck."""
+    return bool(job.get("launching")) and moment - state.parse_time(job["launching"]) < RELAUNCH
+
+
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, lines = {}, {}, {}, []
+    gaps, deaths, heads, found, lines = {}, {}, {}, {}, []
     for order in state.open_orders(data).values():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -550,7 +555,7 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 continue
             if not job.get("dispatch"):
                 if running:
-                    gaps[job_id] = f"{job_id} never started on its Sprite"
+                    gaps[job_id] = None if launching(job, moment) else f"{job_id} never started {orca.ON_MAC if state.on_mac(job) else 'on its Sprite'}"
                 continue
             if job["state"] not in LIVE_JOB_STATES:
                 continue
@@ -568,12 +573,18 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines += read_failed(watcher, source, error, moment)
                 continue
             watcher.failures.pop(source, None)
+            if not job.get("run"):
+                found[job_id] = {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
             if why := orca.death(worker):
                 deaths[job_id] = (job["dispatch"], why)
             elif running:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
+    if found:
+        with state.edit(watcher.name) as data:
+            for job_id, lane in found.items():
+                data["jobs"][job_id].update(lane)
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
     return lines + failed + death_lines(watcher.name, deaths, moment)
@@ -621,9 +632,10 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
                 continue
             doing = "waited on" if job["state"] == "waiting" else "worked on"
             lines.append(
-                f'LANE {job_id} {job["order"]} died on Sprite {job["workspace"]}: {why}, while it {doing} '
+                f'LANE {job_id} {job["order"]} died {orca.place(job)}: {why}, while it {doing} '
                 f'"{cut(job["said"] or job["goal"], 60)}". A message sent to it reaches no one; drive job resume '
-                f'{job_id} "<its next step, or his answer>" relaunches it on a fresh Sprite with a handoff'
+                f'{job_id} "<its next step, or his answer>" relaunches it '
+                f'{"in a fresh worktree " + orca.ON_MAC if state.on_mac(job) else "on a fresh Sprite"} with a handoff'
             )
     return lines
 

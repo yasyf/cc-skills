@@ -18,6 +18,8 @@ EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fi
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 ROLES = ("communicator", "coordinator")
+LOCAL_ROUTE = "local"
+DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
@@ -190,6 +192,9 @@ def load(name: str) -> dict:
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])
+        job.setdefault("route", None)
+        if (job.get("agent") or "").startswith(DISPATCH_PREFIX):
+            job.update(local_lane(job["agent"]), agent=None)
         if "questions" not in job:
             asked, card = job.get("question"), job.get("card")
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
@@ -239,6 +244,15 @@ def take_result(data: dict, job_id: str, line: str) -> None:
         drop_carries(data, job_id)
 
 
+def local_lane(dispatch: str) -> dict:
+    """The fields of a job whose Orca worker runs on this Mac: a lane read through its Dispatch like a Sprite's, with no Sprite."""
+    return {"where": "remote", "route": LOCAL_ROUTE, "dispatch": dispatch, "workspace": None, "environment": None}
+
+
+def on_mac(job: dict) -> bool:
+    return job["route"] == LOCAL_ROUTE
+
+
 def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
     """Record once that the remote lane on this dispatch died or finished, so it takes no more messages; whether this call recorded it."""
     deaths = job.setdefault("deaths", [])
@@ -268,6 +282,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "carries": {},
         "questions": [],
         "where": "local",
+        "route": None,
         "repo": None,
         "branch": None,
         "worktree": None,
