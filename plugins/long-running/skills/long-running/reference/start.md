@@ -70,7 +70,7 @@ brought back 25,000 characters of briefs and logs it had written, the first 20,0
    line in `drive status` says its build is older than the installed one, moves into a fresh Orca
    terminal on the installed build by [reference/migration.md](migration.md#into-an-orca-terminal),
    only on his word.
-   `drive start <name> --role communicator|coordinator [--channel <his DM id>] [--watch <channel id>]...`
+   `drive start <name> --role <communicator or coordinator> [--channel <his DM id>] [--watch <channel id>]...`
    creates the drive or binds that role to this session and its Orca terminal, and prints the
    role's block, then the role's line above. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
    kept in the drive across restarts and held by the coordinator; a later `--watch` adds one.

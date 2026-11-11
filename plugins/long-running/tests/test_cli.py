@@ -1,11 +1,14 @@
+import argparse
 import hashlib
 import io
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from datetime import timedelta
 from pathlib import Path
 
@@ -15,6 +18,9 @@ from conftest import Answers, Drawing, Thread, Withdrawals
 from drive import card, cli, github, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
+UNLISTED = {"-h", "--help", "--drive", "--json"}
+FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
+PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 CARD_BODY = """## Releasable alone
 A release at its merge commit lands it on every target, in any order, and nothing runs after it.
@@ -1422,6 +1428,77 @@ def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run)
     assert len(skill) < 8_000
     code, out = run("manual", "jobs")
     assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
+
+
+def leaf_parsers(parser: argparse.ArgumentParser, words: tuple[str, ...] = ()) -> Iterator[tuple[str, argparse.ArgumentParser]]:
+    actions = [action for action in parser._actions if isinstance(action, argparse._SubParsersAction)]
+    if not actions:
+        yield " ".join(words), parser
+        return
+    for name, child in actions[0].choices.items():
+        yield from leaf_parsers(child, (*words, name))
+
+
+def flags(parser: argparse.ArgumentParser) -> set[str]:
+    return {flag for action in parser._actions for flag in action.option_strings} - UNLISTED
+
+
+def test_the_verbs_page_names_every_verb_and_flag_exactly_as_the_parser_takes_them(run: Run) -> None:
+    leaves, rows = dict(leaf_parsers(cli.parser())), {}
+    for line in (cli.PAGES / "verbs.md").read_text().splitlines():
+        if line.startswith("| `drive "):
+            words = shlex.split(line.split("|")[1].strip().strip("`"))[1:]
+            verb = next(" ".join(words[:n]) for n in (2, 1) if " ".join(words[:n]) in leaves)
+            rows[verb] = (len(words) - len(verb.split()), line)
+    assert set(rows) == set(leaves)
+    for verb, (positionals, line) in rows.items():
+        parser = leaves[verb]
+        assert positionals == sum(not action.option_strings for action in parser._actions), verb
+        assert set(FLAG.findall(line)) == flags(parser), verb
+        assert [choice for action in parser._actions for choice in map(str, action.choices or ()) if choice not in line] == []
+    assert run("manual", "verbs", "job set") == (0, rows["job set"][1])
+
+
+def refusal(command: str, leaves: dict[str, argparse.ArgumentParser]) -> str | None:
+    tokens = command.split()
+    verb = next((" ".join(tokens[1:n]) for n in (3, 2) if " ".join(tokens[1:n]) in leaves), None)
+    if verb is None:
+        named = tokens[1] in {name.split()[0] for name in leaves} and tokens[2:3] in ([], ["X"])
+        return None if named else f"`{command}` names no verb drive takes"
+    parser, rest = leaves[verb], tokens[len(verb.split()) + 1 :]
+    if unknown := set(FLAG.findall(command)) - flags(parser) - UNLISTED:
+        return f"`{command}` names {sorted(unknown)}, which drive {verb} does not take"
+    takes = {flag: action for action in parser._actions for flag in action.option_strings}
+    first = next((action for action in parser._actions if not action.option_strings), None)
+    for before, word in zip([None, *rest], rest, strict=False):
+        action = takes.get(before) if before else first
+        if action and action.choices and word != "X" and not word.startswith("-") and word not in map(str, action.choices):
+            return f"`{command}` gives {action.dest} {word!r}, not one of {list(action.choices)}"
+    return None
+
+
+def drive_commands(text: str, prose: bool) -> Iterator[str]:
+    for span in re.findall(r"\bdrive [a-z].*" if prose else r"`(drive [a-z][^`]*)`", text):
+        while inner := re.search(r"\$\((drive [^()]*)\)", span):
+            yield from drive_commands(inner.group(1), prose)
+            span = f"{span[: inner.start()]}X{span[inner.end() :]}"
+        span = PLACEHOLDER.sub(" X ", span)
+        for command in re.split(r"(?=\bdrive [a-z])", span) if prose else [span]:
+            if command.startswith("drive "):
+                yield re.split(r"[,;)]|\. |: ", command)[0] if prose else command
+
+
+def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
+    leaves, skill = dict(leaf_parsers(cli.parser())), cli.PAGES.parent
+    verbs = {name.split()[0] for name in leaves}
+    pages = [skill / "SKILL.md", *cli.PAGES.glob("*.md"), *(skill.parents[1] / "agents").glob("*.md")]
+    commands = [command for page in pages for command in drive_commands(page.read_text(), prose=False)]
+    rules = " ".join(rule for rules in render.RULES.values() for rule in rules)
+    commands += [command for command in drive_commands(rules, prose=True) if command.split()[1] in verbs]
+    assert len(commands) > 150
+    assert [why for command in commands if (why := refusal(command, leaves))] == []
+    for guess in ("drive job show j1", "drive order set o1 --part x", "drive job set j1 --state live"):
+        assert refusal(guess, leaves)
 
 
 def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:

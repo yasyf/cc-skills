@@ -32,8 +32,7 @@ the user early and often".
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
   agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
-  post reaches only the session that posted it, so his answer to a card the coordinator posted
-  waits on its bookkeeping.
+  post reaches only the session that posted it.
 
 The drive's state lives in one file, written only by the `drive` CLI and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
@@ -44,8 +43,8 @@ drive through cci, addressed to `root`, the coordinator.
 ## Pages
 
 The rest of this skill is pages: `drive manual <page>` prints one, `drive manual <page> <row>` its
-rows naming `<row>`. Both sessions read them so, never by Read, Write or Edit: a compaction
-reads back files a session last read or wrote, not command output. His ruling, Nov 9 9:28 PM: "make sure we
+rows naming `<row>`, and `drive manual verbs "<verb>"` a verb's flags, never `drive … --help`.
+Neither session reads a page by Read, Write or Edit: a compaction reads back files, not output. His ruling, Nov 9 9:28 PM: "make sure we
 asap install something that makes compactions result in very minimal context, and even the state on
 disk needs to be maximally compact and very token efficient".
 
@@ -63,6 +62,7 @@ disk needs to be maximally compact and very token efficient".
 | `landing` | Landing a change, per repository. |
 | `incidents` | Handling an incident. |
 | `migration` | Migrating an old drive, or a session into an Orca terminal. |
+| `verbs` | Every `drive` verb and its flags, one row each. |
 
 ## Tooling
 
@@ -88,7 +88,7 @@ the third fix for one symptom is a class fix whose PR deletes the earlier patche
   he has answered each, and never card a PR that makes a design decision he never answered.
 - The coordinator never does an order's work itself, a past-due order's included: every order
   goes to a background job. Its own shell calls are reads of `drive`, `cci` and one `gh` call,
-  beside the transcript reads and the remote-lane `drive job` verbs this skill names. A loop, any
+  beside transcript reads and the `drive` verbs page `verbs` lists. A loop, any
   other `orca` call, a build, a close, a thread read, a draft, and anything else runs in a
   background job, so its turn never blocks. His read-only questions are the communicator's, never
   the coordinator's.
