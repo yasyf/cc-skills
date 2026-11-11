@@ -52,10 +52,12 @@ itself.
   - `## Releasable alone`: what a release cut at this PR's merge commit does with nothing else, and,
     for each order its targets could go out in, what a person sees, by the rule above. `drive pr set
     --tap` and his card refuse a PR without it. They also refuse one whose Releasable alone or risk
-    section, or whose install, risk or prove line, leaves a step for after the release: "then run", a
-    fill, a backfill, a pass box, or "after the deploy" followed by something to run. Words that rule a
-    step out pass ("no backfill"), and so does a check of what is live: "PROVE: after release, open the
-    run page" names nothing to run.
+    section, or whose install, risk or prove line, leaves a step for after the release. That step is a
+    verb such as run, fill or backfill that the words schedule after it, as "then run", "after the
+    deploy, run the fill" and "backfill once it ships" do. Naming what the PR builds is no step: a
+    backfills page, a pass box or a `backfill-runner` account passes. Words that rule a step out pass ("nothing has to run once
+    it ships"), and so does a check of what is live: "PROVE: after release, open the run page" names
+    nothing to run.
   - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
     or Sand call it changes, with what happened before and after, in a fenced block tagged with its
     language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a
