@@ -31,6 +31,7 @@ FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/visuals.js": ("visuals.js", "text/javascript; charset=utf-8"),
 }
 LOOPBACK = "127.0.0.1"
 LOCAL_CALLERS = {LOOPBACK, "::1", "::ffff:127.0.0.1"}
@@ -235,12 +236,14 @@ class Board:
         reports = {path.stem for path in (state.drive_dir(self.name) / "reports").glob("*.md")}
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
-        model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo, "arch_lib": picture.ARCH_LIB}
-        body = json.dumps(model).encode()
+        model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         heads = {entry["key"]: entry["head"] for entry in model["review"]}
         cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
-        pictures = {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
+        drawn = {match[1] for card in cards for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
+        pictures = drawn | {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
+        model["visuals"] = {path: json.loads(shown.read_text()) for path in drawn if (shown := Path(path).with_name("source.json")).is_file()}
+        body = json.dumps(model).encode()
         with self.changed:
             self.body = body
             self.answers = answers

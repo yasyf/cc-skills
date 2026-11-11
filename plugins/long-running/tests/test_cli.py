@@ -598,26 +598,25 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
 ) -> None:
     drawn = []
 
-    def code_png(language: str, source: str, out: Path) -> None:
-        drawn.append(language)
+    def visual_png(kind: str, source: str, out: Path) -> None:
+        drawn.append(kind)
         out.write_bytes(b"\x89PNG\r\n")
 
-    monkeypatch.setattr(picture, "code_png", code_png)
+    monkeypatch.setattr(picture, "visual_png", visual_png)
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("```\nGET journal", "```sql\nGET journal", 1))
+    block.write_text(SHORT_ASK.replace("```\nGET", "```http\nGET"))
     code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
     assert code == 0
     card = json.loads(printed)
     shown = card["body"].split("*Show me*\n", 1)[1].splitlines()
     pictures = [line.removeprefix("![").removesuffix(")").split("](") for line in shown if line.startswith("![")]
-    assert shown[0] == "The requests a finished run's page makes today, then with one snapshot file:"
-    assert [caption for caption, _ in pictures] == ["Show me", "Show me (2)"]
+    assert [caption for caption, _ in pictures] == ["The requests a finished run's page makes today, then with one snapshot file", "Show me"]
     assert all(Path(path).is_file() for _, path in pictures)
     assert "```" not in card["body"]
-    assert drawn == ["sql", ""]
+    assert drawn == ["code:http", "code:http"]
     assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
     assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
-    assert drawn == ["sql", ""]
+    assert drawn == ["code:http", "code:http"]
 
 
 def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(

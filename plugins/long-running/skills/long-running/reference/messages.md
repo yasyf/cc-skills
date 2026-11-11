@@ -18,7 +18,7 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
-| A question card's Show me, the worked example between its summary and options | none: drawn whole, its code as highlighted pictures, outside the 150 |
+| A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
@@ -164,24 +164,39 @@ curently violating by not having a show-me bc then shw show-0me cvould be code s
 row and cell holds real contents, measured or worked out from the code and marked as such, never
 the names of what will be measured later, and `drive job ask` refuses a table with one value in
 every cell. His words, Nov 10 7:35 PM, under a card whose table read "time, bytes, disk" in every
-row: "this table just says `time,bytes,disk` for everything". Code goes
-in ``` fences that name their language, such as ```sql, ```go or ```text for a command's output, and
-each caption outside the fences is one line of at most 25 words. A comparison goes in as a markdown
-table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`. `drive job card`
-draws each fenced block but a mermaid one as a picture of the code, the way a PR card's Show me is
-drawn, and puts it on a line of its own where the fence was. The picture is the code alone at a
-12.5 px font, cut to its longest line and its last row, so a one-line call is one short strip, and
-it is highlighted by the same renderer the dashboard uses: Sand by its own grammar, any other fence
-in the language it names, and a fence naming none or `text` in the language highlight.js guesses.
-One that does not draw at all stays on the card as text, so a picture never refuses a card. His
-words, Nov 10 10:10 PM, under a card whose code was a 2460-pixel-wide unhighlighted picture: "look
-at these images rthey are iunsnae, they are so big and not syhntax highlighted at all". cc-slack draws
-each picture line as an image where it sits, uploaded to the drive's private bucket, and the table as
-a table; a picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there.
-His words, Nov 10 8:38 PM, under cards whose code had gone out as raw monospace text: "code used to
-be an image that was syntax highlightd why did you get rid of that?". The Show me counts toward no
-limit. Two to four
-options, each one line of at most 25 words saying what he gets and what it costs, the title,
+row: "this table just says `time,bytes,disk` for everything".
+
+Each visual is one fence whose language names its kind, drawn from that one source on both
+surfaces: as a picture on his Slack card and live on the dashboard, by the same module,
+`lib/drive/site/visuals.js`. Pick the kind that shows what the words cannot:
+
+| The question turns on | Kind | Fence holds |
+|---|---|---|
+| an API, call, query or schema shape | code | the real code, in a fence naming its language: ```sand, ```sql, ```go, ```console for a command and its output |
+| components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
+| steps over time, a state machine, a small graph | mermaid | Mermaid source |
+| numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline, drawn in the dataviz palette |
+| a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
+| a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
+
+A caption line of at most 25 words sits just above each fence, and `drive job card` makes it the
+picture's title: it replaces the fence with `![caption](/abs.png)`, which cc-slack posts as a Block
+Kit image block, so the words stay text and the picture holds only the visual. Code is drawn at a
+12.5 px font and cut to its longest line, so a one-line call is one short strip, highlighted in the
+language its fence names, Sand by its own grammar. A comparison of words goes in as a markdown table,
+which cc-slack draws as a native table. Words never go in a fence: a fence naming no language or
+`text` is a picture of words, and a visual that does not draw is left off, so either leaves the card
+with its caption and nothing in its place; a card with nothing to show has no Show me. His words,
+Nov 10 10:30 PM, under cards whose pictures were text: "these images are not useful at all, at ALL
+… if theres nothing to show its bette rnot to show anyhting but her we could ahve done a mermaid
+chart"; 10:10 PM: "look at these images rthey are iunsnae, they are so big and not syhntax
+highlighted at all"; 9:58 PM: "buold out a libary of difernetg visualizaions (charts, code sample,
+archietucre diagram, rendered from the same thing that shows it interactiverly in browser, mermaid
+dfiagrams, compatre and contracts, and custom image) and then use the approporiuate one each time".
+A picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there. The
+Show me counts toward no limit.
+
+Two to four options, each one line of at most 25 words saying what he gets and what it costs, the title,
 summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
 posts the one section its question rests on, in plain words, and that is the only way they reach
 him.

@@ -1,6 +1,6 @@
 import json
 
-from drive import picture
+from drive import limits, picture
 
 DOC = {
     "arch": 1,
@@ -28,23 +28,26 @@ def test_sources_lists_diagrams_and_images_in_the_order_they_appear() -> None:
         + json.dumps(DOC)
         + "\n```\n\n```mermaid\nflowchart LR\n```\n\n```dot\ndigraph { a -> b }\n```\n"
     )
-    assert [kind for kind, _ in picture.sources(show_me)] == ["image", "arch", "dot"]
+    assert [kind for kind, _ in picture.sources(show_me)] == ["image", "arch", "mermaid", "dot"]
 
 
-def test_an_arch_picture_is_drawn_once_and_again_when_the_arch_map_version_changes(tmp_path, monkeypatch) -> None:
+def test_a_picture_is_drawn_once_and_again_when_the_renderer_changes(tmp_path, monkeypatch) -> None:
     drawn = []
 
-    def draw(source: str, out) -> None:
-        drawn.append(source)
+    def draw(kind: str, source: str, out) -> None:
+        drawn.append(kind)
         out.write_bytes(b"\x89PNG\r\n")
 
-    monkeypatch.setattr(picture, "arch_png", draw)
+    monkeypatch.setattr(picture, "visual_png", draw)
     show_me = "```arch\n" + json.dumps(DOC) + "\n```\n"
     first = picture.pictures(tmp_path / "pictures", "app PR 7", show_me)
     assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) == first
-    monkeypatch.setattr(picture, "ARCH_LIB", "https://example.com/arch-map@2.js")
+    renderer = tmp_path / "visuals.js"
+    renderer.write_text("export async function draw() {}")
+    monkeypatch.setattr(picture, "VISUALS", renderer)
     assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) != first
-    assert len(drawn) == 2
+    assert drawn == ["arch", "arch"]
+    assert json.loads((tmp_path / "pictures").glob("*/source.json").__next__().read_text())["kind"] == "arch"
 
 
 def test_a_local_image_is_used_where_it_is_and_a_missing_one_is_skipped(tmp_path) -> None:
@@ -62,47 +65,41 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
 
 
-def test_a_question_cards_show_me_draws_each_fence_but_mermaid_in_its_language_and_keeps_a_fence_that_does_not_draw(tmp_path, monkeypatch) -> None:
+def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_and_leaves_out_words_and_what_does_not_draw(tmp_path, monkeypatch) -> None:
     tried = []
 
-    def code_png(language: str, source: str, out) -> None:
-        tried.append(language)
+    def draw(kind: str, source: str, out) -> None:
+        tried.append(kind)
         if source.startswith("broken"):
-            raise picture.PictureError("the code did not finish drawing")
+            raise picture.PictureError("the code:go did not finish drawing")
         out.write_bytes(b"\x89PNG\r\n")
 
-    monkeypatch.setattr(picture, "code_png", code_png)
+    monkeypatch.setattr(picture, "visual_png", draw)
     show_me = [
-        "Before:",
-        "```",
-        "GET journal/0001.ltx",
-        "```",
+        "The call today:",
         "```sand",
         "fn note() -> int {",
         "```",
         "```proto",
         "message Run {}",
         "```",
+        "```",
+        "GET journal/0001.ltx",
+        "```",
         "```go",
         "broken",
         "```",
+        "The flow:",
         "```mermaid",
         "flowchart LR",
         "```",
         "After.",
     ]
     shown = picture.drawn(tmp_path / "pictures", show_me)
-    assert [line.split("](")[0] for line in shown] == [
-        "Before:",
-        "![Show me",
-        "![Show me (2)",
-        "![Show me (3)",
-        "```go",
-        "broken",
-        "```",
-        "```mermaid",
-        "flowchart LR",
-        "```",
-        "After.",
-    ]
-    assert tried == ["", "sand", "proto", "go"]
+    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "", "", "![The flow", "After."]
+    assert tried == ["code:sand", "code:proto", "code:go", "mermaid"]
+
+
+def test_a_card_whose_show_me_leaves_nothing_to_show_has_no_show_me() -> None:
+    assert limits.card_body(["One snapshot file per run."], ["", ""]) == "One snapshot file per run."
+    assert limits.card_body(["One snapshot file per run."], ["![Show me](/p.png)"]) == "One snapshot file per run.\n*Show me*\n![Show me](/p.png)"
