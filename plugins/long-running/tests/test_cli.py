@@ -120,6 +120,30 @@ def test_each_role_binds_its_own_session_and_a_restart_rebinds_one(
     assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "from the communicator") == (0, "o2")
 
 
+def test_each_order_has_one_owner_and_the_other_session_adds_no_job_to_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
+    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: another", "--owner", "coordinator"]) == 2
+    assert "a \"Drive tooling:\" order is the communicator's" in capsys.readouterr().err
+    assert [order["owner"] for order in state.load("demo")["orders"].values()] == ["coordinator", "communicator"]
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
+    assert "refused, no job added: o2 is the communicator's order, session not started: only the communicator adds its jobs" in capsys.readouterr().err
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "fix it")[1] == "j1"
+    with state.edit("demo") as data:
+        data["orders"]["o3"] = data["orders"]["o1"] | {"text": "an order from before owners", "owner": None, "jobs": []}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
+    run("start", "demo", "--role", "communicator")
+    assert cli.main(["job", "add", "reader", "--order", "o1", "--goal", "read it"]) == 2
+    assert "o1 is the coordinator's order, session session-under-test" in capsys.readouterr().err
+    assert run("job", "add", "reader", "--order", "o3", "--goal", "read it")[0] == 0
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[0] == 0
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    assert cli.main(["job", "add", "builder", "--order", "o3", "--goal", "build it"]) == 2
+    assert "o3 is the communicator's order, session communicator-session" in capsys.readouterr().err
+
+
 def test_a_drive_saved_with_one_driver_reads_as_its_coordinator(run: Run, demo: str) -> None:
     with state.locked("demo"):
         saved = json.loads(state.state_path("demo").read_text())
@@ -1149,7 +1173,7 @@ def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], jo
 
 
 def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["answer", True]
@@ -1173,7 +1197,7 @@ def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_
 
 
 def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until_a_design_job_starts(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -1191,7 +1215,7 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
@@ -2003,7 +2027,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line, "--record", "660611") == (
         0,
@@ -2049,7 +2073,7 @@ def test_a_handler_closes_only_an_order_its_report_record_closes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     attrs = {"10": {"orders": "o1", "thread": "1794200000.000100"}, "11": {"orders": "o1", "close": "o2"}, "12": {"close": "o2 o1"}}
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": attrs[argv[2]]}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": attrs[argv[2]]}}))
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the handler")
     run("start", "demo", "--role", "communicator")

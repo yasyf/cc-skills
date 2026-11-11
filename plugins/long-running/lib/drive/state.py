@@ -20,6 +20,7 @@ EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fi
 TAP_LABELS = ("Approve", "Hold")
 TOOLING = "Drive tooling:"
 ROLES = ("communicator", "coordinator")
+LANE_ROLES = {"communicator": "communicator", "root": "coordinator"}
 LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
@@ -202,6 +203,7 @@ def load(name: str) -> dict:
         order.setdefault("kind", None)
         order.setdefault("complex", False)
         order.setdefault("thread", None)
+        order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
@@ -395,6 +397,15 @@ def next_id(records: dict, prefix: str) -> str:
 
 def session_role(data: dict, session: str | None) -> str | None:
     return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+
+
+def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
+    """Why a session's role may not act on an order the drive's other session holds, naming the holder and its session; an order from before owners is held by the first role to add a job to it."""
+    holder = data["orders"][order_id]["owner"]
+    if role is None or holder in (None, role):
+        return None
+    session = (data["roles"].get(holder) or {}).get("session") or "not started"
+    return f"{order_id} is the {holder}'s order, session {session}: only the {holder} adds its jobs, starts its agents and posts its reports; send the {holder} a record instead"
 
 
 def last_started(data: dict) -> str:
