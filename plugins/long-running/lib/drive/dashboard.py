@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import artifacts, github, install, picture, review, slack, state, view
+from drive import artifacts, card, github, install, picture, review, slack, state, view
 from drive.card import body_of, sections
 from drive.state import DriveError
 
@@ -42,7 +42,6 @@ START_SECONDS = 10
 ANSWER_SECONDS = 60
 CERT_SECONDS = 120
 CERT_REFRESH_SECONDS = 24 * 60 * 60
-PR_FIELDS = "title,body,url,state,isDraft,additions,deletions,changedFiles,headRefName,baseRefName,reviewDecision"
 THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
 THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
@@ -137,10 +136,10 @@ def relay(text: str, under: str) -> dict:
     return cc_slack("dm-relay", "--text", text, *(["--under", under] if under else []))
 
 
-def pr_read(key: str) -> dict:
-    """The PR as `gh pr view` reads it, with its Show me section cut by the parser its Slack card uses."""
-    repo, number = key.split("#")
-    pr = json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
+def pr_read(key: str, entry: dict) -> dict | None:
+    """The PR as its Slack card reads it, with its Show me section cut by the parser that card uses; None for a PR GitHub refuses that was never read."""
+    if not (pr := card.read(key, entry)):
+        return None
     return pr | {"show_me": sections(body_of(pr)).get("show me", "")}
 
 
@@ -381,11 +380,10 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(403, {"error": NOT_OWNER})
             elif key not in board.heads:
                 self.answered(404, {"error": f"{key} is not an open PR of this drive"})
+            elif read := pr_read(key, state.load(board.name)["prs"][key]):
+                self.answered(200, read)
             else:
-                try:
-                    self.answered(200, pr_read(key))
-                except github.GithubError as error:
-                    self.answered(502, {"error": str(error)})
+                self.answered(502, {"error": f"{key}: GitHub refused the read and it was never read before"})
 
         def review(self, key: str) -> None:
             if key not in board.heads:

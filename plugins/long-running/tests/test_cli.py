@@ -2148,7 +2148,7 @@ def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
     run("pr", "add", other, "--job", "j1")
     branches = {"42": ("main", "land-it"), "43": ("land-it", "land-more")}
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         if cmd[1] == "api":
             return "[]"
         base, head = branches[cmd[3]]

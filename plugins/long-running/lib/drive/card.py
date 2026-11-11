@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sys
 import unicodedata
@@ -8,7 +9,9 @@ from drive import github, limits, picture, public_check, state
 from drive.github import GithubError, run
 from drive.render import NOT_READY_CHARS, cut, not_ready, when
 
-FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
+FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
+READ_AGE = "60s"
+KEPT_READS = "pr-reads"
 TAP_LABELS = ("Approve", "Hold")
 RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
@@ -224,7 +227,8 @@ def description(body: str) -> str:
 
 
 def checks(pr: dict, entry: dict) -> str:
-    return github.checks(pr["statusCheckRollup"], github.failed_before(entry, pr["headRefOid"]))
+    """The PR's checks as the drive's watch last read them, since ccx never caches a check read; pending for a head the watch has not read yet."""
+    return entry["checks"] if entry["head"] == pr["headRefOid"] else "pending"
 
 
 def tap_label(entry: dict) -> str | None:
@@ -407,16 +411,24 @@ def skip(key: str, reason: str) -> dict:
     return {"repo": repo, "number": int(number), "reason": reason}
 
 
-def read(key: str) -> dict | None:
-    """The PR's card fields, its comments read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
+def read(key: str, entry: dict | None = None) -> dict | None:
+    """The PR's card fields through ccx's GitHub cache, which answers the same read made within READ_AGE, each read kept on disk, so a read GitHub refuses, as under its rate-limit floor, draws from the copy kept at the last read with the state and head the drive's entry holds; None only for a PR never read. Its checks come from the drive's entry, and its comments are read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
     repo, number = key.split("#")
+    kept = state.root() / KEPT_READS / repo / f"{number}.json"
     try:
-        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS]))
-        pr["comments"] = json.loads(run(["gh", "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"]))
-        return pr
+        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS], max_age=READ_AGE))
+        pr["comments"] = json.loads(run(["gh", "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"], max_age=READ_AGE))
     except (GithubError, json.JSONDecodeError) as error:
         print(f"drive card: {key}: {error}", file=sys.stderr)
-        return None
+        if not kept.is_file():
+            return None
+        pr = json.loads(kept.read_text())
+        return pr | {"state": entry["state"].upper(), "headRefOid": entry["head"] or pr["headRefOid"]} if entry else pr
+    kept.parent.mkdir(parents=True, exist_ok=True)
+    written = kept.with_name(f"{kept.name}.{os.getpid()}")
+    written.write_text(json.dumps(pr))
+    os.replace(written, kept)
+    return pr
 
 
 def exposure(key: str) -> str:
@@ -581,10 +593,10 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
     return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
-def read_all(keys: list[str]) -> dict[str, dict]:
+def read_all(known: dict[str, tuple[str, dict]], keys: list[str]) -> dict[str, dict]:
     reads = {}
     for key in keys:
-        if not (pr := read(key)):
+        if not (pr := read(key, known[key][1])):
             raise state.DriveError(f"{key}: could not read it from GitHub to check its tap card")
         reads[key] = pr
     return reads
@@ -603,7 +615,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if key not in known:
             print(f"drive card: {key} is in no drive", file=sys.stderr)
     keys = [key for key in asked_keys if key in known]
-    reads = {key: pr for key in keys if (pr := read(key))}
+    reads = {key: pr for key in keys if (pr := read(key, known[key][1]))}
     skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
     stored = list({tuple(stack): stack for key in reads if (stack := known[key][1].get("stack"))}.values())
     grown = [chain for chain in chains(list(reads), reads) if grows(chain, stored)]
@@ -612,7 +624,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     fresh = chains([key for key in reads if key not in covered], reads)
     found = []
     for group in kept + grown + fresh:
-        reads |= {key: pr for key in group if key not in reads and (pr := read(key))}
+        reads |= {key: pr for key in group if key not in reads and key in known and (pr := read(key, known[key][1]))}
         members = [key for key in group if key in reads and key in known]
         if not members:
             continue

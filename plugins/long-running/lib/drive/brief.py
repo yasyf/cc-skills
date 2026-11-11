@@ -268,7 +268,7 @@ def untappable(first: str, visual: bool) -> str:
     """Why the tap cards of the drive PRs a READY line names, those waiting on his tap, would be refused, each stack they form checked on its own as drive card groups them, a change he sees needing a before and an after screenshot on each card, or "" when each draws."""
     known = card.drive_prs()
     keys = [key for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(first)) if key in known and known[key][1]["wants_tap"]]
-    reads = card.read_all(keys)
+    reads = card.read_all(known, keys)
     return "; ".join(reason for chain in card.chains(keys, reads) if (reason := card.tap_refusal(known, chain, reads, visual)))
 
 
