@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -163,14 +164,14 @@ KENTS_ASK = f"""ASK Kent's stray chats likely come from the old build writing in
 Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Kent's files are read.
 Show me:
 <https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
-```
+```go
 func Create(ctx context.Context, s Session, writer int64) (*DurableAgent, error) {{
 ```
 Both builds use the same folder, and the old one never sees the new app's server, so it starts its own there.
-```
-old:  ~/.sand/sandsql-pair/primary/data/db/<chat>.db   finds a running server through server.json
-new:  ~/.sand/sandsql-pair/primary/data/db/<chat>.db   records its server in primary.json, never server.json
-```
+| Build | Chat file | Finds its server through |
+| --- | --- | --- |
+| old | ~/.sand/sandsql-pair/primary/data/db/<chat>.db | server.json |
+| new | ~/.sand/sandsql-pair/primary/data/db/<chat>.db | primary.json, never server.json |
 - New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them. (recommended)
 - New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
 - Kent first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
@@ -184,17 +185,15 @@ WATCHDOG_SUMMARY = (
     "Recommended: one always-on listener that takes GitHub pushes and runs the stuck-work watchdog, and lands nothing."
 )
 WATCHDOG_SHOW_ME = """What each reading builds, beside what runs today.
-```
-                         today          listener, never acts      service that lands and installs
-hears a push             60 s read      at once, from GitHub      at once, from GitHub
-lands a PR               a session,     a session,                the service, only a PR
-                         after your tap after your tap            you tapped Approve
-```
+| | Today | Listener, never acts | Service that lands and installs |
+| --- | --- | --- | --- |
+| Hears a push | 60 s read | at once, from GitHub | at once, from GitHub |
+| Lands a PR | a session, after your tap | a session, after your tap | the service, only a PR you tapped Approve |
+
 The listener: one process per Mac, started at login, its state in the drive's file.
-```
-# drive listen
-on push, check, review or merge from GitHub -> append one line to events.jsonl
-never: gh pr merge, an install, a push, a new job
+```mermaid
+flowchart LR
+  github[GitHub push, check, review or merge] --> listen[drive listen] --> events[(one line per event)]
 ```"""
 WATCHDOG_OPTIONS = [
     "An always-on listener that feeds pushes and runs the watchdog but never lands or installs: one new process; landing still needs a session.",
@@ -217,15 +216,16 @@ The 30 frozen copies, counted by the move's metric. Names and sizes need an in-c
 | demo-north | 1 | Oct 13 | none | unread |
 
 What one removal deletes, in order:
-```
-source fleet: database file, redo and side files, replica metadata      local disk, gone
-source fleet: catalog record -> Retired; registry row marked removed
-team bucket: wal/<team>/<db>/<provision>/                               every object, same call, no waiting period
-kept: the team's blobs, the system fleet's copy and its own bucket folder
-skipped: a bucket that denies deletes keeps its folder
-```
+
+| Where | What | When |
+| --- | --- | --- |
+| source fleet disk | database file, redo and side files, replica metadata | gone at once |
+| source fleet catalog | record set to Retired, registry row marked removed | same call |
+| team bucket | every object under wal/<team>/<db>/<provision>/ | same call, no waiting period |
+| kept | the team's blobs, the system fleet's copy and its own bucket folder | never deleted |
+
 The recommended check, per copy, before that removal:
-```
+```python
 position_frozen = source.freeze(db).durable_seq          already frozen, so this only reads
 position_live   = system.ship_full_snapshot(db)          a fresh full copy in the system fleet's bucket folder
 if position_live < position_frozen: fail the step, naming team and db; delete nothing
@@ -636,6 +636,23 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
         " of the ASK block `drive job ask` kept and counted: post the same card with no text."
     )
     assert posted(transcript, card=card, text=asked.summary[0]) is None
+
+
+@pytest.mark.parametrize(
+    ("shown", "refusal"),
+    [
+        ("```\nGET journal/0001.ltx\n```", 'the Show me fence holding "GET journal/0001.ltx" names no language'),
+        ("```text\nSand 0.142 is ready\n```", 'the Show me fence holding "Sand 0.142 is ready" names no language'),
+        ('```compare\n{"options": [{"name": "Listener"}]}\n```', "the Show me ```compare fence compares fewer than two named options"),
+        ('```chart\n{"mark": "bar",}\n```', "the Show me ```chart fence is not the JSON it draws from"),
+        ("", "the Show me holds no visual, only words"),
+    ],
+)
+def test_a_show_me_of_words_or_of_a_visual_that_cannot_draw_is_refused_but_a_block_kept_earlier_still_reads(shown: str, refusal: str) -> None:
+    block = WATCHDOG_ASK.replace(WATCHDOG_SHOW_ME, f"What each reading builds, beside what runs today.\n{shown}")
+    with pytest.raises(DriveError, match=re.escape(refusal)):
+        limits.question(block)
+    assert limits.question(block, kept=True).show_me[0] == "What each reading builds, beside what runs today."
 
 
 def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:

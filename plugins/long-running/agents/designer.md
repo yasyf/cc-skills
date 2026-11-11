@@ -49,10 +49,10 @@ ASK <the question, one line>
 <one to three lines: the design in a line and what is being decided; the recommendation; what happens meanwhile>
 Show me:
 <a caption of at most 25 words>
+```<the kind that fits: a language such as sand, sql or go, or mermaid, chart, compare or arch>
+<the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side>
 ```
-<the code each option produces, or the call before and after: the design worked through>
-```
-![<what the screenshot or diagram shows, when one helps>](<its absolute path>)
+![<what the screenshot shows, for a UI>](<its absolute path>)
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
 - <another option, the same way; two to four in all>
 Findings:
@@ -61,9 +61,14 @@ Findings:
 
 The question, summary and options are at most 150 words in plain words, and the Show me is drawn
 whole on his card outside that count, so it holds the whole example: never cut it to fit. Each
-fence names its language, such as ```sql, ```go or ```text for output, and the card draws its
-code as a highlighted picture. A markdown table draws as a table, and a picture on a line of its own
-draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
+fence names its kind, and the card draws it as a picture, live on the dashboard by the same
+module: code naming its language (```sand, ```sql, ```go, ```console for a command and its output)
+for an API, call or schema shape; ```arch for components and the flow between them; ```mermaid for
+steps over time or a state machine; ```chart, a Vega-Lite spec, for sizes, counts and timings;
+```compare for the options side by side, each with its code and its gains and costs; a screenshot
+on a line of its own for a UI. Words never go in a fence: `drive job ask` refuses a fence naming no
+language or `text`, a chart, compare or arch whose JSON does not parse, and a Show me with no visual.
+A markdown table draws as a table, and a picture on a line of its own draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
 the code and marked as such, never the names of what will be measured later, and `drive job ask`
 refuses a table with one value in every cell. No option points at another by number or position,
 none lands first and leaves a step for after, such as "land it now, then backfill", which `drive

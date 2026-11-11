@@ -162,8 +162,8 @@ summary, one to three lines: what was found and what is being decided, the recom
 what happens meanwhile, then a `*Show me*` line and the block's Show me under it, as written. That
 first line is how he gets the results of the investigation before the pick, by his Nov 9 6:22 PM
 words, "you need to give me the results of the investigation etc before sahowing this to me". The
-Show me is the worked example he picks from, above the options: the real code, call, query or text
-the choice changes, before and after, or one example for each option. For an API question it is
+Show me is the worked example he picks from, above the options, in the visual kind below that fits
+it: the real code, call or query the choice changes, before and after, or one example for each option. For an API question it is
 the calls themselves in code, such as an imperative API beside the declarative one. His words, Nov
 10 4:38 PM, under a design card that had none: "this would also satidyt the rtequriement you care
 curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Every
@@ -190,9 +190,9 @@ picture's title: it replaces the fence with `![caption](/abs.png)`, which cc-sla
 Kit image block, so the words stay text and the picture holds only the visual. Code is drawn at a
 12.5 px font and cut to its longest line, so a one-line call is one short strip, highlighted in the
 language its fence names, Sand by its own grammar. A comparison of words goes in as a markdown table,
-which cc-slack draws as a native table. Words never go in a fence: a fence naming no language or
-`text` is a picture of words, and a visual that does not draw is left off, so either leaves the card
-with its caption and nothing in its place; a card with nothing to show has no Show me. His words,
+which cc-slack draws as a native table. Words never go in a fence: `drive job ask` refuses a fence
+naming no language or `text`, a chart, compare or arch whose JSON does not parse, and a Show me with
+no visual, and a visual that still fails to draw leaves the card with its caption, nothing in its place. His words,
 Nov 10 10:30 PM, under cards whose pictures were text: "these images are not useful at all, at ALL
 … if theres nothing to show its bette rnot to show anyhting but her we could ahve done a mermaid
 chart"; 10:10 PM: "look at these images rthey are iunsnae, they are so big and not syhntax

@@ -1,7 +1,9 @@
+import json
 import re
 from dataclasses import dataclass
 
-from drive.render import when
+from drive import picture
+from drive.render import cut, when
 from drive.state import PR_KEY, PR_URL, DriveError
 
 LINE_WORDS = 60
@@ -19,6 +21,14 @@ SHOW_ME_RULING = (
     ' … the shw show-0me cvould be code snipeptrs"'
 )
 PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes,disk` for everything"'
+LIBRARY_RULING = 'his Nov 10 9:58 PM words "buold out a libary of difernetg visualizaions … and then use the approporiuate one each time"'
+WORDS_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all, at ALL … if theres nothing to show its bette rnot to show anyhting"'
+VISUALS = (
+    "code in a fence naming its language (```sand, ```sql, ```go, ```console for a command and its output), a ```mermaid,"
+    " ```chart, ```compare or ```arch fence, a picture on a line of its own, or a markdown table"
+)
+JSON_KINDS = ("arch", "chart", "compare")
+COMPARE_SHAPE = '{"options": [{"name": …, "recommended": true, "language": …, "code": …, "points": ["+ a gain", "- a cost"]}, …]}'
 SEPARATOR_CELL = re.compile(r":?-+:?")
 
 WORD = re.compile(r"\S*[^\W_]\S*")
@@ -168,8 +178,8 @@ def card_refusal(card: dict, beside: str) -> str | None:
     return f"refused: {'; '.join(problems)} ({READING})."
 
 
-def question(text: str) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape."""
+def question(text: str, kept: bool = False) -> Question:
+    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals, so a card it kept under older rules still redraws."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -189,7 +199,7 @@ def question(text: str) -> Question:
             f"the summary is {len(summary)} lines; it is one to three: what was found and what is being decided,"
             " the recommendation, what happens meanwhile"
         )
-    problems += show_me_problems(show_me, bool(example and above))
+    problems += show_me_problems(show_me, bool(example and above), kept)
     if strays := [line for line in after if not line.startswith("- ")]:
         problems.append(f"only `- ` option lines follow the Show me, then `Findings:`; these are neither: {strays}")
     if len(options) not in OPTION_COUNT:
@@ -247,15 +257,13 @@ def captions(show_me: list[str]) -> list[str]:
     return kept
 
 
-def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
+def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> list[str]:
     if below_options:
         return ["the options come after the Show me, never above it: summary, then `Show me:` and its example, then the options"]
     if not any(line.strip() for line in show_me):
         return [
-            (
-                "no `Show me:` line after the summary with a worked example under it: the real code, call, query or text,"
-                f" before and after, code in ``` fences ({SHOW_ME_RULING})"
-            )
+            f"no `Show me:` line after the summary with a visual under it, the kind that shows what the words cannot: {VISUALS}"
+            f" ({SHOW_ME_RULING}; {LIBRARY_RULING})"
         ]
     problems = [
         f'Show me line "{line}" is {words(line)} words; outside a code fence each is a caption of at most {OPTION_WORDS}'
@@ -278,7 +286,37 @@ def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
     fences = [line for line in show_me if FENCE.match(line)]
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
+    return problems if kept else problems + visual_problems(show_me)
+
+
+def visual_problems(show_me: list[str]) -> list[str]:
+    """Why a Show me would draw nothing worth a picture: a fence of words, a chart, compare or arch whose JSON does not draw, or no visual at all."""
+    fences = list(picture.FENCE.finditer("\n".join(show_me)))
+    drawn = [fence for fence in fences if fence[1].lower() not in picture.WORDS]
+    problems = [
+        f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a picture of'
+        f" words: name the code's language, ```console for a command and its output, or put the words in a caption or a table ({WORDS_RULING})"
+        for fence in fences
+        if fence[1].lower() in picture.WORDS
+    ]
+    problems += [f"the Show me ```{fence[1]} fence {problem}" for fence in drawn if (problem := json_problem(fence[1].lower(), fence[2]))]
+    if not drawn and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
+        problems.append(f"the Show me holds no visual, only words: add the kind that shows what the words cannot, {VISUALS} ({LIBRARY_RULING})")
     return problems
+
+
+def json_problem(kind: str, source: str) -> str | None:
+    if kind not in JSON_KINDS:
+        return None
+    try:
+        drawn = json.loads(source)
+    except json.JSONDecodeError as error:
+        return f"is not the JSON it draws from: {error}"
+    if not isinstance(drawn, dict):
+        return "holds JSON that is not an object"
+    if kind == "compare" and sum(1 for option in drawn.get("options") or [] if isinstance(option, dict) and option.get("name")) < 2:
+        return f"compares fewer than two named options; it holds {COMPARE_SHAPE}"
+    return None
 
 
 def tables(show_me: list[str]) -> list[list[list[str]]]:

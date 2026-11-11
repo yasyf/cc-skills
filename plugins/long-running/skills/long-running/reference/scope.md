@@ -68,14 +68,14 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
   bug or a line for a teammate, is a question card asking whether to tell them, never a card asking
   him to approve a post.
 - A design question goes to him before any PR carries it, by [Design first](design.md): a card
-  with the design fleshed out, its Show me in code above two to four one-line options,
+  with the design fleshed out, its Show me in code or the visual that fits above two to four one-line options,
   recommendation first, and a picture when the shape matters. A job may build the recommendation
   meanwhile on a pushed branch, built in the ledger, but puts up no PR and draws no Approve until
   he has answered every card it waits on.
 - A question card is the job's `ASK` as `drive job ask` kept it. It holds the question; a summary
   of one to three lines, what was found and what is being decided, the recommendation, and what
   happens meanwhile, with each thing it names that he could open linked; a Show me, the worked
-  example drawn whole as code, with real contents in every row and cell; and two to four options,
+  example drawn whole in the visual kind that fits it, with real contents in every row and cell; and two to four options,
   one line each, saying what he gets and what it costs. Each option lands releasable alone, by
   [Land a change](landing.md#every-pr): no option lands a change first and leaves a fill, backfill,
   pass or command for after its release, and `drive job ask` refuses one that does. The findings

@@ -35,7 +35,7 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    plain words with a worked example of each piece, such as the calls of an API, imperative beside
    declarative, the rows a schema holds or the bytes a file format lays down. It names what his
    words already settle, and each real fork as an `ASK` block it kept with `drive job ask`: the
-   design in a line, a Show me of each option in code, then two to four one-line options,
+   design in a line, a Show me of each option in code or the visual that fits it, then two to four one-line options,
    recommendation first. Every option lands releasable alone, by [Land a change](landing.md#every-pr):
    a shape that needs a fill, backfill, hand-run command or target order after its release is split
    until each part is safe alone, or left out. `drive job ask` refuses an option that lands first and
