@@ -89,8 +89,10 @@ SAY = {
                 "description": (
                     "The seq of the report record this post carries. With order, the post delivers the part its part attr names,"
                     " or every part when its close attr names the order; a record naming neither is a progress line delivering"
-                    " no part, whatever job it names. With no record, a post on a one-part order delivers that part. catch_up=true"
-                    " makes it his catch-up, opening *Catch-up since <when he was last heard>* in place of any title"
+                    " no part, whatever job it names, and so is a post with no record. The record is the order's holder's: on an"
+                    " order the communicator holds, such as his read-only question, a report the handler posts from the communicator's"
+                    " lane, since a coordinator's report is refused there. catch_up=true makes it his catch-up, opening *Catch-up"
+                    " since <when he was last heard>* in place of any title"
                 ),
             },
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing, refused as the post would be"},

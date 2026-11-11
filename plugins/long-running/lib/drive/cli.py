@@ -595,12 +595,18 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
-    """Why a report may not go in an order's thread: the drive's session that wrote it does not hold the order."""
-    role = state.LANE_ROLES.get(report.get("writer") or "")
-    if not (role and order_id in data["orders"]):
+    """Why a report may not go with a post on an order: the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane."""
+    writer = state.LANE_ROLES.get(report.get("writer") or "")
+    holder = data["orders"][order_id]["owner"] if order_id in data["orders"] else None
+    if writer is None or holder in (None, writer):
         return None
-    held = state.held_elsewhere(data, order_id, role)
-    return held and f"refused, the report is the {role}'s: {held}"
+    carried = (
+        f'post your own report from the communicator\'s lane, cci post --kind report --lane communicator --attr close={order_id} "<its first words>"'
+        " with no --to, carrying this report's facts, and pass that seq"
+        if holder == "communicator"
+        else f"pass the coordinator's own report on {order_id}"
+    )
+    return f"refused, the report is the {writer}'s and {order_id} is the {holder}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
 def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
