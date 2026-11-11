@@ -54,6 +54,7 @@ def test_the_coordinators_own_ship_loop_orca_or_build_call_is_refused_naming_a_j
     assert reason == landing_guard.COORDINATOR_STEP.format(step=step)
     assert "Start a job with this step" in reason
     assert "drive job add" in reason
+    assert (landing_guard.judged_reason(bash(command, session_id=SESSION)), landing_guard.guarded_reason(bash(command, session_id=SESSION))) == (reason, None)
 
 
 @pytest.mark.parametrize(
@@ -132,10 +133,12 @@ def test_enqueueing_the_bottom_of_a_stored_stack_alone_is_refused_naming_every_p
     reason = landing_guard.deny_reason(bash("stack-enqueue 41"))
     assert reason == landing_guard.STACK_REASON.format(named=stored_stack[0], left=", ".join(stored_stack[1:]), every="41 42 43")
     assert reason.endswith("`stack-enqueue 41 42 43`")
+    assert landing_guard.deny_reason(bash("stack-enqueue 41 2>&1 | tail -20")) == reason
 
 
 def test_enqueueing_every_open_pr_of_a_stored_stack_passes(stored_stack: list[str], no_calls: None) -> None:
     assert landing_guard.deny_reason(bash("stack-enqueue 41 42 43")) is None
+    assert landing_guard.deny_reason(bash("stack-enqueue 41 42 43 2>&1 | tail -20")) is None
     with state.edit("demo") as data:
         data["prs"][stored_stack[0]]["state"] = "merged"
     assert landing_guard.deny_reason(bash("stack-enqueue 42 43")) is None

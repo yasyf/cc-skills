@@ -67,20 +67,10 @@ def test_a_drive_session_reads_no_skill_page_from_the_plugin_cache(demo: str) ->
     assert bash_guard.deny_reason(bash(f"wc -l {CACHED}/*.md", session="elsewhere")) is None
 
 
-def test_a_drive_role_runs_a_verb_its_mcp_tool_serves_through_the_tool(demo: str) -> None:
-    reason = bash_guard.deny_reason(bash('drive job set j3 --said "x"'))
-    assert reason.startswith("refused: `drive job set` has a tool on the drive MCP server")
-    assert "`job(ops=[{set: {" in reason
-    assert "`drive tool job`, whose fields `drive tool job -h` lists" in reason
-    assert bash_guard.deny_reason(bash("drive status o1")).startswith("refused: `drive status` has a tool")
-    assert bash_guard.deny_reason(bash("drive job report j3 -")) is None
-    assert bash_guard.deny_reason(bash("drive status --json")) is None
-    assert bash_guard.deny_reason(bash('drive job set j3 --said "x"', agent_id="a-1", agent_type="long-running:builder")) is None
-
-
-def test_a_session_runs_a_drive_tool_its_session_does_not_list_through_drive_tool(communicator: str) -> None:
-    assert "pipe that JSON to `drive tool heard`, whose fields `drive tool heard -h` lists" in bash_guard.deny_reason(bash("drive heard --ts 1.2"))
-    assert bash_guard.deny_reason(bash("echo '{\"ts\": \"1.2\"}' | drive tool heard")) is None
+def test_a_drive_session_runs_any_drive_verb_in_bash(demo: str) -> None:
+    assert bash_guard.deny_reason(bash('drive job set j3 --said "x"')) is None
+    assert bash_guard.deny_reason(bash("drive status o1")) is None
+    assert bash_guard.deny_reason(bash("drive heard --ts 1.2")) is None
 
 
 def test_a_session_outside_any_drive_and_its_agents_are_not_checked(demo: str) -> None:

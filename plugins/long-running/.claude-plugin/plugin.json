@@ -9,6 +9,11 @@
   "license": "MIT",
   "dependencies": [
     {
+      "name": "captain-hook",
+      "marketplace": "captain-hook",
+      "version": ">=12.121.63"
+    },
+    {
       "name": "cc-inbox",
       "marketplace": "cc-inbox",
       "version": ">=0.54.10"

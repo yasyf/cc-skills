@@ -16,10 +16,16 @@ def root() -> Path:
     return Path(max(installs, key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")["installPath"])
 
 
+def registered(plugin: Path, hook: str) -> bool:
+    """Whether the installed version's hooks.json still runs the hook, so a session that loaded an older list runs only the hooks the installed version does."""
+    events = json.loads((plugin / "hooks" / "hooks.json").read_text())["hooks"].values()
+    return any(command["command"].endswith(f" {hook}") for groups in events for group in groups for command in group["hooks"])
+
+
 def main(hook: str) -> None:
     plugin = root()
     script = plugin / "hooks" / hook
-    if not script.is_file():
+    if not registered(plugin, hook):
         return
     os.environ["CLAUDE_PLUGIN_ROOT"] = str(plugin)
     runpy.run_path(str(script), run_name="__main__")

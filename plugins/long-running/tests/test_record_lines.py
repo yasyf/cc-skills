@@ -164,6 +164,21 @@ def test_a_ready_record_says_which_kind_its_prs_are(demo: str) -> None:
         assert record_lines.decision(post(kind="ready", text=text)) is None
 
 
+def test_a_ready_record_naming_its_order_takes_its_kind_from_that_order(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
+    made = record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o1"}))
+    assert made["updatedInput"]["text"] == '#4244 is ready; his order o1 "ship the fix"'
+    assert record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o2"}))["updatedInput"]["text"] == "#4244 is ready; Drive tooling: fix ask"
+    assert "his order o<n>" in refusal(record_lines.decision(post(kind="ready", text="#4244 is ready", attrs={"order": "o9"})))
+
+
+def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
+    kept = str(state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md")
+    made = record_lines.decision(post(kind="ask", text=IDLE, path=kept, attrs={"job": "j1"}))
+    assert made["updatedInput"]["attrs"] == {"job": "j1", "ask": kept}
+
+
 def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:
     for record in ({"kind": "report", "text": "POST j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
         reason = refusal(record_lines.decision(post(**record, attrs={"max_words": "200"})))
@@ -251,6 +266,7 @@ def test_a_report_saying_something_waits_on_him_names_its_card(demo: str) -> Non
     assert "--attr waits=" in refusal(record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO)))
     assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick", to=TO, attrs={"waits": "durable-agents:j750-661229"})) is None
     assert record_lines.decision(post(kind="report", text="POST the copy fix waits on his pick {card:durable-agents:j750-661229}", to=TO)) is None
+    assert record_lines.decision(post(kind="report", text="POST https://github.com/yasyf/cc-skills/pull/4093 waits on his pick", to=TO)) is None
 
 
 def test_a_wait_on_anything_else_says_how_long_and_whether_it_runs(demo: str) -> None:

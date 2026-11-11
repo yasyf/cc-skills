@@ -12,8 +12,9 @@ PROBE = "import os, sys\nprint(os.path.basename(os.environ['CLAUDE_PLUGIN_ROOT']
 def plugin(root: Path, probe: bool) -> Path:
     (root / "hooks").mkdir(parents=True)
     shutil.copy(LAUNCHER, root / "hooks" / "installed.py")
-    if probe:
-        (root / "hooks" / "probe.py").write_text(PROBE)
+    (root / "hooks" / "probe.py").write_text(PROBE)
+    commands = [{"type": "command", "command": 'python3 -I "${CLAUDE_PLUGIN_ROOT}/hooks/installed.py" probe.py'}] if probe else []
+    (root / "hooks" / "hooks.json").write_text(json.dumps({"hooks": {"PreToolUse": [{"hooks": commands}]}}))
     return root
 
 
@@ -46,7 +47,7 @@ def test_a_session_that_loaded_an_older_version_runs_the_hook_installed_now(tmp_
     assert launch(config, loaded).stdout == '1.0.77 {"tool_name": "Bash"}\n'
 
 
-def test_a_hook_the_installed_version_dropped_does_nothing(tmp_path: Path) -> None:
+def test_a_hook_the_installed_version_no_longer_registers_does_nothing(tmp_path: Path) -> None:
     config = tmp_path / "claude"
     loaded = cached(config, newest_has_probe=False)
     assert launch(config, loaded).stdout == ""

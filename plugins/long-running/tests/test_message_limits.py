@@ -374,7 +374,7 @@ def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_n
     assert "65 words" in refusal
     assert refusal.endswith(
         " 10 of the words counted are the titles its {card:…}, {pr:…}, {order:…} and {record:…} references draw as their words;"
-        " {pr:<number>|<words>} names one in fewer words of your own."
+        " {pr:<number>|<words>} or {record:<seq>|<words>} names one in fewer words of your own."
     )
     labeled = call("slack_dm_status", transcript, text=said(55) + " {pr:7|the run page}") | {"tool_name": message_limits.SAY}
     assert message_limits.deny_reason(labeled) is None

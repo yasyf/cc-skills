@@ -9,6 +9,8 @@ REF = re.compile(r"\{(card|pr|order|record):([^{}\s|]+)(?:\|([^{}]+))?\}")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
+CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
+RECORD_WORDS = 10
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
@@ -28,8 +30,6 @@ def resolved(name: str, text: str) -> dict[str, dict]:
             case "order":
                 found[match[0]] = order(name, state.load(name), match[2])
             case "record":
-                if label:
-                    raise DriveError(f"{match[0]} reads as the record's own words, so the lane that measured it is quoted; drop the |{label}")
                 found[match[0]] = record(name, match[2])
         if label:
             found[match[0]]["title"] = label
@@ -95,13 +95,19 @@ def order(name: str, data: dict, order_id: str) -> dict:
 
 
 def record(name: str, seq: str) -> dict:
-    """A cci record under its own words, so a cause or a number reads as the lane that measured it wrote it: a link to what the record links, or its words alone when it links nothing."""
+    """A cci record under the opening of its own words, so a cause links the measurement behind it in a few words and the record's whole text never joins the post: a link to what the record links, or those words alone when it links nothing."""
     try:
         found = json.loads(reads.run(["cci", "show", seq, "--json", "--drive", name], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"{{record:{seq}}} could not be read: {error}") from None
     url = found["refs"].get("url")
-    return {"kind": "record", "title": found["text"], "url": url, "board": url}
+    return {"kind": "record", "title": opening(found["text"]), "url": url, "board": url}
+
+
+def opening(text: str) -> str:
+    """The first clause of a record's first line, at most ten words, which a link's words in his posts rarely pass."""
+    words = CLAUSE_END.split(view.plain(text, len(text)), maxsplit=1)[0].split()
+    return " ".join(words[:RECORD_WORDS]) + ("…" if len(words) > RECORD_WORDS else "")
 
 
 def slack(text: str, found: dict[str, dict]) -> str:

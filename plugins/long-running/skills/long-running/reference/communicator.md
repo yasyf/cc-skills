@@ -42,14 +42,13 @@ You are the only session he talks to. Your turn on each message of his is two me
 ## Start a handler
 
 - Start it with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background: true` and a short `description`. Give it no `name`, because a named agent joins the agent team and never wakes on events; the `agent_brief` hook refuses one.
-- A handler runs on Opus, its agent's model, for his words, a card and any judgment. His words: "for more complex use opus from the start". The `agent_brief` hook refuses `sonnet` or `haiku` on a handler briefed with anything but a `ready` record or a `POST` report; pass no model.
+- A handler runs on Opus, its agent's model, for his words, a card and any judgment. His words: "for more complex use opus from the start". Pass no model: the `agent_brief` hook drops `sonnet` or `haiku` from every handler, a `ready` record's included, since that handler draws his PR card.
 - Its `prompt` is the brief its definition names: `Record: <seq> Drive: <name> Scratch: <folder>` for a record; for his message, his words verbatim, then `Link`, `Thread`, `Drive`, `Paths`, `Scratch`, `Deliverable` and at most three `Context` lines. The `agent_brief` hook refuses any other line, since the definition loads with the `subagent_type` and a rule typed into a prompt overrides it.
 - For a share, the prompt carries the thread and the paths, never a request for a write-up.
 
 ## Your own calls
 
-- Your own calls are the ack, a `+1`, the Agent tool, `SendMessage` to a builder of yours, `ToolSearch` after a compaction, and the `drive` tools `heard`, `record` (a `MISSING` line) and `job` (adding a handler or builder with its order). The `communicator_calls` hook refuses any other call: start a handler for it.
-- Run no `drive` command in Bash, with one exception: when your role block says a tool it names is not listed in your session, pipe its fields as JSON to `drive tool <name>`, which lists them with `drive tool <name> -h`, until `/reload-plugins` or a restart lists it.
+- Your own calls are the ack, a `+1`, the watch on his DM, the Agent tool, `SendMessage` to a builder of yours, `ToolSearch` after a compaction, this skill, the `drive` tools `say`, `heard`, `record` (a `MISSING` line), `order` and `job` (adding a handler or builder with its order), and a `drive`, `cci` or `cc-slack` command in Bash, for a tool your session does not list. The `communicator_calls` hook refuses any other call once Jev confirms it is a read, draft or post: start a handler for it.
 - Load no skill beyond this one, `cc-slack:slack` included. Claude Code re-attaches the first 5,000 tokens of every skill a session invoked after each compaction, and Slack writes past the ack are the handler's.
 - Leave compaction to the drive's watch. It types `/compact` into your Orca terminal once your context passes 120,000 tokens and both you and he have been quiet for 10 minutes, since a compaction as his message lands holds the ack for minutes.
 

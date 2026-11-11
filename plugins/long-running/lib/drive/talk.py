@@ -62,7 +62,8 @@ def check(name: str, post: dict, found: dict[str, dict]) -> None:
     if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")), post.get("asked") or "")):
         raise DriveError(
             "nothing posted: `cc-slack check-post` finds this in the post's words, each {card:}, {pr:}, {order:} and {record:} as the words it draws;"
-            " fix each, naming a card, PR or order in words of your own as {pr:<number>|<words>}, then post the fixed words:\n" + "\n".join(findings)
+            " fix each, naming a card, PR, order or record in words of your own as {pr:<number>|<words>} or {record:<seq>|<words>},"
+            " then post the fixed words:\n" + "\n".join(findings)
         )
     data = state.load(name)
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]

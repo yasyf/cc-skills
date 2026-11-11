@@ -793,6 +793,20 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     ]
 
 
+def test_a_waiting_job_lives_while_its_own_clock_is_to_come(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(state="waiting", said="WAITING on the release", due=state.stamp(T0 + timedelta(minutes=80)), updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["due"] = None
+    assert watch.run_pass(watching, T0 + timedelta(seconds=60)) == [
+        'ORPHAN o1 "ship the watch": j1 waits on "WAITING on the release" and no open PR, card or due time can wake it'
+    ]
+
+
 def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_once_he_answers(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

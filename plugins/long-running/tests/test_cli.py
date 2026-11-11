@@ -214,15 +214,14 @@ def test_heard_names_the_lane_of_the_sub_coordinator_his_threads_order_is_filed_
     iris, platform = "1794200000.000100", "1794200000.000200"
     with state.edit("demo") as data:
         data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = iris, platform
-    in_use = "in use as project / workstream: Iris / Run page; Platform / Alerts"
-    assert run("heard", "--thread", iris) == (0, f"heard\n{in_use}")
+    assert run("heard", "--thread", iris) == (0, "heard")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     routed = "heard; o1 in this thread is filed under Iris: his owner record goes --to iris, its sub-coordinator's lane"
-    assert run("heard", "--thread", iris) == (0, f"{routed}\n{in_use}")
+    assert run("heard", "--thread", iris) == (0, routed)
     assert json.loads(run("heard", "--thread", iris, "--json")[1])["to"] == "iris"
-    assert [run("heard", "--thread", platform), run("heard")] == [(0, f"heard\n{in_use}")] * 2
-    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}; {in_use}"
+    assert [run("heard", "--thread", platform), run("heard")] == [(0, "heard")] * 2
+    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}"
 
 
 def test_start_needs_a_role(run: Run) -> None:
@@ -1869,6 +1868,9 @@ def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surf
     assert code == 2
     assert "this builds something he sees, by its NATIVE: line, so its proof is from that surface" in refused
     assert keep(monkeypatch, capsys, "j1", seen.format(recording))[0] == 0
+    picture = tmp_path / "queue.png"
+    picture.write_bytes(b"\0")
+    assert keep(monkeypatch, capsys, "j1", seen.format(f"{picture}: the queue with one card"))[0] == 0
     assert keep(monkeypatch, capsys, "j1", seen.format("https://poetic-technology.slack.com/archives/D1/p1794300000000100"))[0] == 0
     unseen = "DONE the watch stops on a dead lane\nNATIVE: none: he never sees it\nCHECK: {}\n"
     assert keep(monkeypatch, capsys, "j1", unseen.format(fetched))[0] == 0
@@ -1963,6 +1965,16 @@ def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until
     assert "j1 returned DESIGN: the choice its research found goes to him as cards before any builder" in capsys.readouterr().err
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
+
+
+def test_a_readers_kept_design_return_is_the_ask_its_card_draws(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    assert cli.asked_report("demo", "j1", state.load("demo")["jobs"]["j1"]) is None
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
+    assert cli.asked_report("demo", "j1", state.load("demo")["jobs"]["j1"]).startswith("ASK where the copy runs\n")
 
 
 def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
@@ -2189,22 +2201,35 @@ def test_a_built_return_sets_its_job_built_on_its_branch_waiting_on_each_card_it
     assert (job["state"], job["branch"], job["waits"]) == ("built", "lr-move", ["demo:j1-3", card])
 
 
-def test_job_set_takes_state_stopped_alone_and_says_the_line_a_job_returns_sets_every_other(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_job_set_keeps_a_jobs_state_for_any_state_but_stopped_and_still_sets_the_rest(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    kept = (
+        "j1 stays running: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder carries;"
+        " every other state comes from the line the job returns"
+    )
     for taken in ("waiting", "built", "done", "failed"):
-        assert cli.main(["job", "set", "j1", "--state", taken]) == 2
-        refusal = capsys.readouterr().err
-        assert "j1 is running, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line the job returns" in refusal
-        assert (
-            "which the watch reads or drive job report j1 - takes: DONE sets done, READY sets waiting, WAITING sets waiting, DESIGN sets waiting,"
-            " ASK sets waiting, BLOCKED sets failed, HANDOFF sets stopped, and BUILT <branch>, waits on <cards> sets built"
-        ) in refusal
-    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+        code, out = run("job", "set", "j1", "--state", taken, "--said", f"asked {taken}")
+        assert (code, out.splitlines()[0]) == (0, kept)
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("running", "asked failed")
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_a_design_job_closes_once_a_builder_carries_it(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
+    assert run("job", "set", "j1", "--state", "done")[1].startswith("j1 stays waiting: --state sets only stopped")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the copy")
+    assert run("job", "set", "j1", "--state", "done")[1].splitlines()[0] == "j1's design is carried by builder j2"
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
+    assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
+    assert keep(monkeypatch, capsys, "j2", "DONE installed 1.0.76\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n") == (0, "")
+    design = state.load("demo")["jobs"]["j3"]
+    assert (design["state"], design["said"]) == ("done", "built by j2: DONE installed 1.0.76")
 
 
 def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_so(
@@ -3467,16 +3492,20 @@ def test_start_outside_an_orca_terminal_is_refused_naming_the_command_that_start
     assert run("start", "demo", "--role", "coordinator")[0] == 0
 
 
-def test_a_drive_tooling_order_takes_no_thread_since_its_posts_go_at_his_dm_root(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_drive_tooling_order_leaves_out_its_thread_since_its_posts_go_at_his_dm_root(run: Run, demo: str) -> None:
     tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
-    assert cli.main([*tooling, "--thread", "1794378983.440769"]) == 2
-    assert (
-        '--thread 1794378983.440769: refused, a "Drive tooling:" order\'s posts go at his DM root, in no thread; add it again without --thread'
-    ) in capsys.readouterr().err
-    assert run(*tooling) == (0, "o1")
-    assert cli.main(["order", "set", "o1", "--thread", "1794378983.440769"]) == 2
-    assert 'o1 is a "Drive tooling:" order, whose posts go at his DM root, in no thread; leave --thread out' in capsys.readouterr().err
+    rootless = '--thread 1794378983.440769 left out: a "Drive tooling:" order\'s posts go at his DM root, in no thread'
+    assert run(*tooling, "--thread", "1794378983.440769") == (0, f"o1\n{rootless}")
+    code, out = run("order", "set", "o1", "--thread", "1794378983.440769")
+    assert (code, out.splitlines()[0]) == (0, rootless)
     assert state.load("demo")["orders"]["o1"]["thread"] is None
+
+
+def test_a_drive_tooling_order_his_words_already_hold_adds_none(run: Run, demo: str) -> None:
+    tooling = ["order", "add", "--project", "p", "--workstream", "w", "Drive tooling: fix ask"]
+    assert run(*tooling) == (0, "o1")
+    assert run(*tooling) == (0, "o1\no1 already holds these words, so no order was added")
+    assert list(state.load("demo")["orders"]) == ["o1"]
 
 
 def drive_terms(text: str, asked: list[str]) -> list[str]:
@@ -3608,11 +3637,12 @@ def test_status_names_the_open_incidents_and_each_running_job_whose_session_ende
     assert run("status", "o2")[1].splitlines()[1] == gone[2]
 
 
-def test_heard_prints_the_project_and_workstream_pairs_in_use(run: Run, demo: str) -> None:
-    assert run("heard") == (0, "heard")
+def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
-    assert run("heard") == (0, "heard\nin use as project / workstream: Billing / Invoices; The drive / Releases")
+    assert run("heard") == (0, "heard")
+    assert run("heard", "--away") == (0, "away")
+    assert "in_use" not in json.loads(run("heard", "--json")[1])
 
 
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:

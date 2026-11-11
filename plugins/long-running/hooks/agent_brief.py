@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, brief, place, state
+from drive import agents, brief, place, render, state
 from drive.render import cut, when
 
 DESIGNER = "long-running:designer"
@@ -24,9 +24,8 @@ DATA_PASS = re.compile(
     re.IGNORECASE,
 )
 RUNS_AS = re.compile(r"^Runs as:[ \t]*\S", re.MULTILINE)
-LABELS = ("Record", "Job", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
+LABELS = render.HANDLER_LABELS
 LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in LABELS)}):")
-LIGHT_RECORD = re.compile(r"^\d+ (?:ready|report \S+(?: \[[^\]\n]*\])? \+ POST\b)", re.MULTILINE)
 
 
 def beyond_brief(prompt: str) -> str | None:
@@ -38,12 +37,6 @@ def beyond_brief(prompt: str) -> str | None:
         elif line.strip() and not (label == "Message (his words)" or (label == "Context" and (context := context + 1) <= 3)):
             return line.strip()
     return None
-
-
-def light_record(prompt: str) -> bool:
-    """Whether a handler's prompt is the one Record: line of a `ready` record or a `POST` report, the two items Sonnet handles."""
-    lines = prompt.strip().splitlines()
-    return len(lines) == 1 and bool(found := agents.RECORD.match(lines[0])) and bool(LIGHT_RECORD.search(agents.record(found[1])))
 
 
 def job_refusal(name: str, data: dict, kind: str, text: str) -> str | None:
@@ -118,7 +111,7 @@ def in_line(data: dict, job_id: str) -> str:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief and runs on Opus but for the two light records, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the communicator's alone, and a builder starts here only under this Mac's cap of builders."""
+    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief, a job's agent fits its kind, a builder's brief says its scope, drive tooling is the communicator's alone, and a builder starts here only under this Mac's cap of builders."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -146,11 +139,6 @@ def deny_reason(payload: dict) -> str | None:
             f" running on below theirs and Context at most three lines; `{extra}` is more. Its rules load with its agent"
             " definition, and a rule typed into a prompt overrides it: drop the line"
         )
-    if kind == agents.HANDLER and any(word in (call.get("model") or "") for word in brief.LIGHT_MODELS) and not light_record(prompt):
-        return (
-            "refused: a handler runs on Opus for his words, an ask, a card or any judgment, and Sonnet or Haiku only for a `ready`"
-            " record or a `POST` report briefed as its one `Record:` line; pass no model"
-        )
     text = brief.carried(prompt)
     if kind == BUILDER and role == "coordinator" and SERVES_TOOLING.search(text):
         return (
@@ -162,19 +150,22 @@ def deny_reason(payload: dict) -> str | None:
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None
 
 
+def heavier(payload: dict) -> dict | None:
+    """The Agent call a drive session meant: a handler passed Sonnet or Haiku runs on its own Opus, the model dropped, since even a ready record draws his PR card."""
+    call = payload["tool_input"]
+    if payload.get("agent_id") or call.get("subagent_type") != agents.HANDLER or not state.session_drives(payload.get("session_id") or ""):
+        return None
+    if not any(word in (call.get("model") or "") for word in brief.LIGHT_MODELS):
+        return None
+    return {key: value for key, value in call.items() if key != "model"}
+
+
 def main() -> None:
-    if reason := deny_reason(json.load(sys.stdin)):
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
-        )
+    payload = json.load(sys.stdin)
+    if reason := deny_reason(payload):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
+    elif made := heavier(payload):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 
 
 if __name__ == "__main__":

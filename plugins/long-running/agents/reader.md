@@ -52,7 +52,9 @@ naming each line missing.
 
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
-`(recommended)`, for a design job to turn into his cards. The fix your evidence points at is an
+`(recommended)`, for a design job to turn into his cards. Written in the ASK block's shape, which
+`drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
+card as it stands: `drive job card <j>` draws it with no file written by hand. The fix your evidence points at is an
 option, recommended, or a line says why another is, and a `Direct fix:` line names it by its words,
 or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. Start no other line with `- `, since
 `drive job report` counts each as an option. A check of a PR for the coordinator's `READY` row opens

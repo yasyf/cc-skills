@@ -1,15 +1,14 @@
 import json
 import re
-import shlex
 import sys
 from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import install, orca, state, tools
+from drive import install, orca, state
 from drive.orca import OrcaError
-from drive.shell import runnable
+from drive.shell import parts, runnable, simple_commands
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
@@ -21,26 +20,13 @@ VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 CHAINS = {";", "&&", "||", "&", "(", ")"}
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
-NO_TOOL_FLAGS = ("--json", "--drive", "--help", "-h")
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
-
-
-def tokens(text: str) -> list[str]:
-    lexer = shlex.shlex(text.replace("\n", ";"), posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    return list(lexer)
 
 
 def commands(text: str) -> list[list[str]]:
     """The words of each command the script runs, past assignments and wrappers, and those of each `sh -c` script inside it."""
-    groups: list[list[str]] = [[]]
-    for token in tokens(text):
-        if set(token) <= set("();<>|&"):
-            groups.append([])
-        else:
-            groups[-1].append(token)
     found = []
-    for words in groups:
+    for words in simple_commands(text):
         while words and (ASSIGNMENT.fullmatch(words[0]) or Path(words[0]).name in WRAPPERS):
             words = words[1:]
         if not words:
@@ -104,27 +90,6 @@ def cached_page(text: str) -> str | None:
     )
 
 
-def tool_verb(found: list[list[str]]) -> str | None:
-    for words in found:
-        named = verb(words)
-        if named[0] != "drive" or len(named) < 2 or any(word.split("=")[0] in NO_TOOL_FLAGS for word in words):
-            continue
-        tool = named[1]
-        if tool in ("heard", "status"):
-            return (
-                f"refused: `drive {tool}` has a tool on the drive MCP server: call `{tool}` with its flags as fields,"
-                f" dashes as underscores, or pipe that JSON to `drive tool {tool}`, whose fields `drive tool {tool} -h` lists;"
-                f" Bash keeps `drive {tool} --json`"
-            )
-        if tool in tools.OPS and named[2:3] and named[2] in tools.OPS[tool]:
-            return (
-                f"refused: `drive {tool} {named[2]}` has a tool on the drive MCP server, which runs every op the turn needs in"
-                f" one call: call `{tool}(ops=[{{{named[2]}: {{<its flags and positionals as fields, dashes as underscores>}}}}])`,"
-                f" or pipe that JSON to `drive tool {tool}`, whose fields `drive tool {tool} -h` lists"
-            )
-    return None
-
-
 def background_resume(found: list[list[str]]) -> str | None:
     if not any(verb(words)[:3] == ["drive", "job", "resume"] for words in found):
         return None
@@ -135,7 +100,7 @@ def background_resume(found: list[list[str]]) -> str | None:
 
 
 def chained(text: str) -> str | None:
-    joint = next((token for token in tokens(text) if token in CHAINS), None)
+    joint = next((part for operator, part in parts(text) if operator and part in CHAINS), None)
     if joint is None:
         return None
     return (
@@ -223,7 +188,7 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a cached skill page, the coordinator runs in Bash a verb its MCP tool serves, `drive job resume` runs in the background, a handler chains steps, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a cached skill page, `drive job resume` runs in the background, a handler chains steps, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
@@ -235,12 +200,10 @@ def deny_reason(payload: dict) -> str | None:
     text = runnable(call["command"])
     found = commands(text)
     scripts = terminal_scripts(found)
-    own_session = bool(drives) and not payload.get("agent_id")
     reasons = (
         lambda: designer_push(found) if kind == DESIGNER else None,
         lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
-        lambda: tool_verb(found) if own_session else None,
         lambda: background_resume(found) if call.get("run_in_background") else None,
         lambda: chained(text) if kind == HANDLER else None,
         lambda: shell_after_claude(scripts),

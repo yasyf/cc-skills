@@ -35,7 +35,7 @@ SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 WAITING = "WAITING-ON-HIM"
 TITLED = (
     " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words;"
-    " {{pr:<number>|<words>}} names one in fewer words of your own."
+    " {{pr:<number>|<words>}} or {{record:<seq>|<words>}} names one in fewer words of your own."
 )
 UNREAD = (
     "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={dm},"

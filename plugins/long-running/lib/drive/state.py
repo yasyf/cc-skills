@@ -38,7 +38,7 @@ VERDICT = re.compile(r"(?:^|[;.]\s+)(NOT )?READY\b")
 VERDICT_REASON = re.compile(r":\s+")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
-CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
+CLOCK = re.compile(r"(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
@@ -161,17 +161,18 @@ def parse_time(text: str) -> datetime:
 
 
 def parse_due(text: str, reference: datetime | None = None) -> datetime:
-    """Parse a due time: "HH:MM" (today, or tomorrow once passed), "+30m"/"+2h"/"+1d", or ISO 8601."""
+    """Parse a due time: "HH:MM" or the "3:30 AM" the drive prints (today, or tomorrow once passed), "+30m"/"+2h"/"+1d", or ISO 8601."""
     base = reference or now()
     if offset := OFFSET.fullmatch(text.strip()):
         return (base + timedelta(**{OFFSET_UNITS[offset[2]]: int(offset[1])})).replace(microsecond=0)
     if clock := CLOCK.fullmatch(text.strip()):
-        due = base.replace(hour=int(clock[1]), minute=int(clock[2]), second=0, microsecond=0)
+        hour = int(clock[1]) % 12 + (12 if clock[3].upper() == "P" else 0) if clock[3] else int(clock[1])
+        due = base.replace(hour=hour, minute=int(clock[2]), second=0, microsecond=0)
         return due if due > base else due + timedelta(days=1)
     try:
         return parse_time(text.strip())
     except ValueError:
-        raise DriveError(f"cannot read due time {text!r}: use HH:MM, +30m, +2h or ISO 8601") from None
+        raise DriveError(f"cannot read due time {text!r}: use HH:MM, 3:30 AM, +30m, +2h or ISO 8601") from None
 
 
 def pr_key(ref: str) -> str:
@@ -381,6 +382,21 @@ def take_result(data: dict, job_id: str, line: str) -> None:
         drop_carries(data, job_id)
     if taken == "done" and job["kind"] == "reader":
         judge(data, job_id, line, job["updated"])
+    if taken == "done" and job["kind"] == "builder":
+        for design_id, design in data["jobs"].items():
+            if design["kind"] == "design" and design["state"] == "waiting" and design_builder(data, design_id) == job_id:
+                design.update(state="done", said=f"built by {job_id}: {line}", updated=job["updated"])
+
+
+def design_builder(data: dict, design_id: str) -> str | None:
+    """The builder carrying a design job's parts on its order, the one that returned DONE first, else one still at work, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
+    design = data["jobs"][design_id]
+    builders = [
+        (job["state"] != "done", job_id)
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "builder" and job["order"] == design["order"] and job["state"] not in ("failed", "stopped") and set(design["parts"]) <= set(job["parts"])
+    ]
+    return min(builders)[1] if design["kind"] == "design" and builders else None
 
 
 def verdicts(line: str) -> list[tuple[bool, str, str]]:

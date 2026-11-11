@@ -11,20 +11,33 @@ AGENTS = "long-running:"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 
 
-def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: its brief's Drive line, in its prompt or the brief file the prompt names, names a job whose order the drive's other session holds, or that refuses that brief or model."""
-    tool_input = payload["tool_input"]
-    text = brief.carried(tool_input.get("prompt") or "")
+def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
+    """The drive, its state, the job its brief's Drive line names, in its prompt or the brief file the prompt names, and that brief, when the drive knows the job."""
+    text = brief.carried(payload["tool_input"].get("prompt") or "")
     match = brief.BRIEF_JOB.search(text)
     names = state.session_drives(payload["session_id"]) if match and payload.get("session_id") else []
     if not names:
         return None
     data = state.load(names[0])
-    if match[1] not in data["jobs"]:
+    return (names[0], data, match[1], text) if match[1] in data["jobs"] else None
+
+
+def deny_reason(payload: dict) -> str | None:
+    """Why a drive session may not start this agent: the job its brief names is on an order the drive's other session holds, or its brief lacks what the job's kind needs."""
+    if (named := named_job(payload)) is None:
         return None
-    held = state.held_elsewhere(data, data["jobs"][match[1]]["order"], state.session_role(data, payload["session_id"]))
-    refused = held or brief.brief_refusal(names[0], data, match[1], text, tool_input.get("model"))
+    name, data, job_id, text = named
+    held = state.held_elsewhere(data, data["jobs"][job_id]["order"], state.session_role(data, payload["session_id"]))
+    refused = held or brief.brief_refusal(name, data, job_id, text)
     return f"refused, no agent started: {refused}" if refused else None
+
+
+def heavier(payload: dict) -> dict | None:
+    """The Agent call with a Sonnet or Haiku model dropped where the job's order needs its agent definition's own Opus or Fable."""
+    tool_input = payload["tool_input"]
+    if (named := named_job(payload)) is None or not brief.heavier(named[1], named[2], named[3], tool_input.get("model")):
+        return None
+    return {key: value for key, value in tool_input.items() if key != "model"}
 
 
 def scratch_folder(payload: dict) -> Path | None:
@@ -43,6 +56,8 @@ def main() -> None:
         return
     if folder := scratch_folder(payload):
         folder.mkdir(parents=True, exist_ok=True)
+    if made := heavier(payload):
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": made}}))
 
 
 if __name__ == "__main__":

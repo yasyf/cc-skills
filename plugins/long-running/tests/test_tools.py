@@ -228,3 +228,15 @@ def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run:
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n  Notes: cci owner 660781\n" in written
     assert written.endswith("Drive: demo, order o1, job j2\n")
     assert state.load(demo)["jobs"]["j2"]["brief"] == str(path)
+
+
+def test_ops_or_their_items_sent_as_json_text_reach_the_tool_as_the_lists_they_spell() -> None:
+    from drive import mcp
+
+    shapes = {tool["name"]: tool["inputSchema"]["properties"] for tool in mcp.tool_list()}
+    ops = [{"set": {"url": "https://github.com/Forge-AI/monorepo/pull/42", "tap": True}}]
+    assert tools.parsed_arguments({"ops": json.dumps(ops)}, shapes["pr"]) == {"ops": ops}
+    assert tools.parsed_arguments({"ops": [json.dumps(ops[0])], "dry_run": True}, shapes["pr"]) == {"ops": ops, "dry_run": True}
+    assert tools.parsed_arguments({"text": "[a line, not a list]"}, shapes["say"]) == {"text": "[a line, not a list]"}
+    with pytest.raises(DriveError, match="ops is a list or object"):
+        tools.parsed_arguments({"ops": "[{"}, shapes["pr"])

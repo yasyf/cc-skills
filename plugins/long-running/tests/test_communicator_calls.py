@@ -75,6 +75,11 @@ def test_the_communicator_runs_only_its_own_calls_and_starts_a_handler_for_the_r
         call("Bash", command="cci subscribe --reader communicator --cursor communicator"),
     ):
         assert communicator_calls.deny_reason(own) is None
+    assert communicator_calls.deny_reason(call(SLACK + "slack_pickup", channel_id="D123", ts="1.2")) == (
+        "Refused on purpose: cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the"
+        " communicator never calls slack_pickup. Go on with the ack."
+    )
+    assert communicator_calls.deny_reason(call("mcp__plugin_long-running_drive__say", text="On it.")) is None
     assert communicator_calls.deny_reason({**call(SLACK + "slack_thread"), "agent_id": "a-1"}) is None
     assert hook_output(monkeypatch, capsys, {**call(SLACK + "slack_thread"), "session_id": "someone-else"}) == ""
 
@@ -104,8 +109,10 @@ def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcrip
     builder(where="remote", dispatch="ctx_9", agent=None, state="running")
     resume = 'drive job resume j1 "status?"'
     reason = communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=resume))
-    assert reason.startswith("Refused on purpose: your transcript shows no read of j1's transcript in the last 10 minutes")
+    assert reason.startswith("A message that tells j1 it stopped, stalled, went quiet or is stuck needs a read of its transcript first")
     assert "`drive job replies j1`" in reason
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job replies j1 --limit 20 && {resume}")) is None
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"{resume} && drive job replies j1")) is not None
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j1"), command=resume)) is None
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path, "drive job replies j12"), command=resume)) is not None
     worker_read = transcript(tmp_path, "orca orchestration worker-read --dispatch ctx_9 --limit 50 --full --json")
