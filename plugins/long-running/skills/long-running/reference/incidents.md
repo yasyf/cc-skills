@@ -28,8 +28,9 @@ this again; you should have just rolle dback and done the proper fix".
 1. `answer_add` his words verbatim, labels `drive:<name>` and `incident`: that answer approves the
    incident's own release and rollback, so no card goes to him for either.
 2. `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts>
-   --parts "first check" --due +5m`, or `--parts "rollback" "fix" "cause"` when no release
-   or new build came before the break.
+   --incident --parts "first check" --due +5m`, or `--parts "rollback" "fix" "cause"` when no
+   release or new build came before the break. `--incident` puts it on the dashboard's top strip
+   until the order closes; an incident order made without it gets `drive order set <o> --incident`.
 3. Start its jobs, each a `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the
    answer id from step 1 and the brief template's `Incident:` line written out in full, and record each
    with `drive job add codex --order <o> --goal "<its part>: <incident>" --agent <id> --part "<its part>"`.

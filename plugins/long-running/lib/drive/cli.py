@@ -76,6 +76,7 @@ def order_add(args: argparse.Namespace) -> int:
             "withdrawn": None,
             "jobs": [],
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
+            "incident": args.incident,
             "proof": None,
             "note": None,
             "created": created,
@@ -156,6 +157,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["state"] = args.state
         if args.parts:
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
+        if args.incident is not None:
+            order["incident"] = args.incident
         order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
@@ -820,6 +823,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--thread")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
+    verb.add_argument("--incident", action="store_true", help="an incident order; the dashboard's top strip shows it until it closes")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id")
@@ -833,6 +837,7 @@ def parser() -> argparse.ArgumentParser:
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
+    verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument(
         "--record",
         metavar="SEQ",

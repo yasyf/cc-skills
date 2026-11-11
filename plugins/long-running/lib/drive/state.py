@@ -168,6 +168,7 @@ def load(name: str) -> dict:
         if "promised" not in order:
             order.update(promised=order.get("due") and order["updated"], next_due=None, kept=None, withdrawn=None)
         order.setdefault("next_set", None)
+        order.setdefault("incident", False)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])

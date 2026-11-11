@@ -45,6 +45,9 @@ THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
+HELD = "an answer to this card is already being sent"
+SENT = "too late: that answer was already sent"
+UNDO_SECONDS = 10
 ELSEWHERE = "that is not a card or ask thread of this drive"
 
 
@@ -203,6 +206,8 @@ class Board:
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
         self.channel = ""
+        self.holding = threading.Lock()
+        self.held: dict[str, threading.Event] = {}
 
     def stamp(self) -> tuple[int, ...]:
         paths = (state.state_path(self.name), state.cards_path(self.name), state.events_path(self.name))
@@ -216,7 +221,7 @@ class Board:
                 self.events.append(event)
         self.events = [event for event in self.events if moment - state.parse_time(event["at"]) <= view.HISTORY_FOR]
         found, source = view.stored_cards(self.name)
-        model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links}
+        model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS}
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         prs = {entry["key"] for entry in model["review"]}
@@ -276,12 +281,14 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             page = f"{'https' if isinstance(self.connection, ssl.SSLSocket) else 'http'}://{host}"
             if host not in hosts or self.headers.get("Origin") != page:
                 self.send_error(403)
-            elif self.path not in ("/api/answer", "/api/say"):
+            elif self.path not in ("/api/answer", "/api/undo", "/api/say"):
                 self.send_error(404)
             elif not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
             elif self.path == "/api/say":
                 self.say(json.loads(self.rfile.read(int(self.headers["Content-Length"]))))
+            elif self.path == "/api/undo":
+                self.undo(json.loads(self.rfile.read(int(self.headers["Content-Length"])))["card"])
             else:
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"{page}/")
 
@@ -316,16 +323,38 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                     self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
-            if asked["label"] not in board.answers.get(asked["card"], []):
+            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first."""
+            card = asked["card"]
+            if asked["label"] not in board.answers.get(card, []):
                 self.answered(409, {"error": GONE})
                 return
+            undone = threading.Event()
+            with board.holding:
+                if card in board.held:
+                    self.answered(409, {"error": HELD})
+                    return
+                board.held[card] = undone
+            undone.wait(UNDO_SECONDS)
+            with board.holding:
+                if board.held.pop(card, None) is not undone:
+                    self.answered(200, {"undone": True})
+                    return
             try:
-                said = answer_card(asked["card"], asked["label"], via)
+                said = answer_card(card, asked["label"], via)
             except (DriveError, subprocess.TimeoutExpired) as error:
                 self.answered(502, {"error": str(error)})
                 return
             view.refresh_cards(board.name)
             self.answered(200, said)
+
+        def undo(self, card: str) -> None:
+            with board.holding:
+                undone = board.held.pop(card, None)
+            if not undone:
+                self.answered(409, {"error": SENT})
+                return
+            undone.set()
+            self.answered(200, {"undone": True})
 
         def say(self, typed: dict) -> None:
             text, under = typed["text"].strip(), typed["under"]
