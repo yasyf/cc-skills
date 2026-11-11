@@ -15,6 +15,13 @@
         ]
       }
     ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" quiet_turn.py" }
+        ]
+      }
+    ],
     "SubagentStop": [
       {
         "hooks": [

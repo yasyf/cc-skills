@@ -4,6 +4,12 @@ from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_k
 
 COMMUNICATOR_RULES = (
     (
+        "Write no text in this terminal, which he never reads: every message of your turn is tool calls alone,"
+        " everything for him goes to Slack, and the turn ends on the one word Sent., since Claude Code asks again"
+        ' after a turn with no text at all. His words, Nov 10 9:53 PM: "you doint ned to kjeep sending the response'
+        ' here as wel", and 10:20 PM: "update your skoll; to tro minimuize temrinal outpoujt as well".'
+    ),
+    (
         "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
         " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
         " cc-slack while you compacted and gets no ack of yours. drive heard (--away when he says he is going to sleep"

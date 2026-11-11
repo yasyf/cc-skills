@@ -9,6 +9,7 @@ import no_file_tools
 import one_line_result
 import pre_compact
 import pytest
+import quiet_turn
 import scratch_folder
 import session_start
 from drive import state
@@ -176,6 +177,28 @@ def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: s
     assert "drive job report" not in reason
     assert one_line_result.block_reason(agent_stop("a\nb", "someone-else")) is None
     assert one_line_result.block_reason(agent_stop("a\nb", "talker", stop_hook_active=True)) is None
+
+
+def turn_stop(message: str, **fields: object) -> dict:
+    return {
+        "session_id": os.environ["CLAUDE_CODE_SESSION_ID"],
+        "hook_event_name": "Stop",
+        "stop_hook_active": False,
+        "last_assistant_message": message,
+        **fields,
+    }
+
+
+def test_a_communicator_turn_ends_on_one_word_and_other_sessions_are_left_alone(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    assert quiet_turn.block_reason(turn_stop("Posted the ack and started a handler.")) is None
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    reason = quiet_turn.block_reason(turn_stop("Acked and started a handler for his question.", session_id="talker"))
+    assert reason.startswith("Your turn ended on 8 words in this terminal")
+    assert "`Sent.`" in reason
+    assert quiet_turn.block_reason(turn_stop("Sent.", session_id="talker")) is None
+    assert quiet_turn.block_reason(turn_stop("a b", session_id="talker", stop_hook_active=True)) is None
+    assert quiet_turn.block_reason(turn_stop("a b", session_id="talker", agent_id="a-7")) is None
 
 
 def agent_call(subagent_type: str, prompt: str) -> str:

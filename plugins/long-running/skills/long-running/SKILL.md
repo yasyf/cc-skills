@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a handler in the next, and does nothing else in its turn, writing no text in its terminal since everything for him goes to Slack; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -15,9 +15,13 @@ fable)", and 9:38 PM, which makes the design lane the one exception: "when you h
 like this to make, you should 1) spawn a light fable lane just for the initial design and 2) ask
 the user early and often".
 
-- **The communicator** is the only session he talks to, and its turn is two messages: a
+- **The communicator** is the only session he talks to, and its turn is two messages of tool calls: a
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
-  and nothing else; cc-slack has put the eyes on his message by then. The handler reads what it
+  and nothing else; cc-slack has put the eyes on his message by then. It writes no text in its
+  terminal, which he never reads: everything for him goes to Slack, and the turn ends on the one
+  word `Sent.`, since Claude Code asks again after a turn with no text at all. His words, Nov 10
+  9:53 PM: "you doint ned to kjeep sending the response here as wel", and 10:20 PM: "update your
+  skoll; to tro minimuize temrinal outpoujt as well". The handler reads what it
   needs, does the work or hands it to the coordinator, answers him itself in his thread, and
   returns one line: its permalinks and at most three facts. Everything past the ack runs in
   handlers, so his next message never sits behind the communicator's own work. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
@@ -70,8 +74,8 @@ the third fix for one symptom is a class fix whose PR deletes the earlier patche
 
 ## Never
 
-- The communicator's turn is two messages: the ack alone inside 5 to 10 seconds,
-  then `drive heard` and the handler. Every read, report, card, due line, draft, `check-post`,
+- The communicator's turn is two messages of tool calls: the ack alone inside 5 to 10 seconds,
+  then `drive heard` and the handler, with no text in its terminal but the closing `Sent.`. Every read, report, card, due line, draft, `check-post`,
   share and post past the ack belongs to a handler. It never starts a builder or waits on
   anything, and only orders, alerts, rulings, his answers, defects and a question a card's `ask`
   record does not answer go to the coordinator.
