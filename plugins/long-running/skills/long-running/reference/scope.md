@@ -77,7 +77,9 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
   of one to three lines, what was found and what is being decided, the recommendation, and what
   happens meanwhile, with each thing it names that he could open linked; a Show me, the worked
   example drawn whole in the visual kind that fits it, with real contents in every row and cell; and two to four options,
-  one line each, saying what he gets and what it costs. The fix the job's diagnosis points at is
+  one line each, saying what runs, on what trigger, what it reads and what reaches whom, then what
+  he gets and what it costs, with no mechanism such as polling, a push or an event left a bare word,
+  which `drive job ask` refuses. The fix the job's diagnosis points at is
   always one of them, and the recommended one unless the summary names it and says why another is
   better; the block's `Direct fix:` line names it, and `drive job ask` refuses a block without one.
   Each option lands releasable alone, by

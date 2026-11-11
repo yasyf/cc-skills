@@ -64,7 +64,7 @@ Show me:
 <the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
-- <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
+- <recommended option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, one line of at most 25 words> (recommended)
 - <another option, the same way; two to four in all>
 Findings:
 Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
@@ -77,6 +77,17 @@ of them, and the recommended one unless the summary names it and says why anothe
 <why>` when no diagnosis points at one, and `drive job ask` refuses a block without it. His words,
 Nov 10 11:28 PM, on a card that left out waiting on the server-side copy its own diagnosis pointed
 at: "so why was that not the suggested optin to me, or even any of the options?"
+
+Every option says concretely what it does: what runs, on what trigger, what it reads or watches,
+and what reaches the agent or him, then what he gets and what it costs, such as "the Mac reruns the
+check function every 30 seconds and compares its output; a change sends one inbox message that
+wakes the agent". The summary's first line says the same of what every option shares, and the
+question asks only what the options differ on. A mechanism is never a bare word: "Polls only", "a
+Poll source" or "the event system" leaves him to guess what is polled and what wakes whom, and
+`drive job ask` refuses one on the question or an option. His words, Nov 11 1:14 AM, after a watch
+card whose buttons said "Polls only" and "pushed sources later" read to him as polling in place of
+the inbox for waking the agent: "That wasn't clear from the card, polling is fine for seeing when
+the function output changed. Get rid of all this and ask me the question again properly".
 
 The question, summary and options are at most 150 words in plain words, and the question and
 options hold no link or markdown, since Slack draws a card's title and buttons as plain text; the
