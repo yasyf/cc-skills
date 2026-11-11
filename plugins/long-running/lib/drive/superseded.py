@@ -1,10 +1,12 @@
-"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could replace, until each is marked standing, superseded or reopened by it."""
+"""What each answer or ruling of his leaves standing: the cards open and PRs not yet live when it was recorded that it could replace, until each is marked standing, superseded or reopened by it, and the jobs waiting on the orders it touches, until each has heard it or is marked untouched."""
 
 import re
 
-from drive import slack, state, view
+from drive import github, slack, state, view
 from drive.render import cut, when
 from drive.state import DriveError
+
+OTHERS_STAND = 3
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -41,21 +43,24 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
     return asked
 
 
-def record(words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, and those its words name."""
+def record(data: dict, words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
+    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, and those its words name; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     jobs = {entry["job"] for entry in answered if entry["job"]}
     orders = {entry["order"] for entry in answered if entry["order"]}
+    cards = {
+        key: None
+        for key, entry in asked.items()
+        if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry))
+    }
+    touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
     return {
         "words": words,
         "link": link,
         "at": moment,
         "said": moment,
-        "cards": {
-            key: None
-            for key, entry in asked.items()
-            if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry))
-        },
+        "cards": cards,
+        "jobs": {job_id: None for job_id, job in data["jobs"].items() if job["state"] == "waiting" and touched & {job["order"], *job["carries"]}},
     }
 
 
@@ -109,6 +114,11 @@ def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
     return [key for key, mark in kept["cards"].items() if mark is None and key in asked]
 
 
+def unheard(data: dict, kept: dict) -> list[str]:
+    """The jobs waiting on an order this answer touches when it came, still live, that are not marked sent his words or untouched by them."""
+    return [job_id for job_id, mark in kept["jobs"].items() if mark is None and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]
+
+
 def counted(keys: list[str], asked: dict[str, dict]) -> str:
     """How many cards and PRs these keys name, as `2 cards and 3 PRs`."""
     cards = sum(asked[key]["kind"] == "question" for key in keys)
@@ -117,26 +127,50 @@ def counted(keys: list[str], asked: dict[str, dict]) -> str:
     return " and ".join(named)
 
 
-def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict]) -> str:
+def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict], data: dict) -> str:
     rows = [
         f"  {key}  {entry['kind']}  {entry['job'] or 'no job'} {entry['order'] or 'no order'}  {cut(entry['title'], 100)}  {entry['url']}"
         for key in keys
         for entry in [asked[key]]
     ]
-    return "\n".join(
-        [
-            (
-                f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each card asking him and each PR not yet'
-                f" live when it came is marked standing, superseded or reopened by it; {counted(keys, asked)}"
-                f" {'has' if len(keys) == 1 else 'have'} no mark:"
-            ),
-            *rows,
-            (
-                f"mark each: drive answer {answer_id} --stands <key>... --superseded <key>=stop|<key>=<live job to fold it into>..."
-                " --reopened <PR key>=<live job that reworks it to his words>..., or --others-stand once each it supersedes or"
-                " reopens is marked"
-            ),
-        ]
+    cards = [
+        (
+            f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each card asking him and each PR not yet'
+            f" live when it came is marked standing, superseded or reopened by it; {counted(keys, asked)}"
+            f" {'has' if len(keys) == 1 else 'have'} no mark:"
+        ),
+        *rows,
+        (
+            f"mark each: drive answer {answer_id} --stands <key>... --superseded <key>=stop|<key>=<live job to fold it into>..."
+            " --reopened <PR key>=<live job that reworks it to his words>..., or --others-stand once each it supersedes or"
+            f" reopens is marked and at most {OTHERS_STAND} are left"
+        ),
+    ]
+    jobs = [
+        f"  {job_id} waits on {', '.join([job['order'], *job['carries']])} and has not heard {answer_id}: SendMessage it his words verbatim, or mark it untouched"
+        for job_id in unheard(data, kept)
+        for job in [data["jobs"][job_id]]
+    ]
+    told = [
+        f'his answer {answer_id} "{cut(kept["words"], 80)}" stays unfinished until each job waiting on an order it touches has heard it:',
+        *jobs,
+        (
+            f"mark each: drive answer {answer_id} --sent <job>... once SendMessage gave it his words verbatim, drive job resume for a"
+            " remote lane, or --untouched <job>... for one his words leave as it is"
+        ),
+    ]
+    return "\n".join([*(cards if keys else []), *(told if jobs else [])])
+
+
+def others_refusal(answer_id: str, kept: dict, asked: dict[str, dict], named: list[str], data: dict) -> str | None:
+    """Why --others-stand may not mark the rest standing: more are left than anyone reads against his words in one call."""
+    if len(rest := [key for key in unmarked(kept, asked) if key not in named]) <= OTHERS_STAND:
+        return None
+    return (
+        f"--others-stand would mark {counted(rest, asked)} standing at once, unread; it marks at most {OTHERS_STAND}. Read each"
+        " card's question and each PR's body against his words and mark each by its key: --stands <key>... for one his words"
+        " leave as it is, --superseded or --reopened for one they replace or change\n"
+        f"{listing(answer_id, kept, rest, asked, data)}"
     )
 
 
@@ -186,12 +220,28 @@ def reopen(data: dict, answer_id: str, key: str, by: str) -> list[str]:
     return [*done, f"{key} reopened by his answer {answer_id}: {by} reworks it to his words, so brief {by} with them"]
 
 
+def stops_open_pr(data: dict, key: str, into: str | None) -> bool:
+    """Whether superseding this stops an open PR outright, folding it into no live job, so it closes on GitHub."""
+    return not into and key in data["prs"] and data["prs"][key]["state"] == "open"
+
+
+def close(key: str) -> None:
+    """Close on GitHub a PR his answer superseded outright."""
+    try:
+        github.close(state.pr_url(key))
+    except github.GithubError as error:
+        raise DriveError(f"{key}: could not close it on GitHub, so it is not marked superseded yet: {error}") from None
+
+
 def supersede(data: dict, answer_id: str, key: str, entry: dict, into: str | None) -> list[str]:
-    """Stop the superseded card's job, or fold what it carries into a live job, and drop its PR's tap ask; what was done, a line each."""
+    """Stop the superseded card's job, or fold what it carries into a live job, drop its PR's tap ask, and keep an open PR stopped outright as closed, once closed on GitHub; what was done, a line each."""
     done = []
     if entry["kind"] == "tap":
         data["prs"][key].update(wants_tap=False, updated=state.stamp())
         done.append(f"{key} no longer waits on his tap")
+    if stops_open_pr(data, key, into):
+        data["prs"][key].update(state="closed", updated=state.stamp())
+        done.append(f"{key} closed on GitHub")
     if not (job_id := entry["job"]):
         return done
     job = data["jobs"][job_id]

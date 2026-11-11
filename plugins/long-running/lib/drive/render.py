@@ -152,9 +152,12 @@ COORDINATOR_RULES = (
         'Record each answer to a card, and each ruling of his, in one call, drive answer --title "<the question>"'
         ' --words "<his words>" --link <permalink>, which records it in cc-notes, prints its id and lists every card'
         " still asking him and every PR not yet live, then refuses until each is marked: `--stands`; `--superseded"
-        " <key>=stop|<job>`, which settles that card in place with his words and stops or folds its job; or `--reopened"
-        " <PR>=<job>`, which that live job reworks to them. ANSWER repeats every 10 minutes until then. Pass"
-        " `--others-stand` only once you have read every card and PR left and his words change none."
+        " <key>=stop|<job>`, which settles that card in place with his words and stops or folds its job, closing an open"
+        " PR on GitHub on =stop; or `--reopened <PR>=<job>`, which that live job reworks to them. It also lists each job"
+        " waiting on an order his answer touches and refuses until each is marked: SendMessage it his words verbatim, then"
+        " `--sent <job>`, or `--untouched <job>` for one they leave as it is. ANSWER repeats every 10 minutes until then."
+        " Pass `--others-stand` only once you have read every card and PR left and his words change none; it refuses while"
+        " more than 3 are left."
     ),
     (
         "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"

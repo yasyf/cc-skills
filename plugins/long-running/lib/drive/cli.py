@@ -1233,7 +1233,7 @@ def pr_tapped(args: argparse.Namespace) -> int:
 
 
 def answer(args: argparse.Namespace) -> int:
-    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name: refuse until each is marked standing, superseded or reopened by it, and settle each superseded or reopened card in place; any other card or PR still asking him may be marked too."""
+    """Record an answer or ruling of his against the cards asking him and PRs not yet live that it could replace, those of the job and order of the card it answers and those its words name, and the jobs waiting on their orders: refuse until each card and PR is marked standing, superseded or reopened by it and each job sent his words or untouched, settle each superseded or reopened card in place, and close on GitHub an open PR superseded outright; any other card or PR still asking him may be marked too."""
     from drive import superseded, view
 
     name = state.resolve(args.drive)
@@ -1247,7 +1247,7 @@ def answer(args: argparse.Namespace) -> int:
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
         args.id = settled.recorded(args.title, args.words, ["scope:durable", f"drive:{name}", *args.label], data["roles"]["coordinator"]["cwd"])
     if args.id not in data["answers"]:
-        if args.stands or args.superseded or args.reopened or args.others_stand:
+        if args.stands or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched:
             raise DriveError(
                 f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him"
                 " and each PR not yet live, and mark them once you have read it"
@@ -1255,23 +1255,30 @@ def answer(args: argparse.Namespace) -> int:
         if not (args.words and args.link):
             raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
         with state.edit(name) as data:
-            data["answers"][args.id] = superseded.record(args.words, args.link, asked, state.stamp())
+            data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, state.stamp())
     kept = data["answers"][args.id]
     open_keys = superseded.unmarked(kept, asked)
     named = [*args.stands, *(key for key, _ in [*args.superseded, *args.reopened])]
-    if twice := sorted({key for key in named if named.count(key) > 1}):
-        raise DriveError(f"{', '.join(twice)}: marked twice; mark each once, standing, superseded or reopened")
+    told = [*args.sent, *args.untouched]
+    if twice := sorted({key for key in [*named, *told] if [*named, *told].count(key) > 1}):
+        raise DriveError(f"{', '.join(twice)}: marked twice; mark each card or PR once, standing, superseded or reopened, and each job once, sent or untouched")
     if stray := [key for key in named if key not in superseded.markable(kept, asked)]:
-        raise DriveError(f"{', '.join(stray)}: not a card or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked)}")
+        raise DriveError(f"{', '.join(stray)}: not a card or PR that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked, data)}")
+    if stray := [job_id for job_id in told if job_id not in superseded.unheard(data, kept)]:
+        raise DriveError(
+            f"{', '.join(stray)}: not a job waiting on an order {args.id} touches that is unmarked\n{superseded.listing(args.id, kept, open_keys, asked, data)}"
+        )
     refusals = [
         superseded.stack_refusal(asked, [key for key, _ in [*args.superseded, *args.reopened]]),
         *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
         *(superseded.reopen_refusal(data, key, asked[key], by) for key, by in args.reopened),
+        args.others_stand and superseded.others_refusal(args.id, kept, asked, named, data),
     ]
     if why := next((refusal for refusal in refusals if refusal), None):
         raise DriveError(why)
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
+        data["answers"][args.id]["jobs"].update({job_id: {"mark": "sent"} for job_id in args.sent} | {job_id: {"mark": "untouched"} for job_id in args.untouched})
     done = []
     cleared: set[str] = set()
     try:
@@ -1280,6 +1287,8 @@ def answer(args: argparse.Namespace) -> int:
             if card and card not in cleared:
                 superseded.settle(card, kept)
                 cleared.add(card)
+            if mark == "superseded" and superseded.stops_open_pr(data, key, job_id):
+                superseded.close(key)
             with state.edit(name) as data:
                 if card:
                     done.append(f"{key}: its card {card} now shows his words and a link to them, with no buttons")
@@ -1296,10 +1305,13 @@ def answer(args: argparse.Namespace) -> int:
         kept = data["answers"][args.id]
         if args.others_stand:
             kept["cards"].update({key: {"mark": "stands"} for key in superseded.unmarked(kept, asked)})
-    if left := superseded.unmarked(kept, asked):
-        raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked)]))
+    if (left := superseded.unmarked(kept, asked)) or superseded.unheard(data, kept):
+        raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked, data)]))
     marked = [mark["mark"] for mark in kept["cards"].values() if mark]
+    heard = [mark["mark"] for mark in kept["jobs"].values() if mark]
     line = f"his answer {args.id} recorded: {marked.count('stands')} standing, {marked.count('superseded')} superseded, {marked.count('reopened')} reopened by it"
+    if heard:
+        line += f"; {heard.count('sent')} waiting {'job' if heard.count('sent') == 1 else 'jobs'} sent his words, {heard.count('untouched')} untouched"
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
 
 
@@ -1969,13 +1981,15 @@ def parser() -> argparse.ArgumentParser:
             "Run for every answer and ruling of his. The first call, with --title, --words and --link and no id, records"
             " it in cc-notes and here, or with an id, --words and --link records one already in cc-notes. It lists every"
             " question card of his still open, every PR waiting on his tap, every"
-            " other open PR and every merged PR whose job is still at work (key, kind, job, order, title, link), and"
-            " exits 2. Each later call marks them: --stands for one this answer leaves as it is, --superseded for one it"
-            " replaces, which settles its card in place showing his words and a link to them with no buttons, drops its"
-            " PR's tap ask, and stops its job or folds what the job carries into the live job named, and --reopened for a"
-            " PR his words change, which settles its card the same way, drops its tap ask, and names the live job that"
-            " reworks it. It exits 2, listing the rest, until every one is marked; the watch says ANSWER every 10 minutes"
-            " while one is not."
+            " other open PR and every merged PR whose job is still at work (key, kind, job, order, title, link), and each"
+            " job waiting on one of their orders, and exits 2. Each later call marks them: --stands for one this answer"
+            " leaves as it is, --superseded for one it replaces, which settles its card in place showing his words and a"
+            " link to them with no buttons, drops its PR's tap ask, and stops its job, closing an open PR on GitHub, or"
+            " folds what the job carries into the live job named, and --reopened for a PR his words change, which settles"
+            " its card the same way, drops its tap ask, and names the live job that reworks it; --sent for a waiting job"
+            " SendMessage gave his words verbatim, and --untouched for one they leave as it is. --others-stand marks the"
+            " cards and PRs left standing only while a few are left. It exits 2, listing the rest, until every one is"
+            " marked; the watch says ANSWER every 10 minutes while a card or PR is not."
         ),
     )
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
@@ -2002,7 +2016,15 @@ def parser() -> argparse.ArgumentParser:
         metavar="KEY=JOB",
         help="a PR his answer changes: its card settled in place, its tap ask dropped, and the live job named reworks it to his words",
     )
-    verb.add_argument("--others-stand", action="store_true", help="every card and PR still unmarked after this call's marks stands")
+    verb.add_argument(
+        "--others-stand",
+        action="store_true",
+        help="every card and PR still unmarked after this call's marks stands, refused while more than a few are left, so each is read against his words",
+    )
+    verb.add_argument(
+        "--sent", action="extend", nargs="+", default=[], metavar="JOB", help="a job waiting on an order his answer touches, once SendMessage gave it his words verbatim"
+    )
+    verb.add_argument("--untouched", action="extend", nargs="+", default=[], metavar="JOB", help="a job waiting on an order his answer touches that his words leave as it is")
     verb.set_defaults(run=answer)
     verb = verbs.add_parser(
         "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers"

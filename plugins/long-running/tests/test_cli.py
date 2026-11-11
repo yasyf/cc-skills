@@ -1254,9 +1254,11 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     run("job", "card", kept[0], "--waits", "demo:j1-7")
     run("job", "set", asking, "--card", link)
     reply = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
-    assert run("answer", "a1", "--words", "its one snapshot file, just wait for the copy", "--link", reply) == (
+    assert cli.main(["answer", "a1", "--words", "its one snapshot file, just wait for the copy", "--link", reply]) == 2
+    assert "  j1 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in capsys.readouterr().err
+    assert run("answer", "a1", "--sent", "j1") == (
         0,
-        "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it",
+        "his answer a1 recorded: 0 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
     )
     assert cli.main(["job", "card", kept[1], "--waits", "demo:j1-7"]) == 2
     refusal = capsys.readouterr().err
@@ -2602,7 +2604,7 @@ def designing(run: Run, with_pr: str) -> str:
 
 
 def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_superseded_one_is_settled_in_place(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], closed: list[str]
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
@@ -2620,9 +2622,10 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
         "his answer a1 recorded: 0 standing, 1 superseded, 0 reopened by it",
         f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
         f"{designing} no longer waits on his tap",
+        f"{designing} closed on GitHub",
         "j1 stopped: end its agent, or its lane with drive job end j1",
     ]
-    assert (code, settled) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
+    assert (code, settled, closed) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)], [PR])
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == (False, "stopped", "running")
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
@@ -2719,6 +2722,66 @@ def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_
     marked = run("answer", "a1", "--stands", designing, "Forge-AI/monorepo#45", "Forge-AI/monorepo#44")
     assert marked == (0, "his answer a1 recorded: 3 standing, 0 superseded, 0 reopened by it")
     assert state.load("demo")["answers"]["a1"]["cards"]["Forge-AI/monorepo#44"] == {"mark": "stands"}
+
+
+def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touches_is_sent_his_words_or_marked_untouched(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = data["jobs"]["j4"]["state"] = "waiting"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert "  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in listed
+    assert "j4" not in listed
+    assert cli.main(["answer", "a1", "--stands", designing]) == 2
+    refusal = capsys.readouterr().err
+    assert "stays unfinished until each job waiting on an order it touches has heard it:" in refusal
+    assert f"  {designing}  tap" not in refusal
+    assert "mark each: drive answer a1 --sent <job>... once SendMessage gave it his words verbatim" in refusal
+    assert cli.main(["answer", "a1", "--sent", "j4"]) == 2
+    assert "j4: not a job waiting on an order a1 touches that is unmarked" in capsys.readouterr().err
+    assert run("answer", "a1", "--sent", "j3") == (
+        0,
+        "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
+    )
+    assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
+
+
+def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_standing_so_each_is_marked_by_its_key(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    for number in (44, 45, 46):
+        run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1")
+    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    assert cli.main(["answer", "a1", "--others-stand"]) == 2
+    refusal = capsys.readouterr().err
+    assert "--others-stand would mark 4 PRs standing at once, unread; it marks at most 3." in refusal
+    assert "mark each by its key: --stands <key>..." in refusal
+    assert "  Forge-AI/monorepo#46  open  j1 o1  " in refusal
+    assert set(state.load("demo")["answers"]["a1"]["cards"].values()) == {None}
+    marked = run("answer", "a1", "--stands", "Forge-AI/monorepo#44", "Forge-AI/monorepo#45", "--others-stand")
+    assert marked == (0, "his answer a1 recorded: 4 standing, 0 superseded, 0 reopened by it")
+
+
+def test_superseding_an_open_pr_outright_closes_it_on_github_and_leaves_a_merged_one_as_it_is(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, closed: list[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#44"]["state"] = "merged"
+    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    code, out = run("answer", "a1", "--superseded", f"{designing}=stop", "Forge-AI/monorepo#44=stop")
+    assert code == 0
+    assert f"{designing} closed on GitHub" in out.splitlines()
+    assert "Forge-AI/monorepo#44 closed" not in out
+    assert closed == [PR]
+    assert [pr["state"] for pr in state.load("demo")["prs"].values()] == ["closed", "merged"]
 
 
 def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_needs_no_mark(

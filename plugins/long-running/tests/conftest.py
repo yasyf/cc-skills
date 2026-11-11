@@ -68,6 +68,13 @@ def communicator(run: Callable[..., tuple[int, str]], demo: str) -> str:
 
 
 @pytest.fixture(autouse=True)
+def closed(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    urls: list[str] = []
+    monkeypatch.setattr(github, "close", urls.append)
+    return urls
+
+
+@pytest.fixture(autouse=True)
 def drawn(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     pages: list[str] = []
     monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)

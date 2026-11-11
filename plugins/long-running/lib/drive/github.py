@@ -33,6 +33,11 @@ def run(cmd: list[str]) -> str:
     return result.stdout
 
 
+def close(url: str) -> None:
+    """Close a pull request on GitHub."""
+    run(["gh", "pr", "close", url])
+
+
 def visibility(repo: str) -> str | None:
     """public, private or internal, as GitHub reports the repository to us; None when it knows no repository by that name."""
     try:
