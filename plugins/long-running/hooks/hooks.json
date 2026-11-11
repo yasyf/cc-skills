@@ -24,6 +24,12 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Read|Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" no_file_tools.py" }
+        ]
+      },
+      {
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" landing_guard.py" }
