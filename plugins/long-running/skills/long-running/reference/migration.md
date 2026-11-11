@@ -51,7 +51,7 @@ line reads `in no Orca terminal`, as under tmux, `nohup` or `claude --bg`, or
 `not visible in Orca until restarted into a terminal`. [Start or resume](start.md) sends one here
 for a model or build change too.
 
-- Move a session only on his word naming it, because ending a session is his decision. A
+- Move a session only on his word naming it, because ending a session is his decision, which `drive move` records. A
   coordinator whose process has already exited is restarted at once by Start or resume, with no
   word.
 - A hook refuses ending a role's session (`/exit` to its terminal, `claude stop`) while an
@@ -61,8 +61,11 @@ for a model or build change too.
 - Moving the coordinator is a restart: its background agents end with the old process, and Start
   or resume step 5 gives each job that needs one a fresh agent.
 
-1. Read the role's `session`, `terminal` and `cwd` under `roles` in `drive status --json`. Under
-   tmux, `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_start_command}'`
+1. Run `drive move <role> --his-word <the permalink of his message naming the move>`. It refuses
+   without his own message or while an incident order is open, records his word on the role, and
+   prints steps 2 to 4 with the role's lane, terminal, session and process id filled in; it stops
+   and starts nothing. Under tmux,
+   `tmux list-panes -a -F '#{session_name}:#{window_index}.#{pane_index} #{pane_start_command}'`
    lists each pane with the `claude` line that started it.
 2. Ask the old session to let go, and wait for its reply: `cci post --lane <your lane> --kind ask
    --to <root or communicator>@<drive> --text "Moving you into an Orca terminal on his word: run

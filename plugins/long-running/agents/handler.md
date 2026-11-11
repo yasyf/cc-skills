@@ -60,13 +60,14 @@ Before you post or draw anything he reads, do three things:
 ## Do
 
 Load your tools once, in one call: `ToolSearch` with
-`select:mcp__plugin_long-running_drive__say,mcp__plugin_cc-slack_cc-slack__slack_thread,mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_edit,mcp__plugin_cc-slack_cc-slack__slack_card_answer,mcp__plugin_cc-inbox_cci__post`.
+`select:mcp__plugin_long-running_drive__say,mcp__plugin_long-running_drive__heard,mcp__plugin_cc-slack_cc-slack__slack_thread,mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_edit,mcp__plugin_cc-slack_cc-slack__slack_card_answer,mcp__plugin_cc-inbox_cci__post`.
 Then do the row that matches. A row that names a section means every bullet of that section.
 
 | You get | Do |
 |---|---|
 | A read-only question: where something stands, what a job did, why something is late | See "A read-only question". |
 | A share: his words ask to post something in a place he names | Follow the share rules below. |
+| His words repeating a part of an open order, such as asking where it is | Call the drive's `heard` tool with `repeats: <o>` and `part: [<part>]`, the order and part `drive status` names. A refusal means no job carries that part: post the `owner` record below with his words and the refusal verbatim, so the coordinator starts its job, and put the refusal on a `DEFECT` line in your return. Then answer him as for a read-only question. |
 | An order or an alert | Post `cci post --kind owner --lane communicator --to root@<drive>` with his words verbatim, his permalink as `--url` and `--attr thread=<ts>`. |
 | A ruling: how the drive, its sessions, cards or messages should work, a correction or a complaint included | Record it with `answer_add`: the question verbatim as title, his words verbatim as body, labels `scope:durable` and `drive:<name>`. Then post the `owner` record above with `--attr ruling=<answer id>`, so the coordinator applies it to the live work; the communicator's builder rewrites the skill. The record names only the surface his words name, because a wider reach is his to pick on a question card. |
 | His feedback on a post or card the drive made: its words, a picture, a link or card it lacks, "what is this" | Record it and post the `owner` record as for a ruling, then, when his words correct a word the post used, run `drive term <that word> "<the proper term>"` so `say` refuses it from then on, and fix that one post in place: a line with `slack_edit`, a card by that record, whose job redoes its `ask` under the card's `waits` id. Post one line in his thread linking the fixed post. Change no tool: the communicator's Tooling order on his words fixes the library, `cc-slack check-post` or drive tool that let the post through, by his words "When I give feedback on posts keep iterating on the library, tooling etc don't get complacent". |

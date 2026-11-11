@@ -352,9 +352,9 @@ def named_text(source: str, what: str) -> str:
     return sys.stdin.read() if source == "-" else named_file(source, what).read_text()
 
 
-def his_words(link: str) -> str:
+def his_words(link: str, deed: str) -> str:
     if not slack.message(link).get("from_user"):
-        raise DriveError(f"{link} is not his message; only his own words withdraw a promised line")
+        raise DriveError(f"{link} is not his message; only his own words {deed}")
     return link
 
 
@@ -399,7 +399,7 @@ def apart_from_filing(order: dict) -> str:
 def order_set(args: argparse.Namespace) -> int:
     """Change an order; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time."""
     name = state.resolve(args.drive)
-    withdrawn = his_words(args.withdrawn) if args.withdrawn else None
+    withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
@@ -1458,6 +1458,8 @@ def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
 def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.serves:
         pr["serves"] = args.serves
+    if args.deletes:
+        pr["deletes"] = [state.pr_key(ref) for ref in args.deletes]
     if args.design:
         pr["design"] = args.design
     if args.port_of:
@@ -1695,6 +1697,8 @@ def heard(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     moment = state.now()
     with state.edit(name) as data:
+        if args.repeats or args.part:
+            refuse_an_unheld_repeat(data, args.repeats, args.part)
         back = state.owner_away(data, moment)
         since = (data.get("owner") or {}).get("heard")
         data["owner"] = {"heard": state.stamp(moment), "away": args.away}
@@ -1727,6 +1731,25 @@ def term(args: argparse.Namespace) -> int:
         data["stand_ins"][args.stand_in] = args.term
     line = f'say refuses "{args.stand_in}" from now on, naming "{args.term}"'
     return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
+
+
+def refuse_an_unheld_repeat(data: dict, order_id: str | None, named: list[str]) -> None:
+    """His words repeat a part of an open order: refuse when no running, waiting or built job carries it, since the drive dropped it."""
+    if order_id is None:
+        raise DriveError("--part names the part his words repeat of the order --repeats names: pass --repeats <o> with it")
+    order = find(data["orders"], order_id, "order")
+    unheld = [
+        part
+        for part in pick_parts(order_id, order, named)
+        if not any(job["state"] not in state.FINISHED_JOB_STATES and part in state.job_parts(job, order_id) for job in data["jobs"].values())
+    ]
+    if unheld:
+        parts = ", ".join(f'"{part}"' for part in unheld)
+        raise DriveError(
+            f'his words repeat {order_id} "{render.cut(order["text"], 200)}", part {parts}, and no running, waiting or built job'
+            f" carries it, so the drive dropped it: start its job with drive job add <kind> --order {order_id} --part <part> --goal"
+            ' "<its deliverable>", file a defect with this refusal verbatim, then run heard again'
+        )
 
 
 def overlay_live(data: dict) -> str:
@@ -1910,8 +1933,11 @@ def mcp_command(args: argparse.Namespace) -> int:
 
 
 def tool_command(args: argparse.Namespace) -> int:
-    from drive import tools
+    from drive import mcp, tools
 
+    if args.help:
+        print(tools.described(next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)))
+        return 0
     try:
         print(tools.run(args.tool, state.resolve(), json.load(sys.stdin)))
     except reads.ReadError as error:
@@ -1932,6 +1958,51 @@ def plan_search(args: argparse.Namespace) -> int:
         for section in found
     )
     return emit(args, said or f'no plan the coordinator keeps in cc-notes has a section on "{words}"', found)
+
+
+def move(args: argparse.Namespace) -> int:
+    """Step 1 of moving a role's session into a fresh Orca terminal: his word naming the move, recorded on the role; steps 2 to 4 printed, run by hand."""
+    name = state.resolve(args.drive)
+    if not args.his_word:
+        raise DriveError(
+            f"drive move {args.role}: refused, ending a session is his decision: pass --his-word <the permalink of his message naming the move>"
+        )
+    known = state.load(name)
+    if incidents := state.open_incidents(known, list(known["orders"])):
+        raise DriveError(
+            f"drive move {args.role}: refused, incident {', '.join(incidents)} is open and a move ends the {args.role}'s session:"
+            " move it once the fix is live"
+        )
+    his_words(args.his_word, "move a session")
+    with state.edit(name) as data:
+        held = find(data["roles"], args.role, "role")
+        held["move_word"] = args.his_word
+    lanes = {role: lane for lane, role in state.LANE_ROLES.items()}
+    mover = lanes[next(role for role in state.ROLES if role != args.role)]
+    session, terminal = held["session"], held["terminal"]
+    ended = (
+        f"orca terminal send --terminal {terminal} --text /exit --enter"
+        if terminal
+        else f"tmux send-keys -t <pane> /exit Enter under tmux, its pane the one tmux list-panes -a lists with its claude line, or claude stop {session} for a claude --bg session"
+    )
+    pids = orca.claude_pids(session)
+    gone = (
+        f"until ps -p {' '.join(map(str, pids))} lists nothing"
+        if pids
+        else f"none: no ~/.claude/sessions/<pid>.json names {session}, so its process has exited"
+    )
+    steps = [
+        f"1. his word {args.his_word} recorded on the {args.role}",
+        (
+            f'2. cci post --lane {mover} --kind ask --to {lanes[args.role]}@{name} --text "Moving you into an Orca terminal on his word:'
+            " run cc-slack unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply"
+            ' released, and take no more work." and wait for its reply'
+        ),
+        f"3. {ended}",
+        f"4. wait {gone}",
+        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: create the terminal resuming {session} in {held['cwd']}",
+    ]
+    return emit(args, "\n".join(steps), {"role": args.role, "move_word": args.his_word, "steps": steps})
 
 
 def install_plugin(args: argparse.Namespace) -> int:
@@ -2421,6 +2492,12 @@ def parser() -> argparse.ArgumentParser:
         help="drop a hold the drive recorded itself as his tap, refusing his own; needs --why, kept in the drive's events",
     )
     verb.add_argument("--tap-source", type=his_link, help="the Slack permalink of his message or of the card he tapped")
+    verb.add_argument(
+        "--deletes",
+        nargs="+",
+        metavar="PR",
+        help="each earlier merged PR serving the same order whose patch this one takes out; a third tap PR on an order with two merged needs it, or a design job on the order",
+    )
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")
@@ -2496,6 +2573,12 @@ def parser() -> argparse.ArgumentParser:
             " names that sub-coordinator's lane as where his owner record goes, --to <lane>, in place of root"
         ),
     )
+    verb.add_argument(
+        "--repeats",
+        metavar="ORDER",
+        help="the open order a part of which his words repeat, such as asking where it is; refused while no running, waiting or built job carries that part",
+    )
+    verb.add_argument("--part", action="append", default=[], help="the part of the --repeats order his words repeat; default: its only part")
     verb.set_defaults(run=heard)
     verb = verbs.add_parser(
         "term", parents=both, help="he corrected a word: say refuses it from now on, naming the proper term his words or the code use"
@@ -2560,9 +2643,22 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", nargs="+", help="what to look for in the plans, such as a part, a step or a file")
     verb.set_defaults(run=plan_search)
-    verb = verbs.add_parser("tool", help="run one MCP tool on the JSON arguments read from stdin and print its lines")
+    verb = verbs.add_parser("tool", add_help=False, help="run one MCP tool on the JSON arguments read from stdin and print its lines")
     verb.add_argument("tool", choices=MCP_TOOLS)
+    verb.add_argument(
+        "-h", "--help", action="store_true", help="print the tool's JSON fields, each with its type, whether it is required and its description, and run nothing"
+    )
     verb.set_defaults(run=tool_command)
+    verb = verbs.add_parser(
+        "move",
+        parents=both,
+        help="step 1 of moving a role's session into a fresh Orca terminal: record his word naming it and print steps 2 to 4, stopping and starting nothing",
+    )
+    verb.add_argument("role", choices=state.ROLES)
+    verb.add_argument(
+        "--his-word", metavar="PERMALINK", help="the Slack permalink of his message naming the move; refused without it, for a message not his, and while an incident order is open"
+    )
+    verb.set_defaults(run=move)
 
     verb = verbs.add_parser("install")
     verb.add_argument("plugin", metavar="plugin@marketplace")
