@@ -34,6 +34,7 @@ CLOCK = re.compile(r"(\d{1,2}):(\d{2})")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
+REBUILT_ASKS = ".rebuilt"
 
 
 class DriveError(Exception):
@@ -222,7 +223,31 @@ def load(name: str) -> dict:
     data.setdefault("answers", {})
     if (pictures := drive_dir(name) / "pictures").is_dir() and not (pictures / picture.SOURCED).exists():
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
+    if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
+        rebuild_asks(name, data)
+    for job in data["jobs"].values():
+        for question in job["questions"]:
+            if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
+                question["file"] = str(kept)
     return data
+
+
+def rebuilt_ask(name: str, waits: str) -> Path:
+    return drive_dir(name) / "asks" / f"{waits.partition(':')[2]}.md"
+
+
+def rebuild_asks(name: str, data: dict) -> None:
+    """Keep an ASK file, rebuilt from the card the drive stored, for each of his open question cards whose job's question keeps none, so `drive cards redraw` redraws it; marked so this runs once, from cards read live."""
+    from drive import limits
+
+    if (stored_cards := json.loads(cards_path(name).read_text()))["source"] != "live":
+        return
+    unkept = {question["waits"] for job in data["jobs"].values() for question in job["questions"] if question["waits"] and not question["file"]}
+    (asks := drive_dir(name) / "asks").mkdir(exist_ok=True)
+    for stored in stored_cards["questions"]:
+        if (waits := stored["card"].get("waits")) in unkept and not (kept := rebuilt_ask(name, waits)).exists():
+            kept.write_text(limits.rebuilt(stored["card"]))
+    (asks / REBUILT_ASKS).touch()
 
 
 def pr_bodies(name: str) -> list[str]:

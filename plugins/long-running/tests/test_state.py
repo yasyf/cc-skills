@@ -55,6 +55,31 @@ def test_load_gives_each_picture_drawn_before_pictures_kept_their_source_its_kep
     assert not (asked / "source.json").exists()
 
 
+def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_word_for_word_once(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    data["jobs"]["j1"] = state.new_job("o1", "design", "row counts", [], "2026-11-10T21:00:00-08:00")
+    data["jobs"]["j1"]["questions"] = [state.new_question(None, "Should row counts be exact?", "2026-11-10T21:00:00-08:00") | {"waits": "demo:j1-7"}]
+    state.create(data)
+    drive = state_root / "demo"
+    shown = drive / "pictures" / "0123456789abcdef"
+    shown.mkdir(parents=True)
+    (shown / "show-me.png").write_bytes(b"\x89PNG\r\n")
+    (shown / "source.json").write_text(json.dumps({"kind": "code:sql", "source": "select count(*) from alerts\n"}))
+    body = f"*This question is being redone:* new numbers\nCounting reads every row.\nRecommended: exact.\n*Show me*\nOne query per table:\n![Show me]({shown / 'show-me.png'})\n![dash](/nowhere/dash.png)"
+    card = {"title": "Should row counts be exact?", "body": body, "options": ["Exact: one query per table", "Estimate: the planner's numbers"], "recommended": "Exact: one query per table", "waits": "demo:j1-7"}
+    (drive / "cards.json").write_text(json.dumps({"pr_cards": [], "questions": [{"card": card}], "source": "live", "team_url": ""}))
+    kept = drive / "asks" / "j1-7.md"
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] == str(kept)
+    assert kept.read_text() == (
+        "ASK Should row counts be exact?\nCounting reads every row.\nRecommended: exact.\nShow me:\nOne query per table:\n```sql\n"
+        "select count(*) from alerts\n```\n![dash](/nowhere/dash.png)\n- Exact: one query per table (recommended)\n"
+        "- Estimate: the planner's numbers\nFindings:\nDirect fix: none: rebuilt from the posted card\n"
+    )
+    kept.unlink()
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None
+    assert not kept.exists()
+
+
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

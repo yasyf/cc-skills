@@ -12,6 +12,13 @@ kept one gets it on the first `drive` command after install, from the fence a ke
 card's body still holds; the rest stay as drawn, counted in one line, and the pass never runs again.
 Its Slack copy changes only when its card is redrawn, which draws it anew with today's renderer.
 
+The same first command keeps an ASK file for each of his open question cards whose job's question
+kept none, rebuilt from the card the drive stored, at `asks/<j>-<seq>.md` for its waits id, so
+`drive cards redraw` redraws it too. The file holds the card's question, summary and options word for
+word, the recommended one marked, each Show me picture as the fence its `source.json` keeps or as its
+picture line where none is kept, and `Direct fix: none: rebuilt from the posted card` under
+`Findings:`. It also runs only once.
+
 ## From one driver to two sessions
 
 A drive saved by one driver session reads as that session coordinating, so the driver becomes the

@@ -55,6 +55,9 @@ FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
 SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
 REDONE = "*This question is being redone:* "
+REBUILT = "Direct fix: none: rebuilt from the posted card"
+POSTED_PICTURE = re.compile(r"!\[(?P<caption>[^\]]*)\]\((?P<path>/[^)\s]+)\)")
+NAMELESS_CAPTION = re.compile(r"Show me(?: \(\d+\))?")
 FENCE = re.compile(r"^[ \t]*```")
 PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
@@ -174,6 +177,33 @@ def post_refusal(post: dict, edited: int = 0) -> str | None:
 
 def card_body(summary: list[str], show_me: list[str]) -> str:
     return "\n".join([*summary, "*Show me*", *show_me] if any(line.strip() for line in show_me) else summary)
+
+
+def rebuilt(card: dict) -> str:
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, and each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept."""
+    lines = card["body"].split("\n")
+    shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
+    show_me = []
+    for line in lines[shown + 1 :]:
+        posted = POSTED_PICTURE.fullmatch(line.strip())
+        kept = posted and Path(posted["path"]).with_name("source.json")
+        if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] != "image"):
+            show_me.append(line)
+            continue
+        if not NAMELESS_CAPTION.fullmatch(posted["caption"]):
+            show_me.append(posted["caption"])
+        show_me += [f"```{source['kind'].removeprefix('code:')}", source["source"].rstrip("\n"), "```"]
+    return "\n".join(
+        [
+            f"ASK {card['title']}",
+            *(line for line in lines[:shown] if not line.startswith(REDONE)),
+            *(["Show me:", *show_me] if show_me else []),
+            *(f"- {option}{' (recommended)' if option == card['recommended'] else ''}" for option in card["options"]),
+            "Findings:",
+            REBUILT,
+            "",
+        ]
+    )
 
 
 def card_words(card: dict) -> int:
