@@ -2,11 +2,12 @@ import json
 import re
 from pathlib import Path
 
-from drive import cli, limits, picture, refs, slack, state
+from drive import cli, limits, picture, reads, refs, slack, state
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
+HELD = "report {seq} held for his catch-up, since he is away; drive status lists it until the catch-up posts"
 
 
 def say(name: str, post: dict) -> str:
@@ -30,12 +31,39 @@ def say(name: str, post: dict) -> str:
         line += f" CARD {card}"
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
+    if report.get("catch_up"):
+        line += released(name)
     if order:
         try:
             line += "; " + cli.record_post(name, order, reply["permalink"], report)[0]
         except (DriveError, slack.SlackError) as error:
             line += f"; not recorded on {order}: {error}"
     return line
+
+
+def hold(name: str, seq: str, report: dict, order_id: str | None) -> str:
+    """Mark a report whose line waits for his catch-up held on the drive, once, answering it with a refused record to the coordinator session that wrote it, else the one hearing its order; that record's seq."""
+    data = state.load(name)
+    if mark := data["held"].get(seq):
+        return mark["told"]
+    coordinators = ["root", *map(state.project_lane, data["subcoordinators"])]
+    lane = report["writer"] if report["writer"] in coordinators else state.heard_lane(data, order_id) if order_id else "root"
+    argv = ["cci", "post", "--drive", name, "--lane", "communicator", "--kind", "refused", "--re", seq, "--to", f"{lane}@{name}", "--id", f"held-{seq}"]
+    argv += ["--attr", f"held={seq}", *(["--attr", f"order={order_id}"] if order_id else [])]
+    try:
+        told = str(json.loads(reads.run([*argv, "--json", "--text", HELD.format(seq=seq)], Path.cwd()))["seq"])
+    except reads.ReadError as error:
+        raise DriveError(f"report {seq} could not be marked held: {error}") from None
+    with state.edit(name) as data:
+        data["held"][seq] = {"order": order_id, "at": state.stamp(), "told": told}
+    return told
+
+
+def released(name: str) -> str:
+    """Let go of every report held for his catch-up, which the catch-up just posted covers, and name them."""
+    with state.edit(name) as data:
+        held, data["held"] = data["held"], {}
+    return f"; it carries the reports held for it, no longer held: {', '.join(held)}" if held else ""
 
 
 def titled(name: str, text: str) -> str:

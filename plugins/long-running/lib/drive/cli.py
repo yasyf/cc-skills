@@ -1853,14 +1853,15 @@ def heard(args: argparse.Namespace) -> int:
         since = (data.get("owner") or {}).get("heard")
         data["owner"] = {"heard": state.stamp(moment), "away": args.away}
         news = []
+        held = list(data["held"]) if back and since else []
         if back and since:
             for key, order in data["orders"].items():
                 last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
-                if watch.changed_since(order, data["jobs"], last):
+                if watch.changed_since(order, data["jobs"], last) or any(mark["order"] == key for mark in data["held"].values()):
                     news.append(key)
-    if news:
-        state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news))
-    return emit(args, "away" if args.away else "heard", {"away": args.away, "back": back, "since": since, "catch_up": news})
+    if news or held:
+        state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news), **({"held": " ".join(held)} if held else {}))
+    return emit(args, "away" if args.away else "heard", {"away": args.away, "back": back, "since": since, "catch_up": news, "held": held})
 
 
 def term(args: argparse.Namespace) -> int:

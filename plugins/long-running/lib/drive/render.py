@@ -210,7 +210,8 @@ COORDINATOR_RULES = (
         " the order's thread, and done or dropped refuses until then."
     ),
     (
-        "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out. A"
+        "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out, and a"
+        " `refused` record with `held` names a report held for his catch-up, which never reached him. A"
         " report says only what was observed, with no side fact and no unproven or unconfirmed paragraph under any"
         " label; each unknown gets a job, and he gets its result or nothing."
     ),
@@ -523,6 +524,7 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
         "orders": orders,
         "jobs": {job_id: drive["jobs"][job_id] for job_id in job_ids},
         "prs": {key: pr for key, pr in drive["prs"].items() if pr["order"] in orders},
+        "held": drive["held"],
     }
 
 
@@ -537,6 +539,9 @@ def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
     lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
     if incidents := [incident_line(order_id, order) for order_id, order in open_orders(drive).items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
+    if drive["held"]:
+        lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
+        lines.extend(f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}" for seq, mark in drive["held"].items())
     lines.extend(agentless_lines(drive))
     for order_id, order in open_orders(drive).items():
         lines.extend(order_block(drive, order_id, order, False))

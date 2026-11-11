@@ -467,6 +467,23 @@ def test_his_next_message_after_away_prints_heard_and_the_coordinator_hears_the_
     assert watch.run_pass(watching, T0) == []
 
 
+def test_a_report_held_while_he_was_away_puts_its_order_and_itself_on_his_catch_up(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit(demo) as data:
+        data["owner"] = {"heard": state.stamp(T0), "away": True}
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 + timedelta(minutes=5))
+        data["orders"]["o2"] = order(jobs=["j2"], updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["jobs"]["j2"] = job(order="o2", updated=state.stamp(T0 - timedelta(minutes=5)))
+        data["held"]["700"] = {"order": "o2", "at": state.stamp(T0 + timedelta(minutes=10)), "told": "701"}
+    serve(monkeypatch, {})
+    watching = watcher(demo)
+    monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
+    assert cli.main(["heard", "--drive", demo]) == 0
+    assert capsys.readouterr().out.strip() == "heard"
+    assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1 o2 held=700"]
+
+
 def test_a_catch_up_naming_eighty_orders_reaches_the_coordinator_whole(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     sent = posts(monkeypatch)
