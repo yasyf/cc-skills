@@ -203,7 +203,9 @@ and the new time.
 - An approved and green incident PR lands in the same turn the watch reports it: on its `checks
   passed` or `approved` event, resume its job with "land it and start its build now". In the monorepo
   the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then `gh pr merge <n>
-  -R Forge-AI/monorepo --squash`. Never `--admin`. Accept a reviewer-bot finding with `submit-pr`'s
+  -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack, which `gh pr merge` refuses,
+  `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f sha=<head> -f merge_method=squash
+  -f merge_action=direct_merge`; the landing guard holds both to the exemption or his tap. Never `--admin`. Accept a reviewer-bot finding with `submit-pr`'s
   `pr-reviews accept <slug> --why "incident: <why the fix is right>"` unless it says the fix is wrong.
 - Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers or
   what caused the break, no comparison of open builds, no question. The job shipping the fix lifts the
