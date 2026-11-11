@@ -157,9 +157,8 @@ def deny_reason(payload: dict) -> str | None:
         )
     if kind == agents.HANDLER and (extra := beyond_brief(prompt)):
         return agents.Unjudged(
-            f"refused: a handler's prompt is its brief alone, each line opening with one of {', '.join(LABELS)}, his words"
-            f" running on below theirs and Context at most three lines; `{extra}` is more. Its rules load with its agent"
-            " definition, and a rule typed into a prompt overrides it: drop the line"
+            f"refused: a handler's prompt is its brief alone, every line under one of {', '.join(LABELS)}; `{cut(extra, 44)}` is"
+            " more: a rule in a prompt overrides its agent definition, so drop the line"
         )
     text = brief.carried(prompt)
     if kind == BUILDER and role not in (None, state.tooling_holder(data)) and brief.SERVES_TOOLING.search(text):
