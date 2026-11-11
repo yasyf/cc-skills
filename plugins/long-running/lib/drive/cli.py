@@ -925,13 +925,13 @@ def answer(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
     done = []
-    settled: set[str] = set()
+    cleared: set[str] = set()
     try:
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
             card = asked[key]["card"]
-            if card and card not in settled:
+            if card and card not in cleared:
                 superseded.settle(card, kept)
-                settled.add(card)
+                cleared.add(card)
             with state.edit(name) as data:
                 if card:
                     done.append(f"{key}: its card {card} now shows his words and a link to them, with no buttons")
