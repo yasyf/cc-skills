@@ -122,7 +122,8 @@ release, its approve gate included, whatever migration, delete or replace it hol
 A resume or re-plan of a release he ordered keeps his order: pass the same `--order` again. Never
 approve a release he has not approved, and never touch a release he started himself. An incident's brief's incident order approves
 the cut that ships its fix, the default branch's head included when its first check proved that build
-works, so pass `--order <the incident's answer id>`. On an incident nothing stops between the merge and the build:
+works, so pass `--order <the incident's answer id>`, but never a revert's: a PR or build that takes a
+change out lands only on his tap, on a card stating the bug in it. On an incident nothing stops between the merge and the build:
 no dry run, no read of what the cut covers or what caused the break, no comparison of open builds,
 no question. Start the build at the fix commit with the cut the incident reference names, report its
 link, and run any read while it builds; the release's approve gate is the only check. Never cut a

@@ -63,6 +63,11 @@ def order_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     created = state.stamp()
     with state.edit(name) as data:
+        incidents = [
+            f"{other_id} {other['state']} incident: {other['text'][:80]}; {other['note'] or 'no record'}"
+            for other_id, other in state.open_orders(data).items()
+            if args.incident and other["incident"]
+        ]
         order_id = state.next_id(data["orders"], "o")
         order = data["orders"][order_id] = {
             "text": args.words,
@@ -88,7 +93,7 @@ def order_add(args: argparse.Namespace) -> int:
         }
         if args.due:
             need_thread(data, order_id, order)
-    return emit(args, order_id, {"id": order_id, **order})
+    return emit(args, "\n".join([order_id, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
 def need_thread(data: dict, order_id: str, order: dict) -> None:
@@ -972,7 +977,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--thread")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
-    verb.add_argument("--incident", action="store_true", help="an incident order; the dashboard's top strip shows it until it closes")
+    verb.add_argument("--incident", action="store_true", help="an incident order; the dashboard's top strip shows it until it closes, and each other open incident order prints with its note, so a failing service stays one incident")
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)

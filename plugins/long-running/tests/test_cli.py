@@ -288,6 +288,19 @@ def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_st
     )
 
 
+def test_an_incident_order_names_every_open_incident_with_its_record(run: Run, demo: str) -> None:
+    run("order", "add", "SandSQL fork copies fail on plat", "--incident")
+    run("order", "set", "o1", "--note", "record 3fa2c1")
+    run("order", "add", "the dashboard is slow")
+    run("order", "add", "an old outage", "--incident")
+    run("order", "set", "o3", "--state", "done")
+    assert run("order", "add", "SandSQL mint endpoint failing", "--incident") == (
+        0,
+        "o4\no1 open incident: SandSQL fork copies fail on plat; record 3fa2c1",
+    )
+    assert run("order", "add", "why is the dashboard slow?") == (0, "o5")
+
+
 def test_order_add_json(run: Run, demo: str) -> None:
     code, out = run("order", "add", "words", "--json")
     assert code == 0

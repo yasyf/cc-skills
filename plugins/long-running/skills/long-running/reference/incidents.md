@@ -23,17 +23,50 @@ check or the rollback: no question to him, no real-or-ours verdict, no plan mode
 mute as a resolution. His ruling, Nov 10 3:46 PM: "sounds good, and fix your tooling so you dont do
 this again; you should have just rolle dback and done the proper fix".
 
+## One incident, one record
+
+A failing service is one incident, however many alerts, threads and questions of his it draws, with
+one evidence record and one job that owns it. The record is a cc-notes investigation: its premise is
+the symptom and when it started, its timeline what changed and when, its findings the suspects, and
+its root cause the verdict.
+
+- **The owner** is the first check, or the cause job when none runs; when the first check's build
+  fails too, the same job is resumed as the cause job. In its first 10 minutes it appends each
+  release, merge, flag flip and config change on the failing service since an hour before the
+  start, with its time and link: `ccn investigation append <id> "<time> <change> <link>"`. Each
+  suspect is `ccn investigation finding add <id> "<change, PR>: <how it could fail this way>"`,
+  settled by `finding confirm` or `finding clear` with `--why "<what was observed, its link>"`.
+  The verdict, `ccn investigation root-cause <id> "<change, PR, what in it fails>"`, waits until a
+  test machine reproduces the failure and that change explains it.
+- **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
+  cause. The coordinator reads `ccn investigation show <id>` before any line about the cause.
+- **A later alert or question** about a service whose incident is open joins it: its order keeps
+  its thread, takes the parts his words ask for and the record with `drive order set <o> --parts
+  "<part>" --note "record <id>"`, and the owner carries it with `drive job set <owner> --carries
+  <o> --part "<part>"`, with no job of its own. On Nov 10 three SandSQL alerts on shared prod became
+  three incident orders, each diagnosed apart. His four threads got a guess from when the alerts
+  fired, then one of two changes, then three, a stall story, and a revert with no bug named. His
+  words, 9:19 PM: "but you shoul;d have known this was thed polronlem not freak out and start saying
+  its all sortgs of other things fujcking fix your toolking so theres beter coordinatioin in the
+  gfuture".
+
 ## In the same turn
 
 1. `answer_add` his words verbatim, labels `drive:<name>` and `incident`: that answer approves the
    incident's own release and rollback, so no card goes to him for either.
 2. `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts>
    --incident --parts "first check" --due +5m`, or `--parts "rollback" "fix" "cause"` when no
-   release or new build came before the break. `--incident` puts it on the dashboard's top strip
-   until the order closes; an incident order made without it gets `drive order set <o> --incident`.
+   release or new build came before the break. It prints each incident order still open with its
+   note: one on the same service makes this order part of that incident, by [One incident, one
+   record](#one-incident-one-record), and nothing below starts. Otherwise open the record with
+   `ccn investigation open "<service> on <cluster>: <symptom>, since <time>" --body "<the alert or
+   his words, with its link>" --label drive:<name> --label incident`, then `drive order set <o>
+   --note "record <id>"`. `--incident` puts the order on the dashboard's top strip until it closes;
+   an incident order made without it gets `drive order set <o> --incident`.
 3. Start its jobs, each a `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the
-   answer id from step 1 and the brief template's `Incident:` line written out in full, and record each
-   with `drive job add codex --order <o> --goal "<its part>: <incident>" --agent <id> --part "<its part>"`.
+   answer id from step 1, the record's id and the brief template's `Incident:` line written out in
+   full, and record each with `drive job add codex --order <o> --goal "<its part>: <incident>"
+   --agent <id> --part "<its part>"`.
    - After a release or a new build, the **first check** comes first and alone, before any cause hunt,
      hotfix or rollback plan. Within 10 minutes it reads which commit the live build was cut from and
      how far the default branch is ahead of it on the failing path. Then it installs the newest build
@@ -58,21 +91,20 @@ this again; you should have just rolle dback and done the proper fix".
        (in the monorepo, AGENTS.md's Performance section). When the cause is a design, a design step
        comes first, by [Design first](design.md), with its questions on cards before any PR. It never
        ships a pin, a hard-coded flag, a header, a prefix rule, a cap, a retry, a timeout raise, a
-       timer, a wait, a cache or a special case in the cause's place. A reverted or degraded path is
-       not its deliverable either. Its PR is the whole root fix with the tests the repository's
-       rules ask of it; nothing is split off to land faster, since the rollback already stopped the
-       harm. His ruling, Nov 10 3:44 PM: "this is also a hack stop doing fucking hacks just do proper
-       fundamental fixes".
-     - **cause**, which reads Sentry, logs and code and sends what it finds to the fix job. It never
+       timer, a wait, a cache or a special case in the cause's place, and never a revert of the
+       change. Its PR is the whole root fix with the tests the repository's rules ask of it; nothing
+       is split off to land faster, since the rollback already stopped the harm. His ruling, Nov 10
+       3:44 PM: "this is also a hack stop doing fucking hacks just do proper fundamental fixes".
+     - **cause**, which owns the record and sends the fix job each suspect it confirms. It never
        gates the rollback.
    - A codex lane cannot read Sentry: it has no Sentry sign-in, and Sentry's site asks for one.
      So a first check or cause job that needs Sentry, such as the affected chats or the full error
      an alert links, gets a `long-running:reader` beside it in the same message. Start it with the
      Agent tool on `model` `opus` with `run_in_background: true`; it reads Sentry with this
-     session's Sentry tools. Record it with `drive job add reader --order <o> --goal "Sentry read:
-     <what>" --agent <id> --part "<its part>"`, and send its result to the codex job with
-     `SendMessage`. On Nov 10 two first checks came back blocked at "Sign in to Sentry", and a reader
-     with the Sentry tools answered the same question in six minutes.
+     session's Sentry tools and appends what it read to the record. Record it with `drive job add
+     reader --order <o> --goal "Sentry read: <what>" --agent <id> --part "<its part>"`, and send its
+     result to the codex job with `SendMessage`. On Nov 10 two first checks came back blocked at
+     "Sign in to Sentry", and a reader with the Sentry tools answered the same question in six minutes.
 4. A `report` to the communicator for his first line: what is running.
 
 ## When the first check returns
@@ -82,8 +114,8 @@ this again; you should have just rolle dback and done the proper fix".
   --parts "first check" "release"`, and a `long-running:builder` that starts the release of the
   default branch's head by the cut [Ship it](#ship-it) names. No hotfix is built on the live build's
   commit, and no rollback or cause hunt starts.
-- **It fails too:** `drive order set <o> --parts "first check" "rollback" "fix" "cause"` and the three
-  jobs of step 3 in that turn; only then does the cause hunt start.
+- **It fails too:** `drive order set <o> --parts "first check" "rollback" "fix" "cause"`, the first
+  check's job resumed as the cause job, and the rollback and fix jobs of step 3 in that turn.
 
 ## Clocks
 
@@ -99,15 +131,14 @@ alert; the rollback's from the first check's verdict, or from the order when non
 | His next line, until users are unblocked | 5 minutes after his last | A line of what is running and when the next lands |
 
 A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started in the turn
-the clock is missed, beside the first; the first to deliver wins. Never fable or astra. A missed clock
-also sends him a line in that turn, before he asks: what is late and the new time.
+the clock is missed, beside the first; the first to deliver wins, and both write to the one record.
+Never fable or astra. A missed clock also sends him a line in that turn, before he asks: what is late
+and the new time.
 
 ## Ship it
 
 - Codex edits and Claude ships: the turn the fix job has its change, a `long-running:builder` ships it
   from that worktree, lands it and proves it live.
-- The fix PR carries the whole root fix and the tests the repository's rules ask of it; nothing is
-  split off to land faster.
 - An approved and green incident PR lands in the same turn the watch reports it: on its `checks
   passed` or `approved` event, resume its job with "land it and start its build now". In the monorepo
   the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then `gh pr merge <n>
@@ -117,6 +148,10 @@ also sends him a line in that turn, before he asks: what is late and the new tim
   what caused the break, no comparison of open builds, no question. The job shipping the fix starts the build at
   the fix commit and reports its link. The release's own approve gate is the only check, and every
   read runs while it builds.
+- No incident release starts, a rollback included, before a line to him states the bug it ships
+  against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
+  The fix's release has it from the line that opened its PR; for a rollback or a release of the
+  default branch, the `report` saying so goes out before its job is told to start.
 - The cut is named here, never derived mid-incident. An incident fix for sand or sand-next ships
   alone, never through the normal start, which pulls in the whole platform release and waits on the
   fix's dev test:
@@ -131,13 +166,16 @@ also sends him a line in that turn, before he asks: what is late and the new tim
   the release answers the gate with `--order <the answer id>`, or `tools/ci release approve <id>
   --via <agent>` where it holds at approve. Any other release he ordered or picked is approved the
   same way, by his own order, as [landing.md](landing.md) says.
+- A revert is never a rollback, and his standing rule is fix forward. A PR or build that takes a
+  change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
+  revert: "NO i didnt fucking say revert it". No incident order approves it. It lands only on his
+  tap on its card, which states the bug in that change from the record, with its PR and evidence,
+  and any line saying a change was taken out says what is wrong with it. On Nov 10, with no build
+  to roll back to, #53868 reverted #52919 on the incident order alone. His words, 9:18 PM: "we need
+  to fix it, you can just fuckingf revert it and not even tel me qwhat he fucking bug is".
 - A build or release he started is his: never cancel, retry, reorder or approve it, and start no other
   release while it runs. When its commit carries the fix, its steps are the lines he gets. One of ours
   that must stop gets a `report` to the communicator first, then its job stops it.
-- Roll back to the newest build that provably lacks the failing change, however many releases back
-  that is; the nearest earlier build is the target only when it lacks the change. The rollback job
-  proves the target lacks the change and can open everything the bad builds wrote since, and starts
-  the rollback or returns the evidence that no build passes both inside its clock.
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts.
 - A repair of a team's data is a pass like any other, however urgent: it runs as a service account
   inside the cluster that serves that team and starts from a pipeline or an in-cluster job, never
@@ -153,14 +191,14 @@ also sends him a line in that turn, before he asks: what is late and the new tim
 While the rollback unblocks users, the fix job keeps building the root fix, with a design step first
 by [Design first](design.md) when the cause is a design, and its regression tests ride in that same PR.
 When releasing the default branch was the fix, the commits the first check found past the live one are
-the cause, and no hunt starts.
+the cause, the record's verdict says so, and no hunt starts.
 
 ## What he hears
 
 Each line is a `report` to the communicator, which posts it in his thread or the alert's thread, while
 he is away too. Until users are unblocked he hears a line at least every 5 minutes; after that, each
-step of the root fix reaches him once, as it happens. Nothing else reaches him but the one cause line
-below, and a link appears once, inline, where the sentence names the thing it points at.
+step of the root fix reaches him once, as it happens. A link appears once, inline, where the sentence
+names the thing it points at.
 
 - No "not proven" or "unproven" paragraph under any label, as in every line to him by
   [messages.md](messages.md), and no side facts about a release, such as what else it applies, its
@@ -168,8 +206,11 @@ below, and a link appears once, inline, where the sentence names the thing it po
   input, and he gets its result or nothing. This binds the communicator, its handlers and any reader
   that posts for it. His ruling, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst
   fucking fix the actual isue".
-- A cause reaches him in one line, never revised, and only once a test machine reproduces the failure
-  and the suspected change explains it. Until then its candidates stay among the jobs.
+- Every word about the cause is quoted from the record, read in the turn the line is written. Its
+  verdict goes out once and is never revised. Before one, he hears that there is none yet; when he
+  asks what the bug is, he gets each open suspect with its PR and the evidence for and against it.
+  A cause, a count of candidates or a fix reaches him only from the record, never from when alerts
+  fired.
 
 The steps, in order:
 
@@ -178,7 +219,7 @@ The steps, in order:
    fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
 4. **Users unblocked:** whose runs succeed again, on a real machine.
-5. **Root fix PR open:** its title, linked, and the cause it removes.
+5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.
 8. **Live:** what is live, its proof on a real machine, and whose runs succeed. Healthy means the

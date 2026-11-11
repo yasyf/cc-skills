@@ -183,7 +183,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
   or URL you did not read from its source. An unknown is a job's, and he gets its result
   or nothing. His words, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst fucking fix the actual isue". An incident line says only a step of the fix with
   its time, its proof on a real machine, users having it, what is running and when the next line
-  lands, or the one cause line a record carries: no side facts about a release, such as what else it
+  lands, or what the report quotes from the incident's record about the cause: never a cause, a
+  count of candidates or a fix it does not quote from there, and no side facts about a release, such as what else it
   applies, its counts or its parts, even when the record you were sent carries them.
 
 ## Return
