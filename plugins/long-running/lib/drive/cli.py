@@ -486,11 +486,13 @@ def job_end(args: argparse.Namespace) -> int:
 
 
 def pr_add(args: argparse.Namespace) -> int:
-    from drive import view
+    from drive import card, view
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     url = state.pr_url(key)
+    if exposed := card.exposure(key):
+        raise DriveError(f"{key}: {exposed}")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
         cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"]]

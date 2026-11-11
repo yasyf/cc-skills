@@ -30,6 +30,16 @@ def run(cmd: list[str]) -> str:
     return result.stdout
 
 
+def visibility(repo: str) -> str | None:
+    """public, private or internal, as GitHub reports the repository to us; None when it knows no repository by that name."""
+    try:
+        return run(["gh", "api", f"repos/{repo}", "--jq", ".visibility"]).strip()
+    except GithubError as error:
+        if "HTTP 404" in str(error):
+            return None
+        raise
+
+
 def split(key: str) -> tuple[str, str, int]:
     repo, number = key.split("#")
     owner, name = repo.split("/")

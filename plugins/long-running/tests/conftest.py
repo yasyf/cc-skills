@@ -115,6 +115,13 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "open_on", lambda heads: {})
 
 
+@pytest.fixture(autouse=True)
+def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
+    seen: dict[str, str | None] = {}
+    monkeypatch.setattr(github, "visibility", lambda repo: seen.get(repo, "private"))
+    return seen
+
+
 @dataclass
 class Answers:
     found: list[dict] = field(default_factory=list)
