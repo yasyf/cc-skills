@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import runpy
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,7 +27,7 @@ from captain_hook.tickets.context import said_evidence
 from captain_hook.tickets.decide import UNPERMITTED, cited
 from spawnllm import LabelAnswer
 
-HOOKS = Path(__file__).resolve().parents[2] / "hooks"
+INSTALLED = runpy.run_path(str(Path(__file__).resolve().parents[2] / "hooks" / "installed.py"))["root"]
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")), "mcp__plugin_long-running_drive__say")
 NO_DRIVE = "0a0a0a0a-no-drive-session"
@@ -67,10 +68,10 @@ TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright."""
+    """Run the drive's own check for this call from the long-running installed now, since capt-hook keeps running this pack from the install it first loaded it from until the pack's own files change, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright."""
     payload = evt._raw
     said = subprocess.run(
-        ["python3", "-I", str(HOOKS / script)],
+        ["python3", "-I", str(INSTALLED() / "hooks" / script)],
         input=json.dumps(payload),
         capture_output=True,
         text=True,
