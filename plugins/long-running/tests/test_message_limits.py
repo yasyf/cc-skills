@@ -153,9 +153,9 @@ REWORDINGS = [
 
 THREADS = ("1.2", BAD_STATE_THREAD, DB_THREAD, AUDIT_THREAD, HARDWARE_THREAD)
 
-TEAMMATES_FIX = "A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand button."
-JOSHS_FIX = (
-    "<https://github.com/Forge-AI/monorepo/pull/53618|Josh Lorincz's fix> landed at 2:12 PM today: every locked chat shows"
+TEAMMATES_PR = "A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button."
+JOSHS_PR = (
+    "<https://github.com/Forge-AI/monorepo/pull/53618|Josh Lorincz's PR> landed at 2:12 PM today: every locked chat shows"
     " an Update sand button."
 )
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
@@ -306,6 +306,15 @@ def call(tool: str, transcript: Path, session: str | None = None, **tool_input: 
 
 def posted(transcript: Path, **tool_input: object) -> str | None:
     return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input))
+
+
+def say(transcript: Path, **tool_input: object) -> str | None:
+    return message_limits.deny_reason(call("slack_dm_status", transcript, **tool_input) | {"tool_name": message_limits.SAY})
+
+
+def holds_pr(order: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#53618"] = state.new_pr("https://github.com/Forge-AI/monorepo/pull/53618", "j1", order)
 
 
 def his(slack_thread: Thread, *messages: str) -> None:
@@ -597,35 +606,50 @@ def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_threa
 
 
 def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str, transcript: Path) -> None:
-    refusal = posted(transcript, text=TEAMMATES_FIX)
+    holds_pr("o1")
+    refusal = posted(transcript, text=TEAMMATES_PR)
     assert refusal.startswith(
-        "refused: \"teammate's fix\" names something he could open with no link there; put those words in its link,"
-        " <url|teammate's fix>, so he opens it where it is named"
+        "refused: \"teammate's PR\" names something he could open with no link there; put those words in its link,"
+        " <url|teammate's PR>, so he opens it where it is named"
     )
     assert '"never mention somehting and expect me to go look it up myself"' in refusal
-    assert posted(transcript, text=JOSHS_FIX) is None
+    assert posted(transcript, text=JOSHS_PR) is None
     assert posted(transcript, text='He wrote "the fix is in" at noon; a fix for the rest is being written.') is None
     assert "says only a number" in posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|#53618> landed.")
     assert "is a number he cannot open" in posted(transcript, text="Josh's change, #53618, landed.")
-    assert posted(transcript, text=TEAMMATES_FIX, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
-    ack = call("slack_dm_status", transcript, text=TEAMMATES_FIX)
+    assert posted(transcript, text=TEAMMATES_PR, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
+    ack = call("slack_dm_status", transcript, text=TEAMMATES_PR)
     del ack["agent_id"]
     assert message_limits.deny_reason(ack) is None
 
 
 def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str, transcript: Path) -> None:
+    holds_pr("o1")
     card = {
-        "title": "A teammate's fix landed first: keep it or replace it?",
-        "body": TEAMMATES_FIX,
-        "options": ["Keep theirs (recommended)", "Replace it; it undoes a teammate's landed fix"],
+        "title": "A teammate's PR landed first: keep it or replace it?",
+        "body": TEAMMATES_PR,
+        "options": ["Keep theirs (recommended)", "Replace it; it undoes a teammate's landed PR"],
         "waits": "demo:j1-7",
     }
     refusal = posted(transcript, card=card)
-    assert "\"teammate's fix\" names something he could open with no link there" in refusal
-    assert "\"A teammate's fix\" in the question or an option names something he could open" not in refusal
-    assert "\"teammate's landed fix\" in the question or an option names something he could open, and those draw no links" in refusal
-    assert posted(transcript, card=card | {"body": JOSHS_FIX}) is None
-    assert "in the question or an option" in posted(transcript, card=card | {"body": JOSHS_FIX.replace("fix>", "change>")})
+    assert "\"teammate's PR\" names something he could open with no link there" in refusal
+    assert "\"A teammate's PR\" in the question or an option names something he could open" not in refusal
+    assert "\"teammate's landed PR\" in the question or an option names something he could open, and those draw no links" in refusal
+    assert posted(transcript, card=card | {"body": JOSHS_PR}) is None
+    assert "in the question or an option" in posted(transcript, card=card | {"body": JOSHS_PR.replace("PR>", "change>")})
+
+
+def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_posts_order_does(talker: str, transcript: Path) -> None:
+    for plain in ("the thread", "that write thread", "that fix"):
+        assert say(transcript, text=f"The server stalled because {plain} held its lock.", order="o1") is None
+    first = "Once the first PR lands, the alerts stop."
+    assert say(transcript, text=first, order="o1") is None
+    holds_pr("o2")
+    assert say(transcript, text=first, order="o1") is None
+    assert say(transcript, text=first, order="o2").startswith(
+        'refused: "the first PR" names something he could open with no link there; put those words in its link, <url|the first PR>'
+    )
+    assert say(transcript, text=first).startswith('refused: "the first PR" names something he could open')
 
 
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
@@ -720,10 +744,11 @@ def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_
 
 
 def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:
+    holds_pr("o1")
     card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card | {"body": said(40) + "\n" + SHOW_ME}) is None
     assert "this card is 431 words" in posted(transcript, card=card | {"body": said(40) + "\n" + SHOW_ME.removeprefix("*Show me*\n")})
-    assert "names something he could open" in posted(transcript, card=card | {"body": said(40) + "\n*Show me*\nThe fix, after:\n```\nx\n```"})
+    assert "names something he could open" in posted(transcript, card=card | {"body": said(40) + "\n*Show me*\nThe PR, after:\n```\nx\n```"})
     assert posted(transcript, card=card | {"body": said(40) + "\n*Show me*\n```\nthe fix #41\n```"}) is None
 
 

@@ -608,18 +608,18 @@ def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str,
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-TEAMMATE_FIX = """ASK A teammate's fix for the missing update button landed first: keep it, add our download status to it, or replace it?
-A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
+TEAMMATE_FIX = """ASK A teammate's PR for the missing update button landed first: keep it, add our download status to it, or replace it?
+A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
 - Keep theirs, close ours: the button is always there and nothing needs a terminal, but the card never says it is downloading. (recommended)
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
-- Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed fix.
+- Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
 Findings:
 Direct fix: Keep theirs, close ours
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
 """
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
-    "A teammate's fix landed at 2:12 PM today:",
-    "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's fix for the update button> landed at 2:12 PM today:",
+    "A teammate's PR landed at 2:12 PM today:",
+    "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's PR for the update button> landed at 2:12 PM today:",
 ).replace(
     "Ours waits unlanded meanwhile.\n",
     "Ours waits unlanded meanwhile.\nShow me:\nWhat a locked chat shows mid-download, theirs first, then ours:\n"
@@ -628,20 +628,20 @@ TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
 )
 
 
-def test_job_ask_refuses_a_fix_named_with_no_link_and_keeps_the_linked_copy(
+def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(TEAMMATE_FIX)
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
-    assert '"teammate\'s fix" names something he could open with no link there; put those words in its link' in refusal
-    assert '"teammate\'s landed fix" in the question or an option names something he could open, and those draw no links' in refusal
+    assert '"teammate\'s PR" names something he could open with no link there; put those words in its link' in refusal
+    assert '"teammate\'s landed PR" in the question or an option names something he could open, and those draw no links' in refusal
     block.write_text(TEAMMATE_FIX_SHOWN)
     assert run("job", "ask", asking, str(block))[0] == 0
-    block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their fix, then ours"))
+    block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their PR, then ours"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert '"their fix" names something he could open with no link there' in capsys.readouterr().err
+    assert '"their PR" names something he could open with no link there' in capsys.readouterr().err
 
 
 def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says_why_not(

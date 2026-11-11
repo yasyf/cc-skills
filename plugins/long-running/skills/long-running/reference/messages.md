@@ -210,8 +210,13 @@ picture composited from both, by his 11:01 PM words "this fdiagram should be jsu
 then the two tables should be renderd in slack natively". Words and raw data never go in a fence:
 `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal session,
 command output or a stack trace, whatever language the fence names; a chart, compare or arch whose
-JSON does not parse; and a `Show me:` with no visual under it. His words, 10:52 PM, on a card whose
-Show me was two pictures of JSON and terminal output: "giving me random json and terminal shit in
+JSON does not parse; a fence of one or two lines declaring a constant, by his 11:03 PM words "we
+needed an image to show a const?"; as many code fences as options, which go in one ```compare
+labeled per option, by his 10:55 PM words "should be shown gallery style labeled with each option";
+a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence; two or
+more PRs listed by number, which a stack card shows, by his 10:33 PM words "we should be using the
+"Stack card" which shows several PRs"; and a `Show me:` with no visual under it. His words, 10:52 PM,
+on a card whose Show me was two pictures of JSON and terminal output: "giving me random json and terminal shit in
 those first 2 images is absiolkteiyl useless". A visual that still fails to draw leaves the Slack
 card with its caption, nothing in its place, and the dashboard with its source as text. A picture
 inside a sentence or a table cell stays text, so `drive job ask` refuses one there. His words on the

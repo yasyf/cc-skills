@@ -1,10 +1,11 @@
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from drive import picture
 from drive.render import cut, when
-from drive.state import PR_KEY, PR_URL, DriveError
+from drive.state import PR_KEY, PR_URL, DriveError, root
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -20,6 +21,17 @@ PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes
 LIBRARY_RULING = 'his Nov 10 9:58 PM words "buold out a libary of difernetg visualizaions … and then use the approporiuate one each time"'
 WORDS_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all, at ALL … if theres nothing to show its bette rnot to show anyhting"'
 RAW_RULING = 'his Nov 10 10:52 PM words "giving me random json and terminal shit in those first 2 images is absiolkteiyl useless"'
+MOCK_RULING = 'his Nov 10 11:54 PM words "not a useful show me at all"'
+BIG_RULING = 'his Nov 10 10:09 PM words "look at these images they are insane, they are so big"'
+GALLERY_RULING = 'his Nov 10 10:55 PM words "should be shown gallery style labeled with each option (e.g 1, 2)"'
+HAND_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all … here we could have done a mermaid chart"'
+NATIVE_RULING = 'his Nov 10 11:01 PM words "the two tables should be rendered in slack natively"'
+CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
+HAND_DRAWN = ("asks", "pictures")
+CONSTANT = re.compile(
+    r"^[ \t]*(?:(?:export|pub|public|private|final)[ \t]+)*(?:const|let|var|val|static)[ \t]+\w[^=\n]*=|^[ \t]*[A-Z][A-Z0-9_]+[ \t]*(?::[^=\n]+)?=(?!=)"
+)
+COMMENT = re.compile(r"^[ \t]*(?://|#|--|/?\*)")
 VISUALS = (
     "a ```mermaid flow for routing or ownership, a ```compare or a markdown table for options, a ```chart for numbers,"
     " an ```arch diagram for components, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
@@ -43,7 +55,8 @@ RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
-KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?|fix(?:es)?|releases?|builds?|alerts?|threads?|asks?"
+KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
+DRIVE_KINDS = ("PR", "card")
 DETERMINERS = r"the|this|that|these|those|its|his|her|their|our|your|my"
 FILLER = (
     rf"(?!(?:{DETERMINERS}|will|would|can|could|should|must|may|might|to|which|who|and|or|but|not|never|next|is|are|was"
@@ -56,17 +69,7 @@ COMPOUND = (
     r"|branch(?:es)?|caches?|process(?:es)?|paths?|pipelines?|box(?:es)?|machines?|tools?|systems?|commands?|flows?"
     r"|trains?|gates?|press|hooks?|jobs?|targets?|modes?|flags?|settings?|channels?)\b)"
 )
-NAMED = (
-    re.compile(
-        rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?"
-        rf"(?:(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?|fix|release|build|alert|thread|ask)\b{COMPOUND}",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"\b(?:the|these|those|its|his|her|their|our|your|my|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:fixes|releases|builds|alerts|threads|asks)\b{COMPOUND}",
-        re.IGNORECASE,
-    ),
-)
+NAMED = re.compile(rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?(?:{KINDS})\b{COMPOUND}", re.IGNORECASE)
 KIND = re.compile(rf"\b(?:{KINDS})\b", re.IGNORECASE)
 LINK = re.compile(r"<[^<>|]+\|([^<>]*)>")
 NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECASE)
@@ -206,7 +209,7 @@ def question(text: str, kept: bool = False) -> Question:
             f"the summary is {len(summary)} lines; it is one to three: what was found and what is being decided,"
             " the recommendation, what happens meanwhile"
         )
-    problems += show_me_problems(show_me, bool(example and above), kept)
+    problems += show_me_problems(show_me, bool(example and above), kept, len(options))
     if strays := [line for line in after if not line.startswith("- ")]:
         problems.append(f"only `- ` option lines follow the Show me, then `Findings:`; these are neither: {strays}")
     if len(options) not in OPTION_COUNT:
@@ -227,7 +230,7 @@ def question(text: str, kept: bool = False) -> Question:
         f'"{found}" points at an option by number or position; cards renumber, so each option says its own words'
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
-    problems += unlinked([*summary, *captions(show_me)], [title, *options])
+    problems += unlinked([*summary, *captions(show_me)], [title, *options], DRIVE_KINDS)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
         f" say it in plain words there and put the link in the summary ({PLAIN_TEXT_RULING})"
@@ -310,7 +313,7 @@ def option_head(option: str) -> str:
     return option.split(":")[0].strip()
 
 
-def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> list[str]:
+def show_me_problems(show_me: list[str], below_options: bool, kept: bool, options: int) -> list[str]:
     if below_options:
         return ["the options come after the Show me, never above it: summary, then `Show me:` and its example, then the options"]
     if not any(line.strip() for line in show_me):
@@ -336,18 +339,21 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> lis
     fences = [line for line in show_me if FENCE.match(line)]
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
-    return problems if kept else problems + visual_problems(show_me)
+    return problems if kept else problems + visual_problems(show_me, options)
 
 
-def visual_problems(show_me: list[str]) -> list[str]:
-    """Why a Show me would draw nothing worth a picture: a fence of words, a fence of raw data or tool output, a chart, compare or arch whose JSON does not draw, or no visual at all."""
-    fences = list(picture.FENCE.finditer("\n".join(show_me)))
+def visual_problems(show_me: list[str], options: int) -> list[str]:
+    """Why a Show me would draw nothing worth a picture: a fence of words or a mock, a fence of raw data or tool output, a constant, a code picture per option, a picture drawn by hand, PRs listed by number, a chart, compare or arch whose JSON does not draw, or no visual at all."""
+    text = "\n".join(show_me)
+    fences = list(picture.FENCE.finditer(text))
     named = [fence for fence in fences if fence[1].lower() not in picture.WORDS]
     raw = [(fence, what) for fence in named if (what := picture.raw(fence[1], fence[2]))]
     drawn = [fence for fence in named if not picture.raw(fence[1], fence[2])]
+    code = [fence for fence in drawn if fence[1].lower() not in picture.DIAGRAMS]
     problems = [
-        f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a picture of'
-        f" words: name the code's language, or put the words in a caption or a table ({WORDS_RULING})"
+        f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a mock or words'
+        " drawn as a picture: name the language of real code, put real rows in a markdown table, draw the flow in a ```mermaid"
+        f" or ```arch fence, or leave the Show me out ({WORDS_RULING}; {MOCK_RULING})"
         for fence in fences
         if fence[1].lower() in picture.WORDS
     ]
@@ -356,6 +362,30 @@ def visual_problems(show_me: list[str]) -> list[str]:
         f" and a picture of it shows him nothing: {picture.INSTEAD} ({RAW_RULING})"
         for fence, what in raw
     ]
+    problems += [
+        f'the Show me ```{fence[1]} fence holding "{cut(" ".join(fence[2].split()), 60)}" shows a constant, which a sentence says'
+        " as well as a picture: put the value in the summary or an option, show a real snippet of several lines when its shape"
+        f" matters, or leave the Show me out ({CONSTANT_RULING})"
+        for fence in code
+        if constant(fence[2])
+    ]
+    if len(code) >= max(2, options):
+        problems.append(
+            f"the Show me draws {len(code)} code fences as {len(code)} pictures, one per option and each full size: carry them in"
+            f" one ```compare whose options name each, so he sees them side by side, labeled ({BIG_RULING}; {GALLERY_RULING})"
+        )
+    problems += [
+        f'the Show me picture "{shown[1]}" is a file drawn by hand for the card, its words and tables baked into pixels in no style of'
+        " the drive's: carry its source in a fence the drive draws, a ```mermaid or ```arch diagram or a ```compare labeled per"
+        f" option, and its tables as markdown, which Slack shows natively, or leave the Show me out ({HAND_RULING}; {NATIVE_RULING})"
+        for line in captions(show_me)
+        if (shown := PICTURE.fullmatch(line)) and drawn_by_hand(picture.IMAGE.search(line)[1])
+    ]
+    if len(prs := dict.fromkeys(PR_NUMBER.findall(TOKEN.sub(" ", text)))) >= 2:
+        problems.append(
+            f"the Show me lists {len(prs)} PRs by number, {', '.join(prs)}: a stack card shows several PRs, each with its checks and his tap,"
+            f" so post them as one PR card through say's tap_prs and leave the Show me out ({STACK_RULING})"
+        )
     problems += [f"the Show me ```{fence[1]} fence {problem}" for fence in drawn if (problem := json_problem(fence[1].lower(), fence[2]))]
     if not drawn and not raw and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
         problems.append(
@@ -363,6 +393,18 @@ def visual_problems(show_me: list[str]) -> list[str]:
             f" the `Show me:` line when nothing does ({LIBRARY_RULING}; {WORDS_RULING})"
         )
     return problems
+
+
+def constant(source: str) -> bool:
+    """Whether a code fence's code, its comments aside, is one or two lines declaring a value."""
+    lines = [line for line in source.splitlines() if line.strip() and not COMMENT.match(line)]
+    return 1 <= len(lines) <= 2 and all(CONSTANT.match(line) for line in lines)
+
+
+def drawn_by_hand(path: str) -> bool:
+    """Whether a picture is a file an agent drew for a card and kept in a drive's asks or pictures folder, rather than one the drive draws from a fence."""
+    found = Path(path).expanduser()
+    return found.is_relative_to(root()) and len(parts := found.relative_to(root()).parts) > 2 and parts[1] in HAND_DRAWN
 
 
 def json_problem(kind: str, source: str) -> str | None:
@@ -402,12 +444,18 @@ def one_value(table: list[list[str]]) -> str | None:
 
 
 def kind(found: str) -> str:
-    word = found.lower().removesuffix("es" if found.lower().endswith("fixes") else "s")
-    return "PR" if word in ("pull request", "pr", "fix") else word
+    return "card" if found.lower().endswith(("card", "cards")) else "PR"
 
 
-def unlinked(linked: list[str], plain: list[str]) -> list[str]:
-    """Each thing he could open that these lines name with no link at that spot: `linked` lines draw `<url|label>` links, and what `plain` lines name, a card's title and options, which draw as plain text, is linked in a `linked` line by words naming the same kind of thing."""
+def held(data: dict, order: str | None) -> tuple[str, ...]:
+    """The kinds of thing the drive opens that a post on the order can name: a PR it holds on that order, or on any order when the post names none, and a card it put up."""
+    prs = [pr for pr in data["prs"].values() if order in (None, pr["order"])]
+    cards = [question for job in data["jobs"].values() for question in job["questions"] if question["card"]]
+    return tuple(kind for kind, found in (("PR", prs), ("card", cards)) if found)
+
+
+def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> list[str]:
+    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot: `linked` lines draw `<url|label>` links, and what `plain` lines name, a card's title and options, which draw as plain text, is linked in a `linked` line by words naming the same kind of thing. A plain noun, such as a thread, a fix or a release, names nothing the drive opens."""
     labels = [label for line in linked for label in LINK.findall(line)]
     linked_kinds = {kind(found) for label in labels for found in KIND.findall(label)}
     problems = [
@@ -421,8 +469,10 @@ def unlinked(linked: list[str], plain: list[str]) -> list[str]:
             for number in PR_NUMBER.findall(line)
         ]
         for line in bare:
-            for found in dict.fromkeys(match.group() for pattern in NAMED for match in pattern.finditer(line)):
+            for found in dict.fromkeys(match.group() for match in NAMED.finditer(line)):
                 named = KIND.findall(found)[-1]
+                if kind(named) not in kinds:
+                    continue
                 if not is_plain:
                     problems.append(f'"{found}" names something he could open with no link there; put those words in its link, <url|{found}>, so he opens it where it is named ({LINKS_RULING})')
                 elif kind(named) not in linked_kinds:
@@ -475,13 +525,13 @@ def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
     )
 
 
-def link_refusal(post: dict) -> str | None:
-    """Why a handler's post to his DM names something he could open without its link: a line's `text`, or a card's summary and Show me captions, carry each link where the thing is named, and its title and options, drawn as plain text, name only what the body links."""
+def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
+    """Why a handler's post to his DM names a PR or card of the kinds the drive holds without its link: a line's `text`, or a card's summary and Show me captions, carry each link where the thing is named, and its title and options, drawn as plain text, name only what the body links."""
     if card := post.get("card"):
         summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
-        problems = unlinked([summary, *captions(example[0].splitlines() if example else []), post.get("text") or ""], [card.get("title") or "", *(card.get("options") or [])])
+        problems = unlinked([summary, *captions(example[0].splitlines() if example else []), post.get("text") or ""], [card.get("title") or "", *(card.get("options") or [])], kinds)
     else:
-        problems = unlinked([post.get("text") or ""], [])
+        problems = unlinked([post.get("text") or ""], [], kinds)
     if not problems:
         return None
     return "refused: " + "; ".join(problems) + "."

@@ -312,7 +312,10 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   each table as a markdown table, never one picture of both. Words and raw data never go in a fence:
   `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal
   session, command output or a stack trace, whatever language it names; a chart, compare or arch
-  whose JSON does not parse; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an
+  whose JSON does not parse; a fence of one or two lines declaring a constant; as many code fences as
+  options, which go in one ```compare labeled per option; a picture kept in the drive's asks or
+  pictures folder, drawn by hand rather than from a fence; two or more PRs listed by number, which a
+  stack card shows; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an
   image where it sits; one inside a sentence or table cell stays text. Every row and cell holds
   real contents, measured or worked out from the code and marked as such, never the names of what
   will be measured later. `drive job ask` refuses a table with one value in every cell, by his

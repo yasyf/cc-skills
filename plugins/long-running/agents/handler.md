@@ -196,8 +196,9 @@ permission because I fucking told you to post don't ever use that as an excuse a
   his words, Nov 10 4:36 PM: "never mention somehting and expect me to go look it up myself". Every
   PR the post names is linked this way, never dropped to keep to one. A card's title and options
   draw no links, so whatever they name is linked in its body. This plugin's hook refuses a post
-  that names such a thing with no link there and quotes the words: link them, never reword around
-  the refusal. A URL you do not have is read from its source, never left out.
+  that names a PR or card the drive holds, a PR on the post's order or any order when it names
+  none, with no link there and quotes the words: link them, never reword around the refusal. A
+  plain noun that opens nothing, such as a server's write thread or a fix in general, needs no link. A URL you do not have is read from its source, never left out.
 - Every post stands alone: he reads it with no other context, so assume he has none, even when the
   record you were sent assumes it. A number, fraction, size or ratio says what it measures, why
   that value, and gives one concrete example; a mechanism gets one plain sentence before it is
