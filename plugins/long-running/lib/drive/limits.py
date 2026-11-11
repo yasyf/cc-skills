@@ -78,12 +78,8 @@ MARKUP = re.compile(
     r"|(?<![\w*_~])[*_~](?=\S)[^*_~\n]*?(?<=\S)[*_~](?![\w*_~])"
 )
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
-NOT_PLAIN = (
-    ("a file path", re.compile(r"(?<!\S)(?:~|\.{1,2})?/[\w.-]+/[\w./-]*")),
-    ("a file name", re.compile(r"\b[\w-]+\.(?:py|go|tsx|rs|md|json|jsonl|ya?ml|sql|toml|sh|txt)\b")),
-    ("a code name", re.compile(r"\b[A-Za-z0-9]+(?:_[A-Za-z0-9]+)+\b|\b\w+\(\)")),
-    ("a job or order id", re.compile(r"\b[jo]\d+\b")),
-)
+PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
+DRIVE_ID = re.compile(r"\b[jo]\d+\b")
 PR_NUMBER = re.compile(r"#\d+\b")
 OPTION_POINTER = re.compile(
     r"\b(?:(?:same\s+as|as\s+in|like|unlike|than|plus)\s+[#(]?[1-9]\b|options?\s+[#(]?[1-9]\b"
@@ -225,7 +221,11 @@ def question(text: str, kept: bool = False) -> Question:
     if (count := card_words({"title": title, "body": card_body(summary, show_me), "options": options})) > QUESTION_WORDS:
         problems.append(f"the question, summary and options are {count} words; at most {QUESTION_WORDS} in all, the Show me not counted")
     plain = URL.sub(" ", TOKEN.sub(" ", "\n".join(shown)))
-    problems += [f'plain words only: "{found}" is {what}' for what, pattern in NOT_PLAIN for found in pattern.findall(plain)]
+    problems += [
+        f'"{found}" is a drive job or order id, which he cannot open: say what that work is; a function, syscall or file keeps'
+        f" its proper name ({PROPER_TERMS_RULING})"
+        for found in DRIVE_ID.findall(plain)
+    ]
     problems += [
         f'"{found}" points at an option by number or position; cards renumber, so each option says its own words'
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
@@ -233,7 +233,8 @@ def question(text: str, kept: bool = False) -> Question:
     problems += unlinked([*summary, *captions(show_me)], [title, *options], DRIVE_KINDS)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
-        f" say it in plain words there and put the link in the summary ({PLAIN_TEXT_RULING})"
+        f" write it there without the markup, a term by its proper name, and put any link in the summary ({PLAIN_TEXT_RULING};"
+        f" {PROPER_TERMS_RULING})"
         for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
         for found in MARKUP.findall(line)
     ]
