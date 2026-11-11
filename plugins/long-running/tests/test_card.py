@@ -454,7 +454,7 @@ def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch
 def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\nNone: drive tooling.\n"
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
-    assert cli.main(["order", "add", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
+    assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o1"
     reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})

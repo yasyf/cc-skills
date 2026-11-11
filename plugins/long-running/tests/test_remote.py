@@ -44,7 +44,7 @@ def message(kind: str, text: str, **overrides: str | None) -> dict:
 
 @pytest.fixture
 def remote(run: Run, demo: str) -> str:
-    run("order", "add", "ship the remote builder")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the remote builder")
     run("job", "add", "builder", "--order", "o1", "--goal", "remote builders", "--remote")
     with state.edit(demo) as data:
         data["jobs"]["j1"].update(run=RUN, dispatch=DISPATCH, ask=None, report=None)
@@ -78,7 +78,7 @@ def test_place_counts_only_running_builders_on_this_mac(
 ) -> None:
     monkeypatch.setattr(place, "busy", lambda: 0.2)
     monkeypatch.setenv(place.LIMIT_ENV, "0.5")
-    run("order", "add", "many")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "many")
     for _ in range(7):
         run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
@@ -99,7 +99,7 @@ def test_place_skips_a_running_builder_whose_agent_is_gone(
     monkeypatch.setattr(
         watch, "local_gap", lambda job_id, job, data, moment: f"{job_id}'s agent ended with an earlier session" if job_id == "j1" else None
     )
-    run("order", "add", "two")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "two")
     run("job", "add", "builder", "--order", "o1", "--goal", "gone", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "alive", "--agent", "b")
     assert json.loads(run("place", "--json")[1])["local_builders"] == 1
@@ -121,7 +121,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Order (his words): ship it\nDrive: demo, order o1, job j1\n")
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     objectives = []
     monkeypatch.setattr(orca, "new_run", lambda objective: objectives.append(objective) or RUN)
@@ -151,7 +151,7 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "here", "--agent", "a")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
@@ -165,7 +165,7 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
     (tmp_path / "brief.md").write_text("Drive: demo, order o1, job j1\n")
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
     assert cli.main(["job", "resume", "j1", "next"]) == 2
     assert capsys.readouterr().err == (
@@ -534,7 +534,7 @@ def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(
 
 def test_resume_and_end_refuse_a_lane_that_never_started(run: Run, demo: str, tmp_path: Path) -> None:
     (tmp_path / ".orca.json").write_text("{}")
-    run("order", "add", "ship it")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "there", "--remote")
     assert run("job", "resume", "j1", "go")[0] == 2
     assert run("job", "end", "j1")[0] == 2

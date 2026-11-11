@@ -141,12 +141,15 @@ COMPONENTS = [
 ]
 
 
-def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_path: Path) -> None:
-    script = tmp_path / "web.mjs"
-    script.write_text(WEB_RUNNER)
+def web(tmp_path: Path, script: str, given: object = None) -> object:
+    runner = tmp_path / "web.mjs"
+    runner.write_text(WEB_RUNNER)
     app = Path(dashboard.__file__).parent / "site" / "app.js"
-    drawn = subprocess.run(["node", str(script), str(app), WEB_RENDER], input=json.dumps(COMPONENTS), capture_output=True, text=True, check=True)
-    for kind, surfaces in json.loads(drawn.stdout):
+    return json.loads(subprocess.run(["node", str(runner), str(app), script], input=json.dumps(given), capture_output=True, text=True, check=True).stdout)
+
+
+def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_path: Path) -> None:
+    for kind, surfaces in web(tmp_path, WEB_RENDER, COMPONENTS):
         for surface, shown in surfaces.items():
             assert "<img" not in shown, f"the web drew the {kind} on its {surface} surface as a picture: {shown}"
             assert f'data-visual="{kind}"' in shown, f"the web drew no native {kind} on its {surface} surface: {shown}"
@@ -161,13 +164,14 @@ JSON.stringify([row([pr(1, "open", "wanted"), pr(2, "open", "wanted")]), row([pr
 
 
 def test_a_stack_card_sent_to_him_lists_its_prs_and_links_his_tap_only_while_one_waits(tmp_path: Path) -> None:
-    script = tmp_path / "web.mjs"
-    script.write_text(WEB_RUNNER)
-    app = Path(dashboard.__file__).parent / "site" / "app.js"
-    waiting, landed = json.loads(subprocess.run(["node", str(script), str(app), STACK_RENDER], input="[]", capture_output=True, text=True, check=True).stdout)
+    waiting, landed = web(tmp_path, STACK_RENDER, [])
     assert waiting.index("/pull/1") < waiting.index("/pull/2")
     assert 'href="#/queue/tap"' in waiting
     assert "/pull/1" in landed and 'href="#/queue/tap"' not in landed
+
+
+def test_the_screens_are_the_four_he_kept(tmp_path: Path) -> None:
+    assert web(tmp_path, "JSON.stringify(SCREENS.map(([name]) => name))") == ["queue", "now", "work", "history"]
 
 
 def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:
