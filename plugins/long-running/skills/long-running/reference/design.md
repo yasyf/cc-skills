@@ -36,11 +36,9 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    - When his words tell the system to choose by a rule, such as by usage or size, the fork asks
      him to approve the strategies and the rule that picks one, never one outcome.
    - Every option says what runs, on what trigger, what it reads and what reaches the agent or him.
-     It lands releasable alone, by [Land a change](landing.md#every-pr): a shape that
-     needs a fill, backfill, hand-run command or target order after its release is split until each
-     part is safe alone, or left out. `drive job ask` refuses an option that lands first and fixes
-     up after, a mechanism such as polling left a bare word, a block out of shape, a `Direct fix:` line missing or naming no option, and a
-     question a recorded answer of his may settle; each refusal names its fix.
+     `drive job ask` refuses a mechanism such as polling left a bare word, a block out of shape, a
+     `Direct fix:` line missing or naming no option, and a question a recorded answer of his may
+     settle; each refusal names its fix.
 2. **He is asked before any PR.** Each fork goes to him as its own question card, by the
    `DESIGN <part>` row in [The coordinator](coordinator.md). The card holds the design fleshed out
    above its options and names each function, file, table, flag or service by its proper term. A wall

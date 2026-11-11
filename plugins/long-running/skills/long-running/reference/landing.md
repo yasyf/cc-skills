@@ -14,15 +14,11 @@ for its repository says, then return `DONE <proof>`.
 - One PR is one feature-sized unit: amend review fixes and follow-ups into it with
   `ccx vcs ship --amend`. Open a second PR only when another job waits on part of the work or a review
   asks for the split.
-- The default branch stays releasable, in his words "dev mustr always be releasable": a change lands
-  only when a release cut at its merge commit is safe by itself, its targets going out in any order and
-  nothing run after it. That rules out a fill, pass or backfill that must follow the release, a command
-  run by hand, a migration another release applies, and a target that must go out first with only a
-  footer to enforce it.
-- Split a change that needs a later step until each PR is safe alone: the readers first, the writer once
-  they are live on every client, a backfill the code runs on its own. A PR that changes a format another
-  build reads (a stored file, row, journal, or manifest) links the readers' PR in its body. Offer him no
-  design that lands a part first and leaves a step for later; `drive job ask` refuses one.
+- The default branch stays releasable, in his words "dev mustr always be releasable". No body section,
+  card or refusal checks it, by his words "Get rid of the fucking releasable check no one asked for that
+  remove it entirely".
+- A PR that changes a format another build reads (a stored file, row, journal, or manifest) lands only
+  after the PR teaching its readers is live on every client, and its body links that PR.
 - While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
   land arrived, since its recommended option never stands in for his answer. `drive pr add` and the
   `landing_guard` hook refuse a PR waiting on his open card: return `WAITING` naming the card, which
@@ -54,13 +50,8 @@ for its repository says, then return `DONE <proof>`.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
   - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
-    behavior he did not ask for, a shortcut, or a risk he would not take.
-  - `## Releasable alone`: what a release cut at this PR's merge commit does with nothing else, and, for
-    each order its targets could go out in, what a person sees.
-  - Before any `ready` record goes out, `drive pr set --tap` refuses a PR missing either of those two
-    sections, or whose Releasable alone or risk section, or `INSTALL:`, risk, or `PROVE:` line,
-    schedules a step after the release. It refuses "then run the backfill" and passes
-    `PROVE: after release, open the run page`, which checks what is live.
+    behavior he did not ask for, a shortcut, or a risk he would not take. Before any `ready` record
+    goes out, `drive pr set --tap` refuses a PR without it.
   - `## Show me`: one concrete example of the change, which his card draws as a picture and the
     dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,

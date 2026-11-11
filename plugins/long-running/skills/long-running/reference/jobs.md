@@ -155,7 +155,7 @@ line it printed.
 Order (his words): <verbatim; for drive tooling, its order's own "Drive tooling: …" words>
 Serves: <"port of #N", "drive tooling" for a fix to a tool the drive runs on, under its own order and never his feature order's, or "his order" when the Order line asks for this build; a job for anything else is never started>
 Goal: <the deliverable, one sentence>
-Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a recording of each click, since data fetched from an API proves no screen; every PR releasable alone, by reference/landing.md: a release cut at its merge commit is safe by itself, its targets in any order, with nothing run after it, so a change that needs a later step is split until each PR is safe alone>
+Done when: <the check that proves it where he will see or use it, such as the installed command's output, the live post or a recording of each click, since data fetched from an API proves no screen>
 Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>

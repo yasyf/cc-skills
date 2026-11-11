@@ -33,10 +33,7 @@ Native: none: he never sees it
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
 """
-CARD_BODY = """## Releasable alone
-A release at its merge commit lands it on every target, in any order, and nothing runs after it.
-
-## What you'll hate most
+CARD_BODY = """## What you'll hate most
 It lands without a second look.
 
 ## His words, step by step
@@ -1064,15 +1061,12 @@ def test_job_ask_refuses_a_show_me_table_whose_every_cell_says_the_same(
     assert (placeholder in capsys.readouterr().err) == refused
 
 
-def test_job_ask_refuses_an_option_that_lands_first_and_fixes_up_after(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_job_ask_keeps_an_option_that_lands_first_and_backfills_after(
+    run: Run, asking: str, tmp_path: Path
 ) -> None:
     block = tmp_path / "ask.md"
     landing = "- Land the snapshot writer now, then backfill old runs from a pass box: opens in 3 requests"
     block.write_text(SHORT_ASK.replace("- A map file beside each journal file", f"{landing}\n- A map file beside each journal file"))
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert f'option "{landing[2:]}" lands first and leaves "then backfill" for after: dev must always be releasable' in capsys.readouterr().err
-    block.write_text(SHORT_ASK.replace("- A map file beside each journal file", "- Land the snapshot writer with no backfill: old runs keep guessing"))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
@@ -2149,35 +2143,12 @@ def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_se
     )
 
 
-@pytest.mark.parametrize(
-    ("alone", "lines", "refused"),
-    [
-        ("", "", 'a "Releasable alone" section saying why a release cut at its merge commit is safe by itself'),
-        ("None.", "", 'a "Releasable alone" section saying why'),
-        ("The new column ships empty and readers skip it.", "", ""),
-        ("The new column ships empty; then run the fill from a pass box.", "", 'but it says "then run" in'),
-        ("Every target reads both shapes, so any order is safe.", "- **Install:** merge, then backfill after the deploy\n", 'but it says "then backfill" in "- **Install:** merge'),
-        ("Every target reads both shapes, so any order is safe.", "## Risk\nIt needs no backfill and no pass box.\n", ""),
-        (
-            "Every target reads both shapes, and nothing has to run once it ships.",
-            "## Risk\nOnly the `backfill-runner` account, holding `backfills:run`, starts one from a pass box, and each run shows on the admin backfills page.\n",
-            "",
-        ),
-        ("Every target reads both shapes.", "## Risk\nRun the backfill once it ships.\n", 'but it says "Run the backfill once it ships" in'),
-        ("Every target reads both shapes, so any order is safe.", "PROVE: after release, open the run page and see its steps\n", ""),
-        ("Every target reads both shapes.", "```\nINSTALL: drive install x\nthen run fill\n```\n", ""),
-    ],
-)
-def test_pr_set_tap_refuses_a_body_that_is_not_releasable_alone(
-    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str], alone: str, lines: str, refused: str
+def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the_release(
+    run: Run, with_pr: str, on_github: dict
 ) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    section = f"## Releasable alone\n{alone}\n\n" if alone else ""
-    on_github["body"] = section + CARD_BODY.split("\n\n", 1)[1] + lines
-    code = cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"])
-    error = capsys.readouterr().err
-    assert (code, refused in error) == ((2, True) if refused else (0, True))
-    assert ("Dev must always be releasable" in error) == bool(refused)
+    on_github["body"] = CARD_BODY + "## Risk\nThen run the fill from a pass box once it ships.\n"
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
 def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refuse(

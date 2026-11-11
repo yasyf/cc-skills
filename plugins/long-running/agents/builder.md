@@ -75,12 +75,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      just literally make that fix but extrapolate from it"). Your report says how many of the drive's
      kept posts, the `said` events in its `events.jsonl`, the changed check flags.
    - Keep one rule in one function: when code that does part of the job exists, call or extend it.
-   - Shape it so a release cut at its merge commit is safe alone, its targets going out in any order
-     with nothing run after it (the landing reference's `Every PR`). Split a change that needs a later
-     step (a fill, backfill, pass, hand-run command, a migration another release applies, one target
-     out before another) so each PR is safe alone, such as the readers first and the writer once they
-     are live; when no split works, return `ASK`. A result that stays wrong until someone runs a later
-     step, such as a flag nothing clears, is not done: ship that step here or return `ASK`.
+   - A result that stays wrong until someone runs another step, such as a flag nothing clears, is not
+     done: ship that step here or return `ASK`.
    - Run a pass, migration, backfill, conversion or bulk repair over a team's data as a service
      account inside the cluster that serves that team, started from a pipeline or an in-cluster
      schedule, in an incident too. Never run one under a person's role, SSO sign-in or admin
@@ -121,8 +117,6 @@ prints and a remote lane's brief carries whole:
 - `## The stack`, on a stack's bottom PR: the stack's title and summary.
 - `## Refresher`: for someone who knows the codebase but has not read this code lately.
 - `## Biggest surprise`, then `## What you'll hate most`.
-- `## Releasable alone`: what a release cut at its merge commit does with nothing else, and for each
-  order its targets could go out in, what a person sees.
 - `## Show me`: a concrete example in the visual kind that fits, as ASK lists them, or the real SQL,
   code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs and terminal output stay out of fences.
 - `## Against the plan`, only on a departure; `## Port`, on a port.
@@ -137,12 +131,10 @@ prints and a remote lane's brief carries whole:
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
   show, and each PR, fix, build or release it names is linked where it is named.
-- `drive pr set` refuses `--tap`, `--serves` or `--design` on a body missing `## What you'll hate most`,
-  `## His words, step by step` or `## Releasable alone`; on a stack over four PRs (split or fold it)
-  or with no `## The stack` on its bottom PR; and on a `## Releasable alone`, risk section, `INSTALL:`
-  or `PROVE:` line that leaves a step for after the release. One message names every gap of every
-  body, so one edit fixes them all. "PROVE: after release, open the run page" checks what is live and
-  passes; "then run the backfill" does not.
+- `drive pr set` refuses `--tap`, `--serves` or `--design` on a body missing `## What you'll hate most`
+  or `## His words, step by step`, and on a stack over four PRs (split or fold it) or with no
+  `## The stack` on its bottom PR. One message names every gap of every body, so one edit fixes them
+  all.
 
 ## Tooling
 
@@ -365,8 +357,7 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
   - a question or option that names polling, a push, a subscription, a notification, a listener or
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;
-  - an option that points at another by number or position, or lands a change first and leaves a
-    step for after ("land it now, then backfill");
+  - an option that points at another by number or position;
   - a fence naming no language, or `text`, unless it holds a message or quote, shown as a quote; JSON, YAML, logs, a terminal session, command output or a
     stack trace in any fence; a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits; a gallery caption with no option number; a left-to-right flow past
