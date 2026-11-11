@@ -34,9 +34,9 @@ CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
-ASK_BY_TOOL = (
-    "An ask record carries the ASK `drive job ask` kept (--attr ask=<its path>), which checked it against his recorded"
-    " answers; any other ask record goes through the cci post tool, whose hook checks its question against them"
+UNKEPT_ASK = (
+    "An ask record names the ASK `drive job ask` kept (--attr ask=<the path it printed>), and the communicator draws"
+    " its card from that file; keep the question with `drive job ask <j> <file>`, then post the record with that path"
 )
 
 
@@ -310,7 +310,7 @@ def deny_reason(payload: dict) -> str | None:
     command = payload["tool_input"]["command"]
     asks = asks_posted(command, shell)
     if asks and (names := state.session_drives(payload.get("session_id") or "")) and not all(settled.kept(names, ask) for ask in asks):
-        return ASK_BY_TOOL
+        return UNKEPT_ASK
     return script_reason(command, shell)
 
 
