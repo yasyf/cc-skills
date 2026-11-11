@@ -20,6 +20,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
     base = {
         "text": text,
         "from": "terminal",
+        "from_thread": None,
         "thread": "1794200000.000100",
         "state": "working",
         "due": None,

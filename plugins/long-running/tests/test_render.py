@@ -15,6 +15,7 @@ def order(
     return {
         "text": text,
         "from": "terminal",
+        "from_thread": None,
         "thread": None,
         "state": order_state,
         "due": due,

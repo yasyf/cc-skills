@@ -88,8 +88,9 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f'an incident order starts its fix job at the alert, beside diagnosis: name "{INCIDENT_FIX}" among --parts, such as'
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
+    from_thread = source_thread(args.source)
     if args.thread:
-        check_thread(state.load(name), args.source, args.thread)
+        check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     tooling = args.words.startswith(state.TOOLING)
     if tooling and args.owner == "coordinator":
         raise DriveError(
@@ -110,7 +111,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         order = data["orders"][order_id] = {
             "text": args.words,
             "from": args.source,
-            "thread": args.thread,
+            "from_thread": from_thread,
+            "thread": args.thread or from_thread,
             "state": "open",
             "due": due_stamp(args.due) if args.due else None,
             "due_said": None,
@@ -220,15 +222,29 @@ def incident_release(args: argparse.Namespace) -> int:
     return emit(args, f"{args.id}: {args.release} named; the turn it fails a step, {args.id}'s stop reopens", {"id": args.id, "release": args.release})
 
 
-def check_thread(data: dict, source: str, thread: str) -> None:
-    """Refuse a thread Slack cannot read where the order's lines go, his DM or the channel of the message the order came from when it is that message's thread, and a reply's ts, naming the thread it is in."""
-    if not (where := state.promise_thread(data, {"from": source, "thread": thread})):
+def source_thread(source: str) -> str | None:
+    """The thread the Slack message an order came from is in, its parent's ts when he wrote it as a reply, so the order's lines go in the thread his reply is in; None for an order from anywhere else."""
+    if not source.startswith("slack:"):
+        return None
+    channel, ts = source.removeprefix("slack:").split("/")
+    try:
+        return slack.thread_of(channel, ts)
+    except slack.SlackError as error:
+        raise DriveError(f"--from {source}: refused, Slack cannot read the message it names: {error}") from None
+
+
+def check_thread(data: dict, order: dict) -> None:
+    """Refuse a thread Slack cannot read where the order's lines go, his DM or the channel of the message the order came from when it is that message or its thread, and a reply's ts, naming the thread it is in; the thread that message is in was read when the order was added."""
+    thread = order["thread"]
+    if thread == order["from_thread"]:
+        return
+    if not (where := state.promise_thread(data, order)):
         raise DriveError(f"--thread {thread}: refused, the drive has no DM to read it in; start it with --channel <his DM>")
     try:
-        messages = slack.thread("--channel", where[0], "--thread", thread, "--limit", "1")
+        root = slack.thread_of(where[0], thread)
     except slack.SlackError as error:
         raise DriveError(f"--thread {thread}: refused, it is no thread in {where[0]}, where the order's lines go: {error}") from None
-    if root := next((message["thread_ts"] for message in messages if message["ts"] == thread and message.get("thread_ts") not in (None, thread)), None):
+    if root != thread:
         raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
 
 
@@ -305,10 +321,10 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
-    if args.thread:
-        check_thread(data, order["from"], args.thread)
-    report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     destination = order | {"thread": args.thread or order["thread"]}
+    if args.thread:
+        check_thread(data, destination)
+    report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
     changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
@@ -1707,7 +1723,7 @@ def parser() -> argparse.ArgumentParser:
     verb = order.add_parser("add", parents=both)
     verb.add_argument("words", help="his words, verbatim")
     verb.add_argument("--from", dest="source", default="terminal", help="where he wrote it: slack:<channel>/<ts>, or terminal")
-    verb.add_argument("--thread", help="the ts of the thread the order's lines go in")
+    verb.add_argument("--thread", help="the ts of the thread the order's lines go in; default: the thread the --from message is in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
@@ -1807,7 +1823,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("words", help="his words, or the alert's text, verbatim")
     verb.add_argument("--from", dest="source", default="terminal", help="where it came from: slack:<channel>/<ts>, or terminal")
-    verb.add_argument("--thread", help="the ts of the thread the incident's lines go in")
+    verb.add_argument("--thread", help="the ts of the thread the incident's lines go in; default: the thread the --from message is in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
     before = verb.add_mutually_exclusive_group()

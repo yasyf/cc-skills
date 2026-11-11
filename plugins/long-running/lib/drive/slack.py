@@ -131,6 +131,12 @@ def root(channel: str, ts: str) -> dict | None:
     return next((message for message in thread("--channel", channel, "--thread", ts, "--limit", str(WHOLE_THREAD)) if message["ts"] == ts), None)
 
 
+def thread_of(channel: str, ts: str) -> str:
+    """The ts of the thread the message at ts is in, read in one call: its parent's when it is a reply, as chat.postMessage's thread_ts takes it, else its own."""
+    messages = thread("--channel", channel, "--thread", ts, "--limit", "1")
+    return next((message["thread_ts"] for message in messages if message["ts"] == ts and message.get("thread_ts")), ts)
+
+
 def message_and_root(link: str) -> tuple[dict, dict | None]:
     """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call."""
     match = MESSAGE_LINK.search(link)

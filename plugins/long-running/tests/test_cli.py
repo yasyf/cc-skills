@@ -343,7 +343,52 @@ def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its
     assert cli.main(["order", "set", "o1", "--thread", "1794200090.000700"]) == 2
     assert "--thread 1794200090.000700: refused, it is no thread in D123" in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["thread"] == "1794200000.000100"
-    assert reads[0] == ("--channel", "D123", "--thread", "1794200090.000700", "--limit", "1")
+    assert reads[:2] == [
+        ("--channel", "D123", "--thread", "1794200050.000200", "--limit", "1"),
+        ("--channel", "D123", "--thread", "1794200090.000700", "--limit", "1"),
+    ]
+
+
+def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_channel_that_thread_is_in(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root, reply = "1794388517.958349", "1794388585.312939"
+    bug_root, bug_reply = "1794341529.595149", "1794341600.000200"
+    messages = {
+        ("D123", reply): [{"ts": reply, "thread_ts": root, "from_user": True}],
+        ("C0BUGS1", bug_reply): [{"ts": bug_reply, "thread_ts": bug_root, "from_user": True}],
+    }
+    reads: list[tuple[str, ...]] = []
+
+    def thread(*where: str) -> list[dict]:
+        reads.append(where)
+        if (where[1], where[3]) not in messages:
+            raise slack.SlackError("cc-slack can't read this conversation (channel_not_found)")
+        return messages[where[1], where[3]]
+
+    monkeypatch.setattr(slack, "thread", thread)
+    filed = ["order", "add", "--project", "The drive", "--workstream", "Drive tooling"]
+    assert run(*filed, "What the hell is this message?", "--from", f"slack:D123/{reply}") == (0, "o1")
+    assert run(*filed, "the card still shows the old state", "--from", f"slack:C0BUGS1/{bug_reply}") == (0, "o2")
+    assert run(*filed, "and the dashboard too", "--from", f"slack:C0BUGS1/{bug_reply}", "--thread", bug_root) == (0, "o3")
+    assert reads == [
+        ("--channel", "D123", "--thread", reply, "--limit", "1"),
+        ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
+        ("--channel", "C0BUGS1", "--thread", bug_reply, "--limit", "1"),
+    ]
+    data = state.load("demo")
+    assert {order_id: (order["thread"], order["from_thread"], state.promise_thread(data, order)) for order_id, order in data["orders"].items()} == {
+        "o1": (root, root, ("D123", root)),
+        "o2": (bug_root, bug_root, ("C0BUGS1", bug_root)),
+        "o3": (bug_root, bug_root, ("C0BUGS1", bug_root)),
+    }
+    assert cli.thread_refusal(data, "o1", root) is None
+    assert cli.main([*filed, "look at this", "--from", "slack:C0GONE1/1794341700.000300"]) == 2
+    assert (
+        "--from slack:C0GONE1/1794341700.000300: refused, Slack cannot read the message it names: cc-slack can't read this conversation (channel_not_found)"
+        in capsys.readouterr().err
+    )
+    assert set(state.load("demo")["orders"]) == {"o1", "o2", "o3"}
 
 
 def test_order_set_due_on_an_order_with_no_thread_stores_the_drives_own_time_which_the_next_replaces_and_a_close_never_reads(

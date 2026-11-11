@@ -207,6 +207,7 @@ def load(name: str) -> dict:
         order.setdefault("kind", None)
         order.setdefault("complex", False)
         order.setdefault("thread", None)
+        order.setdefault("from_thread", None)
         order.setdefault("releases", {})
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
@@ -556,10 +557,10 @@ def incident_job(data: dict, name: str, order_id: str, part: str, created: str) 
 
 
 def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
-    """The channel and thread an order's promised line goes in: its thread, in his DM unless it is the thread of the Slack message the order came from, as an alert's is; else that message's."""
+    """The channel and thread an order's promised line goes in: its thread, in his DM unless it is the Slack message the order came from or the thread that message is in, as an alert's is or his reply's; else that message's."""
     source = order["from"].removeprefix("slack:").split("/") if order["from"].startswith("slack:") else [None, None]
     thread = order["thread"] or source[1]
-    channel = source[0] if thread == source[1] else data["slack"]["channel"]
+    channel = source[0] if thread in (source[1], order["from_thread"]) else data["slack"]["channel"]
     return (channel, thread) if channel and thread else None
 
 

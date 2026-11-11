@@ -348,20 +348,27 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
 
 
 @pytest.mark.parametrize(
-    ("source", "thread", "where"),
+    ("source", "from_thread", "thread", "where"),
     [
-        ("slack:C0B75AL4XEW/1794304978.209219", "1794292846.190589", ("D123", "1794292846.190589")),
-        ("slack:C0822AHFY3G/1794223506.402269", "1794223506.402269", ("C0822AHFY3G", "1794223506.402269")),
-        ("slack:C0822AHFY3G/1794223506.402269", None, ("C0822AHFY3G", "1794223506.402269")),
+        ("slack:C0B75AL4XEW/1794304978.209219", "1794304978.209219", "1794292846.190589", ("D123", "1794292846.190589")),
+        ("slack:C0822AHFY3G/1794223506.402269", None, "1794223506.402269", ("C0822AHFY3G", "1794223506.402269")),
+        ("slack:C0822AHFY3G/1794223506.402269", None, None, ("C0822AHFY3G", "1794223506.402269")),
+        ("slack:C0CELUMJ6MU/1794341600.000200", "1794341529.595149", "1794341529.595149", ("C0CELUMJ6MU", "1794341529.595149")),
     ],
 )
 def test_a_due_order_from_another_channel_reads_its_thread_in_the_channel_the_thread_is_in(
-    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, thread: str | None, where: tuple[str, str]
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", source: str, from_thread: str | None, thread: str | None, where: tuple[str, str]
 ) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         data["orders"]["o1"].update(
-            {"from": source, "thread": thread, "due": state.stamp(T0 - timedelta(minutes=30)), "promised": state.stamp(T0 - timedelta(minutes=60))}
+            {
+                "from": source,
+                "from_thread": from_thread,
+                "thread": thread,
+                "due": state.stamp(T0 - timedelta(minutes=30)),
+                "promised": state.stamp(T0 - timedelta(minutes=60)),
+            }
         )
     [line] = said_due(watcher(demo), T0)
     assert line.startswith('DUE o1 "ship the watch" was due ')
