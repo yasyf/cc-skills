@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 
 from drive import github, limits, orca, place, reads, render, settled, slack, state, watch
@@ -107,13 +108,13 @@ def his_words(link: str) -> str:
     return link
 
 
-def drive_post(link: str, threads: list[tuple[str, str]]) -> str:
+def drive_post_at(link: str, threads: list[tuple[str, str]]) -> datetime:
     posted = slack.message(link)
     if not posted.get("from_claude"):
         raise DriveError(f"{link} is not the drive's post")
     if threads and posted.get("thread_ts") not in {thread for _, thread in threads}:
         raise DriveError(f"{link} is in none of the order's threads, its own or its cards': {', '.join(thread for _, thread in threads)}")
-    return link
+    return slack.sent_at(posted)
 
 
 def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
@@ -192,12 +193,26 @@ def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
-        raise DriveError("only the communicator marks an answer posted, once the answer is in his thread")
-    [part] = pick_parts(args.id, find(data["orders"], args.id, "order"), [args.part] if args.part else [])
-    drive_post(args.link, slack.order_threads(data, data["orders"][args.id]))
+        raise DriveError("only the communicator records a post in an order's thread or takes back a part's mark")
+    order = find(data["orders"], args.id, "order")
+    if args.undo:
+        [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
+        with state.edit(name) as data:
+            data["orders"][args.id]["parts"][undone]["posted"] = None
+        return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
+    parts = pick_parts(args.id, order, [args.part]) if args.part else list(order["parts"])
+    part = parts[0] if len(parts) == 1 else None
+    at = drive_post_at(args.link, slack.order_threads(data, order))
+    line = state.stamp(at)
     with state.edit(name) as data:
-        data["orders"][args.id]["parts"][part]["posted"] = args.link
-    return emit(args, f'{args.id} "{part}": posted {args.link}', {"id": args.id, "part": part, "posted": args.link})
+        order = data["orders"][args.id]
+        if state.owed(order):
+            state.keep(order, [at])
+        order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
+        if part:
+            order["parts"][part]["posted"] = args.link
+    said = f'"{part}": posted' if part else "progress line, no part delivered:"
+    return emit(args, f"{args.id} {said} {args.link}", {"id": args.id, "part": part, "posted": args.link, "due": order["due"]})
 
 
 def job_add(args: argparse.Namespace) -> int:
@@ -850,10 +865,15 @@ def parser() -> argparse.ArgumentParser:
         help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=order_set)
-    verb = order.add_parser("posted", parents=both, help="the communicator posted the answer a part owes him")
+    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread: a progress line, or the answer a part owes him")
     verb.add_argument("id")
-    verb.add_argument("link", help="the Slack link of the posted answer")
-    verb.add_argument("--part", help="default: the order's only part")
+    posted = verb.add_mutually_exclusive_group(required=True)
+    posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; it keeps a promised time and moves the order's last line")
+    posted.add_argument("--undo", action="store_true", help="take back the delivered mark of the part --part names, so it counts as undelivered again")
+    verb.add_argument(
+        "--part",
+        help="the part the post delivers; with none, the only part of an order of one, and no part of an order of several: a progress line",
+    )
     verb.set_defaults(run=order_posted)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)

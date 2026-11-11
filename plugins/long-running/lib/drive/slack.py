@@ -82,11 +82,15 @@ def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:
             unread = unread or f"its thread {where[1]} could not be read: {error}"
             continue
         posts += [
-            datetime.fromtimestamp(float(message["ts"])).astimezone()
+            sent_at(message)
             for message in messages
             if message.get("from_claude") and not (where in cards and message["ts"] == where[1])
         ]
     return sorted(posts), unread
+
+
+def sent_at(message: dict) -> datetime:
+    return datetime.fromtimestamp(float(message["ts"])).astimezone()
 
 
 def message(link: str) -> dict:
