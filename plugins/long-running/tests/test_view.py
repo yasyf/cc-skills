@@ -9,6 +9,7 @@ from drive.render import when
 T0 = state.parse_time("2026-11-09T10:00:00-08:00")
 TEAM = "https://acme.slack.com/"
 DRAW = page.draw
+DASHBOARD = "http://mac:41234/"
 
 
 def at(minutes: int) -> str:
@@ -150,9 +151,6 @@ def test_status_drops_dropped_orders_and_old_done_ones_and_says_the_latest_line_
     assert features["the page lands today"]["late"] is True
     assert features["shipped"]["now"] == "installed 1.0.12; the page shows the drive"
     assert model["counts"] == {"queue": 1, "blocked": 0, "running": 1, "built": 0, "waiting": 0, "merged": 0, "live": 1, "not started": 0}
-
-
-DASHBOARD = "http://mac:41234/"
 
 
 def test_a_built_job_shows_its_branch_and_the_cards_it_waits_on_in_status_and_on_the_page() -> None:
@@ -458,19 +456,6 @@ def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
     )
     finished = view.board(data, found(), "live", [], T0, set())["finished"]
     assert [(entry["id"], entry["state"]) for entry in finished] == [("j2", "failed"), ("j1", "done")]
-
-
-def test_asks_list_every_order_newest_first_with_its_thread() -> None:
-    data = drive_of(
-        {"o1": order("older ask", [], created=at(-300)), "o2": order("newer ask", ["j1"], created=at(-10), state="done", thread=None)},
-        {"j1": job("o2", "done")},
-        [],
-    )
-    asks = view.board(data, found(), "live", [], T0, set())["asks"]
-    assert [(ask["id"], ask["title"], ask["state"], ask["thread"], ask["jobs"]) for ask in asks] == [
-        ("o2", "newer ask", "done", None, 1),
-        ("o1", "older ask", "working", "1794200000.000100", 0),
-    ]
 
 
 def test_incidents_list_his_open_incident_orders_oldest_first() -> None:

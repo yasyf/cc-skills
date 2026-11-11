@@ -20,8 +20,7 @@
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
 newest first; each job in these and a feature's `jobs` has `files`, the files the drive keeps for it, of `brief`,
-`report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `asks` (every order of his, newest first, with the Slack
-thread it came in, where it has one, so the page can draw that thread), `review` (every open PR, in `you`,
+`report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and the `thread` under that card when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`), `milestones`, `unplanned` (his orders open or done in
 the last day that name no milestone, drawn as one more milestone named "No milestone", or null when there are none)
@@ -570,28 +569,6 @@ def review(drive: dict, found: dict) -> list[dict]:
     return entries
 
 
-def ask_entry(order_id: str, order: dict, moment: datetime, url: str | None) -> dict:
-    return {
-        "id": order_id,
-        "title": plain(order["text"], TITLE_CHARS),
-        "text": order["text"],
-        "state": order["state"],
-        "created": order["created"],
-        "updated": order["updated"],
-        "due": order.get("due"),
-        "late": is_late(order, moment),
-        "proof": order.get("proof"),
-        "thread": order.get("thread"),
-        "url": url,
-        "jobs": len(order["jobs"]),
-    }
-
-
-def asks(drive: dict, moment: datetime, team_url: str) -> list[dict]:
-    entries = [ask_entry(order_id, order, moment, thread_url(drive, team_url, order.get("thread"))) for order_id, order in drive["orders"].items()]
-    return sorted(entries, key=lambda entry: state.parse_time(entry["created"]), reverse=True)
-
-
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str]) -> dict:
     """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose whole return the drive keeps."""
     model = build(drive, found, moment) | {"cards": source}
@@ -623,7 +600,6 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "finished": finished,
         "history": history(drive, events, moment, found["team_url"]),
         "review": review(drive, found),
-        "asks": asks(drive, moment, found["team_url"]),
         "incidents": incidents(drive),
         "milestones": plan,
         "unplanned": loose,

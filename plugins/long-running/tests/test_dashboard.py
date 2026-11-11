@@ -170,10 +170,10 @@ def test_cited_code_is_read_at_its_prs_head_or_the_drives_default_branch_and_onl
     assert read == ["repos/yasyf/cc-skills/contents/a/b.py?ref=abc123", "repos/Forge-AI/monorepo/contents/go/c.go"]
 
 
-def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_or_ask_thread_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
-    card, ask = "https://acme.slack.com/archives/D1/p100", "https://acme.slack.com/archives/D1/p200"
+def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_thread_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
+    card = "https://acme.slack.com/archives/D1/p100"
     board = dashboard.Board("demo", [])
-    board.unders = {card, ask}
+    board.answers = {card: ["Go", "Hold"]}
     relayed = []
     monkeypatch.setattr(dashboard, "relay", lambda text, under: relayed.append((text, under)) or {"posted": True, "permalink": f"{under or card}#copy"})
     server, port = serving(board)
