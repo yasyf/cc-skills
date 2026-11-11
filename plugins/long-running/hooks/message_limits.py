@@ -76,7 +76,7 @@ def posts_to(payload: dict, dm: str) -> bool:
 
 
 def last_read(path: Path, dm: str, thread: str) -> tuple[datetime | None, dict[str, datetime], bool]:
-    """When this handler last read the thread, by its own transcript: a slack_thread call on it that did not fail, its channel_id his DM or left out, which cc-slack reads as his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
+    """When this handler last read the thread, by its own transcript's timestamped turns, never a row such as an API request's copy that carries none: a slack_thread call on it that did not fail, its channel_id his DM or left out, which cc-slack reads as his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
     calls: dict[str, datetime] = {}
     others: dict[str, str] = {}
     saved: dict[str, datetime] = {}
@@ -85,6 +85,8 @@ def last_read(path: Path, dm: str, thread: str) -> tuple[datetime | None, dict[s
     with path.open() as transcript:
         for line in transcript:
             row = json.loads(line)
+            if "timestamp" not in row:
+                continue
             content = (row.get("message") or {}).get("content")
             for part in content if isinstance(content, list) else []:
                 if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id") or dm, part["input"].get("thread_ts")) == (dm, thread):
@@ -283,7 +285,15 @@ def denial(reason: str) -> dict:
 
 
 def main() -> None:
-    if reason := deny_reason(json.load(sys.stdin)):
+    payload = json.load(sys.stdin)
+    try:
+        reason = deny_reason(payload)
+    except Exception as error:
+        reason = (
+            f"refused: the drive's message check failed on this post with {type(error).__name__}: {error}, so it does not go"
+            " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
+        )
+    if reason:
         print(json.dumps(denial(reason)))
 
 

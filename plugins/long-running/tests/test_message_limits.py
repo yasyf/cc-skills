@@ -648,6 +648,15 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
     )
 
 
+def test_a_transcript_row_with_no_timestamp_is_no_read_and_breaks_none(talker: str, unread: Path) -> None:
+    use = {"type": "tool_use", "id": "read-blob", "name": message_limits.THREAD_READ, "input": {"channel_id": DM, "thread_ts": "1.2"}}
+    with lane_of(unread).open("a") as transcript:
+        transcript.write(json.dumps({"type": "api-request-blob", "message": {"role": "assistant", "content": [use]}}) + "\n")
+    assert posted(unread, text="Fixed.", thread_ts="1.2").startswith("refused: your transcript shows no read of his thread 1.2")
+    reads(lane_of(unread), "1.2")
+    assert posted(unread, text="Fixed.", thread_ts="1.2") is None
+
+
 def test_a_read_that_leaves_out_channel_id_reads_his_dm_so_the_line_after_it_goes_out(talker: str, unread: Path) -> None:
     reads(lane_of(unread), "1.2", channel=None)
     assert say(unread, text="Fixed.", thread_ts="1.2") is None
@@ -1061,6 +1070,20 @@ def test_main_prints_a_pretooluse_denial(
     assert decision["hookEventName"] == "PreToolUse"
     assert decision["permissionDecision"] == "deny"
     assert "this post is 900 words" in decision["permissionDecisionReason"]
+
+
+def test_a_check_that_fails_refuses_the_post_rather_than_let_it_out_unchecked(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def broken(payload: dict) -> str | None:
+        raise KeyError("timestamp")
+
+    monkeypatch.setattr(message_limits, "deny_reason", broken)
+    monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(call("slack_dm_status", transcript, text="Fixed."))))
+    message_limits.main()
+    decision = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert decision["permissionDecision"] == "deny"
+    assert decision["permissionDecisionReason"].startswith("refused: the drive's message check failed on this post with KeyError: 'timestamp'")
 
 
 def test_the_coordinator_posts_nothing_to_slack_and_sends_its_words_to_the_communicator(demo: str) -> None:
