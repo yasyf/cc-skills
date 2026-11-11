@@ -53,6 +53,11 @@ UNREAD_JOB = (
 )
 KIND_NAMED = re.compile(r"\bport of #\d+|\bhis order o\d+\b|\bdrive tooling\b", re.IGNORECASE)
 UNKINDED = "refused: a ready record says which kind its PRs are: `his order o<n>` before his quoted words, `Drive tooling: …`, or `port of #<n>`; add the one it is"
+LIMIT_ATTR = "max_words"
+LIFTED_LIMIT = (
+    "refused: a record carries no `max_words` attr, since nothing reads it and no record lifts his limits: a line in his"
+    " thread is at most {line} words and a summary of two or more features at most {summary}; post it again without it"
+)
 TAIL_BYTES = 4 << 20
 
 
@@ -92,6 +97,13 @@ def untapped(record: dict, prs: dict[str, dict]) -> str | None:
 def unkinded(record: dict) -> str | None:
     """Why a ready record does not say which kind of work its PRs are, the first thing he asks of a PR card."""
     return UNKINDED if kind(record) == "ready" and not KIND_NAMED.search(record.get("text") or "") else None
+
+
+def lifted(record: dict) -> str | None:
+    """Why a record names its own word limit, which nothing reads and his limits for a post never yield to."""
+    if LIMIT_ATTR not in attrs(record):
+        return None
+    return LIFTED_LIMIT.format(line=limits.LINE_WORDS, summary=limits.SUMMARY_WORDS)
 
 
 def misaddressed(payload: dict, record: dict) -> str | None:
@@ -204,6 +216,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
     prs = {key: pr for name in names for key, pr in state.load(name)["prs"].items()}
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
+        yield lifted(record)
         yield unkept(record, names)
         yield unkinded(record)
         yield untapped(record, prs)

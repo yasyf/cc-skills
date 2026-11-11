@@ -148,6 +148,15 @@ def test_a_ready_record_says_which_kind_its_prs_are(demo: str) -> None:
         assert record_lines.decision(post(kind="ready", text=text)) is None
 
 
+def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:
+    for record in ({"kind": "report", "text": "POST j702 merged", "to": TO}, {"kind": "note", "text": "the watch reads taps"}):
+        reason = refusal(record_lines.decision(post(**record, attrs={"max_words": "200"})))
+        assert "`max_words`" in reason
+        assert f"at most {limits.LINE_WORDS} words" in reason
+        assert f"at most {limits.SUMMARY_WORDS}" in reason
+        assert record_lines.decision(post(**record)) is None
+
+
 def test_a_report_opens_post_or_fyi(demo: str) -> None:
     assert "`POST`" in refusal(record_lines.decision(post(kind="report", text="j702 merged", to=TO)))
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO)) is None
