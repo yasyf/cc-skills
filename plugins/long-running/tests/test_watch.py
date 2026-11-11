@@ -938,6 +938,35 @@ def test_a_codex_relay_whose_run_codex_ask_cannot_read_names_its_error(demo: str
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run could not be read: codex-ask: no run at that folder"
 
 
+def test_a_codex_relay_that_read_back_a_reply_naming_a_scratch_file_is_judged_by_its_codex_ask_run(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    run = codex_ask.run("completed", "DONE reviewed\n")
+    scratch = tmp_path / "scratch" / "j1"
+    scratch.mkdir(parents=True)
+    (scratch / "reply.md").write_text("DONE reviewed\n")
+    read_back = {"type": "user", "message": {"content": [{"type": "tool_result", "content": f"REPLY_FILE: {scratch / 'reply.md'}\nDONE reviewed"}]}}
+    write_transcript(tmp_path / "config", [*relayed(run, "Reading the reply.")[:2], read_back, ended_on("Codex is done.")], timedelta(minutes=10))
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run completed and its result is not recorded"
+
+
+@pytest.mark.parametrize(
+    ("printed", "gap"),
+    [
+        ("", None),
+        ('{"reply_file":"/a"}\n{"reply_file":"/b"}\n', None),
+        ("codex-ask 1.15.3\n", "j1's codex-ask run could not be read: codex-ask --collect printed no record: codex-ask 1.15.3"),
+    ],
+)
+def test_a_codex_ask_collect_printing_no_record_of_the_reply_ends_no_watch_pass(
+    demo: str, tmp_path: Path, codex_ask: CodexAsk, printed: str, gap: str | None
+) -> None:
+    reply = codex_ask.run("completed", "DONE reviewed\n")
+    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text(f"#!/bin/sh\nprintf '%s' '{printed}'\n")
+    write_transcript(tmp_path / "config", relayed(reply, "Codex is still running."), timedelta(minutes=10))
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+
+
 def test_a_codex_relay_that_asked_codex_nothing_is_parked_like_any_agent(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
     write_transcript(tmp_path / "config", [CALLING, RESULT, PARKED], timedelta(minutes=45))
     job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
