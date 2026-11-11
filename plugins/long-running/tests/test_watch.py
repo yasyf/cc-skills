@@ -871,10 +871,8 @@ def waiting(*cards: str) -> list[str]:
     return [f"WAITING-ON-HIM {card} blocks j1, built on lane/built, since {since}, posted {POSTED}" for card in cards]
 
 
-def paused(card: str, thread: str = "1.2") -> dict:
-    since = render.when(state.stamp(T0))
-    words = f"Since {since} the recommended answer to {{card:{card}}} is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
-    return {"text": words, "thread_ts": thread}
+def paused(thread: str = "1.2") -> dict:
+    return {"text": watch.PAUSED, "thread_ts": thread}
 
 
 def question(waits: str) -> dict:
@@ -1007,7 +1005,7 @@ def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_whe
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a", "demo:j1-7-b"]}
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == waiting("demo:j1-7-a", "demo:j1-7-b")
-    assert told == [paused("demo:j1-7-a"), paused("demo:j1-7-b", "1794200000.000300")]
+    assert told == [paused(), paused("1794200000.000300")]
     asking(monkeypatch, demo, "demo:j1-7-a")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     asking(monkeypatch, demo)
@@ -1055,7 +1053,7 @@ def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_aft
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == waiting("demo:j1-7-a")
-    assert posts == [paused("demo:j1-7-a")] * 2
+    assert posts == [paused()] * 2
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=2)) == []
     assert state.load(demo)["jobs"]["j1"]["waiting_said"] == ["demo:j1-7-a"]
 

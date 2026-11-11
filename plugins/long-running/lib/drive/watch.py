@@ -13,7 +13,7 @@ from pathlib import Path
 
 from drive import dashboard, github, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
-from drive.render import SUBSCRIBE, cut, waiting_line, when
+from drive.render import SUBSCRIBE, cut, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -34,6 +34,7 @@ LIVE_JOB_STATES = ("running", "waiting")
 LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
+PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
 UNSTAFFED_FOR = timedelta(minutes=5)
@@ -246,7 +247,7 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in one reply in the card's own thread, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
+    """Tell him once, in one reply in the card's own thread naming no card, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
     if watcher.cards is None:
         return []
     from drive import talk
@@ -259,7 +260,7 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for url, entries in cards.items():
         try:
-            reply = talk.posted(watcher.name, {"text": waiting_line(entries[0]), "thread_ts": view.card_thread(url)})
+            reply = talk.posted(watcher.name, {"text": PAUSED, "thread_ts": view.card_thread(url)})
         except (state.DriveError, slack.SlackError) as error:
             lines += failed(watcher, "waiting post", "built-and-paused reply", error, moment)
             continue
