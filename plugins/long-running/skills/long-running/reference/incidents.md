@@ -238,8 +238,9 @@ check's verdict, or from the order when none ran.
 
 - Codex edits and Claude ships. In the turn the fix job has its change, a `long-running:builder`
   ships it from that worktree, lands it and proves it live.
-- An approved and green incident PR lands in the turn the watch reports it: on its
-  `checks passed` or `approved` event, resume its job with "land it and start its build now".
+- An approved and green incident PR lands in the turn the watch reports it: its `checks passed`
+  or `approved` event wakes the coordinator, which resumes its job with "land it and start its
+  build now".
 - In the monorepo the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`,
   then `gh pr merge <n> -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack,
   which `gh pr merge` refuses, `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f

@@ -614,7 +614,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
 
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
-    cards = [card for card in [args.card, *args.waits] if card and card not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(card)]
+    cards = [card for card in [args.card, *args.waits] if card and state.card_wait(data, card)]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     if not (cards and incidents):
         return
@@ -1087,7 +1087,7 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: {exposed}")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
-        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
+        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if state.card_wait(data, wait)]
         if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]):
             raise DriveError(
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
@@ -1137,7 +1137,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if key not in known["prs"]:
         raise DriveError(f"no drive PR {key}: add it first with drive pr add {args.url} --job <j>, then set it")
     order = known["prs"][key]["order"]
-    if (cards := [wait for wait in args.waits if wait not in known["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]) and state.open_incidents(known, [order]):
+    if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
             " stays open; a different pick of his starts a follow-up job on the same order"
@@ -1181,9 +1181,10 @@ def check_waits(name: str, waits: list[str]) -> None:
 
     data = state.load(name)
     for wait in waits:
-        if (release := state.RELEASE_WAIT.fullmatch(wait)) and release["pr"] not in data["prs"]:
-            raise DriveError(f"--waits {wait}: the drive tracks no PR {release['pr']}; drive pr add it to its job first")
-    cards = [wait for wait in waits if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
+        pr = release["pr"] if (release := state.RELEASE_WAIT.fullmatch(wait)) else wait
+        if state.PR_KEY.fullmatch(pr) and pr not in data["prs"]:
+            raise DriveError(f"--waits {wait}: the drive tracks no PR {pr}; drive pr add it to its job first")
+    cards = [wait for wait in waits if state.card_wait(data, wait)]
     found = view.live_cards(name)
     if not all(view.card_open(wait, found) for wait in cards):
         view.refresh_cards(name)
@@ -1192,8 +1193,9 @@ def check_waits(name: str, waits: list[str]) -> None:
         if not (WAITS_CARD.fullmatch(wait) and view.card_open(wait, found)):
             raise DriveError(
                 f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
-                " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, or"
-                " release:<service>:<owner>/<repo>#<n>, the release of that service carrying that PR"
+                " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
+                " <owner>/<repo>#<n>, held until it merges or closes, or release:<service>:<owner>/<repo>#<n>, the release of"
+                " that service carrying that PR"
             )
 
 
@@ -1637,12 +1639,13 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB|RELEASE",
+        metavar="CARD|JOB|PR|RELEASE",
         help=(
-            "a design card or PR card of his still open, by its Slack link or waits id, release:<service>:<owner>/<repo>#<n>, the next"
-            " release of that service carrying that PR the drive tracks, or for a PR a job, it waits on; repeat for each. The"
-            " watch drops each as he answers or taps it, the job ends or GitHub shows the newest release of that service holds the PR's"
-            " merge commit, and says FREE once when the last is gone, which wakes the coordinator"
+            "a design card or PR card of his still open, by its Slack link or waits id, a PR the drive tracks as <owner>/<repo>#<n>,"
+            " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, or for a PR a job, it waits on;"
+            " repeat for each. The watch drops each as he answers or taps it, the PR merges or closes, the job ends or GitHub shows the"
+            " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
+            " coordinator"
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")

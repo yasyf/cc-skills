@@ -44,10 +44,9 @@ COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
-STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card drawn"}
+STUCK_WORDS = {"red": "still red", "card": "green and approved with no card drawn", "landing": "green, approved and exempt, and not landed"}
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
-OWN_MOVE = re.compile(rf"^PR \S+: (?:{'|'.join(OWN_MOVES)})\b")
 
 
 @dataclass
@@ -138,8 +137,8 @@ def next_step(pr: dict, data: dict, cards: dict | None) -> bool:
 
 
 def moves_owed(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether a PR's own moves, a new head, checks passed or approved, wake the coordinator: it waits on its next step alone, his card when it wants his tap and none is drawn, or its landing when it wants none."""
-    return next_step(pr, data, cards) and not (pr["wants_tap"] and view.card_for(cards["pr_cards"], pr["url"]))
+    """Whether a PR's own moves, a new head, checks passed or approved, are said: it waits on its next step alone, and that step is not his card already drawn."""
+    return next_step(pr, data, cards) and not (state.owed_step(pr) == "card" and view.card_for(cards["pr_cards"], pr["url"]))
 
 
 def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
@@ -147,8 +146,9 @@ def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
         return None
     if pr["checks"] == "fail":
         return "red"
-    card_owed = cards is not None and pr["wants_tap"] and not view.card_for(cards["pr_cards"], pr["url"])
-    return "ready" if card_owed and next_step(pr, data, cards) else None
+    if cards is None or not moves_owed(pr, data, cards):
+        return None
+    return state.owed_step(pr)
 
 
 def held(pr: dict) -> bool:
@@ -156,7 +156,7 @@ def held(pr: dict) -> bool:
 
 
 def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
-    """Say a PR stuck red, or green and approved with no card while nothing it waits on holds, once it has held 30 minutes with its job neither running nor asking him, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
+    """Say a PR stuck red, or green and approved with his card or its exempt landing owed while nothing it waits on holds, once it has held 30 minutes with its job neither running nor asking him, then again only when what it is changes: its head, checks, review, tap, job's state, or what it waits on."""
     holds = view.holding(data, pr["waits"], cards)
     what, stuck = stuck_as(pr, data, cards), pr.get("stuck")
     if what is None or not stuck or stuck["as"] != what:
@@ -970,9 +970,12 @@ def tooling(line: str, data: dict) -> bool:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    if not line.startswith("PR "):
-        return True
-    return not OWN_MOVE.match(line) and data["jobs"][ABOUT.search(line)["job"]]["state"] != "running"
+    """Whether a line asks for a step now: any line but a PR's, and a PR's when its job is not running to take it, its new head, checks passed or approval only when the drive owes it his card or its exempt landing, never when its author or its own builder lands it."""
+    found = PR_EVENT.match(line)
+    if not found:
+        return not line.startswith("PR ")
+    authors = found["change"].startswith(OWN_MOVES) and state.owed_step(data["prs"][found["key"]]) is None
+    return data["jobs"][found["job"]]["state"] != "running" and not authors
 
 
 def lane_move(line: str, data: dict) -> str | None:
@@ -985,11 +988,8 @@ def lane_move(line: str, data: dict) -> str | None:
 
 
 def wakes(line: str, data: dict) -> bool:
-    """Whether the coordinator acts on the line now: his tap, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR merged or red whose job is not running to take it."""
-    if line.startswith(WAKES):
-        return True
-    found = PR_EVENT.match(line)
-    return bool(found) and found["change"].startswith(OWNER_MOVES) and data["jobs"][found["job"]]["state"] != "running"
+    """Whether the coordinator acts on the line now: his tap, a promised time, an orphan, his answer, a lane's report or death, his return, a stopped watch, or a PR's line that asks for a step, such as one going green and approved that waits on his card or its exempt landing."""
+    return line.startswith(WAKES) or line.startswith("PR ") and needs_step(line, data)
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:

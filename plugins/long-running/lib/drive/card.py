@@ -202,7 +202,7 @@ def tap_label(entry: dict) -> str | None:
 
 
 def offers_approval(pr: dict, entry: dict) -> bool:
-    return pr["state"] == "OPEN" and entry["wants_tap"] and tap_label(entry) != "Approve" and not entry.get("exempt")
+    return pr["state"] == "OPEN" and state.owed_step(entry) == "card" and tap_label(entry) != "Approve"
 
 
 def waits_on(pr: dict, entry: dict) -> str:

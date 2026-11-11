@@ -617,6 +617,18 @@ def open_prs(data: dict) -> list[dict]:
     return [data["prs"][key] for key in open_pr_keys(data)]
 
 
+def card_wait(data: dict, wait: str) -> bool:
+    """Whether a wait names a card of his, by its Slack link or waits id, rather than a job, a PR or a release of the drive."""
+    return wait not in data["jobs"] and wait not in data["prs"] and not RELEASE_WAIT.fullmatch(wait)
+
+
+def owed_step(pr: dict) -> str | None:
+    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, his card when it waits on his tap, and nothing when its author or its own builder lands it."""
+    if pr.get("exempt"):
+        return "landing"
+    return "card" if pr["wants_tap"] else None
+
+
 def new_pr(url: str, job_id: str, order_id: str) -> dict:
     return {
         "url": url,

@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_key, pr_url, promise_thread
+from drive.state import ROLES, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, promise_thread
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 COMMUNICATOR_RULES = (
@@ -283,7 +283,7 @@ def order_line(order_id: str, order: dict, limit: int = 120, thread: tuple[str, 
 
 
 def pr_line(key: str, pr: dict) -> str:
-    tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if pr["wants_tap"] else "no tap needed")
+    tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if owed_step(pr) == "card" else "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""

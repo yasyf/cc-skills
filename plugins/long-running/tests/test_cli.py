@@ -738,8 +738,10 @@ def test_job_set_waits_on_his_pr_card_by_its_slack_link_or_merge_waits_id_until_
     assert cli.main(["job", "set", "j1", "--waits", merge]) == 2
     assert (
         f"--waits {merge}: name a job of this drive, the Slack link or waits id of a card of his still open, a question"
-        " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, or"
+        " card or a PR card still waiting on his tap, whose waits id is merge:<owner>:<repo>:<n>, a PR of this drive as"
     ) in capsys.readouterr().err
+    assert cli.main(["job", "set", "j1", "--waits", "acme/app#9"]) == 2
+    assert "--waits acme/app#9: the drive tracks no PR acme/app#9; drive pr add it to its job first" in capsys.readouterr().err
 
 
 def test_job_set_repro_keeps_a_copy_in_the_drive_and_status_shows_it(
