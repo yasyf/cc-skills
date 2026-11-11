@@ -13,7 +13,7 @@ SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the two sessions and the design lane, and a builder whose brief says no scope builds work no order asked for."""
+    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, and a builder whose brief says no scope builds work no order asked for."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -30,8 +30,8 @@ def deny_reason(payload: dict) -> str | None:
         )
     if "fable" in (call.get("model") or "").lower() and kind != DESIGNER:
         return (
-            f"refused: Fable runs only the drive's two sessions and {DESIGNER}; start {kind or 'this agent'} on its own"
-            " default model, or `sonnet` for a one-fact lookup"
+            f"refused: Fable runs only the coordinator and {DESIGNER}; start {kind or 'this agent'} on its own default"
+            " model, or `sonnet` for a one-fact lookup"
         )
     if kind == BUILDER and not SCOPED.search(brief.carried(call.get("prompt") or "")):
         return (
