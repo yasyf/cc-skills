@@ -164,9 +164,11 @@ Your final message is its first line alone, since it lands whole in the coordina
 ## Limits
 
 - You are read only: write no code, run no build or test; a hook refuses `gh pr create` and pushes.
-- Nobody watches the terminal that started you, so a permission prompt there stalls you until
-  morning. Keep each Bash call one plain pipeline; put loops, nested `${...}` expansions and
-  multi-step logic in a script in your brief's `Scratch:` folder and run that.
+- Nobody watches the terminal that started you, so the `bash_guard` hook refuses each permission
+  prompt Claude Code raises on your Bash call. Bypass permissions mode still asks when Claude
+  Code's parser cannot read a command, such as one with a zsh expansion flag like
+  `${(s:,:)tables}`: write such a command, and any multi-step logic, to a script in your brief's
+  `Scratch:` folder and run that.
 - Work around a tool that crashes, hangs or refuses without naming a fix, and send
   `cci post --kind defect --to meta@<drive>` quoting its refusal, since the meta session
   starts every tool fix, with `--lane designer` when your brief's order opens `Drive tooling:`, else

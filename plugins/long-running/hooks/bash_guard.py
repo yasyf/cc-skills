@@ -19,6 +19,14 @@ VALUED = {"-C", "-R", "--repo", "--drive"}
 ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 PUSHES = (("gh", "pr", "create"), ("git", "push"), ("jj", "git", "push"), ("ccx", "vcs", "ship"), ("gt", "submit"))
 CACHED_PAGE = re.compile(r"plugins/cache/([^/\s'\"]+)/long-running/([^/\s'\"]+)/skills/long-running/reference/")
+UNSEEN_PROMPT = (
+    "refused: Claude Code asked for permission to run this command, and nobody watches a drive agent's terminal, so the"
+    " prompt would hold your job unseen for hours. Bypass permissions mode still asks when Claude Code's parser cannot"
+    " read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write the command to a script in"
+    " your brief's Scratch folder, with the Write tool or a quoted heredoc `cat > <scratch>/<name>.sh <<'EOF'` … `EOF`,"
+    " and run it as `zsh <scratch>/<name>.sh`. When the command removes files outside your worktree or Scratch folder,"
+    " run nothing and return BLOCKED naming it"
+)
 
 
 def commands(text: str) -> list[list[str]]:
@@ -176,13 +184,15 @@ def mid_incident(found: list[list[str]]) -> str | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident."""
+    """Why a drive session's or drive agent's call must not run: a designer pushes, a read takes a stale version's cached skill page, `drive job resume` runs in the background, or a session is resumed while it runs, from a shell-ending command, or ended mid-incident; and why Claude Code's permission prompt on a drive agent's command gets a refusal rather than an answer nobody gives."""
     call = payload["tool_input"]
     session = payload.get("session_id") or ""
     drives = state.session_drives(session)
+    kind = payload.get("agent_type") or ""
+    if payload.get("hook_event_name") == "PermissionRequest":
+        return UNSEEN_PROMPT if payload.get("agent_id") and (drives or kind.startswith(AGENTS)) else None
     if payload["tool_name"] != "Bash":
         return cached_page(call.get("file_path") or call.get("path") or "") if drives else None
-    kind = payload.get("agent_type") or ""
     if not drives and not kind.startswith(AGENTS):
         return None
     text = runnable(call["command"])
@@ -202,21 +212,17 @@ def deny_reason(payload: dict) -> str | None:
 
 def main() -> None:
     try:
-        reason = deny_reason(json.load(sys.stdin))
+        payload = json.load(sys.stdin)
+        reason = deny_reason(payload)
     except ValueError:
         return
-    if reason:
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
-                }
-            )
-        )
+    if not reason:
+        return
+    if payload.get("hook_event_name") == "PermissionRequest":
+        decided = {"hookEventName": "PermissionRequest", "decision": {"behavior": "deny", "message": reason}}
+    else:
+        decided = {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}
+    print(json.dumps({"hookSpecificOutput": decided}))
 
 
 if __name__ == "__main__":

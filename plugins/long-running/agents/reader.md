@@ -24,9 +24,10 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   with the `iris-thread` skill. A line ending on a refused read with neither skill tried is sent
   back; only when every route refuses does the read go on `UNPROVEN:` with each refusal.
 - Prefer `ccx` reads and one batched call over many small ones.
-- Nobody watches your terminal, so a permission prompt stalls you. Keep each Bash call one plain
-  pipeline; put loops, nested `${...}` expansions, and multi-step logic in a scratch script
-  written by heredoc.
+- Nobody watches your terminal, so the `bash_guard` hook refuses each permission prompt Claude
+  Code raises on your Bash call. Bypass permissions mode still asks when Claude Code's parser
+  cannot read a command, such as one with a zsh expansion flag like `${(s:,:)tables}`: write such
+  a command, and any multi-step logic, to a scratch script by quoted heredoc and run the file.
 - Stop once the answer is proven, each fact citing a read you made; note any further question as
   one report line.
 - Give each number as itself, marked measured or worked out from code, in rows a chart can draw

@@ -26,7 +26,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 TELL_AFTER = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "LIVE ", "TELL ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "STUCK ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "NOT READY at")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
@@ -41,6 +41,7 @@ UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask 
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
+CALL_STUCK_FOR = timedelta(minutes=5)
 UNSTAFFED_FOR = timedelta(minutes=5)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
 TAIL_BYTES = 65536
@@ -53,7 +54,7 @@ STUCK_WORDS = {
     "card": "green and approved with no card drawn",
     "landing": "green, approved and exempt, and not landed",
 }
-ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
 
 
@@ -964,9 +965,31 @@ class Answered(str):
         codex.take(name, data, job_id, self.run)
 
 
-def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+def session_of(job: dict, data: dict) -> dict | None:
+    """The bound session whose agent runs a local job."""
     session = job.get("session")
-    holder = next((held for held in state.bound_sessions(data).values() if session and held["session"] == session), None)
+    return next((held for held in state.bound_sessions(data).values() if session and held["session"] == session), None)
+
+
+def held_call(job_id: str, job: dict, data: dict, moment: datetime) -> tuple[str, str] | None:
+    """A running local job's tool call that its transcript ends on with no result five minutes on and the watch has not said yet, with its STUCK line: Claude Code moves a Bash command still running at three minutes to the background, so a call that has no result by five never started, held by a permission prompt in a terminal nobody watches."""
+    holder = session_of(job, data)
+    if holder is None or not job.get("agent") or not (path := transcript(holder, job["agent"])).exists():
+        return None
+    turn = last_turn(path)
+    calls = [block for block in turn["message"]["content"] if block.get("type") == "tool_use"] if turn and turn["type"] == "assistant" else []
+    if not calls or calls[-1]["id"] == job.get("stuck_call") or (held := moment - state.parse_time(turn["timestamp"])) < CALL_STUCK_FOR:
+        return None
+    call = calls[-1]
+    asked = first_line(call["input"].get("command") or call["input"].get("description") or json.dumps(call["input"]))
+    return call["id"], (
+        f'STUCK {job_id} {job["order"]}: its agent\'s {call["name"]} call "{cut(asked, 80)}" has had no result for {minutes(held)} minutes,'
+        f" so a permission prompt nobody sees holds it: TaskStop {job['agent']}, then hand the job to a fresh agent whose brief runs that call as a scratch script"
+    )
+
+
+def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
+    holder = session_of(job, data)
     if holder is None:
         return f"{job_id}'s agent ended with an earlier session"
     if not job.get("agent"):
@@ -1027,7 +1050,7 @@ def launching(job: dict, moment: datetime) -> bool:
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
     """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line has the result the drive keeps for its job taken, as its stop hook takes it, so a stop that skipped the take leaves no gap: that line when it is an `ASK <path>` naming the block `drive job ask` kept, else its kept report's first line, whatever line the agent ended on, since a wake or a stop can re-run a job after its report took its result; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
-    gaps, deaths, heads, found, taken, lines = {}, {}, {}, {}, {}, []
+    gaps, deaths, heads, found, taken, held, lines = {}, {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
         for job_id in order["jobs"]:
             job = data["jobs"][job_id]
@@ -1036,6 +1059,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             if running and job.get("branch") and (job.get("repo") or remote):
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
             if not remote:
+                if running and (call := held_call(job_id, job, data, moment)):
+                    held[job_id] = call
                 gap = running and local_gap(job_id, job, data, moment)
                 kept = isinstance(gap, Unrecorded) and state.kept_result(watcher.name, job_id, job, gap.line)
                 if isinstance(gap, Answered) or kept:
@@ -1072,12 +1097,15 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 gaps[job_id] = remote_gap(job_id, worker, moment)
                 if branch := ((worker.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/"):
                     heads.setdefault(job_id, set()).add((job.get("repo"), branch))
-    if found or taken:
+    if found or taken or held:
         with state.edit(watcher.name) as data:
             for job_id, lane in found.items():
                 data["jobs"][job_id].update(lane)
             for job_id, gap in taken.items():
                 gap.take(watcher.name, data, job_id)
+            for job_id, (call, line) in held.items():
+                data["jobs"][job_id]["stuck_call"] = call
+                lines.append(line)
     unlisted, failed = untracked_prs(watcher, data, heads, moment)
     watcher.agent_gaps = {job_id: stranded(job_id, data, gaps.get(job_id), unlisted.get(job_id, {})) for job_id in gaps.keys() | heads.keys()}
     return lines + failed + death_lines(watcher.name, deaths, moment)
