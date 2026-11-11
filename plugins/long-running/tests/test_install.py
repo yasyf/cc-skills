@@ -1,14 +1,18 @@
 import json
 import subprocess
+import threading
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import install
+from drive import install, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
 SHOW_MARKETPLACE = ["show", f"{install.DEFAULT_BRANCH}:.claude-plugin/marketplace.json"]
+IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
+BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
+SENT = {"ok": True, "result": {"send": {"accepted": True}}}
 
 
 class FakeGit:
@@ -22,6 +26,10 @@ class FakeGit:
         self.calls: list[list[str]] = []
         self.timeouts: list[float] = []
         self.sleeps: list[float] = []
+        self.orca_calls: list[list[str]] = []
+        self.orca_timeouts: list[float] = []
+        self.waits: dict[str, dict] = {}
+        self.together = threading.Barrier(1)
 
     def clock(self) -> float:
         return self.now
@@ -31,6 +39,8 @@ class FakeGit:
         self.now += seconds
 
     def run(self, cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        if cmd[0] == "orca":
+            return self.orca(cmd, options["timeout"])
         self.calls.append(cmd)
         self.timeouts.append(options["timeout"])
         if self.call_seconds > options["timeout"]:
@@ -40,6 +50,17 @@ class FakeGit:
         if cmd[0] == "gh":
             return subprocess.CompletedProcess(cmd, 1, "", "gh: API rate limit exceeded (HTTP 403)")
         return subprocess.CompletedProcess(cmd, 0, self.answer(cmd), "")
+
+    def orca(self, cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
+        self.orca_calls.append(cmd)
+        self.orca_timeouts.append(timeout)
+        if cmd[2] == "wait":
+            self.together.wait()
+        reply = self.waits.get(cmd[4], IDLE) if cmd[2] == "wait" else SENT
+        return subprocess.CompletedProcess(cmd, 0 if reply["ok"] else 1, json.dumps(reply), "")
+
+    def typed_into(self, terminal: str) -> list[list[str]]:
+        return [call for call in self.orca_calls if call[4] == terminal]
 
     def next_ref(self) -> str:
         return self.refs.pop(0) if len(self.refs) > 1 else self.refs[0]
@@ -72,7 +93,7 @@ class FakeGit:
 
 
 @pytest.fixture
-def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) -> Path:
     config = tmp_path / "claude"
     (config / "plugins").mkdir(parents=True)
     known = {
@@ -266,3 +287,86 @@ def test_other_plugins_run_nothing_after_the_update(fake: Callable[..., FakeGit]
     git = fake(["unused"], set())
     assert install.main("long-running@skills", None, None, 900) == 0
     assert git.other_calls() == []
+
+
+def start_drive(name: str, **terminals: str | None) -> None:
+    (first, terminal), *rest = terminals.items()
+    data = state.new_drive(name, first, f"{name}-{first}", "/work", None, terminal)
+    for role, held in rest:
+        data["roles"][role] = {**data["roles"][first], "session": f"{name}-{role}", "terminal": held}
+    state.create(data)
+
+
+def waited(terminal: str, wait_ms: str) -> list[str]:
+    return ["orca", "terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", wait_ms, "--json"]
+
+
+def sent(terminal: str) -> list[str]:
+    return ["orca", "terminal", "send", "--terminal", terminal, "--text", "/reload-plugins", "--enter", "--wait-submit", "10", "--json"]
+
+
+def by_hand(terminal: str) -> str:
+    return f"send it with: orca terminal send --terminal {terminal} --text /reload-plugins --enter"
+
+
+def test_an_install_types_reload_plugins_into_both_drive_sessions_once_each_is_idle(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    git = fake(["unused"], set())
+    git.together = threading.Barrier(2, timeout=5)
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "890000"), sent("term_comm")]
+    assert git.typed_into("term_coord") == [waited("term_coord", "890000"), sent("term_coord")]
+    assert capsys.readouterr().out.splitlines() == [
+        "installed long-running@skills 1.0.3",
+        "demo communicator: reloaded in term_comm",
+        "demo coordinator: reloaded in term_coord",
+    ]
+
+
+def test_a_session_still_busy_at_the_deadline_gets_the_command_that_reloads_it(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    git = fake(["unused"], set(), call_seconds=5)
+    git.together = threading.Barrier(2, timeout=5)
+    git.waits["term_coord"] = BUSY
+    assert install.main("long-running@skills", None, None, 60) == 0
+    assert git.typed_into("term_comm") == [waited("term_comm", "40000"), sent("term_comm")]
+    assert git.typed_into("term_coord") == [waited("term_coord", "40000")]
+    assert sorted(git.orca_timeouts) == [60, 100, 100]
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        "demo communicator: reloaded in term_comm",
+        f"demo coordinator: still busy at the deadline; {by_hand('term_coord')}",
+    ]
+
+
+def test_a_terminal_orca_cannot_find_or_that_shows_a_prompt_is_typed_nothing(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_gone", coordinator="term_menu")
+    git = fake(["unused"], set())
+    git.together = threading.Barrier(2, timeout=5)
+    git.waits["term_gone"] = {"ok": False, "error": {"code": "terminal_not_found", "message": "no terminal term_gone"}}
+    git.waits["term_menu"] = {"ok": True, "result": {"wait": {"satisfied": False, "blockedReason": "agent-trust-workspace"}}}
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert [call[2] for call in git.orca_calls] == ["wait", "wait"]
+    assert capsys.readouterr().out.splitlines()[1:] == [
+        f"demo communicator: not reloaded (orca terminal wait: terminal_not_found: no terminal term_gone); {by_hand('term_gone')}",
+        f"demo coordinator: not reloaded (orca terminal wait: it shows agent-trust-workspace); {by_hand('term_menu')}",
+    ]
+
+
+def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("solo", coordinator=None)
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.orca_calls == []
+    assert capsys.readouterr().out.splitlines() == [
+        "installed long-running@skills 1.0.3",
+        "solo communicator: no terminal recorded, skipped",
+        "solo coordinator: no terminal recorded, skipped",
+    ]

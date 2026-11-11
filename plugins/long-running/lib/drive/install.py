@@ -5,7 +5,10 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path, PurePosixPath
+
+from drive import state
 
 POLL_SECONDS = 20
 GITHUB_REPO = re.compile(r"github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$")
@@ -113,8 +116,7 @@ def installed(key: str) -> dict:
     return max(plugins[key], key=lambda entry: entry.get("lastUpdated") or entry.get("installedAt") or "")
 
 
-def install(key: str, sha: str | None, repo: str | None, timeout: int) -> str:
-    deadline = clock() + timeout
+def install(key: str, sha: str | None, repo: str | None, deadline: float, timeout: int) -> str:
     plugin, _, marketplace = key.partition("@")
     if sha:
         await_release(repo or marketplace_repo(marketplace), plugin, sha, deadline, timeout)
@@ -126,12 +128,37 @@ def install(key: str, sha: str | None, repo: str | None, timeout: int) -> str:
     return entry["version"]
 
 
-def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
-    """Wait for a release containing sha, update the plugin, and print the installed version."""
+def reload_session(drive: str, role: str, deadline: float) -> str:
+    """Type /reload-plugins into one drive session's Orca terminal once it is idle, which loads an install's skills, agents and new hooks with nothing restarted."""
+    from drive import orca
+
+    who = f"{drive} {role}"
+    terminal = state.load(drive)["roles"].get(role, {}).get("terminal")
+    if not terminal:
+        return f"{who}: no terminal recorded, skipped"
     try:
-        version = install(plugin_at_marketplace, sha, repo, timeout)
+        orca.reload_plugins(terminal, max(1, int((deadline - clock() - orca.SUBMIT_SECONDS) * 1000)))
+    except orca.OrcaError as error:
+        why = "still busy at the deadline" if error.code == orca.TIMEOUT else f"not reloaded ({error})"
+        return f"{who}: {why}; send it with: {orca.reload_command(terminal)}"
+    return f"{who}: reloaded in {terminal}"
+
+
+def reload_sessions(deadline: float) -> list[str]:
+    sessions = [(name, role) for name in state.names() for role in state.ROLES]
+    with ThreadPoolExecutor() as pool:
+        return list(pool.map(lambda session: reload_session(*session, deadline), sessions))
+
+
+def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int) -> int:
+    """Wait for a release containing sha, update the plugin, print the installed version, then reload every drive session on this Mac."""
+    deadline = clock() + timeout
+    try:
+        version = install(plugin_at_marketplace, sha, repo, deadline, timeout)
     except InstallError as error:
         print(f"drive install: {error}", file=sys.stderr)
         return 1
     print(f"installed {plugin_at_marketplace} {version}")
+    for line in reload_sessions(deadline):
+        print(line)
     return 0
