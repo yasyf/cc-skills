@@ -22,7 +22,10 @@ LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000"
 LAUNCH_SECONDS = 1800
 MAIL_LIMIT = 100
 FENCED = "consumer_fenced"
-GONE = "dispatch_not_found"
+GONE = {
+    "dispatch_not_found": "Orca no longer holds its worker",
+    "Unknown environment": "Orca no longer holds its Sprite's environment",
+}
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
@@ -332,13 +335,18 @@ def death(worker: dict) -> str | None:
     return "its worker exited" if worker["projection"]["liveness"]["verdict"] == "exited" else None
 
 
+def gone(error: OrcaError) -> str | None:
+    """Why a worker-show refusal means Orca never reaches the lane again: it dropped the Dispatch, or the environment of its Sprite, which ending the lane removes; None when it may reach it yet."""
+    return next((why for refusal, why in GONE.items() if refusal in str(error)), None)
+
+
 def lane_end(job: dict) -> LaneEnd | None:
     """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal, on its Sprite or on this Mac, the worktree its next worker starts in. OrcaError when Orca cannot tell either way."""
     try:
         shown = worker(job["dispatch"])
     except OrcaError as error:
-        if GONE in str(error):
-            return LaneEnd("Orca no longer holds its worker", None, None)
+        if why := gone(error):
+            return LaneEnd(why, None, None)
         raise
     branch = ((shown.get("terminal") or {}).get("branch") or "").removeprefix("refs/heads/") or None
     if why := death(shown):

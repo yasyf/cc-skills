@@ -546,17 +546,30 @@ def test_the_watch_says_a_dead_lane_once_whether_it_ran_or_waited(remote: str, m
     assert [death["dispatch"] for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [DISPATCH]
 
 
-def test_the_watch_says_a_lane_orca_dropped_died(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def refused(code: str, message: str) -> Callable[[str], dict]:
+    def show(dispatch: str) -> dict:
+        reply = {"ok": False, "error": {"code": code, "message": message}}
+        return orca.result_of("orchestration worker-show", subprocess.CompletedProcess(["orca"], 1, json.dumps(reply), ""))
+
+    return show
+
+
+@pytest.mark.parametrize(
+    ("code", "message", "why"),
+    [
+        ("dispatch_not_found", "no such dispatch", "Orca no longer holds its worker"),
+        ("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4", "Orca no longer holds its Sprite's environment"),
+    ],
+)
+def test_the_watch_says_a_lane_orca_dropped_died_once(remote: str, monkeypatch: pytest.MonkeyPatch, code: str, message: str, why: str) -> None:
     deliver(monkeypatch)
     with state.edit(remote) as data:
         data["jobs"]["j1"]["workspace"] = "sprite-old"
-
-    def gone(dispatch: str) -> dict:
-        raise orca.OrcaError("orca orchestration worker-show: dispatch_not_found: no such dispatch")
-
-    monkeypatch.setattr(orca, "worker", gone)
+    monkeypatch.setattr(orca, "worker", refused(code, message))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.run_pass(watching, T0)[0].startswith("LANE j1 o1 died on Sprite sprite-old: Orca no longer holds its worker, while it worked on")
+    assert watch.run_pass(watching, T0)[0].startswith(f"LANE j1 o1 died on Sprite sprite-old: {why}, while it worked on")
+    assert not any(line.startswith("LANE") for line in watch.run_pass(watching, T0 + timedelta(minutes=1)))
+    assert [(death["dispatch"], death["why"]) for death in state.load(remote)["jobs"]["j1"]["deaths"]] == [(DISPATCH, why)]
 
 
 def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list[tuple[str, str]]]:
@@ -740,6 +753,44 @@ def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_car
     assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
     data = state.load(remote)
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {}, [])
+
+
+def test_resume_after_end_relaunches_the_job_on_a_fresh_sprite_with_the_message_in_its_handoff(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    first = tmp_path / "first.md"
+    first.write_text(orca.vm_brief(remote, "j1", "Order (his words): ship it\nDrive: demo, order o1, job j1", None))
+    url = "https://github.com/Forge-AI/monorepo/pull/53935"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(brief=str(first), state="waiting", said=f"WAITING CI on {url}", prs=[url], workspace="pool-rxo7catmn6cw4efb")
+    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
+    assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays waiting")
+    monkeypatch.setattr(orca, "worker", refused("invalid_argument", "Unknown environment: f0b7755c-d270-48fa-88c3-8ad678a1c2e4"))
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing is sent to a lane whose Sprite is gone: {args}"))
+    launched = {}
+
+    def fake_launch(drive: str, lane: str, brief: Path, checkout: Path, run_id: str, route: str | None) -> dict:
+        launched.update(lane=lane, brief=brief.read_text(), run=run_id)
+        fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+        return {field: f"{field}-2" for field in fields}
+
+    monkeypatch.setattr(orca, "launch", fake_launch)
+    assert run("job", "resume", "j1", "Build #4412 failed: fix the lint") == (
+        0,
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-rxo7catmn6cw4efb was"
+        " dead (Orca no longer holds its Sprite's environment), and work not pushed from pool-rxo7catmn6cw4efb is not carried over",
+    )
+    assert (launched["lane"], launched["run"]) == ("demo-j1-2", RUN)
+    brief = orca.brief_of(launched["brief"])
+    assert ": ended by drive job end. You take the job over on a fresh Sprite from its pushed branches;" in brief
+    assert f"Its last line: WAITING CI on {url}\nIts PRs: {url}\n" in brief
+    assert brief.endswith("which you act on now:\n\nBuild #4412 failed: fix the lint")
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["dispatch"], job["workspace"], job["state"]) == ("dispatch-2", "workspace-2", "running")
+    assert [(death["dispatch"], death["why"]) for death in job["deaths"]] == [(DISPATCH, "ended by drive job end")]
 
 
 def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

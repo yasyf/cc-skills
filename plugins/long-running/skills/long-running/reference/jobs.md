@@ -152,7 +152,8 @@ question.
 
 - Each PR a lane's `READY` or `PR:` line links becomes that job's, wanting his tap.
 - The lane's Dispatch, from Orca: a lane that sat at its prompt for 30 minutes makes its parts
-  `ORPHAN`s, and a lane whose worker died, running or waiting, is one `LANE … died` line.
+  `ORPHAN`s, and a lane whose worker died or whose Sprite's Orca environment is gone, running or
+  waiting, is one `LANE … died` line.
 - While its job stays `running`, a lane that finished, or ended and was not resumed within 30
   minutes, makes its parts `ORPHAN`s even when another job or a posted answer carries them. So does
   an open PR from GitHub on the job's branch or its lane's that the drive does not track.
@@ -161,7 +162,8 @@ question.
 
 - A live worker gets the message: the answer to its open question, or a new message to its Dispatch
   when it asked none or Orca already holds another answer to it. On a finished worker whose Sprite is still up, it starts the job's
-  next worker in its terminal; a dead worker is relaunched on a fresh Sprite on the same Run.
+  next worker in its terminal. A dead worker, or one whose Sprite's Orca environment is gone, as
+  `drive job end` leaves it, is relaunched on a fresh Sprite on the same Run.
 - Either new worker gets a handoff carrying the job's brief, branch, last line, report, PRs and the
   message, and the output says which ran. Work the dead lane had not pushed is lost.
 - When Orca cannot reach the lane's Sprite, or refuses the send or the start, nothing is delivered
