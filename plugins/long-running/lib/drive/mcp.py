@@ -23,7 +23,7 @@ INSTRUCTIONS = (
     " naming a cause with no {record:} and each `cc-slack check-post` finding, and Jev judges them against his words;"
     " it posts exactly the words the hook let out and adds none."
     " The drive's verbs are tools too: heard, record for the records between the drive's sessions, order, job and pr taking"
-    " several ops a call, and status; each takes dry_run."
+    " several ops a call, and status; each takes dry_run, and drive, the drive it acts on when this session is bound to none or several."
 )
 TEXT = {"type": "string"}
 VISUAL = {
@@ -99,6 +99,7 @@ SAY = {
                     " since <when he was last heard>* in place of any title"
                 ),
             },
+            "drive": tools.DRIVE,
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing, refused as the post would be"},
         },
     },
