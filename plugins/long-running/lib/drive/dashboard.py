@@ -55,6 +55,7 @@ HELD = "an answer to this card is already being sent"
 SENT = "too late: that answer was already sent"
 UNDO_SECONDS = 10
 ELSEWHERE = "that is not a card thread of this drive"
+REDRAWN = "the card was drawn again while your answer was held, so nothing was sent; read it again and answer it as it stands"
 
 
 class Tailnet(NamedTuple):
@@ -120,6 +121,11 @@ def cc_slack(*args: str) -> dict:
     if done.returncode:
         raise DriveError(" ".join(done.stderr.split()) or f"cc-slack {args[0]} exited {done.returncode}")
     return json.loads(done.stdout)
+
+
+def revision(card: dict) -> tuple[str, list[str | None]]:
+    """What an answer to a card answers: its question and the head of each PR it shows."""
+    return card["title"], [row.get("head") for row in card.get("prs") or []]
 
 
 def answer_card(card: str, label: str, via: str) -> dict:
@@ -214,6 +220,7 @@ class Board:
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
+        self.revisions: dict[str, tuple[str, list[str | None]]] = {}
         self.heads: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
@@ -239,6 +246,7 @@ class Board:
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
         model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
+        revisions = {item["answer"]: revision(item["card"]) for item in [*model["queue"], *model["review"]] if item.get("answer")}
         heads = {entry["key"]: entry["head"] for entry in model["review"]}
         cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
         drawn = {match[1] for card in cards for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
@@ -249,6 +257,7 @@ class Board:
         with self.changed:
             self.body = body
             self.answers = answers
+            self.revisions = revisions
             self.heads = heads
             self.pictures = pictures
             self.threads = {item["thread"] for item in [*model["queue"], *model["review"]] if item.get("thread")}
@@ -388,11 +397,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(502, {"error": str(error)})
 
         def answer(self, asked: dict, via: str) -> None:
-            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first."""
+            """Hold his answer for UNDO_SECONDS, then send it unless an undo took it back first or the card was drawn again with another question or PR head meanwhile."""
             card = asked["card"]
             if asked["label"] not in board.answers.get(card, []):
                 self.answered(409, {"error": GONE})
                 return
+            shown = board.revisions[card]
             undone = threading.Event()
             with board.holding:
                 if card in board.held:
@@ -404,6 +414,9 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 if board.held.pop(card, None) is not undone:
                     self.answered(200, {"undone": True})
                     return
+            if card in board.revisions and board.revisions[card] != shown:
+                self.answered(409, {"error": REDRAWN})
+                return
             try:
                 said = answer_card(card, asked["label"], via)
             except (DriveError, subprocess.TimeoutExpired) as error:

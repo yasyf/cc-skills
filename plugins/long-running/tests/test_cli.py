@@ -3223,6 +3223,25 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
     assert (order["parts"]["ship web search"]["posted"], order["last_line"]) == (line, state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
+def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_card_its_thread_hangs_from(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "web search")
+    run("pr", "add", PR, "--job", "j1", "--tap")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    card = {"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_claude": True, "text": f"New: approve web search? — ✓ *Approve* · <{PR}|monorepo PR 42>"}
+    slack_thread.messages.append(card)
+    line = slack_thread.post(state.now(), from_claude=True).split("?")[0]
+    reply = slack_thread.messages[-1]
+    monkeypatch.setattr(slack, "thread", lambda *where: slack_thread.reads.append(where) or ([reply] if where[0] == "--url" else list(slack_thread.messages)))
+    assert run("order", "posted", "o1", line) == (0, f"o1 progress line, no part delivered: {line}")
+    assert ("--channel", "D123", "--thread", card["ts"], "--limit", "1000") in slack_thread.reads
+
+
 def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:

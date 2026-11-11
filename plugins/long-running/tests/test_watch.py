@@ -329,7 +329,31 @@ def test_a_promised_time_is_said_every_ten_minutes_until_a_drive_post_is_in_its_
     assert cli.main(["order", "set", "o1", "--state", "done", "--drive", demo]) == 0
     assert state.load(demo)["orders"]["o1"]["state"] == "done"
     assert said_due(watching, T0 + timedelta(hours=3)) == []
-    assert slack_thread.reads == [("--channel", "D123", "--thread", "1794200000.000100", "--limit", "50")] * 8
+    assert slack_thread.reads == [
+        ("--channel", "D123", "--thread", "1794200000.000100", "--since-ts", str(int(promised.timestamp())), "--limit", "1000")
+        for promised in [T0 - timedelta(minutes=60)] * 5 + [late_line] * 3
+    ]
+
+
+def test_a_drive_line_keeps_its_promised_time_however_many_of_his_messages_follow_it_in_the_thread(
+    demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    serve(monkeypatch, {})
+    promised = T0 - timedelta(minutes=60)
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(promised))
+    slack_thread.post(promised + timedelta(minutes=1), from_claude=True)
+    for second in range(60):
+        slack_thread.post(promised + timedelta(minutes=2, seconds=second), from_user=True)
+
+    def read(*where: str) -> list[dict]:
+        asked = dict(zip(where[::2], where[1::2]))
+        since = float(asked.get("--since-ts", 0))
+        return [message for message in slack_thread.messages if float(message["ts"]) > since][-int(asked["--limit"]) :]
+
+    monkeypatch.setattr(slack, "thread", read)
+    assert said_due(watcher(demo), T0) == []
+    assert state.load(demo)["orders"]["o1"]["kept"] is not None
 
 
 def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
@@ -376,7 +400,7 @@ def test_a_due_order_from_another_channel_reads_its_thread_in_the_channel_the_th
         )
     [line] = said_due(watcher(demo), T0)
     assert line.startswith('DUE o1 "ship the watch" was due ')
-    assert slack_thread.reads == [("--channel", where[0], "--thread", where[1], "--limit", "50")]
+    assert slack_thread.reads == [("--channel", where[0], "--thread", where[1], "--since-ts", str(int((T0 - timedelta(minutes=60)).timestamp())), "--limit", "1000")]
 
 
 def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
