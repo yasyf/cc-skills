@@ -446,6 +446,19 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     return held and f"refused, the report is the {role}'s: {held}"
 
 
+def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
+    """Why a post to his DM may not go out on an order: it goes in none of the order's threads, its own, its cards' or the thread under a card of a PR it holds."""
+    if order_id not in data["orders"] or not (threads := slack.order_threads(data, data["orders"][order_id])):
+        return None
+    if thread in {ts for _, ts in threads} or (thread and slack.names_order_pr(data, order_id, slack.root(data["slack"]["channel"], thread))):
+        return None
+    where = f"thread {thread}" if thread else "his DM root"
+    return (
+        f"refused, {where} is none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
+        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --part <that part>"
+    )
+
+
 def reported_parts(data: dict, order_id: str, report: dict) -> list[str]:
     """The parts of the order a report's post delivers: the part it names, else each part of the order its job delivers."""
     if part := report.get("part"):
@@ -647,7 +660,7 @@ def job_ask(args: argparse.Namespace) -> int:
     from drive import superseded
 
     if args.check:
-        limits.question(named_text(args.check, "ASK block file"))
+        limits.question(named_text(args.check, "ASK block file"), unsettled=args.unsettled)
         print("ready")
         return 0
     if args.id is None:
@@ -658,7 +671,7 @@ def job_ask(args: argparse.Namespace) -> int:
     text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
-    asked = limits.question(text)
+    asked = limits.question(text, unsettled=args.unsettled)
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     shown = "\n".join([asked.title, *asked.summary, *asked.options])

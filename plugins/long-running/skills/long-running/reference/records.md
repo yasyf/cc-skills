@@ -4,7 +4,7 @@
 - On cci, name the writer with `--lane communicator` or `--lane root`, since cci's default is never `root`, and address `root@<drive>` or `communicator@<drive>`, since a bare lane no session here reads can land on another drive.
 - An agent of the communicator's posting to `communicator@<drive>` passes its own lane instead, `--lane handler`, `builder`, `reader` or `designer` (`lane` on the `post` tool): it shares its session's lane, and cci refuses a record whose every `--to` is the lane posting it.
 - A record about a thread names it with `--attr thread=<ts>`. A record's text is one line of at most 120 characters, ids and paths in place of prose, because the channel puts it whole into the other session's context; the rest goes in the body, read with `cci show <seq>`.
-- On the `post` tool, `record_lines` cuts a longer text at a word, ending it in `…`, and puts the whole text atop the body. When the body is an attached file, which holds the rest, it keeps the cut line alone. It never cuts an `owner`, `answer` or `incident`, so his words stay whole.
+- On the `post` tool, `record_lines` cuts a longer text at a word, ending it in `…`, and puts the whole text atop the body; the drive's `record` tool does the same for a `defect`. When the body is an attached file, which holds the rest, the cut line stays alone. It never cuts an `owner`, `answer` or `incident`, so his words stay whole.
 - Only an open record, such as an `ask`, takes `--resolves`; answer an `owner` or `report`, which opens nothing, with `--re <seq>`.
 
 | Record | From | To | Carries | The receiver |

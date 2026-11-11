@@ -118,6 +118,11 @@ def message(link: str) -> dict:
     return message_and_root(link)[0]
 
 
+def root(channel: str, ts: str) -> dict | None:
+    """The message a thread in the channel hangs from, None when the thread holds no message at its own ts."""
+    return next((message for message in thread("--channel", channel, "--thread", ts, "--limit", str(WHOLE_THREAD)) if message["ts"] == ts), None)
+
+
 def message_and_root(link: str) -> tuple[dict, dict | None]:
     """The message a Slack permalink names and the message its thread hangs from, None for a message at the channel's root, read from that thread in one call."""
     match = MESSAGE_LINK.search(link)

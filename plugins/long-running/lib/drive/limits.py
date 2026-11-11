@@ -87,6 +87,7 @@ NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
+POST_KINDS = rf"{KINDS}|change"
 DRIVE_KINDS = ("PR", "card")
 DETERMINERS = r"the|these|those|its|his|her|their|our|your|my"
 FILLER = (
@@ -100,8 +101,11 @@ COMPOUND = (
     r"|branch(?:es)?|caches?|process(?:es)?|paths?|pipelines?|box(?:es)?|machines?|tools?|systems?|commands?|flows?"
     r"|trains?|gates?|press|hooks?|jobs?|targets?|modes?|flags?|settings?|channels?|freezes?|skills?)\b)"
 )
-NAMED = re.compile(rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?(?:{KINDS})(?![-\w]){COMPOUND}", re.IGNORECASE)
-KIND = re.compile(rf"\b(?:{KINDS})(?![-\w])", re.IGNORECASE)
+NAMED, POST_NAMED = (
+    re.compile(rf"\b(?:{DETERMINERS}|{POSSESSIVE})\s+(?:{COUNT}\s+)?(?:{FILLER}\s+){{0,2}}?(?:{kinds})(?![-\w]){COMPOUND}", re.IGNORECASE)
+    for kinds in (KINDS, POST_KINDS)
+)
+KIND, POST_KIND = (re.compile(rf"\b(?:{kinds})(?![-\w])", re.IGNORECASE) for kinds in (KINDS, POST_KINDS))
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\((https?://[^)\s]+)\)")
 FENCED = re.compile(r"^[ \t]*```.*?^[ \t]*```[^\n]*$", re.MULTILINE | re.DOTALL)
 MASK = "\x00"
@@ -186,6 +190,21 @@ MECHANISM_FILLER = re.compile(
 )
 MECHANISM_TERM = re.compile(rf"[^\W_]+|{MASK}+")
 SAND_NAME = re.compile(r"[\w/]+::\w*")
+NO_SWEEPERS = "b89209a"
+SWEEPER = re.compile(
+    r"\b(?:sweeper|reaper|janitor|reclaim(?:er|\s+loop))s?\b"
+    r"|\b(?:sweep|reap|reclaim|garbage[- ]collect|clean(?:s|ing)?\s+up|expire|requeue|release|reset|delete)(?:s|ed|ing)?\s+(?:[\w-]+\s+){0,2}?"
+    r"(?:orphan(?:ed|s)?|stale|stuck|abandoned|dangling|leaked|zombie|left-?over)\b"
+    r"|\b(?:older|stale|idle|unclaimed|stuck)\s+(?:than|for|after|past)\s+(?:a|an|one|\d+)\s*(?:secs?|seconds?|mins?|minutes?|hours?|days?)\b",
+    re.IGNORECASE,
+)
+RETRY = re.compile(
+    r"\b(?:ask|tell|ping|remind|wait\s+for|check\s+with)\s+(?:[\w'’-]+\s+){1,3}?(?:to\s+)?"
+    r"(?:re-?try|try\s+(?:it\s+)?again|re-?run|re-?test|reproduce|confirm|verify)\b",
+    re.IGNORECASE,
+)
+RECORD_CHARS = 120
+WHOLE_KINDS = {"owner", "answer", "incident"}
 
 
 @dataclass(frozen=True)
@@ -299,8 +318,8 @@ def from_ask(card: dict) -> str:
     return FROM_ASK.format(waits=waits) if waits and not waits.startswith(PERMISSION_WAITS) else ""
 
 
-def question(text: str, kept: bool = False) -> Question:
-    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals, so a card it kept under older rules still redraws."""
+def question(text: str, kept: bool = False, unsettled: str | None = None) -> Question:
+    """The one question a job's ASK block puts to him, refused with every way it is out of shape; a block `drive job ask` already kept is read with no second check of its Show me's visuals or its options' content, so a card it kept under older rules still redraws, and an option that cleans up a bad state passes only when `unsettled` names his ruling against it and why."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)
     head, *example = SHOW_ME.split(asked, maxsplit=1)
     lines = [line.strip() for line in head.splitlines() if line.strip()]
@@ -330,6 +349,8 @@ def question(text: str, kept: bool = False) -> Question:
         problems.append(f"{len(options)} options; an ASK has {OPTION_COUNT.start} to {OPTION_COUNT.stop - 1}, one line each")
     if len(marked) != 1:
         problems.append(f"{len(marked)} options end with (recommended); exactly one does")
+    elif not kept and (recommended := RECOMMENDED.sub("", marked[0])) != options[0]:
+        problems.append(f'the recommended option "{recommended}" is not first: put it first, as the card draws it')
     problems += [
         f'option "{option}" is {words(option)} words; each is one line of at most {OPTION_WORDS}: {OPTION_SHAPE}'
         for option in options
@@ -370,6 +391,7 @@ def question(text: str, kept: bool = False) -> Question:
             for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
             for found in bare_mechanisms(line)
         ]
+        problems += option_problems(options, unsettled)
     if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
@@ -384,6 +406,25 @@ def question(text: str, kept: bool = False) -> Question:
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
+
+
+def option_problems(options: list[str], unsettled: str | None) -> list[str]:
+    """Why an option is no fix he can pick: it asks someone to retry or confirm, or cleans up a bad state with a sweeper, time rule or reclaim loop, which his ruling refuses unless `unsettled` names it and says why."""
+    problems = [
+        f'option "{option}" asks someone to retry or confirm "{found[0]}", which fixes nothing: offer the fix itself, the change or'
+        " repair that stops the failure, and the drive proves it"
+        for option in options
+        if (found := RETRY.search(option))
+    ]
+    if NO_SWEEPERS in (unsettled or ""):
+        return problems
+    return problems + [
+        f'option "{option}" cleans up a bad state with "{found[0]}", a sweeper, time rule or reclaim loop: design the state out so it'
+        f' cannot exist, such as one owner holding it until it ends, or keep the option with --unsettled "{NO_SWEEPERS}: <why the'
+        f' state cannot be designed out>" (his ruling {NO_SWEEPERS}, "No sweepers")'
+        for option in options
+        if (found := SWEEPER.search(option))
+    ]
 
 
 def redrawn(text: str) -> Question:
@@ -725,10 +766,11 @@ def held(data: dict, order: str | None) -> tuple[str, ...]:
     return tuple(kind for kind, found in (("PR", prs), ("card", cards)) if found)
 
 
-def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> list[str]:
-    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it does not exist yet, such as "its PR goes up first" or "no PR yet"; one that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included."""
+def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...], mentions: tuple[re.Pattern[str], re.Pattern[str]] = (NAMED, KIND)) -> list[str]:
+    """Each PR or card of the drive's, of the kinds it holds, that these lines name with no link at that spot, each problem once: `linked` lines draw `<url|label>` links, `plain` lines, a card's title and options, draw plain text, and a link anywhere in the `linked` lines whose words name a kind of thing covers every other mention of that kind. A plain noun, such as a thread, a fix or a release, names nothing the drive opens, and neither does a mention inside a code fence, a generic one such as every engineer's PR, or one in a clause saying it does not exist yet, such as "its PR goes up first" or "no PR yet"; one that exists keeps its link whatever its state, "has not merged" or "waits on your tap" included. `mentions` reads what names such a thing: a card's words name a PR or a card, a post's words "the change" too."""
+    named_at, kind_of = mentions
     labels = [label for line in linked for label in LINK.findall(line)]
-    linked_kinds = {kind(found) for label in labels for found in KIND.findall(label)}
+    linked_kinds = {kind(found) for label in labels for found in kind_of.findall(label)}
     markdown = [found for line in linked for found in MARKDOWN_LINK.finditer(FENCED.sub(" ", line))]
     problems = [f'"{found[0]}" is a markdown link, and Slack draws no [label](url) link: write <{found[2]}|{found[1]}>' for found in markdown]
     problems += [
@@ -743,8 +785,8 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> lis
                 f'"{number}" is a number he cannot open; link it by what it is, such as <https://github.com/…/pull/53618|the fix that adds the update button>'
                 for number in PR_NUMBER.findall(bare)
             ]
-            for match in NAMED.finditer(bare):
-                found, named = match[0], KIND.findall(match[0])[-1]
+            for match in named_at.finditer(bare):
+                found, named = match[0], kind_of.findall(match[0])[-1]
                 if kind(named) not in kinds or kind(named) in linked_kinds or GENERIC.search(bare, 0, match.start()):
                     continue
                 read, written = clause(line, bare, match.start(), match.end())
@@ -753,13 +795,13 @@ def unlinked(linked: list[str], plain: list[str], kinds: tuple[str, ...]) -> lis
                 if is_plain:
                     problems.append(
                         f'"{found}" in the question or an option names something he could open, and those draw no links; link it in the summary'
-                        f" or a Show me caption, its link text naming the {named} ({LINKS_RULING})"
+                        f" or a Show me caption, its link text naming the {named}, or say in that clause it does not exist yet ({LINKS_RULING})"
                     )
                 else:
                     where = f', in "{written}"' if written != found else ""
                     problems.append(
                         f'"{found}" names something he could open with no link there{where}; put those words in its link, <url|{found}>, so he'
-                        f" opens it where it is named ({LINKS_RULING})"
+                        f' opens it where it is named, or say in that clause it does not exist yet, as "its PR goes up next" does ({LINKS_RULING})'
                     )
     return list(dict.fromkeys(problems))
 
@@ -838,7 +880,26 @@ def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
         summary, *example = SHOWN.split(card.get("body") or "", maxsplit=1)
         problems = unlinked([summary, *captions(example[0].splitlines() if example else []), post.get("text") or ""], [card.get("title") or "", *(card.get("options") or [])], kinds)
     else:
-        problems = unlinked([post.get("text") or ""], [], kinds)
+        problems = unlinked([post.get("text") or ""], [], kinds, (POST_NAMED, POST_KIND))
     if not problems:
         return None
     return "refused: " + "; ".join(problems) + "." + (from_ask(card) if card else "")
+
+
+def first_line(text: str) -> str:
+    """A record's line as the other session sees it: its first line, cut at a word to the record limit."""
+    line = text.strip().split("\n", 1)[0].strip()
+    if len(line) <= RECORD_CHARS:
+        return line
+    return line[: RECORD_CHARS - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
+
+
+def shortened(record: dict) -> dict | None:
+    """The record with its text cut to one line and the whole text at the top of its body, or for a record that attaches a file as its body, which holds the rest, the line alone; his words and incidents stay whole."""
+    text = (record.get("text") or "").strip()
+    if (record.get("kind") or "").lower() in WHOLE_KINDS or (line := first_line(text)) == text:
+        return None
+    if record.get("path"):
+        return record | {"text": line}
+    body = record.get("body")
+    return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}

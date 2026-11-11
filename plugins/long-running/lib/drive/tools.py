@@ -7,7 +7,7 @@ import re
 import shlex
 import subprocess
 
-from drive import cli, state, talk
+from drive import cli, limits, state, talk
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -61,7 +61,8 @@ def verb_tools() -> list[dict]:
             "description": (
                 "Post records from this session to the drive's other one in one call, each addressed to it, from the"
                 " lane this session's role writes as. An answer to a question-card tap takes its waits id, which"
-                " fills --re with the ask's seq and attr job; an Undo sets undone. Prints each record's seq."
+                " fills --re with the ask's seq and attr job; an Undo sets undone. A defect's text past one line of"
+                " 120 characters goes as that line cut at a word, the whole text atop its body. Prints each record's seq."
             ),
             "inputSchema": {
                 "type": "object",
@@ -267,6 +268,7 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
 
 
 def post(item: dict, drive: str, other: str) -> dict:
+    """The cci record an item posts as, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record."""
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through cci post, whose hook reads it")
     text, attrs = item["text"], dict(item.get("attrs") or {})
@@ -285,4 +287,5 @@ def post(item: dict, drive: str, other: str) -> dict:
             attrs[attr] = item[attr]
     if item.get("undone"):
         attrs["undone"], text = text, f"undone: {text}"
-    return made | {"text": text} | ({"attr": attrs} if attrs else {})
+    made |= {"text": text} | ({"attr": attrs} if attrs else {})
+    return limits.shortened(made) or made

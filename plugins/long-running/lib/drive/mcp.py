@@ -50,7 +50,8 @@ SAY = {
         " {pr:<number, owner/repo#number or URL>} become a link under the words that name the card or PR, which"
         " Slack draws the card under, and a link on the dashboard; a reference that names nothing of the drive's"
         " refuses the post. Prints POSTED <permalink>, plus CARD <permalink> for a card; with order it also records"
-        " the post on that order, delivering the parts its record names."
+        " the post on that order, delivering the parts its record names, and refuses, posting nothing, a post in none"
+        " of that order's threads."
     ),
     "inputSchema": {
         "type": "object",
@@ -65,7 +66,13 @@ SAY = {
             "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first, as its URL or owner/repo#number; drawn as one stack card, and refused while text leaves out the words of a drive tooling order one of them serves"},
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
             "visuals": {"type": "array", "items": VISUAL},
-            "order": {"type": "string", "description": "The order whose thread this post is in, which records the post on it"},
+            "order": {
+                "type": "string",
+                "description": (
+                    "The order whose thread this post is in, which records the post on it; a post in none of its threads, its own,"
+                    " its cards' or the one under its PR's card, posts nothing"
+                ),
+            },
             "record": {
                 "type": "string",
                 "description": (

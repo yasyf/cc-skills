@@ -11,10 +11,12 @@ CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECA
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, opening with each card of his that holds built work in its thread, after a catch-up's title; a post in an order's thread is recorded on that order too, delivering the parts its report record names."""
+    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, opening with each card of his that holds built work in its thread, after a catch-up's title; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
-    if post.get("order") and (refused := cli.report_refusal(state.load(name), post["order"], report)):
-        raise DriveError(f"nothing posted: {refused}")
+    if order := post.get("order"):
+        data = state.load(name)
+        if refused := cli.report_refusal(data, order, report) or cli.thread_refusal(data, order, post.get("thread_ts")):
+            raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         post = post | {"text": titled(name, post.get("text") or "")}
     post = post | {"text": waiting_first(name, post)}
@@ -26,7 +28,7 @@ def say(name: str, post: dict) -> str:
         line += f" CARD {card}"
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
-    if order := post.get("order"):
+    if order:
         try:
             line += "; " + cli.record_post(name, order, reply["permalink"], report)[0]
         except (DriveError, slack.SlackError) as error:

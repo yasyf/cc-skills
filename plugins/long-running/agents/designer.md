@@ -82,7 +82,7 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
 ````
 
 - Put the option you recommend first, since a builder may build it on a pushed branch while he
-  decides. The summary's last line says what happens meanwhile, or that nothing is built until he
+  decides; `drive job ask` refuses a block whose recommended option is not the first. The summary's last line says what happens meanwhile, or that nothing is built until he
   picks when his order asks for options only.
 - Draw the options from the job's own evidence. The fix its diagnosis points at is always one, and
   the recommended one unless the summary names it and says why another is better: "so why was that
@@ -130,7 +130,13 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;
   - an option pointing at another by number or position;
-  - an option that lands first and leaves a later step.
+  - an option that lands first and leaves a later step;
+  - an option that asks a reporter or anyone else to retry or confirm, since the fix itself is the
+    option;
+  - an option that cleans up a bad state with a sweeper, a time rule such as "a row older than a
+    minute counts as waiting", or a reclaim loop, by his ruling b89209a ("No sweepers"): design the
+    state out so it cannot exist, such as one owner holding it until it ends, or keep the option with
+    `--unsettled "b89209a: <why the state cannot be designed out>"`.
 
 ## Your report
 

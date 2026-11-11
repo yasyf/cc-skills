@@ -784,6 +784,51 @@ def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says
     assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
 
 
+def options_ask(*options: str) -> str:
+    listed = "".join(f"- {option}\n" for option in options)
+    return f"ASK Which way should this go?\nThe pick below decides it.\n{listed}Findings:\nDirect fix: none: a design pick\nKept on disk.\n"
+
+
+def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
+    late = options_ask("copy in batches", "server-side copy (recommended)")
+    with pytest.raises(DriveError, match='the recommended option "server-side copy" is not first: put it first, as the card draws it'):
+        limits.question(late)
+    assert limits.question(options_ask("server-side copy (recommended)", "copy in batches")).recommended == "server-side copy"
+    assert limits.question(late, kept=True).recommended == "server-side copy"
+
+
+def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_to_offer() -> None:
+    with pytest.raises(DriveError, match='option "ask Sam to retry the restore" asks someone to retry or confirm "ask Sam to retry", which fixes nothing: offer the fix itself'):
+        limits.question(options_ask("restore from the replica (recommended)", "ask Sam to retry the restore"))
+    assert limits.question(options_ask("restore from the replica (recommended)", "restore from last night's backup")).options
+
+
+def test_an_option_that_cleans_up_a_bad_state_is_refused_unless_unsettled_names_his_ruling() -> None:
+    swept = options_ask("sweep orphaned leases every 10 min (recommended)", "one owner holds the lease until it ends")
+    with pytest.raises(DriveError) as refused:
+        limits.question(swept)
+    assert (
+        'option "sweep orphaned leases every 10 min" cleans up a bad state with "sweep orphaned", a sweeper, time rule or reclaim'
+        ' loop: design the state out so it cannot exist, such as one owner holding it until it ends, or keep the option with'
+        ' --unsettled "b89209a: <why the state cannot be designed out>" (his ruling b89209a, "No sweepers")'
+    ) in str(refused.value)
+    with pytest.raises(DriveError, match='cleans up a bad state with "older than a minute"'):
+        limits.question(options_ask("a placed row older than a minute counts as waiting (recommended)", "one owner holds the lease until it ends"))
+    assert limits.question(swept, unsettled="b89209a: the lease lives in a store no owner can hold").recommended == "sweep orphaned leases every 10 min"
+    assert limits.question(options_ask("one owner holds the lease until it ends (recommended)", "the run gives the lease back as it exits")).options
+
+
+def test_a_post_naming_the_change_links_it_and_a_link_refusal_says_how_to_say_it_does_not_exist_yet(talker: str, transcript: Path) -> None:
+    holds_pr("o1")
+    assert posted(transcript, text="The change is live.").startswith(
+        'refused: "The change" names something he could open with no link there, in "The change is live"; put those words in its'
+        ' link, <url|The change>, so he opens it where it is named, or say in that clause it does not exist yet, as "its PR goes up next" does'
+    )
+    assert posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|The unfurl fix> is live.") is None
+    assert posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|The change that fixes unfurls> is live; the change needs no tap.") is None
+    assert posted(transcript, text="The first PR goes up next.") is None
+
+
 def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() -> None:
     options = [
         "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",

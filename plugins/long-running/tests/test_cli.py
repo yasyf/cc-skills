@@ -831,6 +831,21 @@ def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
     assert not (state_root / "demo" / "asks").exists()
 
 
+def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsettled_names_that_ruling(
+    state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(
+        "ASK How do leases stop leaking?\nA lease outlives the run that took it.\n"
+        "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
+        "Findings:\nDirect fix: none: a design pick\nTwo runs held one lease.\n"
+    )
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert 'cleans up a bad state with "reclaim orphaned"' in capsys.readouterr().err
+    assert cli.main(["job", "ask", "--check", str(block), "--unsettled", "b89209a: the lease lives in a store no owner can hold"]) == 0
+    assert capsys.readouterr().out == "ready\n"
+
+
 def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
