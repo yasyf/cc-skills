@@ -14,8 +14,20 @@ FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "dot")
 UNDRAWN = ("", "mermaid", "text", "txt", "plain")
-CLOSEST_LEXER = {"sand": "v"}
-FREEZE =["freeze", "--theme", "github", "--window=false", "--font.family", "Menlo", "--font.size", "14", "--padding", "20", "--margin", "0", "--background", "#ffffff"]
+VISUALS = Path(__file__).parent / "site" / "visuals.js"
+VISUAL_WINDOW = 1000
+VISUAL_SCALE = 2
+VISUAL_PAGE = """<!doctype html>
+<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}</style></head>
+<body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
+<script type="module">VISUALS
+const host = document.getElementById("visual");
+const shown = JSON.parse(document.getElementById("source").textContent);
+await draw(host, shown.kind, shown.source);
+const box = host.getBoundingClientRect();
+document.documentElement.dataset.drawn = `${Math.ceil(box.width)}x${Math.ceil(box.height)}`;
+</script></body></html>
+"""
 ARCH_LIB = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js"
 ARCH_WIDTH = 1200
 ARCH_SCALE = 2
@@ -98,27 +110,17 @@ def dot_png(source: str, out: Path) -> None:
 
 
 def code_png(language: str, source: str, out: Path) -> None:
-    """Draw code highlighted with freeze in its fence's language, or the closest one freeze knows when it has none for it, as V for Sand; code freeze cannot highlight, such as a language it does not know or a fence naming none it can guess, is drawn as plain text."""
-    try:
-        freeze(CLOSEST_LEXER.get(language, language), source, out)
-    except PictureError:
-        freeze("text", source, out)
-
-
-def freeze(language: str, source: str, out: Path) -> None:
-    try:
-        result = subprocess.run(
-            [*FREEZE, *(["--language", language] if language else []), "--output", str(out)],
-            input=source,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=DOT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise PictureError(f"freeze did not run: {error}") from None
-    if result.returncode:
-        raise PictureError(" ".join(result.stderr.split()) or f"freeze exited {result.returncode}")
+    """Draw code with site/visuals.js, the renderer the dashboard uses, highlighted in its fence's language or a guessed one when the fence names none or one highlight.js lacks, once to measure the code and then a screenshot of exactly that size."""
+    with tempfile.TemporaryDirectory(prefix="drive-code-") as scratch:
+        page = Path(scratch) / "code.html"
+        shown = json.dumps({"kind": f"code:{language}", "source": source}).replace("</", "<\\/")
+        page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
+        if not (drawn := DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom"))):
+            raise PictureError("the code did not finish drawing")
+        width, height = html.unescape(drawn[1]).split("x")
+        headless(page, f"--window-size={width},{height}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
+    if not out.is_file():
+        raise PictureError("Chrome wrote no screenshot")
 
 
 def downloaded(url: str, out: Path) -> None:
@@ -157,7 +159,8 @@ def draw(kind: str, source: str, out: Path) -> Path:
 
 def cached(folder: Path, name: str, kind: str, source: str) -> Path:
     """The picture of one source, drawn once under folder and named name."""
-    home = folder / hashlib.sha256(f"{kind}\n{source}{ARCH_LIB if kind == 'arch' else ''}".encode()).hexdigest()[:16]
+    renderer = ARCH_LIB if kind == "arch" else VISUALS.read_text() if kind.startswith("code:") else ""
+    home = folder / hashlib.sha256(f"{kind}\n{source}{renderer}".encode()).hexdigest()[:16]
     if found := sorted(home.glob(f"{name}.*")):
         return found[0]
     home.mkdir(parents=True, exist_ok=True)
