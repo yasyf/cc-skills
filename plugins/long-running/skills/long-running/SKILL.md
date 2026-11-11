@@ -58,7 +58,7 @@ disk needs to be maximally compact and very token efficient".
 | `messages` | Messages to him: the short form, then every shape and limit. |
 | `concepts` | Order, job, event, record, message and the status model. |
 | `landing` | Landing a change, per repository. |
-| `incidents` | Handling an incident: unblock users by release or rollback, then ship the root fix. |
+| `incidents` | Handling an incident. |
 | `migration` | Migrating an old drive, or a session into an Orca terminal. |
 
 ## Tooling
