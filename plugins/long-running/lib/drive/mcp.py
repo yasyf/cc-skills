@@ -25,19 +25,19 @@ INSTRUCTIONS = (
 TEXT = {"type": "string"}
 VISUAL = {
     "type": "object",
-    "description": "One visual the post carries: drawn as a picture for Slack, or a chart as Slack's own chart, and live from its source on the dashboard",
+    "description": "One visual: a picture in Slack, or Slack's own chart for a chart, and drawn live from its source on the dashboard",
     "properties": {
         "kind": {
             "type": "string",
             "enum": ["code", "arch", "mermaid", "chart", "compare", "dot", "image"],
-            "description": "Code highlighted, an arch map, a Mermaid diagram, a chart, a before-and-after compare, Graphviz dot, or an image",
+            "description": "An arch map for arch, a before-and-after for compare, Graphviz for dot",
         },
         "source": {
             "type": "string",
             "description": (
-                "What it draws, as in a Show me fence: the code; Mermaid source; Graphviz dot source; a Vega-Lite JSON spec"
-                ' with its data inline for a chart; {"options": [{"name", "recommended", "language", "code", "points":'
-                ' ["+ a gain", "- a cost"]}]} for a compare; an arch/v1 JSON document for an arch; an image\'s absolute path or URL'
+                "What it draws, as in a Show me fence: the code; Mermaid or dot source; a Vega-Lite JSON spec, data inline, for"
+                ' a chart; {"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]} for a'
+                " compare; an arch/v1 JSON document; an image's absolute path or URL"
             ),
         },
         "language": {"type": "string", "description": "The code's language, for its highlighting"},
@@ -48,43 +48,46 @@ VISUAL = {
 SAY = {
     "name": "say",
     "description": (
-        "Post one message to his Slack DM and show it on the drive's dashboard, in one call: a line, an answer, a PR"
-        " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>},"
-        " {pr:<number, owner/repo#number or URL>} and {order:<id>} become a link under the words that name the card,"
-        " PR or order, or the words after a | such as {pr:298|the fix that draws charts}, which Slack draws the card"
-        " under, and a link on the dashboard; {record:<seq>} becomes that cci record's own words, linked to what it"
-        " links. A reference that names nothing of the drive's refuses the post, and so do a line naming a cause, such"
-        " as because or caused, with no {record:} on it and any word `cc-slack check-post` finds. Prints POSTED"
-        " <permalink>, plus CARD <permalink> for a card; with order it also records the post on that order, delivering"
-        " the parts its record names, and refuses, posting nothing, a post in none of that order's threads."
+        "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, and"
+        " show it on the drive's dashboard, in one call. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
+        " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
+        " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} becomes that record's"
+        " own words, linked to what it links. Returns POSTED <permalink>, CARD <permalink> for a card, and with order"
+        " the line recording the post on it. A refusal posts nothing and names its fix, as for a reference that names"
+        " nothing, a line naming a cause (because, caused) with no {record:}, or a word `cc-slack check-post` finds:"
+        " make the fix and call again."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "text": {"type": "string", "description": "The post's exact words, with any {card:…}, {pr:…}, {order:…} and {record:…} references; none for a question card"},
+            "text": {"type": "string", "description": "The post's exact words, with its references; none for a question card"},
             "thread_ts": {"type": "string", "description": "His thread the post goes in; none for his DM root"},
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],
                 "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",
             },
             "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
-            "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first, as its URL or owner/repo#number; drawn as one stack card, and refused while text leaves out the words of a drive tooling order one of them serves"},
+            "tap_prs": {
+                "type": "array",
+                "items": TEXT,
+                "description": (
+                    "The PRs on his tap, bottom of the stack first, each as its URL or owner/repo#number, drawn as one stack"
+                    " card; refused while text leaves out the words of a drive tooling order one of them serves"
+                ),
+            },
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
             "visuals": {"type": "array", "items": VISUAL},
             "order": {
                 "type": "string",
-                "description": (
-                    "The order whose thread this post is in, which records the post on it; a post in none of its threads, its own,"
-                    " its cards' or the one under its PR's card, posts nothing"
-                ),
+                "description": "The order this post is on, which records it there; refused, posting nothing, in none of its threads (its own, its cards' or its PRs' cards')",
             },
             "record": {
                 "type": "string",
                 "description": (
-                    "The cci seq of the report record this post carries. With order, the post delivers the part its part attr"
-                    " names, wherever it went, or each part of that order its close attr names; a record naming neither is a"
-                    " progress line and delivers no part, whatever job it names. A record with catch_up=true is his catch-up,"
-                    " which opens with *Catch-up since <the time he was last heard>*"
+                    "The seq of the report record this post carries. With order, the post delivers the part its part attr names,"
+                    " or every part when its close attr names the order; a record naming neither is a progress line delivering"
+                    " no part, whatever job it names. With no record, a post on a one-part order delivers that part. catch_up=true"
+                    " makes it his catch-up, opening *Catch-up since <when he was last heard>* in place of any title"
                 ),
             },
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing"},

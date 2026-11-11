@@ -16,19 +16,28 @@ WAITS = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 OPS_HELP = (
-    "Run several `drive {group}` verbs in one call, in order, stopping at the first refusal. Each op is one verb,"
-    " {verbs}, its flags as fields named as in `drive manual verbs`, dashes as underscores. An op after an add that"
-    " names no id acts on what that add made. Prints one line per op, the verb's own output; a refusal names the op"
-    " and the ops left unrun."
+    "{lead} Runs the ops in order, each one verb with its flags as fields, and returns one line per op. A refusal stops"
+    " the call, keeps the lines of the ops that ran, and names the op, its fix and the ops left unrun: make the fix and"
+    " send those ops again."
 )
+LEADS = {
+    "order": "His orders: add records one from his words, set changes one, posted records the communicator's post on one.",
+    "job": "The drive's jobs: add starts one on an order's parts, set changes one, brief writes its brief.",
+    "pr": "The drive's PRs: add records one a job opened, set changes one.",
+    "incident": (
+        "Incidents: open adds his order as one, with its fix and diagnosis jobs and its evidence record; stop adds the job"
+        " that turns the failing path off; freeze holds the service's other releases; release reopens the stop when a"
+        " release starts."
+    ),
+}
 TEXT = {"type": "string"}
 RECORD = {
     "type": "object",
     "properties": {
-        "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through cci post, whose hook reads it"},
+        "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through cci post instead, whose hook reads it"},
         "text": {"type": "string", "description": "his words verbatim for owner, the tapped label or his words for answer, the refusal verbatim for defect"},
         "url": {"type": "string", "description": "his message's or the card's permalink"},
-        "thread": {"type": "string", "description": "the thread it is about, as attr thread"},
+        "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
         "waits": {"type": "string", "description": "the tapped question card's waits id, <drive>:<j>-<seq>: answers ask <seq> with attr job=<j>"},
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
         "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling"},
@@ -53,16 +62,19 @@ def verb_tools() -> list[dict]:
     return [
         {
             "name": "heard",
-            "description": "He wrote: record it, as drive heard does. Prints heard, away, or CATCH-UP with each order his catch-up covers.",
+            "description": (
+                "Record that he wrote, each time he does. Returns heard, away when away is set, or, when he is back from"
+                " away, CATCH-UP since <time>: <ids>, the orders his catch-up covers."
+            ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "dry_run": DRY_RUN}},
         },
         {
             "name": "record",
             "description": (
-                "Post records from this session to the drive's other one in one call, each addressed to it, from the"
-                " lane this session's role writes as. An answer to a question-card tap takes its waits id, which"
-                " fills --re with the ask's seq and attr job; an Undo sets undone. A defect's text past one line of"
-                " 120 characters goes as that line cut at a word, the whole text atop its body. Prints each record's seq."
+                "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to the drive's other"
+                " session in one call, as this session's role. A question card he tapped takes waits, which fills re with"
+                " the ask's seq and attr job; an Undo tap sets undone. A defect's text past one 120-character line goes as"
+                " that line cut at a word, the whole text atop its body. Returns each record's seq."
             ),
             "inputSchema": {
                 "type": "object",
@@ -73,7 +85,7 @@ def verb_tools() -> list[dict]:
         *(ops_tool(group, {"add": job_add} if group == "job" else {}) for group in OPS),
         {
             "name": "status",
-            "description": "Read the drive as drive status prints it: the orders, jobs or PRs named, or every open order.",
+            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order.",
             "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
@@ -110,7 +122,7 @@ def ops_tool(group: str, typed: dict[str, dict]) -> dict:
     ]
     return {
         "name": group,
-        "description": OPS_HELP.format(group=group, verbs=", ".join(verbs)),
+        "description": OPS_HELP.format(lead=LEADS[group], verbs=", ".join(verbs)),
         "inputSchema": {
             "type": "object",
             "properties": {"ops": {"type": "array", "minItems": 1, "items": {"oneOf": shapes}}, "dry_run": DRY_RUN},
