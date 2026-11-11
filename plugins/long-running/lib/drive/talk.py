@@ -59,23 +59,43 @@ def waiting_first(name: str, post: dict) -> str:
 
 
 def dry(name: str, post: dict) -> str:
-    """What say would post, its references resolved and its visuals drawn, with nothing posted."""
+    """What say would post, its references resolved and its pictures drawn, with nothing posted."""
     text = post.get("text") or ""
-    drawn_ones = [drawn(name, index, visual) for index, visual in enumerate(post.get("visuals") or [], start=1)]
+    visuals, words, lifted = shown(name, post)
     where = f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
-    return f"DRY {where}, {len(drawn_ones)} pictures{card}{prs}: {refs.slack(text, refs.resolved(name, text))}"
+    pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
+    return f"DRY {where}, {pictures} pictures{card}{prs}: {refs.slack(words, refs.resolved(name, text))}"
+
+
+def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
+    """The post's visuals as the dashboard keeps them, each but a chart with the picture Slack gets of it; the text Slack gets, each chart visual added as its ```chart fence, which Slack draws as its own chart, and each fence of the text that draws as a picture lifted out, while the dashboard draws it in place; and the pictures of those lifted fences. A fence of words or of raw data stays in the text, which Slack shows as the code block it is."""
+    visuals = [
+        {"kind": kind(visual), "source": visual["source"], "caption": visual.get("caption") or ""}
+        | ({} if visual["kind"] in picture.NATIVE else {"picture": str(drawn(name, f"visual {index}", visual))})
+        for index, visual in enumerate(post.get("visuals") or [], start=1)
+    ]
+    lifted = []
+
+    def lift(fence: re.Match[str]) -> str:
+        if not picture.pictured(fence[1], fence[2]):
+            return fence[0]
+        language = fence[1].lower()
+        visual = {"kind": language} if language in picture.DIAGRAMS else {"kind": "code", "language": language}
+        lifted.append(str(drawn(name, f"its ```{fence[1]} fence", visual | {"source": fence[2], "caption": picture.title(kind(visual))})))
+        return ""
+
+    text = picture.FENCE.sub(lift, post.get("text") or "")
+    charts = ["\n".join(filter(None, [visual["caption"], f"```{visual['kind']}", visual["source"].strip("\n"), "```"])) for visual in visuals if "picture" not in visual]
+    return visuals, "\n\n".join(filter(None, [text, *charts])), lifted
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, which went out with its references linked and each visual drawn as a picture, and is kept as a said event for the dashboard, which draws each visual live from its source and each PR of a stack card with its state now."""
+    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
-    visuals = [
-        {"kind": kind(visual), "source": visual["source"], "caption": visual.get("caption") or "", "picture": str(drawn(name, index, visual))}
-        for index, visual in enumerate(post.get("visuals") or [], start=1)
-    ]
+    visuals, words, lifted = shown(name, post)
     prs = state.load(name)["prs"]
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in prs]:
@@ -88,9 +108,9 @@ def posted(name: str, post: dict) -> dict:
     if about := post.get("about"):
         argv += ["--about", about]
     argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
-    argv += [flag for visual in visuals for flag in ("--file", visual["picture"])]
-    if text:
-        argv += ["--", refs.slack(text, found)]
+    argv += [flag for path in [*(visual["picture"] for visual in visuals if "picture" in visual), *lifted] for flag in ("--file", path)]
+    if words:
+        argv += ["--", refs.slack(words, found)]
     reply = slack.cc_slack(*argv)
     state.append_event(
         name,
@@ -110,16 +130,16 @@ def kind(visual: dict) -> str:
     return f"code:{visual.get('language') or ''}" if visual["kind"] == "code" else visual["kind"]
 
 
-def drawn(name: str, index: int, visual: dict) -> Path:
-    """The picture Slack shows for one visual, named after its caption, which Slack titles it with: code highlighted, a diagram, chart or compare drawn as the dashboard draws it, an image as it is."""
+def drawn(name: str, which: str, visual: dict) -> Path:
+    """The picture Slack shows for one visual, named after its caption, which Slack titles it with: code highlighted, a diagram or compare drawn as the dashboard draws it, an image as it is."""
     source = visual["source"]
     if visual["kind"] == "image" and not source.startswith(WEB):
         if not (local := Path(source).expanduser()).is_absolute() or not local.is_file():
-            raise DriveError(f"visual {index}: {source} is neither a link nor a file here")
+            raise DriveError(f"{which}: {source} is neither a link nor a file here")
         source = local.as_uri()
     if visual["kind"] == "code" and (what := picture.raw(visual.get("language") or "", source)):
-        raise DriveError(f"visual {index} is {what}, raw data or tool output, so nothing was posted; {picture.INSTEAD}")
+        raise DriveError(f"{which} is {what}, raw data or tool output, so nothing was posted; {picture.INSTEAD}")
     try:
         return picture.cached(state.drive_dir(name) / "pictures", " ".join(UNNAMEABLE.sub(" ", visual.get("caption") or "").split()) or "show-me", kind(visual), source)
     except picture.PictureError as error:
-        raise DriveError(f"visual {index} ({visual['kind']}) does not draw, so nothing was posted: {error}") from None
+        raise DriveError(f"{which} ({visual['kind']}) does not draw, so nothing was posted: {error}") from None

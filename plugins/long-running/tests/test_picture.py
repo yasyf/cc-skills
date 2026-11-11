@@ -113,7 +113,9 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
 
 
-def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_keeps_words_as_written_and_leaves_out_what_does_not_draw(tmp_path, monkeypatch) -> None:
+def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_and_leaves_out_what_does_not_draw(
+    tmp_path, monkeypatch
+) -> None:
     tried = []
 
     def draw(kind: str, source: str, out) -> None:
@@ -149,11 +151,34 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_keeps_w
         "```mermaid",
         "flowchart LR",
         "```",
+        "```dot",
+        "digraph { a -> b }",
+        "```",
+        "Posts against alerts in a day:",
+        "```chart",
+        '{"mark": "bar"}',
+        "```",
         "After.",
     ]
     shown = picture.drawn(tmp_path / "pictures", show_me)
-    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "```", "GET journal/0001.ltx", "```", "", "", "", "![The flow", "After."]
-    assert tried == ["code:sand", "code:proto", "code:go", "mermaid"]
+    assert [line.split("](")[0] for line in shown] == [
+        "![The call today",
+        "![proto code",
+        "```",
+        "GET journal/0001.ltx",
+        "```",
+        "",
+        "",
+        "",
+        "![The flow",
+        "![Graph",
+        "Posts against alerts in a day:",
+        "```chart",
+        '{"mark": "bar"}',
+        "```",
+        "After.",
+    ]
+    assert tried == ["code:sand", "code:proto", "code:go", "mermaid", "dot"]
 
 
 def test_a_visual_chrome_dumped_before_it_finished_drawing_is_measured_again(tmp_path, monkeypatch) -> None:

@@ -855,10 +855,11 @@ def test_a_show_me_table_row_is_no_caption_and_runs_past_25_words() -> None:
 
 
 def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:
-    picture = "![The listener's one line per push](/Users/me/shots/listen.png)"
-    limits.question(WATCHDOG_ASK.replace("The listener:", f"{picture}\nThe listener:"))
+    picture = "![1 · The listener's one line per push](/Users/me/shots/listen.png)"
+    listener = WATCHDOG_ASK.replace("The listener:", "1 · The listener:")
+    limits.question(listener.replace("1 · The listener:", f"{picture}\n1 · The listener:"))
     with pytest.raises(DriveError, match="holds a picture inside a sentence or table, which cc-slack draws as text"):
-        limits.question(WATCHDOG_ASK.replace("The listener:", f"It writes {picture} per push.\nThe listener:"))
+        limits.question(listener.replace("1 · The listener:", f"It writes {picture} per push.\n1 · The listener:"))
 
 
 def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:

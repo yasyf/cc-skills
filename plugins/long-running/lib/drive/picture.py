@@ -13,7 +13,9 @@ from pathlib import Path
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
+NATIVE = ("chart",)
 WORDS = ("", "text", "txt", "plain")
+TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph"}
 RAW = {
     **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
     **dict.fromkeys(("yaml", "yml"), "YAML"),
@@ -157,6 +159,16 @@ def raw(language: str, source: str) -> str | None:
         return None
 
 
+def pictured(language: str, source: str) -> bool:
+    """Whether a fence draws as a picture on his card: one naming a language, holding neither raw data nor tool output, and no chart, which Slack draws as its own."""
+    return language.lower() not in (*WORDS, *NATIVE) and not raw(language, source)
+
+
+def title(kind: str) -> str:
+    """A picture's title when no caption line names it: the kind of picture it is, never a bare "Show me"."""
+    return TITLES.get(kind) or f"{kind.removeprefix('code:')} code"
+
+
 def draw(kind: str, source: str, out: Path) -> Path:
     if kind != "image":
         visual_png(kind, source, out)
@@ -212,10 +224,10 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
+    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
 
     def picture_line(fence: re.Match[str]) -> str:
-        if fence["language"].lower() in WORDS:
+        if fence["language"].lower() in (*WORDS, *NATIVE):
             return fence[0]
         if what := raw(fence["language"], fence["source"]):
             print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
@@ -226,6 +238,6 @@ def drawn(folder: Path, show_me: list[str]) -> list[str]:
         except (PictureError, ValueError) as error:
             print(f"drive card: its Show me {shown} does not draw, so it leaves the card: {error}", file=sys.stderr)
             return ""
-        return f"![{fence['caption'] or 'Show me'}]({path})"
+        return f"![{fence['caption'] or title(shown)}]({path})"
 
     return CAPTIONED.sub(picture_line, "\n".join(show_me)).split("\n")

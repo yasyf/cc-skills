@@ -242,7 +242,7 @@ class Board:
         cards = [item["card"] for item in [*model["queue"], *model["review"]] if item.get("card")]
         drawn = {match[1] for card in cards for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
         pictures = drawn | {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
-        pictures |= {visual["picture"] for entry in model["history"] for visual in entry.get("visuals") or []}
+        pictures |= {visual["picture"] for entry in model["history"] for visual in entry.get("visuals") or [] if "picture" in visual}
         model["visuals"] = {path: json.loads(shown.read_text()) for path in pictures if (shown := Path(path).with_name("source.json")).is_file()}
         body = json.dumps(model).encode()
         with self.changed:
