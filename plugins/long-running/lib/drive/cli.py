@@ -1,5 +1,4 @@
 import argparse
-import hashlib
 import json
 import os
 import re
@@ -1091,9 +1090,9 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
         raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
     heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
-    if refused := settled.thread_refusal(heard, unsettled):
+    if refused := settled.thread_refusal(heard, unsettled) or settled.unoffered_refusal(heard, "\n".join([asked.title, *asked.options])):
         raise DriveError(refused)
-    kept = state.drive_dir(name) / "asks" / f"{job_id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
+    kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
@@ -1188,7 +1187,7 @@ def question_card(name: str, path: Path, waits: str) -> dict:
     """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block."""
     from drive import superseded, view
 
-    asked = limits.redrawn(path.read_text())
+    asked = kept_ask(path)
     data = state.load(name)
     job_id = waits.partition(":")[2].partition("-")[0]
     if job := data["jobs"].get(job_id):
@@ -1197,7 +1196,7 @@ def question_card(name: str, path: Path, waits: str) -> dict:
         )
         if question and Path(question["file"]).resolve() != path.resolve():
             path = Path(question["file"])
-            asked = limits.redrawn(path.read_text())
+            asked = kept_ask(path)
         if question and question["waits"] and not any(other["waits"] == waits for other in job["questions"]):
             waits = question["waits"]
         if refused := superseded.redraw_refusal(data, job, waits, str(path)):
@@ -1211,6 +1210,19 @@ def question_card(name: str, path: Path, waits: str) -> dict:
         with state.edit(name) as data:
             keep_waits(data["jobs"][job_id], path, waits)
     return card
+
+
+def kept_ask(path: Path) -> limits.Question:
+    """The question an ASK file draws: one `drive job ask` kept, named for the hash of its words, read under the rules it was kept under, and any other, rebuilt from his card or never kept, held to every rule a new block meets; a kept file whose words no longer hash to its name was edited by hand and draws nothing, since only `drive job ask` changes a kept question."""
+    text = path.read_text()
+    if not (named := state.KEPT_ASK.fullmatch(path.stem)):
+        return limits.question(text)
+    if named["hash"] != state.ask_hash(text):
+        raise DriveError(
+            f"{path} no longer holds the words drive job ask kept there, so it draws no card: a kept question changes only through"
+            f" drive job ask, which checks the new words against every rule, so keep them with drive job ask {named['job']} <file> and draw the file it prints"
+        )
+    return limits.redrawn(text)
 
 
 def cards_redraw(args: argparse.Namespace) -> int:
@@ -1273,7 +1285,7 @@ def ask_source(name: str, shown: dict) -> Path:
         return Path(asked)
     rebuilt = state.rebuilt_ask(name, waits)
     if not rebuilt.exists():
-        rebuilt.write_text(limits.rebuilt(shown["card"]))
+        rebuilt.write_text(limits.rebuilt(shown["card"], rebuilt.parent))
     with state.edit(name) as data:
         if job := data["jobs"].get(waits.partition(":")[2].partition("-")[0]):
             job["questions"] = [

@@ -229,6 +229,16 @@ Its Show me:
     after screenshot kept there is not;
   - two or more PRs listed by number, which their stack's PR card shows;
   - a `Show me:` with no visual under it, and a picture inside a sentence or a table cell.
+- List every member of a set the card counts. `drive job ask`, `drive job card` and the post hook
+  refuse a question, summary or option that counts two to twelve things, as "four strategies" or
+  "5 oversized tables" does, unless the card lists that many. It lists them as options, Show me
+  table rows or columns, list lines, numbered captions, pictures or fences, or by name right after
+  the count, as "four strategies: spill values, insertion order, hash by key, and equal cut" does.
+  A measure such as "30 days", "3 requests" or "2 threads" and a bound such as "at most 3" pass.
+- Give him a tap for each amount he named. `drive job ask` refuses a question when his words in
+  the order's thread share its words and name an amount its question and options leave out, as
+  "30 day bonding" names 30 days; `--unsettled` does not lift it. Offer it as its own option, in
+  his words.
 - A visual that still fails to draw leaves the Slack card with its caption and nothing in its place,
   and the dashboard with its source as text.
 
@@ -237,6 +247,10 @@ Posting it:
 - Post the card with one `say(card=<what drive job card prints>, thread_ts=<his thread>)` call, the
   card `drive job card <the record's ask file> --waits <its waits id>` prints, never one put together
   by hand.
+- A kept ASK file changes only through `drive job ask`, which checks the new words against every
+  rule. `drive job card` and `drive cards redraw` refuse a kept file whose words no longer hash to its
+  name, naming the `drive job ask <j> <file>` that keeps them. A block rebuilt from his card, and one
+  no job kept, meet every rule a new block meets before they draw.
 - cc-slack posts a card that names its drive and waits on him at his DM root, whatever thread it is
   given, and posts the card's permalink under its question in that thread. Give a drive tooling card
   no thread, since its order has none.

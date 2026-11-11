@@ -30,7 +30,7 @@ LANDING_SHOW_ME = r'''Who acts on your Approve tap, a merge and a production cut
 ![Who acts on your Approve tap, a merge and a production cut under each option]({root}/durable-agents/pictures/hier/f3.png)'''
 LANDING_OPTIONS = r'''- The sub-coordinator lands and installs its project's changes; the top starts, approves and rolls back production cuts, one at a time. (recommended)
 - The top lands and installs every change; sub-coordinators stop at READY, so every tap and merge event still routes to the top.
-- The sub-coordinator lands its changes and starts production cuts too; two projects can race to start one, and the lock refuses the second.'''
+- The sub-coordinator lands its changes and starts production cuts too; projects can race to start one, and the lock refuses the second.'''
 
 DEEP_SUBAGENTS_SHOW_ME = r'''```
 dev
@@ -434,6 +434,49 @@ def test_a_draft_message_in_a_fence_passes_as_the_quote_his_card_shows_and_a_fen
     assert limits.question(ask(quoted, DRAFT_DM_OPTIONS)).show_me[1].startswith("> Hey Rowan!")
     with pytest.raises(DriveError, match="write a message or quote as plain sentences, which his card shows as a quote"):
         limits.question(ask(DEEP_SUBAGENTS_SHOW_ME, DEEP_SUBAGENTS_OPTIONS))
+
+
+STRATEGIES_TABLE = """The four strategies, in the order the rule checks them at the 1.7 GB line:
+| Strategy | Picked when | What it does |
+|---|---|---|
+| Spill values | a value outgrows its row | moves the value to a side table |
+| Insertion order | usage picks no strategy | cuts the table by arrival |
+| Hash by key | updates reach old rows | cuts the table by key hash |
+| Equal cut | none of the above | cuts the table in halves |"""
+TIE_TABLE = """When usage picks no strategy:
+| Strategy | Updates of old rows | Old parts |
+|---|---|---|
+| Insertion order | search every part | go quiet for restores |
+| Hash by key | reach one part | stay busy |"""
+
+
+def partitioned(show_me: str, summary: str = "The rule picks one at the 1.7 GB line, so the split waits on your pick.") -> str:
+    return (
+        "ASK Which of the four partition strategies should split a full table when usage picks none?\n"
+        f"{summary}\nShow me:\n{show_me}\n"
+        "- Insertion order: no copying at the line; old parts go quiet for restores (recommended)\n"
+        "- Hash by key: every update reaches one part; all parts stay busy\n"
+        "Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
+    )
+
+
+def test_a_card_counting_a_set_lists_every_member_of_it_or_is_refused_kept_or_new() -> None:
+    for kept in (False, True):
+        with pytest.raises(DriveError, match=r'"four partition strategies" names 4 strategies, and the card lists no 4 of them'):
+            limits.question(partitioned(TIE_TABLE), kept=kept)
+        assert limits.question(partitioned(STRATEGIES_TABLE), kept=kept).show_me
+    named = "The rule checks four strategies: spill values, insertion order, hash by key and equal cut, so the split waits on your pick."
+    assert limits.question(partitioned(TIE_TABLE, named)).show_me
+    measured = "It waits 30 days, at most 3 requests, from 1:28 PM, so the split waits on your pick."
+    assert limits.question(partitioned(STRATEGIES_TABLE, measured)).show_me
+    with pytest.raises(DriveError, match=r'"three Macs" names 3 Macs, and the card lists no 3 of them'):
+        limits.question(partitioned(STRATEGIES_TABLE, "Each of the three Macs writes the table, so the split waits on your pick."))
+
+
+def test_a_posted_card_counting_a_set_it_never_lists_is_refused() -> None:
+    card = {"title": "Which of the four partition strategies should split a full table?", "body": f"Usage picks none.\n*Show me*\n{TIE_TABLE}", "options": ["Insertion order", "Hash by key"]}
+    assert '"four partition strategies" names 4 strategies' in limits.card_refusal(card, "")
+    assert limits.card_refusal(card | {"body": f"Usage picks none.\n*Show me*\n{STRATEGIES_TABLE}"}, "") is None
 
 
 def test_an_options_heading_is_refused_in_a_new_block_and_dropped_from_a_kept_one() -> None:

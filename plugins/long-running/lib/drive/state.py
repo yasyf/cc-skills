@@ -1,4 +1,5 @@
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -40,6 +41,7 @@ DISPATCH_PREFIX = "ctx_"
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
+KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
 VERDICT = re.compile(r"(?:^|[;.]\s+)(NOT )?READY\b")
 VERDICT_REASON = re.compile(r":\s+")
@@ -339,6 +341,11 @@ def rebuilt_ask(name: str, waits: str) -> Path:
     return drive_dir(name) / "asks" / f"{waits.partition(':')[2]}.md"
 
 
+def ask_hash(text: str) -> str:
+    """What `drive job ask` names a kept ASK file by, after its job: the hash of its words, so a file whose words no longer hash to its name changed since."""
+    return hashlib.sha256(text.encode()).hexdigest()[:8]
+
+
 def label_approvals(name: str, cwd: str) -> None:
     """Label as approvals the taps on PR cards his answers in the coordinator's checkout recorded before `drive answer` labelled them, so the settled check never counts one; marked so this runs once."""
     from drive import settled
@@ -357,7 +364,7 @@ def rebuild_asks(name: str, data: dict) -> None:
     (asks := drive_dir(name) / "asks").mkdir(exist_ok=True)
     for stored in stored_cards["questions"]:
         if (waits := stored["card"].get("waits")) in unkept and not (kept := rebuilt_ask(name, waits)).exists():
-            kept.write_text(limits.rebuilt(stored["card"]))
+            kept.write_text(limits.rebuilt(stored["card"], asks))
     (asks / REBUILT_ASKS).touch()
 
 
