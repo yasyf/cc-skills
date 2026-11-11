@@ -562,7 +562,7 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     block = tmp_path / "ask.md"
     block.write_text(
         "ASK Which layout?\n"
-        "The guess lives in /Users/me/repos/sand/reader.go and progress_nodes holds the rest; #53288 and #53300 both touch it.\n"
+        "The guess in reader.go calls posix_fadvise and byte_copy() from /Users/me/repos/sand while j702 waits; #53288 and #53300 both touch it.\n"
         f"- {' '.join(['word'] * 26)} (recommended)\n"
         "- Keep it (recommended)\n"
         "- Same as 1 but slower\n"
@@ -572,8 +572,8 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     assert '"Same as 1" points at an option by number or position' in refusal
     assert 'option "' in refusal and "is 26 words; each is one line of at most 25" in refusal
     assert "2 options end with (recommended); exactly one does" in refusal
-    assert 'plain words only: "/Users/me/repos/sand/reader.go" is a file path' in refusal
-    assert 'plain words only: "progress_nodes" is a code name' in refusal
+    assert '"j702" is a drive job or order id, which he cannot open' in refusal
+    assert not any(term in refusal for term in ("reader.go", "posix_fadvise", "byte_copy", "/Users/me/repos/sand"))
     assert '"#53288" is a number he cannot open; link it by what it is' in refusal
     assert "Show me" not in refusal
     assert "no `Findings:` line with the evidence under it" in refusal

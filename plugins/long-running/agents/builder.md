@@ -299,8 +299,9 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   words, Nov 10 11:28 PM, on a card that left out waiting on the server-side copy its own diagnosis
   pointed at: "so why was that not the suggested optin to me, or even any of the options?"
 
-  The question, summary and options are at most 150 words in plain words: no file paths, table
-  or function names or internal ids. Each thing they name that he could open, such as a PR or a
+  The question, summary and options are at most 150 words in plain words, every function,
+  syscall, file and table named by its proper name, by his Nov 11 12:36 AM words "use the proper
+  fucking terms for things", and no drive job or order id. Each thing they name that he could open, such as a PR or a
   teammate's fix, is linked in the summary, `<url|the fix that adds the update button>`, since
   Slack draws the card's title and option buttons as plain text: a link or markdown there shows
   raw, and `drive job ask` refuses it, by his Nov 10 11:21 PM words "look at the formatting you have
