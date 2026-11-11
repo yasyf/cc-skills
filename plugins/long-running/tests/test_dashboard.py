@@ -296,6 +296,11 @@ FEATURE = {
     "created": "2026-11-10T20:00:00-08:00", "jobs": [],
 }
 
+QUESTION = {
+    "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Raise the limit?", "since": None, "holds": 0, "blocks": [], "thread": None,
+    "card": {"title": "Raise the limit?", "body": "", "options": ["Raise it", "Shard it"], "recommended": "Raise it"},
+}
+
 
 def board(**changed: object) -> dict:
     lanes = [
@@ -475,3 +480,42 @@ await wait(50);
 done({ open: document.querySelector('#main .fold').classList.contains('open'), lightbox: document.querySelector('#lightbox').open });
 """, board(queue=[item]))
     assert seen == {"open": False, "lightbox": True}
+
+
+def test_the_top_strip_counts_open_incidents_and_lists_them_waiting_on_him_first(tmp_path: Path) -> None:
+    quiet = FEATURE | {"id": "o1", "title": "Mac app cannot read chats", "updated": "2026-11-10T21:00:00-08:00"}
+    asking = FEATURE | {"id": "o2", "title": "SandSQL journal failing", "cards": [{"title": "Raise the limit?", "url": "https://x.slack.com/archives/D1/p1794382453859209", "asked": "2026-11-10T23:00:00-08:00"}]}
+    pr = {"title": "fix", "url": "https://github.com/a/b/pull/3", "state": "open", "checks": "pending", "review": "none", "tap": None}
+    moving = FEATURE | {"id": "o3", "title": "Env restore copies at 0 B/s", "jobs": [{"id": "j3", "state": "running"}], "prs": [pr]}
+    incidents = [{"id": entry["id"], "title": entry["title"], "created": "2026-11-10T20:00:00-08:00"} for entry in (quiet, asking, moving)]
+    seen = browse(tmp_path, """
+const strip = [...document.querySelectorAll('#alerts > *')].map((each) => each.textContent);
+document.querySelector('#alerts [popovertarget]').click();
+await wait(50);
+const list = document.querySelector('#incidents');
+const opened = list.matches(':popover-open');
+const rows = [...list.querySelectorAll('li a')].map((row) => [row.getAttribute('href'), row.querySelector('.meta').textContent.replace(/\\s+/g, ' ').split(' · ').slice(1)]);
+list.querySelector('li a').click();
+await wait(50);
+done({ strip, opened, rows, closed: !list.matches(':popover-open'), hash: location.hash });
+""", board(status=[{"state": "running", "features": [quiet, asking, moving]}], incidents=incidents, queue=[QUESTION]))
+    assert seen == {
+        "strip": ["3 incidents open", "1 decision for you"],
+        "opened": True,
+        "rows": [
+            ["#/feature/o2", ["waits on your answer"]],
+            ["#/feature/o3", ["1 job working", "1 open PR"]],
+            ["#/feature/o1", ["nothing moving since Nov 10 9:00 PM"]],
+        ],
+        "closed": True,
+        "hash": "#/feature/o2",
+    }
+
+
+def test_the_top_strip_shows_on_a_phone(tmp_path: Path) -> None:
+    incidents = [{"id": "o1", "title": "ship the fix", "created": "2026-11-10T20:00:00-08:00"}]
+    seen = browse(tmp_path, """
+const chips = [...document.querySelectorAll('#alerts > *')].map((chip) => chip.getBoundingClientRect());
+done({ shown: chips.length, inside: chips.every((chip) => chip.width > 0 && chip.left >= 0 && chip.right <= innerWidth) });
+""", board(incidents=incidents, queue=[QUESTION, QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300"}]), size="390,844")
+    assert seen == {"shown": 3, "inside": True}

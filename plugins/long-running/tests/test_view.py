@@ -508,3 +508,20 @@ def test_the_dashboard_model_carries_no_plan() -> None:
     data = drive_of({"o1": order("ship the plan", [])}, {}, [])
     assert not {"milestones", "unplanned"} & set(view.board(data, found(), "live", [], T0, set()))
     assert "milestone" not in view.board(data, found(), "live", [], T0, set())["status"][-1]["features"][0]
+
+
+def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> None:
+    data = drive_of(
+        {
+            "o1": order("https://x.slack.com/archives/C1/p1794371947314469 Shared from Datadog in <#C0822AHFY3G>: SandSQL Error Log Count — plat", [], incident=True),
+            "o2": order("https://x.slack.com/archives/C1/p1794372156644299 fix it (Shared from PlatClaude: mint endpoint failing)", [], incident=True, created=at(10)),
+            "o3": order("https://x.slack.com/archives/C1/p1794372156644299", [], incident=True, created=at(20)),
+        },
+        {},
+        [],
+    )
+    assert [entry["title"] for entry in view.board(data, found(), "live", [], T0, set())["incidents"]] == [
+        "Datadog: SandSQL Error Log Count — plat",
+        "fix it (Shared from PlatClaude: mint endpoint failing)",
+        "https://x.slack.com/archives/C1/p1794372156644299",
+    ]

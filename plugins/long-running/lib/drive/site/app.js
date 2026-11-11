@@ -1114,14 +1114,31 @@ function goJump(row) {
 function strip() {
   const picks = model.queue.filter((item) => item.kind === 'question').length;
   const taps = model.queue.filter((item) => item.kind === 'tap').length;
+  const open = model.incidents.length;
   return [
-    ...model.incidents.map((incident) => {
-      const said = `Incident since ${clock(incident.created)}: ${incident.title}`;
-      return `<a class="al bad" href="#/feature/${esc(incident.id)}" title="${esc(said)}">${esc(said)}</a>`;
-    }),
-    picks ? `<a class="al warn" href="#/queue/question">${picks} ${picks === 1 ? 'question waits' : 'questions wait'} on your answer</a>` : '',
-    taps ? `<a class="al warn" href="#/queue/tap">${taps} ${taps === 1 ? 'change waits' : 'changes wait'} on your tap</a>` : '',
+    open ? `<button type="button" class="al bad" popovertarget="incidents">${open} ${open === 1 ? 'incident' : 'incidents'} open</button>` : '',
+    picks ? `<a class="al" href="#/queue/question">${picks} ${picks === 1 ? 'decision' : 'decisions'} for you</a>` : '',
+    taps ? `<a class="al" href="#/queue/tap">${taps} ${taps === 1 ? 'PR' : 'PRs'} to tap</a>` : '',
   ].filter(Boolean).join('');
+}
+
+function incidentList() {
+  const rows = model.incidents.map((incident) => {
+    const entry = featureOf(incident.id);
+    const running = entry.jobs.filter((job) => job.state === 'running').length;
+    const prs = entry.prs.filter((pr) => pr.state === 'open').length;
+    const asks = entry.cards.length;
+    const facts = [
+      `Since ${clock(incident.created)}`,
+      asks ? `<b>waits on your answer</b>` : '',
+      running ? `${running} ${running === 1 ? 'job' : 'jobs'} working` : '',
+      prs ? `${prs} open ${prs === 1 ? 'PR' : 'PRs'}` : '',
+      asks || running || prs ? '' : `nothing moving since ${clock(entry.updated)}`,
+    ].filter(Boolean).join(' · ');
+    return { rank: [asks ? 0 : 1, running || prs ? 0 : 1, -Date.parse(entry.updated)], html: `<li><a href="#/feature/${esc(incident.id)}"><span class="inc-title">${esc(entry.title)}</span><span class="meta">${facts}</span></a></li>` };
+  });
+  rows.sort((a, b) => a.rank.map((value, i) => value - b.rank[i]).find(Boolean) ?? 0);
+  return `<div class="inc-head"><b>${rows.length} ${rows.length === 1 ? 'incident' : 'incidents'} open</b><span>Waiting on you first, then the ones moving</span></div><ul>${rows.map((row) => row.html).join('')}</ul>`;
 }
 
 function saidRow(entry) {
@@ -1292,8 +1309,9 @@ function render() {
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''}>${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count" aria-label="${counts[name]} waiting on you">${counts[name]}</b>` : ''}</a>`).join('');
   $('#crumb').textContent = SCREENS.find(([name]) => name === at)[2];
   const raised = strip();
-  $('#alerts').innerHTML = raised;
+  morphChildren($('#alerts'), Object.assign(document.createElement('div'), { innerHTML: raised }));
   $('#alerts').hidden = !raised;
+  morphChildren($('#incidents'), Object.assign(document.createElement('div'), { innerHTML: incidentList() }));
   const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
@@ -1515,6 +1533,7 @@ document.addEventListener('click', (event) => {
   const jumped = event.target.closest('#jumplist [data-jump]');
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
+  if (event.target.closest('#incidents a')) $('#incidents').hidePopover();
   const shown = event.target.closest('#main [data-shot], #drawer [data-shot], #main [data-enlarge], #drawer [data-enlarge]');
   if (shown) return openLightbox(shown.closest('figure.visual') ?? shown);
   const stepped = event.target.closest('#lightbox [data-step]');
