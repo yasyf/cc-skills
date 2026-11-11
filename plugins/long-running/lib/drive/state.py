@@ -21,6 +21,7 @@ INCIDENT_STOP = "stop"
 IMMEDIATE_FIX = "immediate fix"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
+WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on change (?P<after>\d+)\))?[ \t]*$", re.MULTILINE)
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
@@ -443,7 +444,7 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, and keep each verdict a reader's answer gives on the PR it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
+    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, each PR a WAITING line names waiting on each card it names, and keep each verdict a reader's answer gives on the PR it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken = result_state(job, line)
     if job["state"] != "running" or not taken:
@@ -453,6 +454,9 @@ def take_result(data: dict, job_id: str, line: str) -> None:
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))
+    if waiting := WAITING_LINE.match(line):
+        for key in named_prs(data, job["order"], waiting["prs"]):
+            data["prs"][key]["waits"] = list(dict.fromkeys([*data["prs"][key]["waits"], *BUILT_CARD.findall(waiting["cards"])]))
     if taken == "done":
         drop_carries(data, job_id)
     if taken == "done" and job["kind"] == "reader":
@@ -1048,13 +1052,17 @@ def queued_on_tap(key: str) -> bool:
 
 
 def owed_step(pr: dict) -> str | None:
-    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, nothing when its author or its own builder lands it, its builder's rework or a reader's recheck while a NOT READY stands and he has not tapped it, and else his card, drawn while his-words check runs."""
+    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, its builder's rework or a reader's recheck while a NOT READY or his answer reworking it stands and he has not tapped it, nothing when its author or its own builder lands it, and else his card, drawn while his-words check runs."""
     if pr.get("exempt"):
         return "landing"
-    if not pr["wants_tap"]:
-        return None
-    status = check_status(pr)
-    return status if status in ("rework", "recheck") and not pr["tap"] else "card"
+    if (status := check_status(pr)) in ("rework", "recheck") and not pr["tap"]:
+        return status
+    return "card" if pr["wants_tap"] else None
+
+
+def asks_tap(pr: dict) -> bool:
+    """Whether his card on the PR offers his Approve: open, his card owed, and neither his Approve nor the hold label on it."""
+    return pr["state"] == "open" and owed_step(pr) == "card" and (pr["tap"] or {}).get("label") != "Approve" and not pr["hold_label"]
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

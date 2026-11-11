@@ -482,6 +482,21 @@ def test_a_tap_of_his_owes_no_rework_while_the_verdict_stays_kept() -> None:
     assert (state.owed_step(pr), pr["verdict"]["job"]) == ("card", "j740")
 
 
+def test_a_not_ready_owes_its_rework_on_a_pr_that_asks_no_tap_of_his_too() -> None:
+    data = judged(("j740", "NOT READY #4289: Releasable alone needs #4279's api live first"))
+    pr = data["prs"][f"{MONOREPO}#4289"] | {"wants_tap": False}
+    assert (state.owed_step(pr), state.owed_step(pr | {"verdict": None})) == ("rework", None)
+
+
+def test_a_waiting_line_puts_each_card_it_names_on_each_pr_of_its_order_it_names() -> None:
+    data = judged()
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
+    card = "https://acme.slack.com/archives/D123/p1794300000000200"
+    state.take_result(data, "j9", f"WAITING #4289 and #4279 waits on {card} and demo:j9-3")
+    assert [data["prs"][f"{MONOREPO}#{n}"]["waits"] for n in (4289, 4279, 4284)] == [[card, "demo:j9-3"], [card, "demo:j9-3"], []]
+    assert data["prs"]["yasyf/cc-skills#4289"]["waits"] == []
+
+
 def test_a_builders_ready_and_a_readers_other_answers_judge_nothing() -> None:
     data = judged(("j716", "DONE 0 of 3 pass: #4249 two design decisions unanswered; #4289 quote cut"))
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))

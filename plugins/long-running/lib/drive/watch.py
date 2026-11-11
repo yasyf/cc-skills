@@ -312,7 +312,7 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Act on each reader's verdict on an open PR the watch hears within one read of its landing, and redraw in place, each read, his card still asking his tap on a PR under a NOT READY he has not tapped, until cc-slack shows the reader's reason with no Approve and stops listing it as asking. A NOT READY on its head names its builder's rework, or after his tap, which stands and lands, its builder's follow-up on the same order; one on an older head, a head since moved or one no reader recorded, names the coordinator's recheck of the head now, tapped or not, since only a reader's verdict on that head says whether the finding still stands. A READY redraws his card, its check row gone, and on a card whose Approve a NOT READY pulled brings Approve back in place and says so once in the card's thread. A redraw or reply that fails goes again next read."""
+    """Act on each reader's verdict on an open PR the watch hears within one read of its landing, and redraw in place, each read, his card still asking his tap on a PR under a NOT READY he has not tapped, until cc-slack shows the reader's reason with no Approve and stops listing it as asking; a stack card whose other PRs still ask his tap keeps its Approve for them and redraws once, the PR's row saying the reader's reason. A NOT READY on its head names its builder's rework, or after his tap, which stands and lands, its builder's follow-up on the same order; one on an older head, a head since moved or one no reader recorded, names the coordinator's recheck of the head now, tapped or not, since only a reader's verdict on that head says whether the finding still stands. A READY redraws his card, its check row gone, and on a card whose Approve a NOT READY pulled brings Approve back in place and says so once in the card's thread. A redraw or reply that fails goes again next read."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
@@ -320,7 +320,7 @@ def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     lines = []
     for key, pr in heard:
         asking = view.card_for(watcher.cards["pr_cards"], pr["url"])
-        pulls = asking is not None and state.owed_step(pr) in ("rework", "recheck")
+        pulls = asking is not None and state.owed_step(pr) in ("rework", "recheck") and not any(state.asks_tap(data["prs"][state.pr_key(url)]) for url in asking["prs"])
         if not pulls and pr["verdict"]["said"]:
             continue
         before = dict(pr)
@@ -344,8 +344,9 @@ def verdict_said(name: str, key: str, pr: dict, asking: dict | None, pulls: bool
     from drive import talk
 
     verdict = pr["verdict"]
-    if pulls:
+    if pulls or asking and not verdict["ready"] and not verdict["said"]:
         slack.redraw_pr_cards(pr["url"])
+    if pulls:
         pr["pulled"] = pr["pulled"] or asking["url"]
     if verdict["said"]:
         return []

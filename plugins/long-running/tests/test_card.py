@@ -1156,7 +1156,9 @@ def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[l
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43))
 
 
-def test_a_stack_with_one_pr_a_reader_called_not_ready_draws_no_approve_for_the_stack(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+def test_his_open_stack_card_with_one_pr_a_reader_called_not_ready_keeps_approve_for_the_others_and_says_why_that_one_waits(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
     ask(asks(41, 42, 43))
     shown = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [stack_url(n) for n in (41, 42, 43)], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "New: the orders table moves"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [shown]})
@@ -1164,7 +1166,32 @@ def test_a_stack_with_one_pr_a_reader_called_not_ready_draws_no_approve_for_the_
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
     [drawn] = ask(asks(41, 42, 43))["cards"]
-    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
+    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+    assert drawn["card"]["prs"][1]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first.")
+
+
+REWORKED = VERDICT | {"job": "j1", "why": "1 + pre bind it as @parent", "said": True, "answer": "a1"}
+
+
+def test_a_stack_with_one_pr_reworked_to_his_answer_asks_approve_for_the_rest_its_row_saying_approve_skips_it(stacked: list[list[str]]) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#42"].update(verdict=REWORKED, wants_tap=True)
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+    assert drawn["card"]["prs"][1]["blocks"] == (
+        f'Being reworked to your {render.when(REWORKED["at"])} answer "1 + pre bind it as @parent". Approve skips it; it asks again once a reader passes the rework'
+    )
+    assert [row["blocks"].startswith("Being reworked") for row in drawn["card"]["prs"]] == [False, True, False]
+
+
+def test_a_stack_whose_every_pr_asking_his_tap_is_not_ready_or_waits_on_his_open_card_draws_no_card(stacked: list[list[str]]) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#41"]["verdict"] = REWORKED
+        data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
+        data["prs"]["Forge-AI/monorepo#43"]["wants_tap"] = False
+    drawn = ask(asks(41, 42, 43))
+    assert drawn["cards"] == []
+    assert all(skipped["reason"].startswith("it waits on demo:j1-7-a, so it draws no Approve until each is answered or done; his answer a1 at ") for skipped in drawn["skipped"])
 
 
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:
@@ -1256,6 +1283,20 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
         ("tap", 41, "Approve"),
         ("tap", 43, "Approve"),
     ]
+
+
+def test_approve_on_a_stack_card_skips_a_pr_not_ready_or_reworked_to_his_answer_while_hold_holds_it_too(stacked: list[list[str]]) -> None:
+    ask(asks(41, 42, 43))
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = REWORKED
+        data["prs"]["Forge-AI/monorepo#43"]["verdict"] = VERDICT | {"head": "f" * 40}
+    answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41-43", "label": "Approve", "action_ts": "", "source": "slack"}
+    assert ask({"answer": answer}) == {"ok": True}
+    prs = state.load("demo")["prs"]
+    assert [(prs[f"Forge-AI/monorepo#{n}"]["tap"] or {}).get("label") for n in (41, 42, 43)] == ["Approve", None, None]
+    ask({"answer": answer | {"label": "Hold"}})
+    prs = state.load("demo")["prs"]
+    assert [prs[f"Forge-AI/monorepo#{n}"]["tap"]["label"] for n in (41, 42, 43)] == ["Hold", "Hold", "Hold"]
 
 
 def test_a_tap_on_a_single_pr_card_taps_only_that_pr(stacked: list[list[str]]) -> None:

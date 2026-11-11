@@ -2331,6 +2331,22 @@ def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_each_read_wh
     assert redraws.asked == [state.pr_url(KEY)] * 3
 
 
+def test_his_open_stack_card_whose_other_pr_still_asks_his_tap_keeps_its_approve_and_redraws_once_for_a_not_ready(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    other = "Forge-AI/monorepo#43"
+    with state.edit(demo) as data:
+        data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
+    unready(demo)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY, other)]})
+    serve(monkeypatch, {KEY: read(), other: read(headRefOid="ddddddd444")})
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: NOT READY at aaaaaaa, rework owed: Releasable alone needs #43 live first [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    stored = state.load(demo)["prs"][KEY]
+    assert (redraws.asked, stored["verdict"]["said"], stored["pulled"]) == ([state.pr_url(KEY)], True, None)
+
+
 def test_a_reworked_head_that_passes_brings_approve_back_on_his_card_in_place_and_says_so_once_under_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:

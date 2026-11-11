@@ -4256,7 +4256,7 @@ def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, 
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap]})
     view.refresh_cards("demo")
     settled: list[tuple[str, ...]] = []
-    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "label": args[4], "at": "now"})
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or ({"redrawing": 1} if args[0] == "redraw-pr-cards" else {"answered": True, "label": args[4], "at": "now"}))
     return settled
 
 
@@ -4438,15 +4438,16 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
     code, out = run("answer", "a1", "--reopened", f"{designing}=j1", "Forge-AI/monorepo#45=j1", "--others-stand")
     assert out.splitlines() == [
         "his answer a1 recorded: 1 standing, 0 superseded, 2 reopened by it",
-        f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
-        f"{designing} no longer waits on his tap until j1 reworks it",
-        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
-        "Forge-AI/monorepo#45 no longer waits on his tap until j1 reworks it",
-        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
+        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once a reader's READY passes the rework",
+        f"{designing}: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
+        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once a reader's READY passes the rework",
+        "Forge-AI/monorepo#45: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
     ]
-    assert (code, settled) == (0, [ANSWERED, ("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
+    assert (code, settled) == (0, [ANSWERED, ("redraw-pr-cards", "--pr", PR), ("redraw-pr-cards", "--pr", "https://github.com/Forge-AI/monorepo/pull/45")])
     data = state.load("demo")
-    assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"]) == (False, "running")
+    reworked = data["prs"][designing]
+    assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "rework", "running")
+    assert reworked["verdict"] | {"at": None} == {"job": "j1", "head": reworked["head"], "ready": False, "why": WORDS, "at": None, "said": True, "answer": "a1"}
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 

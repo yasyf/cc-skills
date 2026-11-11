@@ -254,6 +254,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
+        case _ if state.owed_step(entry) in ("rework", "recheck") and entry["verdict"].get("answer"):
+            return f'Being reworked to your {when(entry["verdict"]["at"])} answer "{cut(entry["verdict"]["why"], NOT_READY_CHARS)}". Approve skips it; it asks again once a reader passes the rework'
         case _ if state.owed_step(entry) == "rework":
             return f"A reader's check found it not ready: {cut(entry['verdict']['why'], NOT_READY_CHARS)}. The agent is reworking it, and it asks for your tap again once a reader's check passes the new head"
         case _ if state.owed_step(entry) == "recheck":
@@ -365,7 +367,7 @@ def stack_words(pr: dict) -> tuple[str, str]:
 
 
 def render_stack(members: list[Member]) -> dict:
-    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for all, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole stack as one."""
+    """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for the PRs still asking his tap, each other's section saying what holds it, its PRs' Show me charts at most the ones one Slack message draws, since cc-slack posts the whole stack as one."""
     drawn, charts = [], limits.CHARTS
     for member in members:
         drawn.append(one := render(*member, charts=charts))
@@ -377,7 +379,7 @@ def render_stack(members: list[Member]) -> dict:
     card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count} PRs: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
     if summary:
         card["body"] = summary
-    if any(one["status"] == "needs_you" for one in drawn) and not any(pr["state"] == "OPEN" and state.owed_step(entry) in ("rework", "recheck") for pr, entry, *_ in members):
+    if any(one["status"] == "needs_you" for one in drawn):
         card |= {
             "status": "needs_you",
             "options": list(TAP_LABELS),
@@ -587,7 +589,9 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
 
 
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each reader's NOT READY standing on one of them, owing its builder's rework or a reader's recheck of its new head; a check still running holds none."""
+    """Why no fresh card is drawn for the members yet, while none of them asks his tap with nothing holding it: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each reader's NOT READY or answer of his reworking one of them, owing its builder's rework or a reader's recheck of its new head; a check still running holds none. One member asking his tap draws the card, each other's section saying what holds it."""
+    if any(state.asks_tap(known[key][1]) and not holding(known, key) for key in members):
+        return ""
     held = [wait for key in members for wait in holding(known, key)]
     rejected = [
         not_ready(entry, key if len(members) > 1 else "it")
@@ -712,7 +716,7 @@ def answered(ask: dict) -> dict:
     with state.edit(name) as data:
         for member in members:
             entry = data["prs"][member]
-            if entry["state"] != "open":
+            if entry["state"] != "open" or ask["label"] == "Approve" and state.check_status(entry) in ("rework", "recheck"):
                 continue
             entry["tap"] = {"label": ask["label"], "at": state.stamp(), "head": entry["head"], "source": ask["source"]}
             entry["fundamental"] = None
