@@ -166,7 +166,7 @@ and `Would he ask:` from what it already knew, `Drive`, `Scratch`, and an `After
 refused a post he ordered.
 
 - `Native:`, `Decisions that bind:` and `Would he ask:` are where steps 2 and 5 start, never where
-  they end. Read what `From` names yourself: `cci show <seq>` for a defect record, his message for a
+  they end. Read what `From` names yourself: the cci `read` tool for a defect record, his message for a
   ruling, his recorded answers for the decisions that bind.
 - Your order is the one whose `from` in `drive status --json` is your `From`, and your job its newest.
 - A ruling's rewrite changes in place the section of each prompt surface that states the rule: the
@@ -175,8 +175,8 @@ refused a post he ordered.
 - Copy an `After:` line into your report as `AFTER:`; a tool that breaks on you is a `DEFECT:` line
   there, which the meta session starts a fix from.
 - A record you send the session that started you, such as an `FYI` report, goes to `meta@<drive>`,
-  or `communicator@<drive>` on a drive with no meta session, with `--lane builder` (`lane: "builder"`
-  on the cci `post` tool): you share its session, so its lane is your default, and cci refuses a
+  or `communicator@<drive>` on a drive with no meta session, on the cci `post` tool with
+  `lane: builder`: you share its session, so its lane is your default, and cci refuses a
   record from a lane addressed only to itself.
 - `Handoff: <seq>` names a record whose watch line names the PR, order and old job: take the PR with
   `drive pr add <url> --job <your job>` and stop the old job with
@@ -317,7 +317,7 @@ listing decisions that block nothing is not a result.
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `READY` covers. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
-| `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with `cci post --kind defect --lane root --to meta@<drive>` quoting its refusal, or for drive tooling a `DEFECT:` line. |
+| `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with a `defect` on the cci `post` tool, `lane: root` and `to: [meta@<drive>]`, quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
 
 `drive job report` refuses a report whose first line opens with none of these words, naming them. It

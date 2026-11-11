@@ -86,7 +86,7 @@ have no Write tool and a build order's line is sent back until it is kept. Then 
 line alone, at most 500 characters, since it lands whole in the starting session. Post
 nothing to him, which the `post` tool refuses; the handler relays it.
 
-Route around a tool that breaks on you, and send
-`cci post --kind defect --to meta@<drive>` quoting its refusal, with `--lane reader` when
-your brief's order opens `Drive tooling:` and `--lane root` otherwise, since the meta session
+Route around a tool that breaks on you, and send a `defect` on the cci `post` tool with
+`to: [meta@<drive>]` quoting its refusal, with `lane: reader` when
+your brief's order opens `Drive tooling:` and `lane: root` otherwise, since the meta session
 starts every tool fix. Follow a `drive` refusal that names its fix.
