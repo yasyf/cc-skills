@@ -11,11 +11,6 @@ from drive.github import GithubError
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
 PASSED = {"job": "j8", "head": HEAD, "ready": True, "why": "", "at": "2026-11-09T07:00:00-08:00", "said": True}
-RUNNING = [{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": ""}]
-PASSING = [
-    {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
-    {"__typename": "StatusContext", "context": "buildkite", "state": "SUCCESS"},
-]
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -115,7 +110,6 @@ def pr_json(
     title: str = "Fix: retry flaky uploads",
     body: str = FIX_BODY,
     pr_state: str = "OPEN",
-    rollup: list[dict] | None = None,
     review: str = "REVIEW_REQUIRED",
     url: str = URL,
     base: str = "main",
@@ -131,7 +125,6 @@ def pr_json(
         "headRefOid": HEAD,
         "baseRefName": base,
         "headRefName": branch,
-        "statusCheckRollup": RUNNING if rollup is None else rollup,
         "reviewDecision": review,
         "labels": [],
         "url": url,
@@ -140,10 +133,10 @@ def pr_json(
 
 def answering(pr: dict) -> Callable[[list[str]], str]:
     """A stand-in for gh answering card.read: the PR without its comments for gh pr view, and its comments for the REST read."""
-    return lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else {field: value for field, value in pr.items() if field != "comments"})
+    return lambda cmd, **_: json.dumps(pr["comments"] if cmd[1] == "api" else {field: value for field, value in pr.items() if field != "comments"})
 
 
-def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open") -> dict:
+def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open", checks: str = "pending") -> dict:
     return {
         "url": URL,
         "job": "j1",
@@ -157,7 +150,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "state": pr_state,
         "title": "Fix: retry flaky uploads",
         "head": HEAD,
-        "checks": "pending",
+        "checks": checks,
         "failed_checks": [],
         "review": "none",
         "draft": False,
@@ -200,7 +193,7 @@ def test_a_monorepo_fix_waiting_on_his_tap_asks_for_approve() -> None:
 
 def test_a_change_since_his_tap_asks_again_with_what_changed() -> None:
     changed = {**entry(), "fundamental": "rewritten to do the opposite of the version he held"}
-    drawn = card.render(pr_json(rollup=PASSING), changed)
+    drawn = card.render(pr_json(), changed)
     assert (drawn["status"], drawn["waits"], drawn["prs"][0]["changed"]) == (
         "needs_you",
         "merge:Forge-AI:monorepo:42",
@@ -217,7 +210,7 @@ def test_after_his_approve_while_ci_runs_it_drops_the_buttons() -> None:
 
 
 def test_a_merged_pr_is_done() -> None:
-    assert card.render(pr_json(pr_state="MERGED", rollup=PASSING), entry(tap="Approve")) == {
+    assert card.render(pr_json(pr_state="MERGED"), entry(tap="Approve")) == {
         "status": "done",
         "title": "Fix: retry flaky uploads",
         "prs": [row(blocks="Merged")],
@@ -232,14 +225,14 @@ def test_a_closed_pr_says_it_closed_without_merging() -> None:
     }
 
 
-def test_a_check_that_failed_on_this_head_and_is_missing_mid_rerun_does_not_read_as_passed() -> None:
-    rerun = {**entry(tap="Approve"), "failed_checks": ["LTX Behavioral Gate (short)"]}
-    assert card.render(pr_json(rollup=PASSING), rerun)["prs"][0]["blocks"] == "Lands once CI passes"
-    assert card.render(pr_json(rollup=PASSING), {**rerun, "head": "f" * 40})["prs"][0]["blocks"] == "CI passed; the agent is landing it"
+def test_checks_the_watch_read_on_another_head_read_as_still_running() -> None:
+    passed = entry(tap="Approve", checks="pass")
+    assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "CI passed; the agent is landing it"
+    assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Lands once CI passes"
 
 
 def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:
-    assert card.render(pr_json(rollup=PASSING), entry(tap="Hold")) == {
+    assert card.render(pr_json(), entry(tap="Hold", checks="pass")) == {
         "status": "needs_you",
         "title": "Fix: approve retry flaky uploads?",
         "prs": [row(blocks="Held by you", lands="you approve")],
@@ -250,7 +243,7 @@ def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:
 
 
 def test_a_pr_the_drive_holds_with_the_hold_label_asks_him_nothing() -> None:
-    labeled = pr_json(rollup=PASSING) | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
+    labeled = pr_json() | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
     assert card.render(labeled, entry()) == {
         "status": "info",
         "title": "Fix: retry flaky uploads",
@@ -510,7 +503,7 @@ def test_a_card_read_asks_gh_pr_view_for_no_field_only_his_token_answers_and_tak
     comments = [{"user": {"login": "forge-pr-reviewer[bot]"}, "body": "### Refresher\n\nUploads try again."}]
     served = answering(pr_json(body=FIX_BODY.replace("## Refresher\nWhen the network hiccups, we try again.\n\n", ""), comments=comments))
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         asked.append(cmd)
         return served(cmd)
 
@@ -557,8 +550,7 @@ def test_angle_brackets_and_quotes_in_a_pr_title_and_body_reach_the_card_while_g
 
 
 def test_failed_ci_names_the_agent_fixing_it() -> None:
-    failing = [{"__typename": "StatusContext", "context": "buildkite", "state": "FAILURE"}]
-    blocks = card.render(pr_json(rollup=failing), entry(wants_tap=False))["prs"][0]["blocks"]
+    blocks = card.render(pr_json(), entry(wants_tap=False, checks="fail"))["prs"][0]["blocks"]
     assert blocks == "CI failed; the agent is fixing it"
 
 
@@ -589,7 +581,7 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
 ) -> None:
     asked: list[list[str]] = []
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         asked.append(cmd)
         if "yasyf/cc-skills" in cmd:
             raise GithubError("GraphQL: Could not resolve to a PullRequest")
@@ -617,6 +609,20 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
     err = capsys.readouterr().err
     assert "yasyf/cc-skills#42" in err
     assert "Forge-AI/monorepo#99 is in no drive" in err
+
+
+def test_a_card_github_refuses_draws_from_its_last_read_with_the_state_the_drive_holds(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+
+    def refused(cmd: list[str], **_: str) -> str:
+        raise GithubError("ccx: GitHub rate limit floor: app graphql 0/10000 left")
+
+    monkeypatch.setattr(card, "run", refused)
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"], drawn["card"]["prs"][0]["summary"]) == ("done", "Merged", SUMMARY)
 
 
 def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -702,8 +708,8 @@ def test_a_tap_card_asked_afresh_needs_a_summary_while_one_already_drawn_redraws
     monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY.replace(f"## Summary\n{SUMMARY}\n\n", ""))))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["prs"][0]["summary"] == ""
-    key = "Forge-AI/monorepo#42"
-    assert card.tap_refusal(card.drive_prs(), [key], card.read_all([key])) == (
+    key, known = "Forge-AI/monorepo#42", card.drive_prs()
+    assert card.tap_refusal(known, [key], card.read_all(known, [key])) == (
         "its tap card needs a \"Summary\" section first, a sentence or two naming what the PR changes by its function,"
         f" table, flag or service in the body of {URL}"
     )
@@ -724,7 +730,7 @@ VERDICT = {"job": "j9", "head": HEAD, "ready": False, "at": "2026-11-09T09:00:00
 
 
 def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_loses_its_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(rollup=PASSING, review="APPROVED")))
+    monkeypatch.setattr(card, "run", answering(pr_json(review="APPROVED")))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
@@ -744,22 +750,22 @@ def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_los
 
 def test_his_card_offers_approve_while_the_check_runs_showing_since_when_and_drops_the_row_once_it_passes() -> None:
     running = entry() | {"verdict": None, "check": {"job": "j9", "head": HEAD, "at": "2026-11-09T09:14:00-08:00"}}
-    drawn = card.render(pr_json(rollup=PASSING, review="APPROVED"), running)
+    drawn = card.render(pr_json(review="APPROVED"), running)
     assert (drawn["status"], drawn["options"], drawn["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], f"His-words check: running since {render.when(running['check']['at'])}")
     moved = running | {"verdict": PASSED | {"head": "f" * 40}}
-    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), moved)["prs"][0]["blocks"] == f"His-words check: running since {render.when(running['check']['at'])}"
-    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), running | {"check": None})["prs"][0]["blocks"] == "His-words check: not run on this head yet"
-    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), running | {"verdict": PASSED})["prs"][0]["blocks"] == ""
+    assert card.render(pr_json(review="APPROVED"), moved)["prs"][0]["blocks"] == f"His-words check: running since {render.when(running['check']['at'])}"
+    assert card.render(pr_json(review="APPROVED"), running | {"check": None})["prs"][0]["blocks"] == "His-words check: not run on this head yet"
+    assert card.render(pr_json(review="APPROVED"), running | {"verdict": PASSED})["prs"][0]["blocks"] == ""
 
 
 def test_a_not_ready_on_an_earlier_head_draws_no_approve_and_says_this_head_is_owed_a_check() -> None:
-    drawn = card.render(pr_json(rollup=PASSING, review="APPROVED"), entry() | {"verdict": VERDICT | {"head": "f" * 40}})
+    drawn = card.render(pr_json(review="APPROVED"), entry() | {"verdict": VERDICT | {"head": "f" * 40}})
     assert (drawn["status"], "options" in drawn) == ("info", False)
     assert drawn["prs"][0]["blocks"].startswith("A reader's check found an earlier head not ready: Releasable alone needs #7 live first.")
 
 
 def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_that_stands_now(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", answering(pr_json(rollup=PASSING, review="APPROVED")))
+    monkeypatch.setattr(card, "run", answering(pr_json(review="APPROVED")))
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
     view.refresh_cards(drive)
     for why in ("Releasable alone needs #7 live first", "The restore still copies at 0 B/s"):
@@ -771,7 +777,7 @@ def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    monkeypatch.setattr(card, "run", lambda cmd, **_: json.dumps(pr_json()))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["release:dashboard:Forge-AI/monorepo#7"]
     tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
@@ -781,7 +787,7 @@ def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_wha
     assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], "merge:Forge-AI:monorepo:42")
     release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
     assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
-    assert card.render(pr_json(rollup=PASSING), entry(tap="Approve"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
+    assert card.render(pr_json(), entry(tap="Approve", checks="pass"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
 
 
 @pytest.mark.parametrize(
@@ -988,7 +994,7 @@ def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]
     state.create(data)
     asked: list[list[str]] = []
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         asked.append(cmd)
         if cmd[1] == "api":
             return "[]"
@@ -1023,7 +1029,7 @@ def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     stacked_gh = card.run
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         if cmd[1] == "api":
             return stacked_gh(cmd)
         pr = json.loads(stacked_gh(cmd))
@@ -1046,7 +1052,7 @@ def test_a_stack_refusal_names_each_section_every_pr_body_lacks(stacked: list[li
     monkeypatch.setattr(card, "STACK_HEADING", "no such section")
     stacked_gh = card.run
 
-    def gh(cmd: list[str]) -> str:
+    def gh(cmd: list[str], **_: str) -> str:
         pr = json.loads(stacked_gh(cmd))
         if cmd[3] == "42":
             pr["body"] = pr["body"].replace("## What you'll hate most", "## Biggest worry")
@@ -1117,7 +1123,7 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
         for key in keys:
             data["prs"][key]["state"] = "merged"
     stacked_gh = card.run
-    monkeypatch.setattr(card, "run", lambda cmd: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
+    monkeypatch.setattr(card, "run", lambda cmd, **_: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert drawn["card"]["status"] == "done"

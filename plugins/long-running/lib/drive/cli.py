@@ -1729,7 +1729,7 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
         return
     known[key] = (name, after)
     members = after.get("stack") or [key]
-    if reason := card.waiting(known, members) or card.tap_refusal(known, members, card.read_all(members)):
+    if reason := card.waiting(known, members) or card.tap_refusal(known, members, card.read_all(known, members)):
         raise DriveError(f"{key}: {reason}")
 
 
