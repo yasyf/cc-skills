@@ -2370,37 +2370,40 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
 
 
 def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
-    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:
+    view, walk, log, log_walk = (tmp_path / saved for saved in ("view.json", "walk.mov", "log.json", "log.mov"))
+    for saved in (view, walk, log, log_walk):
+        saved.write_text("saved")
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
     run("job", "add", "builder", "--order", "o1", "--goal", "draw the steps")
     run(
         "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
         "--native", "the dashboard's run page", "--interactions", "open the run page, click a step",
     )
-    assert cli.main(["order", "set", "o1", "--state", "done", "--proof", "/tmp/view.json"]) == 2
+    assert cli.main(["order", "set", "o1", "--state", "done", "--proof", str(view)]) == 2
     assert capsys.readouterr().err.startswith(
-        "drive: --proof /tmp/view.json: refused, o1 builds something he uses (the dashboard's run page), so it is proven done on that surface:"
+        f"drive: --proof {view}: refused, o1 builds something he uses (the dashboard's run page), so it is proven done on that surface:"
     )
     assert state.load("demo")["orders"]["o1"]["state"] == "open"
-    assert run("order", "set", "o1", "--state", "done", "--proof", "/work/walk.mov")[0] == 0
+    assert run("order", "set", "o1", "--state", "done", "--proof", str(walk))[0] == 0
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "count the runs")
     run("job", "add", "builder", "--order", "o2", "--goal", "count them")
     run("job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "none: he never sees it")
-    assert run("order", "set", "o2", "--state", "done", "--proof", "/tmp/view.json")[0] == 0
+    assert run("order", "set", "o2", "--state", "done", "--proof", str(view))[0] == 0
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's log")
     run("job", "add", "builder", "--order", "o3", "--goal", "draw the log")
-    assert run("order", "set", "o3", "--proof", "/tmp/log.json")[0] == 0
+    assert run("order", "set", "o3", "--proof", str(log))[0] == 0
     run(
         "job", "brief", "j3", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
         "--native", "the dashboard's log page", "--interactions", "open the log page",
     )
     assert cli.main(["order", "set", "o3", "--state", "done"]) == 2
     refusal = capsys.readouterr().err
-    assert refusal.startswith("drive: its proof /tmp/log.json: refused, o3 builds something he uses (the dashboard's log page)")
+    assert refusal.startswith(f"drive: its proof {log}: refused, o3 builds something he uses (the dashboard's log page)")
     assert refusal.strip().endswith("; close it with --proof <that recording or link>")
     assert state.load("demo")["orders"]["o3"]["state"] == "open"
-    assert run("order", "set", "o3", "--state", "done", "--proof", "/work/log.mov")[0] == 0
+    assert run("order", "set", "o3", "--state", "done", "--proof", str(log_walk))[0] == 0
 
 
 def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_off(
