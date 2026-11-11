@@ -1781,8 +1781,10 @@ def test_a_held_pr_under_a_not_ready_kept_with_no_head_says_its_owed_step_once_o
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
 
 
-@pytest.mark.parametrize("count", [1, 120])
-def test_a_watch_pass_reads_github_in_one_call_however_many_open_prs_it_watches(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+@pytest.mark.parametrize(("count", "queries"), [(1, [1]), (120, [25, 25, 25, 25, 20])])
+def test_a_watch_pass_reads_github_twenty_five_open_prs_a_call_however_many_it_watches(
+    demo: str, monkeypatch: pytest.MonkeyPatch, count: int, queries: list[int]
+) -> None:
     with state.edit(demo) as data:
         for number in range(1, count):
             key = f"Forge-AI/monorepo#{1000 + number}"
@@ -1790,7 +1792,7 @@ def test_a_watch_pass_reads_github_in_one_call_however_many_open_prs_it_watches(
     asked: list[list[str]] = []
     monkeypatch.setattr(github, "run", lambda cmd, **_: asked.append(cmd) or json.dumps({"data": {}}))
     watch.run_pass(watcher(demo), T0)
-    assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], count)]
+    assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], size) for size in queries]
 
 
 def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
