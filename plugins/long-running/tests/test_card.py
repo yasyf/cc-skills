@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import card, cli, limits, picture, render, state, view
+from drive import card, cli, github, limits, picture, render, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -990,6 +990,31 @@ def test_unheard_appends_an_event(drive: str) -> None:
     [event] = events(drive)
     assert event["kind"] == "unheard"
     assert event["question"] == "Which drive first?"
+
+
+@pytest.mark.parametrize(
+    "tap",
+    [
+        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "action_ts": "", "source": "slack"}},
+        {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
+        {"unheard": {"card": "1762700000.000200", "label": "Other", "question": "Which drive first?", "other": True, "permalink": "", "key": "q1"}},
+    ],
+)
+def test_his_tap_on_any_card_records_him_heard_and_brings_the_catch_up_he_was_held_for_reading_nothing_from_github(
+    drive: str, monkeypatch: pytest.MonkeyPatch, tap: dict
+) -> None:
+    heard, tapped = "2026-11-11T12:36:02-08:00", state.parse_time("2026-11-11T13:57:22-08:00")
+    with state.edit(drive) as data:
+        data["owner"] = {"heard": heard, "away": False}
+        data["held"]["665753"] = {"order": None, "at": "2026-11-11T13:40:00-08:00", "told": "665754"}
+    monkeypatch.setattr(state, "now", lambda: tapped)
+    monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
+    monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("a tap read GitHub"))
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, "661500\n", ""))
+    ask(tap)
+    assert state.load(drive)["owner"] == {"heard": state.stamp(tapped), "away": False}
+    [catch_up] = [event for event in events(drive) if event["kind"] == "catch-up"]
+    assert (catch_up["since"], catch_up["held"]) == (render.when(heard), "665753")
 
 
 STACK_BODY = "## The stack\nthe orders table moves to a new one without a pause\n\nReaders read both tables, every row is copied across, then the old table goes.\n\n"

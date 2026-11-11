@@ -38,6 +38,7 @@ RELOAD = "/reload-plugins"
 SUBMIT_SECONDS = 10
 TIMEOUT = "timeout"
 ANSWERED_ELSEWHERE = "answer_conflict"
+DISPATCH_CLOSED = "dispatch_inactive"
 
 
 class OrcaError(DriveError):
