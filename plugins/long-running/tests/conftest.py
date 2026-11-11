@@ -79,8 +79,9 @@ Direct fix: none: a design choice, with no defect behind it
 
 @pytest.fixture
 def state_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    root = tmp_path / "state"
-    monkeypatch.setenv("LONG_RUNNING_STATE", str(root))
+    root = tmp_path / "long-running"
+    monkeypatch.delenv("LONG_RUNNING_STATE", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
     monkeypatch.delenv("LONG_RUNNING_DRIVE", raising=False)
     monkeypatch.setenv("ORCA_TERMINAL_HANDLE", "term_outer")

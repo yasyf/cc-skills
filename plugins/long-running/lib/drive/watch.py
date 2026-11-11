@@ -1402,9 +1402,11 @@ def loop_argv(drive: Path, name: str, project: str | None) -> list[str]:
 
 
 def ensure(name: str, project: str | None = None) -> str:
-    """Start the drive's watch, or a project's, as its own process unless one runs, its output in its own log; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
+    """Start the drive's watch, or a project's, as its own process unless one runs or the drive sits under LONG_RUNNING_STATE, its output in its own log; the line saying which. A project's watch first reads the events from where the log ended as its sub-coordinator was bound."""
     watcher = f"the watch for {project}" if project else "the watch"
     reader = f"the sub-coordinator for {project}" if project else "the coordinator"
+    if state.scratch():
+        return f"{watcher} does not start for a drive under LONG_RUNNING_STATE={state.root()}; a proof runs its passes in-process with watch.run_pass(watch.Watcher(...), moment)"
     if pid := holder(state.pid_path(name, project)):
         return f"{watcher} runs as pid {pid} and posts its lines to {reader} over cci; arm no Monitor for it"
     env = {key: value for key, value in os.environ.items() if key != "CLAUDE_CODE_SESSION_ID"} | {"CLAUDE_LONG_RUNNING_LANE": LANE}
@@ -1445,7 +1447,10 @@ def stopped(watcher: Watcher, error: Exception) -> None:
 
 
 def main(drive_name: str | None = None, project: str | None = None) -> int:
-    """Run the drive's watch, or a project's, until it stops, once a watch an older install ran under a Monitor has ended."""
+    """Run the drive's watch, or a project's, until it stops, once a watch an older install ran under a Monitor has ended; on a drive under LONG_RUNNING_STATE, end at once, so a watch an older install started there ends at its next re-exec."""
+    if state.scratch():
+        print(f"no watch runs for a drive under LONG_RUNNING_STATE={state.root()}", flush=True)
+        return 0
     name = state.resolve(drive_name)
     if not claim(name, project):
         return 0

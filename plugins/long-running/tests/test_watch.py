@@ -577,6 +577,20 @@ def test_ensure_starts_the_watch_with_no_session_unless_one_runs(demo: str, monk
     assert len(started) == 1
 
 
+def test_a_drive_under_long_running_state_gets_no_watch_process_or_channel_and_a_watch_started_there_ends(
+    demo: str, state_root: Path, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+) -> None:
+    started = []
+    monkeypatch.setenv("LONG_RUNNING_STATE", str(state_root))
+    monkeypatch.setattr(watch, "ensure", REAL_ENSURE)
+    monkeypatch.setattr(watch.subprocess, "Popen", lambda argv, **options: started.append(argv))
+    monkeypatch.setattr(watch, "run_pass", lambda watching, moment: pytest.fail("a pass ran on a drive under LONG_RUNNING_STATE"))
+    assert cli.main(["watch", "--drive", demo]) == 0
+    assert "watch.run_pass" in capsys.readouterr().out
+    assert watch.main(demo) == 0
+    assert (started, watch_process.listened, state.pid_path(demo).exists()) == ([], [], False)
+
+
 def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_at_it(
     demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
 ) -> None:
