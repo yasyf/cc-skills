@@ -2640,7 +2640,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     assert run("order", "posted", "o1", answer)[0] == 2
     with state.edit("demo") as data:
         data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100"))
-    report_records(monkeypatch, {"661300": {"job": "j1"}})
+    report_records(monkeypatch, {"661300": {"job": "j1", "part": "how fast can restore go?"}})
     assert run("order", "posted", "o1", answer, "--record", "661300") == (0, f'o1 "how fast can restore go?": posted {answer}')
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer
 
@@ -2660,7 +2660,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line)[0] == 2
     slack_thread.messages[0] = root | {"text": f"New: approve web search? — ✓ *Approve* · answered 7:10pm · <{PR}|monorepo PR 42>"}
-    report_records(monkeypatch, {"661300": {"job": "j1"}})
+    report_records(monkeypatch, {"661300": {"job": "j1", "part": "ship web search"}})
     assert run("order", "posted", "o1", line, "--record", "661300") == (0, f'o1 "ship web search": posted {line}')
     order = state.load("demo")["orders"]["o1"]
     assert (order["parts"]["ship web search"]["posted"], order["last_line"]) == (line, state.stamp(slack.sent_at(slack_thread.messages[-1])))
@@ -2740,7 +2740,7 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_p
     assert run("order", "posted", "o2", line)[0] == 2
     with state.edit("demo") as data:
         state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
-    assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
+    assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
     assert state.load("demo")["orders"]["o2"]["kept"] == slack.sent_at(slack_thread.messages[-1]).isoformat()
 
 
@@ -2842,7 +2842,7 @@ def test_only_the_communicator_marks_an_answer_posted_and_the_coordinator_is_tol
     assert cli.main(["order", "posted", "o1", "https://acme.slack.com/archives/D1/p2"]) == 2
     assert (
         "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-        " to communicator@demo, its part or job attr naming what it delivers, and the communicator's handler posts it and records it"
+        " to communicator@demo, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
     ) in capsys.readouterr().err
     assert state.load("demo")["orders"]["o1"]["parts"]["why?"]["posted"] is None
 

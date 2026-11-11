@@ -305,7 +305,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
         )
         raise DriveError(
             f"{link} is in none of the order's threads, its own, its cards' or its PRs' cards': {', '.join(thread for _, thread in threads)};"
-            f" a post that delivers a part somewhere else is recorded with --part <that part>{joins}"
+            f" a post that delivers a part somewhere else is recorded with --record <the report's seq> whose part attr names it{joins}"
         )
     return slack.sent_at(posted), ours
 
@@ -493,7 +493,7 @@ def communicators_order(data: dict, order_id: str) -> dict:
     if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) != "communicator":
         raise DriveError(
             "only the communicator records a post in an order's thread or takes back a part's mark: send the post's facts as a report record"
-            f" to communicator@{data['name']}, its part or job attr naming what it delivers, and the communicator's handler posts it and records it"
+            f" to communicator@{data['name']}, its part or close attr naming what it delivers, and the communicator's handler posts it and records it"
         )
     return find(data["orders"], order_id, "order")
 
@@ -516,7 +516,7 @@ def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
     where = f"thread {thread}" if thread else "his DM root"
     return (
         f"refused, {where} is none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
-        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --part <that part>"
+        f" post it in one of them, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --record <the report's seq>"
     )
 
 
