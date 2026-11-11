@@ -59,7 +59,9 @@ orca worktree list --limit 2000 --json | jq -c '[.result.worktrees[] | select(.d
 
 A `worker-start.json` with `state: "ready"` means the launch finished. One
 with `error` or `ok: false`, a nonzero status file, or an attempt with no
-`worker-start.json` is a failed launch. Without a brief, skip the attempt reads
+`worker-start.json` is a failed launch. A `worker-start.unsent` file means
+Orca never recorded the start, so no worker runs and the next launch of the
+brief retries it on the same Sprite. Without a brief, skip the attempt reads
 and use the worktree list alone.
 
 ## 2. The terminal

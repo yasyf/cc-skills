@@ -20,6 +20,11 @@ FINISHED_WORKER = {
     "projection": {"liveness": {"verdict": "live"}, "outcome": "succeeded", "attention": {"categories": ["root_completion"]}},
     "terminal": {"branch": "refs/heads/ci-mac-box-prove"},
 }
+UNSENT = (
+    "no worker started on Sprite pool-one: orca orchestration worker-start failed twice before Orca recorded it, with"
+    " runtime_error: Timed out waiting for the remote Orca runtime; its terminal term_lane waits idle, and launching this"
+    " brief again retries worker-start in it"
+)
 
 
 def message(kind: str, text: str, **overrides: str | None) -> dict:
@@ -173,6 +178,33 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert run("job", "launch", "j1", "brief.md") == (0, f"j1 started on Sprite workspace-1 as dispatch {DISPATCH}")
     job = state.load(demo)["jobs"]["j1"]
     assert (job["where"], job["dispatch"]) == ("remote", DISPATCH)
+
+
+@pytest.mark.parametrize(
+    ("receipts", "said"),
+    [
+        (("worker-start.status", "worker-start.unsent"), UNSENT),
+        (
+            ("worker-start.status",),
+            f"orca-worker-launch.sh exited 1 after worker-start ran, so the lane may be live: {UNSENT}; read {{attempt}}/worker-start.json before starting it anywhere else",
+        ),
+    ],
+)
+def test_a_launch_says_the_lane_may_be_live_only_when_orca_may_have_recorded_its_worker_start(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, receipts: tuple[str, ...], said: str
+) -> None:
+    brief = tmp_path / "j1.md"
+    brief.write_text("brief")
+    attempt = brief.with_suffix(".worker")
+    attempt.mkdir()
+    for receipt in receipts:
+        (attempt / receipt).write_text("1\n")
+    monkeypatch.setattr(orca, "tool", lambda name: name)
+    done = subprocess.CompletedProcess([], 1, stdout="", stderr=f"{UNSENT}\n")
+    monkeypatch.setattr(orca.subprocess, "run", lambda argv, **kwargs: done)
+    with pytest.raises(orca.OrcaError) as raised:
+        orca.launch("demo", "demo-j1", brief, tmp_path, RUN)
+    assert str(raised.value) == said.format(attempt=attempt)
 
 
 def test_resume_answers_the_open_question_then_sends_to_the_dispatch(

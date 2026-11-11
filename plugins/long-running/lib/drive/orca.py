@@ -220,6 +220,8 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str) -> dict
         said = done.stderr.strip().splitlines()
         reason = said[-1] if said else "no output"
         attempt = brief.with_suffix(".worker")
+        if (attempt / "worker-start.unsent").exists():
+            raise OrcaError(reason)
         if (attempt / "worker-start.status").exists():
             raise OrcaError(
                 f"{LAUNCHER} exited {done.returncode} after worker-start ran, so the lane may be live: {reason}; "
