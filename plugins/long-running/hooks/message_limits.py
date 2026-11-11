@@ -44,6 +44,21 @@ def his_drive(session: str) -> dict | None:
     return None
 
 
+def coordinator_post(payload: dict) -> str | None:
+    """Why the coordinator may not post to Slack itself: his reply under a post reaches only the session that posted it, and the communicator is the one he talks to."""
+    session = payload.get("session_id") or ""
+    if payload.get("agent_id"):
+        return None
+    for name in state.session_drives(session):
+        if state.session_role(state.load(name), session) == "coordinator":
+            return (
+                "Refused on purpose: the coordinator posts nothing to Slack, since his reply under a post reaches only the"
+                f" session that posted it. Send the words as a `report` record to communicator@{name}, and its handler"
+                " posts them."
+            )
+    return None
+
+
 def posts_to(payload: dict, dm: str) -> bool:
     if payload["tool_name"] in DM_POSTS:
         return True
@@ -147,7 +162,9 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM does not go out as written: a handler's line in his thread waits for its read of that thread, the post keeps its length, and `cc-slack check-post` passes its exact words."""
+    """Why a post to his DM does not go out as written: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, the post keeps its length, and `cc-slack check-post` passes its exact words."""
+    if posted := coordinator_post(payload):
+        return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
         return None
     dm = drive["slack"]["channel"]

@@ -10,6 +10,10 @@ RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
 REUSES = re.compile(r"^REUSES:[ \t]*\S", re.MULTILINE)
+CHECK = re.compile(r"^CHECK:(.*)$", re.MULTILINE)
+NATIVE = re.compile(r"^NATIVE:[ \t]*(.*)$", re.MULTILINE)
+PROOF = re.compile(r"https?://\S+|(?<![\w.])/[^\s,;)]+")
+SEEN_PROOF = re.compile(r"slack\.com/archives/|\.(?:mov|mp4|webm|gif|png|jpe?g)$", re.IGNORECASE)
 KEYS = ("rulings", "exists", "open")
 RESEARCHED_KINDS = ("builder", "design")
 OPUS_KINDS = ("reader", "builder", "design")
@@ -123,6 +127,8 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
                 "a reader's DESIGN return is a choice for him, which a design lane turns into his cards: two to four `- `"
                 " option lines, exactly one ending (recommended); a finding with no choice in it returns DONE"
             )
+    if job["kind"] == "builder" and lines[0].startswith("DONE"):
+        return unproven(text)
     if not (job["kind"] == "builder" and lines[0].startswith("READY") and order["kind"] == "build") or order["incident"]:
         return None
     found = research(name, data, job["order"])
@@ -132,4 +138,23 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     return (
         f"{found[0]}'s research found what already does part of this: {exists}. A READY says, in a REUSES: line, how the"
         " PR calls or extends it rather than adding a second copy beside it"
+    )
+
+
+def unproven(text: str) -> str | None:
+    """Why a builder's DONE may not be kept: its CHECK: line names no proof that exists, or, for what he sees, no recording, picture or live post of it."""
+    proofs = [found.rstrip(".") for line in CHECK.findall(text) for found in PROOF.findall(line)]
+    real = [proof for proof in proofs if proof.startswith("http") or Path(proof).expanduser().exists()]
+    if not real:
+        return (
+            "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists, such as the"
+            " live post, the recording of the click, or the saved output of the installed command"
+        )
+    native = NATIVE.search(text)
+    if native is None or native[1].casefold().startswith("none") or any(SEEN_PROOF.search(proof) for proof in real):
+        return None
+    return (
+        "this builds something he sees, by its NATIVE: line, so its proof is from that surface: record the click through"
+        " it (agent-browser's recording, or screencapture -v of the window) or link the live post, and name the file or"
+        " link on CHECK:; data fetched from an API or a command's output does not show what he sees"
     )

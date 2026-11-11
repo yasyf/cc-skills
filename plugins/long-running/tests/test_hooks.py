@@ -139,6 +139,8 @@ def test_a_drive_role_opens_no_file_and_its_agents_and_other_sessions_do(
     assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert reason.startswith("refused: the coordinator opens no file with Read")
     assert "`drive manual <page>`" in reason
+    assert "a bounded Bash slice such as `tail -c 2000 <file>`" in reason
+    assert "a lesson is a cc-notes note (`ccn note add`)" in reason
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
     run("start", "demo", "--role", "communicator")
     assert no_file_tools.deny_reason(file_call("Edit", "talker")).startswith("refused: the communicator opens no file with Edit")
@@ -186,7 +188,12 @@ def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_re
     assert output["decision"] == "block"
     assert output["reason"].startswith("Your final message is 3 lines and 82 characters")
     assert "`drive job report j1 -`" in output["reason"]
-    assert one_line_result.block_reason(agent_stop("WAITING CI on https://github.com/yasyf/cc-skills/pull/1")) is None
+    waiting = "WAITING CI on https://github.com/yasyf/cc-skills/pull/1"
+    assert one_line_result.block_reason(agent_stop(waiting)).startswith("Refused on purpose: j1's return is not kept in the drive")
+    assert one_line_result.block_reason(agent_stop("ASK /scratch/ask.md")) is None
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"{waiting}\nPR: https://github.com/yasyf/cc-skills/pull/1\n"))
+    run("job", "report", "j1", "-")
+    assert one_line_result.block_reason(agent_stop(waiting)) is None
     assert "is 1 line and 501 characters" in one_line_result.block_reason(agent_stop("x" * 501))
 
 

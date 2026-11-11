@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, state
 
 RESULT_CHARS = 500
+REPORTED_KINDS = ("builder", "design")
 
 
 def block_reason(payload: dict) -> str | None:
@@ -22,7 +23,7 @@ def block_reason(payload: dict) -> str | None:
     message = (payload.get("last_assistant_message") or "").strip()
     lines = message.splitlines()
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
-        return None
+        return unkept(names[0], data, state.agent_job(data, payload.get("agent_id")), message)
     job = state.agent_job(data, payload.get("agent_id")) or "<your job>"
     keep = (
         f"keep your whole return first, if you have not, by piping it into `drive job report {job} -` from a quoted"
@@ -35,6 +36,20 @@ def block_reason(payload: dict) -> str | None:
         f" and it lands whole in the {role}'s"
         f" context, which every compaction has to clear. A final message is one line of at most {RESULT_CHARS}"
         f" characters: {keep} with that one line alone."
+    )
+
+
+def unkept(name: str, data: dict, job_id: str | None, line: str) -> str | None:
+    """Why a builder or designer may not end on its one line yet: its whole return, a line per fact, is not kept in the drive, so whoever acts on the job reads only that line; a reader's one line can be its whole answer."""
+    if not job_id or data["jobs"][job_id]["kind"] not in REPORTED_KINDS or line.startswith("ASK "):
+        return None
+    kept = state.report_text(name, job_id, data["jobs"][job_id]).strip().splitlines()
+    if kept and kept[0].strip() == line:
+        return None
+    return (
+        f"Refused on purpose: {job_id}'s return is not kept in the drive, so whoever acts on it would read only this"
+        f" line. Pipe your whole return into `drive job report {job_id} -` from a quoted heredoc, its first line exactly"
+        " this one, then end again with this one line."
     )
 
 
