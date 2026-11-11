@@ -224,8 +224,8 @@ FIRST_CALL = {
     "coordinator": (
         "The watch runs as its own process and posts its lines to you over cci: a line you act on now as a handoff"
         " record, the rest as evidence records together at most every five minutes; arm no Monitor for it, and run"
-        " drive watch only when a WATCH stopped line says it ended. A compaction keeps every tool you"
-        " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
+        " the drive watch command a WATCH stopped line names only when it says the watch ended. A compaction keeps"
+        " every tool you loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
         " answer_add with no ToolSearch first. The drive's order, job, pr, incident and status tools load once, the first"
         " time you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
         "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__incident,mcp__plugin_long-running_drive__status."
