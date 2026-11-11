@@ -676,7 +676,7 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_a_kept_ask(demo: str, no_ca
         "cd /work && cci post --lane root --kind=ASK --attr job=j1 'Close these sessions?'",
         "zsh -c \"cci post --kind ask 'Close these sessions?'\"",
     ):
-        assert landing_guard.deny_reason(asked_from_bash(command, session)) == landing_guard.ASK_BY_TOOL
+        assert landing_guard.deny_reason(asked_from_bash(command, session)) == landing_guard.UNKEPT_ASK
     carried = f"cci post --kind ask --attr ask={kept} --attr job=j1 'Close these sessions?'"
     assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None

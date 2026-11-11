@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -9,6 +8,11 @@ from drive import limits, settled, state
 
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
+UNKEPT_ASK = (
+    "refused: an ask record names the ASK `drive job ask` kept, as the attr `ask` set to the path it printed, and the"
+    " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
+    " record again with that path"
+)
 WITH_FILE = (
     f"refused: a drive record's text is one line of at most {RECORD_CHARS} characters, and this record attaches a file"
     " as its body; put the rest of its text in that file."
@@ -32,14 +36,11 @@ def shortened(record: dict) -> dict | None:
     return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
 
 
-def unsettled(record: dict, names: list[str], cwd: str) -> str | None:
-    """Why an ask record may not go out: no kept ASK checked it, and a recorded answer of his may already settle its question."""
-    attrs = record.get("attrs") or {}
-    if (record.get("kind") or "").lower() != "ask" or settled.kept(names, attrs.get("ask")):
+def unkept(record: dict, names: list[str]) -> str | None:
+    """Why an ask record may not go out: it names no ASK `drive job ask` kept, which the communicator draws its card from."""
+    if (record.get("kind") or "").lower() != "ask" or settled.kept(names, (record.get("attrs") or {}).get("ask")):
         return None
-    text = record.get("text") or ""
-    whole = "\n\n".join(filter(None, [text, record.get("body")]))
-    return settled.refusal(text, whole, names, cwd, attrs.get("unsettled"), "the attr `unsettled` set to", [])
+    return UNKEPT_ASK
 
 
 def untapped(record: dict, prs: dict[str, dict]) -> str | None:
@@ -51,15 +52,14 @@ def untapped(record: dict, prs: dict[str, dict]) -> str | None:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused while an ask in it may be settled already or a record in it asks for a tap no PR it names is owed, else every record in it one line, the rest in its body for whoever acts on it."""
+    """What a drive session's post becomes: refused while an ask in it names no kept ASK or a record in it asks for a tap no PR it names is owed, else every record in it one line, the rest in its body for whoever acts on it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
     records = tool_input.get("records") or [tool_input]
-    cwd = payload.get("cwd") or os.getcwd()
     prs = {key: pr for name in names for key, pr in state.load(name)["prs"].items()}
-    checks = (check for record in records for check in (unsettled(record, names, cwd), untapped(record, prs)))
+    checks = (check for record in records for check in (unkept(record, names), untapped(record, prs)))
     if refused := next(filter(None, checks), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     cut = [shortened(record) for record in records]

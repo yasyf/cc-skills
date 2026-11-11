@@ -1,5 +1,4 @@
 import record_lines
-from conftest import Answers
 from drive import state
 
 SESSION = "session-under-test"
@@ -32,7 +31,7 @@ def test_a_one_line_record_and_another_sessions_record_are_left_alone(demo: str)
 
 
 def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
-    records = [{"kind": "ask", "text": LONG}, {"kind": "answer", "text": LONG}]
+    records = [{"kind": "ask", "text": LONG, "attrs": {"ask": str(state.drive_dir(demo) / "asks" / "j12-6581.md")}}, {"kind": "answer", "text": LONG}]
     shortened, whole = record_lines.decision(post(records=records))["updatedInput"]["records"]
     assert len(shortened["text"]) <= record_lines.RECORD_CHARS and shortened["body"] == LONG
     assert whole == records[1]
@@ -45,32 +44,19 @@ def test_a_long_record_that_attaches_a_file_is_refused(demo: str) -> None:
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"
-RULING = {"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "close every completed or idle Claude or Codex session and its terminal"}
 
 
-def test_an_ask_his_recorded_answer_may_settle_is_refused_until_a_reason_names_that_answer(demo: str, recorded: Answers) -> None:
-    recorded.found = [RULING]
-    made = record_lines.decision(post(kind="ask", text=IDLE, body="14 sessions idle since Nov 8"))
-    assert made["permissionDecision"] == "deny"
-    assert "- ac61348 close every completed or idle Claude or Codex session and its terminal" in made["permissionDecisionReason"]
-    assert recorded.asked == [IDLE]
+def test_an_ask_naming_no_ask_drive_job_ask_kept_is_refused_whatever_it_says(demo: str) -> None:
+    for attrs in ({}, {"unsettled": "ac61348: it lets a lane close them"}, {"ask": "/tmp/asks/j1.md", "job": "j1"}):
+        made = record_lines.decision(post(kind="ask", text=IDLE, body="14 sessions idle since Nov 8", attrs=attrs))
+        assert made["permissionDecision"] == "deny"
+        assert "drive job ask <j> <file>" in made["permissionDecisionReason"]
     assert record_lines.decision(post(records=[{"kind": "report", "text": "j12 merged"}, {"kind": "ask", "text": IDLE}]))["permissionDecision"] == "deny"
-    named = {"unsettled": "ac61348: it lets a lane close them; the session guard still needs his tap on each terminal"}
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"unsettled": "the guard needs his tap"}))["permissionDecision"] == "deny"
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=named)) is None
 
 
-def test_an_ask_carrying_an_ask_drive_job_ask_kept_is_not_checked_again(demo: str, recorded: Answers) -> None:
-    recorded.found = [RULING]
-    kept = state.drive_dir(demo) / "asks" / "j1.md"
+def test_an_ask_naming_the_ask_drive_job_ask_kept_goes_out_and_other_sessions_are_not_checked(demo: str) -> None:
+    kept = state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md"
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": str(kept), "job": "j1"})) is None
-    assert recorded.asked == []
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": "/tmp/asks/j1.md"}))["permissionDecision"] == "deny"
-
-
-def test_an_ask_no_answer_of_his_touches_goes_out_and_other_sessions_are_not_checked(demo: str, recorded: Answers) -> None:
-    assert record_lines.decision(post(kind="ask", text=IDLE)) is None
-    recorded.found = [RULING]
     assert record_lines.decision(post(session="another-session", kind="ask", text=IDLE)) is None
 
 
