@@ -26,7 +26,7 @@ ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 def drive_pr(run: Run, demo: str) -> str:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
-    run("pr", "add", PR, "--job", "j1", "--tap")
+    run("pr", "add", PR, "--job", "j1")
     return state.pr_key(PR)
 
 
@@ -741,7 +741,7 @@ SIBLINGS = ("https://github.com/Forge-AI/monorepo/pull/41", "https://github.com/
 @pytest.fixture
 def stack(drive_pr: str, run: Run) -> None:
     for url in SIBLINGS:
-        run("pr", "add", url, "--job", "j1", "--tap")
+        run("pr", "add", url, "--job", "j1")
     approve("Forge-AI/monorepo#41")
     approve(drive_pr)
 
@@ -822,7 +822,7 @@ def copy_of_demo(run: Run, name: str) -> None:
     run("start", name, "--role", "coordinator")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", name)
     run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", name)
-    run("pr", "add", PR, "--job", "j1", "--tap", "--drive", name)
+    run("pr", "add", PR, "--job", "j1", "--drive", name)
 
 
 def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_started_last(

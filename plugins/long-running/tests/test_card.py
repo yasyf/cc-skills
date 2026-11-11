@@ -5,11 +5,12 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import card, cli, limits, picture, state, view
+from drive import card, cli, limits, picture, render, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
+PASSED = {"job": "j8", "head": HEAD, "ready": True, "why": "", "at": "2026-11-09T07:00:00-08:00", "said": True}
 RUNNING = [{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": ""}]
 PASSING = [
     {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
@@ -151,7 +152,8 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"} if tap else None,
         "exempt": exempt,
         "fundamental": None,
-        "not_ready": None,
+        "verdict": PASSED,
+        "check": None,
         "state": pr_state,
         "title": "Fix: retry flaky uploads",
         "head": HEAD,
@@ -545,6 +547,15 @@ def test_template_comments_stay_out_of_the_card() -> None:
     assert first["description"] == "## Summary\nAdds a flag."
 
 
+def test_angle_brackets_and_quotes_in_a_pr_title_and_body_reach_the_card_while_github_html_tags_do_not() -> None:
+    body = '## Summary\n`agent::of("<id>")` now returns the agent, and agent::of("<id>") <b>never</b> returns "".\n'
+    drawn = card.render(pr_json(title='Fix: agent::of("<id>") returns the agent', body=body), entry())
+    assert (drawn["title"], drawn["prs"][0]["summary"]) == (
+        'Fix: approve agent::of("<id>") returns the agent?',
+        '`agent::of("<id>")` now returns the agent, and agent::of("<id>") never returns "".',
+    )
+
+
 def test_failed_ci_names_the_agent_fixing_it() -> None:
     failing = [{"__typename": "StatusContext", "context": "buildkite", "state": "FAILURE"}]
     blocks = card.render(pr_json(rollup=failing), entry(wants_tap=False))["prs"][0]["blocks"]
@@ -709,28 +720,42 @@ def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monke
     }
 
 
-VERDICT = {"job": "j9", "at": "2026-11-09T09:00:00-08:00", "why": "Releasable alone needs #7 live first", "redrawn": False}
+VERDICT = {"job": "j9", "head": HEAD, "ready": False, "at": "2026-11-09T09:00:00-08:00", "why": "Releasable alone needs #7 live first", "said": False}
 
 
 def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_loses_its_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json(rollup=PASSING, review="APPROVED")))
     with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = VERDICT
+        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
     assert skipped["reason"].startswith("reader j9 called it NOT READY at ")
-    assert skipped["reason"].endswith(
-        ": Releasable alone needs #7 live first, so it draws no Approve until a later reader's READY names it: start a reader on its head"
-    )
+    assert skipped["reason"].endswith(": Releasable alone needs #7 live first, so it draws no Approve until a reader's READY passes its head")
     tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card]})
     view.refresh_cards(drive)
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
-    assert drawn["card"]["prs"][0]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first.")
+    assert drawn["card"]["prs"][0]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first. The agent is reworking it")
     with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = None
+        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = PASSED
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+
+
+def test_his_card_offers_approve_while_the_check_runs_showing_since_when_and_drops_the_row_once_it_passes() -> None:
+    running = entry() | {"verdict": None, "check": {"job": "j9", "head": HEAD, "at": "2026-11-09T09:14:00-08:00"}}
+    drawn = card.render(pr_json(rollup=PASSING, review="APPROVED"), running)
+    assert (drawn["status"], drawn["options"], drawn["prs"][0]["blocks"]) == ("needs_you", ["Approve", "Hold"], f"His-words check: running since {render.when(running['check']['at'])}")
+    moved = running | {"verdict": PASSED | {"head": "f" * 40}}
+    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), moved)["prs"][0]["blocks"] == f"His-words check: running since {render.when(running['check']['at'])}"
+    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), running | {"check": None})["prs"][0]["blocks"] == "His-words check: not run on this head yet"
+    assert card.render(pr_json(rollup=PASSING, review="APPROVED"), running | {"verdict": PASSED})["prs"][0]["blocks"] == ""
+
+
+def test_a_not_ready_on_an_earlier_head_draws_no_approve_and_says_this_head_is_owed_a_check() -> None:
+    drawn = card.render(pr_json(rollup=PASSING, review="APPROVED"), entry() | {"verdict": VERDICT | {"head": "f" * 40}})
+    assert (drawn["status"], "options" in drawn) == ("info", False)
+    assert drawn["prs"][0]["blocks"].startswith("A reader's check found an earlier head not ready: Releasable alone needs #7 live first.")
 
 
 def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_that_stands_now(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -739,7 +764,7 @@ def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_
     view.refresh_cards(drive)
     for why in ("Releasable alone needs #7 live first", "The restore still copies at 0 B/s"):
         with state.edit(drive) as data:
-            data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = {**VERDICT, "why": why}
+            data["prs"]["Forge-AI/monorepo#42"]["verdict"] = {**VERDICT, "why": why}
         [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
         assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
         assert drawn["card"]["prs"][0]["blocks"].startswith(f"A reader's check found it not ready: {why}.")
@@ -1071,7 +1096,7 @@ def test_a_stack_with_one_pr_a_reader_called_not_ready_draws_no_approve_for_the_
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [shown]})
     view.refresh_cards("demo")
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = VERDICT
+        data["prs"]["Forge-AI/monorepo#42"]["verdict"] = VERDICT
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
 

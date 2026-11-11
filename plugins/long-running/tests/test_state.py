@@ -407,7 +407,7 @@ def judged(*readers: tuple[str, str]) -> dict:
     data = state.new_drive("demo", "coordinator", None, "/work", None)
     for number, order_id in ((4289, "o226"), (4279, "o226"), (4284, "o226"), (4222, "o226"), (4302, "o359")):
         key = f"{MONOREPO}#{number}"
-        data["prs"][key] = state.new_pr(state.pr_url(key), "j622", order_id) | {"wants_tap": True}
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j622", order_id) | {"head": "abc"}
     data["prs"]["yasyf/cc-skills#4289"] = state.new_pr(state.pr_url("yasyf/cc-skills#4289"), "j9", "o359")
     for job_id, said in readers:
         data["jobs"][job_id] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
@@ -415,14 +415,42 @@ def judged(*readers: tuple[str, str]) -> dict:
     return data
 
 
-def test_a_readers_not_ready_stands_on_each_pr_it_names_and_not_on_a_pr_its_reason_cites() -> None:
+def unready(data: dict) -> list[str]:
+    return [key for key, pr in data["prs"].items() if pr["verdict"] and not pr["verdict"]["ready"]]
+
+
+def test_a_new_pr_waits_on_his_tap() -> None:
+    pr = state.new_pr(state.pr_url(f"{MONOREPO}#1"), "j1", "o1")
+    assert (pr["wants_tap"], state.owed_step(pr), state.check_status(pr)) == (True, "card", "checking")
+
+
+def test_a_readers_not_ready_stands_on_the_head_it_checked_of_each_pr_it_names_and_not_on_a_pr_its_reason_cites() -> None:
     data = judged(("j740", "NOT READY #4289: Releasable alone needs #4279's api live first; the store path is hard-coded"))
-    verdict = data["prs"][f"{MONOREPO}#4289"]["not_ready"]
-    assert (verdict["job"], verdict["why"], verdict["redrawn"]) == ("j740", "Releasable alone needs #4279's api live first", False)
-    assert data["jobs"]["j740"]["state"] == "done"
-    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#4289"]
-    assert state.owed_step(data["prs"][f"{MONOREPO}#4289"]) == "recheck"
+    verdict = data["prs"][f"{MONOREPO}#4289"]["verdict"]
+    assert verdict == {"job": "j740", "head": "abc", "ready": False, "why": "Releasable alone needs #4279's api live first", "at": verdict["at"], "said": False}
+    assert (data["jobs"]["j740"]["state"], data["jobs"]["j740"]["checks"]) == ("done", {f"{MONOREPO}#4289": "abc"})
+    assert unready(data) == [f"{MONOREPO}#4289"]
+    assert state.owed_step(data["prs"][f"{MONOREPO}#4289"]) == "rework"
     assert state.owed_step(data["prs"][f"{MONOREPO}#4279"]) == "card"
+
+
+def test_a_verdict_judges_the_head_its_reader_was_started_on() -> None:
+    data = judged()
+    data["jobs"]["j740"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE)) | {"checks": {f"{MONOREPO}#4289": "old"}}
+    state.take_result(data, "j740", "READY-OK #4289")
+    pr = data["prs"][f"{MONOREPO}#4289"]
+    assert (pr["verdict"]["head"], state.check_status(pr), state.owed_step(pr)) == ("old", "checking", "card")
+
+
+def test_a_check_status_is_passed_or_rework_on_its_head_and_recheck_once_the_head_moves_under_a_not_ready() -> None:
+    data = judged(("j740", "NOT READY #4289: needs #4279 live first"))
+    pr = data["prs"][f"{MONOREPO}#4289"]
+    assert state.check_status(pr) == "rework"
+    pr["head"] = "def"
+    assert (state.check_status(pr), state.owed_step(pr)) == ("recheck", "recheck")
+    data["jobs"]["j798"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
+    state.take_result(data, "j798", "READY-OK #4289")
+    assert (state.check_status(pr), state.owed_step(pr)) == ("passed", "card")
 
 
 def test_only_a_later_readers_ready_naming_the_pr_clears_its_not_ready() -> None:
@@ -431,25 +459,25 @@ def test_only_a_later_readers_ready_naming_the_pr_clears_its_not_ready() -> None
         ("j771", "NOT READY #4279: moves no files into the store"),
         ("j805", "READY-OK #4222; NOT READY #4284: a review finding has no answer"),
     )
-    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#{n}" for n in (4289, 4279, 4284)]
+    assert unready(data) == [f"{MONOREPO}#{n}" for n in (4289, 4279, 4284)]
     data["jobs"]["j798"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
     state.take_result(data, "j798", "READY-OK #4279 #4289")
-    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#4284"]
-    assert data["prs"]["yasyf/cc-skills#4289"]["not_ready"] is None
+    assert unready(data) == [f"{MONOREPO}#4284"]
+    assert data["prs"]["yasyf/cc-skills#4289"]["verdict"] is None
 
 
-def test_a_tap_of_his_owes_no_recheck_while_the_verdict_stays_kept() -> None:
+def test_a_tap_of_his_owes_no_rework_while_the_verdict_stays_kept() -> None:
     data = judged(("j740", "NOT READY #4289: Releasable alone needs #4279's api live first"))
     pr = data["prs"][f"{MONOREPO}#4289"]
     pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack"}
-    assert (state.owed_step(pr), pr["not_ready"]["job"]) == ("card", "j740")
+    assert (state.owed_step(pr), pr["verdict"]["job"]) == ("card", "j740")
 
 
 def test_a_builders_ready_and_a_readers_other_answers_judge_nothing() -> None:
     data = judged(("j716", "DONE 0 of 3 pass: #4249 two design decisions unanswered; #4289 quote cut"))
     data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
     state.take_result(data, "j9", f"READY https://github.com/{MONOREPO}/pull/4289")
-    assert not any(pr["not_ready"] for pr in data["prs"].values())
+    assert not any(pr["verdict"] for pr in data["prs"].values())
     assert data["jobs"]["j9"]["state"] == "waiting"
 
 
@@ -458,20 +486,30 @@ def test_a_bare_number_two_repositories_share_judges_the_pr_on_the_readers_order
     assert state.named_prs(judged(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]
 
 
-def test_load_gives_prs_kept_before_verdicts_the_verdict_their_readers_answers_leave(state_root: Path) -> None:
+def test_load_turns_each_kept_not_ready_into_a_verdict_on_the_head_github_shows_unless_it_committed_since(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from drive import github
+
     data = judged()
-    for job_id, said, minutes in (("j740", "NOT READY #4289: needs #4279 live first", 0), ("j798", "READY-OK #4289", 10), ("j803", "NOT READY #4289: a second check is left", 20)):
+    for job_id, said, minutes in (("j740", "NOT READY #4289: needs #4279 live first", 0), ("j798", "READY-OK #4289", 10), ("j803", "NOT READY #4289: a second check is left", 20), ("j804", "NOT READY #4279: no store", 20)):
         data["jobs"][job_id] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE)) | {
             "state": "done",
             "said": said,
             "updated": state.stamp(REFERENCE + timedelta(minutes=minutes)),
         }
     for pr in data["prs"].values():
-        del pr["not_ready"]
+        for field in ("verdict", "check", "ready_said", "pulled"):
+            del pr[field]
+        pr["not_ready"] = None
+    data["prs"][f"{MONOREPO}#4302"]["state"] = "merged"
     state.create(data)
-    kept = state.load("demo")["prs"]
-    assert kept[f"{MONOREPO}#4289"]["not_ready"]["why"] == "a second check is left"
-    assert not any(pr["not_ready"] for key, pr in kept.items() if key != f"{MONOREPO}#4289")
+    committed = {f"{MONOREPO}#4289": REFERENCE, f"{MONOREPO}#4279": REFERENCE + timedelta(minutes=30)}
+    monkeypatch.setattr(github, "fetch", lambda keys: {key: {"committed": state.stamp(committed.get(key, REFERENCE))} for key in keys})
+    kept = state.load("demo")
+    rework, recheck = kept["prs"][f"{MONOREPO}#4289"], kept["prs"][f"{MONOREPO}#4279"]
+    assert (rework["verdict"]["why"], rework["verdict"]["head"], rework["verdict"]["said"], state.owed_step(rework)) == ("a second check is left", "abc", False, "rework")
+    assert (recheck["verdict"]["head"], kept["jobs"]["j804"]["checks"], state.owed_step(recheck)) == (None, {f"{MONOREPO}#4279": None}, "recheck")
+    assert unready(kept) == [f"{MONOREPO}#4289", f"{MONOREPO}#4279"]
+    assert not any("not_ready" in pr for pr in kept["prs"].values())
 
 
 def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untitled_one_matches_none() -> None:

@@ -664,6 +664,9 @@ def job_add(args: argparse.Namespace) -> int:
     created = state.stamp()
     if args.kind == "builder" and not args.remote:
         refuse_a_local_builder(state.load(name), args.repo)
+    if args.checks and args.kind != "reader":
+        raise DriveError("--checks starts his-words check on a PR's head, which only a reader runs")
+    heads = {key: github_pr(key)["headRefOid"] for key in map(state.pr_key, args.checks)}
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
@@ -684,7 +687,10 @@ def job_add(args: argparse.Namespace) -> int:
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
+            "checks": heads,
         }
+        for key, head in heads.items():
+            find(data["prs"], key, "drive PR")["check"] = {"job": job_id, "head": head, "at": created}
         order["jobs"].append(job_id)
         order["updated"] = created
     return emit(args, "\n".join([job_id, *beside]), {"id": job_id, **job, "beside": beside})
@@ -1440,14 +1446,18 @@ def pr_add(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
     url = state.pr_url(key)
+    if args.no_tap and not args.why:
+        raise DriveError("--no-tap needs --why <reason>: every PR waits on his tap unless it is a port, exempt or drive tooling")
     if exposed := card.exposure(key):
         raise DriveError(f"{key}: {exposed}")
     read = github_pr(key)
-    refuse_an_unkinded_title(key, read, None)
+    refuse_an_unkinded_title(key, read, args.port_of)
     known = state.load(name)
     added = find(known["jobs"], args.job, "job")
-    if not args.tap and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
-        refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job} --tap. ")
+    if args.exempt == INCIDENT_EXEMPTION:
+        refuse_an_exempt_stop(known, key, added, added["order"])
+    if (args.exempt or args.no_tap) and (incidents := state.open_incidents(known, [added["order"], *added["carries"]])):
+        refuse_an_exempt_revert(known, key, incidents[0], read, f"Add it waiting on his tap with drive pr add {url} --job {args.job}. ")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
         if data["orders"][job["order"]]["once"]:
@@ -1458,8 +1468,14 @@ def pr_add(args: argparse.Namespace) -> int:
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
                 " the watch says FREE when the last is answered"
             )
-        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]))
-        pr.update(job=args.job, order=job["order"], wants_tap=pr["wants_tap"] or args.tap)
+        pr = data["prs"].setdefault(key, state.new_pr(url, args.job, job["order"]) | {"wants_tap": not tooling(data["orders"][job["order"]])})
+        pr.update(job=args.job, order=job["order"])
+        if args.port_of:
+            pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
+        if args.exempt:
+            pr["exempt"] = args.exempt
+        if args.no_tap:
+            pr["wants_tap"] = False
         if url not in job["prs"]:
             job["prs"].append(url)
     return emit(args, key, {"key": key, **pr})
@@ -1485,13 +1501,6 @@ def pr_set(args: argparse.Namespace) -> int:
 
     name = state.resolve(args.drive)
     key = state.pr_key(args.url)
-    if args.tap and not args.serves:
-        raise DriveError("--tap needs --serves <order>: the order of his whose words ask for this PR")
-    if args.tap and not args.design:
-        raise DriveError(
-            "--tap needs --design asked:<his answer id or card permalink> for each design decision the PR makes,"
-            " or --design none: a design he never answered goes back as a question, never on a card"
-        )
     if args.tap and args.port_of:
         raise DriveError("a port lands with no tap: pass --port-of alone")
     if args.tapped and not args.tap_source:
@@ -1512,6 +1521,11 @@ def pr_set(args: argparse.Namespace) -> int:
     order = known["prs"][key]["order"]
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
+    if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
+        raise DriveError(
+            "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
+            " the PR makes, or --design none: a design he never answered goes back as a question, never on a card"
+        )
     if (cards := [wait for wait in args.waits if state.card_wait(known, wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
@@ -1528,7 +1542,7 @@ def pr_set(args: argparse.Namespace) -> int:
         if args.port_of or args.tap:
             refuse_an_unkinded_title(key, read, args.port_of)
         if args.exempt == INCIDENT_EXEMPTION:
-            refuse_an_exempt_stop(known, key)
+            refuse_an_exempt_stop(known, key, known["jobs"][known["prs"][key]["job"]], order)
             refuse_an_exempt_revert(known, key, order, read)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
@@ -1617,11 +1631,11 @@ def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.port_of:
         pr.update(port_of=args.port_of, exempt="pure port", wants_tap=False)
     if args.tap is not None:
-        pr["wants_tap"] = args.tap
+        pr.update(wants_tap=args.tap, ready_said=None, pulled=None)
+    if args.serves or args.design:
+        pr["ready_said"] = None
     if args.fundamental:
-        pr["fundamental"] = args.fundamental
-        pr["tap"] = None
-        pr["exempt"] = None
+        pr.update(fundamental=args.fundamental, tap=None, exempt=None, ready_said=None, pulled=None)
     if args.exempt:
         pr["exempt"] = args.exempt
     if args.no_exempt:
@@ -1673,15 +1687,14 @@ def refuse_a_tap_of_his(name: str, key: str, tap: dict | None) -> None:
     )
 
 
-def refuse_an_exempt_stop(data: dict, key: str) -> None:
+def refuse_an_exempt_stop(data: dict, key: str, job: dict, order: str) -> None:
     """The PR of an incident's stop turns the failing path off, which no incident order approves: it lands only on his tap, on a card quoting the bug from the record."""
-    pr = data["prs"][key]
-    if state.INCIDENT_STOP not in state.job_parts(data["jobs"][pr["job"]], pr["order"]):
+    if state.INCIDENT_STOP not in state.job_parts(job, order):
         return
     raise DriveError(
-        f'{key}: refused, it is {pr["order"]}\'s stop, which turns the failing path off, and a stop never lands as an "{INCIDENT_EXEMPTION}":'
-        f" only his tap lands it. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {pr['order']} --design none,"
-        f" its body quoting the bug from {pr['order']}'s record ({data['orders'][pr['order']]['note'] or 'none noted yet'})"
+        f'{key}: refused, it is {order}\'s stop, which turns the failing path off, and a stop never lands as an "{INCIDENT_EXEMPTION}":'
+        f" only his tap lands it. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {order} --design none,"
+        f" its body quoting the bug from {order}'s record ({data['orders'][order]['note'] or 'none noted yet'})"
     )
 
 
@@ -2418,6 +2431,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
+    verb.add_argument("--checks", action="append", default=[], metavar="PR", help="a reader's PR to check, its head now stamped on the reader")
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("id", help="the job")
@@ -2641,12 +2655,16 @@ def parser() -> argparse.ArgumentParser:
     verb = pr.add_parser("add", parents=both)
     verb.add_argument("url", help="the PR's URL")
     verb.add_argument("--job", required=True, help="the job that opened or took it over")
-    verb.add_argument("--tap", action="store_true", help="it waits on his tap")
+    verb.add_argument("--why", help="with --no-tap, why it lands with no tap of his")
+    untapped = verb.add_mutually_exclusive_group()
+    untapped.add_argument("--port-of", type=int, metavar="PR", help="a pure port of this old-tree PR number: exempt, with no tap card")
+    untapped.add_argument("--exempt", choices=state.EXEMPT_CLASSES)
+    untapped.add_argument("--no-tap", action="store_true", help="it lands with no tap of his; needs --why. Every other PR waits on his tap")
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, waits_opt])
     verb.add_argument("url", help="the PR's URL")
     verb.add_argument(
-        "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design; --no-tap withdraws his open card for it, needs --why"
+        "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; --no-tap withdraws his open card for it, needs --why"
     )
     verb.add_argument("--why", help="with --no-tap, the reason his withdrawn card shows; with --no-tapped, why the drive's own hold no longer stands")
     verb.add_argument("--serves", metavar="ORDER", help="the order of his whose words ask for this PR; prints them back")
@@ -2654,7 +2672,7 @@ def parser() -> argparse.ArgumentParser:
         "--design",
         type=design_basis,
         metavar="asked:<answer>|none",
-        help="his answer or card that settled each design decision the PR makes, or none; --tap needs it",
+        help="his answer or card that settled each design decision the PR makes, or none; --serves needs it",
     )
     exemption = verb.add_mutually_exclusive_group()
     exemption.add_argument("--exempt", choices=state.EXEMPT_CLASSES)

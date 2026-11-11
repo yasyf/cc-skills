@@ -54,7 +54,7 @@ def asked_on(*cards: str) -> list[dict]:
 
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
     url = f"https://github.com/yasyf/cc-skills/pull/{number}"
-    entry = state.new_pr(url, "j1", order_id) | {"title": f"New: \U0001f680 change {number}", "updated": at(-number)}
+    entry = state.new_pr(url, "j1", order_id) | {"wants_tap": False, "title": f"New: \U0001f680 change {number}", "updated": at(-number)}
     return f"yasyf/cc-skills#{number}", entry | {"checks": "pass", "review": "approved"} | overrides
 
 

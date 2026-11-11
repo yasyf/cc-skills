@@ -280,7 +280,8 @@ When it is answered, replaced or redone:
 
 **A PR card.**
 
-- Nobody writes it: a handler draws one card per stack from a `ready` record. It is only for a PR that
+- Nobody writes it: a handler draws one card per stack from the `ready` record the watch sends once
+  its PRs are green and approved. It is only for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
 - The line above it quotes that order at his DM root: his words, or the tooling order's
@@ -302,12 +303,16 @@ When it is answered, replaced or redone:
   each older card of those PRs replaced, with a link to the new one.
 - Each PR gets its own section: its title, link and Open button, then its Summary of what it
   changes, its Refresher, its biggest surprise and what he will hate most. Where it stands and what it waits on follow only when that is
-  not green and his tap, and how it differs from the plan only when it does. A card already posted
-  redraws on every change with what holds it now, such as a reader's `NOT READY`, in place of Approve. Its Show me comes last,
+  not green and his tap, and how it differs from the plan only when it does. Beside Approve, a
+  his-words check row shows until a reader's check passes the PR's head: running since when, or not
+  run on this head yet. A card already posted redraws in place on every change with what holds it
+  now, such as a reader's `NOT READY` with its reason, in place of Approve; once a reader's `READY`
+  passes the reworked head, Approve comes back in place with one reply under the card saying so. Its Show me comes last,
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
-- Its words come from each PR's title and body, with record ids dropped, so fix a bad card in the PR
+- Its words come from each PR's title and body, with record ids and the HTML tags GitHub draws
+  dropped, so text such as `agent::of("<id>")` reaches the card whole; fix a bad card in the PR
   body, never in the message.
 
 **A confirmation of a skill update** goes out twice for each message of his that leads to one. The

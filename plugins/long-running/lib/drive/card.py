@@ -6,7 +6,7 @@ from typing import TextIO
 
 from drive import github, limits, picture, public_check, state
 from drive.github import GithubError, run
-from drive.render import NOT_READY_CHARS, cut, not_ready
+from drive.render import NOT_READY_CHARS, cut, not_ready, when
 
 FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
 TAP_LABELS = ("Approve", "Hold")
@@ -54,7 +54,10 @@ NOT_NEWLINE = re.compile(r"[^\n]")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
 CODE = re.compile(r"^[ \t]*```.*?^[ \t]*```|`[^`\n]*`|https?://\S+", re.DOTALL | re.MULTILINE)
 TRAILER = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:[ \t]+\S.*")
-HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
+HTML_TAG = re.compile(
+    r"</?(?:a|b|br|code|del|details|div|em|h[1-6]|hr|i|img|ins|kbd|li|ol|p|picture|pre|source|span|strong|sub|summary|sup|table|tbody|td|th|thead|tr|ul)(?:\s[^<>]*)?/?>",
+    re.IGNORECASE,
+)
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
 SENTENCE_END = re.compile(r"[.!?](?=\s|$)")
 SENTENCES = re.compile(r"(?<=[.!?])\s+")
@@ -144,6 +147,15 @@ def record_ids(pr: dict) -> list[str]:
     return list(dict.fromkeys(RECORD_ID.findall(CODE.sub("", picture.IMAGE.sub(picture.alt, body_of(pr))))))
 
 
+def without_html(text: str) -> str:
+    """The text with each HTML tag GitHub draws removed outside its code, so a placeholder such as `agent::of("<id>")` reaches his card whole."""
+    kept, at = [], 0
+    for code in CODE.finditer(text):
+        kept += [HTML_TAG.sub("", text[at : code.start()]), code[0]]
+        at = code.end()
+    return "".join(kept) + HTML_TAG.sub("", text[at:])
+
+
 def first_paragraph(text: str) -> str:
     lines: list[str] = []
     for line in text.strip().splitlines():
@@ -174,7 +186,7 @@ def comment_refresher(pr: dict) -> str:
         if heading := REFRESHER_HEADING.search(body):
             rest = body[heading.end() :]
             end = NEXT_HEADING.search(rest)
-            return clipped(first_paragraph(without_records(HTML_TAG.sub("", rest[: end.start() if end else None]))))
+            return clipped(first_paragraph(without_records(without_html(rest[: end.start() if end else None]))))
     return ""
 
 
@@ -238,8 +250,10 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
+        case _ if state.owed_step(entry) == "rework":
+            return f"A reader's check found it not ready: {cut(entry['verdict']['why'], NOT_READY_CHARS)}. The agent is reworking it, and it asks for your tap again once a reader's check passes the new head"
         case _ if state.owed_step(entry) == "recheck":
-            return f"A reader's check found it not ready: {cut(entry['not_ready']['why'], NOT_READY_CHARS)}. It asks for your tap again once a reader's check passes it"
+            return f"A reader's check found an earlier head not ready: {cut(entry['verdict']['why'], NOT_READY_CHARS)}. It asks for your tap again once a reader's check passes this head"
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":
@@ -254,6 +268,16 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
         case _:
             return "CI passed; the agent is landing it"
+
+
+def check_row(pr: dict, entry: dict) -> str:
+    """His-words check beside Approve while it has not passed the PR's head: since when a reader runs on it, or that none has yet."""
+    check = entry["check"]
+    if state.check_status(entry) == "passed":
+        return ""
+    if check and check["head"] == pr["headRefOid"]:
+        return f"His-words check: running since {when(check['at'])}"
+    return "His-words check: not run on this head yet"
 
 
 def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
@@ -285,7 +309,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, what each of its waits that holds waits for, in his card's words, and how many ```chart fences its Show me may still draw on the card."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
-    found = {heading: HTML_TAG.sub("", text) for heading, text in sections(body).items()}
+    found = {heading: without_html(text) for heading, text in sections(body).items()}
     row = {
         "url": pr["url"],
         "title": plain,
@@ -305,7 +329,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
     }
     card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
     if offers_approval(pr, entry):
-        row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else ""
+        row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else check_row(pr, entry)
         row["lands"] = lands_after_tap(pr, entry, held)
         card |= {
             "status": "needs_you",
@@ -329,7 +353,7 @@ def names_his_order(pr: dict) -> bool:
 
 def stack_words(pr: dict) -> tuple[str, str]:
     """The stack's one-line title and its summary, from the `## The stack` section of its bottom PR's body."""
-    text = without_records(HTML_TAG.sub("", sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
+    text = without_records(without_html(sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
     title, _, rest = text.partition("\n")
     return title.strip(), clipped(" ".join(rest.split()), STACK_CHARS)
 
@@ -347,7 +371,7 @@ def render_stack(members: list[Member]) -> dict:
     card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count} PRs: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
     if summary:
         card["body"] = summary
-    if any(one["status"] == "needs_you" for one in drawn) and not any(pr["state"] == "OPEN" and state.owed_step(entry) == "recheck" for pr, entry, *_ in members):
+    if any(one["status"] == "needs_you" for one in drawn) and not any(pr["state"] == "OPEN" and state.owed_step(entry) in ("rework", "recheck") for pr, entry, *_ in members):
         card |= {
             "status": "needs_you",
             "options": list(TAP_LABELS),
@@ -483,7 +507,7 @@ def merges_untapped(key: str) -> bool:
 
 
 def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False, visual: bool = False) -> str:
-    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --tap` or a READY report, also needs each body's Summary, and one for a change he sees, by the READY's NATIVE: line, a before and an after screenshot in a Show me on it."""
+    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --serves` or a ready record, also needs each body's Summary, and one for a change he sees, by the READY's NATIVE: line, a before and an after screenshot in a Show me on it."""
     tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or merges_untapped(state.pr_key(pr["url"])))]
     if len(tapped) > STACK_MOST:
         return (
@@ -535,12 +559,16 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
 
 
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each reader's NOT READY on one of them that no later reader's READY answered."""
+    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each reader's NOT READY standing on one of them, owing its builder's rework or a reader's recheck of its new head; a check still running holds none."""
     held = [wait for key in members for wait in holding(known, key)]
-    rejected = [not_ready(entry, key if len(members) > 1 else "it") for key in members if (entry := known[key][1])["state"] == "open" and state.owed_step(entry) == "recheck"]
+    rejected = [
+        not_ready(entry, key if len(members) > 1 else "it")
+        for key in members
+        if (entry := known[key][1])["state"] == "open" and state.owed_step(entry) in ("rework", "recheck")
+    ]
     reasons = [
         *([f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"] if held else []),
-        *([f"{'; '.join(rejected)}, so it draws no Approve until a later reader's READY names it: start a reader on its head"] if rejected else []),
+        *([f"{'; '.join(rejected)}, so it draws no Approve until a reader's READY passes its head"] if rejected else []),
     ]
     return "; ".join(reasons)
 

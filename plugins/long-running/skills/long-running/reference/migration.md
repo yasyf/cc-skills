@@ -132,7 +132,8 @@ His rulings already live in cc-notes answers.
 4. Carry each open drive PR as a job with no agent, under the order it serves, else under the
    migration order. Run `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name>
    --branch <branch>`, then `drive job report <j> -` with the line `WAITING <url>` on stdin, which
-   sets it waiting, then `drive pr add <url> --job <j>`, with `--tap` when it waits on his tap.
+   sets it waiting, then `drive pr add <url> --job <j>`, which records it waiting on his tap, with
+   `--port-of <N>`, `--exempt <class>` or `--no-tap --why "<reason>"` when it lands without one.
 5. Carry a tap he gave when the old drive's `lr board rows` show it in force, so he is never asked
    again: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,
    or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would

@@ -36,7 +36,7 @@ from datetime import datetime, timedelta
 
 from drive import artifacts, github, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
-from drive.render import cut
+from drive.render import NOT_READY_CHARS, cut
 
 STATES = ("blocked", "running", "built", "waiting", "merged", "live", "not started")
 LIVE_FOR = timedelta(days=1)
@@ -214,7 +214,7 @@ def tap_of(pr: dict) -> str | None:
         return None
     if pr["hold_label"]:
         return "labeled"
-    return {"card": "wanted", "recheck": "not ready"}.get(state.owed_step(pr))
+    return {"card": "wanted", "rework": "not ready", "recheck": "not ready"}.get(state.owed_step(pr))
 
 
 def pr_entry(pr: dict) -> dict:
@@ -241,7 +241,9 @@ def tap_detail(pr: dict) -> str:
     checks = {"pass": "green", "fail": "red", "pending": "CI running"}.get(pr["checks"], "no CI")
     review = {"approved": "approved", "changes": "changes requested"}.get(pr["review"], "no review yet")
     changed = f"; changed since your tap: {pr['fundamental']}" if pr.get("fundamental") else ""
-    return f"{checks}, {review}{changed}"
+    why = pr["verdict"] and cut(pr["verdict"]["why"], NOT_READY_CHARS)
+    unready = {"rework": f"; not ready: {why}, builder reworking", "recheck": f"; not ready on an earlier head: {why}, reader owed on this one"}.get(state.owed_step(pr), "")
+    return f"{checks}, {review}{changed}{unready}"
 
 
 def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:

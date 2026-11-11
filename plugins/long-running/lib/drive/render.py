@@ -322,13 +322,17 @@ def agentless_lines(drive: dict) -> list[str]:
 
 
 def not_ready(pr: dict, name: str = "it") -> str:
-    """A reader's NOT READY on the PR that no later reader's READY answered, as the drive's verbs and refusals name it, or nothing."""
-    found = pr["not_ready"]
-    return f"reader {found['job']} called {name} NOT READY at {when(found['at'])}: {cut(found['why'], NOT_READY_CHARS)}" if found else ""
+    """The PR's newest verdict when it is a reader's NOT READY, as the drive's verbs and refusals name it, or nothing."""
+    found = pr["verdict"]
+    return f"reader {found['job']} called {name} NOT READY at {when(found['at'])}: {cut(found['why'], NOT_READY_CHARS)}" if found and not found["ready"] else ""
 
 
 def pr_line(key: str, pr: dict) -> str:
-    owed = {"card": "wants tap", "recheck": f"no tap until a reader passes it, since {not_ready(pr)}"}
+    owed = {
+        "card": "wants tap",
+        "rework": f"no tap until its builder reworks it and a reader passes the new head, since {not_ready(pr)}",
+        "recheck": f"no tap until a reader passes its new head, since {not_ready(pr)}",
+    }
     tap = pr["tap"]["label"] if pr.get("tap") else owed.get(owed_step(pr), "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""

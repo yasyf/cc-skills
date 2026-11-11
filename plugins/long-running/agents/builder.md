@@ -97,11 +97,15 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    a step left for him. Close each gap inside the order yourself, starting from the brief's `Would he ask:` line;
    a gap that is a design fork goes back as `ASK`.
 6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill; a hook refuses a bare `gh pr create`), with the
-   title and body below, and register it: `drive pr add <url> --job <your job id>`, adding `--tap`
-   when the repository needs his tap before landing.
-7. Return as soon as it is registered: `WAITING` naming the checks or review still out, or `READY`
-   when it is green and waits only on his tap or, for a port, on the coordinator's check against the
-   old PR, with `INSTALL:` and `PROVE:` lines.
+   title and body below, and register it: `drive pr add <url> --job <your job id>`, which records it
+   waiting on his tap. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
+   `--no-tap --why "<reason>"` for a PR its author lands.
+7. Return `READY` once, as soon as the head you mean to ship is pushed and registered, with CI and
+   review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
+   first. His-words check starts on that head then, and the watch draws his card the minute GitHub
+   reports the PR green and approved; a port gets the coordinator's check against the old PR instead.
+   A reader's NOT READY on that head resumes you with its finding: rework the PR, push, and return
+   `READY` again.
    - A PR that is not a port and whose his-words list is empty or says none is not his order. Drive
      tooling is such a PR: its list says none rather than borrow his words for the order it unblocks.
      Land a `yasyf/*` one yourself by the landing reference. A `Forge-AI/*` one returns `READY` with
@@ -110,7 +114,7 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      or his Approve on its PR card lands it. Any other PR with no order of his returns
      `BLOCKED no order of his names this`.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:
-     `drive pr set --tap` needs `--design` naming his answer for each.
+     `drive pr set --serves` needs `--design` naming his answer for each.
 
 ## The PR body
 
@@ -252,7 +256,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 ## Waits and reads
 
-- Once the PR is registered, return `WAITING` rather than watch it: no `gh pr checks`, `gh run watch`
+- Once the PR is registered, return `READY` rather than watch it: no `gh pr checks`, `gh run watch`
   or repeated `gh pr view`, no sleep. The watch sees each change, which a fresh builder handles; you
   are resumed with `SendMessage` only to bring his answer to your `ASK`. A wait past 5 minutes also expires your prompt cache, so it costs a full re-read of your
   context on top of the polling.
@@ -299,9 +303,9 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `READY <pr url> [<pr url>…]` | Green and waiting only on his tap. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, which `drive job report` refuses a `READY` without. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `READY <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, which `drive job report` refuses a `READY` without. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
-| `WAITING <what, in plain words>` | CI, a review, a merge queue, another PR. |
+| `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `READY` covers. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
 | `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with `cci post --kind defect --lane root --to communicator@<drive>` quoting its refusal, or for drive tooling a `DEFECT:` line. |
 | `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
@@ -317,7 +321,7 @@ number as a finding left standing, such as "the bucket caps at 5k objects/s, lef
 "unchanged", "hit" or "exceeds": a limit or capacity finding is his choice, so return `ASK` with two
 to four options for it. A cap his order asked for, such as "the queue caps at 4 cards", passes, and
 so does "the cap was never hit". It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
-card would refuse, naming every section each body lacks, as `drive pr set --tap` does, and checks each
+card would refuse, naming every section each body lacks, as `drive pr set --serves` does, and checks each
 stack the PRs form on its own, as `drive card` groups them.
 
 ## ASK
