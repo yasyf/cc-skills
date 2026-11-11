@@ -1572,7 +1572,7 @@ document.addEventListener('mouseover', (event) => {
   hideSource();
 });
 document.addEventListener('focusin', (event) => {
-  const folded = event.target.closest('.fold.long:not(.open)');
+  const folded = event.target.matches(':focus-visible') && event.target.closest('.fold.long:not(.open)');
   if (folded) {
     expanded.add(folded.dataset.fold);
     render();

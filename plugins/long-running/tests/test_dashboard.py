@@ -456,3 +456,22 @@ await wait(50);
 done({ before, after, lightbox: document.querySelector('#lightbox').open, hash: location.hash });
 """, board(queue=[item]))
     assert seen == {"before": {"long": True, "open": False}, "after": {"open": True, "focused": True}, "lightbox": True, "hash": "#/queue/all"}
+
+
+def test_a_click_on_a_picture_inside_a_folded_summary_opens_the_lightbox_and_leaves_the_fold_as_it_was(tmp_path: Path) -> None:
+    body = "\n\n".join(f"Reason {n} for the pick." for n in range(12)) + "\n\n![the lookup](/lookup.png)"
+    item = {
+        "kind": "question", "answer": "https://x.slack.com/archives/D1/p1794382453859209", "title": "Pick one", "since": None, "holds": 0, "blocks": [], "thread": None,
+        "card": {"title": "Pick one", "body": body, "options": ["Keep it", "Drop it"], "recommended": "Keep it"},
+    }
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const shot = document.querySelector('#main .fold [data-shot]');
+shot.focus({ focusVisible: false });
+await wait(50);
+shot.click();
+await wait(50);
+done({ open: document.querySelector('#main .fold').classList.contains('open'), lightbox: document.querySelector('#lightbox').open });
+""", board(queue=[item]))
+    assert seen == {"open": False, "lightbox": True}
