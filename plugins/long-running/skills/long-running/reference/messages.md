@@ -289,7 +289,8 @@ Nothing to post; a line that says where things stand links it.
 - **Anything that says it waits on him carries its card**, named by its permalink on a line of its
   own as [The short form](#the-short-form) says, so he answers it there without clicking away.
 - **His read-only question gets its answer within minutes** from the handler, which reads the
-  source that owns the fact; the communicator reads nothing itself.
+  source that owns the fact through whatever access opens it, a staff route included, and never
+  answers that it could not read it; the communicator reads nothing itself.
 
 ## What goes in
 
