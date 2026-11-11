@@ -18,6 +18,10 @@ KEEP_ASKED = (
     " `drive job ask {job}` with no file for a remote lane's ASK, which reads its report, since nothing keeps it for you;"
     " then post this record again with the path it prints"
 )
+UNMARKED_INCIDENT = (
+    "refused: {job} works on open incident {orders}, so this card blocks it, and the handler says so in the incident's thread"
+    " the moment the card is up only when the record says it is an incident's; post it again with {flags}"
+)
 MATCHES = 3
 APPROVAL = "kind:approval"
 APPROVED = re.compile(r"Approve\b")
@@ -31,7 +35,7 @@ COMMON = {
 
 
 def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | None:
-    """Why an ask record may not go out: the communicator draws its card from the ASK file its `ask` attr names, so that file is one `drive job ask` kept in one of these drives, checked against his answers, for the question of the job its `job` attr names that this record asks and his answer has not closed; another job's file, another question's or an answered one's draws no card for it."""
+    """Why an ask record may not go out: the communicator draws its card from the ASK file its `ask` attr names, so that file is one `drive job ask` kept in one of these drives, checked against his answers, for the question of the job its `job` attr names that this record asks and his answer has not closed; another job's file, another question's or an answered one's draws no card for it. An ask of a job on an open incident order carries the marks that make its handler tell the incident's thread."""
     if (name := keeper(names, named.get("ask"))) is None:
         return UNKEPT_ASK
     file = Path(named["ask"]).expanduser()
@@ -48,7 +52,22 @@ def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | Non
         view.refresh_cards(name)
     if not any(open_question is question for open_question in superseded.unanswered(data, job, view.live_cards(name))):
         return f'refused: his answer closed {job_id}\'s question "{question["title"]}" kept in {file}, so its card never draws again, and {keep}'
+    if marks := incident_marks(names, named):
+        orders = ", ".join(state.open_incidents(data, [job["order"], *job["carries"]]))
+        return UNMARKED_INCIDENT.format(job=job_id, orders=orders, flags=" ".join(f"--attr {key}={value}" for key, value in marks.items()))
     return None
+
+
+def incident_marks(names: list[str], named: dict[str, str]) -> dict[str, str]:
+    """The attrs an ask record for a job on an open incident order lacks: incident=true, so its handler says in the incident's thread the moment the card is up that the card blocks it, and as its thread the incident's, where that line goes and `drive job set --told` looks for it."""
+    if not (name := keeper(names, named.get("ask"))):
+        return {}
+    data = state.load(name)
+    if not (job := data["jobs"].get(named.get("job") or "")) or not (incidents := state.open_incidents(data, [job["order"], *job["carries"]])):
+        return {}
+    threads = state.incident_threads(data, incidents)
+    marks = {"incident": "true"} | ({"thread": threads[0]} if threads and named.get("thread") not in threads else {})
+    return {key: value for key, value in marks.items() if named.get(key) != value}
 
 
 def keeper(names: list[str], ask: str | None) -> str | None:

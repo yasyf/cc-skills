@@ -778,6 +778,11 @@ def promise_thread(data: dict, order: dict) -> tuple[str, str] | None:
     return (channel, thread) if channel and thread else None
 
 
+def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
+    """The thread of each of these incident orders, where the drive says at once that a card of his blocks it."""
+    return [where[1] for order_id in order_ids if (where := promise_thread(data, data["orders"][order_id]))]
+
+
 def owed(order: dict) -> bool:
     """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it."""
     return bool(order["due"]) and not order["kept"] and not order["withdrawn"]

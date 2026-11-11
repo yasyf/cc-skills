@@ -9,6 +9,7 @@ from conftest import SHORT_ASK
 from drive import limits, settled, state, view
 
 SESSION = "session-under-test"
+ALERT = "1794413465.441409"
 LONG = (
     "POST thread 1794286392.313739: the journal layout is merged and installed; his card for the runner rows is up,"
     " waits durable-agents:j12-6581\nproof: https://github.com/yasyf/cc-skills/pull/4093"
@@ -26,6 +27,7 @@ def refusal(made: dict | None) -> str:
 
 def kept(name: str, job_id: str, title: str, card: str | None = None) -> dict[str, str]:
     with state.edit(name) as data:
+        data["orders"].setdefault("o1", {"text": "build it", "from": "terminal", "state": "open", "jobs": [], "due": None, "updated": state.stamp()})
         job = data["jobs"].setdefault(job_id, state.new_job("o1", "builder", "build it", [], state.stamp()))
         file = state.drive_dir(name) / "asks" / f"{job_id}-{len(job['questions'])}.md"
         job["questions"].append(state.new_question(str(file), title, state.stamp(), card=card) | {"waits": card and f"{name}:{job_id}-7"})
@@ -227,6 +229,18 @@ def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
     asked = kept(demo, "j1", IDLE)
     made = record_lines.decision(post(kind="ask", text=IDLE, path=asked["ask"], attrs={"job": "j1"}))
     assert made["updatedInput"]["attrs"] == asked
+
+
+def test_an_ask_for_a_job_on_an_open_incident_order_says_so_and_names_the_incidents_thread(run: Callable[..., tuple[int, str]], demo: str) -> None:
+    run("order", "add", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{ALERT}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
+    asked = kept(demo, "j1", IDLE) | {"order": "o1"}
+    marked = asked | {"incident": "true", "thread": ALERT}
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked))["updatedInput"]["attrs"] == marked
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked | {"thread": THREAD}))["updatedInput"]["attrs"] == marked
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=marked)) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["state"] = "done"
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked)) is None
 
 
 def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:

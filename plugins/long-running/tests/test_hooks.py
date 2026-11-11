@@ -910,8 +910,9 @@ def asked_from_bash(command: str, session: str) -> dict:
     return bash(command) | {"session_id": session}
 
 
-def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_question(demo: str, no_calls: list[list[str]]) -> None:
+def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_question(run: Run, demo: str, no_calls: list[list[str]]) -> None:
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "close the idle sessions")
     kept = state.drive_dir(demo) / "asks" / "j1-0.md"
     with state.edit(demo) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "close them", [], state.stamp())
@@ -928,6 +929,22 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_the_ask_kept_for_its_questi
     assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
+
+
+def test_a_bash_ask_for_a_job_on_an_open_incident_order_is_refused_until_it_says_so_and_names_the_incidents_thread(
+    run: Run, demo: str, no_calls: list[list[str]]
+) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    alert = "1794413465.441409"
+    run("order", "add", "--project", "SandSQL", "--workstream", "Alerts", "--from", f"slack:C0822AHFY3G/{alert}", "unknown column case_v2.audit_status", "--incident", "--parts", "fix", "first check")
+    kept = state.drive_dir(demo) / "asks" / "j1-0.md"
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(str(kept), "What runs first?", state.stamp())]
+    asked = f"cci post --kind ask --lane root --to communicator@demo --attr ask={kept} --attr job=j1"
+    flags = f"--attr incident=true --attr thread={alert}"
+    reason = landing_guard.deny_reason(asked_from_bash(f"{asked} 'What runs first?'", session))
+    assert reason == settled.UNMARKED_INCIDENT.format(job="j1", orders="o1", flags=flags)
+    assert landing_guard.deny_reason(asked_from_bash(f"{asked} {flags} 'What runs first?'", session)) is None
 
 
 def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:

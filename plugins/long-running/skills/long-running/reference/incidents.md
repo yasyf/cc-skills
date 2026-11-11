@@ -173,6 +173,10 @@ changed and when, its findings the suspects, and its root cause the verdict.
   by its proper term, and names the recommended option the job builds on meanwhile.
   `drive job set <j> --card <link>` or `--waits <card>` on a job of an open incident order
   refuses until `--told <link>` names that post, which links each card.
+- The ask record says the card is an incident's, so its handler posts that line the moment the
+  card is up: the cci `post` tool's hook marks an ask of a job on an open incident order
+  `incident=true`, with the incident's thread as its `thread`, and `landing_guard` refuses a
+  `cci post` in Bash without them.
 - The job keeps building on the recommendation and never waits on the card: its `ASK` resumes it
   in that turn with "build the recommended option meanwhile", which runs the job again.
 - Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes

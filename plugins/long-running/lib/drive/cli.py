@@ -820,7 +820,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
             f" {TOLD_LINK}"
         )
     posted, _ = slack.message_and_root(args.told)
-    threads = [where[1] for order_id in incidents if (where := state.promise_thread(data, data["orders"][order_id]))]
+    threads = state.incident_threads(data, incidents)
     if not (posted.get("from_claude") and posted.get("thread_ts") in threads):
         raise DriveError(f"--told {args.told}: name the drive's own post in the incident's thread, {' or '.join(threads) or 'which it has none of yet'}")
     found = view.live_cards(name) or view.NO_CARDS
