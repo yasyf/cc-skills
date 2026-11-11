@@ -90,7 +90,7 @@ def listing(answer_id: str, kept: dict, keys: list[str], asked: dict[str, dict])
 def settle(card: str, kept: dict) -> None:
     """Settle a superseded card in place, showing his words and a link to them with no buttons, so a late tap records nothing."""
     result = slack.cc_slack("card-answer", "--card", card, "--label", kept["words"], "--withdrawn", "--via", kept["link"])
-    if result["already_answered"]:
+    if result.get("already_answered"):
         raise DriveError(f"{card} already shows his answer {result['label']!r}, so it no longer asks him and needs no mark; the drive's cards are reread now, run this again")
 
 
