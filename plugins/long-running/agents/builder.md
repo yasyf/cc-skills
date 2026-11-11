@@ -130,8 +130,9 @@ prints and a remote lane's brief carries whole:
 
 - On a public repository a screenshot shows a demo drive or public data only, under a `demo-` or
   `public-` path, and no line names a teammate; a picture of the live drive, private code, Slack, a
-  customer or a teammate's name goes only to a private repository's PR or his DM. The `landing_guard`
-  hook refuses `gh pr create`/`edit` or a ship putting up such a body: fix the body first.
+  customer or a teammate's name goes only to a private repository's PR or his DM. `ccx vcs ship`
+  refuses such a body or an added line naming a teammate before it commits, and the `landing_guard`
+  hook refuses `gh pr create`/`edit` putting up such a body: fix the body or line first.
 - Every section stands alone, since he reads the card with no other context. A number, fraction,
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
