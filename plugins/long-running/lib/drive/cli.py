@@ -24,6 +24,8 @@ INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
 JOB_ID = re.compile(r"j\d+")
+RULING = "ruling"
+CODE_LABEL = "code:"
 ID_FORMS = "an order o<n>, a job j<n>, or a PR as owner/repo#N, its URL or its bare number"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+|merge:[\w.-]+:[\w.-]+:\d+(?:-\d+)?")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
@@ -1077,8 +1079,8 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     cards = view.live_cards(name)
     if refused := settled.open_card_refusal(superseded.open_under(data, job, cards), unsettled):
         raise DriveError(refused)
-    if elsewhere := next(((other, question) for other, question in asking(data, asked.title, cards) if other != job_id), None):
-        raise DriveError(asked_elsewhere(job_id, *elsewhere))
+    if found_elsewhere := elsewhere(data, job_id, asked.title, cards, unsettled):
+        raise DriveError(asked_elsewhere(job_id, *found_elsewhere))
     heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
     if refused := settled.thread_refusal(heard, unsettled):
         raise DriveError(refused)
@@ -1109,25 +1111,47 @@ def asking(data: dict, title: str, cards: dict | None) -> list[tuple[str, dict]]
     ]
 
 
-def asked_elsewhere(job_id: str, other: str, question: dict) -> str:
-    """Why a job may not ask what another job's open question asks: his answer to that one card closes the question everywhere."""
+def elsewhere(data: dict, job_id: str, title: str, cards: dict | None, unsettled: str | None) -> tuple[str, dict, list[str]] | None:
+    """Another job's open question asking him what this title asks, or about the same subject in other words, with the proper terms the two share; a subject match `unsettled` names by its card's waits id or its block's file, saying why this asks something else, is none."""
+    from drive import superseded
+
+    for other_id, other in data["jobs"].items():
+        for question in superseded.unanswered(data, other, cards) if other_id != job_id else []:
+            if state.same_question(question["title"], title):
+                return other_id, question, []
+            if (question["waits"] or Path(question["file"]).name) not in (unsettled or "") and (terms := superseded.shared(title, question["title"])):
+                return other_id, question, terms
+    return None
+
+
+def asked_elsewhere(job_id: str, other: str, question: dict, terms: list[str]) -> str:
+    """Why a job may not ask what another job's open question asks, or about its subject in other words: his answer to that one card closes the subject everywhere."""
     where = (
         f"its open card {question['card']} ({question['waits']})"
         if question["card"]
         else f"its card {question['waits']}, not up yet" if question["waits"] else f"the block kept in {question['file']}, its card not drawn yet"
     )
     wait = question["waits"] or "<its waits id, once its card is up>"
+    refused = (
+        f'{job_id}: refused, nothing kept: {other} already asks him "{question["title"]}" on {where}'
+        + (f", the same subject in other words, sharing {', '.join(terms)}" if terms else "")
+        + f", and one subject has one card, so his answer closes it everywhere. Wait on that card with drive job set {job_id} --waits {wait},"
+        f" which frees {job_id} at his answer, or ask only what it leaves open, under a question of its own"
+    )
+    if not terms:
+        return refused
     return (
-        f'{job_id}: refused, nothing kept: {other} already asks him "{question["title"]}" on {where}, and one question has one'
-        f" card, so his answer closes it everywhere. Wait on that card with drive job set {job_id} --waits {wait}, which frees"
-        f" {job_id} at his answer, or ask only what it leaves open, under a question of its own"
+        f"{refused}; when his words replaced that card, withdraw it first with drive cards withdraw {wait} --words \"<his words>\""
+        f" --via <his permalink>; when this asks something else, ask again with --unsettled naming"
+        f" {question['waits'] or Path(question['file']).name} and why. His words, on three cards about one search worker's cache disk:"
+        ' "We\'re already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"'
     )
 
 
 def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
     name = state.resolve(args.drive)
-    card = question_card(name, *card_source(name, args), args.reworking)
+    card = question_card(name, *card_source(name, args))
     return emit(args, json.dumps(card), card)
 
 
@@ -1151,8 +1175,8 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     return Path(question["file"]), waits
 
 
-def question_card(name: str, path: Path, waits: str, reworking: str | None = None) -> dict:
-    """The card a job's question draws, a line atop its body saying the question is being redone and why while it is, which cc-slack draws in place on the open card: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block."""
+def question_card(name: str, path: Path, waits: str) -> dict:
+    """The card a job's question draws: its newest kept ASK block, under the waits id the question already holds, so every ask of one question redraws its one card; the waits id given names the card of a question holding none yet, or one of the job's cards drawn again on purpose. A waits id naming no job of the drive, a card asked outside any job, only draws the block."""
     from drive import superseded, view
 
     asked = limits.redrawn(path.read_text())
@@ -1170,8 +1194,7 @@ def question_card(name: str, path: Path, waits: str, reworking: str | None = Non
         if refused := superseded.redraw_refusal(data, job, waits, str(path)):
             raise DriveError(refused)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    summary = [f"{limits.REDONE}{reworking}", *asked.summary] if reworking else asked.summary
-    card = asked.card(name, waits) | {"body": limits.card_body(summary, show_me)} | ({"in_place": True} if reworking else {})
+    card = asked.card(name, waits) | {"body": limits.card_body(asked.summary, show_me)}
     if job_id in data["jobs"]:
         with state.edit(name) as data:
             keep_waits(data["jobs"][job_id], path, waits)
@@ -1201,6 +1224,28 @@ def cards_redraw(args: argparse.Namespace) -> int:
     if missed:
         raise DriveError("these cards did not redraw:\n- " + "\n- ".join(missed))
     return 0
+
+
+def cards_withdraw(args: argparse.Namespace) -> int:
+    """Withdraw his open question card that his words, wherever he wrote them, withdraw, or whose question or options they change: it settles in place showing his words and a link to them, with no buttons, so a late tap records nothing and no question asks him on a card while its work is being redone; its job asks again on a new card once the work is back."""
+    from drive import superseded, view
+
+    name = state.resolve(args.drive)
+    view.refresh_cards(name)
+    if (found := view.live_cards(name)) is None:
+        raise DriveError(f"his open cards could not be read, so none is withdrawn: {view.stored_cards(name)[1]}")
+    shown = next(
+        (card for card in found["questions"] if args.card == card["card"].get("waits") or view.message_key(args.card) == view.message_key(card["url"])), None
+    )
+    if shown is None:
+        raise DriveError(f"{args.card}: not one of his open question cards, by its waits id or permalink; drive view --json lists each open card")
+    superseded.settle(shown["url"], {"words": args.words, "link": args.via})
+    view.refresh_cards(name)
+    waits = shown["card"].get("waits") or view.message_key(shown["url"])
+    job_id = waits.partition(":")[2].partition("-")[0]
+    again = f"; {job_id} asks again on a new card once its work is back" if job_id in state.load(name)["jobs"] else ""
+    line = f"withdrew his card {shown['url']} ({waits}): it shows his words and a link to them, with no buttons{again}"
+    return emit(args, line, {"card": shown["url"], "waits": waits, "job": job_id or None})
 
 
 def ask_source(name: str, shown: dict) -> Path:
@@ -1392,10 +1437,7 @@ def job_brief(args: argparse.Namespace) -> int:
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
-    try:
-        answer = json.loads(reads.run(["ccn", "answer", "show", answer_id, "--json"], checkout_dir))
-    except reads.ReadError as error:
-        raise DriveError(f"ruling {answer_id}: {error}") from None
+    answer = settled.shown(answer_id, str(checkout_dir))
     return f"{answer['title']} ({answer['id'][:7]})\n{textwrap.indent(answer['body'].strip(), '  ')}"
 
 
@@ -1634,6 +1676,7 @@ def pr_set(args: argparse.Namespace) -> int:
     order = known["prs"][key]["order"]
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
+        refuse_an_unwritten_rule(known, key)
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
             "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
@@ -1687,6 +1730,42 @@ def pr_set(args: argparse.Namespace) -> int:
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     line = render.pr_line(key, pr) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def refuse_an_unwritten_rule(data: dict, key: str) -> None:
+    """Refuse a PR serving its order while a ruling of his that its job's brief binds, labelled code:<dir> for the code it rules on, is not written in this PR, his words verbatim, into an AGENTS.md at or above that directory, where every later change to that code reads it."""
+    cwd = data["roles"]["coordinator"]["cwd"]
+    owed = [
+        (answer_id, ruled, tag.removeprefix(CODE_LABEL).strip("/") or ".")
+        for answer_id in (data["jobs"][data["prs"][key]["job"]].get("brief_flags") or {}).get("ruling") or []
+        for ruled in [settled.shown(answer_id, cwd)]
+        for tag in ruled["tags"]
+        if tag.startswith(CODE_LABEL)
+    ]
+    if not owed:
+        return
+    repo, number = key.split("#")
+    try:
+        pages = json.loads(github.read(f"{key}'s changed files", ["gh", "api", "--paginate", "--slurp", f"repos/{repo}/pulls/{number}/files?per_page=100"]))
+    except github.GithubError as error:
+        raise DriveError(f"{key}: {error}; run this again") from None
+    for answer_id, ruled, directory in owed:
+        written = [
+            line[1:].strip().lstrip(">").strip()
+            for page in pages
+            for changed in page
+            if Path(changed["filename"]).name == "AGENTS.md" and Path(directory).is_relative_to(Path(changed["filename"]).parent)
+            for line in (changed.get("patch") or "").splitlines()
+            if line.startswith("+") and not line.startswith("+++")
+        ]
+        said = ruled["body"].partition("\nNotes:")[0].strip().splitlines()[0]
+        words = quoted[0][1:-1] if (quoted := limits.QUOTED.findall(said)) else said
+        if " ".join(words.split()).casefold() not in " ".join(" ".join(written).split()).casefold():
+            raise DriveError(
+                f'{key}: refused, nothing set: his ruling {answer_id[:7]} on how {directory} must work, "{render.cut(words, 200)}", is not'
+                f" written in this PR into an AGENTS.md at or above {directory}. Add his words verbatim with their date to the"
+                f" AGENTS.md nearest {directory}, push, and set it again; his ruling 23ff059: \"And in general get in the habit of doing that\""
+            )
 
 
 def withdrawal(args: argparse.Namespace) -> str | None:
@@ -1875,6 +1954,8 @@ def answer(args: argparse.Namespace) -> int:
         raise DriveError("his cards could not be read, so nothing can say what this answer leaves asking him; the watch rereads them every minute, run this again then")
     data = state.load(name)
     asked = superseded.asking(data, found)
+    if args.id not in data["answers"] and (unowed := rewrite_refusal(data, args)):
+        raise DriveError(unowed)
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
@@ -1950,6 +2031,22 @@ def answer(args: argparse.Namespace) -> int:
     if heard:
         line += f"; {heard.count('sent')} waiting {'job' if heard.count('sent') == 1 else 'jobs'} sent his words, {heard.count('untouched')} untouched"
     return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
+
+
+def rewrite_refusal(data: dict, args: argparse.Namespace) -> str | None:
+    """Why a ruling of his may not be recorded yet: its skill rewrite is owed the moment it is, so an open "Drive tooling:" order, the communicator's, carries it, and the watch chases that order until its builder is done."""
+    labels = args.label if args.id is None else settled.shown(args.id, data["roles"]["coordinator"]["cwd"])["tags"]
+    if RULING not in labels:
+        return None
+    order = data["orders"].get(args.rewrite or "")
+    if order and order["text"].startswith(state.TOOLING) and order["state"] not in state.CLOSED_ORDER_STATES:
+        return None
+    return (
+        "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded, so name the"
+        " communicator's open order carrying it with --rewrite <o>, adding it first with"
+        f' drive order add "{state.TOOLING} rewrite: <his words, verbatim>" when none holds it, which the watch chases until'
+        " its builder is done; his ruling 0c59046 went unbuilt for hours while nothing said its rewrite was owed"
+    )
 
 
 def superseded_mark(text: str) -> tuple[str, str | None]:
@@ -2602,9 +2699,9 @@ def parser() -> argparse.ArgumentParser:
             " reaches whom, then what he gets and what it costs, with exactly one ending (recommended), no mechanism such as"
             " polling, a push or an event named by a bare word on the question or an option, the question, summary and"
             " options at most 150 words in all, in plain words, each thing he"
-            " could open linked where it is named, then `Findings:` with the evidence, its `Direct fix:` line naming the"
-            " option that is the fix the job's diagnosis points at, recommended unless the summary names it and says why"
-            " not, or `none: <why>`. Keep it in the drive in a file of"
+            " could open linked where it is named, then `Findings:` with the evidence, its `Root cause:` line naming the"
+            " structure that lets the defect happen and its `First principles:` line the recommended option that removes"
+            " it, or `Root cause: not found: <the job finding it>` or `none: <why>`. Keep it in the drive in a file of"
             " its own and print its path, which the ask record carries, and add it to the job's open questions, each"
             " open until his answer to its own card. A block asking again, in the same words, what one of the job's"
             " questions asks that his answer has not closed takes that question's place, its card and waits id kept, so"
@@ -2669,11 +2766,6 @@ def parser() -> argparse.ArgumentParser:
             "the card's waits id, <drive>:<job>-<the ask record's seq>, for a question holding none yet, or the waits id of a"
             " card of the job to redraw; a question holding one is drawn under it; after a job, default: the waits id its card already has"
         ),
-    )
-    verb.add_argument(
-        "--reworking",
-        metavar="WHY",
-        help="what is being redone and when it is back: a line atop the card's body says the question is being redone and why, its words and buttons kept",
     )
     verb.set_defaults(run=job_card)
     verb = job.add_parser(
@@ -2826,7 +2918,9 @@ def parser() -> argparse.ArgumentParser:
         help="record an answer or ruling of his against every card still asking him and every PR not yet live, each marked standing, superseded or reopened by it",
         description=(
             "Run for every answer and ruling of his. The first call, with --title, --words and --link and no id, records"
-            " it in cc-notes and here, or with an id, --words and --link records one already in cc-notes. It lists every"
+            " it in cc-notes and here, or with an id, --words and --link records one already in cc-notes; a ruling, labelled"
+            " ruling, records only with --rewrite naming the communicator's open \"Drive tooling:\" order that rewrites the"
+            " skill to it, so the watch chases that rewrite until it is done. It lists every"
             " question card of his still open, every PR waiting on his tap, every"
             " other open PR and every merged PR whose job is still at work (key, kind, job, order, title, link), and each"
             " job waiting on one of their orders, and exits 2. Each later call marks them: --stands for one this answer"
@@ -2842,6 +2936,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", nargs="?", help="his answer's cc-notes id; leave it out with --title on the first call to record it in cc-notes")
     verb.add_argument("--title", help="the question his answer settles, verbatim, as its cc-notes title; with no id, the first call records it there")
     verb.add_argument("--label", action="append", default=[], help="a cc-notes label beyond scope:durable and drive:<drive>, such as header:<topic> or from:owner")
+    verb.add_argument(
+        "--rewrite",
+        metavar="ORDER",
+        help="for a ruling, labelled ruling: the communicator's open \"Drive tooling:\" order that rewrites the skill to it, which the first call needs",
+    )
     verb.add_argument("--words", help="his words, verbatim, which his cc-notes answer keeps and a superseded card shows; the first call needs them")
     verb.add_argument("--link", help="the permalink of his message or of the card he tapped, which a superseded card links; the first call needs it")
     verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card or PR his answer leaves as it is")
@@ -2937,6 +3036,21 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--waits", action="append", default=[], help="redraw only this open card, by its waits id; repeatable")
     verb.set_defaults(run=cards_redraw)
+    verb = cards.add_parser(
+        "withdraw",
+        parents=both,
+        help="withdraw his open question card that his words withdraw or change",
+        description=(
+            "Withdraw his open question card that his words withdraw, wherever he wrote them, or whose question or options they"
+            " change, such as more options, a new constraint or a rework of its work: it settles in place showing his words and"
+            " a link to them, with no buttons, so a late tap records nothing, and its job asks again on a new card once the"
+            " work is back."
+        ),
+    )
+    verb.add_argument("card", help="the card, by its waits id or its permalink")
+    verb.add_argument("--words", required=True, help="his words that withdraw or change it, verbatim, which the card shows")
+    verb.add_argument("--via", required=True, help="the permalink of his message, which the card links")
+    verb.set_defaults(run=cards_withdraw)
     card_help = "cc-slack's card_command: reads one request JSON on stdin and prints one JSON reply"
     verbs.add_parser("card", help=card_help, description=card_help).set_defaults(run=card_command)
     verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")

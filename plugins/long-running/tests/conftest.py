@@ -71,7 +71,7 @@ GET journal/0001.ltx  one page range
 - Map at the start of each file: changes the shared file format and still needs a length read first
 
 Findings:
-Direct fix: none: a design choice, with no defect behind it
+Root cause: none: a design choice, with no defect behind it
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
@@ -268,6 +268,7 @@ class Answers:
     asked: list[str] = field(default_factory=list)
     near: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
     cwds: list[str] = field(default_factory=list)
+    shown: dict[str, dict] = field(default_factory=dict)
 
 
 @pytest.fixture(autouse=True)
@@ -290,6 +291,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
         return list(answers.found)
 
     monkeypatch.setattr(settled, "matched", matched)
+    monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": []}))
     return answers
 
 

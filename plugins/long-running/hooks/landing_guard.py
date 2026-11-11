@@ -34,6 +34,7 @@ CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
+HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(.*?)\n[ \t]*\2[ \t]*(?:\n|$)", re.DOTALL)
 MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
 INCIDENT_FIX = "incident fix"
 QUEUE_REASON = (
@@ -160,6 +161,7 @@ CCI_POST = Landing(
         "text", "to", "topic", "ttl", "url",
     }),
 )
+ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop"}))
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect to the session holding drive tooling, the communicator's owner, answer,"
     " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
@@ -508,6 +510,23 @@ def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None,
     return None
 
 
+def root_cause_reason(script: str, shell: Shell) -> agents.Ruled | None:
+    """The question a `drive job ask` keeps, put to Jev against his ruling on root causes before it is kept: its block from the file named, or the heredoc piped on stdin."""
+    for _, words, run_in in commands(script, shell):
+        if not (found := landing_of(words, (ASK_KEPT,))):
+            continue
+        _, positionals, options = found
+        if "check" in options or "drop" in options or len(positionals) < 2:
+            continue
+        if positionals[1] == "-":
+            text = piped[3] if (piped := HEREDOC.search(script)) else None
+        else:
+            text = (Path(run_in.cwd) / Path(positionals[1]).expanduser()).read_text()
+        if text and (review := limits.root_cause_review(text, (options.get("unsettled") or [None])[-1])):
+            return agents.Ruled(review, limits.ROOT_CAUSE_RULE)
+    return None
+
+
 def deny_reason(payload: dict) -> str | None:
     """Why a Bash call must not run: a judged reason, else a guarded one."""
     return judged_reason(payload) or guarded_reason(payload)
@@ -520,7 +539,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, keeps a question card, whose recommended option Jev reads against its root cause and the words of his it quotes, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -531,6 +550,8 @@ def judged_reason(payload: dict) -> str | None:
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
+    if names and (unexamined := root_cause_reason(command, shell)):
+        return unexamined
     roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
     who = next((role for role in roles if role in ("coordinator", "meta")), None)
     if who and (step := own_work(command, shell)):
@@ -571,7 +592,7 @@ def main() -> None:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
     if reason:
-        print(json.dumps(denial(reason) | {"judged": bool(judged)}))
+        print(json.dumps(denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
         return
     agents.hold(payload)
 

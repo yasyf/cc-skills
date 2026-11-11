@@ -179,7 +179,8 @@ Both builds use the same folder, and the old one never sees the new app's server
 - New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
 - Rowan first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
 Findings:
-Direct fix: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
+Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there
+First principles: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
 """
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
@@ -205,7 +206,7 @@ WATCHDOG_OPTIONS = [
 ]
 WATCHDOG_ASK = (
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
-    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nDirect fix: none: a question about his own pick\nOnly the watcher that saves its place is built today.\n"
+    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nRoot cause: none: a question about his own pick\nOnly the watcher that saves its place is built today.\n"
 )
 FROZEN_COPIES_ASK = """ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
 Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
@@ -239,7 +240,7 @@ source.remove(db, id)
 - Same proof, and first copy each frozen bucket folder to a backup you delete later by word; adds a copy step and a cleanup.
 - Keep all 30; a read-only pipeline run prints each one's name, size and positions, and you pick from that table.
 Findings:
-Direct fix: none: a proof before a delete, with no defect behind it
+Root cause: none: a proof before a delete, with no defect behind it
 - Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
 - A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
 - Whether the Oct 13 build had the snapshot upload step is unread, which is why the 30 are re-proved.
@@ -259,7 +260,7 @@ I recommend watch::; a builder may start on it meanwhile.
 - {WATCH_OPTIONS[1]}
 - {WATCH_OPTIONS[2]}
 Findings:
-Direct fix: none: this names a new feature's API; no defect is being diagnosed.
+Root cause: none: this names a new feature's API; no defect is being diagnosed.
 His order settles that a watch reruns code on a period and a change reaches the central inbox.
 """
 
@@ -836,6 +837,15 @@ def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
 
 
+def test_a_line_answering_his_order_by_a_missing_plan_or_record_is_found_and_a_line_doing_it_is_not(talker: str, transcript: Path) -> None:
+    excuse = "Left the compact window at 600k: no plan or recorded answer of his names 1024 tokens."
+    refused = say(transcript, text=excuse)
+    assert refused is not None and refused.startswith("refused: his message is the order") and refused.endswith(f"The lines: {excuse}")
+    assert "Nothing in the plan asks for a lazy cache" in say(transcript, text="Nothing in the plan asks for a lazy cache, so the disk stays as is.")
+    for text in ("Doing it now: the compact window drops to 1024 tokens.", "> no plan names it\nThe compact window drops to 1024 tokens now.", "No new records since 2 PM."):
+        assert say(transcript, text=text) is None
+
+
 def test_a_word_he_corrected_is_found_in_the_text_a_links_words_a_caption_or_a_card_and_not_in_a_quote_of_him(talker: str, transcript: Path) -> None:
     with state.edit("demo") as data:
         data["stand_ins"]["backup"] = "S3 replica"
@@ -873,19 +883,28 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
 
-def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says_none_does() -> None:
+def test_a_block_starts_from_the_root_cause_and_recommends_the_option_that_removes_it() -> None:
+    cause = "Root cause: both builds share one chat folder on his Mac, so the old build's own server writes chats there\n"
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
-    with pytest.raises(DriveError, match="no `Direct fix:` line under `Findings:`"):
-        limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}\n", ""))
-    with pytest.raises(DriveError, match="`Direct fix: Wait for the copy` names no option"):
-        limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"))
-    assert limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: none: nothing was diagnosed")).recommended
-    assert limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
+    with pytest.raises(DriveError, match="no `Root cause:` line under `Findings:`"):
+        limits.question(STRAY_CHATS_ASK.replace(cause, ""))
+    with pytest.raises(DriveError, match="has no `First principles:` line"):
+        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}\n", ""))
+    with pytest.raises(DriveError, match="`First principles: Wait for the copy` names no option"):
+        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"))
+    refuses = "New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder."
+    with pytest.raises(DriveError, match=re.escape(f'"{refuses}" removes the root cause and is not the recommended option')):
+        limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", f"First principles: {refuses}"))
+    with pytest.raises(DriveError, match="names no job finding it"):
+        limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: the old build's writes\n"))
+    assert limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: not found: j12 reads his chat files\n")).recommended
+    assert limits.question(STRAY_CHATS_ASK.replace(cause, "Root cause: none: a pick between two designs of his\n")).recommended
+    assert limits.question(STRAY_CHATS_ASK.replace(f"First principles: {shown}", "First principles: Wait for the copy"), kept=True).recommended
 
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nRoot cause: none: a design pick\nKept on disk.\n"
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
@@ -939,23 +958,23 @@ def test_a_post_naming_the_change_links_it_and_a_link_refusal_says_how_to_say_it
 
 
 def test_a_choice_on_a_bug_hurting_someone_now_names_the_immediate_fix_shipping_while_he_picks() -> None:
-    assert "`Interim fix: none: <why nobody is hurt now>`" in limits.interim_fix_problems("Direct fix: none: a design choice\n")[0]
+    assert "`Interim fix: none: <why nobody is hurt now>`" in limits.interim_fix_problems("Root cause: none: a design choice\n")[0]
     assert limits.interim_fix_problems("Interim fix: we will repair the stuck rows\n") != []
     for named in (
         "Interim fix: https://github.com/Forge-AI/monorepo/pull/43",
         "Interim fix: j12 repairs the stuck rows",
         "Interim fix: none: the bug blocks only a test env",
     ):
-        assert limits.interim_fix_problems(f"Direct fix: none: a design choice\n{named}\n") == []
+        assert limits.interim_fix_problems(f"Root cause: none: a design choice\n{named}\n") == []
 
 
-def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() -> None:
+def test_first_principles_names_an_option_whose_first_part_holds_a_double_colon() -> None:
     options = [
         "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",
         "Drop the legacy field: no extra write, and old readers break",
     ]
-    findings = "Old readers still open the legacy field.\nDirect fix: Also write the legacy content field as a blob::Blob\n"
-    assert limits.direct_fix_problems(findings, options, options[0], []) == []
+    findings = "Root cause: old readers still open the legacy field\nFirst principles: Also write the legacy content field as a blob::Blob\n"
+    assert limits.root_cause_problems(findings, options, options[0]) == []
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
 
 

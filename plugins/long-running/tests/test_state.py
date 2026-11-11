@@ -73,7 +73,7 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     assert kept.read_text() == (
         "ASK Should row counts be exact?\nCounting reads every row.\nRecommended: exact.\nShow me:\nOne query per table:\n```sql\n"
         "select count(*) from alerts\n```\n![dash](/nowhere/dash.png)\n- Exact: one query per table (recommended)\n"
-        "- Estimate: the planner's numbers\nFindings:\nDirect fix: none: rebuilt from the posted card\n"
+        "- Estimate: the planner's numbers\nFindings:\nRoot cause: none: rebuilt from the posted card\n"
     )
     kept.unlink()
     assert state.load("demo")["jobs"]["j1"]["questions"][0]["file"] is None

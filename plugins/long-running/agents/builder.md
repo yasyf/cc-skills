@@ -358,15 +358,23 @@ Show me:
 - <option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, at most 25 words> (recommended)
 - <option>
 Findings:
-Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
+Root cause: <the structure that lets the defect happen, by its proper terms; or not found: <the job finding it>; or none: <why no defect is behind this question>>
+First principles: <the option that removes that structure so the defect cannot occur, by its words>
 Interim fix: <on a bug hurting someone now: the link of the PR, release, rollback or repair shipping the immediate fix, or the job building it; or none: <why nobody is hurt now>>
 <the evidence, for the record: what was hit, what was measured, the cause, what each option changes and costs>
 ````
 
-- The options come from the job's own evidence: the fix its diagnosis points at is always one, and
-  the recommended one unless the summary names it and says why another is better. `Direct fix:`
-  names that option by its words, whole or up to the colon that ends its first part, or says
-  `none: <why>` when no diagnosis points at one. On an incident or a bug a reporter shared,
+- The options come from the job's own evidence. Start from the root cause: the structure that lets the defect happen, not the step where it
+  showed. `Root cause:` names it by its proper terms, and `First principles:` names, by its words
+  whole or up to the colon that ends its first part, the option that removes it through one
+  abstraction every caller goes through, so the defect cannot occur. That option is always offered
+  and always recommended, and each other option says it keeps the structure and what that costs; one
+  that keeps it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended. A cause
+  not found yet reads `Root cause: not found: <the job finding it>`, and the card offers no cap, timer
+  or exit around the step it has not explained; a pick between designs with no defect behind it reads
+  `Root cause: none: <why>`. When the card quotes words of his as settled, the recommended option is
+  the one they choose. His ruling: "Update your skill to not just brush over the root cause ever". `drive job ask` refuses a block out of this shape, and
+  Jev reads its recommended option against its root cause and his quoted words before it is kept. On an incident or a bug a reporter shared,
   `Interim fix:` links the immediate fix shipping while he picks, which his pick replaces, and the
   summary names it; `drive job ask` refuses the block without it.
 - The summary answers his next question: why, did he already decide this, is it a port, what comes

@@ -189,6 +189,17 @@ def unbacked(payload: dict, said: str) -> str | None:
     return f"refused: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(lines)}"
 
 
+def unordered(said: str) -> str | None:
+    """Why a line of a post to him answers his order by a plan, record or answer of his that is missing, when his message is the order."""
+    if not (lines := refs.record_excuses(said)):
+        return None
+    return (
+        "refused: his message is the order, so no line answers it by a plan, record or answer of his that is missing; his records"
+        " are read only so he is never asked again. Do what his words ask, or name what stands in the way of doing it. His ruling"
+        f" 9769307: \"Who cares if you have a record if they or not I'm telling you to do it\". The lines: {' | '.join(lines)}"
+    )
+
+
 def corrected(tool_input: dict, drive: dict) -> str | None:
     """Why a post calls a thing by a word he corrected, which `drive term` keeps beside its proper term."""
     if (refusal := limits.stand_in_refusal(tool_input, drive["stand_ins"])) is None:
@@ -250,7 +261,7 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a post or edit in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a post or edit in his DM goes through say, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, answers his order by no plan, record or answer of his that is missing, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
     if posted := coordinator_post(payload):
         return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -290,6 +301,7 @@ def deny_reason(payload: dict) -> str | None:
             unswitched(tool_input, drive),
             unchecked(tool_input),
             unbacked(payload, said),
+            unordered(said),
             corrected(tool_input, drive),
             untooled(payload, drive, said),
         ]

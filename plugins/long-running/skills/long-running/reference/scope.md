@@ -96,9 +96,12 @@ to four one-line options close it, each saying what runs, on what trigger, what 
 reaches whom, then what he gets and what it costs. `drive job ask` refuses a question or option that
 leaves a mechanism such as polling, a push or an event a bare word, as "Polls only" does.
 
-The fix the job's diagnosis points at is always an option, the recommended one unless the summary
-names it and says why another is better. The findings' `Direct fix:` line names it, or reads
-`Direct fix: none: <why>`, and `drive job ask` refuses a block without one. On a bug hurting
+A question card starts from the root cause, the structure that lets the defect happen, and
+recommends the option that removes it so the defect cannot occur, through one abstraction every
+caller goes through; an option keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is
+never the recommended one. The findings' `Root cause:` line names that structure and `First
+principles:` that option, or `Root cause:` reads `not found: <the job finding it>` or `none: <why
+no defect is behind it>`; `drive job ask` refuses a block without them. His ruling: "Update your skill to not just brush over the root cause ever". On a bug hurting
 someone now, an incident's or one a reporter shared, the findings' `Interim fix:` line links the
 immediate fix shipping while he picks (its PR, release, rollback, repair, or the job building it),
 or reads `Interim fix: none: <why nobody is hurt now>`; `drive job ask` and a reader's `DESIGN` are

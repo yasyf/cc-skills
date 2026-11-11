@@ -10,6 +10,12 @@ LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
 CLAUSE_END = re.compile(r"[,;:.!?](?=\s|$)")
+ABSENT_RECORD = re.compile(
+    r"\b(?:no|nothing in (?:the|his|your|any)|not in (?:the|his|your|any)|never in (?:the|his|your|any))\s+(?:[\w-]+\s+){0,3}?"
+    r"(?:plans?|rulings?|recorded answers?|answers? of his|cc-notes|records? of (?:his|him|you|your))\b"
+    r"|\b(?:plan|records?|rulings?)\s+(?:does|do|did)(?:\s*not|n['’]t)\s+(?:say|name|mention|ask|cover|settle)",
+    re.IGNORECASE,
+)
 RECORD_WORDS = 10
 
 
@@ -42,6 +48,15 @@ def unbacked(text: str) -> list[str]:
         line.strip()
         for line in picture.FENCE.sub("", text).splitlines()
         if not line.lstrip().startswith(">") and CAUSE.search(QUOTED.sub("", line)) and "{record:" not in line
+    ]
+
+
+def record_excuses(text: str) -> list[str]:
+    """Each line of the text, outside a fence, a quote and a quoted line, that answers him by a plan, record or answer of his that is missing."""
+    return [
+        line.strip()
+        for line in picture.FENCE.sub("", text).splitlines()
+        if not line.lstrip().startswith(">") and ABSENT_RECORD.search(QUOTED.sub("", line))
     ]
 
 

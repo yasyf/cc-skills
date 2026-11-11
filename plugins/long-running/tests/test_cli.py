@@ -37,9 +37,9 @@ FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
-DIRECT_FIX = "Direct fix: on the primary, beside the queries it serves\n"
+ROOT_CAUSE = "Root cause: none: where a copy runs is a pick between two designs, with no defect behind it\n"
 DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
-    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + DIRECT_FIX
+    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + ROOT_CAUSE
 )
 DESIGNED = """DESIGN the store copy
 Design: one copy per store, in the order the stores list
@@ -1016,7 +1016,7 @@ def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_un
     state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
-    bare = "ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    bare = "ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
     block.write_text(bare)
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
     assert (
@@ -1062,7 +1062,7 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
     block.write_text(
         "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
         "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
-        "Findings:\nDirect fix: none: a design pick\nTwo runs held one lease.\n"
+        "Findings:\nRoot cause: none: a design pick\nTwo runs held one lease.\n"
     )
     assert cli.main(["job", "ask", "--check", str(block)]) == 2
     assert 'cleans up a bad state with "reclaim orphaned"' in capsys.readouterr().err
@@ -1136,7 +1136,7 @@ A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand 
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed PR.
 Findings:
-Direct fix: Keep theirs, close ours
+Root cause: none: two landed designs of one button, a pick between them with no defect behind it
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
 """
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
@@ -1171,15 +1171,16 @@ def test_job_ask_refuses_a_pr_named_with_no_link_and_keeps_the_linked_copy(
     assert '"their PR" names something he could open with no link there, in "with their PR"' in capsys.readouterr().err
 
 
-def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says_why_not(
+def test_job_ask_starts_from_the_root_cause_and_recommends_the_option_that_removes_it(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     block = tmp_path / "ask.md"
-    other = TEAMMATE_FIX_SHOWN.replace("Direct fix: Keep theirs, close ours", "Direct fix: Add our status line beside their always-on button")
-    block.write_text(other)
+    picked = "Root cause: none: two landed designs of one button, a pick between them with no defect behind it"
+    caused = TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button and our status line read two download states\nFirst principles: Add our status line beside their always-on button")
+    block.write_text(caused)
     assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert 'the direct fix "Add our status line beside their always-on button" is an option but not the recommended one' in capsys.readouterr().err
-    block.write_text(other.replace("Ours waits unlanded meanwhile.", "Ours waits; add our status line beside their always-on button only if the download state beats a review."))
+    assert '"Add our status line beside their always-on button" removes the root cause and is not the recommended option' in capsys.readouterr().err
+    block.write_text(TEAMMATE_FIX_SHOWN.replace(picked, "Root cause: the button reads no download state\nFirst principles: Keep theirs, close ours"))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
@@ -1248,7 +1249,7 @@ I recommend landing both together, run history first; meanwhile both stay open.
 - Move the run page change onto dev without run history, and leave that one with you
 
 Findings:
-Direct fix: Land both now, run history first
+Root cause: none: landing two PRs, with no defect behind it
 The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
 """
 
@@ -1311,7 +1312,7 @@ case <-refused:
 - Warn at launch; lift the block once sand's next call to the api succeeds, so a lowered floor frees the window without a restart.
 - No launch warning: block only when a chat fails to open; a smaller change, but the window looks usable until then.
 Findings:
-Direct fix: none: a design choice, with no defect behind it
+Root cause: none: a design choice, with no defect behind it
 """
 
 
@@ -1364,21 +1365,6 @@ def test_job_card_after_a_job_draws_its_newest_kept_ask_or_the_one_named_under_t
     assert cli.main(["job", "card", asking]) == 2
     assert f"j1's ASK in {newest} has no card yet" in capsys.readouterr().err
     assert run("job", "card", asking, first) == (0, printed)
-
-
-def test_job_card_reworking_says_atop_the_body_that_the_question_is_being_redone_and_adds_no_counted_words(
-    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
-    block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK)
-    plain = json.loads(run("job", "card", str(block), "--waits", "demo:j1-7")[1])
-    why = "the layouts are being measured again; back within the hour"
-    redone = json.loads(run("job", "card", str(block), "--waits", "demo:j1-7", "--reworking", why)[1])
-    assert redone["body"] == f"*This question is being redone:* {why}\n{plain['body']}"
-    assert (redone["title"], redone["options"], redone["recommended"]) == (plain["title"], plain["options"], plain["recommended"])
-    assert limits.card_words(redone) == limits.card_words(plain)
-    assert ("in_place" in plain, redone["in_place"]) == (False, True)
 
 
 def in_place(printed: str) -> str:
@@ -2142,14 +2128,14 @@ def test_a_research_readers_report_carries_its_filled_researched_block(
     assert keep(monkeypatch, capsys, "j1", RESEARCH) == (0, "")
 
 
-def test_a_readers_design_names_the_fix_its_evidence_points_at_and_counts_only_its_options(
+def test_a_readers_design_starts_from_the_root_cause_and_counts_only_its_options(
     run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
-    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DIRECT_FIX, ""))
+    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(ROOT_CAUSE, ""))
     assert code == 2
-    assert "j1: refused, nothing kept: a reader's DESIGN names among its options the fix its evidence points at: no `Direct fix:` line" in err
+    assert "j1: refused, nothing kept: a reader's DESIGN starts from the root cause and recommends the option that removes it: no `Root cause:` line" in err
     bulleted = DESIGN_RESEARCH.replace("\nrulings:", "\n- rulings:").replace("\nexists:", "\n- exists:").replace("\nopen:", "\n- open:")
     assert keep(monkeypatch, capsys, "j1", bulleted) == (0, "")
 
@@ -4431,3 +4417,43 @@ def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_mar
     assert run("answer", "a1", "--superseded", f"{designing}=stop", "Forge-AI/monorepo#43=stop", "--others-stand")[0] == 0
     assert len(settled) == 2
     assert [pr["wants_tap"] for pr in state.load("demo")["prs"].values()] == [False, False]
+
+
+def test_cards_withdraw_settles_his_open_card_with_his_words_and_refuses_a_card_not_open(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    shown = open_card(7, {"title": "Which cache disk?", "options": ["Lazy", "Bigger"], "recommended": "Lazy", "waits": "demo:j1-7"})
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    calls: list[tuple] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: calls.append(args) or {"answered": True})
+    words, via = "We're already addressing this with the lazy + restate object", "https://acme.slack.com/archives/D123/p1794300000000999"
+    code, line = run("cards", "withdraw", "demo:j1-7", "--words", words, "--via", via)
+    assert (code, calls) == (0, [("card-answer", "--card", shown["url"], "--label", words, "--withdrawn", "--via", via)])
+    assert line == f"withdrew his card {shown['url']} (demo:j1-7): it shows his words and a link to them, with no buttons; j1 asks again on a new card once its work is back"
+    assert cli.main(["cards", "withdraw", "demo:j1-8", "--words", words, "--via", via]) == 2
+    assert "demo:j1-8: not one of his open question cards" in capsys.readouterr().err
+
+
+def test_a_ruling_records_only_with_the_tooling_order_rewriting_the_skill_to_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    view.refresh_cards(demo)
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    ruling = ["answer", "--title", "How should cards read?", "--words", "Cards say why", "--link", "https://acme.slack.com/archives/D123/p1", "--label", "ruling"]
+    for extra in ([], ["--rewrite", "o1"]):
+        assert cli.main([*ruling, *extra]) == 2
+        assert "refused, nothing recorded: a ruling's skill rewrite is owed the moment the ruling is recorded" in capsys.readouterr().err
+
+
+def test_a_pr_carrying_a_code_ruling_is_refused_until_it_writes_his_words_into_the_nearest_agents_md(
+    recorded: Answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    recorded.shown["23ff059"] = {"id": "23ff059", "title": "How should the cache key?", "body": '"Key the cache on the run id"\nNotes: cci owner 1', "tags": ["ruling", "code:go/sand/cache"]}
+    data = {"roles": {"coordinator": {"cwd": "/repo"}}, "prs": {"Forge-AI/monorepo#7": {"job": "j1"}}, "jobs": {"j1": {"brief_flags": {"ruling": ["23ff059"]}}}}
+    files = [[{"filename": "go/sand/AGENTS.md", "patch": "@@ -1 +1,2 @@\n # Sand\n+- Key the cache on the run id (Nov 11)"}]]
+    monkeypatch.setattr(github, "read", lambda what, cmd: json.dumps(files))
+    cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")
+    files[0][0]["filename"] = "go/sand/other/AGENTS.md"
+    with pytest.raises(state.DriveError, match='his ruling 23ff059 on how go/sand/cache must work, "Key the cache on the run id", is not written'):
+        cli.refuse_an_unwritten_rule(data, "Forge-AI/monorepo#7")

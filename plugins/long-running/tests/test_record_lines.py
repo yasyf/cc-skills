@@ -104,7 +104,7 @@ def test_an_ask_naming_another_open_question_or_another_jobs_file_is_refused_and
     assert "which this record does not ask" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
     elsewhere = kept(demo, "j2", HANDLE)
     assert f"{elsewhere['ask']} keeps no question of j1" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=elsewhere | {"job": "j1"})))
-    redone = earlier | {"waits": "demo:j1-7", "reworking": "the layout is being redone, back by 5 PM"}
+    redone = earlier | {"waits": "demo:j1-7"}
     assert record_lines.decision(post(kind="ask", text=f"ASK (o1, j1): {LAYOUT}", attrs=redone)) is None
 
 
