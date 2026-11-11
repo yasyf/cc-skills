@@ -52,7 +52,7 @@ GONE = "this card no longer waits on that answer"
 HELD = "an answer to this card is already being sent"
 SENT = "too late: that answer was already sent"
 UNDO_SECONDS = 10
-ELSEWHERE = "that is not a card or ask thread of this drive"
+ELSEWHERE = "that is not a card thread of this drive"
 
 
 class Tailnet(NamedTuple):
@@ -212,7 +212,6 @@ class Board:
         self.events: list[dict] = []
         self.offset = 0
         self.answers: dict[str, list[str]] = {}
-        self.unders: set[str] = set()
         self.heads: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
@@ -247,10 +246,9 @@ class Board:
         with self.changed:
             self.body = body
             self.answers = answers
-            self.unders = set(answers) | {ask["url"] for ask in model["asks"] if ask["url"]}
             self.heads = heads
             self.pictures = pictures
-            self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]} | {entry["thread"] for entry in model["review"] if entry["thread"]}
+            self.threads = {entry["thread"] for entry in model["review"] if entry["thread"]}
             self.reports = reports
             self.repo = repo
             self.channel = model["channel"]
@@ -322,7 +320,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             if not owner_calling(self.client_address[0], net):
                 self.answered(403, {"error": NOT_OWNER})
             elif ts not in board.threads:
-                self.answered(404, {"error": f"{ts} is not the thread of an ask or PR card of this drive"})
+                self.answered(404, {"error": f"{ts} is not the thread of a PR card of this drive"})
             else:
                 try:
                     self.answered(200, cc_slack("thread", "--channel", board.channel, "--thread", ts, "--limit", THREAD_MESSAGES))
@@ -425,7 +423,7 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
             if not text:
                 self.answered(400, {"error": "there are no words to send"})
                 return
-            if under and under not in board.unders:
+            if under and under not in board.answers:
                 self.answered(409, {"error": ELSEWHERE})
                 return
             try:

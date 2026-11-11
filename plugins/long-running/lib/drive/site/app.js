@@ -12,7 +12,6 @@ const GROUPS = {
   live: 'Live in the last day',
   'not started': 'Not started',
 };
-const FOLDED = new Set(['waiting', 'not started']);
 const CHECKS = { pass: 'green', fail: 'red', pending: 'running', none: 'no CI' };
 const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no PR until you answer', done: 'Done', failed: 'Failed', stopped: 'Stopped' };
 const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn' };
@@ -45,13 +44,19 @@ const PR_FIELDS = [
   ['port', 'Port'],
   ['show_me', 'Show me'],
 ];
+const SCREENS = [
+  ['queue', '#/', 'Your queue'],
+  ['now', '#/now', 'Now'],
+  ['plan', '#/plan', 'Plan'],
+  ['review', '#/review', 'Review'],
+  ['work', '#/work', 'Work'],
+  ['history', '#/history', 'History'],
+];
 const ICONS = {
   queue: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   plan: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/>',
-  status: '<path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>',
   review: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7"/>',
-  chat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
 };
@@ -580,7 +585,7 @@ function showReview(key, review) {
 }
 
 function talkBox(entry) {
-  const said = entry.thread ? '<div class="thread" data-talk><p class="meta">Reading what was said about it…</p></div>' : '<p class="meta">This change has no Slack card yet, so the answer comes back in Chat.</p>';
+  const said = entry.thread ? '<div class="thread" data-talk><p class="meta">Reading what was said about it…</p></div>' : '<p class="meta">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
   return `<section class="talk"><h4 class="hd">Ask about this change</h4>${said}${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Ask about this change, or tell Claude what to change', entry.answer ? '' : `About ${entry.url}`)}</section>`;
 }
 
@@ -606,43 +611,6 @@ async function drawTalk(entry) {
 
 function followTalk() {
   if (talk && $('#drawer').open) drawTalk(talk);
-}
-
-const ASK_TABS = [
-  ['all', 'All asks', () => true],
-  ['open', 'In progress', (ask) => ['open', 'working'].includes(ask.state)],
-  ['waiting', 'Waiting', (ask) => ask.state === 'waiting'],
-  ['done', 'Completed', (ask) => ask.state === 'done'],
-];
-const ASK_WORD = { open: 'In progress', working: 'In progress', waiting: 'Waiting', done: 'Done', dropped: 'Dropped' };
-
-function askRow(ask) {
-  const due = ask.due ? `<span class="due${ask.late ? ' late' : ''}">${ask.late ? 'late, was due' : 'due'} ${clock(ask.due)}</span>` : '';
-  return `<li class="ask ${esc(ask.state)}" data-find="${esc(ask.text.toLowerCase())}">
-    <button class="ask-open" data-ask="${esc(ask.id)}">
-      <span class="dot"></span>
-      <span class="ask-body"><b>${esc(ask.title)}</b><span class="meta">${ASK_WORD[ask.state] ?? esc(ask.state)} · asked ${clock(ask.created)}${ask.jobs ? ` · ${ask.jobs} ${ask.jobs === 1 ? 'job' : 'jobs'}` : ''}${ask.proof ? ` · ${esc(ask.proof)}` : ''}</span></span>
-      ${due}
-    </button>
-  </li>`;
-}
-
-function chatScreen(tab) {
-  const current = ASK_TABS.some(([id]) => id === tab) ? tab : 'all';
-  const [, , keep] = ASK_TABS.find(([id]) => id === current);
-  const tabs = ASK_TABS.map(([id, label, test]) => `<a class="${id === current ? 'on' : ''}" href="#/chat/${id}">${label}<span class="n">${model.asks.filter(test).length}</span></a>`).join('');
-  const owed = model.queue.filter((item) => item.kind === 'late').length;
-  const rail = model.queue.filter((item) => item.kind !== 'late').slice(0, 6).map((item) => `<a class="rl" href="#/queue/${item.kind}"><em>${item.kind === 'tap' ? 'Landing approval' : 'Decision'}</em>${esc(item.title)}</a>`).join('');
-  return `<div class="chat-cols">
-    <div>
-      <h1 class="h1">Chat <span class="count">your asks, and what came back</span></h1>
-      ${owed ? `<a class="owed" href="#/queue/late">${owed} ${owed === 1 ? 'thing' : 'things'} owed to you</a>` : ''}
-      ${sayBox('new', '', 'What would you like done?')}
-      <div class="subtabs">${tabs}</div>
-      <ul class="asks card">${model.asks.filter(keep).map(askRow).join('') || '<li class="empty">Nothing here.</li>'}</ul>
-    </div>
-    <aside class="rail"><h2 class="sec">Needs your decision <span class="count">${model.queue.length}</span></h2>${rail}<a class="more" href="#/">All ${model.queue.length} in Your queue ›</a></aside>
-  </div>`;
 }
 
 function slackTime(ts) {
@@ -676,30 +644,6 @@ function message(said, waiting) {
   </div>`;
 }
 
-async function openAsk(id) {
-  talk = null;
-  reviewing = null;
-  const ask = model.asks.find((candidate) => candidate.id === id);
-  const drawer = $('#drawer');
-  drawer.classList.remove('wide');
-  const head = `<div class="dr-bar"><b>${esc(ask.title)}</b><button class="linkish" data-close>Close</button></div>`;
-  const words = `<blockquote class="said">${esc(ask.text)}</blockquote>`;
-  drawer.innerHTML = `${head}<div class="dr-body">${words}${ask.thread ? '<p class="empty small">Reading the thread…</p>' : '<p class="meta">This ask came from the terminal, so it has no thread.</p>'}</div>`;
-  if (!drawer.open) drawer.showModal();
-  if (!ask.thread) return;
-  let messages;
-  try {
-    messages = await readThread(ask.thread);
-  } catch (error) {
-    drawer.querySelector('.empty').textContent = error.message;
-    return;
-  }
-  const waiting = waitingCards();
-  const open = !['done', 'dropped'].includes(ask.state);
-  const gotIt = open && messages.some((said) => said.from_claude) ? `<button class="btn" data-gotit="a:${esc(ask.id)}" data-under="${esc(ask.url)}">Got it</button>` : '';
-  drawer.innerHTML = `${head}<div class="dr-body">${words}<div class="thread">${messages.map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has come back in this thread yet.</p>'}</div>${gotIt}${sayBox(`a:${ask.id}`, ask.url, 'Reply')}</div>`;
-}
-
 let indexed = null;
 
 function features() {
@@ -724,39 +668,6 @@ function prSaid(pr) {
   return said + held;
 }
 
-function prChip(pr) {
-  return `<a class="chip ${esc(prTone(pr))}" href="${esc(pr.url)}" target="_blank" rel="noopener" title="${esc(prSaid(pr))}"><i></i>${esc(pr.title)}</a>`;
-}
-
-function prChips(prs) {
-  const open = prs.filter((pr) => pr.state === 'open');
-  const merged = prs.filter((pr) => pr.state === 'merged').length;
-  const closed = prs.length - open.length - merged;
-  const settled = [merged && `${merged} merged`, closed && `${closed} closed`].filter(Boolean).join(', ');
-  return open.map(prChip).join('') + (settled ? `<span class="chip settled">${settled}</span>` : '');
-}
-
-function prBar(prs) {
-  if (!prs.length) return '';
-  const merged = prs.filter((pr) => pr.state === 'merged').length;
-  const segments = prs.map((pr) => `<i class="${esc(prTone(pr))}" title="${esc(pr.title)} · ${esc(prSaid(pr))}"></i>`).join('');
-  return `<span class="bar"><span class="segs">${segments}</span><span class="frac">${merged}/${prs.length} merged</span></span>`;
-}
-
-function due(entry) {
-  return entry.due ? `<span class="due${entry.late ? ' late' : ''}">${entry.late ? 'late, was due' : 'due'} ${clock(entry.due)}</span>` : '';
-}
-
-function feature(entry) {
-  return `<li class="feature" data-find="${esc([entry.title, ...entry.prs.map((pr) => pr.title)].join(' ').toLowerCase())}">
-    <div class="title"><a href="#/feature/${esc(entry.id)}">${esc(entry.title)}</a> ${due(entry)} ${prBar(entry.prs)}</div>
-    ${entry.now ? `<div class="now">${esc(entry.now)}</div>` : ''}
-    ${entry.prs.length ? `<div class="chips">${prChips(entry.prs)}</div>` : ''}
-    ${entry.built.map(builtLine).join('')}
-    ${cardsLine(entry.cards)}
-  </li>`;
-}
-
 function builtLine(built) {
   return `<div class="now">Built on <code>${esc(built.branch)}</code>, ${built.waits.length ? 'no PR yet' : 'its PR opens next'}</div>`;
 }
@@ -765,41 +676,6 @@ function cardsLine(cards) {
   if (!cards.length) return '';
   const asks = cards.map((card) => `<a href="${esc(card.url)}" target="_blank" rel="noopener">${esc(card.title)}</a>, asked ${esc(clock(card.asked))}`);
   return `<div class="now">Waits on your answer to ${asks.join('; ')}</div>`;
-}
-
-function progress() {
-  const { prs, merged, open, red, running } = model.progress;
-  const share = prs ? Math.round((100 * merged) / prs) : 0;
-  const stalled = model.work.filter(isStalled).length;
-  const facts = [
-    `<b>${merged}</b> of ${prs} pull requests merged since the drive began`,
-    `<b>${open}</b> open${red ? `, <b class="red">${red}</b> red` : ''}`,
-    `<b>${running}</b> jobs running${stalled ? `, <a class="red" href="#/work"><b>${stalled}</b> quiet ${STALL_MINUTES} minutes or more</a>` : ''}`,
-  ];
-  return `<section class="progress"><span class="ring" style="--p:${share}%"><span>${share}<small>%</small></span></span><span class="facts">${facts.join('<br>')}</span></section>`;
-}
-
-function tiles() {
-  const counts = model.counts;
-  const tile = (label, value, tone, href) => `<a class="tile ${tone}" href="${href}"><b>${value}</b><span>${label}</span></a>`;
-  return `<div class="tiles">${[
-    tile('waiting on you', counts.queue, counts.queue ? 'you' : '', '#/'),
-    ...Object.entries(GROUPS).map(([state, label]) => tile(label.toLowerCase(), counts[state], counts[state] ? state.replace(' ', '-') : '', `#group-${state.replace(' ', '-')}`)),
-  ].join('')}</div>`;
-}
-
-function statusScreen() {
-  const groups = model.status
-    .filter((group) => group.features.length)
-    .map((group) => {
-      const id = group.state.replace(' ', '-');
-      const open = opened.get(id) ?? !(FOLDED.has(group.state) && group.features.length > 8);
-      return `<details class="group ${id}" id="group-${id}" data-group="${id}"${open ? ' open' : ''}>
-        <summary><span class="dot"></span>${GROUPS[group.state]} <span class="count">${group.features.length}</span></summary>
-        <ul class="features">${group.features.map(feature).join('')}</ul>
-      </details>`;
-    });
-  return `<h1 class="h1">Status</h1>${progress()}${tiles()}${groups.join('') || '<p class="empty">No features yet.</p>'}`;
 }
 
 function jobRow(job, withFeature) {
@@ -885,15 +761,13 @@ function workScreen() {
 }
 
 function jumpItems() {
-  const screens = [['Your queue', '#/'], ['Now', '#/now'], ['Plan', '#/plan'], ['Status', '#/status'], ['Review', '#/review'], ['Chat', '#/chat'], ['Work', '#/work'], ['History', '#/history']];
   return [
-    ...screens.map(([title, href]) => ({ kind: 'Screen', title, href })),
+    ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href })),
     ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: `#/queue/${item.kind}` })),
     ...model.milestones.map((stop, i) => ({ kind: 'Milestone', title: stop.name, href: `#/plan/${i}` })),
     ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
     ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
     ...model.work.map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
-    ...model.asks.map((ask) => ({ kind: 'Ask', title: ask.title, ask: ask.id })),
   ];
 }
 
@@ -903,7 +777,7 @@ function drawJump() {
   const words = $('#jumpfind').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title}`.toLowerCase().includes(word))).slice(0, 40);
   jumpAt = Math.min(jumpAt, Math.max(0, found.length - 1));
-  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : item.ask ? `data-ask-jump="${esc(item.ask)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
+  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
 }
 
 function openJump() {
@@ -919,7 +793,6 @@ function openJump() {
 function goJump(row) {
   $('#jump').close();
   if (row.dataset.prJump) return openPR(row.dataset.prJump);
-  if (row.dataset.askJump) return openAsk(row.dataset.askJump);
   location.hash = row.dataset.href;
 }
 
@@ -964,7 +837,7 @@ function prItem(pr) {
 
 function featureScreen(id) {
   const entry = features().find((candidate) => candidate.id === id);
-  if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/status">Back to Status</a></p>';
+  if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/now">Back to Now</a></p>';
   const facts = [
     ['Where it is', `${GROUPS[entry.state]}${entry.now ? `: ${esc(entry.now)}` : ''}`],
     ['Asked', clock(entry.created)],
@@ -974,7 +847,7 @@ function featureScreen(id) {
     entry.note ? ['Note', esc(entry.note)] : null,
   ].filter(Boolean);
   const prs = entry.prs.map(prItem).join('');
-  return `<a class="back" href="#/status">‹ Status</a>
+  return `<a class="back" href="#/now">‹ Now</a>
     <div class="kick"><span class="dot ${entry.state.replace(' ', '-')}"></span>${GROUPS[entry.state]}${entry.prs.length ? ` · ${entry.prs.filter((pr) => pr.state === 'merged').length} of ${entry.prs.length} merged` : ''}</div>
     <h1 class="h1">${esc(entry.title)}</h1>
     <blockquote class="said">${esc(entry.text)}</blockquote>
@@ -983,13 +856,6 @@ function featureScreen(id) {
     ${entry.built.length ? `<h3 class="sec">Built, waiting on your design answers</h3><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
     ${entry.cards.length ? `<h3 class="sec">Waiting on your answer</h3><div class="card built">${cardsLine(entry.cards)}</div>` : ''}
     ${entry.jobs.length ? `<h3 class="sec">Jobs</h3><ul class="jobs card">${entry.jobs.map((job) => jobRow(job, false)).join('')}</ul>` : ''}`;
-}
-
-function find() {
-  const words = $('#find').value.trim().toLowerCase();
-  for (const row of document.querySelectorAll('.feature[data-find], .ask[data-find]')) row.hidden = Boolean(words) && !row.dataset.find.includes(words);
-  for (const group of document.querySelectorAll('.group')) group.hidden = Boolean(words) && !group.querySelector('.feature:not([hidden])');
-  if (words) for (const group of document.querySelectorAll('.group:not([hidden])')) group.open = true;
 }
 
 function measure() {
@@ -1001,18 +867,14 @@ function render() {
   const { screen, id } = route();
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   $('#brand').textContent = model.drive;
-  const tab = (name, href, label, count) => {
-    const on = screen === name || (name === 'status' && screen === 'feature');
-    return `<a class="tab${on ? ' on' : ''}" href="${href}">${icon(name)}<span>${label}</span>${count ? `<span class="count">${count}</span>` : ''}</a>`;
-  };
-  const waiting = model.review.filter((entry) => entry.group === 'you').length;
-  $('#tabs').innerHTML = tab('queue', '#/', 'Your queue', model.counts.queue) + tab('now', '#/now', 'Now') + tab('plan', '#/plan', 'Plan') + tab('status', '#/status', 'Status') + tab('review', '#/review', 'Review', waiting) + tab('chat', '#/chat', 'Chat', model.asks.filter((ask) => ask.state === 'waiting').length) + tab('work', '#/work', 'Work') + tab('history', '#/history', 'History');
+  const at = screen === 'feature' ? 'now' : SCREENS.some(([name]) => name === screen) ? screen : 'queue';
+  const counts = { queue: model.counts.queue, review: model.review.filter((entry) => entry.group === 'you').length };
+  $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''}>${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count" aria-label="${counts[name]} waiting on you">${counts[name]}</b>` : ''}</a>`).join('');
+  $('#crumb').textContent = SCREENS.find(([name]) => name === at)[2];
   const raised = strip();
   $('#alerts').innerHTML = raised;
   $('#alerts').hidden = !raised;
-  const screens = { queue: () => queueScreen(id), now: nowScreen, plan: () => (id === undefined ? planScreen() : milestoneScreen(id)), status: statusScreen, review: () => reviewScreen(decodeURIComponent(id ?? '')), chat: () => chatScreen(id), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
-  $('#findbar').hidden = !['status', 'chat'].includes(screen);
-  $('#find').placeholder = screen === 'chat' ? 'Search your asks' : 'Find a feature or pull request';
+  const screens = { queue: () => queueScreen(id), now: nowScreen, plan: () => (id === undefined ? planScreen() : milestoneScreen(id)), review: () => reviewScreen(decodeURIComponent(id ?? '')), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
   const y = window.scrollY;
   const typing = document.activeElement?.matches?.('#main textarea[data-draft]') ? document.activeElement : null;
   const caret = typing && [typing.dataset.draft, typing.selectionStart, typing.selectionEnd];
@@ -1024,7 +886,6 @@ function render() {
   }
   if ($('#jump').open) drawJump();
   window.scrollTo(0, y);
-  if (['status', 'chat'].includes(screen)) find();
   measure();
   drawArrows();
   fresh();
@@ -1033,8 +894,8 @@ function render() {
 function fresh() {
   const el = $('#fresh');
   el.classList.toggle('late', !connected);
-  if (!model) el.textContent = connected ? '' : 'Connecting…';
-  else el.textContent = connected ? `Live · updated ${clock(model.at)} · Pacific` : `Not updated since ${clock(lostAt)} · showing ${clock(model.at)}`;
+  el.textContent = connected ? 'Live' : model ? 'Stale' : 'Connecting';
+  el.title = !model ? '' : connected ? `Live, updated ${clock(model.at)} Pacific` : `Not updated since ${clock(lostAt)}, showing ${clock(model.at)} Pacific`;
 }
 
 async function answer(card, label) {
@@ -1095,7 +956,6 @@ function drawToasts() {
 function redrawBoxes(key) {
   render();
   for (const box of document.querySelectorAll(`#drawer form[data-say="${CSS.escape(key)}"]`)) box.outerHTML = sayBox(key, box.dataset.under, box.dataset.placeholder, box.dataset.about);
-  for (const button of document.querySelectorAll(`#drawer button[data-gotit="${CSS.escape(key)}"]`)) button.hidden = Boolean(sent.get(key)?.at);
 }
 
 async function say(key, under, words, about) {
@@ -1175,16 +1035,12 @@ document.addEventListener('submit', (event) => {
   say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about);
 });
 document.addEventListener('click', (event) => {
-  const gotIt = event.target.closest('button[data-gotit]');
-  if (gotIt) return say(gotIt.dataset.gotit, gotIt.dataset.under, 'Got it', '');
   const undone = event.target.closest('button[data-undo]');
   if (undone) return undo(undone.dataset.undo);
   const pick = event.target.closest('button[data-card]');
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
-  const asked = event.target.closest('button[data-ask]');
-  if (asked) return openAsk(asked.dataset.ask);
   const file = event.target.closest('button[data-file]');
   if (file) return openFile(file.dataset.file, file.dataset.title);
   if (event.target.closest('#kbtn')) return openJump();
@@ -1229,7 +1085,6 @@ document.addEventListener('focusout', (event) => {
   if (event.target.matches('a[data-src]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
-  if (location.hash.startsWith('#group-')) return;
   window.scrollTo(0, 0);
   render();
 });
@@ -1263,7 +1118,6 @@ document.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('DOMContentLoaded', () => {
-  $('#find').addEventListener('input', find);
   $('#jumpfind').addEventListener('input', () => {
     jumpAt = 0;
     drawJump();
