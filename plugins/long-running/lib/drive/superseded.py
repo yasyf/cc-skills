@@ -110,7 +110,7 @@ def answer_cards(kept: dict, asked: dict[str, dict]) -> list[str]:
     for key, entry in asked.items():
         if entry["kind"] != "question" or not under(kept["link"], entry["card"]):
             continue
-        result = slack.cc_slack("card-answer", "--card", entry["card"], "--label", kept["words"], "--settled", "--via", kept["link"])
+        result = slack.cc_slack("card-answer", "--card", entry["card"], "--label", kept["words"], "--settled", "--other", "--via", kept["link"])
         if not result.get("already_answered"):
             done.append(f"{key}: its card {entry['card']} now shows his words and a link to them, so it no longer asks him")
     return done
