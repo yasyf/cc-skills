@@ -257,7 +257,7 @@ def ask(show_me: str, options: str) -> str:
         pytest.param(
             DEEP_SUBAGENTS_SHOW_ME,
             DEEP_SUBAGENTS_OPTIONS,
-            ["names no language, so his card would get a mock or words drawn as a picture", "the Show me lists 4 PRs by number, #53615, #53781, #53816, #53838: a stack card"],
+            ["names no language, so his card would get a mock or words in a code block", "the Show me lists 4 PRs by number, #53615, #53781, #53816, #53838: a stack card"],
             id="10:33 a PR tree in words",
         ),
         pytest.param(
@@ -278,7 +278,7 @@ def ask(show_me: str, options: str) -> str:
         ),
         pytest.param(SCRATCH_CREATOR_DRAWN, SCRATCH_CREATOR_OPTIONS, ['the Show me picture "Show me" is a file drawn by hand'], id="11:01 a diagram and two tables in one picture"),
         pytest.param(HEAVY_JOBS_SHOW_ME, HEAVY_JOBS_OPTIONS, ["shows a constant, which a sentence says as well as a picture"], id="11:03 a const"),
-        pytest.param(BLOB_NAMES_SHOW_ME, BLOB_NAMES_OPTIONS, ["names no language, so his card would get a mock or words drawn as a picture"], id="11:54 a text mock of one option"),
+        pytest.param(BLOB_NAMES_SHOW_ME, BLOB_NAMES_OPTIONS, ["names no language, so his card would get a mock or words in a code block"], id="11:54 a text mock of one option"),
     ],
 )
 def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carry_instead(show_me: str, options: str, refusals: list[str]) -> None:
