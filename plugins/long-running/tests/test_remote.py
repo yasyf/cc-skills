@@ -694,7 +694,6 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
             message("status", "building the watch"),
             message("status", "no body", body=None, id="msg_status_empty"),
             message("question", "Which fixture keeps the hold test deterministic?\nLOG https://buildkite.com/forge/test/builds/1 is red on it"),
-            message("worker_done", "DONE elsewhere", from_handle="dispatch:ctx_other"),
         ],
     )
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
@@ -997,19 +996,29 @@ def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whate
     assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
 
 
-def test_mail_from_a_worker_the_job_replaced_is_only_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_never_recorded_included(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(dispatch="ctx_lane0002", deaths=[{"dispatch": DISPATCH, "workspace": "pool-one", "why": "x", "at": "y"}])
-    old = f"dispatch:{DISPATCH}"
+        data["jobs"]["j1"].update(dispatch="ctx_lane0003", deaths=[{"dispatch": DISPATCH, "workspace": "pool-one", "why": "x", "at": "y"}])
+    pr = "https://github.com/Forge-AI/monorepo/pull/7"
     deliver(
         monkeypatch,
-        [message("question", "READ ccn answer search x", id="msg_read", from_handle=old), message("worker_done", "DONE old", id="msg_done", from_handle=old)],
+        [
+            message("question", "READ ccn answer search x", id="msg_read"),
+            message("worker_done", f"READY {pr}\nI edited only the body", id="msg_unrecorded", from_handle="dispatch:ctx_lane0002"),
+            message("worker_done", f"READY {pr}\nThis rewrote Show me", id="msg_newest", from_handle="dispatch:ctx_lane0003"),
+        ],
     )
-    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"nothing answers a replaced worker: {args}"))
-    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    monkeypatch.setattr(reads, "answer", lambda question, root: "x")
+    calls = []
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.lane_lines(watching, T0) == [f"JOB j1 o1 READY {pr}", f"JOB j1 o1 READY {pr}"]
+    assert [args[:3] for args in calls if args[0] == "reply"] == [("reply", "--id", "msg_read")]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job.get("reads"), job["report"]) == (None, None)
-    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_done"]
+    assert (job["state"], job["report"], job["prs"]) == ("waiting", f"READY {pr}\nThis rewrote Show me", [pr])
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_unrecorded", "msg_newest"]
 
 
 def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its_job_kept(
@@ -1113,7 +1122,18 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
     assert mailboxes == {}
 
 
-def test_two_watches_reading_one_run_each_take_the_mail_of_the_jobs_they_hear_and_lose_none(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_run_a_finished_job_shares_gives_the_live_job_only_its_own_workers_mail(run: Run, remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("job", "add", "builder", "--order", "o1", "--goal", "an earlier lane on the drive's old shared Run", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", state="done")
+    deliver(monkeypatch, [message("worker_done", "DONE earlier", id="msg_old", from_handle="dispatch:ctx_lane0002"), message("worker_done", "WAITING CI", id="msg_own")])
+    assert watch.lane_lines(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == ["JOB j1 o1 WAITING CI"]
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_own"]
+
+
+def test_two_watches_reading_one_shared_run_each_take_the_mail_of_the_jobs_they_hear_lose_none_and_take_no_other_workers(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("job", "add", "builder", "--order", "o2", "--goal", "run page", "--remote")
     with state.edit(remote) as data:
@@ -1121,7 +1141,8 @@ def test_two_watches_reading_one_run_each_take_the_mail_of_the_jobs_they_hear_an
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
     first = message("question", "READY run page", id="msg_iris", from_handle="dispatch:ctx_lane0002")
     second = message("question", "READY remote builder", id="msg_top")
-    monkeypatch.setattr(orca, "mail", lambda run_id, after: [first, second])
+    stray = message("worker_done", "DONE elsewhere", id="msg_stray", from_handle="dispatch:ctx_other")
+    monkeypatch.setattr(orca, "mail", lambda run_id, after: [first, second, stray])
     top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
     assert watch.lane_lines(top, T0) == ["JOB j1 o1 READY remote builder"]
@@ -1129,6 +1150,7 @@ def test_two_watches_reading_one_run_each_take_the_mail_of_the_jobs_they_hear_an
     assert (watch.lane_lines(top, T0), watch.lane_lines(iris, T0)) == ([], [])
     jobs = state.load(remote)["jobs"]
     assert (jobs["j1"]["mail_seen"], jobs["j2"]["mail_seen"]) == (second["sequence"], first["sequence"])
+    assert [reply["id"] for job_id in ("j1", "j2") for reply in state.replies(remote, job_id)] == ["msg_top", "msg_iris"]
 
 
 def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_message_of_the_jobs_they_hear(
