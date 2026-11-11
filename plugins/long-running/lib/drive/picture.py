@@ -67,6 +67,7 @@ CHROME_APPS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "
 CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROME_SECONDS = 60
 DOWNLOAD_SECONDS = 20
+SOURCED = ".sourced"
 
 
 class PictureError(Exception):
@@ -174,6 +175,23 @@ def cached(folder: Path, name: str, kind: str, source: str) -> Path:
     if found := sorted(home.glob(f"{name}.*")):
         return found[0]
     return draw(kind, source, home / f"{name}.png")
+
+
+def fill(folder: Path, kept: list[str]) -> None:
+    """Write source.json beside each picture drawn before pictures kept their source, from the fence among kept, the drive's kept questions and PR bodies, whose code picture was keyed then by its kind and source alone; a picture none of them holds stays as drawn, all counted in one line, and folder is marked so this runs once."""
+    found = {}
+    for text in kept:
+        for fence in FENCE.finditer(text):
+            kind = f"code:{fence[1].lower()}"
+            found[hashlib.sha256(f"{kind}\n{fence[2]}".encode()).hexdigest()[:16]] = {"kind": kind, "source": fence[2]}
+    bare = [home for home in sorted({png.parent for png in folder.rglob("*.png")}) if not (home / "source.json").exists()]
+    filled = [home for home in bare if home.name in found]
+    for home in filled:
+        (home / "source.json").write_text(json.dumps(found[home.name]))
+    if bare:
+        left = sum(len(list(home.glob("*.png"))) for home in bare if home not in filled)
+        print(f"drive pictures: {len(filled)} drawn before pictures kept their source now keep it; {left} keep none the drive can find and stay as drawn", file=sys.stderr)
+    (folder / SOURCED).touch()
 
 
 def pictures(folder: Path, label: str, show_me: str) -> list[str]:
