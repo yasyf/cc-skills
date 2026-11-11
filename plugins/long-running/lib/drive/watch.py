@@ -746,7 +746,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
     data = state.load(watcher.name)
     away = state.owner_away(data, moment)
     threads = {
-        order_id: slack.order_posts(data, order) if state.promise_thread(data, order) else None
+        order_id: slack.order_posts(data, order_id, order) if state.promise_thread(data, order) else None
         for order_id, order in heard_orders(watcher, data).items()
         if overdue(order, moment, away)
     }

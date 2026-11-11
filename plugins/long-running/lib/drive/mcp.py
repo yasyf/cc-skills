@@ -83,7 +83,7 @@ SAY = {
             "visuals": {"type": "array", "items": VISUAL},
             "order": {
                 "type": "string",
-                "description": "The order this post is on, which records it there; refused, posting nothing, in none of its threads (its own, its cards' or its PRs' cards')",
+                "description": "The order this post is on, which records it there; refused, posting nothing, in none of its threads (its own, its incident's and every alert's joined to it with --joins, both ways, its cards' or its PRs' cards'), naming the order whose thread it is",
             },
             "record": {
                 "type": "string",

@@ -270,6 +270,10 @@ def load(name: str) -> dict:
         if "questions" not in job:
             asked, card = job.get("question"), job.get("card")
             job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
+    for order_id, order in data["orders"].items():
+        if "joins" not in order:
+            carriers = (data["jobs"][job_id]["order"] for job_id in order["jobs"]) if order["incident"] else ()
+            order["joins"] = next((other for other in carriers if other != order_id and data["orders"][other]["incident"]), None)
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
@@ -660,6 +664,12 @@ def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
     links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
     return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+
+
+def incident_orders(data: dict, order_id: str) -> list[str]:
+    """The orders of the order's incident, the one an alert's order joined with --joins first, then every alert joined to it; an order nothing joined and joining none alone."""
+    head = data["orders"][order_id]["joins"] or order_id
+    return [head, *(other_id for other_id, other in data["orders"].items() if other["joins"] == head)]
 
 
 def thread_order(data: dict, thread: str | None) -> str | None:

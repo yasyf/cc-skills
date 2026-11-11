@@ -254,6 +254,24 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
     assert len(posts) == 2
 
 
+def test_a_post_on_an_incident_goes_in_each_joined_alerts_thread_both_ways_and_one_elsewhere_names_whose_thread_it_is(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL error log count", "--from", "slack:D123/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794400000.000100")
+    assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794300000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
+    assert talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794200000.000100", "order": "o2"}).startswith(f"POSTED {POSTED}")
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The fix is merged.", "thread_ts": "1794400000.000100", "order": "o1", "dry_run": True})
+    assert str(refused.value) == (
+        "nothing posted: refused, thread 1794400000.000100 is o3's thread and none of o1's threads, its own, its cards' or its PRs' cards':"
+        " 1794200000.000100, 1794300000.000100; post it in one of them, post it with order o3 when the line is about o3, or post it with no"
+        " order and record the part it delivers with drive order posted o1 <its permalink> --record <the report's seq>"
+    )
+    assert len(posts) == 2
+
+
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str], lane: str = "root") -> None:
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": lane, "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
