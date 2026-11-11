@@ -593,6 +593,30 @@ def test_guard_holds_a_cc_skills_merge_until_every_check_on_its_head_is_green(de
     assert landing_guard.deny_reason(merge) is None
 
 
+@pytest.mark.parametrize("command", ["gh pr merge 4153 -R yasyf/cc-skills --squash", "gh pr merge my-branch -R Forge-AI/monorepo --squash"])
+def test_guard_lets_a_landing_run_with_a_warning_when_github_does_not_answer_its_read(
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    floor = "ccx: GitHub rate limit floor: user graphql has 550 of 5000 left, under the floor of 1000, until 2:53AM"
+
+    def floored(args: list[str], cwd: str) -> str:
+        raise landing_guard.github.GithubError(floor)
+
+    monkeypatch.setattr(landing_guard, "run", floored)
+    output = json.loads(hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash(command))))["hookSpecificOutput"]
+    assert "permissionDecision" not in output
+    assert output["additionalContext"].startswith("landing_guard let this run unchecked, since a read it needed failed")
+    assert output["additionalContext"].endswith(f"The read said: {floor}")
+
+
+def test_guard_warns_rather_than_raising_when_git_cannot_name_the_repo(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    stdin = json.dumps(bash("gh pr merge 42 --squash", cwd=str(tmp_path)))
+    output = json.loads(hook_output(landing_guard, monkeypatch, capsys, stdin))["hookSpecificOutput"]
+    assert "not a git repository" in output["additionalContext"]
+
+
 def test_guard_ignores_commands_that_do_not_land(drive_pr: str, no_calls: list[list[str]]) -> None:
     assert landing_guard.deny_reason(bash("gh pr view 42 -R Forge-AI/monorepo && echo 'gh pr merge 42'")) is None
 

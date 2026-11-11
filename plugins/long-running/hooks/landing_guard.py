@@ -2,7 +2,6 @@ import json
 import os
 import re
 import shlex
-import subprocess
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
@@ -66,6 +65,11 @@ UNCHECKED = (
     "Refused on purpose, before it goes up: GitHub did not answer whether a repository this body goes to or names is"
     " public, or cc-slack did not list the teammates whose names it must not show ({error}), so the body cannot be"
     " checked. Run this again once both answer"
+)
+UNREAD = (
+    "landing_guard let this run unchecked, since a read it needed failed, so a yasyf/cc-skills PR's checks or a Forge-AI"
+    " drive PR's tap and open cards went unread. Once GitHub answers, read them with `gh pr checks <n> -R yasyf/cc-skills`"
+    " or `drive status <PR url>`, and fix a red check forward. The read said: {error}"
 )
 AGENTS = "long-running:"
 LOOPS = {"for", "while", "until"}
@@ -158,7 +162,7 @@ BODY_POSTS = (
 
 
 def run(args: list[str], cwd: str) -> str:
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True, check=True, timeout=20).stdout.strip()
+    return github.run(args, cwd=cwd, timeout=20).strip()
 
 
 def segments(command: str) -> list[list[str]]:
@@ -516,6 +520,9 @@ def main() -> None:
         payload = json.load(sys.stdin)
         reason = deny_reason(payload)
     except (ValueError, KeyError):
+        return
+    except github.GithubError as error:
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
     if reason:
         print(json.dumps(denial(reason)))

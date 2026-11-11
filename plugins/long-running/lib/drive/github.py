@@ -24,9 +24,9 @@ class GithubError(Exception):
     pass
 
 
-def run(cmd: list[str]) -> str:
+def run(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> str:
     try:
-        result = subprocess.run(cmd, check=False, capture_output=True, text=True, timeout=120)
+        result = subprocess.run(cmd, cwd=cwd, check=False, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise GithubError(str(error)) from None
     if result.returncode:
