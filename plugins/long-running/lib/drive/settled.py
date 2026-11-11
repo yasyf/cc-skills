@@ -14,11 +14,8 @@ def kept(names: list[str], ask: str | None) -> bool:
 
 
 def answers(card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
-    """His durable answers that may already settle a question: those the part he reads names, then each drive's nearest to the whole question, findings included, which reach a ruling whose subject only its body names."""
-    found = matched(card, cwd)
-    for name in drives:
-        found += matched(whole, cwd, "--nearest", "--label", f"drive:{name}")
-    return list({answer["id"]: answer for answer in found}.values())
+    """His durable answers that may already settle a question: those the part he reads names. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest to `whole` from `drives`."""
+    return matched(card, cwd)
 
 
 def matched(text: str, cwd: str, *flags: str) -> list[dict]:
