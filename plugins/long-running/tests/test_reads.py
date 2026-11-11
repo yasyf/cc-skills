@@ -100,12 +100,19 @@ def test_excerpt_with_no_failure_line_keeps_the_tail_and_says_how_much_it_cut() 
     assert reads.excerpt("a" * 10 + "END", 5) == "[no failure lines matched]\n[last 5 of 13 characters]\naaEND"
 
 
+def own_output(share: int) -> str:
+    return (
+        "[each failure's own output: a Go test's lines from its === RUN, else the failure line and the 2 after it,"
+        f" each cut to its last {share} characters]"
+    )
+
+
 @pytest.mark.parametrize(
     "failure",
     [
-        "    chat_test.go:133: list = 400, want 200",
         "--- FAIL: TestChat (2.89s)",
         "    --- FAIL: TestChat/one_subagent (0.07s)",
+        "[sand] --- FAIL: TestChat (2.89s)",
         "FAIL\texample.com/app/cmd\t12.183s",
         "        FAIL [   0.070s] core store::tests::a_copy_keeps_every_write",
         "thread 'store::tests::a_copy_keeps_every_write' (148890) panicked at crates/core/src/store/tests.rs:12508:61:",
@@ -117,19 +124,37 @@ def test_excerpt_with_no_failure_line_keeps_the_tail_and_says_how_much_it_cut() 
 def test_excerpt_leads_with_a_failure_far_before_the_tail(failure: str) -> None:
     output = "\n".join(["ok"] * 50 + [failure, "", "the message", "after", "past it"] + ["x" * 99] * 10)
     block = f"{failure}\nthe message\nafter"
-    rest = 200 - len(block)
-    assert reads.excerpt(output, 200) == (
-        f"[failure lines first, 1 matched, each with the 2 lines after it]\n{block}\n"
+    rest = 400 - len(failure) - len(block)
+    assert reads.excerpt(output, 400) == (
+        f"[failure lines, 1 matched]\n{failure}\n{own_output(400 - len(failure))}\n{block}\n"
         f"[last {rest} of {len(output)} characters]\n{output[-rest:]}"
     )
 
 
-def test_excerpt_joins_failures_as_grep_does_and_cuts_their_head_when_they_overflow() -> None:
+def test_excerpt_leads_with_every_go_fail_and_its_tests_own_lines_before_passing_tests_logs() -> None:
+    passing = [f"    life_test.go:{n}: offline step answered in 94ms" for n in range(100)]
+    failing = ["=== RUN   TestCounts", "    ssql_test.go:162: subqueries are not supported", "[sand] --- FAIL: TestCounts (0.76s)"]
+    output = "\n".join(
+        ["=== RUN   TestLife", *passing, "--- PASS: TestLife (9.00s)", *failing, "FAIL\texample.com/app/eval\t6.778s", *passing]
+    )
+    said = reads.excerpt(output, 1000)
+    assert said.startswith(
+        "[failure lines, 2 matched]\n[sand] --- FAIL: TestCounts (0.76s)\nFAIL\texample.com/app/eval\t6.778s\n"
+    )
+    assert "\n".join(failing) in said
+    assert said.index("ssql_test.go:162") < said.index("life_test.go")
+
+
+def test_excerpt_joins_overlapping_failures_and_cuts_what_overflows() -> None:
     output = "\n".join(["--- FAIL: A", "a1", "--- FAIL: B", "b1", "b2", "skip", "--- FAIL: C", "c1", "c2", "x" * 999])
-    joined = "--- FAIL: A\na1\n--- FAIL: B\nb1\nb2\n--\n--- FAIL: C\nc1\nc2"
-    head = "[failure lines first, 3 matched, each with the 2 lines after it]"
-    assert reads.excerpt(output, 200).startswith(f"{head}\n{joined}\n[last ")
-    assert reads.excerpt(output, 20) == f"[first 20 of {len(joined)} characters of the failure lines, 3 matched]\n{joined[:20]}"
+    named = "--- FAIL: A\n--- FAIL: B\n--- FAIL: C"
+    own = ["--- FAIL: A\na1\n--- FAIL: B\nb1\nb2", "--- FAIL: C\nc1\nc2"]
+    assert reads.excerpt(output, 200).startswith(f"[failure lines, 3 matched]\n{named}\n{own_output(82)}\n{own[0]}\n--\n{own[1]}\n[last ")
+    assert reads.excerpt(output, 60) == (
+        f"[failure lines, 3 matched]\n{named}\n{own_output(12)}\n{own[0][-12:]}\n--\n{own[1][-12:]}\n"
+        f"[last 1 of {len(output)} characters]\nx"
+    )
+    assert reads.excerpt(output, 20) == f"[first 20 of {len(named)} characters of the 3 failure lines]\n{named[:20]}"
 
 
 def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

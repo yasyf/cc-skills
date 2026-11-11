@@ -222,7 +222,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 
 | Read | What it returns |
 | --- | --- |
-| `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL`, `FAIL` and `_test.go:N:` lines, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), each with the two lines after it, then its last characters; a job URL reads that one job. |
+| `LOG <url>` | For the failing check's Buildkite build or job URL, or its GitHub Actions job URL: the failing jobs' own command output, 12,000 characters split across them, each Buildkite job's opening with its failure lines (Go `--- FAIL:` anywhere in a line and `FAIL` package lines, nextest `FAIL [`, Rust `panicked at`, tsc `error TS`, vitest and jest `✕`, `✖` and `●`), then each failure's own output (a Go test's lines from its `=== RUN`, else the failure line and the two after it), then its last characters; a job URL reads that one job. |
 | `READ <command>` | For one of `cci show\|grep\|find\|digest\|state` with `--drive <the brief's drive>`, `ccn search\|show\|relevant`, `ccn answer\|note\|doc search\|show` or `ccn answer list`: its output's first 12,000 characters, for his recorded words and the records a brief or PR cites. |
 
 - No drive's records are here, so skip `drive pr add` and keeping a block with `drive job ask`: your
