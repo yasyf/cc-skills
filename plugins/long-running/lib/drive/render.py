@@ -203,9 +203,9 @@ FIRST_CALL = {
         " record, the rest as evidence records together at most every five minutes; arm no Monitor for it, and run"
         " drive watch only when a WATCH stopped line says it ended. A compaction keeps every tool you"
         " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
-        " answer_add with no ToolSearch first. The drive's order, job, pr and status tools load once, the first time"
-        " you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
-        "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__status."
+        " answer_add with no ToolSearch first. The drive's order, job, pr, incident and status tools load once, the first"
+        " time you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
+        "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__incident,mcp__plugin_long-running_drive__status."
     ),
 }
 READS = {

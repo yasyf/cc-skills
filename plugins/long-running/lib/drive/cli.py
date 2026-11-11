@@ -7,7 +7,7 @@ import shutil
 import sys
 import textwrap
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from drive import artifacts, brief, github, limits, orca, picture, place, reads, render, settled, slack, state, watch
@@ -15,6 +15,9 @@ from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 INCIDENT_FIX = "fix"
+INCIDENT_STOP = "stop"
+INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
+FREEZE_FOR = timedelta(hours=12)
 INCIDENT_EXEMPTION = "incident fix"
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
@@ -29,7 +32,7 @@ TOLD_LINK = (
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
-MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "status")
+MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "incident", "status")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -73,6 +76,11 @@ def start(args: argparse.Namespace) -> int:
 
 def order_add(args: argparse.Namespace) -> int:
     """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service."""
+    order_id, order, started, incidents = added_order(args)
+    return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
+
+
+def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[str]]:
     name = state.resolve(args.drive)
     created = state.stamp()
     if args.incident and not args.joins and INCIDENT_FIX not in (args.parts or []):
@@ -127,15 +135,82 @@ def order_add(args: argparse.Namespace) -> int:
         }
         if args.due:
             need_thread(data, order_id, order)
-        started = []
-        for part in order["parts"] if args.incident and not joined else []:
-            job_id = state.next_id(data["jobs"], "j")
-            data["jobs"][job_id] = state.new_job(order_id, "codex", f"{part}: {state.whole_order(args.words)}", [part], created)
-            order["jobs"].append(job_id)
-            started.append(f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}')
+        started = [incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
-    return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
+    return order_id, order, started, incidents
+
+
+def incident_job(data: dict, name: str, order_id: str, part: str, created: str) -> str:
+    order = data["orders"][order_id]
+    job_id = state.next_id(data["jobs"], "j")
+    data["jobs"][job_id] = state.new_job(order_id, "codex", f"{part}: {state.whole_order(order['text'])}", [part], created)
+    order["jobs"].append(job_id)
+    return f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}'
+
+
+def incident_open(args: argparse.Namespace) -> int:
+    """Open an incident in one call: his order, a job on its fix beside a job on each diagnosis part, and the evidence record its note names."""
+    name = state.resolve(args.drive)
+    args.parts = [INCIDENT_FIX, *INCIDENT_PARTS["release" if args.release else "none" if args.no_rollback else "rollback"]]
+    order_id, order, started, incidents = added_order(args)
+    data = state.load(name)
+    argv = ["ccn", "investigation", "open", args.record, "--body", f"{args.words}\n\nFrom {args.source}", "--label", f"drive:{name}", "--label", "incident", "--json"]
+    try:
+        record = json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))["id"][:7]
+    except reads.ReadError as error:
+        raise DriveError(
+            f"{order_id} and its jobs are added, but its evidence record did not open: {error}; open it with ccn investigation open, then"
+            f' drive order set {order_id} --note "record <id>"\n' + "\n".join(started)
+        ) from None
+    with state.edit(name) as data:
+        data["orders"][order_id]["note"] = order["note"] = f"record {record}"
+    return emit(args, "\n".join([f"{order_id} record {record}", *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
+
+
+def incident_stop(args: argparse.Namespace) -> int:
+    """Give an open incident its stop when no build can roll the break back: a job with apply authority whose PR turns the failing automatic path off and lands only on his tap."""
+    name = state.resolve(args.drive)
+    created = state.stamp()
+    with state.edit(name) as data:
+        order = find(data["orders"], args.id, "order")
+        if not state.open_incidents(data, [args.id]):
+            raise DriveError(f"{args.id}: refused, it is no open incident order")
+        if refused := state.held_elsewhere(data, args.id, state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))):
+            raise DriveError(f"refused, no stop added: {refused}")
+        if running := [job_id for job_id in order["jobs"] if INCIDENT_STOP in data["jobs"][job_id]["parts"] and data["jobs"][job_id]["state"] not in state.FINISHED_JOB_STATES]:
+            raise DriveError(f"{args.id}: refused, its stop runs as {', '.join(running)}; resume that job instead")
+        order["parts"][INCIDENT_STOP] = state.new_part()
+        started = incident_job(data, name, args.id, INCIDENT_STOP, created)
+        order["updated"] = created
+    return emit(args, started, {"id": args.id, "job": started.split()[0]})
+
+
+def incident_freeze(args: argparse.Namespace) -> int:
+    """Freeze the broken service's other releases in the turn users are unblocked, until its root fix releases; the freeze's id goes on the order's note for the job that lifts it."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    order = find(data["orders"], args.id, "order")
+    if not state.open_incidents(data, [args.id]):
+        raise DriveError(f"{args.id}: refused, it is no open incident order")
+    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
+    until = state.stamp(state.now() + FREEZE_FOR)
+    reason = f"{args.id}, {render.cut(order['text'], 80)}: held until its root fix releases"
+    argv = [str(checkout_dir / "tools" / "ci"), "release", "freeze", *args.components, "--reason", reason, "--until", until, "--json"]
+    try:
+        freeze = json.loads(reads.run(argv, checkout_dir))["freeze"]["id"]
+    except reads.ReadError as error:
+        raise DriveError(f"{args.id}: no freeze set: {error}") from None
+    with state.edit(name) as data:
+        order = data["orders"][args.id]
+        order["note"] = "; ".join(filter(None, [order["note"], f"freeze {freeze}"]))
+        order["updated"] = state.stamp()
+    return emit(
+        args,
+        f"{args.id}: {', '.join(args.components)} frozen until {render.when(until)} as {freeze}; the job that merges the root fix lifts it"
+        f" with tools/ci release unfreeze {freeze} before the fix's build starts",
+        {"id": args.id, "freeze": freeze, "until": until},
+    )
 
 
 def check_thread(data: dict, source: str, thread: str) -> None:
@@ -423,6 +498,8 @@ def job_set(args: argparse.Namespace) -> int:
             f"{args.id} is {held}, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line"
             f" the job returns, which the watch reads or drive job report {args.id} - takes: {returned}, and BUILT <branch>, waits on <cards> sets built"
         )
+    if args.state == "stopped":
+        fix_kept(state.load(name), args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if jobs := [wait for wait in args.waits if wait in state.load(name)["jobs"]]:
@@ -459,6 +536,25 @@ def job_set(args: argparse.Namespace) -> int:
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, already + render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def fix_kept(data: dict, job_id: str) -> None:
+    """His stop carries the scope his words give it, so nothing stops the last running job on an open incident's fix."""
+    job = data["jobs"][job_id]
+    for order_id in state.open_incidents(data, [job["order"], *job["carries"]]):
+        if INCIDENT_FIX not in state.job_parts(job, order_id) or any(
+            other_id != job_id
+            and other["state"] not in state.FINISHED_JOB_STATES
+            and order_id in (other["order"], *other["carries"])
+            and INCIDENT_FIX in state.job_parts(other, order_id)
+            for other_id, other in data["jobs"].items()
+        ):
+            continue
+        raise DriveError(
+            f"{job_id} is the last running job on incident {order_id}'s fix, and nothing stops an open incident's fix: his stop in one"
+            ' thread stops that thread\'s work, as his "leave it alone here" of Nov 10 9:19 PM meant his own thread. Add the job that takes'
+            f" the fix over first, with drive job add <kind> --order {order_id} --part {INCIDENT_FIX}, or close {order_id} once its fix is live"
+        )
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
@@ -948,6 +1044,7 @@ def pr_set(args: argparse.Namespace) -> int:
         )
     check_waits(name, args.waits)
     if args.exempt == INCIDENT_EXEMPTION:
+        refuse_an_exempt_stop(known, key)
         refuse_an_exempt_revert(name, key)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
@@ -1041,6 +1138,18 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
     members = after.get("stack") or [key]
     if reason := card.waiting(known, members) or card.tap_refusal(known, members):
         raise DriveError(f"{key}: {reason}")
+
+
+def refuse_an_exempt_stop(data: dict, key: str) -> None:
+    """The PR of an incident's stop turns the failing path off, which no incident order approves: it lands only on his tap, on a card quoting the bug from the record."""
+    pr = data["prs"][key]
+    if INCIDENT_STOP not in state.job_parts(data["jobs"][pr["job"]], pr["order"]):
+        return
+    raise DriveError(
+        f'{key}: refused, it is {pr["order"]}\'s stop, which turns the failing path off, and a stop never lands as an "{INCIDENT_EXEMPTION}":'
+        f" only his tap lands it. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {pr['order']} --design none,"
+        f" its body quoting the bug from {pr['order']}'s record ({data['orders'][pr['order']]['note'] or 'none noted yet'})"
+    )
 
 
 def refuse_an_exempt_revert(name: str, key: str) -> None:
@@ -1520,6 +1629,56 @@ def parser() -> argparse.ArgumentParser:
     verb = order.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
     verb.set_defaults(run=status)
+
+    incident = verbs.add_parser("incident", help="his incidents").add_subparsers(dest="action", required=True)
+    verb = incident.add_parser(
+        "open",
+        parents=both,
+        help=(
+            "open an incident in one call: his order, marked an incident, with a codex job on its fix and one on each diagnosis part,"
+            " each printed with the line its brief ends on, and its evidence record opened and named on the order's note"
+        ),
+    )
+    verb.add_argument("words", help="his words, or the alert's text, verbatim")
+    verb.add_argument("--from", dest="source", default="terminal", help="where it came from: slack:<channel>/<ts>, or terminal")
+    verb.add_argument("--thread", help="the ts of the thread the incident's lines go in")
+    verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
+    verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
+    before = verb.add_mutually_exclusive_group()
+    before.add_argument(
+        "--release",
+        action="store_true",
+        help="a release or new build came before the break: its parts are fix and first check, and no rollback or cause hunt starts before the first check returns",
+    )
+    before.add_argument(
+        "--no-rollback",
+        action="store_true",
+        help="no build lacks the failing path: its parts are fix, stop and cause; with neither flag they are fix, rollback and cause",
+    )
+    verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files it under")
+    verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files it under")
+    verb.set_defaults(run=incident_open, incident=True, joins=None, kind=None, complex=False, owner=None)
+    verb = incident.add_parser(
+        "stop",
+        parents=both,
+        help=(
+            "the turn the rollback finds no build that lacks the failing path: a stop part and its codex job, with apply authority,"
+            " whose PR turns the failing automatic path off and lands only on his tap, on a card quoting the bug from the record"
+        ),
+    )
+    verb.add_argument("id", help="the open incident order")
+    verb.set_defaults(run=incident_stop)
+    verb = incident.add_parser(
+        "freeze",
+        parents=both,
+        help=(
+            "in the turn users are unblocked, never before: freeze the broken service's other releases for 12 hours with tools/ci"
+            " release freeze from the coordinator's checkout, its id on the order's note for the job that merges the root fix to lift"
+        ),
+    )
+    verb.add_argument("id", help="the open incident order")
+    verb.add_argument("components", nargs="+", metavar="COMPONENT", help="the broken service's release component, such as sandsql, covering every stack it deploys")
+    verb.set_defaults(run=incident_freeze)
 
     job = verbs.add_parser("job", help="background agents").add_subparsers(dest="action", required=True)
     verb = job.add_parser(
