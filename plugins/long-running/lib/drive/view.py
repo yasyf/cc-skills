@@ -8,7 +8,8 @@
   known), `due`, `url` (where he acts), `links`, and for a question or a tap with a Slack card, `card` (the whole card
   cc-slack draws), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
   thread the card sits in, or starts). A question also has `holds`: how many green approved open PRs and built jobs
-  wait on it, alone or beside other cards of his, and `blocks`: the title of each feature it holds up.
+  wait on it, alone or beside other cards of his, `blocks`: the title of each feature it holds up, and `built`: each
+  job built on its recommended option that waits on it, with its `job` and `branch`; those questions come first.
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
   `blocked`, `running`, `built`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`,
   `now` (its latest job line), `due`, `late`, `proof`, `updated`, `url`, `prs`, each PR with `title`, `url`,
@@ -199,12 +200,13 @@ def tap_detail(pr: dict) -> str:
     return f"{checks}, {review}{changed}"
 
 
-def question_item(drive: dict, card: dict, features: list[dict]) -> dict:
+def question_item(drive: dict, card: dict, features: list[dict], waiting: list[dict]) -> dict:
     pick = f"Recommended: {card['recommended']}" if card.get("recommended") else " / ".join(card["options"])
     return {
         "kind": "question",
         "holds": held_up(drive, card),
         "blocks": [entry["title"] for entry in features if any(held["url"] == card["url"] for held in entry["cards"])],
+        "built": [{"job": entry["job"], "branch": entry["branch"]} for entry in waiting if entry["card"]["url"] == card["url"]],
         "title": card["question"],
         "detail": pick,
         "since": card["asked"],
@@ -263,8 +265,9 @@ def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> l
     taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
+    waiting = waiting_on_him(drive, found)
     return [
-        *sorted((question_item(drive, card, features) for card in found["questions"]), key=lambda item: -item["holds"]),
+        *sorted((question_item(drive, card, features, waiting) for card in found["questions"]), key=lambda item: (not item["built"], -item["holds"])),
         *(tap_item(pr, card) for pr, card in taps),
         *(late_item(drive, order, found["team_url"]) for order in late),
     ]
@@ -312,6 +315,24 @@ def wait_entry(drive: dict, wait: str, found: dict) -> dict:
     if card := asked_card(found, wait):
         return {"title": card["question"], "url": card["url"]}
     return {"title": "his question card", "url": wait if wait.startswith("https://") else None}
+
+
+def waiting_on_him(drive: dict, found: dict) -> list[dict]:
+    """Each open card of his that holds a job built on its recommended option, oldest card first, with the wait that names it, the job, its order and its branch."""
+    held = [
+        {"card": card, "wait": wait, "job": job_id, "order": job["order"], "branch": job["branch"]}
+        for job_id, job in drive["jobs"].items()
+        if job["state"] == "built"
+        for wait in job["waits"]
+        if wait not in drive["jobs"] and (card := asked_card(found, wait))
+    ]
+    return sorted(held, key=lambda entry: state.parse_time(entry["card"]["asked"]))
+
+
+def dm_thread(drive: dict, order: dict) -> str | None:
+    """The thread of his DM an order's lines go in, when it has one there."""
+    where = state.promise_thread(drive, order)
+    return where[1] if where and where[0] == drive["slack"]["channel"] else None
 
 
 def built_entry(drive: dict, job_id: str, found: dict) -> dict:

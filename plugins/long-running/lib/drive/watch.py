@@ -13,7 +13,7 @@ from pathlib import Path
 
 from drive import dashboard, github, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
-from drive.render import SUBSCRIBE, cut, when
+from drive.render import SUBSCRIBE, cut, waiting_line, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -22,7 +22,7 @@ ANSWERED_ELSEWHERE = "answer_conflict"
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
@@ -181,6 +181,33 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if (ended := released(data, pr, watcher.cards)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended} answered or done, nothing else holds it")
+    return lines
+
+
+def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Tell him once, in its order's thread or else at his DM root, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
+    if watcher.cards is None:
+        return []
+    from drive import talk
+
+    data = state.load(watcher.name)
+    places: dict[str | None, list[dict]] = {}
+    for entry in view.waiting_on_him(data, watcher.cards):
+        if entry["wait"] not in data["jobs"][entry["job"]].get("waiting_said", []):
+            places.setdefault(view.dm_thread(data, data["orders"][entry["order"]]), []).append(entry)
+    lines = []
+    for thread, entries in places.items():
+        said = [waiting_line(entry) for entry in entries]
+        try:
+            reply = talk.posted(watcher.name, {"text": "\n".join(said), "thread_ts": thread})
+        except (state.DriveError, slack.SlackError) as error:
+            lines += failed(watcher, "waiting post", "WAITING-ON-HIM post", error, moment)
+            continue
+        watcher.failures.pop("waiting post", None)
+        with state.edit(watcher.name) as data:
+            for entry in entries:
+                data["jobs"][entry["job"]].setdefault("waiting_said", []).append(entry["wait"])
+        lines += [f"{line}, posted {reply['permalink']}" for line in said]
     return lines
 
 
@@ -757,6 +784,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
+        lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
         lines += agent_lines(watcher, moment)

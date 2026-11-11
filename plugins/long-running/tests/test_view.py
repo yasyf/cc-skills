@@ -217,8 +217,29 @@ def test_his_question_cards_come_most_finished_work_held_up_first_and_a_pr_waiti
     model = view.build(data, found(questions), T0)
     assert [(item["title"], item["holds"]) for item in model["queue"]] == [("Busy one?", 3), ("Old one?", 1), ("Idle one?", 0)]
     markdown = page.render(model, DASHBOARD)
-    assert "1. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 3 finished · blocks rank the cards · since" in markdown
+    assert (
+        "1. **WAITING-ON-HIM:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · j2 built on `lane/built` waits on it"
+        " · holds up 3 finished · blocks rank the cards · since"
+    ) in markdown
     assert "3. **Question:** [Idle one?](https://acme.slack.com/archives/D123/p-20) · since" in markdown
+
+
+def test_a_card_holding_a_built_job_leads_the_queue_however_much_else_another_card_holds() -> None:
+    data = drive_of(
+        {"o1": order("rank the cards", ["j1", "j2"])},
+        {"j1": job("o1", "built", branch="lane/built", waits=["demo:j1-7-a"]), "j2": job("o1", "waiting")},
+        [pr(1, "o1", waits=["demo:j2-7-b"]), pr(2, "o1", waits=["demo:j2-7-b"])],
+    )
+    questions = [question("Busy one?", -10, "demo:j2-7-b"), question("Built one?", -30, "demo:j1-7-a")]
+    model = view.build(data, found(questions), T0)
+    assert [(item["title"], item["holds"], item["built"]) for item in model["queue"]] == [
+        ("Built one?", 1, [{"job": "j1", "branch": "lane/built"}]),
+        ("Busy one?", 2, []),
+    ]
+    assert [(entry["wait"], entry["job"], entry["order"]) for entry in view.waiting_on_him(data, found(questions))] == [("demo:j1-7-a", "j1", "o1")]
+    markdown = page.render(model, DASHBOARD)
+    assert "1. **WAITING-ON-HIM:** [Built one?](https://acme.slack.com/archives/D123/p-30) · j1 built on `lane/built` waits on it · holds up 1 finished" in markdown
+    assert "2. **Question:** [Busy one?](https://acme.slack.com/archives/D123/p-10) · holds up 2 finished" in markdown
 
 
 def test_a_small_drive_draws_whole_queue_first_then_one_line_per_feature_and_the_dashboard_last() -> None:

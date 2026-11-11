@@ -327,7 +327,7 @@ Nothing to post; a line that says where things stand links it.
   its fix is live he hears a line at least every 5 minutes, as [incidents.md](incidents.md) says.
 - **He is away** when he says he is going to sleep or stepping out (`drive heard --away`), or when
   he has written nothing for an hour. Then only cards post: PR cards and question cards that wait
-  on him, and an incident line [incidents.md](incidents.md) calls for. Summaries, due-time lines
+  on him, the watch's `WAITING-ON-HIM` line, and an incident line [incidents.md](incidents.md) calls for. Summaries, due-time lines
   and job results wait.
 - **His next message gets one catch-up, at his DM root**, right after its ack. `drive heard` tells
   the coordinator every order that changed while he was away. It sends one `report` for his DM root
@@ -338,6 +338,10 @@ Nothing to post; a line that says where things stand links it.
   His words, Nov 10 6:43 PM, under a thread that got a catch-up's lines about other orders: "why
   did all of these get sent in this thread?", and 6:47 PM: "this si the catch up post? it should be
   tititled as such".
+- **A card of his that holds built work opens every post.** While a job built on a card's
+  recommended option waits on it, `say` opens each post in that order's thread, and each at his DM
+  root, with `WAITING-ON-HIM`, the card linked, the job, its branch and since when, after a
+  catch-up's title, unless the text already carries that line.
 - **Anything that says it waits on him carries its card**, its permalink linked under words that
   name it as [The short form](#the-short-form) says, so he answers it there without clicking away.
 - **His read-only question gets its answer within minutes** from the handler, which reads the

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread
-from drive import cli, picture, slack, state, talk, view, watch
+from drive import cli, picture, render, slack, state, talk, view, watch
 from drive.state import DriveError
 
 WAITS = "demo:j1-7"
@@ -137,3 +137,43 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     report(monkeypatch, {"orders": "o1"})
     talk.say(demo, {"text": "The run page fix is live.", "record": "660300"})
     assert posts[-1][-1] == "The run page fix is live."
+
+
+def test_a_post_in_a_thread_or_at_his_dm_root_opens_with_each_card_holding_built_work_there_and_a_card_with_none(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked = "2026-11-10T20:59:00-08:00"
+    question = {"question": QUESTION, "options": ["Each chat"], "recommended": "Each chat", "asked": asked, "url": CARD_URL, "card": {"title": QUESTION, "waits": WAITS}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "https://acme.slack.com/", "questions": [question], "pr_cards": []})
+    view.refresh_cards(demo)
+    thread = "1794200000.000100"
+    with state.edit(demo) as data:
+        data["orders"]["o1"] = {
+            "text": "lock it",
+            "from": "terminal",
+            "thread": thread,
+            "state": "working",
+            "due": None,
+            "jobs": ["j1"],
+            "created": asked,
+            "updated": asked,
+            "parts": {"lock it": state.new_part()},
+        }
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], asked) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
+    line = f"WAITING-ON-HIM <{CARD_URL}|{QUESTION}> blocks j1, built on lane/lock, since {render.when(asked)}"
+    talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
+    talk.say(demo, {"text": "Elsewhere.", "thread_ts": "1794200000.000555"})
+    talk.say(demo, {"text": "Catch-up"})
+    report(monkeypatch, {"catch_up": "true"})
+    state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
+    talk.say(demo, {"text": "The fix is live.", "record": "660299"})
+    talk.say(demo, {"text": "Pick one", "card": {"title": "Pick one"}})
+    talk.say(demo, {"text": f"WAITING-ON-HIM {{card:{WAITS}}} blocks j1, built on lane/lock, since {render.when(asked)}\nMore.", "thread_ts": thread})
+    assert [argv[-1] for argv in posts] == [
+        f"{line}\nShipped.",
+        "Elsewhere.",
+        f"{line}\nCatch-up",
+        f"*Catch-up since 5:20 PM*\n{line}\nThe fix is live.",
+        "Pick one",
+        f"{line}\nMore.",
+    ]
