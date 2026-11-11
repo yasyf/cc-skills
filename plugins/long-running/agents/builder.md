@@ -150,7 +150,8 @@ with these changes.
   `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing here. Read through the
   coordinator's Mac instead, with one blocking question that prints the answer within about a
   minute: `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`. This is a read,
-  not a report: keep working.
+  not a report: keep working. Ask one read per question, opening its first line: text after a
+  `LOG` URL is ignored, and anything else goes in a question of its own.
   - `LOG <url>`, where `<url>` is the failing check's Buildkite build or job URL, or its GitHub
     Actions job URL: the failing jobs' own command output, its last 12,000 characters split
     across them; a job URL reads that one job.

@@ -4,8 +4,10 @@ import shlex
 import subprocess
 from pathlib import Path
 
-LOG = re.compile(r"LOG\s+(\S+)")
+LOG = re.compile(r"LOG\s+(https?://\S+)")
 READ = re.compile(r"READ\s+(.+)")
+JOB_ID = re.compile(r"^j\d+[\s:,]+")
+READ_MARK = re.compile(r"^READ\b[\s:,]*")
 READ_VERBS = (
     ("cci", "show"),
     ("cci", "grep"),
@@ -40,43 +42,39 @@ class ReadError(Exception):
 
 
 def request(body: str) -> str | None:
-    """A remote lane's read question, `LOG <url>` or `READ <cci or ccn read>`; None for a report."""
-    line = body.strip()
-    return line if LOG.fullmatch(line) or READ.fullmatch(line) else None
+    """The read a remote lane's question asks for, from its first line past the lane's job id: `LOG <url>`, `READ:` before it and whatever follows the URL aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
+    line = JOB_ID.sub("", body.strip().partition("\n")[0], count=1)
+    if log := LOG.match(READ_MARK.sub("", line, count=1)):
+        return f"LOG {log[1]}"
+    return line if READ.match(line) else None
 
 
 def answer(question: str, checkout: Path) -> str:
-    """Answer a read question with this Mac's credentials and records, or say why it could not; never with nothing."""
+    """Answer a read question with this Mac's credentials and records, never with nothing; ReadError says why it could not."""
     log = LOG.fullmatch(question)
     said = read_log(log[1], checkout) if log else read_records(READ.fullmatch(question)[1], checkout)
     return said or f"{question}: empty, the read printed nothing"
 
 
 def read_log(url: str, checkout: Path) -> str:
-    try:
-        if build := BUILDKITE_BUILD.search(url):
-            job = BUILDKITE_JOB.search(url)
-            return buildkite(build[1], build[2], job[1] if job else None, checkout)
-        if job := ACTIONS_JOB.search(url):
-            budget = str(BUDGET // CHARS_PER_TOKEN)
-            return run(["ccx", "vcs", "job-log", job[2], "-R", job[1], "--budget", budget], checkout)
-    except ReadError as error:
-        return f"LOG {url}: {error}"
-    return f"LOG {url}: not a Buildkite build or job URL, or a GitHub Actions job URL"
+    if build := BUILDKITE_BUILD.search(url):
+        job = BUILDKITE_JOB.search(url)
+        return buildkite(build[1], build[2], job[1] if job else None, checkout)
+    if job := ACTIONS_JOB.search(url):
+        budget = str(BUDGET // CHARS_PER_TOKEN)
+        return run(["ccx", "vcs", "job-log", job[2], "-R", job[1], "--budget", budget], checkout)
+    raise ReadError("not a Buildkite build or job URL, or a GitHub Actions job URL")
 
 
 def read_records(command: str, checkout: Path) -> str:
     try:
         argv = shlex.split(command)
     except ValueError as error:
-        return f"READ {command}: {error}"
+        raise ReadError(str(error)) from None
     if not any(tuple(argv[: len(verb)]) == verb for verb in READ_VERBS):
         allowed = ", ".join(" ".join(verb) for verb in READ_VERBS)
-        return f"READ {command}: only these reads run here: {allowed}"
-    try:
-        output = run(argv, checkout).strip()
-    except ReadError as error:
-        return f"READ {command}: {error}"
+        raise ReadError(f"only these reads run here: {allowed}")
+    output = run(argv, checkout).strip()
     if len(output) <= BUDGET:
         return output
     return f"[first {BUDGET} of {len(output)} characters]\n{output[:BUDGET]}"

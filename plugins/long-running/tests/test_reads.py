@@ -47,12 +47,23 @@ def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
     [
         (f"LOG {BUILD}", f"LOG {BUILD}"),
         (f"  LOG {BUILD}\n", f"LOG {BUILD}"),
+        (
+            f"j242 READ: LOG {BUILD} (#7 head 1234abc), failing while it still runs. Give every failed job's name.",
+            f"LOG {BUILD}",
+        ),
+        (f"LOG {BUILD}#{FAILED_JOB} — need: did the sand-next-tests step run\nmore", f"LOG {BUILD}#{FAILED_JOB}"),
         ("READ cci show 2065", "READ cci show 2065"),
+        ("j247: READ ccn answer show 5299250c9a85\nfor his words", "READ ccn answer show 5299250c9a85"),
         ("READY https://x/pull/1", None),
-        (f"LOG {BUILD} more", None),
+        (f"j242 READ, two reads for #7: (1) LOG {BUILD} (2) the field facts", None),
+        ("READ: please send the full text of design-run-read-api.md", None),
+        ("LOG (build 1, #7 at 1234abc), verbatim", None),
+        ("j242 PUSHED #7\nLOG https://buildkite.com/forge/test/builds/1", None),
     ],
 )
-def test_only_a_bare_log_or_read_line_is_a_read_question(body: str, question: str | None) -> None:
+def test_a_read_question_opens_with_its_read_past_the_job_id_and_ignores_prose_after_it(
+    body: str, question: str | None
+) -> None:
     assert reads.request(body) == question
 
 
@@ -97,13 +108,15 @@ def test_an_actions_job_url_reads_through_ccx(monkeypatch: pytest.MonkeyPatch, t
     assert calls == [["ccx", "vcs", "job-log", "126958155452", "-R", "yasyf/cc-skills", "--budget", "3000"]]
 
 
-def test_a_failed_read_or_unknown_url_answers_why(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_a_failed_read_or_unknown_url_raises_why(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     def refuse(argv: list[str], checkout: Path) -> str:
         raise reads.ReadError("tools/ci bk api exited 1: 404 Not Found")
 
     monkeypatch.setattr(reads, "run", refuse)
-    assert reads.answer(f"LOG {BUILD}", tmp_path) == f"LOG {BUILD}: tools/ci bk api exited 1: 404 Not Found"
-    assert reads.answer("LOG https://example.com/x", tmp_path).endswith("or a GitHub Actions job URL")
+    with pytest.raises(reads.ReadError, match="^tools/ci bk api exited 1: 404 Not Found$"):
+        reads.answer(f"LOG {BUILD}", tmp_path)
+    with pytest.raises(reads.ReadError, match="or a GitHub Actions job URL$"):
+        reads.answer("LOG https://example.com/x", tmp_path)
 
 
 def test_a_record_read_runs_the_allowed_command_from_the_checkout(
@@ -124,7 +137,8 @@ def test_a_record_read_refuses_anything_but_a_listed_read(
     command: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     monkeypatch.setattr(reads, "run", lambda argv, checkout: pytest.fail(f"ran {argv}"))
-    assert reads.answer(f"READ {command}", tmp_path).startswith(f"READ {command}: only these reads run here: cci show")
+    with pytest.raises(reads.ReadError, match="^only these reads run here: cci show"):
+        reads.answer(f"READ {command}", tmp_path)
 
 
 def test_a_long_record_read_keeps_its_head(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
