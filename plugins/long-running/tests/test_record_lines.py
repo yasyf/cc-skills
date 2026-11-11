@@ -77,16 +77,13 @@ def test_an_ask_no_answer_of_his_touches_goes_out_and_other_sessions_are_not_che
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
-def test_a_record_asking_for_a_tap_the_drive_owes_on_no_pr_it_names_is_refused(demo: str) -> None:
+def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) -> None:
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1")
-    asking = f"The update-button fix needs your tap: {TAPPED}"
-    assert record_lines.decision(post(kind="report", text=asking)) is None
     assert record_lines.decision(post(kind="ready", text="j1 green", pr=[TAPPED])) is None
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}, "state": "merged"}
-    made = record_lines.decision(post(kind="report", text=asking))
+    made = record_lines.decision(post(kind="ready", text="j1 green", pr=[TAPPED]))
     assert made["permissionDecision"] == "deny"
     assert "Forge-AI/monorepo#4242: he tapped Approve at " in made["permissionDecisionReason"]
-    assert record_lines.decision(post(kind="ready", text="j1 green", pr=[TAPPED]))["permissionDecision"] == "deny"
-    assert record_lines.decision(post(kind="report", text=f"j1 merged {TAPPED}")) is None
+    assert record_lines.decision(post(kind="report", text=f"The update-button fix needs your tap: {TAPPED}")) is None

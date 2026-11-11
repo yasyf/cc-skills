@@ -1,7 +1,7 @@
 ---
 name: reader
-description: One read-only question an order needs in a long-running drive, answered with evidence. It reads code, PRs, CI logs, transcripts, records and the web, changes nothing but the reproduction file it saves, and returns the answer's first line, keeping the rest in the drive. Runs on Sonnet; the coordinator starts one in the background for a question an order needs, such as reproducing a bug or reading a job's transcript.
-model: sonnet
+description: One read-only question an order needs in a long-running drive, answered with evidence. It reads code, PRs, CI logs, transcripts, records and the web, changes nothing but the reproduction file it saves, and returns the answer's first line, keeping the rest in the drive. Runs on Opus, or on Sonnet when the coordinator passes `model: "sonnet"` for a one-fact lookup; the coordinator starts one in the background for a question an order needs, such as reproducing a bug or reading a job's transcript.
+model: opus
 effort: xhigh
 background: true
 disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message

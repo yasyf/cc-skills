@@ -97,9 +97,19 @@ def dot_png(source: str, out: Path) -> None:
 
 
 def code_png(language: str, source: str, out: Path) -> None:
+    """Draw code highlighted with freeze; a fence that names no language is drawn as freeze guesses it, or as plain text when it cannot guess."""
+    try:
+        freeze(language, source, out)
+    except PictureError:
+        if language:
+            raise
+        freeze("text", source, out)
+
+
+def freeze(language: str, source: str, out: Path) -> None:
     try:
         result = subprocess.run(
-            [*FREEZE, "--language", language, "--output", str(out)],
+            [*FREEZE, *(["--language", language] if language else []), "--output", str(out)],
             input=source,
             check=False,
             capture_output=True,
@@ -146,6 +156,15 @@ def draw(kind: str, source: str, out: Path) -> Path:
     return out
 
 
+def cached(folder: Path, name: str, kind: str, source: str) -> Path:
+    """The picture of one source, drawn once under folder and named name."""
+    home = folder / hashlib.sha256(f"{kind}\n{source}{ARCH_LIB if kind == 'arch' else ''}".encode()).hexdigest()[:16]
+    if found := sorted(home.glob(f"{name}.*")):
+        return found[0]
+    home.mkdir(parents=True, exist_ok=True)
+    return draw(kind, source, home / f"{name}.png")
+
+
 def pictures(folder: Path, label: str, show_me: str) -> list[str]:
     """Local image files for a PR's Show me, drawn once per source under folder and named after the PR for Slack's title."""
     drawn = []
@@ -156,14 +175,24 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
             else:
                 print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
             continue
-        name = label if index == 1 else f"{label} ({index})"
-        home = folder / hashlib.sha256(f"{kind}\n{source}{ARCH_LIB if kind == 'arch' else ''}".encode()).hexdigest()[:16]
-        if cached := sorted(home.glob(f"{name}.*")):
-            drawn.append(str(cached[0]))
-            continue
-        home.mkdir(parents=True, exist_ok=True)
         try:
-            drawn.append(str(draw(kind, source, home / f"{name}.png")))
+            drawn.append(str(cached(folder, label if index == 1 else f"{label} ({index})", kind, source)))
         except (PictureError, ValueError) as error:
             print(f"drive card: {label}: its Show me {kind} does not draw: {error}", file=sys.stderr)
     return drawn
+
+
+def drawn(folder: Path, show_me: list[str]) -> list[str]:
+    """A question card's Show me with each fenced block but mermaid replaced by one line holding its picture, `![Show me](/abs.png)`, which cc-slack draws on the card where the line sits: arch and dot as diagrams, any other fence as highlighted code."""
+    count = 0
+
+    def picture_line(fence: re.Match[str]) -> str:
+        nonlocal count
+        language = fence[1].lower()
+        if language == "mermaid":
+            return fence[0]
+        count += 1
+        kind = language if language in DIAGRAMS else f"code:{language}"
+        return f"![Show me{f' ({count})' if count > 1 else ''}]({cached(folder, 'show-me', kind, fence[2])})"
+
+    return FENCE.sub(picture_line, "\n".join(show_me)).split("\n")

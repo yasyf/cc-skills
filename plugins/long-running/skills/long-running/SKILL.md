@@ -1,6 +1,6 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a Sonnet handler in the next, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack and the terminal; cc-slack puts the eyes on each of his messages the moment it lands, and the communicator acks inside 5 to 10 seconds, alone in one message, starts a handler in the next, on Opus unless the ask is very simple, and does nothing else in its turn; the handler reads what it needs, answers him itself, shares what he asked in the thread he named, and hands orders and rulings over. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
@@ -9,7 +9,10 @@ A drive is two sessions and the background agents one of them starts. His ruling
 "We like the coordinator / communicator split". Both sessions run Fable 5.2, `claude-fable-5-2`,
 and the only other Fable in the drive is the light design lane that designs a tricky order before
 any builder starts, by the `design` page: builders, readers, codex lanes and every
-other job keep the model their agent names. His rulings, Nov 9 1:32 PM: "Our coordinator and
+other job keep the model their agent names. Handlers and readers run on Opus; the communicator or
+coordinator passes `model: "sonnet"` only for a very simple ask, such as a record posted as written
+or a one-fact lookup, and anything needing research, an explanation, a design read or a judgment
+call stays on Opus. His ruling, Nov 10 8:57 PM: "also you ned to use judgemnt dont put retarded sonnet agsnets on complex or important stuff only whern itsd a very simple ask, for more complex use opus from the start". His rulings, Nov 9 1:32 PM: "Our coordinator and
 communicator lanes should switch to fable 5.2, released today (still no other lanes should be
 fable)", and 9:38 PM, which makes the design lane the one exception: "when you have a tricky design
 like this to make, you should 1) spawn a light fable lane just for the initial design and 2) ask

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from drive import github, limits, orca, place, reads, render, settled, slack, state, watch
+from drive import github, limits, orca, picture, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -323,8 +323,6 @@ def job_ask(args: argparse.Namespace) -> int:
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.question(text)
-    if refused := limits.tap_refusal("\n".join([asked.title, *asked.summary, *asked.options]), data["prs"]):
-        raise DriveError(refused)
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), os.getcwd(), args.unsettled, "--unsettled"):
@@ -335,6 +333,18 @@ def job_ask(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["jobs"][args.id].update(question=str(kept), state="waiting", said=asked.title, unsettled=args.unsettled, updated=state.stamp())
     return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
+
+
+def job_card(args: argparse.Namespace) -> int:
+    """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures."""
+    name = state.resolve(args.drive)
+    asked = limits.question(Path(args.file).expanduser().read_text())
+    try:
+        show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
+    except (picture.PictureError, ValueError) as error:
+        raise DriveError(f"the Show me of {args.file} does not draw: {error}") from None
+    card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
+    return emit(args, json.dumps(card), card)
 
 
 def job_report(args: argparse.Namespace) -> int:
@@ -1053,6 +1063,20 @@ def parser() -> argparse.ArgumentParser:
         help="one string naming every recorded answer of his the refusal listed, by id, and why it does not settle this question",
     )
     verb.set_defaults(run=job_ask)
+    verb = job.add_parser(
+        "card",
+        parents=both,
+        help="print the question card a kept ASK block draws, its Show me code drawn as pictures",
+        description=(
+            "Read a kept ASK block and print its question card as JSON for `slack_dm_status(card=…)`: its question as"
+            " the title, its summary, then a `*Show me*` line and its Show me with each fenced block but mermaid drawn"
+            " as a picture on a line of its own, highlighted in the language its fence names, its options, the"
+            " recommended one, the drive, and --waits."
+        ),
+    )
+    verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")
+    verb.add_argument("--waits", required=True, help="the card's waits id, <drive>:<job>-<the ask record's seq>")
+    verb.set_defaults(run=job_card)
     verb = job.add_parser(
         "report",
         parents=both,

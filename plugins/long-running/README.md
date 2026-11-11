@@ -33,7 +33,7 @@ Run `drive setup` once so cc-slack's daemon can call `drive card` to draw PR car
 
 | Concept | What it is |
 | --- | --- |
-| Communicator | The session you talk to. For each of your messages it reacts and acks inside 5 to 10 seconds, with nothing else in that message, then starts a Sonnet handler; the handler answers you itself, shares what you asked in the thread you named, and hands orders and rulings to the coordinator. Reports, cards, drafts and checks all run in handlers, never in the communicator's own turn, so your next message is picked up within seconds too. |
+| Communicator | The session you talk to. For each of your messages it reacts and acks inside 5 to 10 seconds, with nothing else in that message, then starts a handler, on Opus unless the ask is very simple; the handler answers you itself, shares what you asked in the thread you named, and hands orders and rulings to the coordinator. Reports, cards, drafts and checks all run in handlers, never in the communicator's own turn, so your next message is picked up within seconds too. |
 | Coordinator | The session that runs the drive. It turns your messages into orders and jobs, routes events, lands and installs, and sends the communicator what to post. It never posts to Slack. |
 | Order | One thing you asked for, in your words, with a state, an optional due time, its jobs, and its proof. |
 | Job | One background agent owning one deliverable: a `builder` ships one change from code through merge and install, a `reader` answers one question an order needs, a `design` lane on Fable draws the initial design of a tricky order and its questions for you before any builder starts, a `codex` lane reviews or diagnoses. A job that reproduces a bug saves one pick-up-and-run file that `drive status` lists. While your Mac is over its load limit, a builder on the monorepo starts as a remote lane on a Sprite instead, so its builds and checks run there. |
@@ -48,7 +48,7 @@ State lives in one file per drive under `~/.local/state/long-running/<drive>/`, 
 | --- | --- | --- |
 | `long-running:long-running` | Skill | Makes this session the communicator or the coordinator of a named drive. |
 | `long-running:builder` | Agent | Ships one change end to end: code, PR, CI, merge, install, check. |
-| `long-running:handler` | Agent | Handles one of your messages on Sonnet and answers you in Slack itself: a read, a share in the thread you named, or a handoff to the coordinator. |
+| `long-running:handler` | Agent | Handles one of your messages on Opus, or Sonnet for a very simple one, and answers you in Slack itself: a read, a share in the thread you named, or a handoff to the coordinator. |
 | `long-running:reader` | Agent | Answers one question read-only, with evidence. |
 | `long-running:designer` | Agent | Draws the initial design of a tricky order read-only on Fable, with each fork as a short question for you, before any code is written. |
 | `drive` | CLI | Drive state: orders, jobs and their reproduction files, PRs, taps, status, the event stream, PR cards, and plugin install after merge; `drive place` says whether a builder starts here or remote, `drive job launch`, `resume` and `end` run a remote lane through the `orca` plugin, `drive job ask` keeps a job's question only once it fits on one short card, `drive job report` keeps the rest of a job's one-line return, and `drive manual <page>` prints one page of the skill, whose body is only a short map of them so a compaction brings little of it back. |

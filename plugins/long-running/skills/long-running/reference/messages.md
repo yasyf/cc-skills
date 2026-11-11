@@ -18,7 +18,7 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A line in his thread | 60 words |
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
-| A question card's Show me, the worked example between its summary and options | none: drawn whole as code, outside the 150 |
+| A question card's Show me, the worked example between its summary and options | none: drawn whole, its code as highlighted pictures, outside the 150 |
 | Each option on a card | one line of 25 words, saying what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
@@ -65,7 +65,12 @@ limit".
   quotes each message of his it answers as `asked`.
 - A bold line and at most two sentences. A table only for three or more parallel items.
 - Link each thing you name that he could open, where you name it, by [What goes in](#what-goes-in).
-  A PR's link text says what it does, and the line says what it serves: the order of his it carries
+  A message that mentions a change names it, its PR's link with link text saying in one line what
+  the change does, or it is not sent: never "a fix", "the change" or "a cc-slack fix" alone. A
+  handler given a record that mentions a change without its PR finds the PR before it posts, with
+  `drive status` or `gh pr list --search`, and names it. His words, Nov 10 8:46 PM and 8:47 PM:
+  "fucking say what it is jesus" and "why the fuckl di yuou think it was acceptbale to send the last
+  message and omit that". The line says what each PR serves: the order of his it carries
   out, in his words, "port of #N", or "Drive tooling:" and what it unblocks. Anything else goes in by what
   it is, never by a name he has not used himself, such as a pipeline step, an id or a function name.
   Name only what the message needs, and no mechanism he did not ask about.
@@ -97,8 +102,8 @@ limit".
   Each item in it that waits on him carries its card's permalink or `waits` id, so the handler
   never searches for the card.
 - Any line that names a card, in a summary, a catch-up or a link line, names it by the card's own
-  permalink: the bare URL on a line of its own, the form Slack unfurls. cc-slack shows the card
-  there with its buttons, answerable, and a tap on either copy answers both. Never a copy of the
+  permalink: the bare URL on a line of its own, the form Slack unfurls. Slack draws the card
+  there, and cc-slack posts no copy of it, so the card stays one message he answers where it sits. Never a copy of the
   card's words, never the permalink as link text (`<url|text>`), never `card-copy`. His words, Nov
   10 7:31 PM, under "The first needs your tap: <permalink|permalink>": "this should have ben an
   embeeded exopanded card, instad its just a random URL", and 7:32 PM: "you keep doing variants of
@@ -159,19 +164,25 @@ row and cell holds real contents, measured or worked out from the code and marke
 the names of what will be measured later, and `drive job ask` refuses a table with one value in
 every cell. His words, Nov 10 7:35 PM, under a card whose table read "time, bytes, disk" in every
 row: "this table just says `time,bytes,disk` for everything". Code goes
-in ``` fences that name no language, since Slack shows a fence's language as the first line of the
-code, and each caption outside the fences is one line of at most 25 words. A comparison goes in as a
-markdown table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`.
-cc-slack draws each fenced block as a code block of its own, whole, the table as a table, and each
-picture line as an image where it sits, uploaded to the drive's private bucket; a picture inside a
-sentence or a table cell stays text, so `drive job ask` refuses one there. The Show me counts
-toward no limit. Two to four
+in ``` fences that name their language, such as ```sql, ```go or ```text for a command's output, and
+each caption outside the fences is one line of at most 25 words. A comparison goes in as a markdown
+table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`. `drive job card`
+draws each fenced block but a mermaid one as a picture of the code, highlighted in the language its
+fence names, the way a PR card's Show me is drawn, and puts it on a line of its own where the fence
+was; a fence that names no language is drawn as freeze guesses it, or as plain text. cc-slack draws
+each picture line as an image where it sits, uploaded to the drive's private bucket, and the table as
+a table; a picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there.
+His words, Nov 10 8:38 PM, under cards whose code had gone out as raw monospace text: "code used to
+be an image that was syntax highlightd why did you get rid of that?". The Show me counts toward no
+limit. Two to four
 options, each one line of at most 25 words saying what he gets and what it costs, the title,
 summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
 posts the one section its question rests on, in plain words, and that is the only way they reach
 him.
 
-The card is one `slack_dm_status(card=…, thread_ts=<his thread>)` call. cc-slack posts a card that
+The card is one `slack_dm_status(card=<what drive job card prints>, thread_ts=<his thread>)` call,
+the card printed by `drive job card <the record's ask file> --waits <its waits id>`, never one put
+together by hand. cc-slack posts a card that
 names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
 never rests on a handler's reading. It puts one copy of the card with its buttons in that thread.
 A drive tooling card is given no thread, since its order has none. The handler then closes
@@ -180,8 +191,10 @@ still comes back as an `answer` record, so card posted and he answered stay two 
 an answer or ruling he gave elsewhere replaces never keeps asking: the coordinator's `drive answer`
 settles it in place, showing his words and a link to them where its buttons were. To change
 the words of a card he has not answered, draw it again under its `waits` id. That one call edits
-the card where it sits, redraws every copy of it already in a thread, and posts one fresh copy
-beside it. While a card he has not answered is being redone, it says so where it sits and keeps its
+the card where it sits, its layout, pictures and buttons included, and posts nothing: every older
+copy of it loses its buttons and reads one line linking the card. His answer, Nov 10: "edit the
+original message to remove the buttons". Never `slack_edit` a card: an edit with text alone replaces
+its layout and buttons with plain text, and cc-slack refuses it. While a card he has not answered is being redone, it says so where it sits and keeps its
 buttons. The moment a redo starts, the coordinator sends an `ask` record with `--attr
 ask=<the card's kept file>`, `--attr waits=<its waits id>` and `--attr reworking=<what is being
 redone, and when it is back>`. The handler draws the card again under that id from that file, its

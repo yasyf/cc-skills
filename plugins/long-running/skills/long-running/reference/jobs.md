@@ -11,7 +11,9 @@ this Mac, and any job that touches this Mac's processes always run here.
 
 **On this Mac.** Start the job with the Agent tool: `subagent_type` `long-running:builder`,
 `long-running:reader` or `codex:codex-wrapper`, `run_in_background: true`, a short
-`description`, and the brief as `prompt`; a design lane's call is in [Design first](design.md). **Never pass `name`.** Agent teams are on here, and a
+`description`, and the brief as `prompt`, plus `model: "sonnet"` for a reader only when its
+question is a one-fact lookup: a reader runs on Opus otherwise, since a read that needs research or
+a judgment call goes to Opus from the start, by his Nov 10 8:57 PM ruling; a design lane's call is in [Design first](design.md). **Never pass `name`.** Agent teams are on here, and a
 named agent becomes a teammate that never wakes on events. Record the agent id the call
 returns: `drive job add <kind> --order <o> --goal "<one line>" --agent <id> [--part "<part>"]...`.
 The watch reads the agent's transcript, never the stored state: a running job whose agent ended

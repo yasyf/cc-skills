@@ -40,6 +40,10 @@ COMMUNICATOR_RULES = (
         "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
         " deliverable and any path you know that answers it; never retype rules, since the handler's agent"
         " definition is its standing brief, and a handler's return is one line: its permalinks and at most three facts."
+        ' A handler runs on Opus; pass model: "sonnet" only for a very simple one, a ready record, a POST report'
+        " posted as written or a one-fact lookup, never for research, an explanation, a design, a card or a judgment"
+        ' call, by his Nov 10 8:57 PM words "use judgemnt … only whern itsd a very simple ask, for more complex use opus'
+        ' from the start".'
     ),
     (
         "After a compaction or a restart, your first call is the ToolSearch below; then one handler posts a line in"
