@@ -117,13 +117,18 @@ until he lifts it.
    push, merge. A mid-stack PR runs no CI, so never wait on one.
 3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
-     `long-running@skills`) waits for the release that contains the merge, updates the plugin, and
-     prints the installed version. Installs run at once take turns on the update under one flock on
-     `plugins/.update.lock` in the Claude config directory, a few seconds each, since Claude Code
-     re-clones a stale marketplace into one fixed `<marketplace>..clone` directory and two clones at
-     once delete each other's files. It refuses, naming the installed version, its sha and the merge sha,
-     when the update left the plugin at a commit without the merge, as a marketplace clone holding moved
-     tags does. Installing long-running also restarts each drive's dashboard still serving other code, a
+     `long-running@skills`) waits for the release that holds the merge, updates the plugin, and
+     prints the installed version. A release holds it when the merge is in the release's commit and
+     in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
+     binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
+     sync merged after a fix its `cci` was built without). While it waits it prints a line naming
+     the newest release and what of it lacks the merge. Installs run at once take turns on the
+     update under one flock on `plugins/.update.lock` in the Claude config directory, a few seconds
+     each, since Claude Code re-clones a stale marketplace into one fixed `<marketplace>..clone`
+     directory and two clones at once delete each other's files. It refuses when the update left the
+     plugin at a commit without the merge, as a marketplace clone holding moved tags does, or running
+     a binary whose release tag lacks it, naming the installed version, that commit or release, and
+     the merge sha. Installing long-running also restarts each drive's dashboard still serving other code, a
      line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
      the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
