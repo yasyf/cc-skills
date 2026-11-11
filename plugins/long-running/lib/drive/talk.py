@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import cli, picture, refs, render, slack, state, view
+from drive import cli, picture, refs, slack, state
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
@@ -11,7 +11,7 @@ CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECA
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, opening with each card of his that holds built work in its thread, after a catch-up's title; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing."""
+    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing."""
     if unbacked := refs.unbacked(post.get("text") or ""):
         raise DriveError(f"nothing posted: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(unbacked)}")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
@@ -21,7 +21,6 @@ def say(name: str, post: dict) -> str:
             raise DriveError(f"nothing posted: {refused}")
     if report.get("catch_up"):
         post = post | {"text": titled(name, post.get("text") or "")}
-    post = post | {"text": waiting_first(name, post)}
     if post.get("dry_run"):
         return dry(name, post)
     reply = posted(name, post)
@@ -42,24 +41,6 @@ def titled(name: str, text: str) -> str:
     """His catch-up, opening with the title the tool writes from the time he was last heard before he came back, in place of any title the text came with."""
     [*_, back] = [event for event, _ in state.read_events(name) if event["kind"] == "catch-up"]
     return f"*Catch-up since {back['since']}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
-
-
-def waiting_first(name: str, post: dict) -> str:
-    """The post's text, opened, after any catch-up title, by a WAITING-ON-HIM line for each card of his that holds a built job of an order in its thread, or of any order at his DM root, that it does not carry yet; a card or PR card opens with none."""
-    text = post.get("text") or ""
-    found = view.live_cards(name)
-    if post.get("card") or post.get("tap_prs") or found is None:
-        return text
-    data = state.load(name)
-    thread = post.get("thread_ts")
-    lines = [
-        line
-        for entry in view.waiting_on_him(data, found)
-        if (not thread or view.dm_thread(data, data["orders"][entry["order"]]) == thread) and (line := render.waiting_line(entry)) not in text
-    ]
-    title = CATCH_UP_TITLE.match(text)
-    cut = title.end() if title else 0
-    return "\n".join(filter(None, [text[:cut].rstrip("\n"), *lines, text[cut:]]))
 
 
 def dry(name: str, post: dict) -> str:
@@ -96,9 +77,14 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now."""
+    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now. Words `cc-slack check-post` finds anything in go nothing out, whoever wrote them."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
+    if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")))):
+        raise DriveError(
+            "nothing posted: `cc-slack check-post` finds this in the post's words, each {card:}, {pr:}, {order:} and {record:} as the words it draws;"
+            " fix each, naming a card, PR or order in words of your own as {pr:<number>|<words>}, then post the fixed words:\n" + "\n".join(findings)
+        )
     visuals, words, lifted = shown(name, post)
     data = state.load(name)
     prs = data["prs"]

@@ -17,9 +17,10 @@ INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
     " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>} and the"
     " record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
-    " shows it; a line naming a cause with no {record:} refuses the post. The drive's verbs are tools too: heard,"
-    " record for the records between the two sessions, order, job and pr taking several ops a call, and status; each"
-    " takes dry_run."
+    " shows it, under its title or under the words after a |, as {pr:298|the fix that draws charts}; a line naming a"
+    " cause with no {record:} refuses the post. It posts exactly the words `cc-slack check-post` passed and adds none."
+    " The drive's verbs are tools too: heard, record for the records between the two sessions, order, job and pr taking"
+    " several ops a call, and status; each takes dry_run."
 )
 TEXT = {"type": "string"}
 VISUAL = {
@@ -50,9 +51,10 @@ SAY = {
         "Post one message to his Slack DM and show it on the drive's dashboard, in one call: a line, an answer, a PR"
         " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>},"
         " {pr:<number, owner/repo#number or URL>} and {order:<id>} become a link under the words that name the card,"
-        " PR or order, which Slack draws the card under, and a link on the dashboard; {record:<seq>} becomes that cci"
-        " record's own words, linked to what it links. A reference that names nothing of the drive's refuses the post,"
-        " and so does a line naming a cause, such as because or caused, with no {record:} on it. Prints POSTED"
+        " PR or order, or the words after a | such as {pr:298|the fix that draws charts}, which Slack draws the card"
+        " under, and a link on the dashboard; {record:<seq>} becomes that cci record's own words, linked to what it"
+        " links. A reference that names nothing of the drive's refuses the post, and so do a line naming a cause, such"
+        " as because or caused, with no {record:} on it and any word `cc-slack check-post` finds. Prints POSTED"
         " <permalink>, plus CARD <permalink> for a card; with order it also records the post on that order, delivering"
         " the parts its record names, and refuses, posting nothing, a post in none of that order's threads."
     ),
@@ -80,8 +82,9 @@ SAY = {
                 "type": "string",
                 "description": (
                     "The cci seq of the report record this post carries. With order, the post delivers the part its part attr"
-                    " names, else each part of that order its job attr's job delivers, wherever it went. A record with"
-                    " catch_up=true is his catch-up, which opens with *Catch-up since <the time he was last heard>*"
+                    " names, wherever it went, or each part of that order its close attr names; a record naming neither is a"
+                    " progress line and delivers no part, whatever job it names. A record with catch_up=true is his catch-up,"
+                    " which opens with *Catch-up since <the time he was last heard>*"
                 ),
             },
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing"},

@@ -868,7 +868,13 @@ def told(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
 
 def waiting(*cards: str) -> list[str]:
     since = render.when(state.stamp(T0))
-    return [f"WAITING-ON-HIM {{card:{card}}} blocks j1, built on lane/built, since {since}" for card in cards]
+    return [f"WAITING-ON-HIM {card} blocks j1, built on lane/built, since {since}, posted {POSTED}" for card in cards]
+
+
+def paused(card: str, thread: str = "1.2") -> dict:
+    since = render.when(state.stamp(T0))
+    words = f"Since {since} the recommended answer to {{card:{card}}} is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
+    return {"text": words, "thread_ts": thread}
 
 
 def question(waits: str) -> dict:
@@ -989,16 +995,19 @@ def test_a_time_set_on_an_order_with_no_thread_is_said_once_and_kept_by_being_sa
     assert state.load(demo)["orders"]["o1"]["kept"] == state.stamp(T0)
 
 
-def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
+def test_a_built_job_is_told_once_under_each_card_it_waits_on_and_freed_once_when_he_answers_the_last(
+    demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]
+) -> None:
     serve(monkeypatch, {})
-    asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
+    other = "https://acme.slack.com/archives/D123/p1794200000000300"
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), question("demo:j1-7-b") | {"url": other}], "pr_cards": []})
+    watch.view.refresh_cards(demo)
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a", "demo:j1-7-b"]}
     watching = watcher(demo)
-    said = waiting("demo:j1-7-a", "demo:j1-7-b")
-    assert watch.run_pass(watching, T0) == [f"{line}, posted {POSTED}" for line in said]
-    assert told == [{"text": "\n".join(said), "thread_ts": None}]
+    assert watch.run_pass(watching, T0) == waiting("demo:j1-7-a", "demo:j1-7-b")
+    assert told == [paused("demo:j1-7-a"), paused("demo:j1-7-b", "1794200000.000300")]
     asking(monkeypatch, demo, "demo:j1-7-a")
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
     asking(monkeypatch, demo)
@@ -1018,7 +1027,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
         data["prs"][KEY]["state"] = "merged"
         data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == [f"{line}, posted {POSTED}" for line in waiting("demo:j1-7-a")]
+    assert watch.run_pass(watching, T0) == waiting("demo:j1-7-a")
     monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "pr_cards": []})
     watch.view.refresh_cards(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
@@ -1027,7 +1036,7 @@ def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_i
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
 
 
-def test_a_card_holding_a_built_job_is_posted_once_in_its_orders_thread_and_again_after_a_failed_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_card_holding_a_built_job_is_told_once_in_its_own_thread_and_again_after_a_failed_post(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
@@ -1045,9 +1054,8 @@ def test_a_card_holding_a_built_job_is_posted_once_in_its_orders_thread_and_agai
     monkeypatch.setattr(talk, "posted", post)
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
-    [line] = waiting("demo:j1-7-a")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"{line}, posted {POSTED}"]
-    assert posts == [{"text": line, "thread_ts": "1794200000.000100"}] * 2
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == waiting("demo:j1-7-a")
+    assert posts == [paused("demo:j1-7-a")] * 2
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=2)) == []
     assert state.load(demo)["jobs"]["j1"]["waiting_said"] == ["demo:j1-7-a"]
 
@@ -1226,7 +1234,7 @@ def test_a_line_the_coordinator_acts_on_now_wakes_it_and_the_rest_wait_for_its_b
         f"PR {KEY}: approved [o1 j1]",
         f"PR {KEY}: checks failed [o1 j1]",
         "EVENT note",
-        "WAITING-ON-HIM {card:demo:j1-7-a} blocks j1, built on lane/built, since 9:00 AM, posted https://acme.slack.com/archives/D123/p1",
+        "WAITING-ON-HIM demo:j1-7-a blocks j1, built on lane/built, since 9:00 AM, posted https://acme.slack.com/archives/D123/p1",
     ]
     assert watch.sent(watcher(demo), "root", waking + batched, T0) == []
     assert posted(sent) == [("handoff", f"root@{demo}", line) for line in waking] + [("evidence", f"root@{demo}", line) for line in batched]

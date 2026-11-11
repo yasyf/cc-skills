@@ -59,9 +59,9 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    - `drive status`, `drive view`, the dashboard and his Slack status page show it built, with its
      branch and each card. Outside an incident, `drive pr add` refuses a new PR for it while one of
      its cards is open.
-   - The minute a card holds a built job, the watch posts `WAITING-ON-HIM` with the card, job,
-     branch and since when, in the order's thread or else at his DM root. Every drive post there
-     opens with that line while the card is open, and `drive view` puts that card first in his queue.
+   - The minute a card holds a built job, the watch replies once in that card's own thread, in
+     plain words, that its recommended answer is built and paused on his pick, and `drive view` puts
+     that card first in his queue.
    - A job waits only on his cards, never on another job, so his tap frees it. The watch drops each
      card as he answers it and says `FREE <j>` once, when the last is answered and no question the
      job asked him is open, which wakes the coordinator. Then a handoff builder opens the PR,

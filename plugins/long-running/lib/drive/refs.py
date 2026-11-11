@@ -5,29 +5,34 @@ from pathlib import Path
 from drive import dashboard, picture, reads, state, view
 from drive.state import DriveError
 
-REF = re.compile(r"\{(card|pr|order|record):([^{}\s]+)\}")
+REF = re.compile(r"\{(card|pr|order|record):([^{}\s|]+)(?:\|([^{}]+))?\}")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
 CAUSE = re.compile(r"\b(?:because|caus(?:e|ed|es|ing)|due to|culprit)\b", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|\u201c[^\u201d\n]*\u201d')
 
 
 def resolved(name: str, text: str) -> dict[str, dict]:
-    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it and where it opens; one that names nothing refuses the post."""
+    """Each reference the text holds, read from the drive: {card:<waits id>}, {pr:<number, owner/repo#number or URL>}, {order:<id>} and {record:<seq>}, with the words that name it, the words after a | when it has them, and where it opens; one that names nothing refuses the post."""
     found = {}
     cards = None
     for match in REF.finditer(text):
         if match[0] in found:
             continue
+        label = (match[3] or "").strip()
         match match[1]:
             case "card":
                 cards = cards or open_cards(name)
                 found[match[0]] = card(cards, state.load(name), match[2])
             case "pr":
-                found[match[0]] = pr(state.load(name)["prs"], match[2])
+                found[match[0]] = pr(state.load(name)["prs"], match[2], label)
             case "order":
                 found[match[0]] = order(name, state.load(name), match[2])
             case "record":
+                if label:
+                    raise DriveError(f"{match[0]} reads as the record's own words, so the lane that measured it is quoted; drop the |{label}")
                 found[match[0]] = record(name, match[2])
+        if label:
+            found[match[0]]["title"] = label
     return found
 
 
@@ -62,16 +67,22 @@ def card(cards: list[dict], data: dict, waits: str) -> dict:
     raise DriveError(f"{{card:{waits}}} names no card the drive drew, open or settled; `cc-slack drive-cards --drive <drive>` lists each open card's waits id")
 
 
-def pr(prs: dict, ref: str) -> dict:
-    """A PR the drive holds, named by what it does."""
+def pr(prs: dict, ref: str, label: str) -> dict:
+    """A PR the drive holds, named by what it does, or any other PR named by its owner/repo#number or URL under the words the post gives it."""
     number = ref.removeprefix("#")
     keys = [key for key in prs if key.endswith(f"#{number}")] if number.isdigit() else [state.pr_key(ref)]
     if len(keys) > 1:
         raise DriveError(f"{{pr:{ref}}} could be {' or '.join(keys)}: name it as owner/repo#{number}")
-    if not keys or keys[0] not in prs:
-        raise DriveError(f"{{pr:{ref}}} names no PR of the drive's; drive status lists them")
-    found = prs[keys[0]]
-    return {"kind": "pr", "title": view.pr_title(found) if found["title"] else keys[0], "url": found["url"], "board": found["url"]}
+    if keys and keys[0] in prs:
+        found = prs[keys[0]]
+        return {"kind": "pr", "title": view.pr_title(found) if found["title"] else keys[0], "url": found["url"], "board": found["url"]}
+    if keys and label:
+        url = state.pr_url(keys[0])
+        return {"kind": "pr", "title": label, "url": url, "board": url}
+    raise DriveError(
+        f"{{pr:{ref}}} names no PR of the drive's, which drive status lists; name any other PR as"
+        " {pr:<owner/repo#number>|<words saying what it does>}"
+    )
 
 
 def order(name: str, data: dict, order_id: str) -> dict:

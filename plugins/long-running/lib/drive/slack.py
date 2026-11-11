@@ -9,6 +9,7 @@ from drive.install import config_dir
 
 PLUGIN = "cc-slack@cc-slack"
 MESSAGE_LINK = re.compile(r"/archives/[A-Z0-9]+/p(\d{10})(\d{6})")
+WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
 RECENT = 50
 WHOLE_THREAD = 1000
 
@@ -47,6 +48,11 @@ def check_post(text: str) -> list[str]:
     return result.stdout.splitlines()
 
 
+def post_findings(text: str, draws_card: bool) -> list[str]:
+    """What `cc-slack check-post` finds in the words a post sends; a post that draws a question card or a PR's tap card carries the card its words say waits on him."""
+    return [finding for finding in check_post(text) if not (draws_card and WAITS_WITHOUT_CARD.match(finding))]
+
+
 def draw_refusal(card: dict) -> str | None:
     """Why cc-slack refuses to draw a status card, in its own words, or None when it draws; `cc-slack card render` runs the checks the post runs, reaching neither Slack nor the daemon."""
     try:
@@ -83,9 +89,11 @@ def names_order_pr(data: dict, order_id: str, root: dict | None) -> bool:
 
 
 def order_threads(data: dict, order: dict) -> list[tuple[str, str]]:
-    """The threads a line for an order goes in: its own, then each of its cards'."""
-    own = state.promise_thread(data, order)
-    return list(dict.fromkeys([*([own] if own else []), *card_threads(data, order)]))
+    """The threads a line for an order goes in: its own, the own thread of each incident it joined, whose owner job carries it, then each of its cards'."""
+    carriers = (data["orders"][data["jobs"][job_id]["order"]] for job_id in order["jobs"])
+    joined = [other for other in carriers if order["incident"] and other["incident"] and other is not order]
+    own = filter(None, (state.promise_thread(data, other) for other in [order, *joined]))
+    return list(dict.fromkeys([*own, *card_threads(data, order)]))
 
 
 def order_posts(data: dict, order: dict) -> tuple[list[datetime], str | None]:

@@ -459,12 +459,12 @@ def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
     )
 
 
-def reported_parts(data: dict, order_id: str, report: dict) -> list[str]:
-    """The parts of the order a report's post delivers: the part it names, else each part of the order its job delivers."""
+def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
+    """The parts of the order a post delivers: the part its report or --part names, each part of an order its report closes, or the one part of an order a post carrying no report answers. A report naming neither part nor close is a progress line that delivers none, whatever job it names."""
     if part := report.get("part"):
-        return [part]
-    if job_id := report.get("job"):
-        return state.job_parts(find(data["jobs"], job_id, "job"), order_id)
+        return pick_parts(order_id, order, [part])
+    if order_id in report.get("close", "").split() or not report and len(order["parts"]) == 1:
+        return list(order["parts"])
     return []
 
 
@@ -474,10 +474,8 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
         raise DriveError(refused)
-    named = reported_parts(data, order_id, report)
-    parts = pick_parts(order_id, order, named) if named else list(order["parts"])
-    delivered = parts if named or len(parts) == 1 else []
-    at, ours = drive_post_at(link, data, order_id, bool(named))
+    delivered = reported_parts(order_id, order, report)
+    at, ours = drive_post_at(link, data, order_id, bool(report.get("part")))
     line = state.stamp(at)
     closing = order_id in report.get("close", "").split()
     kept = ""
@@ -1734,7 +1732,10 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--record",
         metavar="SEQ",
-        help="the report record the post carries: it delivers the part its part attr names, else each part of the order its job attr's job delivers, counted in any channel",
+        help=(
+            "the report record the post carries: it delivers the part its part attr names, counted in any channel, or each part of"
+            " an order its close attr names; a record naming neither is a progress line and delivers no part"
+        ),
     )
     verb.set_defaults(run=order_posted)
     verb = order.add_parser("show", parents=both, help="drive status for these ids")

@@ -21,6 +21,7 @@ OPEN_STATES = ("blocked", "running", "built", "waiting", "not started")
 FINISHED_STATES = ("merged", "live")
 FINISHED_NAMED = 5
 KIND_WORDS = {"question": "Question", "tap": "Your tap", "late": "Late"}
+BUILT_WORDS = "Built, paused on your pick"
 CHECK_MARKS = {"pass": ":large_green_circle:", "fail": ":red_circle:", "pending": ":large_yellow_circle:"}
 TITLE_CHARS = 100
 DETAIL_CHARS = 100
@@ -52,9 +53,8 @@ def link(title: str, url: str | None) -> str:
 
 
 def queue_line(number: int, item: dict) -> str:
-    kind = "WAITING-ON-HIM" if item.get("built") else KIND_WORDS[item["kind"]]
+    kind = BUILT_WORDS if item.get("built") else KIND_WORDS[item["kind"]]
     parts = [f"**{kind}:** {link(item['title'], item['url'])}"]
-    parts.extend(f"{built['job']} built on `{built['branch']}` waits on it" for built in item.get("built", []))
     if item.get("holds"):
         parts.append(f"holds up {item['holds']} finished")
     if item.get("blocks"):

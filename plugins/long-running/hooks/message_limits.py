@@ -24,8 +24,10 @@ QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
-WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
-TITLED = " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words."
+TITLED = (
+    " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words;"
+    " {{pr:<number>|<words>}} names one in fewer words of your own."
+)
 UNREAD = (
     "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={dm},"
     " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
@@ -131,11 +133,9 @@ def unchecked(tool_input: dict) -> str | None:
     if not (text := tool_input.get("text") or ""):
         return None
     try:
-        findings = slack.check_post(text)
+        findings = slack.post_findings(text, bool(tool_input.get("card") or tool_input.get("tap_prs")))
     except slack.SlackError as error:
         return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
-    if tool_input.get("card") or tool_input.get("tap_prs"):
-        findings = [finding for finding in findings if not WAITS_WITHOUT_CARD.match(finding)]
     if not findings:
         return None
     return "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings)
