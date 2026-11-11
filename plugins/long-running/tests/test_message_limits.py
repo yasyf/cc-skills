@@ -1180,3 +1180,6 @@ def test_a_switch_command_names_the_terminal_drive_status_prints(talker: str, tr
     assert reason.startswith("refused: `orca terminal switch --terminal term_old` names a terminal no session of this drive runs in")
     assert "as the role's line `drive status` prints it" in reason
     assert posted(transcript, text="Open it with `orca terminal switch --terminal term_live`.") is None
+    with state.edit("demo") as data:
+        data["subcoordinators"]["Iris"] = {"session": "iris-1", "terminal": "term_iris"}
+    assert posted(transcript, text="Open Iris's coordinator with `orca terminal switch --terminal term_iris`.") is None

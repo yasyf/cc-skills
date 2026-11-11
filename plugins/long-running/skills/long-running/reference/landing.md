@@ -91,8 +91,8 @@ for its repository says, then return `DONE <proof>`.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking. His Nov 10 plan put the green gate
-back on for cc-skills, whose CI takes about a minute; every other `yasyf/*` repository keeps it off
+No tap: by his standing rule a `yasyf/*` PR merges without asking. His plan put the green gate back on
+for cc-skills, whose CI takes about a minute; every other `yasyf/*` repository keeps it off
 until he lifts it.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
@@ -100,8 +100,8 @@ until he lifts it.
    the PR's head is green, which `ccx vcs ship` waits for and prints; the landing guard refuses the
    merge while one still runs or is red. When GitHub does not answer the guard's read, the merge runs
    and a note beside its output says so: read its checks once GitHub answers and fix a red one
-   forward. On Nov 10 #4153 merged before its check ran and pushed the
-   skill body past its 8,000-character cap, and main stayed red until #4154 cut it back. Any other
+   forward. A merge before its check ran once pushed the skill body past
+   its 8,000-character cap and left main red. Any other
    `yasyf/*` PR merges at once, waiting only for a check that is red on the PR's own change: fix it,
    push, merge. A mid-stack PR runs no CI, so never wait on one.
 3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
@@ -117,7 +117,8 @@ until he lifts it.
      the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
      script for each hook it registered at start, but loads a hook added since, and its skills, agents,
      and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
-     every drive's coordinator and communicator terminal on this Mac once each is idle. A session still
+     every drive session's terminal on this Mac, the communicator's, the top coordinator's and each
+     sub-coordinator's, once each is idle. A session still
      busy after 30 seconds gets it typed into its prompt, where Claude Code holds it until the turn ends,
      since a turn can run for 20 minutes. It prints a line per session. A session another install
      already reloaded after this update is not sent it again, so installs run at once reload a session
@@ -169,8 +170,7 @@ Record any other class by its name with `drive pr set <url> --exempt "<class>"` 
 
 **His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle,
 and a push that carries out his own pick on a card the PR waited on, since his pick is what he
-approved. On Nov 9 a gate refused a PR he had approved because its new head carried out his "Halve
-to 512" pick, which it called "a design answer, not an Approve on the PR".
+approved.
 When a push changes what he approved, run `drive pr set <url> --fundamental "<what changed>"`, which
 clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
 carry out one decision of his into one first, so he gets one card.
@@ -208,6 +208,13 @@ the patch.
   targets it touches, shown by its card in #releases.
 - Start a regular release (`tools/ci release start`) only when his order covers releasing; otherwise,
   the change rides the next release and the job returns `WAITING release`.
+- A sub-coordinator, the coordinator session for one project, lands and installs its project's
+  changes; the top coordinator alone starts, approves and rolls back production cuts, one at a time,
+  since one cut carries every project's changes. The `landing_guard` hook refuses `ci release start`,
+  `approve` and `rollback` from a sub-coordinator's session and the agents it starts, naming the top's
+  session; `--plan`, `--dry-run`, `status` and `watch` still run. A job of a sub-coordinator returns
+  `WAITING release` naming the merged changes the cut must carry, and its sub-coordinator asks the top
+  for the cut with a `release` record at `root@<drive>`.
 - His order or his pick on a card to release, or the coordinator's record of either, approves that
   release, its approve gate included, whatever migration, delete, or replace it holds. A pick on a card
   that did not ask whether to release approves nothing in one. Start it with `--order <his answer id>`,

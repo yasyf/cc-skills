@@ -349,7 +349,7 @@ def raw_visuals(tool_input: dict) -> str | None:
 
 def unswitched(tool_input: dict, drive: dict) -> str | None:
     """Why a post gives him a switch command for a terminal no session of the drive runs in."""
-    held = {role.get("terminal") for role in drive["roles"].values()}
+    held = {role.get("terminal") for role in state.bound_sessions(drive).values()}
     if not (wrong := [handle for handle in SWITCH.findall(tool_input.get("text") or "") if handle not in held]):
         return None
     return (

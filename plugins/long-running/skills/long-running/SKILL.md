@@ -5,23 +5,23 @@ description: Use when work will outlive one context window, spans several PRs or
 
 # Long-running drives
 
-A drive is two Claude Code sessions, the communicator and the coordinator, and the background jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`) and the communicator Opus 5.5 (`claude-opus-5-5`). Among jobs, only the designer (`long-running:designer`) runs Fable; handlers, readers and builders run Opus, and Sonnet only a one-fact lookup, since complex work on a light model gets redone.
+A drive is two Claude Code sessions, the communicator and the coordinator, and the background jobs they start. The coordinator runs Fable 5.2 (`claude-fable-5-2`) and the communicator Opus 5.5 (`claude-opus-5-5`). Among jobs only the designer runs Fable; handlers, readers and builders run Opus, Sonnet only a one-fact lookup, since complex work on a light model gets redone.
 
-The communicator is the only session he talks to. Its turn on his message is two messages of tool calls, so his next message never waits: a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler` it never waits on. The handler does every read, card, draft and post, answers his read-only questions, replies in his thread and on the dashboard through `say`, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator. He reads only Slack, so the communicator writes nothing in its terminal and ends each turn on `Sent.`.
+The communicator is the only session he talks to. Its turn on his message is two messages of tool calls, so his next message never waits: a one-sentence ack alone inside 5 to 10 seconds, then `drive heard` and one background `long-running:handler` it never waits on. The handler does every read, card and post through `say`, answers his read-only questions, and returns one line. Only orders, alerts, rulings, his answers, and a question an `ask` record cannot answer go to the coordinator. He reads only Slack, so the communicator writes nothing in its terminal and ends each turn on `Sent.`.
 
-The coordinator turns his messages into orders and gives each to a job that owns one deliverable end to end: code, PR, CI, merge, install, check. It routes events from the drive's watch, lands, installs, and sends the communicator what to post as records. It never posts to Slack, since his reply under a post reaches only the session that posted it.
+The coordinator turns his messages into orders and gives each to a job that owns one deliverable end to end: code, PR, CI, merge, install, check. It routes events from its watch, lands, installs, and sends the communicator what to post as records. It never posts to Slack, since his reply under a post reaches only the session that posted it. A drive may also run a coordinator session per project beside this top one: each hears, lands and installs only its project's work, so no context holds every project, and the top keeps unfiled orders and production cuts, one at a time (`coordinator`).
 
 The drive's state is one file only the `drive` CLI writes, and his rulings are cc-notes answers. The sessions talk only through cci records, which outlive compactions. An agent answers only to the session that started it, so the communicator starts only handlers and drive tooling jobs, and the coordinator every other job. Other sessions reach `root`, the coordinator, through cci.
 
 ## Rules
 
-This file holds the fundamental rules; one that fires on a single input is a tested refusal in the verb or hook that sees it, so it survives a compaction. Do what a refusal says and never route around it; a wrong one is a tool defect (Tooling). A rule is live only once installed, and changing one edits every place stating it: this file, its pages, `agents/*.md`, `render.py`'s role rules and `mcp.py`'s tool descriptions.
+This file holds the fundamental rules; one that fires on one input is a tested refusal in the verb or hook seeing it, so it survives a compaction. Do what a refusal says, never route around it; a wrong one is a tool defect (Tooling). A rule is live once installed, and changing one edits every place stating it: this file, its pages, `agents/*.md`, `render.py`'s role rules and `mcp.py`'s tool descriptions.
 
 ### Jobs
 
 - The coordinator runs only `drive`, `cci`, transcript reads and one `gh` call, so its turn never blocks; a hook refuses its build, ship, loop or `orca` call.
 - Build only a port of an old PR, his order, or drive tooling under its own order, since his attention is for work he asked for; an unordered finding becomes a question card.
-- An order is an answer or a build. An answer is one job that does its own research; a build's builder starts only on an Opus reader's `Researched:` block.
+- An order is an answer, one job doing its own research, or a build, whose builder starts only on an Opus reader's `Researched:` block.
 - A job returns facts, numbers, links, quotes and what is unproven, never a write-up: only handlers write for him.
 - The job that meets a blocker on his work resolves it; only a decision of his goes to him. A rule that forbids one way of doing his pick never cancels the pick: build it the way the rule allows, and ask nothing.
 
@@ -49,10 +49,10 @@ This file holds the fundamental rules; one that fires on a single input is a tes
 
 ### Truth and posts
 
-- Read state from `drive status`, GitHub, CI logs and transcripts, and a release's contents from its commit and build, never from memory. Call a job silent, stuck, or done only after reading its transcript.
+- Read state from `drive status`, GitHub, CI logs, transcripts, and a release's commit and build, never from memory. Call a job silent, stuck, or done only after reading its transcript.
 - Done is proven where he sees it: a recording of the click, the live post, the installed command's output. Fetched data proves no screen.
 - Promise him something only naming the order, due time or job doing it; a hook refuses a bare one.
-- Cards and posts name each thing by its proper technical term (function, flag, file, code path), since a stand-in such as "the copy change" leaves a question he cannot answer. Plain words bar drive jargon he cannot open, such as job, order and waits ids and record seqs, never technical names.
+- Cards and posts name each thing by its proper technical term, since a stand-in such as "the copy change" leaves a question he cannot answer. Plain words drop only drive ids he cannot open: job, order and waits ids, record seqs.
 - Events and job results feed the next summary, never a record or post each. While he is away, only cards and incident lines go out.
 
 ## Pages
@@ -77,4 +77,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Tooling and meta work is the communicator's: a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, and a ruling's rewrite. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`communicator`). A defect the coordinator, a job or another session hits is a `defect` record to `communicator@<drive>` with the refusal verbatim, and the blocked work goes ahead another way, with no excuse or question to him.
+Tooling and meta work is the communicator's: a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, and a ruling's rewrite. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`communicator`). A defect anyone else hits is a `defect` record to `communicator@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him.
