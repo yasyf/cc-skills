@@ -637,6 +637,39 @@ def test_pr_add_registers_under_the_key(run: Run, with_pr: str) -> None:
     assert data["jobs"]["j1"]["prs"] == [PR]
 
 
+def test_pr_add_on_a_public_repo_refuses_a_live_picture_and_a_private_pr(
+    run: Run, demo: str, on_github: dict, visibilities: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    visibilities.update({"Forge-AI/monorepo": "public", "Forge-AI/litestream": "private", "owner/repo": None})
+    live = "https://github.com/yasyf/cc-skills/blob/3d8111f/pr-shots/plan.png?raw=true"
+    on_github["body"] = (
+        f"## Show me\n![Plan]({live})\n"
+        "![Hover](https://github.com/yasyf/cc-skills/blob/73f9efa/pr-shots/demo-hover.png?raw=true)\n"
+        "Opened on Forge-AI/litestream#7, like owner/repo#3."
+    )
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    error = capsys.readouterr().err
+    assert error.startswith(
+        f"drive: Forge-AI/monorepo#42: Forge-AI/monorepo is public, and its body shows pictures outside a demo or public"
+        f" path ({live}) and PRs of the private Forge-AI/litestream. "
+    )
+    assert "Forge-AI/monorepo#42" not in state.load("demo")["prs"]
+
+
+def test_pr_add_on_a_public_repo_takes_demo_pictures(run: Run, demo: str, on_github: dict, visibilities: dict) -> None:
+    run("order", "add", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    visibilities.update({"Forge-AI/monorepo": "public", "yasyf/cc-skills": "public"})
+    on_github["body"] = (
+        "## Show me\n<img src=\"https://raw.githubusercontent.com/yasyf/cc-skills/73f9efa/public/board.png\">\n"
+        "![Hover](https://github.com/yasyf/cc-skills/blob/73f9efa/pr-shots/demo-hover.png?raw=true)\n"
+        "Follows yasyf/cc-skills#4146."
+    )
+    assert run("pr", "add", PR, "--job", "j1") == (0, "Forge-AI/monorepo#42")
+
+
 def test_pr_add_again_keeps_stored_state(run: Run, with_pr: str) -> None:
     with state.edit("demo") as data:
         data["prs"][with_pr]["checks"] = "pass"

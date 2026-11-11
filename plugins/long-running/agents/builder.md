@@ -54,7 +54,10 @@ you built up.
    stack's title and summary, on a stack's bottom PR; `## Refresher`, for someone who
    knows the codebase but has not read this code lately; `## Biggest surprise`;
    `## What you'll hate most`; `## Show me`, a concrete example (the real SQL, code or call
-   with its before and after, plus a diagram or screenshot when it helps);
+   with its before and after, plus a diagram or screenshot when it helps; a public
+   repository's screenshot shows a demo drive or public data only, under a `demo-` or
+   `public-` path, and a picture of the live drive, private code, Slack or a customer goes
+   only to a private repository's PR or his DM);
    `## Against the plan`, only when there is a departure; `## Port`, for ports; and
    `## His words, step by step`, each step beside the `path:line` that does it; with no
    record ids anywhere. A PR that waits on his tap gets no card without

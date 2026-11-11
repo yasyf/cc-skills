@@ -43,9 +43,15 @@ itself.
   - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
     or Sand call it changes, with what happened before and after, in a fenced block tagged with its
     language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a
-    screenshot or gif linked as a markdown image. Add a before-and-after `arch` (arch/v1 JSON) or `dot`
-    diagram beside the example when a mechanism needs one. At most one short sentence of caption: the
-    card shows the pictures, never prose.
+    screenshot or gif linked as a markdown image. What a screenshot may show depends on who can read the
+    PR. On a public repository, such as every `yasyf/*` one, it shows a demo drive or public data only,
+    and the file sits under a `demo-` or `public-` name or folder; its body names no private
+    repository's PR either. A picture of the live drive, a private repository's code, Slack, or a
+    customer's or teammate's data goes only into a private repository's PR or his DM. `drive pr add`
+    refuses a public PR whose body breaks either rule, and a body fixed after it opened still needs each
+    earlier revision deleted from its edit history and the branch holding the pictures deleted. Add a
+    before-and-after `arch` (arch/v1 JSON) or `dot` diagram beside the example when a mechanism needs
+    one. At most one short sentence of caption: the card shows the pictures, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to
     run it. A PR with behaviour of its own past that is not a port.
