@@ -87,8 +87,8 @@ def research(name: str, data: dict, order_id: str) -> tuple[str, str] | None:
     return None
 
 
-def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False) -> str | None:
-    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, and on a design lane when that research found a choice for him. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix"."""
+def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str], lands: bool = False, waits: list[str] | None = None) -> str | None:
+    """Why a job of this kind may not start on the order: an order he limited to options gets no builder or codex job until he picks, an answer order is one reader's, and a build order's builder or designer waits on its reader's research, added at once waiting on a reader of the order still at work when --waits names it, so no part sits in no job while it reads, and on a design lane when that research found a choice for him. The immediate fix of a bug hurting someone now, a red default branch's fix-forward among them, and a builder landing PRs he approved start at once past each of those, by his words: "always do the immediate fix (or rollback if prudent) in parallel to giving me options for the proper fix"."""
     order = data["orders"][order_id]
     at_once = state.IMMEDIATE_FIX in parts or lands
     listed = " ".join(f'"{part}"' for part in dict.fromkeys([*order["parts"], state.IMMEDIATE_FIX]))
@@ -106,16 +106,34 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str, parts: list[str
             f"{order_id} is an answer order: one reader researches it and answers him, with no {kind} beside it; work its"
             f" answer finds to build is a build order: drive order set {order_id} --kind build"
         )
-    if order["kind"] != "build" or order["incident"] or kind not in RESEARCHED_KINDS or at_once:
+    researched = order["kind"] == "build" and not order["incident"] and kind in RESEARCHED_KINDS and not at_once
+    if waits and not researched:
+        return f"--waits {', '.join(waits)}: only a build order's designer or builder is added waiting, on its reader's research, and this {kind} starts now: add it with no --waits"
+    if not researched:
         return None
     found = research(name, data, order_id)
     if found is None:
+        jobs = data["jobs"]
+        readers = [job_id for job_id in order["jobs"] if jobs[job_id]["order"] == order_id and jobs[job_id]["kind"] == "reader" and jobs[job_id]["state"] not in state.FINISHED_JOB_STATES]
+        if waits:
+            if not (strays := [wait for wait in waits if wait not in readers]):
+                return None
+            at_work = f"wait on {' or '.join(readers)}" if readers else f'none is, so add one first: drive job add reader --order {order_id} --goal "research: <what>"'
+            return f"--waits {', '.join(strays)}: names no reader of {order_id} still at work; {at_work}"
+        meanwhile = (
+            f"; while {readers[0]} reads, add this {kind} now waiting on it with --waits {readers[0]}, so the part is never in no job,"
+            " and start its agent on the watch's FREE line once the reader returns"
+            if readers
+            else ""
+        )
         return (
             f"{order_id} is a build order, so its {kind} starts only once an Opus reader has kept {BLOCK} in its report:"
             f' drive job add reader --order {order_id} --goal "research: <what>", then a long-running:reader whose brief'
             " asks for that block; its rulings line holds his recorded answers on the order's words and area, its exists"
-            f" line what already does part of it, and its open line each question the order implies; {immediate}"
+            f" line what already does part of it, and its open line each question the order implies{meanwhile}; {immediate}"
         )
+    if waits:
+        return f"--waits {', '.join(waits)}: {found[0]} already kept {order_id}'s research, so this {kind} starts now: add it with no --waits"
     reader, text = found
     designing = any(data["jobs"][job_id]["kind"] == "design" for job_id in order["jobs"] if data["jobs"][job_id]["order"] == order_id)
     if kind == "builder" and text.lstrip().startswith("DESIGN") and not designing:

@@ -1950,6 +1950,34 @@ def test_a_build_orders_design_job_waits_on_its_readers_research(
     assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
 
 
+def test_a_build_orders_designer_and_builder_are_added_waiting_on_its_reader_still_at_work(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run(
+        "order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: topologies", "--kind", "build",
+        "--parts", "answer", "control freak", "design options",
+    )
+    run("job", "add", "reader", "--order", "o1", "--part", "answer", "--goal", "research: topologies")
+    assert cli.main(["job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards"]) == 2
+    assert "while j1 reads, add this design now waiting on it with --waits j1" in capsys.readouterr().err
+    added = run("job", "add", "design", "--order", "o1", "--part", "design options", "--goal", "cards", "--waits", "j1")
+    assert added == (0, "j2\nj2 waits on j1: start no agent for it until the watch's FREE line says the reader returned")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "build it", "--waits", "j1")[0] == 0
+    jobs = state.load("demo")["jobs"]
+    assert [(jobs[job_id]["state"], jobs[job_id]["waits"], jobs[job_id]["agent"]) for job_id in ("j2", "j3")] == [("waiting", ["j1"], None)] * 2
+    refusals = {
+        "--waits j2: names no reader of o1 still at work; wait on j1": ["builder", "--part", "control freak", "--waits", "j2"],
+        "only a build order's designer or builder is added waiting": ["reader", "--part", "answer", "--waits", "j1"],
+        "--waits records a job whose agent starts on the watch's FREE line": ["builder", "--part", "control freak", "--waits", "j1", "--agent", "a"],
+    }
+    for refusal, words in refusals.items():
+        assert cli.main(["job", "add", *words, "--order", "o1", "--goal", "x"]) == 2
+        assert refusal in capsys.readouterr().err
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--part", "control freak", "--goal", "x", "--waits", "j1"]) == 2
+    assert "--waits j1: j1 already kept o1's research, so this builder starts now: add it with no --waits" in capsys.readouterr().err
+
+
 def test_a_jobs_clock_is_a_time_to_come(run: Run, communicator: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store")
     run("job", "add", "codex", "--order", "o1", "--goal", "first check")
