@@ -52,7 +52,8 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
-    reads = github.fetch(["a/one#1", "a/one#2", "b/two#7"])
+    reads, refused = github.fetch(["a/one#1", "a/one#2", "b/two#7"])
+    assert refused is None
     assert calls[0][:4] == ["gh", "api", "graphql", "-f"]
     assert calls[0][4].startswith("query=query {")
     assert reads == {
@@ -83,8 +84,10 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
     }
 
 
-@pytest.mark.parametrize("count", [1, 120])
-def test_fetch_and_open_on_each_read_any_number_of_prs_or_branches_in_one_graphql_call(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+@pytest.mark.parametrize(("count", "queries"), [(1, [1]), (25, [25]), (167, [25, 25, 25, 25, 25, 25, 17])])
+def test_fetch_reads_twenty_five_prs_a_graphql_query_and_open_on_every_branch_in_one(
+    monkeypatch: pytest.MonkeyPatch, count: int, queries: list[int]
+) -> None:
     sizes = []
 
     def fake(cmd: list[str], **_: object) -> str:
@@ -94,19 +97,31 @@ def test_fetch_and_open_on_each_read_any_number_of_prs_or_branches_in_one_graphq
     monkeypatch.setattr(github, "run", fake)
     github.fetch([f"a/one#{number}" for number in range(1, count + 1)])
     OPEN_ON([("a/one", f"branch-{number}") for number in range(count)])
-    assert sizes == [(count, 0), (0, count)]
+    assert sizes == [*((size, 0) for size in queries), (0, count)]
+
+
+def test_a_refused_query_loses_only_its_own_prs_and_names_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    def second_refused(cmd: list[str], **_: object) -> str:
+        if "p26: pullRequest" in cmd[4]:
+            raise github.GithubError("gh: HTTP 502 ccx: gh failed after 4 tries")
+        return json.dumps({"data": {"r0": {f"p{number}": node() for number in range(1, 61)}}})
+
+    monkeypatch.setattr(github, "run", second_refused)
+    reads, refused = github.fetch([f"a/one#{number}" for number in range(1, 61)])
+    assert sorted(reads, key=lambda key: github.split(key)[2]) == [f"a/one#{number}" for number in [*range(1, 26), *range(51, 61)]]
+    assert str(refused) == "could not read 25 PRs of a/one from GitHub: gh: HTTP 502 ccx: gh failed after 4 tries"
 
 
 def test_a_failed_graphql_read_names_what_it_could_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
-    def refused(cmd: list[str], **_: object) -> str:
+    def limited(cmd: list[str], **_: object) -> str:
         raise github.GithubError("gh: API rate limit already exceeded for installation ID 1.")
 
-    monkeypatch.setattr(github, "run", refused)
-    with pytest.raises(github.GithubError) as fetched:
-        github.fetch(["a/one#1", "b/two#7"])
+    monkeypatch.setattr(github, "run", limited)
+    reads, refused = github.fetch(["a/one#1", "b/two#7"])
     with pytest.raises(github.GithubError) as opened:
         OPEN_ON([("a/one", "fix-it")])
-    assert (str(fetched.value), str(opened.value)) == (
+    assert (reads, str(refused), str(opened.value)) == (
+        {},
         "could not read 2 PRs of a/one, b/two from GitHub: gh: API rate limit already exceeded for installation ID 1.",
         "could not read the open PRs on running jobs' branches in a/one from GitHub: gh: API rate limit already exceeded for installation ID 1.",
     )
@@ -148,10 +163,11 @@ def test_run_raises_when_gh_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
         github.run(["gh", "api", "graphql"])
 
 
-def test_fetch_raises_a_github_error_on_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetch_names_an_unreadable_reply(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(github, "run", lambda cmd, **_: "<html>bad gateway</html>")
-    with pytest.raises(github.GithubError, match="unreadable GraphQL reply"):
-        github.fetch(["a/one#1"])
+    reads, refused = github.fetch(["a/one#1"])
+    assert reads == {}
+    assert str(refused).startswith("unreadable GraphQL reply for 1 PRs of a/one")
 
 
 def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
@@ -236,7 +252,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
     ]
     pr = node(commits={"nodes": [{"commit": {"committedDate": "2026-11-11T09:00:00Z", "statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
     monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"p1": pr}}}))
-    assert github.fetch(["a/one#1"])["a/one#1"]["checks"] == [
+    assert github.fetch(["a/one#1"])[0]["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},
         {"context": "buildkite/test", "state": "SUCCESS"},

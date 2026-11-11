@@ -3853,6 +3853,14 @@ def test_heard_prints_one_word_with_orders_in_use(run: Run, demo: str) -> None:
     assert "in_use" not in json.loads(run("heard", "--json")[1])
 
 
+def test_heard_reads_nothing_from_github_so_a_refusal_there_never_leaves_him_unheard(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
+    monkeypatch.setattr(github, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
+    monkeypatch.setattr(card, "run", lambda *args, **kwargs: pytest.fail("drive heard read GitHub"))
+    assert run("heard") == (0, "heard")
+    assert state.load(demo)["owner"]["heard"] is not None
+
+
 def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
     assert run("heard")[0] == 0

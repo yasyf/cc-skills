@@ -73,9 +73,9 @@ def read(**overrides: object) -> dict:
 def serve(monkeypatch: pytest.MonkeyPatch, reads: dict[str, dict]) -> list[list[str]]:
     calls = []
 
-    def fake(keys: list[str]) -> dict[str, dict]:
+    def fake(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
         calls.append(keys)
-        return {key: reads[key] for key in keys if key in reads}
+        return {key: reads[key] for key in keys if key in reads}, None
 
     monkeypatch.setattr(github, "fetch", fake)
     return calls
@@ -159,11 +159,9 @@ def test_github_reads_at_most_once_a_minute(demo: str, monkeypatch: pytest.Monke
 def fetch_outcomes(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool]) -> list[list[str]]:
     calls, queue = [], list(outcomes)
 
-    def fetch(keys: list[str]) -> dict[str, dict]:
+    def fetch(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
         calls.append(keys)
-        if queue.pop(0):
-            return {KEY: read()}
-        raise github.GithubError("HTTP 502")
+        return ({KEY: read()}, None) if queue.pop(0) else ({}, github.GithubError("HTTP 502"))
 
     monkeypatch.setattr(github, "fetch", fetch)
     return calls
@@ -186,6 +184,26 @@ def test_a_good_read_starts_the_failure_count_over(demo: str, monkeypatch: pytes
     watching = watcher(demo)
     lines = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 65, 70, 75)]
     assert lines == [[], [], [], [], ["WATCH github read failed 3 times in a row: HTTP 502"]]
+
+
+def test_a_refused_query_keeps_the_reads_of_the_others_and_a_finished_pr_is_never_read_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False}
+    calls = []
+
+    def other_refused(keys: list[str]) -> tuple[dict[str, dict], github.GithubError | None]:
+        calls.append(keys)
+        reads = {KEY: read(state="MERGED", mergeCommit="ccc333")} if KEY in keys else {}
+        return reads, github.GithubError("could not read 1 PRs of Forge-AI/monorepo from GitHub: gh: HTTP 502")
+
+    monkeypatch.setattr(github, "fetch", other_refused)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: merged [o1 j1]"]
+    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (5, 10)] == [
+        [],
+        ["WATCH github read failed 3 times in a row: could not read 1 PRs of Forge-AI/monorepo from GitHub: gh: HTTP 502"],
+    ]
+    assert calls == [[KEY, OTHER], [OTHER], [OTHER]]
 
 
 def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = None) -> None:

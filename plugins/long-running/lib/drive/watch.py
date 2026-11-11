@@ -134,12 +134,12 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     keys = [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])]
     if not keys:
         return []
-    try:
-        reads = github.fetch(keys)
-    except github.GithubError as error:
-        return read_failed(watcher, "github", error, moment)
-    watcher.failures.pop("github", None)
-    lines = []
+    reads, refused = github.fetch(keys)
+    lines = read_failed(watcher, "github", refused, moment) if refused else []
+    if not refused:
+        watcher.failures.pop("github", None)
+    if not reads:
+        return lines
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
@@ -664,7 +664,7 @@ def track_lane_prs(data: dict, job_id: str, body: str) -> None:
 
 
 def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
-    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through, or, with no line since nothing is owed on it, Orca says it already holds another answer, since a lane whose wait ends waits again on the same question: a refused reply or a watch stopped mid-answer only delays it."""
+    """Answer each `LOG` or `READ` question a live lane queued, here, since a Sprite holds no CI credentials or drive records; one the read cannot answer gets why as its answer and a `JOB` line saying so. A question leaves its job's queue only once its answer goes through; with no line since nothing is owed on it, once Orca says it already holds another answer, since a lane whose wait ends waits again on the same question; or with one `JOB` line once Orca says the question's dispatch closed, since no lane waits on it then: any other refused reply or a watch stopped mid-answer only delays it."""
     checkout = Path(data["roles"]["coordinator"]["cwd"])
     lines = []
     for job_id, job in live_lanes(watcher, data).items():
@@ -677,7 +677,9 @@ def read_lines(watcher: Watcher, data: dict, moment: datetime) -> list[str]:
             try:
                 orca.reply(watcher.name, job["run"], message_id, said)
             except orca.OrcaError as error:
-                if error.code != orca.ANSWERED_ELSEWHERE:
+                if error.code == orca.DISPATCH_CLOSED:
+                    lines.append(f"JOB {job_id} {job['order']} READ dropped, its dispatch closed before its answer went: {error}")
+                elif error.code != orca.ANSWERED_ELSEWHERE:
                     lines += read_failed(watcher, source, error, moment)
                     continue
             else:
@@ -1221,6 +1223,24 @@ def orphan_lines(watcher: Watcher, moment: datetime, due: set[str]) -> list[str]
             if change == "say":
                 lines.append(f'ORPHAN {key[0]} "{cut(key[1], 80)}": {gap}')
     return lines
+
+
+def hear(name: str, moment: datetime, away: bool = False) -> dict:
+    """Record him heard at moment, by his words or his tap on a card, or away with away; when he was away, append the catch-up event naming each order that changed since he was last heard and each report held for it."""
+    with state.edit(name) as data:
+        back = state.owner_away(data, moment)
+        since = (data.get("owner") or {}).get("heard")
+        data["owner"] = {"heard": state.stamp(moment), "away": away}
+        news = []
+        held = list(data["held"]) if back and since else []
+        if back and since:
+            for key, order in data["orders"].items():
+                last = max(state.parse_time(order["last_line"] or order["created"]), state.parse_time(since))
+                if changed_since(order, data["jobs"], last) or any(mark["order"] == key for mark in data["held"].values()):
+                    news.append(key)
+    if news or held:
+        state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=when(since), orders=" ".join(news), **({"held": " ".join(held)} if held else {}))
+    return {"away": away, "back": back, "since": since, "catch_up": news, "held": held}
 
 
 def changed_since(order: dict, jobs: dict, last: datetime) -> bool:

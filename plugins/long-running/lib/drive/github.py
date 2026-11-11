@@ -21,6 +21,7 @@ CANDIDATE = "rc/"
 HOLDS = ("ahead", "identical")
 HOLD_LABEL = "hold"
 RUN_URL = re.compile(r"/actions/runs/(?P<run>\d+)/")
+PRS_PER_QUERY = 25
 CALLER = " ".join([Path(sys.argv[0]).name, *takewhile(re.compile(r"[a-z][a-z_-]*").fullmatch, sys.argv[1:3])])
 
 
@@ -205,9 +206,16 @@ def ships(release: dict, service: str) -> bool:
     return published and bool(listed) and service in listed["names"].split(", ")
 
 
-def fetch(keys: list[str]) -> dict[str, dict]:
-    """Read every PR key ("owner/name#123") in one `gh api graphql` call, however many there are."""
-    return parse(graphql(query(keys), f"{len(keys)} PRs of {', '.join(sorted({repo_of(key) for key in keys}))}"), keys)
+def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
+    """Read every PR key ("owner/name#123") PRS_PER_QUERY to a `gh api graphql` call, since GitHub refuses a query past its resource limits: the reads of every call that answered, and an error joining what the others could not read, so one refused call loses only its own PRs."""
+    found, refused = {}, []
+    for start in range(0, len(keys), PRS_PER_QUERY):
+        chunk = keys[start : start + PRS_PER_QUERY]
+        try:
+            found |= parse(graphql(query(chunk), f"{len(chunk)} PRs of {', '.join(sorted({repo_of(key) for key in chunk}))}"), chunk)
+        except GithubError as error:
+            refused.append(str(error))
+    return found, GithubError("; ".join(refused)) if refused else None
 
 
 def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:

@@ -82,15 +82,19 @@ def rooted(run: Run, demo: str) -> str:
     return demo
 
 
-def answered_elsewhere(calls: list[tuple[str, ...]]) -> Callable[..., dict]:
+def reply_refused(calls: list[tuple[str, ...]], code: str, message: str) -> Callable[..., dict]:
     def call(*args: str) -> dict:
         calls.append(args)
         if args[0] != "reply":
             return {}
-        refusal = {"ok": False, "error": {"code": "answer_conflict", "message": f"Question {args[2]} already has a different answer."}}
+        refusal = {"ok": False, "error": {"code": code, "message": message.format(question=args[2])}}
         return orca.result_of("orchestration reply", subprocess.CompletedProcess(["orca"], 0, json.dumps(refusal), ""))
 
     return call
+
+
+def answered_elsewhere(calls: list[tuple[str, ...]]) -> Callable[..., dict]:
+    return reply_refused(calls, "answer_conflict", "Question {question} already has a different answer.")
 
 
 def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[str]:
@@ -576,7 +580,7 @@ def branches(monkeypatch: pytest.MonkeyPatch, prs: dict[str, dict]) -> list[list
     asked = []
     monkeypatch.setattr(github, "checkout_repo", lambda checkout: "Forge-AI/monorepo")
     monkeypatch.setattr(github, "open_on", lambda heads: asked.append(heads) or prs)
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
     return asked
 
 
@@ -827,7 +831,7 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
 ) -> None:
     deliver(monkeypatch, [message("question", sent)])
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
+    monkeypatch.setattr(github, "fetch", lambda keys: ({}, None))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     kept = f"; {watch.UNKEPT_ASK.format(job='j1')}" if sent is ASK_IN_SHAPE else ""
     assert watch.run_pass(watching, T0) == [f"JOB j1 o1 {sent.splitlines()[0]}{kept}"]
@@ -967,6 +971,24 @@ def test_a_read_someone_already_answered_is_dropped_with_no_line(remote: str, mo
     assert [args for args in replies if args[0] == "reply"] == [
         ("reply", "--id", "relay_6779eb1e29a6", "--run", RUN, "--body", "x")
     ]
+
+
+def test_a_read_whose_dispatch_closed_is_dropped_and_said_once(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [message("question", "LOG https://buildkite.com/forge/test/builds/124676", id="relay_4d6bfb09372e")])
+    monkeypatch.setattr(reads, "answer", lambda question, root: "log")
+    replies = []
+    closed = f"Dispatch {DISPATCH} finished on pool-one, which cannot take follow-ups for finished workers yet."
+    monkeypatch.setattr(orca, "call", reply_refused(replies, "dispatch_inactive", closed))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    passes = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 70)]
+    assert passes == [
+        [f"JOB j1 o1 READ dropped, its dispatch closed before its answer went: orca orchestration reply: dispatch_inactive: {closed}"],
+        [],
+        [],
+        [],
+    ]
+    assert state.load(remote)["jobs"]["j1"]["reads"] == {}
+    assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_4d6bfb09372e", "--run", RUN, "--body", "log")]
 
 
 def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch(

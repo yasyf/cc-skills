@@ -338,7 +338,7 @@ def test_a_page_over_the_limit_leaves_out_its_lowest_priority_section_first(monk
 
 
 def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
+    monkeypatch.setattr(watch.github, "fetch", lambda keys: ({}, None))
     watching = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0)
     watch.run_pass(watching, T0)
     watch.run_pass(watching, T0 + timedelta(seconds=60))
@@ -353,7 +353,7 @@ def test_watch_redraws_the_page_only_when_the_model_changes(demo: str, drawn: li
 def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a_redraw_again(
     demo: str, drawn: list[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
+    monkeypatch.setattr(watch.github, "fetch", lambda keys: ({}, None))
     accept = page.draw
 
     def refused(name: str, markdown: str) -> page.Drawn:
@@ -372,7 +372,7 @@ def test_a_refused_draw_is_said_once_across_restarts_and_once_when_slack_takes_a
 
 
 def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(watch.github, "fetch", lambda keys: {})
+    monkeypatch.setattr(watch.github, "fetch", lambda keys: ({}, None))
     monkeypatch.setattr(page, "draw", DRAW)
     answers = iter(["F1", "F1", "F2"])
 

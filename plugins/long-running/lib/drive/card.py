@@ -709,6 +709,7 @@ def answered(ask: dict) -> dict:
     if ask["label"] not in TAP_LABELS:
         raise state.DriveError(f"a PR card answers Approve or Hold, not {ask['label']!r}")
     name, held = known[key]
+    hear_tap(name)
     stack = held.get("stack") or []
     members = stack if stack and ask["waits"] == stack_waits(stack) else [key]
     with state.edit(name) as data:
@@ -741,12 +742,20 @@ def question_answered(ask: dict) -> dict:
     name, _, _ = ask["waits"].partition(":")
     if name not in state.names():
         raise state.DriveError(f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached")
+    hear_tap(name)
     item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "undone": ask.get("undone")}
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     data = state.load(name)
     [seq] = tools.sent(name, "communicator", [tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))])
     return {"ok": True, "seq": seq}
+
+
+def hear_tap(name: str) -> None:
+    """Record him heard on the drive his tap reached, since a tap is word from him as a message is."""
+    from drive import watch
+
+    watch.hear(name, state.now())
 
 
 def home_drive() -> str:
@@ -759,7 +768,9 @@ def home_drive() -> str:
 
 
 def unheard(ask: dict) -> dict:
-    state.append_event(home_drive(), "unheard", **ask)
+    name = home_drive()
+    hear_tap(name)
+    state.append_event(name, "unheard", **ask)
     return {"heard": True}
 
 

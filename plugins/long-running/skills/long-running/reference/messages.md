@@ -369,16 +369,17 @@ the dashboard link. When a line says where things stand, link the page instead o
 - An incident is the exception: until users are unblocked he hears a line at least every 5 minutes,
   then each step of the root fix once, by [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
-  written nothing for an hour. While he is away only cards, the watch's one reply under a card
-  holding built work, an incident line [incidents.md](incidents.md) calls for and an answer passing
-  `asked` post; a hook refuses any other handler line. Summaries, due-time lines and job results wait.
+  neither written nor tapped a card for an hour, since each tap on a card records him heard as a
+  message does. While he is away only cards, the watch's one reply under a card holding built work,
+  an incident line [incidents.md](incidents.md) calls for and an answer passing `asked` post; a hook
+  refuses any other handler line. Summaries, due-time lines and job results wait.
   A report whose line the hook holds is marked held on the drive, `drive status` lists it under
   `Held for his catch-up`, and a `refused` record carrying `held=<seq>` tells the coordinator
   session that wrote it, so nobody takes it for a line he got.
-- His next message gets one catch-up at his DM root, right after its ack. `drive heard` tells the
-  coordinator every order that changed while he was away or has a report held, and each held report;
-  it sends one `report` for his DM root covering them, grouped by feature with what waits on him
-  last, then `--lined` each. Posting the catch-up lets go of every held report.
+- His next message, right after its ack, or his next card tap gets one catch-up at his DM root.
+  `drive heard`, or the tap, tells the coordinator every order that changed while he was away or
+  has a report held, and each held report; it sends one `report` for his DM root covering them,
+  grouped by feature with what waits on him last, then `--lined` each. Posting the catch-up lets go of every held report.
 - That report carries `catch_up=true`, so `say` opens the post with the bold title
   `*Catch-up since <the time he was last heard>*` whatever the text says. The catch-up never goes in
   the thread of the message that brought him back, because a thread gets only lines about its own
