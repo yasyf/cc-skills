@@ -191,7 +191,8 @@ SESSION_STATES = ("running", "draining", "drained", "skipped", "down")
 SESSION_FIELDS = {"role", "state", "phase", "step", "since", "beatAt", "build", "attempt", "commander", "waiting"}
 WAITING_FIELDS = {"on", "from", "since"}
 FIXER_PHASES = ("investigating", "diagnosed", "fixing", "applied", "watching", "pr-opened", "pr-merged", "hotfixing",
-                "shipped", "stuck", "refused", "release-failed", "unproven", "muted")
+                "live", "shipped", "stuck", "refused", "blocked", "degraded", "release-failed", "unproven", "muted",
+                "unmuted")
 PHASE_STAMPS = {"detected": (), "investigating": ("engaged",), "identified": ("engaged",),
                 "mitigated": ("engaged", "mitigated"),
                 "resolved": ("engaged", "mitigated", "resolved", "allClear")}

@@ -297,6 +297,11 @@ class LiveFeeds(unittest.TestCase):
     def test_an_applied_fixer_passes_the_check(self):
         self.assertEqual(self.live(sessions=[{**self.SESSIONS[0], "phase": "applied"}])["sessions"][0]["phase"], "applied")
 
+    def test_every_fixer_phase_ai_oncall_reports_passes_the_check(self):
+        for phase in ("live", "blocked", "degraded", "unmuted"):
+            with self.subTest(phase=phase):
+                self.assertEqual(self.live(sessions=[{**self.SESSIONS[0], "phase": phase}])["sessions"][0]["phase"], phase)
+
 
 class MonitorSnapshot(unittest.TestCase):
     """The live view previews each paging monitor's state and the series it alerts on."""
