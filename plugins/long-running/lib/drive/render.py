@@ -531,12 +531,11 @@ def compact_instructions(drive: dict, role: str) -> str:
     )
 
 
-def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool = False) -> dict:
+def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
     orders = drive["orders"] if named else open_orders(drive)
     job_ids = [job_id for order in orders.values() for job_id in order["jobs"]]
     return {
         "name": drive["name"],
-        "pr_fields": pr_fields,
         "roles": drive["roles"],
         "subcoordinators": {project: held | {"lane": project_lane(project)} for project, held in drive["subcoordinators"].items()},
         "orca": seen,
@@ -548,9 +547,9 @@ def status_data(drive: dict, pr_fields: str, seen: dict[str, str], named: bool =
     }
 
 
-def status_text(drive: dict, pr_fields: str, seen: dict[str, str], named: bool = False) -> str:
+def status_text(drive: dict, seen: dict[str, str], named: bool = False) -> str:
     """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line and each of their running jobs with no live agent."""
-    lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders; PR fields {pr_fields}"]
+    lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
     if named:
         lines.extend(agentless_lines(drive))
         lines.extend(line for order_id, order in drive["orders"].items() for line in order_block(drive, order_id, order, True))

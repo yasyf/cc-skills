@@ -1983,20 +1983,6 @@ def refuse_an_unheld_repeat(name: str, data: dict, order_id: str | None, named: 
         )
 
 
-def overlay_live(data: dict) -> str:
-    """Read the drive's open PRs from GitHub into data, never saved; say whether the PR fields are live or stored."""
-    keys = state.open_pr_keys(data)
-    try:
-        reads = github.fetch(keys) if keys else {}
-    except github.GithubError as error:
-        return f"stored (GitHub read failed: {error})"
-    for key, read in reads.items():
-        data["prs"][key].update(github.live(read, data["prs"][key]))
-        state.date_verdict(data, key, read["headRefOid"], read["committed"])
-    missing = [key for key in keys if key not in reads]
-    return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
-
-
 def orca_place(held: dict, hidden: Callable[[Path], str]) -> str:
     """Where he opens a role's session in Orca: a switch command only once Orca proves it lands on that session."""
     if not (handle := held.get("terminal")):
@@ -2064,12 +2050,11 @@ def status(args: argparse.Namespace) -> int:
         job["questions"] = view.open_questions(job, found)
     if args.ids:
         only(data, args.ids)
-    pr_fields = overlay_live(data)
     for project, held in data["subcoordinators"].items():
         held["watch"] = watch.holder(state.pid_path(name, project))
     seen = {role: with_build(orca_place(held, name_show), held) for role, held in state.bound_sessions(data).items()}
     named = bool(args.ids)
-    return emit(args, render.status_text(data, pr_fields, seen, named), render.status_data(data, pr_fields, seen, named))
+    return emit(args, render.status_text(data, seen, named), render.status_data(data, seen, named))
 
 
 def with_build(place: str, held: dict) -> str:
