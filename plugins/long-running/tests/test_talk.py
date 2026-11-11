@@ -53,11 +53,11 @@ def test_a_reference_to_nothing_the_drive_holds_refuses_the_post_and_sends_nothi
 def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_source(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    drawn = tmp_path / "show-me.png"
-    asked: list[tuple[str, str]] = []
-    monkeypatch.setattr(picture, "cached", lambda folder, name, kind, source: asked.append((kind, source)) or drawn)
+    drawn = tmp_path / "one chat.png"
+    asked: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(picture, "cached", lambda folder, name, kind, source: asked.append((name, kind, source)) or drawn)
     talk.say(demo, {"text": "The lock", "visuals": [{"kind": "code", "language": "go", "source": "mu.Lock()", "caption": "one chat"}]})
-    assert asked == [("code:go", "mu.Lock()")]
+    assert asked == [("one chat", "code:go", "mu.Lock()")]
     assert posts[0][-4:] == ("--file", str(drawn), "--", "The lock")
     assert said(demo)[0]["visuals"] == [{"kind": "code:go", "source": "mu.Lock()", "caption": "one chat", "picture": str(drawn)}]
 
@@ -69,6 +69,21 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
     assert posts[0] == ("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
+
+
+@pytest.mark.parametrize(
+    ("caption", "title"),
+    [("p95 / p99 [ms]: before and after", "p95 p99 ms before and after"), ("", "show-me"), ("  ", "show-me")],
+)
+def test_a_local_image_goes_to_slack_as_a_copy_named_for_the_title_slack_gives_it(
+    demo: str, posts: list[tuple[str, ...]], tmp_path: Path, caption: str, title: str
+) -> None:
+    shot = tmp_path / "Screenshot 2026-11-10 at 9.41.12 PM.png"
+    shot.write_bytes(b"\x89PNG\r\n\x1a\n")
+    talk.say(demo, {"text": "The page", "visuals": [{"kind": "image", "source": str(shot), "caption": caption}]})
+    sent = Path(posts[0][posts[0].index("--file") + 1])
+    assert (sent.name, sent.read_bytes()) == (f"{title}.png", shot.read_bytes())
+    assert said(demo)[0]["visuals"][0]["picture"] == str(sent)
 
 
 def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(demo: str, posts: list[tuple[str, ...]]) -> None:

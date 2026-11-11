@@ -247,7 +247,7 @@ async function drawFigures(root) {
     try {
       await draw(host, host.dataset.visual, host.dataset.source);
     } catch {
-      host.closest('.visual').remove();
+      host.outerHTML = `<pre><code>${esc(host.dataset.source)}</code></pre>`;
     }
   }
 }

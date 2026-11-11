@@ -1,5 +1,6 @@
 import http.client
 import json
+import re
 import subprocess
 import threading
 import time
@@ -172,6 +173,20 @@ def test_a_stack_card_sent_to_him_lists_its_prs_and_links_his_tap_only_while_one
 
 def test_the_screens_are_the_four_he_kept(tmp_path: Path) -> None:
     assert web(tmp_path, "JSON.stringify(SCREENS.map(([name]) => name))") == ["queue", "now", "work", "history"]
+
+
+DIAGRAM_CLASSES = {
+    "graph", "node", "edge", "cluster",
+    "root", "nodes", "clusters", "edgePaths", "edgePath", "edgeLabels", "edgeLabel", "label", "nodeLabel",
+    "cluster-label", "labelBkg", "flowchart-link", "marker", "default", "actor", "note", "messageText", "labelBox",
+    "marks", "background",
+}
+
+
+def test_the_dashboard_styles_no_class_a_diagram_draws_with_so_a_diagram_lays_out_as_it_does_in_slack() -> None:
+    css = (Path(dashboard.__file__).parent / "site" / "app.css").read_text()
+    styled = {name for selector in re.findall(r"([^{}]+)\{", css) for name in re.findall(r"\.(-?[A-Za-z_][\w-]*)", selector)}
+    assert not styled & DIAGRAM_CLASSES
 
 
 def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:

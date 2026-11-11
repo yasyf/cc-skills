@@ -164,8 +164,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
   question or the PR's title, which Slack draws the card under, and on the dashboard a link to the
   card's queue or the PR. A reference to nothing the drive holds refuses the post, naming it. A
   picture goes in `visuals`, each `{kind, source, language, caption}` with kind `code`, `arch`,
-  `mermaid`, `chart`, `compare`, `dot` or `image`: Slack gets it drawn as a picture, and the
-  dashboard draws it live from its source. A visual goes in only when it shows what the words
+  `mermaid`, `chart`, `compare`, `dot` or `image`: Slack gets it drawn as a picture titled with its
+  caption, and the dashboard draws it live from its source, the caption under it. A visual goes in only when it shows what the words
   cannot, never a constant, JSON, YAML, logs or terminal output, by the card rules in `messages`.
 - Every routine post in his DM fits its limit, the coordinator's reading of his Nov 9 9:33 PM words,
   "your messages need to be way shorter rewrite this for a human": a line at most 60 words, a
