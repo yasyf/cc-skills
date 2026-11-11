@@ -7,6 +7,7 @@ from drive.render import cut
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
 BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.brief\.md\b")
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
+SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
 RESEARCHED_BY = re.compile(r"^Researched:[ \t]*(j\d+)\b", re.MULTILINE)
@@ -43,6 +44,11 @@ def carried(prompt: str) -> str:
     """An agent's prompt with the brief file drive job brief wrote read in after it, when the prompt names one."""
     named = BRIEF_FILE.search(prompt)
     return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
+
+
+def gives_tooling(job_id: str, order_id: str) -> str:
+    """The verb that gives an order to the communicator: a brief whose builder serves drive tooling, which only the communicator starts."""
+    return f'`drive job brief {job_id} --serves "drive tooling"` gives {order_id} to the communicator'
 
 
 def block_lines(text: str) -> list[str]:

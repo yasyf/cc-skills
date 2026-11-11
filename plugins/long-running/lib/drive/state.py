@@ -686,6 +686,11 @@ def agent_gone(data: dict, job: dict) -> bool:
     return session_role(data, job.get("session")) is None
 
 
+def communicators(order: dict) -> bool:
+    """Whether the communicator holds the order, so its watch lines, jobs, agents and reports are the communicator's: a drive tooling order, or one a brief serving drive tooling gave it."""
+    return order["owner"] == "communicator"
+
+
 def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
     """Why a session's role may not act on an order the drive's other session holds, naming the holder and its session; an order from before owners is held by the first role to add a job to it."""
     holder = data["orders"][order_id]["owner"]

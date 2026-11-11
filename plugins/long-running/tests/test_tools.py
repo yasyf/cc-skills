@@ -222,7 +222,12 @@ def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run:
     brief = {"id": "j2", "serves": "drive tooling", "done_when": "installed", "where": "yasyf/cc-skills main", "ruling": ["73060f0"]}
     said = tools.run("job", demo, {"ops": [{"brief": brief}]})
     path = state.drive_dir(demo) / "jobs" / "j2.brief.md"
-    assert said == f"1 job brief: Read your brief first: {path}; his words from o1, rulings: 1, earlier jobs: 0"
+    assert said == (
+        f"1 job brief: Read your brief first: {path}; his words from o1, rulings: 1, earlier jobs: 0; o1 is the communicator's order now,"
+        " since a builder serving drive tooling is its alone: only the communicator starts j2 and its agents and posts its reports;"
+        " from the coordinator, start no agent on it and send communicator@demo a defect record naming j2 and its `Read your brief first:` line"
+    )
+    assert state.load(demo)["orders"]["o1"]["owner"] == "communicator"
     written = path.read_text()
     assert written.startswith("Order (his words): do a pass on the tools\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
     assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n  Notes: cci owner 660781\n" in written

@@ -1194,7 +1194,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owing = [
         key
         for key, order in data["orders"].items()
-        if hears(watcher, data, key) and not order["text"].startswith(state.TOOLING) and owes_line(order, data["jobs"], moment)
+        if hears(watcher, data, key) and not state.communicators(order) and owes_line(order, data["jobs"], moment)
     ]
     return [f"TICK {' '.join(owing)}"] if owing else []
 
@@ -1229,10 +1229,10 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
 
 
-def tooling(line: str, data: dict) -> bool:
+def communicators_line(line: str, data: dict) -> bool:
     found = ABOUT.search(line)
     order = found and data["orders"].get(found["order"] or found["named"])
-    return bool(order) and order["text"].startswith(state.TOOLING)
+    return bool(order) and state.communicators(order)
 
 
 def needs_step(line: str, data: dict) -> bool:
@@ -1260,15 +1260,15 @@ def wakes(line: str, data: dict) -> bool:
 
 
 def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """Hand each line to the one who acts on it: a drive tooling order's to the communicator, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
+    """Hand each line to the one who acts on it: an order's the communicator holds to the communicator, a PR's move to its job's remote lane waiting for it, and the rest, returned, to the coordinator, with a lane's lines when its resume fails."""
     if not lines and not watcher.unsent.get("communicator"):
         return []
     data = state.load(watcher.name)
-    tooled = [line for line in lines if tooling(line, data) and needs_step(line, data)]
+    tooled = [line for line in lines if communicators_line(line, data) and needs_step(line, data)]
     moves: dict[str, list[str]] = {}
     kept = []
     for line in lines:
-        if tooling(line, data):
+        if communicators_line(line, data):
             continue
         if job_id := lane_move(line, data):
             moves.setdefault(job_id, []).append(line)

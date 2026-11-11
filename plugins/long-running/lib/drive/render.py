@@ -104,6 +104,8 @@ COMMUNICATOR_RULES = (
         " Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`. The order's"
         " words reach him verbatim on the line above its PR card, so drive order add refuses words cc-slack check-post"
         " flags, such as a job, order or record id or a bare PR number; drive order set <o> --words rewords an older one."
+        " A defect record naming a job whose order its drive tooling brief gave you gets no order or reader: start its"
+        " long-running:builder, the prompt its `Read your brief first:` line."
     ),
     (
         'Its DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`, then a'
@@ -149,7 +151,9 @@ COORDINATOR_RULES = (
         "Start a builder only for a port of #N (pr set `port_of`, no PR card), an order of his (pr set tap, `serves"
         " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line) or drive tooling, which is the"
         " communicator's: his words on drive tooling are its order, never one you add, and a tool defect you or a job"
-        " hit is a defect record to communicator@<drive> with the refusal verbatim, and you start no tooling job. Build, polish or card nothing else: another lane's PR goes back to"
+        " hit is a defect record to communicator@<drive> with the refusal verbatim. An order of yours whose builder"
+        ' serves drive tooling becomes the communicator\'s with its brief op `serves: "drive tooling"`: start no agent on'
+        " it, and send that defect record naming the job and its `Read your brief first:` line. Build, polish or card nothing else: another lane's PR goes back to"
         " it, and an unordered finding becomes a question card."
     ),
     (

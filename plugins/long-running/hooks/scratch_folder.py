@@ -23,11 +23,15 @@ def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: the job its brief names is on an order the drive's other session holds, or its brief lacks what the job's kind needs."""
+    """Why a drive session may not start this agent: the job its brief names is on an order the drive's other session holds, which for the communicator's builder serving drive tooling names the brief that gives it the order, or its brief lacks what the job's kind needs."""
     if (named := named_job(payload)) is None:
         return None
     name, data, job_id, text = named
-    held = state.held_elsewhere(data, data["jobs"][job_id]["order"], state.session_role(data, payload["session_id"]))
+    order_id = data["jobs"][job_id]["order"]
+    role = state.session_role(data, payload["session_id"])
+    held = state.held_elsewhere(data, order_id, role)
+    if held and role == "communicator" and brief.SERVES_TOOLING.search(text):
+        held = f"{order_id} is the coordinator's order, but a builder serving drive tooling is the communicator's alone: {brief.gives_tooling(job_id, order_id)}, then start it again"
     refused = held or brief.brief_refusal(name, data, job_id, text)
     return f"refused, no agent started: {refused}" if refused else None
 
