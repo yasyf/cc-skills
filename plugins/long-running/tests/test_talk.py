@@ -120,6 +120,21 @@ def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack
     assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
 
 
+def test_a_pr_card_serving_drive_tooling_posts_only_under_a_line_quoting_that_order(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]]
+) -> None:
+    tooling = "Drive tooling: a card named in a post shows under the line"
+    run("order", "add", "--project", "The drive", "--workstream", "Cards", "cards show under the line")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["text"] = tooling
+        data["prs"]["yasyf/cc-skills#7"]["serves"] = "o1"
+    with pytest.raises(DriveError, match=rf'yasyf/cc-skills#7 serves a drive tooling order, .*nothing was posted: put "{tooling}" in text'):
+        talk.say(demo, {"text": "land these", "tap_prs": [PR_URL]})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": f"_{tooling}_", "tap_prs": [PR_URL]})
+    assert posts[0][-1] == f"_{tooling}_"
+
+
 @pytest.mark.parametrize(
     ("caption", "title"),
     [("p95 / p99 [ms]: before and after", "p95 p99 ms before and after"), ("", "show-me"), ("  ", "show-me")],
