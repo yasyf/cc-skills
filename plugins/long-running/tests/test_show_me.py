@@ -41,6 +41,15 @@ dev
 DEEP_SUBAGENTS_OPTIONS = r'''- Land both now, deep-subagents first (recommended)
 - Move the topology change onto dev without deep-subagents, and leave that one with you'''
 
+DRAFT_DM_SHOW_ME = r'''The DM as drafted:
+```
+Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.
+
+Can you take it? You'll know whether gil's files live in R2 or in its own bucket.
+```'''
+DRAFT_DM_OPTIONS = r'''- Send it as written (recommended)
+- Hold it until the morning'''
+
 ALERT_FEED_SHOW_ME = r'''One tag the coordinator read tonight: a Datadog recovery post, about 650 characters of Slack JSON.
 ```json
 {"type":"slack.message","watch_id":2816,"kind":"channel","channel_id":"C0822AHFY3G","thread_ts":"1794373183.532399","ts":"1794379244.508779","user":"U0828UHTV42","user_name":"Datadog","from_claude":false,"text":"Recovered: SandSQL database past 4 GiB — wf for team_1 on plat [a bot's first line; the whole message is at the permalink]","permalink":"https://poetic-technology.slack.com/archives/C0822AHFY3G/p1794379244508779?thread_ts=1794373183.532399&cid=C0822AHFY3G"}
@@ -395,6 +404,27 @@ def test_a_kept_block_redraws_with_the_markdown_in_its_options_drawn_as_the_word
     assert asked.recommended == asked.options[0]
     assert asked.summary == ["Each project gets a lead session of its own; I recommend each lead arms its own `drive watch`."]
     assert "- run `drive watch` in the top" in asked.show_me
+
+
+def test_a_draft_message_in_a_fence_passes_as_the_quote_his_card_shows_and_a_fence_of_other_words_is_still_refused() -> None:
+    asked = limits.question(ask(DRAFT_DM_SHOW_ME, DRAFT_DM_OPTIONS))
+    assert asked.show_me[1] == "```"
+    assert asked.recommended == "Send it as written"
+    quoted = "The DM as drafted:\n> Hey Josh! The copy for the gil team can't read gil's files since 9:29 PM tonight.\n>\n> Can you take it?"
+    assert limits.question(ask(quoted, DRAFT_DM_OPTIONS)).show_me[1].startswith("> Hey Josh!")
+    with pytest.raises(DriveError, match="write a message or quote as plain sentences, which his card shows as a quote"):
+        limits.question(ask(DEEP_SUBAGENTS_SHOW_ME, DEEP_SUBAGENTS_OPTIONS))
+
+
+def test_an_options_heading_is_refused_in_a_new_block_and_dropped_from_a_kept_one() -> None:
+    headed = ask(RESTORE_PARKED_SHOW_ME, f"Options:\n{RESTORE_PARKED_OPTIONS}")
+    with pytest.raises(DriveError) as refused:
+        limits.question(headed)
+    assert '"Options:" is not a line of an ASK block: the `- ` options follow the Show me directly, with no heading' in str(refused.value)
+    kept, plain = limits.question(headed, kept=True), limits.question(ask(RESTORE_PARKED_SHOW_ME, RESTORE_PARKED_OPTIONS))
+    assert (kept.show_me, kept.options, kept.recommended) == (plain.show_me, plain.options, plain.recommended)
+    unshown = headed.replace(f"Show me:\n{RESTORE_PARKED_SHOW_ME}\n", "")
+    assert limits.question(unshown, kept=True).options == plain.options
 
 
 def test_a_screenshot_kept_outside_the_drives_folders_still_draws() -> None:

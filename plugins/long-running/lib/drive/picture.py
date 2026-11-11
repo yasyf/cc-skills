@@ -15,7 +15,7 @@ IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"'
 DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
 NATIVE = ("chart",)
 WORDS = ("", "text", "txt", "plain")
-TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph"}
+TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code"}
 RAW = {
     **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
     **dict.fromkeys(("yaml", "yml"), "YAML"),
@@ -38,6 +38,25 @@ STACK_TRACE = re.compile(
 LOG_LINE = re.compile(
     r"^[ \t]*\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{2}:\d{2}:\d{2}\b)|\[(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\]|\blevel=\w+"
 )
+SPAN = re.compile(r"<[^<>\n]*\|([^<>\n]*)>|<https?://[^<>\s]*>|https?://\S+|`[^`\n]*`")
+CODE_LINE = re.compile(
+    r"^(?:[+-][ \t]+)?(?:"
+    r"(?://|/\*|\*/|#[ \t!]|--[ \t])"
+    r"|(?:func|def|fn|const|let|var|return|if|else|elif|for|while|switch|case|import|export|package|class|struct|enum|impl|pub|async|await|try"
+    r"|catch|throw|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WHERE|SET|FROM|JOIN|UNION|VALUES)\b"
+    r"|[\w.\[\]\"'$]+[ \t]*(?::=|[+-]?=)(?!=)"
+    r"|\"?[A-Za-z_][\w-]*\"?[ \t]*:[ \t]*[\"'\d\[{][^\n]*[,{\[][ \t]*$"
+    r"|[)\]}]"
+    r")"
+    r"|[{\[(;][ \t]*$"
+    r"|\w\((?:[^()\n]|\([^()\n]*\))*\)"
+    r"|[ \t](?:==|!=|>=|<=|&&|\|\||=>)[ \t]"
+    r"|(?:^|[ \t])--?[a-z][\w-]*(?=[ \t]|$)"
+)
+LAYOUT = re.compile(r"^\s|\S {2,}\S|\t|->|<-|→|←|[─-╿]")
+SENTENCE_END = re.compile(r"[.?!][)\"'”’]*(?=\s|$)")
+PROSE_WORD = re.compile(r"[^\W\d_][\w'’-]*")
+PROSE_WORDS = 6
 VISUALS = Path(__file__).parent / "site" / "visuals.js"
 VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
@@ -125,11 +144,11 @@ def downloaded(url: str, out: Path) -> None:
 
 
 def sources(show_me: str) -> list[tuple[str, str]]:
-    """Each picture a Show me section holds, in order, as (kind, source): a diagram, chart or compare fence, a code fence naming its language, or an image link."""
+    """Each picture a Show me section holds, in order, as (kind, source): a diagram, chart or compare fence, a code fence naming its language and holding no sentences, or an image link."""
     found = [
         (match.start(), fence_kind(match[1]), match[2])
         for match in FENCE.finditer(show_me)
-        if match[1].lower() not in WORDS and not raw(match[1], match[2])
+        if match[1].lower() not in WORDS and not raw(match[1], match[2]) and not quoted(match[1], match[2])
     ]
     found += [(match.start(), "image", match[1] or match[2]) for match in IMAGE.finditer(show_me)]
     return [(kind, source) for _, kind, source in sorted(found)]
@@ -159,9 +178,33 @@ def raw(language: str, source: str) -> str | None:
         return None
 
 
+def spoken(source: str) -> list[str]:
+    """A fence's lines with something on them, each Slack link read as its label and each URL and bit of inline code as one mark, so neither reads as code."""
+    return [SPAN.sub(lambda span: span[1] or "x", line).strip() for line in source.splitlines() if line.strip()]
+
+
+def code(source: str) -> bool:
+    """Whether a fence naming no language holds code: at least half its lines are statements of code, such as a declaration, an assignment, a call, a command's flag, a comment or a line opening or closing a block."""
+    lines = spoken(source)
+    return bool(lines) and 2 * sum(bool(CODE_LINE.search(line)) for line in lines) >= len(lines)
+
+
+def prose(source: str) -> bool:
+    """Whether a fence holds sentences, such as a message or a quote, rather than code or a layout of words: no line is indented, aligned in columns, drawn with arrows or box lines, or a statement of code, its lines run about six words or more, and a sentence ends among them."""
+    lines = spoken(source)
+    if not lines or any(LAYOUT.search(line) for line in source.splitlines() if line.strip()) or any(CODE_LINE.search(line) for line in lines):
+        return False
+    return sum(len(PROSE_WORD.findall(line)) for line in lines) >= PROSE_WORDS * len(lines) and bool(SENTENCE_END.search("\n".join(lines)))
+
+
+def quoted(language: str, source: str) -> bool:
+    """Whether a fence holds a message or a quote, which his card shows as Slack's own quote of its text, never a picture of it: sentences in a fence of words or code, never a diagram's, raw data or tool output."""
+    return language.lower() not in DIAGRAMS and not raw(language, source) and prose(source)
+
+
 def pictured(language: str, source: str) -> bool:
-    """Whether a fence draws as a picture on his card: one naming a language, holding neither raw data nor tool output, and no chart, which Slack draws as its own."""
-    return language.lower() not in (*WORDS, *NATIVE) and not raw(language, source)
+    """Whether a fence draws as a picture on his card: one naming a language, holding neither raw data, tool output nor sentences, and no chart, which Slack draws as its own."""
+    return language.lower() not in (*WORDS, *NATIVE) and not raw(language, source) and not quoted(language, source)
 
 
 def title(kind: str) -> str:
@@ -224,10 +267,13 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
+    """A question card's Show me with each fenced block that draws as a picture replaced by one line holding it, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, or with the pictures beside it as one gallery, titled with the caption line just above the fence, or what kind of picture it is when none is. A fence of sentences, such as a draft message or a quote, becomes `> ` lines under its caption, which Slack shows as a quote of the text, links and all. A ```chart stays as written, since cc-slack draws it as Slack's own chart. A fence of other words, with no language or `text`, which only a block kept before `drive job ask` refused one holds, stays as written with its caption, so a redraw never loses it and Slack draws it as a code block, since a picture of words shows nothing; one with no language that holds code draws as a code picture, its grammar guessed by the renderer. A fence of raw data or tool output and a fence that does not draw leave the card with their caption, since a picture of JSON or a terminal shows nothing."""
 
     def picture_line(fence: re.Match[str]) -> str:
-        if fence["language"].lower() in (*WORDS, *NATIVE):
+        language = fence["language"].lower()
+        if quoted(language, fence["source"]):
+            return "\n".join([*filter(None, [fence["caption"]]), *(f"> {line}".rstrip() for line in fence["source"].rstrip("\n").split("\n"))])
+        if language in NATIVE or language in WORDS and not (language == "" and code(fence["source"]) and not raw(language, fence["source"])):
             return fence[0]
         if what := raw(fence["language"], fence["source"]):
             print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
