@@ -5,7 +5,7 @@ from collections.abc import Callable
 
 import pytest
 from drive import card, cli, limits, mcp, reads, slack, state, tools, view
-from conftest import Withdrawals
+from conftest import Answers, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -14,6 +14,7 @@ UNDER_CARD = f"{CARD}?thread_ts=1794200000.000700"
 PR_CARD = "https://acme.slack.com/archives/D123/p1794200000000900"
 ANSWER = {
     "id": "73060f0349f75a509980c17434a2ef862397394c",
+    "tags": [],
     "title": "Owner 9:54 PM Nov 10: should drive verbs such as drive heard be MCP tool calls?",
     "body": '"do a pass on making yhouir tools fit youir usage paterns and efficient"\nNotes: cci owner 660781',
 }
@@ -327,8 +328,8 @@ def test_his_owner_words_under_a_pr_card_withdraw_it_and_his_typed_approve_leave
     assert state.load(demo)["prs"]["Forge-AI/monorepo#54084"]["wants_tap"] is False
 
 
-def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps(ANSWER))
+def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
+    recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "add", "builder", "--order", "o1", "--goal", "make the verbs MCP tools")

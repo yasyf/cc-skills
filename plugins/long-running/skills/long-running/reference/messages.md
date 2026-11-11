@@ -138,9 +138,11 @@ summary of one feature is a line of at most 60 words.
   comes after, or why it is held. `drive job ask` refuses a summary that answers none of them unless
   the findings carry `Next question: none: <why>`. When the block has a Show me, a `*Show me*` line
   and the Show me follow as written.
-- One option is always the fix the job's own diagnosis points at, recommended unless the summary says
-  why not. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Direct fix:` line naming that
-  option by its words, or `Direct fix: none: <why>`, and, on a bug hurting someone now, an incident's
+- The card starts from the root cause, the structure that lets the defect happen, and one option is
+  always the one that removes it so the defect cannot occur, recommended, every other option saying
+  it keeps that structure and what that costs. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Root cause:` line
+  with a `First principles:` line naming that option by its words, `Root cause: not found: <the job
+  finding it>` or `Root cause: none: <why>` (his ruling "Update your skill to not just brush over the root cause ever"), and, on a bug hurting someone now, an incident's
   or one a reporter shared, one whose findings carry no `Interim fix:` line linking the immediate fix
   shipping while he picks, or `Interim fix: none: <why nobody is hurt now>`.
 - Give two to four options, each one line of at most 25 words saying what runs, on what trigger,
@@ -264,20 +266,21 @@ When it is answered, replaced or redone:
   buttons were, as is every older copy, so one card stays answerable. `say` then points the question
   and every job's or PR's wait on the old card's link at the new card, the old card read from his
   open cards before the post, so a card no job's question keeps moves its waits too; when his cards
-  cannot be read, nothing is posted. A `--reworking` draw and `drive cards
-  redraw` are the same question drawn again: they carry `in_place`, so the card is edited where it
+  cannot be read, nothing is posted. `drive cards redraw` draws
+  the same questions again: it carries `in_place`, so the card is edited where it
   sits, buttons kept, and nothing is posted. The same words post nothing either way. Never edit a card with
   `say(edit=…)` or `slack_edit`: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
   it, naming the redraw.
-- While a card he has not answered is being redone, it says so where it sits and keeps its buttons,
-  because he may still want to tap one. The moment a redo starts, the coordinator sends an `ask`
-  record with `--attr ask=<the card's kept file>`, `--attr waits=<its waits id>` and
-  `--attr reworking=<what is being redone, and when it is back>`.
-- The handler draws the card again from that file, its title, body and options unchanged, with one
-  line atop its body saying what is being redone and why:
-  `drive job card <its ask file> --waits <its waits id> --reworking "<those words>"`. A pick he taps
-  meanwhile stands. The redone `ask` comes under the same `waits` id and draws the new words with no
-  such line.
+- Words of his that supersede a card he has not answered, wherever he writes them, withdraw it the
+  moment they are recorded: words that answer its subject, change its question or options, such as
+  more options or a new constraint, or send its work back to be redone. `drive cards withdraw <its
+  waits id> --words "<his words>" --via <his permalink>` settles it in place, showing his words and a
+  link to them with no buttons, so a late tap records nothing, and its job asks again on a new card
+  once the work is back. One subject has one card: `drive job ask` refuses a question another job's
+  open card asks in other words, sharing three proper terms, until that card is withdrawn or
+  `--unsettled` names it and why this asks something else, and `drive answer` lists every card on
+  that subject beside the one his answer settles. His words, on three cards about one search
+  worker's cache disk: "We're already addressing this with the lazy + restate object + increase disk size right? So why is this card still here?"
 - No option asks a reporter or anyone else to retry, confirm or check, because the drive proves a fix
   itself, and `drive job ask` refuses an option asking someone to retry or confirm.
 

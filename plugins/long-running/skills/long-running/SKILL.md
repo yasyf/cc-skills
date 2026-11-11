@@ -30,13 +30,13 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 - Ask him only what is his: architecture and abstractions, scope, and his own workflow. Do the rest of his orders with no go-ahead and report it with a count (`scope`).
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
 - A tricky design gets a design job whose forks go on his cards (`design`), and a finding with design consequences reaches him as options, unasked. The recommended option is built meanwhile, its PR waiting on his answers outside an incident's repair, since an unchosen shape is costly to undo.
-- His words under a card that answer it, a direction included, close it; the card shows them and the work follows them. A question he asks under it is answered in its thread while the card waits. Only what his answer leaves open goes on a new card; one his recorded answers settle is never asked.
-- The fix a job's diagnosis points at is always one of its card's options, recommended unless the summary says why not.
+- His words that answer a card, a direction included, or supersede it by changing its question, options or work, wherever he writes them, close it and every card on its subject; each shows his words with no buttons, and the work follows them. A question he asks under it is answered in its thread while the card waits. Only what his answer leaves open goes on a new card; one his recorded answers settle is never asked.
+- A question card starts from the root cause, the structure that lets the defect happen, and recommends the option that removes it so the defect cannot occur; one keeping it behind a cap, timer, retry, exit, flag, pin or sweeper is never recommended (`scope`).
 
 ### His words
 
-- A brief, record or handoff carries his words verbatim, and your reading travels marked as yours beside them, since a paraphrase becomes the spec downstream.
-- His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling).
+- His message is the order. Do what it asks: his plan, rulings and recorded answers are read only so he is never asked again, never a reason his words go undone, by his words "Who cares if you have a record if they or not I'm telling you to do it". A brief, record or handoff carries his words verbatim, and your reading travels marked as yours beside them, since a paraphrase becomes the spec downstream.
+- His correction of how the drive works is a ruling. Record it with `drive answer`, apply it to all live work, and rewrite the skill that turn (Tooling). One on how code must work is written, his words verbatim, into the AGENTS.md nearest that code, a habit every later change reads.
 - A ruling binds only what his words name; ask him on a card before carrying it to another surface.
 - His reminder of dropped work, or feedback on a post or card, is a tool defect: fix the drive tool, card library or `check-post` that let it through.
 

@@ -54,9 +54,11 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
 `(recommended)`, for a design job to turn into his cards. Written in the ASK block's shape, which
 `drive job ask --check` passes with `ASK` for `DESIGN` and your research under `Findings:`, it is his
-card as it stands: `drive job card <j>` draws it with no file written by hand. The fix your evidence points at is an
-option, recommended, or a line says why another is, and a `Direct fix:` line names it by its words,
-or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. On an
+card as it stands: `drive job card <j>` draws it with no file written by hand. It starts from the root cause your
+evidence finds, the structure that lets the defect happen: a `Root cause:` line names it, and a
+`First principles:` line names the option that removes it so the defect cannot occur, always offered
+and recommended; or `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no
+defect is behind it>`. His ruling: "Update your skill to not just brush over the root cause ever". `drive job report` refuses a `DESIGN` without it. On an
 incident or a bug a reporter shared, an `Interim fix:` line links the immediate fix shipping while he
 picks, or the job building it, or says `Interim fix: none: <why nobody is hurt now>`, and `drive job
 report` refuses a `DESIGN` without it. Start no other line with `- `, since

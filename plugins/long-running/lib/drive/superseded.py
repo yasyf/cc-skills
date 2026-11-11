@@ -8,6 +8,7 @@ from drive.state import DriveError
 
 OTHERS_STAND = 3
 TYPED_TAPS = ("Approve", "Hold")
+SUBJECT_TERMS = 3
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -45,15 +46,17 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(data: dict, words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, and those its words name; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
+    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, those its words name, and every other question card asking about the same subject in other words; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
     drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
     jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
     orders = {entry["order"] for entry in answered if entry["order"]} | set(drawn.values())
+    titles = [entry["title"] for entry in answered if entry["kind"] == "question"]
     cards = {
         key: None
         for key, entry in asked.items()
-        if not (entry["card"] and under(link, entry["card"])) and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry))
+        if not (entry["card"] and under(link, entry["card"]))
+        and (entry["job"] in jobs or entry["order"] in orders or named(words, key, entry) or any(shared(entry["title"], title) for title in titles if entry["kind"] == "question"))
     }
     touched = orders | {asked[key]["order"] for key in cards if asked[key]["order"]}
     return {
@@ -64,6 +67,14 @@ def record(data: dict, words: str, link: str, asked: dict[str, dict], moment: st
         "cards": cards,
         "jobs": {job_id: None for job_id, job in data["jobs"].items() if job["state"] == "waiting" and touched & {job["order"], *job["carries"]}},
     }
+
+
+def shared(title: str, other: str) -> list[str]:
+    """The proper terms two questions share when they ask about one subject in other words, as three jobs asked about one search worker's cache disk; fewer than SUBJECT_TERMS shared is no subject in common."""
+    from drive import settled
+
+    terms = sorted(settled.rare(title) & settled.rare(other))
+    return terms if len(terms) >= SUBJECT_TERMS else []
 
 
 def named(words: str, key: str, entry: dict) -> bool:

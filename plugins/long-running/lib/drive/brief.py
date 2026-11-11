@@ -35,7 +35,7 @@ LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
-DESIGN_LINES = ("Settled:", "Native:", "Fork:", "Facts:")
+DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Fork:", "Facts:")
 UNDESIGNED = ("HANDOFF", "BLOCKED")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
 
@@ -167,7 +167,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options, starting from the root cause and recommending the option that removes it, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -190,8 +190,8 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
     if job["kind"] == "design" and opening not in UNDESIGNED and (missing := design_missing(lines)):
         return (
             "a design lane's report is the design in its shape, which the coordinator reads for its forks, and this one"
-            f" lacks {', '.join(missing)}: DESIGN <the part, in a few words>, then Settled:, Native:, a Fork: line per"
-            " fork and Facts:"
+            f" lacks {', '.join(missing)}: DESIGN <the part, in a few words>, then Root cause: (the structure that lets the"
+            " defect happen, or none: <why no defect is behind it>), Settled:, Native:, a Fork: line per fork and Facts:"
         )
     if job["kind"] == "reader" and (refused := reader_refusal(job_id, job, order, text, lines)):
         return refused
@@ -217,7 +217,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
 
 
 def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[str]) -> str | None:
-    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, among them the fix its evidence points at, and on a bug hurting someone now names the immediate fix shipping while he picks."""
+    """Why a reader's return may not be kept: research for a build order carries its filled Researched: block, and a DESIGN is a choice for him of two to four options, one recommended, starting from the root cause its evidence finds and recommending the option that removes it, and on a bug hurting someone now names the immediate fix shipping while he picks."""
     block = researched(text)
     if order["kind"] == "build" and not order["incident"] and job["goal"].casefold().startswith("research") and (
         missing := [f"{key}:" for key in KEYS if not block.get(key)]
@@ -237,9 +237,8 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
             " option lines, exactly one ending (recommended); a finding with no choice in it returns DONE"
         )
     options = [limits.RECOMMENDED.sub("", option) for option in offered]
-    summary = [line for line in lines if not line.startswith("- ") and not limits.DIRECT_FIX.match(line)]
-    if problems := limits.direct_fix_problems(text, options, limits.RECOMMENDED.sub("", marked[0]), summary):
-        return f"a reader's DESIGN names among its options the fix its evidence points at: {problems[0]}"
+    if problems := limits.root_cause_problems(text, options, limits.RECOMMENDED.sub("", marked[0])):
+        return f"a reader's DESIGN starts from the root cause and recommends the option that removes it: {problems[0]}"
     if state.hurts_now(order) and (problems := limits.interim_fix_problems(text)):
         return f"a reader's DESIGN on a bug hurting someone now names its immediate fix: {problems[0]}"
     return None

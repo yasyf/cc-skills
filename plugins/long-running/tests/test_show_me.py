@@ -243,7 +243,7 @@ UPGRADING_CHAT_SHOTS = r'''![1 · Before, dev at de31bf9]({root}/durable-agents/
 
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
-    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nRoot cause: none: a design pick\nKept on disk.\n"
 
 
 @pytest.mark.parametrize(
@@ -414,7 +414,7 @@ def test_a_kept_block_redraws_with_the_markdown_in_its_options_drawn_as_the_word
         "- Each lead arms its own `drive watch --project` and hears only *its own* project's events (recommended)\n"
         "- One watch in the top forwards each line to the project's lead; the top reads every line\n"
         "Findings:\n"
-        "Direct fix: none: a design choice, with no defect behind it\n"
+        "Root cause: none: a design choice, with no defect behind it\n"
         "- the old `drive watch` call stays as it was\n"
     )
     with pytest.raises(DriveError, match="which Slack draws as raw text"):

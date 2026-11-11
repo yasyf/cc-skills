@@ -4,8 +4,8 @@ from pathlib import Path
 
 import landing_guard
 import pytest
-from conftest import SESSION
-from drive import shell, state, view
+from conftest import SESSION, SHORT_ASK
+from drive import limits, shell, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -308,3 +308,13 @@ def test_his_words_on_his_open_card_posted_with_cci_post_are_refused_for_the_rec
     owner = f"cci post --kind owner --lane root --to communicator@demo --url '{card}?thread_ts=1794379200.123456' 'why is this card still up'"
     assert "the drive's `record` tool" in landing_guard.deny_reason(bash(owner, agent_id="a1"))
     assert landing_guard.deny_reason(bash("cci post --kind owner --lane root --to communicator@demo 'a new order'", agent_id="a1")) is None
+
+
+def test_a_question_kept_with_drive_job_ask_goes_to_jev_with_its_root_cause_and_recommended_option(demo: str, no_calls: None, tmp_path: Path) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    reason = landing_guard.judged_reason(bash(f"drive job ask j1 {block}", session_id=SESSION))
+    assert reason.startswith("refused until Jev finds this question keeps his ruling 0c59046")
+    assert "Root cause: none: a design choice, with no defect behind it" in reason
+    assert reason.rule == limits.ROOT_CAUSE_RULE
+    assert landing_guard.judged_reason(bash(f"drive job ask --check {block}", session_id=SESSION)) is None

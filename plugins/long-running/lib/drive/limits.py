@@ -79,16 +79,33 @@ SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
 OPTIONS_HEADING = re.compile(r"options:", re.IGNORECASE)
 QUOTE = ">"
 REDONE = "*This question is being redone:* "
-REBUILT = "Direct fix: none: rebuilt from the posted card"
+REBUILT = "Root cause: none: rebuilt from the posted card"
 POSTED_PICTURE = re.compile(r"!\[(?P<caption>[^\]]*)\]\((?P<path>/[^)\s]+)\)")
 NAMELESS_CAPTION = re.compile(r"Show me(?: \(\d+\))?")
 FENCE = re.compile(r"^[ \t]*```")
 PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
-DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
-NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
+ROOT_CAUSE = re.compile(r"^[ \t]*Root cause:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+FIRST_PRINCIPLES = re.compile(r"^[ \t]*First principles:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
+NONE_WHY = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
 INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
+NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
+FINDING_JOB = re.compile(r"\bj\d+\b")
+ROOT_CAUSE_RULING = 'his ruling 0c59046, "Update your skill to not just brush over the root cause ever"'
+ROOT_CAUSE_RULE = (
+    "A question card starts from the root cause: the structure that lets the defect happen, or that it is not found yet and"
+    " which job is finding it. Its recommended option removes that structure so the defect cannot occur, through one"
+    " abstraction every caller goes through; an option that keeps the structure behind a cap, timer, retry, exit, flag,"
+    " pin or sweeper is never the recommended one, and a card whose root cause is not found offers no cap, timer or exit"
+    " around a step it has not explained. When the card quotes words of his as settled, its recommended option is the one"
+    " those words choose. A question with no defect behind it, a pick between designs that are his, passes."
+)
+ROOT_CAUSE_SHAPE = (
+    "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
+    " that removes it>`, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
+    " this question>`"
+)
 NEXT_QUESTION = re.compile(
     r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
     r"|next|then|once|meanwhile|held|holds|waits?|waiting|awaits?|awaiting|paused|pending|until|blocked)\b",
@@ -401,7 +418,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
-        problems += direct_fix_problems(findings[0], options, RECOMMENDED.sub("", marked[0]), summary)
+        problems += root_cause_problems(findings[0], options, RECOMMENDED.sub("", marked[0]))
     if hurting and not kept:
         problems += interim_fix_problems("".join(findings[:1]))
     if problems:
@@ -482,39 +499,70 @@ def captions(show_me: list[str]) -> list[str]:
     return kept
 
 
-def direct_fix_problems(findings: str, options: list[str], recommended: str, summary: list[str]) -> list[str]:
-    """Whether the findings name the option that is the fix the job's own diagnosis points at, which every question offers and recommends unless its summary says why not, or say no diagnosis points at one."""
-    named = DIRECT_FIX.search(findings)
-    if not named:
-        missing = (
-            "no `Direct fix:` line under `Findings:`: name the option that is the fix its diagnosis points at, by its words,"
-            " or write `Direct fix: none: <why>` when no diagnosis points at one; that fix is always an option, and the"
-            " recommended one unless the summary says why not"
-        )
-        return [missing]
-    if NO_DIRECT_FIX.match(named[1]):
+def root_cause_problems(findings: str, options: list[str], recommended: str) -> list[str]:
+    """Whether the findings start from the root cause, the structure that lets the defect happen, and recommend the option that removes it so the defect cannot occur; or say the cause is not found yet, naming the job finding it; or say no defect is behind the question. Whether that option truly removes the structure, and whether words of his the card quotes choose another, Jev judges when `drive job ask` keeps it."""
+    cause = ROOT_CAUSE.search(findings)
+    if not cause:
+        return [f"no `Root cause:` line under `Findings:`: write {ROOT_CAUSE_SHAPE} ({ROOT_CAUSE_RULING})"]
+    if NONE_WHY.match(cause[1]):
         return []
-    fix = named[1].casefold()
+    if unfound := NOT_FOUND.match(cause[1]):
+        if FINDING_JOB.search(unfound[1]):
+            return []
+        return [f"`Root cause: {cause[1]}` names no job finding it: say which job is finding it, as `Root cause: not found: j<n> <what it reads>` ({ROOT_CAUSE_RULING})"]
+    principled = FIRST_PRINCIPLES.search(findings)
+    if not principled:
+        return [
+            f"`Root cause: {cause[1]}` has no `First principles:` line: name the option that removes that structure, so the defect"
+            f" cannot occur, through one abstraction every caller goes through ({ROOT_CAUSE_RULING})"
+        ]
+    fix = principled[1].casefold()
     option = next((option for option in options if fix in (option.strip().casefold(), option_head(option).casefold())), None)
     if option is None:
-        unnamed = (
-            f"`Direct fix: {named[1]}` names no option: the fix its diagnosis points at is always an option, so add it, or"
-            " repeat the words of the option it is, whole or up to the colon that ends its first part"
-        )
-        return [unnamed]
-    if option == recommended or option_head(option).casefold() in " ".join(summary).casefold():
-        return []
-    unexplained = (
-        f'the direct fix "{option_head(option)}" is an option but not the recommended one, and the summary never says why not:'
-        " recommend it, or add a summary sentence that names it by those words and says why another option is better"
+        return [
+            f"`First principles: {principled[1]}` names no option: the option that removes the root cause is always one, so add"
+            " it, or repeat the words of the option it is, whole or up to the colon that ends its first part"
+        ]
+    if option != recommended:
+        return [
+            f'"{option_head(option)}" removes the root cause and is not the recommended option: recommend it, and say in every'
+            f" other option that it keeps that structure and what that costs ({ROOT_CAUSE_RULING})"
+        ]
+    return []
+
+
+def root_cause_review(text: str, unsettled: str | None) -> str | None:
+    """What Jev reads before `drive job ask` keeps a question in shape, to judge its recommended option against the root cause its findings name and the words of his it quotes; None for a block out of shape, which the verb refuses with every fix."""
+    try:
+        asked = question(text, unsettled=unsettled)
+    except DriveError:
+        return None
+    findings = FINDINGS.split(text, maxsplit=1)[1]
+    lines = [found[0].strip() for pattern in (ROOT_CAUSE, FIRST_PRINCIPLES) if (found := pattern.search(findings))]
+    quoted = QUOTED.findall("\n".join([*asked.summary, findings]))
+    return "\n".join(
+        [
+            f"refused until Jev finds this question keeps {ROOT_CAUSE_RULING}:",
+            f"Question: {asked.title}",
+            *asked.summary,
+            f"Recommended: {asked.recommended}",
+            *(f"Also offered: {option}" for option in asked.options if option != asked.recommended),
+            *lines,
+            *([f"Words it quotes: {' '.join(quoted)}"] if quoted else []),
+            (
+                "When the recommended option keeps that structure, works around a step whose cause is not found, or is not the"
+                " option the words of his it quotes choose: recommend the option that removes the root cause, adding it when"
+                " none does, say in each other option that it keeps the structure and what that costs, find the cause first"
+                " when it is not found, and ask again."
+            ),
+        ]
     )
-    return [unexplained]
 
 
 def interim_fix_problems(findings: str) -> list[str]:
     """Whether the findings of a choice on a bug hurting someone now name the immediate fix or rollback that ships while he picks, by the link of its PR, release, rollback or repair or the job building it, or say with `Interim fix: none: <why>` that nobody is hurt now."""
     named = INTERIM_FIX.search(findings)
-    if named and (NO_DIRECT_FIX.match(named[1]) or SHIPPING.search(named[1])):
+    if named and (NONE_WHY.match(named[1]) or SHIPPING.search(named[1])):
         return []
     unnamed = (
         "it asks him for the proper fix of a bug hurting someone now, so `Findings:` carries `Interim fix: <the link of the PR,"

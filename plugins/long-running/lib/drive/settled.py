@@ -116,6 +116,11 @@ def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
     return done.stdout
 
 
+def shown(answer_id: str, cwd: str) -> dict:
+    """One recorded answer of his, its title, body and labels."""
+    return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
+
+
 def matching(card: str, whole: str, drives: list[str], cwd: str, under: list[dict]) -> list[dict]:
     """His recorded answers that may already settle a question: those its words match, and each written under a card its job asked on."""
     found = answers(read(card), read(whole), drives, cwd)

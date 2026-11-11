@@ -35,7 +35,7 @@ UNSENT = (
     " runtime_error: Timed out waiting for the remote Orca runtime; its terminal term_lane waits idle, and launching this"
     " brief again retries worker-start in it"
 )
-DESIGN_PICK = "Direct fix: none: a design pick, with no defect behind it"
+DESIGN_PICK = "Root cause: none: a design pick, with no defect behind it"
 ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
 The nightly store copy reads every store once; it can run on the primary or on its own worker.
 - On the primary, beside the queries it serves (recommended)
@@ -1012,9 +1012,9 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     ("block", "refusal", "said"),
     [
         (
-            ASK_IN_SHAPE.replace(DESIGN_PICK, "Direct fix: run it at night"),
+            ASK_IN_SHAPE.replace(DESIGN_PICK, "Root cause: the copy runs while queries do\nFirst principles: run it at night"),
             None,
-            "`Direct fix: run it at night` names no option",
+            "`First principles: run it at night` names no option",
         ),
         (f"j1 {ASK_IN_SHAPE}", None, "an ASK block opens with `ASK <the question, one line>`"),
         (
