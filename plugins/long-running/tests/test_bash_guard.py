@@ -138,6 +138,18 @@ def test_a_role_whose_terminal_orca_only_hides_is_shown_never_resumed(communicat
     assert bash_guard.deny_reason(bash(CREATE)) is None
 
 
+def test_a_sub_coordinators_session_is_found_like_a_roles_by_its_session_and_terminal(
+    communicator: str, config: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(communicator) as data:
+        top = data["roles"]["coordinator"]
+        data["subcoordinators"]["Iris"] = {"session": RESUMED, "terminal": "term_i", "cwd": "/work", "started": top["started"], "from": 0}
+    monkeypatch.setattr(orca, "terminal", lambda handle: {"orphaned": True})
+    monkeypatch.setattr(orca, "main_checkout", lambda worktree: Path("/repo"))
+    running(monkeypatch, config, {4123: 1})
+    assert bash_guard.deny_reason(bash(CREATE)).startswith(f"refused: session {RESUMED} still runs as pid 4123, in a terminal Orca only hides")
+
+
 def test_a_terminal_command_ends_with_the_claude_command(demo: str) -> None:
     reason = bash_guard.deny_reason(bash('orca terminal create --worktree path:/work --command "claude --resume x; exec zsh -l"'))
     assert reason.startswith("refused: the terminal's --command runs `zsh` after claude")

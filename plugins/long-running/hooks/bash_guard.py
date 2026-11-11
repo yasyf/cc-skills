@@ -159,7 +159,7 @@ def role_of(session: str | None = None, terminal: str | None = None) -> tuple[di
     """The drive and role whose recorded session or terminal this is."""
     for name in state.names():
         data = state.load(name)
-        for role, held in data["roles"].items():
+        for role, held in state.bound_sessions(data).items():
             if (session and held["session"] == session) or (terminal and held["terminal"] == terminal):
                 return data, role
     return None
@@ -186,7 +186,7 @@ def live_resume(found: list[list[str]]) -> str | None:
         if pid is None:
             continue
         owner = role_of(session=session)
-        if owner and (show := hidden(owner[0]["roles"][owner[1]])):
+        if owner and (show := hidden(state.bound_sessions(owner[0])[owner[1]])):
             return (
                 f"refused: session {session} still runs as pid {pid}, in a terminal Orca only hides because it shows no"
                 f" worktree it did not make; leave it running and show it with `{show}`"
