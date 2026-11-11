@@ -294,7 +294,7 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
 
   A question's options come from the job's own evidence: the fix its diagnosis points at is always
   one of them, and the recommended one unless the summary names it and says why another is better.
-  The `Direct fix:` line names that option by its words, whole or up to its first colon, or says
+  The `Direct fix:` line names that option by its words, whole or up to the colon that ends its first part, or says
   `none: <why>` when no diagnosis points at one, and `drive job ask` refuses a block without it. His
   words, Nov 10 11:28 PM, on a card that left out waiting on the server-side copy its own diagnosis
   pointed at: "so why was that not the suggested optin to me, or even any of the options?"

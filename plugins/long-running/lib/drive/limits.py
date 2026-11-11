@@ -60,6 +60,7 @@ PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
+HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
 DRIVE_KINDS = ("PR", "card")
@@ -337,7 +338,7 @@ def direct_fix_problems(findings: str, options: list[str], recommended: str, sum
     if option is None:
         unnamed = (
             f"`Direct fix: {named[1]}` names no option: the fix its diagnosis points at is always an option, so add it, or"
-            " repeat the words of the option it is, whole or up to its first colon"
+            " repeat the words of the option it is, whole or up to the colon that ends its first part"
         )
         return [unnamed]
     if option == recommended or option_head(option).casefold() in " ".join(summary).casefold():
@@ -350,7 +351,8 @@ def direct_fix_problems(findings: str, options: list[str], recommended: str, sum
 
 
 def option_head(option: str) -> str:
-    return option.split(":")[0].strip()
+    """An option's words up to the colon that ends its first part, a colon followed by a space; `blob::Blob` and a URL's colon stay in it."""
+    return HEAD_END.split(option, maxsplit=1)[0].strip()
 
 
 def show_me_problems(show_me: list[str], below_options: bool, kept: bool, options: int) -> list[str]:

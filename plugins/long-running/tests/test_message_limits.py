@@ -748,6 +748,16 @@ def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says
     assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
 
 
+def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() -> None:
+    options = [
+        "Also write the legacy content field as a blob::Blob: old readers keep working, one more write each save",
+        "Drop the legacy field: no extra write, and old readers break",
+    ]
+    findings = "Old readers still open the legacy field.\nDirect fix: Also write the legacy content field as a blob::Blob\n"
+    assert limits.direct_fix_problems(findings, options, options[0], []) == []
+    assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
+
+
 def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carries_no_text_beside_it(talker: str, transcript: Path) -> None:
     asked = limits.question(FROZEN_COPIES_ASK)
     card = asked.card("demo", "demo:j620-660354")
