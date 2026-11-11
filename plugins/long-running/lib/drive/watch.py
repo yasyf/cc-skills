@@ -309,7 +309,7 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw in place, once for each verdict, every open card of his still asking his tap on a PR a reader called NOT READY, so it shows the reader's reason with no Approve, since a stale card is edited in place the moment it goes stale; cc-slack tells the drive a redraw it refuses, and his card regains its Approve when a later reader's READY sends the PR's ready record; each PR by the watch hearing its order."""
+    """Redraw in place, each read, every open card of his still asking his tap on a PR a reader called NOT READY, each PR by the watch hearing its order, and say so once for each verdict. The redraw shows the reader's reason with no Approve, and cc-slack then marks the card as no longer waiting on his tap, which drops it from the cards asking his tap; a redraw cc-slack queued but could not draw, as when GitHub would not answer its read, leaves the card asking, so the next read redraws it again. His card regains its Approve when a later reader's READY sends the PR's ready record."""
     if watcher.cards is None:
         return []
     asking = {url for card in watcher.cards["pr_cards"] for url in card["prs"]}
@@ -317,7 +317,7 @@ def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
     owed = [
         (key, pr)
         for key, pr in data["prs"].items()
-        if pr["url"] in asking and pr["state"] == "open" and state.owed_step(pr) == "recheck" and not pr["not_ready"]["redrawn"] and hears(watcher, data, pr["order"])
+        if pr["url"] in asking and pr["state"] == "open" and state.owed_step(pr) == "recheck" and hears(watcher, data, pr["order"])
     ]
     lines = []
     for key, pr in owed:
@@ -327,10 +327,12 @@ def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += failed(watcher, "unready redraw", "redraw of a card under a reader's NOT READY", error, moment)
             continue
         watcher.failures.pop("unready redraw", None)
+        if pr["not_ready"]["redrawn"]:
+            continue
         with state.edit(watcher.name) as data:
             if verdict := data["prs"][key]["not_ready"]:
                 verdict["redrawn"] = True
-        lines.append(f"CARD his open card for {key} redrawn in place with no Approve: {not_ready(pr)} {ids(pr)}")
+        lines.append(f"CARD his open card for {key} is being redrawn in place with no Approve: {not_ready(pr)} {ids(pr)}")
     return lines
 
 
