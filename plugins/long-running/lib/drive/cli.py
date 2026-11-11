@@ -1816,17 +1816,7 @@ def heard(args: argparse.Namespace) -> int:
                     news.append(key)
     if news:
         state.append_event(name, "catch-up", dm=data["slack"]["channel"], since=render.when(since), orders=" ".join(news))
-    line = f"CATCH-UP since {render.when(since)}: {' '.join(news)}" if news else ("away" if args.away else "heard")
-    filed = thread_order(data, args.thread) if args.thread else None
-    lane = filed and state.project_lane(filed[1]["project"])
-    routed = f"; {filed[0]} in this thread is filed under {filed[1]['project']}: his owner record goes --to {lane}, its sub-coordinator's lane" if filed else ""
-    return emit(args, line + routed, {"away": args.away, "back": back, "since": since, "catch_up": news, "to": lane})
-
-
-def thread_order(data: dict, thread: str) -> tuple[str, dict] | None:
-    """The newest order in the thread, when it is filed under a project a sub-coordinator is bound for."""
-    order_id = state.thread_order(data, thread)
-    return (order_id, data["orders"][order_id]) if order_id and data["orders"][order_id]["project"] in data["subcoordinators"] else None
+    return emit(args, "away" if args.away else "heard", {"away": args.away, "back": back, "since": since, "catch_up": news})
 
 
 def term(args: argparse.Namespace) -> int:
@@ -2677,17 +2667,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--untouched", action="extend", nargs="+", default=[], metavar="JOB", help="a job waiting on an order his answer touches that his words leave as it is")
     verb.set_defaults(run=answer)
     verb = verbs.add_parser(
-        "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers"
+        "heard",
+        parents=both,
+        help="he wrote: record it, and tell the coordinator the orders his catch-up at his DM root covers; prints heard, or away, and nothing to act on",
     )
     verb.add_argument("--away", action="store_true", help="he said he is going to sleep or away")
-    verb.add_argument(
-        "--thread",
-        metavar="TS",
-        help=(
-            "the thread his message is in: when its newest order is filed under a project with a sub-coordinator, the line"
-            " names that sub-coordinator's lane as where his owner record goes, --to <lane>, in place of root"
-        ),
-    )
     verb.add_argument(
         "--repeats",
         metavar="ORDER",

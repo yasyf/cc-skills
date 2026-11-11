@@ -11,7 +11,7 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
 OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
-READS = {"status": ("status",), "search_plan": ("plan", "search")}
+ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 OPS_HELP = (
@@ -70,9 +70,8 @@ def verb_tools() -> list[dict]:
         {
             "name": "heard",
             "description": (
-                "Record that he wrote, each time he does. Returns heard, away when away is set, or, when he is back from"
-                " away, CATCH-UP since <time>: <ids>, the orders his catch-up covers; given his thread, it adds the lane"
-                " his owner record goes to when that thread's newest order has a sub-coordinator."
+                "Record that he wrote, each time he does. Returns heard, or away when away is set, and nothing to act on:"
+                " the coordinator hears his catch-up itself."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "dry_run": DRY_RUN}},
         },
@@ -153,13 +152,11 @@ def run(tool: str, name: str, arguments: dict) -> str:
     match tool:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer or defect records"), dry_run)
-        case "heard":
-            return batch(name, (tool,), [{tool: arguments}], dry_run)
-        case "status" | "search_plan":
+        case "heard" | "status" | "search_plan":
             said: list[str] = []
-            return "\n".join(ran(name, said, 1, 1, READS[tool], arguments, dry_run) or said)
+            return "\n".join(ran(name, said, 1, 1, ONE_VERB[tool], arguments, dry_run) or said)
         case group:
-            return batch(name, (group,), listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
+            return batch(name, group, listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
 
 
 def parsed_arguments(arguments: dict, shapes: dict[str, dict]) -> dict:
@@ -273,16 +270,16 @@ def listed(value: object) -> list[str]:
     return [] if value is None else [str(item) for item in (value if isinstance(value, list) else [value])]
 
 
-def batch(name: str, group: tuple[str, ...], ops: list[dict], dry_run: bool) -> str:
+def batch(name: str, group: str, ops: list[dict], dry_run: bool) -> str:
     said: list[str] = []
     made = None
     for index, op in enumerate(ops, start=1):
         if len(op) != 1:
             raise DriveError("\n".join([*said, f"{index}: an op names one verb, not {', '.join(op) or 'none'}"]))
         [(verb, given)] = op.items()
-        if verb not in (allowed := OPS.get(group[0], group)):
-            raise DriveError("\n".join([*said, f"{index}: the {group[0]} tool runs {', '.join(allowed)}, not {verb}"]))
-        words = (*group, verb) if group[0] in OPS else group
+        if verb not in OPS[group]:
+            raise DriveError("\n".join([*said, f"{index}: the {group} tool runs {', '.join(OPS[group])}, not {verb}"]))
+        words = (group, verb)
         if words == ("job", "add") and isinstance(given.get("order"), dict):
             given = given | {"order": first(ran(name, said, index, len(ops), ("order", "add"), given["order"], dry_run))}
         if verb != "add" and "id" in fields(leaf(*words)) and "id" not in given:

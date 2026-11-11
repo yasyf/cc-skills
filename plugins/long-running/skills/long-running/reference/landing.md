@@ -66,8 +66,13 @@ for its repository says, then return `DONE <proof>`.
     dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
-    `chart` fence (Vega-Lite) or a markdown table; a UI change gets a screenshot or gif as a markdown
-    image. A fence holds code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Put a
+    `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
+    card or post, gets a before and an after screenshot of it as two markdown images,
+    `![1 · Before, <the build it shows>](<path>)` then `![2 · After, <the build it shows>](<path>)`,
+    which Slack shows side by side as one gallery, in his words "This is a visual change so it should
+    have shown before and after screenshots". A builder's `READY` whose `NATIVE:` line names a surface
+    he sees is refused until a Show me on the card carries both. A fence holds code, never prose, JSON,
+    YAML, logs, terminal output, or a stack trace. Put a
     caption line just above each fence and alt text on each image, since Slack titles each picture
     with it; a fence with none is titled by its kind, such as "go code", and a title another picture
     on the card already has gets a number, as "Diagram (2)". His card carries each `chart` fence and

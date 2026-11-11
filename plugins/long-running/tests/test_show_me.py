@@ -368,6 +368,22 @@ def test_two_pictures_pass_as_one_gallery_only_when_each_caption_opens_with_its_
         assert "his Nov 10 10:55 PM words" in str(refused.value)
 
 
+@pytest.mark.parametrize(
+    ("show_me", "both"),
+    [
+        ("![1 · Before, dev](/x/page.png)\n![2 · After, this PR](/x/page-new.png)", True),
+        ('<img src="/x/before.png">\n<img src="/x/after.png">', True),
+        ("![2 · After, this PR](/x/page-new.png)\n![1 · Before, dev](/x/page.png)", True),
+        ("![1 · Before, dev](/x/page.png)", False),
+        ("![Before and after, side by side](/x/both.png)", False),
+        ("![1 · The run page](/x/page.png)\n![2 · The run page, wider](/x/page-new.png)", False),
+        ("Before this PR the page cut off; after it, it fits.\n![The run page](/x/page.png)", False),
+    ],
+)
+def test_a_show_me_carries_before_and_after_screenshots_only_as_two_pictures_named_before_and_after(show_me: str, both: bool) -> None:
+    assert limits.before_and_after(show_me) is both
+
+
 def test_a_left_to_right_flow_past_four_nodes_is_refused_and_the_same_flow_top_to_bottom_passes() -> None:
     for across in ("flowchart LR", "graph LR"):
         with pytest.raises(DriveError) as refused:

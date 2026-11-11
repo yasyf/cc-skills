@@ -125,6 +125,10 @@ prints and a remote lane's brief carries whole:
 - `## Biggest surprise`, then `## What you'll hate most`.
 - `## Show me`: a concrete example in the visual kind that fits, as ASK lists them, or the real SQL,
   code or call before and after; a PR that adds or rewires components shows an `arch` map of them; words, JSON, YAML, logs and terminal output stay out of fences.
+  A PR that changes what he or a user sees, a UI, page, card or post its `NATIVE:` line names,
+  shows a before and an after screenshot of it, `![1 · Before, <build>](<path>)` then
+  `![2 · After, <build>](<path>)`, which Slack shows side by side. His words: "This is a visual
+  change so it should have shown before and after screenshots".
 - `## Against the plan`, only on a departure; `## Port`, on a port.
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 
@@ -294,7 +298,7 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `READY <pr url> [<pr url>…]` | Green and waiting only on his tap. A stack names every PR, bottom first, so it gets one card. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `READY <pr url> [<pr url>…]` | Green and waiting only on his tap. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, which `drive job report` refuses a `READY` without. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | CI, a review, a merge queue, another PR. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
