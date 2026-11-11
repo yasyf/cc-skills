@@ -20,7 +20,7 @@ BUILDER = PLUGIN / "agents" / "builder.md"
 LANDING = PLUGIN / "skills" / "long-running" / "reference" / "landing.md"
 LANE_ENV = "CLAUDE_CODE_AUTO_COMPACT_WINDOW=300000"
 LAUNCH_SECONDS = 1800
-MAIL_LIMIT = "100"
+MAIL_LIMIT = 100
 FENCED = "consumer_fenced"
 GONE = "dispatch_not_found"
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
@@ -293,10 +293,12 @@ def reclaim(run: str, dispatch: str, checkout: Path) -> str:
     return done.stdout.strip()
 
 
-def mail(run: str) -> list[dict]:
-    """The Run's newest mail, oldest first, read without binding or consuming: this terminal binds one Run at a time, and the watch reads every lane's."""
-    messages = call("inbox", "--terminal", f"run:{run}", "--limit", MAIL_LIMIT)["messages"]
-    return sorted((message for message in messages if message["to_handle"] == f"run:{run}"), key=lambda message: message["sequence"])
+def mail(run: str, after: int) -> list[dict]:
+    """The Run's mail past sequence `after`, oldest first, read without binding or consuming: this terminal binds one Run at a time, and the watch reads every lane's. Orca returns a mailbox's newest rows, so a read that comes back full with none at or before `after` goes again ten times as deep."""
+    limit = MAIL_LIMIT
+    while len(messages := call("inbox", "--terminal", f"run:{run}", "--limit", str(limit))["messages"]) == limit and min(message["sequence"] for message in messages) > after:
+        limit *= 10
+    return sorted((message for message in messages if message["to_handle"] == f"run:{run}" and message["sequence"] > after), key=lambda message: message["sequence"])
 
 
 def worker(dispatch: str) -> dict:

@@ -85,7 +85,7 @@ def rooted(run: Run, demo: str) -> str:
 def deliver(monkeypatch: pytest.MonkeyPatch, *batches: list[dict]) -> list[str]:
     queue, calls = list(batches), []
 
-    def fake(run: str) -> list[dict]:
+    def fake(run: str, after: int) -> list[dict]:
         calls.append(run)
         return queue.pop(0) if queue else []
 
@@ -1013,7 +1013,7 @@ def test_a_failed_mail_read_retries_next_poll_and_says_so_from_the_third_failure
 ) -> None:
     calls = []
 
-    def broken(run: str) -> list[dict]:
+    def broken(run: str, after: int) -> list[dict]:
         calls.append(run)
         raise orca.OrcaError("orca orchestration check: runtime_unavailable: no answer")
 
@@ -1041,7 +1041,7 @@ def test_each_lane_is_read_from_its_own_run(run: Run, remote: str, monkeypatch: 
         RUN: [message("question", "READY first", id="msg_1")],
         "run_drive0002": [message("question", "READY second", id="msg_2", from_handle="dispatch:ctx_lane0002")],
     }
-    monkeypatch.setattr(orca, "mail", lambda run_id: mailboxes.pop(run_id))
+    monkeypatch.setattr(orca, "mail", lambda run_id, after: mailboxes.pop(run_id))
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == ["JOB j1 o1 READY first", "JOB j2 o1 READY second"]
     assert mailboxes == {}
@@ -1055,13 +1055,45 @@ def test_two_watches_reading_one_run_each_take_the_mail_of_the_jobs_they_hear_an
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
     first = message("question", "READY run page", id="msg_iris", from_handle="dispatch:ctx_lane0002")
     second = message("question", "READY remote builder", id="msg_top")
-    monkeypatch.setattr(orca, "mail", lambda run_id: [first, second])
+    monkeypatch.setattr(orca, "mail", lambda run_id, after: [first, second])
     top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
-    assert watch.lane_lines(top, T0) == []
-    assert watch.lane_lines(iris, T0) == ["JOB j2 o2 READY run page"]
     assert watch.lane_lines(top, T0) == ["JOB j1 o1 READY remote builder"]
-    assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}
+    assert watch.lane_lines(iris, T0) == ["JOB j2 o2 READY run page"]
+    assert (watch.lane_lines(top, T0), watch.lane_lines(iris, T0)) == ([], [])
+    jobs = state.load(remote)["jobs"]
+    assert (jobs["j1"]["mail_seen"], jobs["j2"]["mail_seen"]) == (second["sequence"], first["sequence"])
+
+
+def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_message_of_the_jobs_they_hear(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o2", "--goal", "run page", "--remote")
+    with state.edit(remote) as data:
+        data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", ask=None, report=None)
+        cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
+    senders = [f"dispatch:{DISPATCH}", "dispatch:ctx_lane0002"]
+    mailbox = [message("status", f"step {n}", id=f"msg_{n}", from_handle=senders[n % 2]) for n in range(1, 101)]
+    limits = []
+
+    def inbox(*args: str) -> dict:
+        limits.append(int(args[args.index("--limit") + 1]))
+        return {"messages": mailbox[::-1][: limits[-1]]}
+
+    monkeypatch.setattr(orca, "call", inbox)
+    top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
+    watch.lane_lines(top, T0)
+    watch.lane_lines(iris, T0)
+    mailbox += [message("status", f"step {n}", id=f"msg_{n}", from_handle=senders[n % 2]) for n in range(101, 251)]
+    watch.lane_lines(top, T0)
+    watch.lane_lines(iris, T0)
+    assert [reply["id"] for reply in state.replies(remote, "j1")] == [f"msg_{n}" for n in range(2, 251, 2)]
+    assert [reply["id"] for reply in state.replies(remote, "j2")] == [f"msg_{n}" for n in range(1, 251, 2)]
+    assert limits == [100, 1000] * 4
+    watch.lane_lines(top, T0)
+    assert limits[-1] == 100
 
 
 def test_the_watch_registers_each_pr_a_lane_names_on_a_ready_or_pr_line(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1084,7 +1116,7 @@ def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     passes = [watch.run_pass(watching, T0 + timedelta(minutes=m)) for m in (0, 1, 2)]
     assert passes == [["JOB j1 o1 WAITING CI on #7"], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
-    assert state.load(remote)["lane_mail"] == {RUN: second["sequence"]}
+    assert state.load(remote)["jobs"]["j1"]["mail_seen"] == second["sequence"]
 
 
 def test_a_reply_during_a_launch_waits_until_its_worker_start_is_done(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

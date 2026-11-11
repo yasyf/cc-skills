@@ -2093,6 +2093,15 @@ def test_pr_set_no_tapped_drops_a_hold_the_drive_gave_itself_with_its_why(run: R
     assert run("pr", "set", PR, "--no-tapped", "--why", "again")[0] == 2
 
 
+def test_pr_set_no_tapped_writes_its_event_for_the_watch_hearing_the_prs_order(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["tap"] = {"label": "Hold", "at": state.stamp(), "head": "abc", "source": "migrated hold: its reader ships first"}
+        cli.bind_subcoordinator(data, "The drive", {"session": "drive-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
+    assert run("pr", "set", PR, "--no-tapped", "--why", "the release carrying its reader is live")[0] == 0
+    [event] = [event for event, _ in state.read_events("demo") if event["kind"] == "untapped"]
+    assert event["lane"] == "the-drive"
+
+
 @pytest.mark.parametrize(
     ("label", "source", "pressed"),
     [

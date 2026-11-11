@@ -105,6 +105,18 @@ def test_an_answer_saved_before_answers_listed_waiting_jobs_reads_with_no_job_to
     assert state.load("demo")["answers"]["a1"]["jobs"] == {}
 
 
+def test_a_drive_saved_with_one_mail_cursor_per_run_reads_it_as_the_mark_of_each_job_on_that_run(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "remote"}
+    data["jobs"] = {"j1": base | {"run": "run_a"}, "j2": base | {"run": "run_a"}, "j3": base | {"run": "run_b"}, "j4": base | {"where": "local"}}
+    data["lane_mail"] = {"run_a": 41}
+    state.create(data)
+    loaded = state.load("demo")
+    assert {job_id: job["mail_seen"] for job_id, job in loaded["jobs"].items()} == {"j1": 41, "j2": 41, "j3": 0, "j4": 0}
+    assert "lane_mail" not in loaded
+
+
 def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_through_that_dispatch(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

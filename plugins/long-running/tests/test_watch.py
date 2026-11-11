@@ -1186,6 +1186,32 @@ def test_a_built_job_is_told_once_though_its_sub_coordinator_is_bound_while_the_
     assert (posts, nested) == ([paused()], [[]])
 
 
+def test_a_built_job_whose_watch_died_after_claiming_its_card_and_before_posting_is_told_by_the_next_watch(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"]}
+    posts: list[dict] = []
+
+    def post(name: str, said: dict) -> dict:
+        posts.append(said)
+        if len(posts) == 1:
+            raise OSError("the watch was killed")
+        return {"permalink": POSTED}
+
+    monkeypatch.setattr(talk, "posted", post)
+    with monkeypatch.context() as dying, pytest.raises(OSError):
+        dying.setattr(watch.os, "getpid", lambda: 999999999)
+        watch.run_pass(watcher(demo), T0)
+    assert state.load(demo)["jobs"]["j1"]["waiting_claims"] == {"demo:j1-7-a": 999999999}
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=1)) == waiting("demo:j1-7-a")
+    assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=2)) == []
+    assert posts == [paused()] * 2
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["waiting_said"], job["waiting_claims"]) == (["demo:j1-7-a"], {})
+
+
 def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch, told: list[dict]) -> None:
     serve(monkeypatch, {})
     asked = f"{CARD[:-1]}9"
@@ -1613,8 +1639,35 @@ def test_an_incident_order_waiting_on_two_releases_is_told_its_fix_is_live_only_
     shipped = f"release releases/2026-11-09/3 ships {KEY} on worker"
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [
         f"FREE j1 o1: {shipped}, nothing else holds it",
-        f"LIVE o1: {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
+        f"LIVE o1: release releases/2026-11-09/2 ships {KEY} on api, {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
     ]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+
+
+def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_told_its_fix_is_live_once_by_the_watch_hearing_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    published = [release(2, "2026-11-09T15:00:00Z", "worker")]
+    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    sub_coordinated(demo)
+    still = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["orders"]["o1"].update(incident=True, jobs=["j1", "j2"])
+        data["orders"]["o2"] = order(text="ship the dashboard", jobs=[])
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(state="waiting", carries={"o2": ["ship the dashboard"]}, waits=[f"release:api:{KEY}"], updated=still)
+        data["jobs"]["j2"] = job(state="waiting", parts=["ship the watch"], waits=[f"release:worker:{KEY}", f"release:api:{KEY}"], updated=still)
+    top, iris = watcher(demo), watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris")
+    assert (watch.run_pass(top, T0), watch.run_pass(iris, T0)) == ([], [])
+    published.append(release(3, "2026-11-09T16:00:00Z", "api"))
+    worker, api = f"release releases/2026-11-09/2 ships {KEY} on worker", f"release releases/2026-11-09/3 ships {KEY} on api"
+    assert watch.run_pass(top, T0 + timedelta(minutes=1)) == [f"FREE j1 o1: {api}, nothing else holds it"]
+    assert watch.run_pass(iris, T0 + timedelta(minutes=1)) == [
+        f"FREE j2 o1: {api}, nothing else holds it",
+        f"LIVE o1: {worker}, {api}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
+    ]
+    assert (watch.run_pass(top, T0 + timedelta(minutes=2)), watch.run_pass(iris, T0 + timedelta(minutes=2))) == ([], [])
 
 
 def pr_card(*keys: str, url: str = CARD) -> dict:

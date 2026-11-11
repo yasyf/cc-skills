@@ -192,6 +192,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "withdrawn": None,
             "jobs": [],
             "releases": {},
+            "shipped": {},
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
@@ -1401,7 +1402,9 @@ def pr_set(args: argparse.Namespace) -> int:
     untapped = ""
     if args.no_tapped:
         repo, number = key.split("#")
-        state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why)
+        state.append_event(
+            name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why, lane=state.heard_lane(data, order)
+        )
         untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}"
     withdrawn: list[str] = []
     if why := withdrawal(args):

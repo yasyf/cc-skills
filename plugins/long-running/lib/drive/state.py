@@ -225,10 +225,15 @@ def load(name: str) -> dict:
         order.setdefault("thread", None)
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
+        order.setdefault("shipped", {})
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
+    mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job.setdefault("carries", {})
+        job.setdefault("mail_seen", mail.get(job.get("run"), 0))
+        job.setdefault("waiting_said", [])
+        job.setdefault("waiting_claims", {})
         job.setdefault("waits", [])
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
@@ -393,6 +398,9 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "worktree": None,
         "prs": [],
         "waits": [],
+        "waiting_said": [],
+        "waiting_claims": {},
+        "mail_seen": 0,
         "state": "running",
         "said": None,
         "may_settle": None,
