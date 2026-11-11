@@ -200,14 +200,15 @@ def test_heard_names_the_lane_of_the_sub_coordinator_his_threads_order_is_filed_
     iris, platform = "1794200000.000100", "1794200000.000200"
     with state.edit("demo") as data:
         data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = iris, platform
-    assert run("heard", "--thread", iris) == (0, "heard")
+    in_use = "in use as project / workstream: Iris / Run page; Platform / Alerts"
+    assert run("heard", "--thread", iris) == (0, f"heard\n{in_use}")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
     routed = "heard; o1 in this thread is filed under Iris: his owner record goes --to iris, its sub-coordinator's lane"
-    assert run("heard", "--thread", iris) == (0, routed)
+    assert run("heard", "--thread", iris) == (0, f"{routed}\n{in_use}")
     assert json.loads(run("heard", "--thread", iris, "--json")[1])["to"] == "iris"
-    assert [run("heard", "--thread", platform), run("heard")] == [(0, "heard"), (0, "heard")]
-    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}"
+    assert [run("heard", "--thread", platform), run("heard")] == [(0, f"heard\n{in_use}")] * 2
+    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}; {in_use}"
 
 
 def test_start_needs_a_role(run: Run) -> None:

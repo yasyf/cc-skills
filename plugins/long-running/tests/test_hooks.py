@@ -903,3 +903,29 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_a_kept_ask(demo: str, no_ca
     assert landing_guard.deny_reason(asked_from_bash(carried, session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind report 'merged'", session)) is None
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
+
+
+def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hearing_its_order_is_refused(
+    run: Run, demo: str, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    handler = {"session_id": "talker", "agent_id": "a1", "agent_type": "long-running:handler"}
+    posted = "cci post --kind posted --lane communicator --to root@demo --resolves 8 --attr waits=demo:j1-8 'card up demo:j1-8'"
+    assert landing_guard.deny_reason(bash(posted) | handler) == (
+        "A communicator's posted record goes to the coordinator session hearing the order it serves, and root@demo is not its"
+        " lane; post it again with `--to iris@demo`, or on the cci `post` tool, whose hook addresses it"
+    )
+    refused = "zsh -c \"cci post --kind=refused --lane communicator --to=root@demo,owner --attr job=j1 'cc-slack refused the card'\""
+    assert "`--to iris@demo --to owner`" in landing_guard.deny_reason(bash(refused) | handler)
+    sent = (
+        "cci post --kind posted --lane communicator --to iris@demo --attr waits=demo:j1-8 'card up demo:j1-8'",
+        "cci post --kind owner --lane communicator --to root@demo 'a new order'",
+        "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
+    )
+    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None]
+    assert landing_guard.deny_reason(bash(posted) | {"session_id": "iris-1"}) is None

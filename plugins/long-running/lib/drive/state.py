@@ -501,9 +501,18 @@ def heard_lane(data: dict, order_id: str) -> str:
     return order_lane(data, data["orders"][order_id]) if data["subcoordinators"] else "root"
 
 
+def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
+    """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
+    links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
+    return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
+
+
 def thread_order(data: dict, thread: str | None) -> str | None:
-    """The newest order in a thread of his, or None when no order is in it."""
-    return next((order_id for order_id, order in reversed(data["orders"].items()) if thread and order["thread"] == thread), None)
+    """The newest order in a thread of his, its own or the thread of a card its jobs drew, or None when no order is in it."""
+    return next(
+        (order_id for order_id, order in reversed(data["orders"].items()) if thread and thread in (order["thread"], *(ts for _, ts in card_threads(data, order)))),
+        None,
+    )
 
 
 def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
@@ -515,6 +524,22 @@ def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
         return order_lane(data, data["orders"][job["order"]])
     order_id = thread_order(data, attrs.get("thread"))
     return order_id and order_lane(data, data["orders"][order_id])
+
+
+def routed(drives: dict[str, dict], kind: str, attrs: dict, to: list[str]) -> list[str]:
+    """Where a communicator's record goes: each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order the record serves there."""
+    made = []
+    for entry in to:
+        lane, _, name = entry.partition("@")
+        if (data := drives.get(name)) and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
+            entry = f"{serving}@{name}"
+        made.append(entry)
+    return list(dict.fromkeys(made))
+
+
+def communicated(names: list[str], session: str | None) -> dict[str, dict]:
+    """Each drive of names the session is the communicator of, by name."""
+    return {name: data for name in names if session_role(data := load(name), session) == "communicator"}
 
 
 def hears(data: dict, order: dict, project: str | None) -> bool:

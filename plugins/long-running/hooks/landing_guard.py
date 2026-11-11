@@ -5,7 +5,6 @@ import shlex
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
-from itertools import pairwise
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -160,6 +159,19 @@ BODY_POSTS = (
         ("ccx", "vcs", "ship"),
         frozenset({"m", "branch", "bookmark", "budget", "only-hunk", "parent", "pr-body-file", "pr-title", "skip-hunk"}),
     ),
+)
+
+CCI_POST = Landing(
+    ("cci", "post"),
+    frozenset({
+        "attr", "batch", "board", "body-file", "build", "ccn", "census", "count", "drive", "env", "head", "id", "kind", "lane",
+        "lane-ref", "mode", "outcome", "owned-by", "path", "pr", "quoted", "re", "resolves", "stack", "successor", "target",
+        "text", "to", "topic", "ttl", "url",
+    }),
+)
+MISROUTED = (
+    "A communicator's {kind} record goes to the coordinator session hearing the order it serves, and {named} is not its"
+    " lane; post it again with `{flags}`, or on the cci `post` tool, whose hook addresses it"
 )
 
 
@@ -487,34 +499,39 @@ def body_reason(script: str, shell: Shell) -> str | None:
     return next(filter(None, posted), None)
 
 
-def asks_posted(script: str, shell: Shell) -> list[str | None]:
-    """The `ask` attr, None when it has none, of each ask record a script posts with `cci post`."""
-    posted = []
-    for segment in segments(script):
-        words, run_in = command_words(segment, shell)
-        if not words:
-            continue
-        if (inner := shell_script(words)) is not None:
-            posted += asks_posted(inner, run_in)
-        if Path(words[0]).name != "cci" or words[1:2] != ["post"]:
-            continue
-        pairs = list(pairwise(words))
-        kinds = [value for option, value in pairs if option == "--kind"] + [word.removeprefix("--kind=") for word in words if word.startswith("--kind=")]
-        if "ask" in map(str.lower, kinds):
-            posted.append(next((value.removeprefix("ask=") for option, value in pairs if option == "--attr" and value.startswith("ask=")), None))
-    return posted
+def cci_posts(script: str, shell: Shell) -> list[tuple[str, dict[str, str], list[str]]]:
+    """The kind, attrs and addressed lanes of each record a script posts with `cci post`."""
+    posts = []
+    for _, words, _ in commands(script, shell):
+        if found := landing_of(words, (CCI_POST,)):
+            options = found[2]
+            attrs = dict(pair.split("=", 1) for value in options.get("attr", []) for pair in value.split(","))
+            posts.append(((options.get("kind") or [""])[-1].lower(), attrs, [lane for value in options.get("to", []) for lane in value.split(",")]))
+    return posts
+
+
+def misrouted(posts: list[tuple[str, dict[str, str], list[str]]], drives: dict[str, dict]) -> str | None:
+    """Why a communicator's `cci post` names a coordinator lane other than the one hearing the order its record serves, which the cci `post` tool's hook readdresses."""
+    for kind, attrs, to in posts:
+        if (routed := state.routed(drives, kind, attrs, to)) != list(dict.fromkeys(to)):
+            named = ", ".join(lane for lane in to if lane not in routed)
+            return MISROUTED.format(kind=kind, named=named, flags=" ".join(f"--to {lane}" for lane in routed))
+    return None
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
+    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers or a communicator's record to a coordinator lane other than the one hearing the order it serves, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
     shell = Shell(payload.get("cwd") or os.getcwd(), env, session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
     command = payload["tool_input"]["command"]
-    asks = asks_posted(command, shell)
+    posts = cci_posts(command, shell)
+    asks = [attrs.get("ask") for kind, attrs, _ in posts if kind == "ask"]
     if asks and names and not all(settled.kept(names, ask) for ask in asks):
         return UNKEPT_ASK
+    if posts and (wrong := misrouted(posts, state.communicated(names, session))):
+        return wrong
     coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) == "coordinator" for name in names)
     if coordinates and (step := own_work(command, shell)):
         return COORDINATOR_STEP.format(step=step)

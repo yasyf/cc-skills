@@ -217,13 +217,10 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
             yield from report_refusals(payload, drive, role, records, index)
 
 
-def readdressed(drive: dict, record: dict) -> dict:
-    """The communicator's owner, answer, posted or refused record with each coordinator lane it names replaced by the lane of the coordinator session hearing the order it serves."""
-    if not (lane := state.serving_lane(drive, kind(record), attrs(record))):
-        return record
-    coordinators = {f"{held}@{drive['name']}" for held in ("root", *map(state.project_lane, drive["subcoordinators"]))}
+def readdressed(drives: dict[str, dict], record: dict) -> dict:
+    """The communicator's owner, answer, posted or refused record with each coordinator lane it names at one of its drives replaced by the lane of that drive's coordinator session hearing the order it serves."""
     entries = listed(record.get("to"))
-    to = list(dict.fromkeys(f"{lane}@{drive['name']}" if entry in coordinators else entry for entry in entries))
+    to = state.routed(drives, kind(record), attrs(record), entries)
     return record if to == entries else record | {"to": to}
 
 
@@ -236,9 +233,8 @@ def decision(payload: dict) -> dict | None:
     records = tool_input.get("records") or [tool_input]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    drive = state.load(names[0])
-    routed = [readdressed(drive, record) for record in records] if state.session_role(drive, payload.get("session_id")) == "communicator" else records
-    made = [limits.shortened(record) or record for record in routed]
+    drives = state.communicated(names, payload.get("session_id"))
+    made = [limits.shortened(routed) or routed for routed in (readdressed(drives, record) for record in records)]
     if made == records:
         return None
     if tool_input.get("records"):
