@@ -32,7 +32,10 @@ LIVE_WORKER = {
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
     "terminal": {"lastOutputAt": None},
 }
-CARD_BODY = """## What you'll hate most
+CARD_BODY = """## Summary
+`land.py` lands the PR once his tap comes in.
+
+## What you'll hate most
 It lands without a second look.
 
 ## His words, step by step

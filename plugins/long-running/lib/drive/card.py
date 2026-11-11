@@ -32,9 +32,9 @@ CONVENTIONAL_KINDS = {
     **dict.fromkeys(("refactor", "chore", "docs", "test", "ci", "build", "perf"), "Cleanup"),
 }
 GITMOJI_KINDS = {
-    **dict.fromkeys("✨🎉🚸", "New"),
-    **dict.fromkeys("🐛🚑🩹🔒💚", "Fix"),
-    **dict.fromkeys("♻🔥⚡📝✅🔧🏷🚚🧹👷📌⬆", "Cleanup"),
+    **dict.fromkeys("✨🎉🚸🚀💄📈🌐💥🍱♿💬🗃🔊🏗📱🥚⚗🔍🌱🚩💫🛂👔🩺🧱💸🧵🦺✈🦖🚧🧐💩🍻", "New"),
+    **dict.fromkeys("🐛🚑🩹🔒💚🚨✏⏪👽🥅", "Fix"),
+    **dict.fromkeys("♻🔥⚡📝✅🔧🏷🚚🧹👷📌⬆🎨🔐🔖⬇➕➖🔨🔀📦📄💡🔇👥🤡🙈📸🗑⚰🧪🧑", "Cleanup"),
 }
 
 KIND_WORD = re.compile(rf"({'|'.join(KINDS)}):\s*", re.IGNORECASE)
@@ -83,7 +83,10 @@ def kind_and_title(title: str) -> tuple[str, str]:
     if word := KIND_WORD.match(plain):
         return word[1].capitalize(), without_emoji(plain[word.end() :])
     if (scoped := SCOPED.match(title)) and is_emoji(scoped[2]):
-        return GITMOJI_KINDS.get(scoped[2], "Change"), without_emoji(title[scoped.end(1) + 1 :])
+        rest = without_emoji(title[scoped.end(1) + 1 :])
+        if word := KIND_WORD.match(rest):
+            return word[1].capitalize(), rest[word.end() :]
+        return GITMOJI_KINDS.get(scoped[2], "Change"), rest
     if prefix := CONVENTIONAL.match(plain):
         return CONVENTIONAL_KINDS.get(prefix[1], "Change"), without_emoji(plain[prefix.end() :])
     return "Change", plain
@@ -272,6 +275,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "title": plain,
         "head": pr["headRefOid"],
         "changed": entry.get("fundamental") or "",
+        "summary": section_words(found, "summary"),
         "refresher": section_words(found, *REFRESHER_HEADINGS) or comment_refresher(pr),
         "surprise": section_words(found, "biggest surprise"),
         "hate_most": section_words(found, *HATE_HEADINGS),
@@ -455,7 +459,8 @@ def merges_untapped(key: str) -> bool:
     return key.split("/")[0] == NO_TAP_OWNER
 
 
-def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
+def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False) -> str:
+    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --tap` or a READY report, also needs each body's Summary."""
     tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or merges_untapped(state.pr_key(pr["url"])))]
     if len(tapped) > STACK_MOST:
         return (
@@ -470,6 +475,8 @@ def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
     for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
         if card["status"] != "needs_you" or not offers_approval(pr, entry):
             continue
+        if asking and not row["summary"]:
+            needs.setdefault(pr["url"], []).append("a \"Summary\" section first, a sentence or two naming what the PR changes by its function, table, flag or service")
         if not row["hate_most"]:
             needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
         if shows := show_me_problems(pr):
@@ -520,30 +527,6 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
     return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
-def patched(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
-    """Why a tap PR his card still asks him to approve is one patch too many: two PRs serving its order merged already, and it names none it takes out while the order has no design job."""
-    reasons = []
-    for key in members:
-        name, entry = known[key]
-        if not offers_approval(reads[key], entry):
-            continue
-        data = state.load(name)
-        order = entry.get("serves") or entry["order"]
-        earlier = [other for other, pr in data["prs"].items() if other != key and pr["state"] == "merged" and (pr.get("serves") or pr["order"]) == order]
-        if len(earlier) < 2 or any(job["kind"] == "design" and order in (job["order"], *job["carries"]) for job in data["jobs"].values()):
-            continue
-        deletes = entry.get("deletes") or []
-        if stray := [pr for pr in deletes if pr not in earlier]:
-            reasons.append(f"{key} names {', '.join(stray)} as taken out, which is no merged PR serving {order}: name among {', '.join(earlier)}")
-        elif not deletes:
-            reasons.append(
-                f"{', '.join(earlier)} serving {order} merged already, so {key} is a third patch on one symptom: name each earlier patch it"
-                f" takes out with drive pr set {entry['url']} --deletes <PR>..., or start a design job on {order} with drive job add design"
-                f' --order {order} --goal "<the design that ends the patches>"'
-            )
-    return "; ".join(reasons)
-
-
 def read_all(keys: list[str]) -> dict[str, dict]:
     reads = {}
     for key in keys:
@@ -555,11 +538,11 @@ def read_all(keys: list[str]) -> dict[str, dict]:
 
 def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
     shown = [(reads[key], known[key][1], (), ()) for key in members]
-    return patched(known, members, reads) or refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])})
+    return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])}, asking=True)
 
 
-def cards(asked: list[dict]) -> dict:
-    """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw, until the asked PRs chain into a longer stack around it."""
+def cards(asked: list[dict], redraw: bool = False) -> dict:
+    """One card per stack the asked PRs form, bottom PR first; a PR drawn on a stack card keeps that stack on every redraw, until the asked PRs chain into a longer stack around it. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait or reader's verdict that holds back a fresh Approve shown on it rather than refusing it."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -583,8 +566,8 @@ def cards(asked: list[dict]) -> dict:
             remember(known, group)
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key]), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
-        held = "" if on_his_card(known, reads, members) else waiting(known, members)
-        if reason := held or patched(known, members, reads) or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
+        held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
+        if reason := held or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals
@@ -717,7 +700,7 @@ def released(release: dict) -> dict:
 def respond(request: dict) -> dict:
     match request:
         case {"prs": asked}:
-            return cards(asked)
+            return cards(asked, request.get("redraw", False))
         case {"numbers": numbers}:
             return numbered(numbers)
         case {"shown": asks}:

@@ -1540,8 +1540,6 @@ def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
 def set_pr(pr: dict, args: argparse.Namespace) -> None:
     if args.serves:
         pr["serves"] = args.serves
-    if args.deletes:
-        pr["deletes"] = [state.pr_key(ref) for ref in args.deletes]
     if args.design:
         pr["design"] = args.design
     if args.port_of:
@@ -2594,12 +2592,6 @@ def parser() -> argparse.ArgumentParser:
         help="drop a hold the drive recorded itself as his tap, refusing his own; needs --why, kept in the drive's events",
     )
     verb.add_argument("--tap-source", type=his_link, help="the Slack permalink of his message or of the card he tapped")
-    verb.add_argument(
-        "--deletes",
-        nargs="+",
-        metavar="PR",
-        help="each earlier merged PR serving the same order whose patch this one takes out; a third tap PR on an order with two merged needs it, or a design job on the order",
-    )
     verb.set_defaults(run=pr_set)
     verb = pr.add_parser("tapped", parents=both)
     verb.add_argument("url")

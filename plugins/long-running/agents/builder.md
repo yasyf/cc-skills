@@ -119,6 +119,8 @@ sections under these exact headings, detailed in the landing reference, which `d
 prints and a remote lane's brief carries whole:
 
 - `## The stack`, on a stack's bottom PR: the stack's title and summary.
+- `## Summary`: one or two sentences on what the PR changes, naming each function, table, flag or
+  service by its proper name, with no background; his card opens the PR's section with it.
 - `## Refresher`: for someone who knows the codebase but has not read this code lately.
 - `## Biggest surprise`, then `## What you'll hate most`.
 - `## Show me`: a concrete example in the visual kind that fits, as ASK lists them, or the real SQL,
@@ -135,8 +137,8 @@ prints and a remote lane's brief carries whole:
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not
   show, and each PR, fix, build or release it names is linked where it is named.
-- `drive pr set` refuses `--tap`, `--serves` or `--design` on a body missing `## What you'll hate most`
-  or `## His words, step by step`, and on a stack over four PRs (split or fold it) or with no
+- `drive pr set` refuses `--tap`, `--serves` or `--design` on a body missing `## Summary`,
+  `## What you'll hate most` or `## His words, step by step`, and on a stack over four PRs (split or fold it) or with no
   `## The stack` on its bottom PR. One message names every gap of every body, so one edit fixes them
   all.
 

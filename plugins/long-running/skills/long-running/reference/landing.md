@@ -48,9 +48,14 @@ for its repository says, then return `DONE <proof>`.
   - `## The stack`: only on a stack's bottom PR. Its first line is the stack's title, one readable line
     on what the whole stack does, then a short paragraph explains the stack in the Refresher's voice.
     They head his stack card; `drive card` refuses a stack card waiting on his tap without them.
+  - `## Summary`: one or two sentences saying what the PR changes, naming each function, table, flag,
+    file or service it touches by its proper term, with no background, in his words "a summary of wtf
+    the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
+    section of his card. `drive pr set --tap` and a builder's `READY` refuse a PR without it; a card
+    already drawn keeps redrawing without one.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
-    It leads the PR's section of his card. The card also reads `## ELI5`, and a monorepo body's
+    It follows the Summary on his card. The card also reads `## ELI5`, and a monorepo body's
     `## Context`, which its `submit-pr` template writes in this voice.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.

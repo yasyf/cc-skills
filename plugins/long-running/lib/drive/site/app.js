@@ -555,6 +555,7 @@ function prCard(item, at, total) {
         <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${esc(title)}</h2>
         ${stack}
+        ${row.summary ? `<div class="card-summary">${prose(row.summary, pr)}</div>` : ''}
         ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3)}</div>` : ''}
         <div class="facts">${prFacts(item, row, entry, prReads.get(pr))}</div>
       </div>

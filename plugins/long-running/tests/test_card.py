@@ -15,7 +15,11 @@ PASSING = [
     {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
     {"__typename": "StatusContext", "context": "buildkite", "state": "SUCCESS"},
 ]
-FIX_BODY = """## Biggest surprise
+SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
+FIX_BODY = f"""## Summary
+{SUMMARY}
+
+## Biggest surprise
 Uploads that fail once now retry instead of losing the file.
 
 ## Refresher
@@ -92,6 +96,7 @@ def row(**fields: str) -> dict:
         "title": "retry flaky uploads",
         "head": HEAD,
         "changed": "",
+        "summary": SUMMARY,
         "refresher": "When the network hiccups, we try again.",
         "surprise": "Uploads that fail once now retry instead of losing the file.",
         "show_me": "",
@@ -193,6 +198,7 @@ def test_an_exempt_port_waits_on_nothing_of_his() -> None:
         "prs": [
             row(
                 title="upload retry to the CLI",
+                summary="",
                 surprise="",
                 refresher="",
                 hate_most="",
@@ -224,7 +230,12 @@ def test_a_conventional_commit_title_becomes_its_kind_and_plain_words() -> None:
         ("ci: 🐛 pin smoke candidates once", "Fix", "pin smoke candidates once"),
         ("api: 🔥 drop the old table", "Cleanup", "drop the old table"),
         ("long-running: ⚡️ the watch reads once", "Cleanup", "the watch reads once"),
-        ("go/sand: 🎨 tidy the loop", "Change", "tidy the loop"),
+        ("go/sand: 🎨 tidy the loop", "Cleanup", "tidy the loop"),
+        ("api: \U0001f5c3\ufe0f a pass deletes two Envs", "New", "a pass deletes two Envs"),
+        ("api: \U0001f5c3 a pass deletes two Envs", "New", "a pass deletes two Envs"),
+        ("api: \U0001f5c3\ufe0f Fix: a pass deletes two Envs", "Fix", "a pass deletes two Envs"),
+        ("iris: \u270f\ufe0f the composer's label", "Fix", "the composer's label"),
+        ("tools: \U0001f9d1\u200d\U0001f4bb one command starts Tilt", "Cleanup", "one command starts Tilt"),
     ],
 )
 def test_kind_and_title(title: str, kind: str, plain: str) -> None:
@@ -499,6 +510,17 @@ def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, m
     assert [event["kind"] for event in events(drive)] == ["refused"]
 
 
+def test_a_tap_card_asked_afresh_needs_a_summary_while_one_already_drawn_redraws_without_it(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY.replace(f"## Summary\n{SUMMARY}\n\n", ""))))
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["prs"][0]["summary"] == ""
+    key = "Forge-AI/monorepo#42"
+    assert card.tap_refusal(card.drive_prs(), [key], card.read_all([key])) == (
+        "its tap card needs a \"Summary\" section first, a sentence or two naming what the PR changes by its function,"
+        f" table, flag or service in the body of {URL}"
+    )
+
+
 def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
@@ -532,6 +554,18 @@ def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_los
         data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = None
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+
+
+def test_a_redraw_of_a_posted_card_that_no_longer_asks_his_tap_draws_the_reason_that_stands_now(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json(rollup=PASSING, review="APPROVED")))
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    view.refresh_cards(drive)
+    for why in ("Releasable alone needs #7 live first", "The restore still copies at 0 B/s"):
+        with state.edit(drive) as data:
+            data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = {**VERDICT, "why": why}
+        [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
+        assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
+        assert drawn["card"]["prs"][0]["blocks"].startswith(f"A reader's check found it not ready: {why}.")
 
 
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -856,7 +890,7 @@ def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[lis
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
 
 
-def test_a_stack_of_three_merged_patches_on_one_order_redraws_once_the_last_names_the_two_it_deletes(
+def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
     stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
@@ -864,7 +898,6 @@ def test_a_stack_of_three_merged_patches_on_one_order_redraws_once_the_last_name
     with state.edit("demo") as data:
         for key in keys:
             data["prs"][key]["state"] = "merged"
-        data["prs"][keys[2]]["deletes"] = keys[:2]
     stacked_gh = card.run
     monkeypatch.setattr(card, "run", lambda cmd: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
     [drawn] = ask(asks(41, 42, 43))["cards"]
