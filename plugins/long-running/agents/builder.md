@@ -127,8 +127,11 @@ and his recorded answers for the decisions that bind. Your
 order is the one whose `from` in `drive status --json` is your `From`, and your job its newest. A
 ruling's rewrite changes the section of this skill it touches in place, and your report lists each
 rule now in the installed skill. Copy an `After:` line into your report as `AFTER:`, and a tool that
-breaks on you is a `DEFECT:` line there too: cci refuses a record from you addressed to the
-communicator, since you post as its lane. A brief from it with `Handoff: <seq>` reads that record's
+breaks on you is a `DEFECT:` line there too, which the handler for your result starts a builder
+from. A record you send the communicator, such as an `FYI` report, goes to `communicator@<drive>`
+as `--lane builder`, or `lane: "builder"` on the cci `post` tool: you share the communicator's
+session, so its lane is your default, and cci refuses a record from a lane addressed only to
+itself. A brief from it with `Handoff: <seq>` reads that record's
 watch line, which names the PR, order and old job: take its PR with `drive pr add <url> --job <your
 job>` and stop the old job with `drive job set <old> --state stopped --said "handed to <your job>"`.
 `Handoff: LAND <url>` lands that PR. Every event after that reaches the communicator, never the

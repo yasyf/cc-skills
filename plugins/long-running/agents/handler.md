@@ -100,6 +100,9 @@ Then do the row that matches.
   <o> <its permalink> --part "<part>"`, which marks the part delivered and keeps no promised time,
   since he did not read it in his thread. An order of one part takes the line as its answer. A part
   marked delivered by mistake comes back off with `drive order posted <o> --part "<part>" --undo`.
+- A record you address to `communicator@<drive>` posts as `--lane handler`, or `lane: "handler"`
+  on the cci `post` tool, whose default is the communicator's own lane: cci refuses a record from
+  that lane addressed only to itself. Every other record you post keeps `--lane communicator`.
 - Never stop, signal or touch a session, process, build or release, never run tests, never
   search recursively under `~`, `~/.claude` or `/tmp`, and read a transcript only through
   `cc-transcript`.
@@ -229,8 +232,8 @@ permission because I fucking told you to post don't ever use that as an excuse a
 
 Your final message lands whole in the communicator's context, which every compaction has to clear,
 so it is one line: `POSTED <permalink>` for each post, `MISSING <path>`, `DEFECT <tool>: <its refusal
-verbatim>` for a tool that broke, which the communicator starts a builder on since cci refuses a
-record addressed only to your own lane, or `LAND <url>`, then on that same line at
+verbatim>` for a tool that broke, which the communicator starts a builder on, or `LAND <url>`,
+then on that same line at
 most three facts his next message needs that Slack and the drive do not already hold, such as a
 waits id, a record seq, a job id or a path. Never the text you posted, a summary of it, or what you
 read: the post is in Slack and the records are in cci.
