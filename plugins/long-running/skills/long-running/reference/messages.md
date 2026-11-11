@@ -233,9 +233,13 @@ Posting it:
   no thread, since its order has none.
 - Then close the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His
   tap comes back as an `answer` record, so "card posted" and "he answered" stay two states.
-- Every question card carries its `waits` id, `<drive>:<job>-<the ask record's seq>`, which
-  `drive job card --waits` requires. When a job builds the recommended option meanwhile, the summary
-  says which option is being built.
+- Every question card carries its `waits` id, `<drive>:<job>-<the seq of the ask record that first
+  asked it>`. One question keeps one `waits` id and one card, which every copy of it in Slack and the
+  dashboard draws from: `drive job ask` keeps a block asking an open question again, in the same
+  words, as that question, `drive job card` draws it under the question's `waits` id whatever new
+  seq it is given, and his answer closes every copy at once. `drive job ask` refuses a block another
+  job's open card asks. When a job builds the recommended option meanwhile, the summary says which
+  option is being built.
 - Set `drive` to the drive's name on every card, so cc-slack reads a `waits` card as the drive's
   question, whose home is Slack, and posts it with no cc-present board warning.
 

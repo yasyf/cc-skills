@@ -467,3 +467,9 @@ def test_load_gives_prs_kept_before_verdicts_the_verdict_their_readers_answers_l
     kept = state.load("demo")["prs"]
     assert kept[f"{MONOREPO}#4289"]["not_ready"]["why"] == "a second check is left"
     assert not any(pr["not_ready"] for key, pr in kept.items() if key != f"{MONOREPO}#4289")
+
+
+def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untitled_one_matches_none() -> None:
+    assert state.same_question("What runs a watch's  Sand function?", "what runs a watch's Sand function?")
+    assert not state.same_question("What runs a watch's Sand function?", "What runs a watch's Sand function each interval?")
+    assert not state.same_question(None, None)

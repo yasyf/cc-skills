@@ -121,6 +121,15 @@ def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_i
     assert (state.load(demo)["jobs"], state.load(demo)["prs"]) == (jobs, prs)
 
 
+def test_a_question_card_returns_and_records_its_own_permalink(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "design the store", [], state.stamp())
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Keep the old store?", state.stamp()) | {"waits": "demo:j1-8"})
+    assert talk.say(demo, {"card": {"title": "Keep the old store?", "waits": "demo:j1-8"}, "thread_ts": "1794200000.000100"}) == f"POSTED {POSTED} CARD {POSTED}"
+    assert state.load(demo)["jobs"]["j1"]["questions"][0]["card"] == POSTED
+    assert said(demo)[0]["card"] == POSTED
+
+
 def test_a_card_no_question_keeps_moves_each_wait_on_it_to_the_new_card_when_asked_again_with_new_words(demo: str, posts: list[tuple[str, ...]]) -> None:
     with state.edit(demo) as data:
         data["jobs"]["j2"] = state.new_job("o1", "builder", "ship the store", [], state.stamp()) | {"waits": [CARD_URL]}

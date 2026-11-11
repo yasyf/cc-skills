@@ -483,6 +483,11 @@ def new_question(file: str | None, title: str | None, asked: str, unsettled: str
     return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card}
 
 
+def same_question(one: str | None, other: str | None) -> bool:
+    """Whether two questions ask him the same thing: the same words, whatever their case and spacing."""
+    return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()
+
+
 def save(name: str, data: dict) -> None:
     path = state_path(name)
     tmp = path.with_name("drive.json.tmp")

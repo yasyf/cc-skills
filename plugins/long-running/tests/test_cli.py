@@ -1549,6 +1549,88 @@ def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_po
     assert "asks him: Where should" not in status
 
 
+def test_a_question_asked_again_in_the_same_words_redraws_its_one_card_under_the_waits_id_of_its_first_ask(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    asked = state.load("demo")["jobs"]["j1"]["questions"][0]["asked"]
+    for seq, requests in ((9, "3 calls"), (11, "2 calls")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", f"opens in {requests}")))
+        again = run("job", "ask", asking, "-", "--json")[1]
+        assert json.loads(again)["waits"] == "demo:j1-7"
+        card = json.loads(run("job", "card", json.loads(again)["question"], "--waits", f"demo:j1-{seq}")[1])
+        assert card["waits"] == "demo:j1-7"
+        assert f"opens in {requests}" in card["body"]
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"], question["asked"]) for question in questions] == [
+        (json.loads(again)["question"], "demo:j1-7", link, asked)
+    ]
+
+
+def test_a_question_asked_twice_before_its_card_is_drawn_draws_its_newest_block_on_one_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1])
+    first = json.loads(run("job", "card", kept[0], "--waits", "demo:j1-7")[1])
+    second = json.loads(run("job", "card", kept[1], "--waits", "demo:j1-8")[1])
+    assert (first["waits"], second["waits"]) == ("demo:j1-7", "demo:j1-7")
+    assert first == second and "opens in 3 calls" in first["body"]
+    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [(kept[1], "demo:j1-7")]
+
+
+def test_a_question_asked_again_after_he_answered_its_card_goes_on_a_card_of_its_own(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    listed = [shown]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(listed), "pr_cards": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    listed.clear()
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
+    again = run("job", "ask", asking, "-")[1]
+    assert json.loads(run("job", "card", again, "--waits", "demo:j1-9")[1])["waits"] == "demo:j1-9"
+    assert [(question["file"], question["waits"]) for question in state.load("demo")["jobs"]["j1"]["questions"]] == [
+        (first, "demo:j1-7"),
+        (again, "demo:j1-9"),
+    ]
+
+
+def test_job_ask_refuses_a_question_another_jobs_open_card_asks_naming_the_wait_on_that_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK))
+    first = run("job", "ask", asking, "-")[1]
+    run("job", "card", first, "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the run page")
+    monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls")))
+    assert cli.main(["job", "ask", "j2", "-"]) == 2
+    refusal = capsys.readouterr().err
+    assert f"j2: refused, nothing kept: j1 already asks him \"How should a finished run's files be laid out so its page opens without guessing?\" on its open card {link} (demo:j1-7)" in refusal
+    assert "drive job set j2 --waits demo:j1-7, which frees j2 at his answer" in refusal
+    assert state.load("demo")["jobs"]["j2"]["questions"] == []
+
+
 def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new_question(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
