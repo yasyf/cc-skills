@@ -325,8 +325,8 @@ def denial(reason: str) -> dict:
 
 
 def main() -> None:
-    payload = json.load(sys.stdin)
     try:
+        payload = json.load(sys.stdin)
         reason = deny_reason(payload)
     except Exception:
         return
