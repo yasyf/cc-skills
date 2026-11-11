@@ -154,6 +154,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "failed_checks": [],
         "review": "none",
         "draft": False,
+        "hold_label": False,
         "merged_sha": None,
         "updated": "2026-11-09T08:00:00-08:00",
     }
@@ -623,6 +624,18 @@ def test_a_card_github_refuses_draws_from_its_last_read_with_the_state_the_drive
         data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"], drawn["card"]["prs"][0]["summary"]) == ("done", "Merged", SUMMARY)
+
+
+def test_a_card_github_refuses_for_a_pr_no_card_read_draws_from_its_drive_entry_alone(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(cmd: list[str], **_: str) -> str:
+        raise GithubError("ccx: GitHub rate limit floor: app graphql 0/10000 left")
+
+    monkeypatch.setattr(card, "run", refused)
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["review"] = "approved"
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    shown = (drawn["card"]["status"], drawn["card"]["title"], drawn["card"]["options"], drawn["card"]["prs"][0]["summary"])
+    assert shown == ("needs_you", "Fix: approve retry flaky uploads?", ["Approve", "Hold"], "")
 
 
 def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:

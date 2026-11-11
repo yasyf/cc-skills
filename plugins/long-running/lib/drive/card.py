@@ -12,6 +12,7 @@ from drive.render import NOT_READY_CHARS, cut, not_ready, when
 FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,reviewDecision,labels,url,additions,deletions,changedFiles"
 READ_AGE = "60s"
 KEPT_READS = "pr-reads"
+REVIEW_DECISIONS = {"approved": "APPROVED", "changes": "CHANGES_REQUESTED", "none": ""}
 TAP_LABELS = ("Approve", "Hold")
 RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
@@ -431,6 +432,24 @@ def read(key: str, entry: dict | None = None) -> dict | None:
     return pr
 
 
+def watched(entry: dict) -> dict | None:
+    if not entry["head"]:
+        return None
+    return {
+        "title": entry["title"],
+        "body": None,
+        "state": entry["state"].upper(),
+        "isDraft": entry["draft"],
+        "headRefOid": entry["head"],
+        "headRefName": "",
+        "baseRefName": "",
+        "reviewDecision": REVIEW_DECISIONS[entry["review"]],
+        "labels": [{"name": github.HOLD_LABEL}] if entry["hold_label"] else [],
+        "url": entry["url"],
+        "comments": [],
+    }
+
+
 def exposure(key: str) -> str:
     """What a PR on a public repository shows that only a private place may: each picture outside a demo or public path, each private repository's PR and each teammate its body names."""
     repo = key.split("#")[0]
@@ -528,11 +547,11 @@ def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = Fal
             f" {NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
         )
     needs: dict[str, list[str]] = {}
-    if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
+    if len(shown) > 1 and card["status"] == "needs_you" and shown[0][0]["body"] is not None and not stack_words(shown[0][0])[0]:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
     unordered = []
     for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
-        if card["status"] != "needs_you" or not offers_approval(pr, entry):
+        if card["status"] != "needs_you" or not offers_approval(pr, entry) or pr["body"] is None:
             continue
         if asking and not row["summary"]:
             needs.setdefault(pr["url"], []).append("a \"Summary\" section first, a sentence or two naming what the PR changes by its function, table, flag or service")
@@ -615,7 +634,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         if key not in known:
             print(f"drive card: {key} is in no drive", file=sys.stderr)
     keys = [key for key in asked_keys if key in known]
-    reads = {key: pr for key in keys if (pr := read(key, known[key][1]))}
+    reads = {key: pr for key in keys if (pr := read(key, known[key][1]) or watched(known[key][1]))}
     skipped = [skip(key, "drive card could not read it from GitHub") for key in keys if key not in reads]
     stored = list({tuple(stack): stack for key in reads if (stack := known[key][1].get("stack"))}.values())
     grown = [chain for chain in chains(list(reads), reads) if grows(chain, stored)]
@@ -624,7 +643,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
     fresh = chains([key for key in reads if key not in covered], reads)
     found = []
     for group in kept + grown + fresh:
-        reads |= {key: pr for key in group if key not in reads and key in known and (pr := read(key, known[key][1]))}
+        reads |= {key: pr for key in group if key not in reads and key in known and (pr := read(key, known[key][1]) or watched(known[key][1]))}
         members = [key for key in group if key in reads and key in known]
         if not members:
             continue
