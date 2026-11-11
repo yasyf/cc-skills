@@ -16,40 +16,41 @@ COMMUNICATOR_RULES = (
     (
         "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
         " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
-        " cc-slack while you compacted and gets no ack of yours. drive heard, which takes no --thread since his"
-        " catch-up goes at his DM root (--away when he says he is going to sleep or away), any record its row names"
-        " and the long-running:handler go in the next message, then the turn ends, with one drive call more only to"
-        " record a read-only question's handler: drive job add reader --order"
-        ' "$(drive order add "<his words, verbatim>" --kind answer --complex --from slack:<channel>/<ts> --thread <ts>)"'
-        ' --goal "<one line>" --agent <id>, leaving out --complex only for a one-fact lookup, or a tooling reader, by the'
-        " next rule."
+        " cc-slack while you compacted and gets no ack of yours. The drive's heard tool, which takes no thread since"
+        " his catch-up goes at his DM root (away: true when he says he is going to sleep or away), its record tool for"
+        " any record its row names, and the long-running:handler go in the next message, then the turn ends, with one"
+        " call more only to record a read-only question's handler, the job tool with ops"
+        ' [{add: {kind: "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
+        ' "slack:<channel>/<ts>", thread: "<ts>"}, goal: "<one line>", agent: "<id>"}}], leaving out complex only for'
+        " a one-fact lookup, or a tooling reader, by the next rule."
     ),
     (
         "Tooling and meta work is yours, never the coordinator's, and a build: a defect record, a handler's DEFECT"
-        " <tool: refusal> line, a defect you hit and a ruling's skill rewrite each get in the next message drive job add"
-        ' reader --order "$(drive order add "Drive tooling: <what>" --kind build --from <its From>)" --goal "research:'
-        ' <what>", then a long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,'
-        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Research: the Researched: block this"
-        " build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`. Its DONE line gets drive job add"
-        ' builder --order <o> --goal "<one line>", then a long-running:builder, its prompt the same lines with `Serves:'
-        " drive tooling` and `Researched: <the reader's job>` for the Research line; its DESIGN line the same with a"
-        " design job and a long-running:designer. A builder of yours that returns WAITING needs nothing, since its line"
-        " set its job waiting; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a"
+        " <tool: refusal> line, a defect you hit and a ruling's skill rewrite each get in the next message one call of"
+        ' the job tool, ops [{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from:'
+        ' "<its From>"}, goal: "research: <what>"}}], then a long-running:reader, its prompt the lines `Order: Drive'
+        " tooling: <what>`, `From: cci:<seq>`, `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling,"
+        " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
+        ' Its DONE line gets the job tool with ops [{add: {kind: "builder", order: "<o>", goal: "<one line>"}}], then a'
+        " long-running:builder, its prompt the same lines with `Serves: drive tooling` and `Researched: <the reader's"
+        " job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer. A builder"
+        " of yours that returns WAITING needs nothing, since its line set its job waiting; any other result a handler"
+        " briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a"
         " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
     ),
     (
-        'Chatter ("ok", "thanks"): a +1 react for its ack, drive heard, no handler. Words typed in your terminal, or an'
+        'Chatter ("ok", "thanks"): a +1 react for its ack, heard, no handler. Words typed in your terminal, or an'
         " owner record from the coordinator, are his message, acked at his DM root. A handler's MISSING <path>: an"
-        " owner record to root@<drive> with his share words and that path."
-        " His message in another channel (relayed) was written to the people there: no ack; drive heard and a handler"
+        " owner record with his share words and that path."
+        " His message in another channel (relayed) was written to the people there: no ack; heard and a handler"
         " only when it orders the drive or rules on a job's work."
     ),
     (
-        "A question-card tap (waits: true): an answer record with its label and --re the ask seq its id ends in, or"
-        " --topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
+        "A question-card tap (waits: true): a record of kind answer, its text the label and waits the card's waits id,"
+        " or topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
         " `Message (his words): Explain more` with the card's waits id and permalink. An Undo (undo: true) takes back"
-        " his answer, which was never given: the same answer record with --attr undone=<label> and the text"
-        " undone: <label>. A tap on the card of a builder of yours, its waits id naming its job, also gets"
+        " his answer, which was never given: the same record with undone: true. A tap on the card of a builder of yours,"
+        " its waits id naming its job, also gets"
         " SendMessage to that builder with his pick. A PR-card tap (merge:): nothing."
     ),
     (
@@ -92,22 +93,25 @@ COORDINATOR_RULES = (
     ),
     (
         "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too."
-        " Run drive job add <kind> before the Agent call, so the brief's Drive line names the job: the agent's first"
-        " Bash, Read, Write or Edit call, or its stop, records it on that job, its first after a SendMessage runs the"
-        " job again, and the line it returns sets its state and said line, so no drive job set follows a start, a wake"
-        " or any result but BUILT."
+        " Before the Agent call, one call of the job tool adds the job and writes its brief, ops [{add: {kind, order,"
+        " goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of his on the area]}}], and the"
+        " Agent prompt is the line brief prints, Read your brief first: <path>, whose Drive line names the job: the"
+        " agent's first Bash, Read, Write or Edit call, or its stop, records it on that job, its first after a"
+        " SendMessage runs the job again, and the line it returns sets its state and said line, so no job set follows"
+        " a start, a wake or any result but BUILT."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
-        " every flag it takes its row in drive manual verbs: before acting on one these rules do not spell out, read"
+        " every flag it takes its row in drive manual verbs, which the order, job, pr, heard and status tools run as ops"
+        " in one call per tool: before acting on one these rules do not spell out, read"
         " that row alone, such as drive manual coordinator TAP or drive manual verbs \"job set\", never the whole page"
         " and never drive … --help."
     ),
     (
-        "Scope: before any builder starts, a PR is a port of #N (drive pr set --port-of, no tap card), an order of his"
-        " (drive pr set --tap --serves <o> --design asked:<his answer>|none, his words quoted in its ready line, never"
+        "Scope: before any builder starts, a PR is a port of #N (pr set port_of, no tap card), an order of his"
+        " (pr set tap, serves <o>, design asked:<his answer> or none, his words quoted in its ready line, never"
         " while a design card it carries is open), drive tooling, which is the communicator's and never yours: a tool"
-        " defect you or a job hit is a defect record to communicator@<drive>, which starts its builder, and you start"
+        " defect you or a job hit is a defect record, which starts its builder, and you start"
         " none, or neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered"
         " finding becomes a question card."
     ),
@@ -115,15 +119,15 @@ COORDINATOR_RULES = (
         "Dev stays releasable: a PR lands only when a release cut at its merge commit is safe alone, in any order of"
         " targets, with no step after it such as a fill, a backfill, a hand command or another release first; its body's"
         " `## Releasable alone` says what that release does, and no card offers landing first and fixing after. Before a"
-        " card or line names a tap, read drive status <pr>: a PR he tapped, merged or closed is never asked for again."
+        " card or line names a tap, read status for the PR: a PR he tapped, merged or closed is never asked for again."
     ),
     (
         "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
         " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
         " long-running:designer on Fable, which fleshes the design out with worked examples and keeps each fork as an"
         " ASK block, its Show me in code above the options; each fork is one question card. A builder may build the"
-        " recommended option meanwhile and return BUILT: drive job set <j> --state built --branch <b> --waits <card>"
-        " for each card. It opens no PR until he answers them all: drive pr add refuses, and FREE says when."
+        " recommended option meanwhile and return BUILT: job set state built, branch <b>, waits [each card]. It opens"
+        " no PR until he answers them all: pr add refuses, and FREE says when."
     ),
     (
         "A ruling travels by its words: briefs, handoffs and SendMessage carry what he wrote and what it implies, never"
@@ -137,18 +141,20 @@ COORDINATOR_RULES = (
         " them; ANSWER repeats every 10 minutes until then."
     ),
     (
-        "Every part has an owner: drive order add --kind build --parts names each deliverable his words name, each job"
-        " says its --part, and an ORPHAN line gets a job, a card or a close in the same turn. A build order's first job"
+        "Every part has an owner: an order add takes kind build and parts naming each deliverable his words name, each"
+        " job says its part, and an ORPHAN line gets a job, a card or a close in the same turn. A build order's first job"
         " is an Opus long-running:reader briefed Research: the Researched: block this build needs; its builder's or"
-        " designer's brief carries Researched: <that reader's job>, and a reader's DESIGN return starts the designer."
+        " designer's brief carries Researched: <that reader's job>, which the job tool's brief op writes from the"
+        " order's research, and a reader's DESIGN return starts the designer."
     ),
-    "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
+    "Never block: your own calls are the drive's tools, reads of cci and one gh call, beside the verbs the skill names.",
     (
         "Keep your context small: use Read, Write or Edit on no file and load a tool only for the step that needs it,"
         " since each file you touched last and each tool you loaded comes back after every compaction. Before you"
-        " start a job, read the shape of its brief and handoff in drive manual jobs. A local job's brief is its Agent"
-        " prompt; a remote lane's brief, handoff or message goes on stdin to drive job launch <j> - or drive"
-        " job resume <j> -, from a quoted heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
+        " start a job, read the shape of its brief and handoff in drive manual jobs. The job tool's brief op writes a"
+        " brief or handoff, and a remote job then starts with drive job launch <j> in the background; a message to a"
+        " remote lane goes on stdin to drive job resume <j> -, from a quoted heredoc; a page of the skill is drive"
+        " manual <page>; a log is a job's to read."
     ),
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
     (
@@ -156,7 +162,7 @@ COORDINATOR_RULES = (
         " except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's AWS sign-in."
     ),
     (
-        "A promise is --due: a time he is promised is recorded with drive order set <id> --due; DUE repeats every"
+        "A promise is due: a time he is promised is recorded with order set due; DUE repeats every"
         " 10 minutes until a drive post is in the order's thread, and done or dropped refuses until then."
     ),
     (
@@ -177,17 +183,24 @@ OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 REPROS_SHOWN = 5
 WHOLE = sys.maxsize
+UNLISTED_TOOL_LINE = (
+    "A drive tool these rules name that your session does not list, such as heard or job, is one its drive MCP server"
+    " started before: run that verb in Bash as drive <verb>, each field its flag, until /reload-plugins or a restart"
+    " lists it."
+)
 FIRST_CALL = {
     "communicator": (
-        "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
+        "Your first call now, before anything else, loads the tools your turn needs: ToolSearch"
         " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
         "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
-        "mcp__plugin_cc-inbox_cci__post"
+        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__job"
     ),
     "coordinator": (
         "Arm Monitor `drive watch` now (timeout 1800000) unless one is running. A compaction keeps every tool you"
         " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
-        " answer_add with no ToolSearch first."
+        " answer_add with no ToolSearch first. The drive's order, job, pr and status tools load once, the first time"
+        " you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
+        "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__status."
     ),
 }
 READS = {
@@ -351,6 +364,7 @@ def context(drive: dict, role: str) -> str:
             " at the version its base directory names, and no install since replaces it: where that text disagrees with"
             " this block, this block wins."
         ),
+        UNLISTED_TOOL_LINE,
         READS[role],
         FIRST_CALL[role],
     ]

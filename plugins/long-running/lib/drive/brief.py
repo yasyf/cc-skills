@@ -1,8 +1,10 @@
 import re
+from pathlib import Path
 
 from drive import state
 
 BRIEF_JOB = re.compile(r"^Drive:[^\n]*?\bjob (j\d+)\b", re.MULTILINE)
+BRIEF_FILE = re.compile(r"/\S+/jobs/j\d+\.brief\.md\b")
 HANDOFF = re.compile(r"^Handoff:", re.MULTILINE)
 RESEARCHED = re.compile(r"^Researched:[ \t]*$", re.MULTILINE)
 RESEARCHED_LINE = re.compile(r"^Researched:", re.MULTILINE)
@@ -13,6 +15,12 @@ RESEARCHED_KINDS = ("builder", "design")
 OPUS_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
+
+
+def carried(prompt: str) -> str:
+    """An agent's prompt with the brief file drive job brief wrote read in after it, when the prompt names one."""
+    named = BRIEF_FILE.search(prompt)
+    return f"{prompt}\n{Path(named[0]).read_text()}" if named else prompt
 
 
 def researched(text: str) -> dict[str, str]:

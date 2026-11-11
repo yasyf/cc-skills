@@ -4,15 +4,20 @@ import threading
 from pathlib import Path
 from typing import TextIO
 
+from drive import tools
 from drive.install import config_dir, installed
 
 PLUGIN = "long-running@skills"
 PLUGIN_ROOT = Path(__file__).resolve().parents[2]
 CALL_SECONDS = 180
+OWN_DRIVE = str(PLUGIN_ROOT / "bin" / "drive")
+LISTED: dict[str, str] = {}
+LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
     " Name a card as {card:<waits id>} and a PR as {pr:<number or owner/repo#number>} in its text, and the tool links"
-    " each the way each surface shows it."
+    " each the way each surface shows it. The drive's verbs are tools too: heard, record for the records between the"
+    " two sessions, order, job and pr taking several ops a call, and status; each takes dry_run."
 )
 TEXT = {"type": "string"}
 VISUAL = {
@@ -30,36 +35,39 @@ VISUAL = {
     },
     "required": ["kind", "source"],
 }
-TOOLS = [
-    {
-        "name": "say",
-        "description": (
-            "Post one message to his Slack DM and show it on the drive's dashboard, in one call: a line, an answer, a PR"
-            " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>} and"
-            " {pr:<number, owner/repo#number or URL>} become a link under the words that name the card or PR, which"
-            " Slack draws the card under, and a link on the dashboard; a reference that names nothing of the drive's"
-            " refuses the post. Prints POSTED <permalink>, plus CARD <permalink> for a card; with order it also records"
-            " the post on that order."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "text": {"type": "string", "description": "The post's exact words, with any {card:…} and {pr:…} references; none for a question card"},
-                "thread_ts": {"type": "string", "description": "His thread the post goes in; none for his DM root"},
-                "asked": {
-                    "anyOf": [TEXT, {"type": "array", "items": TEXT}],
-                    "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",
-                },
-                "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
-                "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first"},
-                "about": {"type": "string", "description": "The waits id of the card this reply is about"},
-                "visuals": {"type": "array", "items": VISUAL},
-                "order": {"type": "string", "description": "The order whose thread this post is in, which records the post on it"},
-                "part": {"type": "string", "description": "The part of that order this post delivers"},
+SAY = {
+    "name": "say",
+    "description": (
+        "Post one message to his Slack DM and show it on the drive's dashboard, in one call: a line, an answer, a PR"
+        " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>} and"
+        " {pr:<number, owner/repo#number or URL>} become a link under the words that name the card or PR, which"
+        " Slack draws the card under, and a link on the dashboard; a reference that names nothing of the drive's"
+        " refuses the post. Prints POSTED <permalink>, plus CARD <permalink> for a card; with order it also records"
+        " the post on that order."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "The post's exact words, with any {card:…} and {pr:…} references; none for a question card"},
+            "thread_ts": {"type": "string", "description": "His thread the post goes in; none for his DM root"},
+            "asked": {
+                "anyOf": [TEXT, {"type": "array", "items": TEXT}],
+                "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",
             },
+            "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
+            "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first"},
+            "about": {"type": "string", "description": "The waits id of the card this reply is about"},
+            "visuals": {"type": "array", "items": VISUAL},
+            "order": {"type": "string", "description": "The order whose thread this post is in, which records the post on it"},
+            "part": {"type": "string", "description": "The part of that order this post delivers"},
+            "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing"},
         },
     },
-]
+}
+
+
+def tool_list() -> list[dict]:
+    return [SAY, *tools.verb_tools()]
 
 
 def serve(stdin: TextIO, stdout: TextIO) -> int:
@@ -79,12 +87,13 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
         case "initialize":
             reply["result"] = {
                 "protocolVersion": request["params"]["protocolVersion"],
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {"listChanged": True}},
                 "serverInfo": {"name": "drive", "version": json.loads((PLUGIN_ROOT / ".claude-plugin" / "plugin.json").read_text())["version"]},
                 "instructions": INSTRUCTIONS,
             }
         case "tools/list":
-            reply["result"] = {"tools": TOOLS}
+            LISTED["drive"] = newest_drive()
+            reply["result"] = {"tools": listed(LISTED["drive"])}
         case "tools/call":
             reply["result"] = call(request["params"]["name"], request["params"].get("arguments") or {})
         case "ping":
@@ -93,16 +102,26 @@ def respond(request: dict, stdout: TextIO, writing: threading.Lock) -> None:
             reply["error"] = {"code": -32601, "message": f"no method {method}"}
     with writing:
         stdout.write(json.dumps(reply) + "\n")
+        if request["method"] == "tools/call" and LISTED.get("drive") not in (None, newest_drive()):
+            del LISTED["drive"]
+            stdout.write(json.dumps(LIST_CHANGED) + "\n")
         stdout.flush()
 
 
+def listed(drive: str) -> list[dict]:
+    """The tools the newest installed drive serves, so an install reaches a live session through list_changed with no reconnect."""
+    if drive == OWN_DRIVE:
+        return tool_list()
+    return json.loads(subprocess.run([drive, "mcp", "--list"], capture_output=True, text=True, check=True, timeout=CALL_SECONDS).stdout)
+
+
 def call(tool: str, arguments: dict) -> dict:
-    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do."""
+    """Run the tool in the newest installed drive, so a live session's call runs the plugin installed now, as its hooks do; a refusal keeps the lines of the ops that ran before it."""
     try:
         done = subprocess.run([newest_drive(), "tool", tool], input=json.dumps(arguments), capture_output=True, text=True, check=False, timeout=CALL_SECONDS)
     except subprocess.TimeoutExpired:
         return {"content": [{"type": "text", "text": f"drive tool {tool} did not finish in {CALL_SECONDS} seconds"}], "isError": True}
-    said = done.stderr if done.returncode else done.stdout
+    said = done.stdout + done.stderr if done.returncode else done.stdout
     return {"content": [{"type": "text", "text": said.strip()}], "isError": bool(done.returncode)}
 
 

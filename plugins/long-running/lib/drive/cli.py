@@ -5,11 +5,12 @@ import os
 import re
 import shutil
 import sys
+import textwrap
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from drive import brief, github, limits, orca, picture, place, reads, render, settled, slack, state, watch
+from drive import artifacts, brief, github, limits, orca, picture, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -19,6 +20,7 @@ CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
 PAGES = Path(__file__).resolve().parents[2] / "skills" / "long-running" / "reference"
 LAUNCHED = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
+MCP_TOOLS = ("say", "heard", "record", "order", "job", "pr", "status")
 SHIM = """#!/bin/sh
 drive_bin=$(python3 -I -c '
 import json, os, pathlib
@@ -544,6 +546,64 @@ def checkout() -> Path:
     return root
 
 
+def job_brief(args: argparse.Namespace) -> int:
+    """Write a job's brief from what the drive holds: his order's words verbatim, each ruling's recorded words whole, the earlier jobs' transcripts, and the lines the call names."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    order = data["orders"][job["order"]]
+    checkout_dir = Path(data["roles"]["coordinator"]["cwd"])
+    rulings = [ruling_words(answer_id, checkout_dir) for answer_id in args.ruling]
+    earlier = [line for other in order["jobs"] if other != args.id and (line := transcript_line(other, data["jobs"][other]))]
+    building = job["kind"] in brief.RESEARCHED_KINDS and order["kind"] == "build" and not order["incident"]
+    found = brief.research(name, data, job["order"]) if building else None
+    scratch = Path(args.scratch).expanduser() if args.scratch else state.drive_dir(name) / "scratch" / args.id
+    scratch.mkdir(parents=True, exist_ok=True)
+    fields = {
+        "Order (his words)": order["text"],
+        "Serves": args.serves,
+        "Goal": job["goal"],
+        "Done when": args.done_when,
+        "Where": args.where,
+        "Runs as": args.runs_as,
+        "Handoff": args.handoff,
+        "Decisions that bind": rulings or "none named; search his answers on the area",
+        "Researched": found and found[0],
+        "Plan": args.plan,
+        "Incident": args.incident,
+        "Scratch": str(scratch),
+        "Transcripts": earlier,
+        "Drive": f"{name}, order {job['order']}, job {args.id}",
+    }
+    written = state.drive_dir(name) / "jobs" / f"{args.id}.brief.md"
+    written.parent.mkdir(exist_ok=True)
+    lines = [
+        f"{field}:" + ("".join(f"\n- {item}" for item in value) if isinstance(value, list) else f" {value}")
+        for field, value in fields.items()
+        if value
+    ]
+    written.write_text("\n".join(lines) + "\n")
+    with state.edit(name) as data:
+        data["jobs"][args.id]["brief"] = str(written)
+    line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
+    return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier})
+
+
+def ruling_words(answer_id: str, checkout_dir: Path) -> str:
+    try:
+        answer = json.loads(reads.run(["ccn", "answer", "show", answer_id, "--json"], checkout_dir))
+    except reads.ReadError as error:
+        raise DriveError(f"ruling {answer_id}: {error}") from None
+    return f"{answer['title']} ({answer['id'][:7]})\n{textwrap.indent(answer['body'].strip(), '  ')}"
+
+
+def transcript_line(job_id: str, job: dict) -> str | None:
+    if job.get("where") == "remote" and job.get("dispatch"):
+        return f"{job_id} {job['kind']}, a remote lane: drive job replies {job_id}"
+    path = artifacts.transcript(job)
+    return f"{job_id} {job['kind']}: {path}" if path else None
+
+
 def job_launch(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     with state.edit(name) as data:
@@ -553,8 +613,10 @@ def job_launch(args: argparse.Namespace) -> int:
         job = remote_job(data, args.id)
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
+    if not (args.brief or job.get("brief")):
+        raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
     root = checkout()
-    text = sys.stdin.read() if args.brief == "-" else Path(args.brief).read_text()
+    text = sys.stdin.read() if args.brief == "-" else Path(args.brief or job["brief"]).read_text()
     if refused := brief.brief_refusal(name, data, args.id, text, None):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
@@ -1063,14 +1125,17 @@ def card_command(args: argparse.Namespace) -> int:
 def mcp_command(args: argparse.Namespace) -> int:
     from drive import mcp
 
+    if args.list:
+        print(json.dumps(mcp.tool_list()))
+        return 0
     return mcp.serve(sys.stdin, sys.stdout)
 
 
 def tool_command(args: argparse.Namespace) -> int:
-    from drive import talk
+    from drive import tools
 
     try:
-        print(getattr(talk, args.tool)(state.resolve(), json.load(sys.stdin)))
+        print(tools.run(args.tool, state.resolve(), json.load(sys.stdin)))
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
     return 0
@@ -1134,9 +1199,9 @@ def parser() -> argparse.ArgumentParser:
 
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
-    verb.add_argument("words")
-    verb.add_argument("--from", dest="source", default="terminal")
-    verb.add_argument("--thread")
+    verb.add_argument("words", help="his words, verbatim")
+    verb.add_argument("--from", dest="source", default="terminal", help="where he wrote it: slack:<channel>/<ts>, or terminal")
+    verb.add_argument("--thread", help="the ts of the thread the order's lines go in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument(
@@ -1166,13 +1231,13 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
-    verb.add_argument("id")
+    verb.add_argument("id", help="the order")
     verb.add_argument("--state", choices=state.ORDER_STATES, help="done or dropped refuses while a promised line is not posted")
     verb.add_argument("--due", help="when he hears next, owed from the next line in the order's thread")
-    verb.add_argument("--note")
-    verb.add_argument("--proof")
-    verb.add_argument("--thread")
-    verb.add_argument("--lined", action="store_true")
+    verb.add_argument("--note", help="where the order stands, in a few words")
+    verb.add_argument("--proof", help="the link that proves it done")
+    verb.add_argument("--thread", help="the ts of the thread the order's lines go in")
+    verb.add_argument("--lined", action="store_true", help="a line just went in its thread")
     verb.add_argument(
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
@@ -1192,7 +1257,7 @@ def parser() -> argparse.ArgumentParser:
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project or workstream yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, or the answer a part owes him; a part delivered elsewhere, as a share in another channel, names --part")
-    verb.add_argument("id")
+    verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
     posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; one in the order's threads keeps a promised time and moves the order's last line")
     posted.add_argument("--undo", action="store_true", help="take back the delivered mark of the part --part names, so it counts as undelivered again")
@@ -1208,26 +1273,26 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help="start a job on an order's parts: prints its id, then each job still running or waiting on one of those parts",
     )
-    verb.add_argument("kind", choices=state.JOB_KINDS)
-    verb.add_argument("--order", required=True)
-    verb.add_argument("--goal", required=True)
-    verb.add_argument("--agent")
-    verb.add_argument("--repo")
-    verb.add_argument("--branch")
-    verb.add_argument("--worktree")
+    verb.add_argument("kind", choices=state.JOB_KINDS, help="what the job is")
+    verb.add_argument("--order", required=True, help="the order whose parts it delivers")
+    verb.add_argument("--goal", required=True, help="its deliverable, one line")
+    verb.add_argument("--agent", help="the agent id the Agent tool returned")
+    verb.add_argument("--repo", help="owner/name")
+    verb.add_argument("--branch", help="the branch it works on")
+    verb.add_argument("--worktree", help="its worktree's path")
     verb.add_argument("--remote", action="store_true", help="a builder that starts as a remote lane on a Sprite")
     verb.add_argument("--part", action="append", default=[], help="a part of the order this job delivers; default: its only part")
     verb.set_defaults(run=job_add)
     verb = job.add_parser("set", parents=[*both, waits_opt])
-    verb.add_argument("id")
-    verb.add_argument("--agent")
+    verb.add_argument("id", help="the job")
+    verb.add_argument("--agent", help="the agent id the Agent tool returned")
     verb.add_argument(
         "--state", choices=state.JOB_STATES, help="built: it built the recommended design on --branch and opens no PR until each --waits card is answered"
     )
     verb.add_argument("--branch", help="the pushed branch it works or built on")
-    verb.add_argument("--said")
+    verb.add_argument("--said", help="its latest line")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
-    verb.add_argument("--pr", action="append", default=[])
+    verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over")
     verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")
     verb.add_argument(
         "--carries", action="append", default=[], metavar="ORDER", help="another order whose part this job delivers, until it is done"
@@ -1308,10 +1373,33 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id")
     verb.add_argument("stdin", nargs="?", choices=["-"], help="- to keep the job's whole return from stdin; default: print the kept one")
     verb.set_defaults(run=job_report)
+    verb = job.add_parser(
+        "brief",
+        parents=both,
+        help="write a job's brief from his order's words, each ruling's words and the earlier jobs' transcripts, and print where",
+        description=(
+            "Write the brief reference/jobs.md shapes into the drive and print its path: Order from the words the order"
+            " holds, verbatim; Goal from the job; Decisions that bind from each --ruling's recorded answer, its title and"
+            " body whole; Transcripts from each earlier job on the order; Scratch, by default a folder of the drive's;"
+            " the Drive line; and each line the flags name. Its first line, `Read your brief first: <path>`, is a local"
+            " job's whole Agent prompt, which binds the agent to the job, and a remote job launches from it with drive job launch <j>."
+        ),
+    )
+    verb.add_argument("id", help="the job")
+    verb.add_argument("--serves", required=True, help='"port of #N", "drive tooling" or "his order"')
+    verb.add_argument("--done-when", required=True, help="the check that proves it done")
+    verb.add_argument("--where", required=True, help="the repo, base branch, and any branch or PR to adopt")
+    verb.add_argument("--runs-as", help="for a pass over a team's data: the service account in its cluster and how it starts")
+    verb.add_argument("--handoff", help="a PR event or freed built branch: the PRs or branch, its head, the event line, INSTALL: and PROVE:")
+    verb.add_argument("--ruling", action="append", default=[], metavar="ANSWER", help="a cc-notes answer id of his that touches this; its words go in whole")
+    verb.add_argument("--plan", help="the plan section this implements, quoted")
+    verb.add_argument("--incident", help="an incident job's line, by reference/jobs.md")
+    verb.add_argument("--scratch", help="its scratch folder; default one in the drive")
+    verb.set_defaults(run=job_brief)
     verb = job.add_parser("launch", parents=both, help="start a remote job's lane on a Sprite")
-    verb.add_argument("id")
+    verb.add_argument("id", help="the job")
     verb.add_argument(
-        "brief", help="the file holding the job's brief, the same one a background agent gets, or - to read it from stdin"
+        "brief", nargs="?", help="the file holding the job's brief, or - to read it from stdin; default the one drive job brief wrote"
     )
     verb.set_defaults(run=job_launch)
     verb = job.add_parser(
@@ -1345,12 +1433,12 @@ def parser() -> argparse.ArgumentParser:
 
     pr = verbs.add_parser("pr", help="the drive's pull requests").add_subparsers(dest="action", required=True)
     verb = pr.add_parser("add", parents=both)
-    verb.add_argument("url")
-    verb.add_argument("--job", required=True)
-    verb.add_argument("--tap", action="store_true")
+    verb.add_argument("url", help="the PR's URL")
+    verb.add_argument("--job", required=True, help="the job that opened or took it over")
+    verb.add_argument("--tap", action="store_true", help="it waits on his tap")
     verb.set_defaults(run=pr_add)
     verb = pr.add_parser("set", parents=[*both, waits_opt])
-    verb.add_argument("url")
+    verb.add_argument("url", help="the PR's URL")
     verb.add_argument(
         "--tap", action=argparse.BooleanOptionalAction, help="waits on his tap; needs --serves, --design; --no-tap withdraws his open card for it, needs --why"
     )
@@ -1446,9 +1534,11 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=dashboard_command)
     verbs.add_parser("watch", parents=[drive_opt]).set_defaults(run=watch_events)
     verbs.add_parser("card").set_defaults(run=card_command)
-    verbs.add_parser("mcp", help="serve the say tool to a Claude Code session over stdio").set_defaults(run=mcp_command)
-    verb = verbs.add_parser("tool", help="run one MCP tool on the JSON arguments read from stdin and print its one line")
-    verb.add_argument("tool", choices=("say",))
+    verb = verbs.add_parser("mcp", help="serve say and the drive's verbs as MCP tools to a Claude Code session over stdio")
+    verb.add_argument("--list", action="store_true", help="print the tools as JSON and serve nothing")
+    verb.set_defaults(run=mcp_command)
+    verb = verbs.add_parser("tool", help="run one MCP tool on the JSON arguments read from stdin and print its lines")
+    verb.add_argument("tool", choices=MCP_TOOLS)
     verb.set_defaults(run=tool_command)
 
     verb = verbs.add_parser("install")

@@ -48,12 +48,18 @@ def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
     return [kind for kind in FILES if held[kind]]
 
 
+def transcript(job: dict) -> Path | None:
+    """A local job's transcript on this Mac, when its session still holds it."""
+    if not (job.get("agent") and job.get("session")):
+        return None
+    return next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)
+
+
 def page(name: str, job_id: str, job: dict, kind: str) -> str:
     """The reader page for one of a job's kept files: a transcript turn by turn, prose as text, anything else as code with line numbers."""
     title = f"{job_id} {FILES[kind].lower()}: {job['goal']}"
     if kind == "transcript":
-        path = next((install.config_dir() / "projects").glob(f"*/{job['session']}/subagents/agent-{job['agent']}.jsonl"), None)
-        if not path:
+        if not (path := transcript(job)):
             return drawn(title, "", prose_body(f"This Mac no longer holds the transcript of agent {job['agent']}."))
         turns = turns_of(path.read_text(errors="replace"))
         return drawn(title, f"{len(turns)} {'turn' if len(turns) == 1 else 'turns'} · {path}", "".join(turn_html(entry) for entry in turns))
