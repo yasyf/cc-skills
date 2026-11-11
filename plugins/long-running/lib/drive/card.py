@@ -3,9 +3,8 @@ import re
 import sys
 import unicodedata
 from typing import TextIO
-from urllib.parse import urlsplit
 
-from drive import github, limits, picture, state
+from drive import github, limits, picture, public_check, state
 from drive.github import GithubError, run
 from drive.render import cut
 
@@ -51,7 +50,6 @@ REFRESHER_HEADING = re.compile(r"^#{2,3}[ \t]+(?:Refresher|ELI5)[ \t]*$", re.MUL
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
 FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-SHAREABLE_PATH = re.compile(r"/(?:demo|public)[^/]*(?:/|$)", re.IGNORECASE)
 LABELLED_LINE = re.compile(r"[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?:install|risk|prove)(?:\*\*)?[ \t]*:(?:\*\*)?.*", re.IGNORECASE)
 TRAILER = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:[ \t]+\S.*")
 HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
@@ -373,35 +371,16 @@ def read(key: str) -> dict | None:
 
 
 def exposure(key: str) -> str:
-    """What a PR on a public repository shows that only a private place may: each picture outside a demo or public path, and each private repository's PR its body names."""
+    """What a PR on a public repository shows that only a private place may: each picture outside a demo or public path, each private repository's PR and each teammate its body names."""
     repo = key.split("#")[0]
     if github.visibility(repo) != "public":
         return ""
     if not (pr := read(key)):
         raise state.DriveError(f"{key}: could not read its body from GitHub to check what it shows in public")
-    exposed = body_exposure(repo, pr["body"] or "")
+    exposed = public_check.body(repo, pr["body"] or "")
     return exposed and (
         f"{exposed}. Edit the body, delete each earlier revision that held them from its edit history, delete the branch"
         " that holds the pictures, then add it again"
-    )
-
-
-def body_exposure(repo: str, body: str) -> str:
-    """What a body shows that only a private place may, when public repository repo carries it: each picture outside a demo or public path, and each private repository's PR it names."""
-    pictures = [url for match in picture.IMAGE.finditer(body) if not SHAREABLE_PATH.search(urlsplit(url := match[1] or match[2]).path)]
-    named = {f"{owner}/{name}" for owner, name, _ in (*state.PR_URL.findall(body), *state.PR_KEY.findall(body))} - {repo}
-    hidden = sorted(other for other in named if github.visibility(other) not in (None, "public"))
-    found = []
-    if pictures:
-        found.append(f"pictures outside a demo or public path ({', '.join(pictures)})")
-    if hidden:
-        found.append(f"PRs of the private {', '.join(hidden)}")
-    if not found:
-        return ""
-    return (
-        f"{repo} is public, and its body shows {' and '.join(found)}. A public PR's pictures come from a demo drive or"
-        " public data, kept under a demo- or public- path; a picture of the live drive, a private repository, Slack or a"
-        " customer's data goes only to a private repository's PR or his DM"
     )
 
 

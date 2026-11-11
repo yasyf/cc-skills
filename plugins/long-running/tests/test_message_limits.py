@@ -155,13 +155,13 @@ THREADS = ("1.2", BAD_STATE_THREAD, DB_THREAD, AUDIT_THREAD, HARDWARE_THREAD)
 
 TEAMMATES_PR = "A teammate's PR landed at 2:12 PM today: every locked chat shows an Update sand button."
 JOSHS_PR = (
-    "<https://github.com/Forge-AI/monorepo/pull/53618|Josh Lorincz's PR> landed at 2:12 PM today: every locked chat shows"
+    "<https://github.com/Forge-AI/monorepo/pull/53618|Juniper Cole's PR> landed at 2:12 PM today: every locked chat shows"
     " an Update sand button."
 )
 SHOW_ME = "*Show me*\nToday, the card after a download:\n```\n" + "\n".join(f"line {index} of the card" for index in range(60)) + "\n```"
 SENTRY_EVENT = "https://forge-rf.sentry.io/issues/SAND-3Z/events/bc99372dd60d40dcb36c07511693ce06/"
-KENTS_ASK = f"""ASK Kent's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
-Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Kent's files are read.
+STRAY_CHATS_ASK = f"""ASK Rowan's stray chats likely come from the old build writing into the new app's chat folder on his Mac; how do we stop it?
+Both builds share one chat folder on his Mac. <{SENTRY_EVENT}|The old build> runs its own server there and saves each new chat before setup, which the new app lists Untitled and read-only. A check inside the new app cannot stop that server, so I recommend a separate folder. Unproven until Rowan's files are read.
 Show me:
 <https://github.com/Forge-AI/monorepo/blob/dev/go/sand/internal/durable/agent.go#L120-L125|The old build> makes a chat file holding only a writer stamp; the chat's setup waits for a first turn that never comes.
 ```go
@@ -174,10 +174,10 @@ Both builds use the same folder, and the old one never sees the new app's server
 | new | ~/.sand/sandsql-pair/primary/data/db/<chat>.db | primary.json, never server.json |
 - New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them. (recommended)
 - New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
-- Kent first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
+- Rowan first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
 Findings:
 Direct fix: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
-Kent sees Untitled, unstarted chats marked state_missing that must be forked.
+Rowan sees Untitled, unstarted chats marked state_missing that must be forked.
 """
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
 WATCHDOG_QUESTION = 'Which "1+2 hybrid" did you pick on Nov 9: an always-on listener that never acts, or a service that also lands and installs?'
@@ -684,7 +684,7 @@ def test_a_handlers_post_links_each_thing_it_names_where_it_names_it(talker: str
     assert posted(transcript, text=JOSHS_PR) is None
     assert posted(transcript, text='He wrote "the fix is in" at noon; a fix for the rest is being written.') is None
     assert "says only a number" in posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|#53618> landed.")
-    assert "is a number he cannot open" in posted(transcript, text="Josh's change, #53618, landed.")
+    assert "is a number he cannot open" in posted(transcript, text="Juniper's change, #53618, landed.")
     assert posted(transcript, text=TEAMMATES_PR, tap_prs=["https://github.com/Forge-AI/monorepo/pull/53618"]) is None
     ack = call("slack_dm_status", transcript, text=TEAMMATES_PR)
     del ack["agent_id"]
@@ -728,7 +728,7 @@ def test_a_plain_noun_needs_no_link_and_a_pr_the_drive_holds_on_the_posts_order_
         "<https://github.com/Forge-AI/monorepo/pull/53618|The update-button PR> is green; that PR lands on your tap.",
         "Its API is next: its PR goes up first.",
         "The first PR is not open yet.",
-        "Josh's <https://github.com/Forge-AI/monorepo/pull/53618|update-button> PR landed.",
+        "Juniper's <https://github.com/Forge-AI/monorepo/pull/53618|update-button> PR landed.",
         "The PR-review bot posted twice, and the PR freeze holds.",
         "That waits a PR.",
         "Every engineer's pull request gets a check.",
@@ -780,10 +780,10 @@ def test_a_post_drawing_a_tap_card_or_a_card_may_say_it_waits_on_him(talker: str
 
 
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
-    card = limits.question(KENTS_ASK).card("demo", "demo:j585-7")
+    card = limits.question(STRAY_CHATS_ASK).card("demo", "demo:j585-7")
     assert posted(transcript, card=card) is None
     with pytest.raises(DriveError, match="the question, summary and options are 151 words; at most 150"):
-        limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
+        limits.question(STRAY_CHATS_ASK.replace("costs time.", "costs time and money."))
     longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
 
@@ -791,11 +791,11 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
 def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says_none_does() -> None:
     shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
     with pytest.raises(DriveError, match="no `Direct fix:` line under `Findings:`"):
-        limits.question(KENTS_ASK.replace(f"Direct fix: {shown}\n", ""))
+        limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}\n", ""))
     with pytest.raises(DriveError, match="`Direct fix: Wait for the copy` names no option"):
-        limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"))
-    assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: none: nothing was diagnosed")).recommended
-    assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
+        limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"))
+    assert limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: none: nothing was diagnosed")).recommended
+    assert limits.question(STRAY_CHATS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
 
 
 def options_ask(*options: str) -> str:
@@ -812,14 +812,14 @@ def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_
 
 
 def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_to_offer() -> None:
-    with pytest.raises(DriveError, match='option "ask Sam to retry the restore" asks someone to retry or confirm "ask Sam to retry", which fixes nothing: offer the fix itself'):
-        limits.question(options_ask("restore from the replica (recommended)", "ask Sam to retry the restore"))
+    with pytest.raises(DriveError, match='option "ask Rowan to retry the restore" asks someone to retry or confirm "ask Rowan to retry", which fixes nothing: offer the fix itself'):
+        limits.question(options_ask("restore from the replica (recommended)", "ask Rowan to retry the restore"))
     assert limits.question(options_ask("restore from the replica (recommended)", "restore from last night's backup")).options
 
 
 def test_an_option_ruling_out_a_retry_or_a_sweeper_is_no_option_proposing_one() -> None:
-    assert limits.question(options_ask("restore from the replica; never ask Sam to retry the restore (recommended)", "restore from last night's backup")).options
-    assert limits.question(options_ask("restore from the replica; ask Sam not to retry (recommended)", "restore from last night's backup")).options
+    assert limits.question(options_ask("restore from the replica; never ask Rowan to retry the restore (recommended)", "restore from last night's backup")).options
+    assert limits.question(options_ask("restore from the replica; ask Rowan not to retry (recommended)", "restore from last night's backup")).options
     assert limits.question(options_ask("one owner holds the lease until it ends; remove the sweeper (recommended)", "the run gives the lease back as it exits")).options
     with pytest.raises(DriveError, match='cleans up a bad state with "sweep orphaned"'):
         limits.question(options_ask("remove the sweeper, then sweep orphaned leases hourly (recommended)", "one owner holds the lease until it ends"))

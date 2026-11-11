@@ -169,6 +169,19 @@ def test_a_drive_agents_public_pr_body_with_a_live_picture_is_refused_before_it_
     assert landing_guard.deny_reason(body_post(tmp_path, command, LIVE, session_id="elsewhere")) is None
 
 
+def test_a_drive_agents_public_pr_body_naming_a_teammate_is_refused_before_it_goes_up(
+    demo: str, no_calls: None, visibilities: dict, tmp_path: Path
+) -> None:
+    visibilities["yasyf/cc-skills"] = "public"
+    (tmp_path / "b.md").write_text("## Refresher\nRowan's report started this.\n")
+    create = bash("gh pr create -R yasyf/cc-skills --title X --body-file b.md", cwd=str(tmp_path), session_id=SESSION, agent_id="a1")
+    assert landing_guard.deny_reason(create).startswith(
+        "Refused on purpose, before it goes up: yasyf/cc-skills is public, and its body names Rowan (Rowan Vale). "
+    )
+    (tmp_path / "b.md").write_text("## Refresher\nThe reporter's report started this.\n")
+    assert landing_guard.deny_reason(create) is None
+
+
 def test_a_pr_body_is_judged_by_the_repository_of_the_pr_it_names(demo: str, monkeypatch: pytest.MonkeyPatch, visibilities: dict, tmp_path: Path) -> None:
     monkeypatch.setattr(landing_guard, "run", lambda args, cwd: "https://github.com/yasyf/cc-skills.git")
     visibilities["yasyf/cc-skills"] = "public"

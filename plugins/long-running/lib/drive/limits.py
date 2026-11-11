@@ -414,7 +414,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:
-    """Why an option is no fix he can pick: it asks someone to retry or confirm, or cleans up a bad state with a sweeper, time rule or reclaim loop, which his ruling refuses unless `unsettled` names it and says why; an option that rules either out, as "never ask Sam to retry" and "remove the sweeper" do, proposes neither."""
+    """Why an option is no fix he can pick: it asks someone to retry or confirm, or cleans up a bad state with a sweeper, time rule or reclaim loop, which his ruling refuses unless `unsettled` names it and says why; an option that rules either out, as "never ask Rowan to retry" and "remove the sweeper" do, proposes neither."""
     problems = [
         f'option "{option}" asks someone to retry or confirm "{found[0]}", which fixes nothing: offer the fix itself, the change or'
         " repair that stops the failure, and the drive proves it"
@@ -433,7 +433,7 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
 
 
 def proposed(pattern: re.Pattern[str], option: str) -> re.Match[str] | None:
-    """The first of the pattern's matches that the option proposes rather than rules out: one negated or removed by the words just before it, as in "never ask Sam to retry" or "remove the sweeper", or negated within it, as in "ask Sam not to retry", is none."""
+    """The first of the pattern's matches that the option proposes rather than rules out: one negated or removed by the words just before it, as in "never ask Rowan to retry" or "remove the sweeper", or negated within it, as in "ask Rowan not to retry", is none."""
     return next((found for found in pattern.finditer(option) if not RULED_OUT.search(option, 0, found.start()) and not NEGATION.search(found[0])), None)
 
 

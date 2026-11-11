@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, card, github, settled, state, view
+from drive import agents, github, public_check, settled, slack, state, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import runnable
@@ -64,7 +64,8 @@ UNWRITTEN = (
 )
 UNCHECKED = (
     "Refused on purpose, before it goes up: GitHub did not answer whether a repository this body goes to or names is"
-    " public ({error}), so the body cannot be checked. Run this again once GitHub answers"
+    " public, or cc-slack did not list the teammates whose names it must not show ({error}), so the body cannot be"
+    " checked. Run this again once both answer"
 )
 AGENTS = "long-running:"
 LOOPS = {"for", "while", "until"}
@@ -453,8 +454,8 @@ def exposed_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         if unwritten := next((file for file in files if not Path(moved(shell.cwd, file)).exists()), None):
             return UNWRITTEN.format(file=unwritten, repo=repo)
         texts = [*options.get("body", []), *(Path(moved(shell.cwd, file)).read_text() for file in files)]
-        exposed = card.body_exposure(repo, "\n".join(texts))
-    except github.GithubError as error:
+        exposed = public_check.body(repo, "\n".join(texts))
+    except (github.GithubError, slack.SlackError) as error:
         return UNCHECKED.format(error=error)
     return EXPOSED.format(exposed=exposed) if exposed else None
 

@@ -43,9 +43,9 @@ DEEP_SUBAGENTS_OPTIONS = r'''- Land both now, deep-subagents first (recommended)
 
 DRAFT_DM_SHOW_ME = r'''The DM as drafted:
 ```
-Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.
+Hey Rowan! The copy for the acme team can't read acme's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.
 
-Can you take it? You'll know whether gil's files live in R2 or in its own bucket.
+Can you take it? You'll know whether acme's files live in R2 or in its own bucket.
 ```'''
 DRAFT_DM_OPTIONS = r'''- Send it as written (recommended)
 - Hold it until the morning'''
@@ -410,8 +410,8 @@ def test_a_draft_message_in_a_fence_passes_as_the_quote_his_card_shows_and_a_fen
     asked = limits.question(ask(DRAFT_DM_SHOW_ME, DRAFT_DM_OPTIONS))
     assert asked.show_me[1] == "```"
     assert asked.recommended == "Send it as written"
-    quoted = "The DM as drafted:\n> Hey Josh! The copy for the gil team can't read gil's files since 9:29 PM tonight.\n>\n> Can you take it?"
-    assert limits.question(ask(quoted, DRAFT_DM_OPTIONS)).show_me[1].startswith("> Hey Josh!")
+    quoted = "The DM as drafted:\n> Hey Rowan! The copy for the acme team can't read acme's files since 9:29 PM tonight.\n>\n> Can you take it?"
+    assert limits.question(ask(quoted, DRAFT_DM_OPTIONS)).show_me[1].startswith("> Hey Rowan!")
     with pytest.raises(DriveError, match="write a message or quote as plain sentences, which his card shows as a quote"):
         limits.question(ask(DEEP_SUBAGENTS_SHOW_ME, DEEP_SUBAGENTS_OPTIONS))
 

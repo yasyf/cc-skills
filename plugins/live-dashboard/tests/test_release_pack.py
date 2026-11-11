@@ -367,7 +367,7 @@ def cci_record(seq: int, kind: str, lane: str, text: str, at: str = "2026-10-06T
         ("plan the deploy of escape-hatch-base-ami, reco to plat-use1-prod at 182f47f1ec0b", "Plan escape-hatch-base-ami and reco to plat-use1-prod"),
         ("deploy forge-dns/tnt-a, forge-dns/tnt-b at 0a185fff46e5", "Deploy forge-dns to 2 environments"),
         ("deploy a/x, b/x, c/x, d/x at 0a185fff46e5", "Deploy 4 stacks across 4 components"),
-        ("release platform, executor, started by andrew.benton@withforge.com", "Release platform and executor"),
+        ("release platform, executor, started by rowan.vale@withforge.com", "Release platform and executor"),
         ("dry-run infra, started by ym@poetic.com", "Dry run of infra"),
         ("release check of dev at e5847b05a47c", "Release check"),
     ],
@@ -381,7 +381,7 @@ def test_a_launcher_folds_into_the_build_it_started_and_keeps_its_slack_link():
         row(2195, "deploy receiver/core-usw2-auto at 0a185fff46e5", state="failed", branch="releases/deploy/receiver/core-usw2-auto/2026-10-05/2193"),
         row(2193, "deploy receiver/core-usw2-auto at 0a185fff46e5", finished="2026-10-06T06:00:12Z"),
         row(2200, "plan the deploy of reco to plat-use1-prod at 182f47f1ec0b", state="failed"),
-        row(2085, "release executor, started by andrew.benton@withforge.com", branch="releases/2026-10-05/14", env={"RELEASE_START": json.dumps({"thread": {"channel": "C0B75AL4XEW", "ts": "1791251534.097049"}})}),
+        row(2085, "release executor, started by rowan.vale@withforge.com", branch="releases/2026-10-05/14", env={"RELEASE_START": json.dumps({"thread": {"channel": "C0B75AL4XEW", "ts": "1791251534.097049"}})}),
         row(2083, "Platy asks for a release launch"),
     ]
     subjects = {f"{2195:012d}": "cc-remote: pin 0.22.1 (#30856)"}
@@ -389,7 +389,7 @@ def test_a_launcher_folds_into_the_build_it_started_and_keeps_its_slack_link():
     assert [r["number"] for r in rows] == [2200, 2195, 2085]
     failed = rows[1]
     assert (failed["launcher"], failed["slack"], failed["pr"], failed["pr_title"], failed["minutes"]) == (2193, "https://in-the-forge.slack.com/archives/C1/p1", 30856, "cc-remote: pin 0.22.1", 10.0)
-    assert (rows[2]["slack"], rows[2]["by"]) == ("https://in-the-forge.slack.com/archives/C0B75AL4XEW/p1791251534097049", "Andrew Benton")
+    assert (rows[2]["slack"], rows[2]["by"]) == ("https://in-the-forge.slack.com/archives/C0B75AL4XEW/p1791251534097049", "Rowan Vale")
 
 
 def test_slack_links_pair_one_release_build_with_its_thread():

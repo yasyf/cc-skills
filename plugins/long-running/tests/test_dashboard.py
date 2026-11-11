@@ -155,7 +155,7 @@ def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_link
         [
             "*Show me*",
             "The DM as drafted",
-            "> Hey Josh! The grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+            "> Hey Rowan! The grant throws <https://sentry.io/1|this error> at 9:29 PM.",
             ">",
             "> Can you take it?",
             "After the quote.",
@@ -164,7 +164,7 @@ def test_a_quoted_message_on_a_card_shows_as_one_quote_of_its_text_with_its_link
     shown = web(tmp_path, f"model = {{ repo: '', review: [] }}; JSON.stringify(prose({json.dumps(body)}))")
     assert shown == (
         "<p><b>Show me</b></p><p>The DM as drafted</p>"
-        '<blockquote class="quote">Hey Josh! The grant throws <a href="https://sentry.io/1" target="_blank" rel="noopener">this error</a> at 9:29 PM.<br><br>Can you take it?</blockquote>'
+        '<blockquote class="quote">Hey Rowan! The grant throws <a href="https://sentry.io/1" target="_blank" rel="noopener">this error</a> at 9:29 PM.<br><br>Can you take it?</blockquote>'
         "<p>After the quote.</p>"
     )
 

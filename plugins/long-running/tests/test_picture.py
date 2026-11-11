@@ -194,9 +194,9 @@ def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draw
     show_me = [
         "The DM as drafted:",
         "```",
-        "Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+        "Hey Rowan! The copy for the acme team can't read acme's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
         "",
-        "Can you take it? You'll know whether gil's files live in R2 or in its own bucket.",
+        "Can you take it? You'll know whether acme's files live in R2 or in its own bucket.",
         "```",
         "```markdown",
         "Thanks for the quick fix to the copy, it works on every team I tried tonight.",
@@ -216,9 +216,9 @@ def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draw
     shown = picture.drawn(tmp_path / "pictures", show_me)
     assert [line.split("](")[0] for line in shown] == [
         "The DM as drafted",
-        "> Hey Josh! The copy for the gil team can't read gil's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
+        "> Hey Rowan! The copy for the acme team can't read acme's files: its grant throws <https://sentry.io/1|this error> at 9:29 PM.",
         ">",
-        "> Can you take it? You'll know whether gil's files live in R2 or in its own bucket.",
+        "> Can you take it? You'll know whether acme's files live in R2 or in its own bucket.",
         "> Thanks for the quick fix to the copy, it works on every team I tried tonight.",
         "![Code",
         "```",
