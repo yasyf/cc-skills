@@ -33,6 +33,7 @@ PROMISED_TIME = re.compile(
 AHEAD = timedelta(hours=12)
 SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
 WAITING = "WAITING-ON-HIM"
+AWAY_RULE = "While he is away, a line of news to him that is not a card, a line saying what waits on him, an incident line or an answer to a message of his."
 TITLED = (
     " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words;"
     " {{pr:<number>|<words>}} or {{record:<seq>|<words>}} names one in fewer words of your own."
@@ -216,19 +217,21 @@ def deny_reason(payload: dict) -> str | None:
         return refusal
     if (long := over_length(payload, dm)) and titled:
         long += TITLED.format(titled)
-    return every(
+    refusal = every(
         [
             long,
             long_ack(payload),
             unlinked(payload, drive),
             untapped(payload),
             unpromised(payload),
-            undue(payload, drive),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
             unchecked(tool_input),
         ]
     )
+    if refusal is None:
+        hold_to_promise(payload, drive)
+    return refusal
 
 
 def card_edit(payload: dict, drive: dict) -> str | None:
@@ -265,10 +268,11 @@ def held_while_away(payload: dict, drive: dict) -> str | None:
         return None
     if (found := posted_order(drive, tool_input)) and found[1]["incident"]:
         return None
-    return (
+    return agents.Ruled(
         "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
         " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the coordinator sends"
-        " when he is back."
+        " when he is back.",
+        AWAY_RULE,
     )
 
 
@@ -300,23 +304,21 @@ def unpromised(payload: dict) -> str | None:
     )
 
 
-def undue(payload: dict, drive: dict) -> str | None:
-    """Why a handler's post promises a clock time on an order the drive holds no due time for."""
+def hold_to_promise(payload: dict, drive: dict) -> None:
+    """Make the clock time a handler's post promises him on an order the order's due time, as `drive order set --due` does, so the watch holds the drive to it."""
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or not (found := posted_order(drive, tool_input)):
-        return None
+        return
     order_id, order = found
     if state.owed(order) or order["next_due"]:
-        return None
+        return
     moment = state.now()
     for said in PROMISED_TIME.finditer(limits.masked(tool_input.get("text") or "")):
         at = moment.replace(hour=int(said[1]) % 12 + (12 if said[3].upper() == "PM" else 0), minute=int(said[2]), second=0, microsecond=0)
         if (at - moment) % timedelta(days=1) <= AHEAD:
-            return (
-                f'refused: "{said[0]}" promises him a time on {order_id}, which holds no due time, so the watch cannot hold the drive'
-                f" to it. Run `drive order set {order_id} --due {at:%H:%M}` first, then post."
-            )
-    return None
+            with state.edit(drive["name"]) as data:
+                state.promise(data["orders"][order_id], state.stamp(state.parse_due(f"{at:%H:%M}", moment)), moment)
+            return
 
 
 def raw_visuals(tool_input: dict) -> str | None:
@@ -420,7 +422,7 @@ def main() -> None:
             " out unchecked. Name it on a DEFECT line, and the post goes out once the check's fix is installed."
         )
     if reason:
-        print(json.dumps(denial(reason)))
+        print(json.dumps(denial(reason) | agents.ruled(reason)))
 
 
 if __name__ == "__main__":

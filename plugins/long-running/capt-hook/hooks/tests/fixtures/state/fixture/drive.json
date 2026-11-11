@@ -1,0 +1,15 @@
+{
+  "name": "fixture",
+  "roles": {
+    "coordinator": {"session": "coordinator-fixture", "terminal": null, "cwd": "/tmp", "started": "2026-11-11T13:18:43+00:00"},
+    "communicator": {"session": "communicator-fixture", "terminal": null, "cwd": "/tmp", "started": "2026-11-11T13:18:43+00:00"}
+  },
+  "subcoordinators": {},
+  "slack": {"channel": "D123", "page": null, "watch": []},
+  "owner": {"heard": null, "away": true},
+  "orders": {},
+  "jobs": {},
+  "prs": {},
+  "answers": {},
+  "stand_ins": {}
+}

@@ -4,16 +4,42 @@ import json
 import subprocess
 from pathlib import Path
 
-from captain_hook import Allow, BaseHookEvent, Confirm, Event, HookResult, Input, Tool, on
+from captain_hook import (
+    CONFIRMED,
+    UNCONFIRMED,
+    Allow,
+    BaseHookEvent,
+    Block,
+    Confirm,
+    Event,
+    HookResult,
+    Input,
+    Rewrite,
+    Tool,
+    on,
+)
 
 HOOKS = Path(__file__).resolve().parents[2] / "hooks"
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 POSTS = (*(SLACK + tool for tool in ("slack_dm_status", "slack_reply", "slack_send", "slack_edit")), "mcp__plugin_long-running_drive__say")
 NO_DRIVE = "0a0a0a0a-no-drive-session"
+COORDINATOR = "coordinator-fixture"
+COMMUNICATOR = "communicator-fixture"
+HANDLER = "long-running:handler"
+BUILDER = "long-running:builder"
+POST = "mcp__plugin_cc-inbox_cci__post"
+TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
+THREAD = "1794378983.440769"
+ASKED = (
+    "POST Yes: the old attributes are deleted, dreaming is cleaned up, and the 1024 memory indexes are gone."
+    " Each landed in its own PR, merged by 3:40 AM, and the watch shows no write to the old tables since."
+    " The only memory work left is the index rebuild, which runs tonight from the cluster's schedule and"
+    " needs nothing from you; I will post here when it finishes and the counts match."
+)
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call and let Jev judge each refusal it makes, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright."""
+    """Run the drive's own check for this call and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright."""
     payload = evt._raw
     said = subprocess.run(
         ["python3", "-I", str(HOOKS / script)],
@@ -28,7 +54,7 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     output = json.loads(said)
     found = output.get("hookSpecificOutput") or {}
     if reason := found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]):
-        return evt.block(reason, confirm=Confirm(rule=reason) if output.get("judged", True) else None)
+        return evt.block(reason, confirm=Confirm(rule=output.get("rule") or reason) if output.get("judged", True) else None)
     if made := found.get("updatedInput"):
         return evt.rewrite(made)
     if context := found.get("additionalContext"):
@@ -54,12 +80,33 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "no_slack_reads.py")
 
 
-@on(Event.PreToolUse, only_if=[Tool("Bash")], tests={Input(command="ls", session_id=NO_DRIVE): Allow()})
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash")],
+    tests={
+        Input(command="ls", session_id=NO_DRIVE): Allow(),
+        Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED): Block(pattern="does no order's work itself"),
+        Input(command="for j in j855 j966; do drive job replies $j --drive fixture | tail -5; done", session_id=COORDINATOR): Allow(),
+        Input(command="orca orchestration check --help", session_id=COORDINATOR): Allow(),
+    },
+)
 def landing_guard(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "landing_guard.py")
 
 
-@on(Event.PreToolUse, only_if=[Tool("Bash", "Read", "Grep")], tests={Input(command="ls", session_id=NO_DRIVE): Allow()})
+@on(
+    Event.PreToolUse,
+    only_if=[Tool("Bash", "Read", "Grep")],
+    tests={
+        Input(command="ls", session_id=NO_DRIVE): Allow(),
+        Input(
+            command="drive job report j955 --drive fixture; drive status j955 --drive fixture",
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            agent_type=HANDLER,
+        ): Allow(),
+    },
+)
 def bash_guard(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "bash_guard.py")
 
@@ -67,7 +114,21 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreToolUse,
     only_if=[Tool("Agent")],
-    tests={Input(tool="Agent", tool_input={"subagent_type": "long-running:handler", "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow()},
+    tests={
+        Input(tool="Agent", tool_input={"subagent_type": HANDLER, "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow(),
+        Input(
+            tool="Agent",
+            tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill each team's missing memory rows"},
+            session_id=COORDINATOR,
+            decide=CONFIRMED,
+        ): Block(pattern="reads as a pass over a team's data"),
+        Input(
+            tool="Agent",
+            tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill: ship the script, run later from the cluster's schedule"},
+            session_id=COORDINATOR,
+            decide=UNCONFIRMED,
+        ): Allow(),
+    },
 )
 def agent_brief(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "agent_brief.py")
@@ -85,7 +146,19 @@ def scratch_folder(evt: BaseHookEvent) -> HookResult | None:
 @on(
     Event.PreToolUse,
     only_if=[Tool(*POSTS)],
-    tests={Input(tool=SLACK + "slack_dm_status", tool_input={"text": "On it. Then more."}, session_id=NO_DRIVE): Allow()},
+    tests={
+        Input(tool=SLACK + "slack_dm_status", tool_input={"text": "On it. Then more."}, session_id=NO_DRIVE): Allow(),
+        Input(tool=SLACK + "slack_dm_status", tool_input={"text": "The fix merged."}, session_id=COMMUNICATOR, agent_id="a1", decide=CONFIRMED): Block(
+            pattern="he is away"
+        ),
+        Input(
+            tool=SLACK + "slack_dm_status",
+            tool_input={"text": "Deleting the old memory indexes still waits on your tap: https://acme.slack.com/archives/D123/p1794288799976279"},
+            session_id=COMMUNICATOR,
+            agent_id="a1",
+            decide=UNCONFIRMED,
+        ): Allow(),
+    },
 )
 def message_limits(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "message_limits.py")
@@ -93,8 +166,27 @@ def message_limits(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
-    only_if=[Tool("mcp__plugin_cc-inbox_cci__post")],
-    tests={Input(tool="mcp__plugin_cc-inbox_cci__post", tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow()},
+    only_if=[Tool(POST)],
+    tests={
+        Input(tool=POST, tool_input={"kind": "report", "text": "x"}, session_id=NO_DRIVE): Allow(),
+        Input(
+            tool=POST,
+            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST The fix is still building.", "attrs": {"thread": THREAD}},
+            session_id=COORDINATOR,
+            transcript=TURN,
+            decide=CONFIRMED,
+        ): Block(pattern="one report per thread per turn"),
+        Input(
+            tool=POST,
+            tool_input={"kind": "report", "to": "communicator@fixture", "text": "POST New: 663230 shows 0 refused writes.", "attrs": {"thread": THREAD}},
+            session_id=COORDINATOR,
+            transcript=TURN,
+            decide=UNCONFIRMED,
+        ): Allow(),
+        Input(tool=POST, tool_input={"kind": "report", "to": "communicator@fixture", "text": ASKED}, session_id=COORDINATOR): Rewrite(
+            body="the counts match"
+        ),
+    },
 )
 def record_lines(evt: BaseHookEvent) -> HookResult | None:
     return checked(evt, "record_lines.py")

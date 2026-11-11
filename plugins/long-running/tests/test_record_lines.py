@@ -300,16 +300,8 @@ def said(count: int) -> str:
     return " ".join(["word"] * count)
 
 
-def test_a_post_report_keeps_the_length_of_its_post(demo: str) -> None:
-    assert "at most 60 words" in refusal(record_lines.decision(post(kind="report", text=f"POST {said(90)}", to=TO)))
-    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"POST {said(55)}", to=TO))
-    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"FYI {said(90)}", to=TO))
-
-
-def test_a_post_reports_feature_headings_are_counted_past_its_post_word(demo: str) -> None:
-    upload = "POST *Upload*\n" + said(35)
-    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"{upload}\n*Download*\n{said(35)}", to=TO))
-    assert "at most 60 words" in refusal(record_lines.decision(post(kind="report", text=f"{upload}\n{said(35)}", to=TO)))
+def test_a_post_report_past_a_posts_length_goes_to_the_handler_whose_post_say_checks(demo: str) -> None:
+    assert "permissionDecision" not in record_lines.decision(post(kind="report", text=f"POST {said(90)}", to=TO))
 
 
 def test_a_report_saying_something_waits_on_him_names_its_card(demo: str) -> None:

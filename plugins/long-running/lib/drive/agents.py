@@ -1,12 +1,29 @@
 import json
 import re
 from pathlib import Path
+from typing import Self
 
 from drive import reads, state
 from drive.brief import BRIEF_JOB, carried
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 HANDLER = "long-running:handler"
+
+
+class Ruled(str):
+    """A refusal Jev judges by the one sentence naming what its check protects against, not by its own words, which name the fix."""
+
+    rule: str
+
+    def __new__(cls, reason: str, rule: str) -> Self:
+        made = super().__new__(cls, reason)
+        made.rule = rule
+        return made
+
+
+def ruled(reason: str) -> dict:
+    """The rule a refusal names for Jev, as the field the capt-hook pack reads."""
+    return {"rule": reason.rule} if isinstance(reason, Ruled) else {}
 
 
 def transcript(payload: dict) -> Path:

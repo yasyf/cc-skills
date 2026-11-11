@@ -10,8 +10,8 @@ from drive import agents, state
 RESULT_CHARS = 500
 REPORTED_KINDS = ("builder", "design")
 HANDLER_FACTS = 3
-HANDLER_RESULT = re.compile(r"(POSTED|RECORDED|MISSING|LAND)\b")
-HANDLER_OPENING = re.compile(r"(?:POSTED|RECORDED|MISSING|DEFECT|LAND)\b")
+HANDLER_RESULT = re.compile(r"(POSTED|RECORDED|NOTHING|MISSING|LAND)\b")
+HANDLER_OPENING = re.compile(r"(?:POSTED|RECORDED|NOTHING|MISSING|DEFECT|LAND)\b")
 REFUSAL = r"(?:access denied|permission denied|forbidden|\b403\b|unauthori[sz]ed)"
 FAILURE = r"\b(?:couldn't|could not|can't|cannot|unable to|failed|refused)\b"
 REFUSED_READ = re.compile(
@@ -96,7 +96,8 @@ def unopened(handler: bool, line: str) -> str | None:
         return None
     return (
         "Refused on purpose: a handler's line opens with what it did, `POSTED <permalink>` for each post, `RECORDED <seq>`"
-        " for each record when it posted nothing, `MISSING <path>`, `DEFECT <tool>: <its refusal>` or `LAND <url>`, since"
+        " for each record, `NOTHING <why>` when it posted and recorded nothing, `MISSING <path>`, `DEFECT <tool>: <its refusal>`"
+        " or `LAND <url>`, since"
         " only the communicator reads it and his answer is already in Slack or a record. Open the line with those, then"
         " end again with that line."
     )
