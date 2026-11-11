@@ -1933,6 +1933,7 @@ def overlay_live(data: dict) -> str:
         return f"stored (GitHub read failed: {error})"
     for key, read in reads.items():
         data["prs"][key].update(github.live(read, data["prs"][key]))
+        state.date_verdict(data, key, read["headRefOid"], read["committed"])
     missing = [key for key in keys if key not in reads]
     return f"live; stored for {', '.join(missing)}, which GitHub did not return" if missing else "live"
 
@@ -2875,6 +2876,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
         return args.run(args)
-    except (DriveError, slack.SlackError) as error:
+    except (DriveError, slack.SlackError, github.GithubError) as error:
         print(f"drive: {error}", file=sys.stderr)
         return 2

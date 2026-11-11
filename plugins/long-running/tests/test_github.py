@@ -5,6 +5,7 @@ import pytest
 from drive import github
 
 GATE = "LTX Behavioral Gate (short)"
+OPEN_ON = github.open_on
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
 
 
@@ -81,16 +82,33 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
     }
 
 
-def test_fetch_batches_fifty_prs_per_query(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("count", [1, 120])
+def test_fetch_and_open_on_each_read_any_number_of_prs_or_branches_in_one_graphql_call(monkeypatch: pytest.MonkeyPatch, count: int) -> None:
     sizes = []
 
     def fake(cmd: list[str]) -> str:
-        sizes.append(cmd[4].count("pullRequest("))
+        sizes.append((cmd[4].count("pullRequest("), cmd[4].count("pullRequests(")))
         return json.dumps({"data": {}})
 
     monkeypatch.setattr(github, "run", fake)
-    github.fetch([f"a/one#{number}" for number in range(1, 121)])
-    assert sizes == [50, 50, 20]
+    github.fetch([f"a/one#{number}" for number in range(1, count + 1)])
+    OPEN_ON([("a/one", f"branch-{number}") for number in range(count)])
+    assert sizes == [(count, 0), (0, count)]
+
+
+def test_a_failed_graphql_read_names_what_it_could_not_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(cmd: list[str]) -> str:
+        raise github.GithubError("gh: API rate limit already exceeded for installation ID 1.")
+
+    monkeypatch.setattr(github, "run", refused)
+    with pytest.raises(github.GithubError) as fetched:
+        github.fetch(["a/one#1", "b/two#7"])
+    with pytest.raises(github.GithubError) as opened:
+        OPEN_ON([("a/one", "fix-it")])
+    assert (str(fetched.value), str(opened.value)) == (
+        "could not read 2 PRs of a/one, b/two from GitHub: gh: API rate limit already exceeded for installation ID 1.",
+        "could not read the open PRs on running jobs' branches in a/one from GitHub: gh: API rate limit already exceeded for installation ID 1.",
+    )
 
 
 def test_run_raises_with_gh_stderr_on_failure(monkeypatch: pytest.MonkeyPatch) -> None:

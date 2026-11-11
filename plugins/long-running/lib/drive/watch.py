@@ -144,6 +144,7 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
             pr = data["prs"][key]
             before = pr["head"]
             changes = pr_changes(pr, read)
+            state.date_verdict(data, key, read["headRefOid"], read["committed"])
             if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
             if before and pr["head"] != before and state.owed_step(pr) == "recheck":
@@ -319,7 +320,7 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Act on each reader's verdict on an open PR the watch hears within one read of its landing, and redraw in place, each read, his card still asking his tap on a PR under a NOT READY he has not tapped, until cc-slack shows the reader's reason with no Approve and stops listing it as asking. A NOT READY on its head names its builder's rework, one on a head since moved the coordinator's recheck, and one after his tap, which stands and lands, its builder's follow-up on the same order. A READY redraws his card, its check row gone, and on a card whose Approve a NOT READY pulled brings Approve back in place and says so once in the card's thread. A redraw or reply that fails goes again next read."""
+    """Act on each reader's verdict on an open PR the watch hears within one read of its landing, and redraw in place, each read, his card still asking his tap on a PR under a NOT READY he has not tapped, until cc-slack shows the reader's reason with no Approve and stops listing it as asking. A NOT READY on its head names its builder's rework, or after his tap, which stands and lands, its builder's follow-up on the same order; one on an older head, a head since moved or one no reader recorded, names the coordinator's recheck of the head now, tapped or not, since only a reader's verdict on that head says whether the finding still stands. A READY redraws his card, its check row gone, and on a card whose Approve a NOT READY pulled brings Approve back in place and says so once in the card's thread. A redraw or reply that fails goes again next read."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
@@ -357,10 +358,13 @@ def verdict_said(name: str, key: str, pr: dict, asking: dict | None, pulls: bool
     if verdict["said"]:
         return []
     why = cut(verdict["why"], NOT_READY_CHARS)
-    if not verdict["ready"] and pr.get("tap"):
-        return [f"PR {key}: NOT READY at {verdict['head'][:7]} after his {pr['tap']['label']}, which stands: follow-up owed on its order: {why} {ids(pr)}"]
+    tap = pr["tap"] and f"after his {pr['tap']['label']}, which stands"
+    if not verdict["ready"] and state.check_status(pr) == "recheck":
+        return [f"PR {key}: NOT READY on an older head {tap}: check owed on {pr['head'][:7]}: {why} {ids(pr)}" if tap else f"PR {key}: {recheck_owed(pr)} {ids(pr)}"]
+    if not verdict["ready"] and tap:
+        return [f"PR {key}: NOT READY at {pr['head'][:7]} {tap}: follow-up owed on its order: {why} {ids(pr)}"]
     if not verdict["ready"]:
-        return [f"PR {key}: NOT READY at {pr['head'][:7]}, rework owed: {why} {ids(pr)}" if state.check_status(pr) == "rework" else f"PR {key}: {recheck_owed(pr)} {ids(pr)}"]
+        return [f"PR {key}: NOT READY at {pr['head'][:7]}, rework owed: {why} {ids(pr)}"]
     if pulled := pr["pulled"]:
         pr["pulled"] = None
         if not slack.redraw_pr_cards(pr["url"]):

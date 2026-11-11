@@ -2914,6 +2914,7 @@ LIVE = {
     "state": "OPEN",
     "isDraft": False,
     "headRefOid": "fff0000",
+    "committed": None,
     "mergeCommit": None,
     "checks": [{"name": "test", "conclusion": "SUCCESS"}],
     "reviewDecision": "APPROVED",
