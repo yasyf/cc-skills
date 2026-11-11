@@ -25,7 +25,7 @@ STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
 WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
-TITLED = " {} of the words counted are the titles its {{card:…}} and {{pr:…}} references draw as their links' words."
+TITLED = " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words."
 UNREAD = (
     "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={dm},"
     " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"

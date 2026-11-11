@@ -15,9 +15,11 @@ LISTED: dict[str, str] = {}
 LIST_CHANGED = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
 INSTRUCTIONS = (
     "Every message to him goes through say: one call posts it to his Slack DM and shows it on the drive's dashboard."
-    " Name a card as {card:<waits id>} and a PR as {pr:<number or owner/repo#number>} in its text, and the tool links"
-    " each the way each surface shows it. The drive's verbs are tools too: heard, record for the records between the"
-    " two sessions, order, job and pr taking several ops a call, and status; each takes dry_run."
+    " Name a card as {card:<waits id>}, a PR as {pr:<number or owner/repo#number>}, an order as {order:<id>} and the"
+    " record that measured a cause or number as {record:<seq>} in its text, and the tool links each the way each surface"
+    " shows it; a line naming a cause with no {record:} refuses the post. The drive's verbs are tools too: heard,"
+    " record for the records between the two sessions, order, job and pr taking several ops a call, and status; each"
+    " takes dry_run."
 )
 TEXT = {"type": "string"}
 VISUAL = {
@@ -46,17 +48,18 @@ SAY = {
     "name": "say",
     "description": (
         "Post one message to his Slack DM and show it on the drive's dashboard, in one call: a line, an answer, a PR"
-        " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>} and"
-        " {pr:<number, owner/repo#number or URL>} become a link under the words that name the card or PR, which"
-        " Slack draws the card under, and a link on the dashboard; a reference that names nothing of the drive's"
-        " refuses the post. Prints POSTED <permalink>, plus CARD <permalink> for a card; with order it also records"
-        " the post on that order, delivering the parts its record names, and refuses, posting nothing, a post in none"
-        " of that order's threads."
+        " card through tap_prs or a question card through card, with any visuals. In text, {card:<waits id>},"
+        " {pr:<number, owner/repo#number or URL>} and {order:<id>} become a link under the words that name the card,"
+        " PR or order, which Slack draws the card under, and a link on the dashboard; {record:<seq>} becomes that cci"
+        " record's own words, linked to what it links. A reference that names nothing of the drive's refuses the post,"
+        " and so does a line naming a cause, such as because or caused, with no {record:} on it. Prints POSTED"
+        " <permalink>, plus CARD <permalink> for a card; with order it also records the post on that order, delivering"
+        " the parts its record names, and refuses, posting nothing, a post in none of that order's threads."
     ),
     "inputSchema": {
         "type": "object",
         "properties": {
-            "text": {"type": "string", "description": "The post's exact words, with any {card:…} and {pr:…} references; none for a question card"},
+            "text": {"type": "string", "description": "The post's exact words, with any {card:…}, {pr:…}, {order:…} and {record:…} references; none for a question card"},
             "thread_ts": {"type": "string", "description": "His thread the post goes in; none for his DM root"},
             "asked": {
                 "anyOf": [TEXT, {"type": "array", "items": TEXT}],

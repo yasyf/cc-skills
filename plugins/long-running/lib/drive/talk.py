@@ -12,6 +12,8 @@ CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECA
 
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, opening with each card of his that holds built work in its thread, after a catch-up's title; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing."""
+    if unbacked := refs.unbacked(post.get("text") or ""):
+        raise DriveError(f"nothing posted: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(unbacked)}")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
