@@ -25,7 +25,7 @@ orca terminal create --worktree path:<worktree> --title <drive>-<lane> --command
 ## The line that says where he opens a session
 
 1. For a new drive, the coordinator's prompt ends `; his DM is <channel id>`, and its `drive start` passes that id as `--channel`.
-2. Each session's `drive start` records the Orca terminal it runs in and ends with that role's line, a sub-coordinator's opening `sub-coordinator for <project>`; `drive status` prints the line for the two roles only and changes nothing.
+2. Each session's `drive start` records the Orca terminal it runs in and ends with that role's line, a sub-coordinator's opening `sub-coordinator for <project>`; `drive status` prints the line for the two roles and each sub-coordinator, and changes nothing.
 3. The line reads `open it with: orca terminal switch --terminal <handle>` only once Orca reads `"orphaned": false` for the terminal and its process tree holds the Claude Code process whose `~/.claude/sessions/<pid>.json` names the session.
 4. Give him a switch command only from that line, never from a create's output, an environment variable or a record, because only the line is checked against what Orca shows; a hook refuses a switch command naming a terminal neither role runs in, a sub-coordinator's included.
 5. Any other line carries no switch command. Tell him what it says in its own words, and act on it:
