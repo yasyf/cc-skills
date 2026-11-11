@@ -1,3 +1,4 @@
+import functools
 import json
 import mimetypes
 import os
@@ -19,7 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import github, install, review, slack, state, view
+from drive import artifacts, github, install, review, slack, state, view
 from drive.state import DriveError
 
 CODE = str(Path(__file__).resolve().parent)
@@ -43,6 +44,8 @@ THREAD_PATH = re.compile(r"/api/thread/(\d+\.\d+)")
 THREAD_MESSAGES = "200"
 PR_PATH = re.compile(r"/api/pr/([\w.-]+/[\w.-]+)/(\d+)")
 REVIEW_PATH = re.compile(r"/api/review/([\w.-]+/[\w.-]+)/(\d+)")
+ARTIFACT_PATH = re.compile(r"/artifact/(j[\w-]+)/(\w+)")
+REPO_FILE = re.compile(r"[\w.@-]+(?:/[\w.@-]+)+")
 NOT_OWNER = "only the drive's owner can do this, and this device is not signed in to the tailnet as him"
 GONE = "this card no longer waits on that answer"
 HELD = "an answer to this card is already being sent"
@@ -130,6 +133,14 @@ def pr_read(key: str) -> dict:
     return json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
 
 
+@functools.cache
+def home_repo(checkout: str) -> str | None:
+    try:
+        return github.checkout_repo(checkout)
+    except github.GithubError:
+        return None
+
+
 def changes(name: str) -> Iterator[None]:
     """Yield at once, then after each write kqueue reports to the drive's state directory or its events log."""
     queue = select.kqueue()
@@ -202,6 +213,8 @@ class Board:
         self.heads: dict[str, str] = {}
         self.pictures: set[str] = set()
         self.threads: set[str] = set()
+        self.reports: set[str] = set()
+        self.repo: str | None = None
         self.channel = ""
         self.holding = threading.Lock()
         self.held: dict[str, threading.Event] = {}
@@ -219,7 +232,10 @@ class Board:
                 self.events.append(event)
         self.events = [event for event in self.events if moment - state.parse_time(event["at"]) <= view.HISTORY_FOR]
         found, source = view.stored_cards(self.name)
-        model = view.board(state.load(self.name), found, source, self.events, moment) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS}
+        reports = {path.stem for path in (state.drive_dir(self.name) / "reports").glob("*.md")}
+        drive = state.load(self.name)
+        repo = home_repo(drive["roles"]["coordinator"]["cwd"])
+        model = view.board(drive, found, source, self.events, moment, reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         heads = {entry["key"]: entry["head"] for entry in model["review"]}
@@ -232,6 +248,8 @@ class Board:
             self.heads = heads
             self.pictures = pictures
             self.threads = {ask["thread"] for ask in model["asks"] if ask["thread"]} | {entry["thread"] for entry in model["review"] if entry["thread"]}
+            self.reports = reports
+            self.repo = repo
             self.channel = model["channel"]
             self.version += 1
             self.changed.notify_all()
@@ -269,6 +287,10 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.thread(found[1])
             elif self.path.startswith("/api/picture?"):
                 self.picture(urllib.parse.parse_qs(urllib.parse.urlsplit(self.path).query)["path"][0])
+            elif self.path.startswith("/api/source?"):
+                self.source(dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query)))
+            elif found := ARTIFACT_PATH.fullmatch(self.path):
+                self.artifact(found[1], found[2])
             elif self.path in FILES:
                 file, kind = FILES[self.path]
                 self.reply((SITE / file).read_bytes(), kind)
@@ -311,6 +333,35 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.send_error(404)
             else:
                 self.reply(Path(path).read_bytes(), mimetypes.guess_type(path)[0] or "application/octet-stream")
+
+        def source(self, query: dict[str, str]) -> None:
+            cite, path, line, to = (query.get(field, "") for field in ("cite", "path", "line", "to"))
+            if not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            elif cite != board.repo and cite not in board.heads:
+                self.answered(404, {"error": f"{cite} is neither this drive's repo nor one of its open PRs, so its code is not read here"})
+            elif not REPO_FILE.fullmatch(path) or ".." in path.split("/") or not line.isdecimal() or not to.isdecimal():
+                self.answered(400, {"error": "That is not a file and line in the repo."})
+            else:
+                repo, head = github.repo_of(cite), board.heads.get(cite)
+                at = f"?ref={head}" if head else ""
+                try:
+                    text = github.run(["gh", "api", f"repos/{repo}/contents/{urllib.parse.quote(path)}{at}", "-H", "Accept: application/vnd.github.raw+json"])
+                except github.GithubError:
+                    where = f"at {head[:9]}" if head else "on its default branch"
+                    self.answered(200, {"error": f"{repo} has no {path} {where}, or GitHub could not be reached."})
+                    return
+                self.answered(200, {"lines": artifacts.source_window(text.split("\n"), int(line), int(to))})
+
+        def artifact(self, job_id: str, kind: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.send_error(403)
+                return
+            job = state.load(board.name)["jobs"].get(job_id)
+            if not job or kind not in artifacts.kept(job_id, job, board.reports):
+                self.send_error(404)
+                return
+            self.reply(artifacts.page(board.name, job_id, job, kind).encode(), "text/html; charset=utf-8")
 
         def pull_request(self, key: str) -> None:
             if not owner_calling(self.client_address[0], net):

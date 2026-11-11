@@ -371,7 +371,7 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
         {"j1": job("o1", "running", "drawing it", updated=-50), "j2": job("o1", "waiting", updated=-5), "j3": job("o2", "running")},
         [pr(1, "o1", checks="fail"), pr(2, "o1", state="merged")],
     )
-    model = view.board(data, found(), "live", [], T0)
+    model = view.board(data, found(), "live", [], T0, set())
     assert model["progress"] == {"prs": 2, "merged": 1, "open": 1, "red": 1, "running": 2}
     assert [(entry["id"], entry["state"]) for entry in model["work"]] == [("j1", "running"), ("j2", "waiting")]
     entry = next(entry for group in model["status"] for entry in group["features"])
@@ -393,7 +393,7 @@ def test_history_lists_the_last_day_newest_first_with_his_taps_by_title() -> Non
         {"kind": "shown", "at": at(-4), "repo": "yasyf/cc-skills", "number": 1, "waits": ""},
         {"kind": "refused", "at": at(-3), "repo": "yasyf/cc-skills", "number": 9, "reason": "its body lacks a section"},
     ]
-    history = view.board(data, found(), "live", events, T0)["history"]
+    history = view.board(data, found(), "live", events, T0, set())["history"]
     assert [(entry["kind"], entry["text"], entry["detail"]) for entry in history] == [
         ("refused", "https://github.com/yasyf/cc-skills/pull/9", "its body lacks a section"),
         ("tap", "change 1", "Approve"),
@@ -435,7 +435,7 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     )
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
     card = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": drawn}
-    entries = view.board(data, found(pr_cards=[card]), "live", [], T0)["review"]
+    entries = view.board(data, found(pr_cards=[card]), "live", [], T0, set())["review"]
     assert [(entry["key"], entry["group"], entry["feature_title"]) for entry in entries] == [
         ("yasyf/cc-skills#1", "you", "ship the page"),
         ("yasyf/cc-skills#2", "not ready", "ship the page"),
@@ -456,7 +456,7 @@ def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
         },
         [],
     )
-    finished = view.board(data, found(), "live", [], T0)["finished"]
+    finished = view.board(data, found(), "live", [], T0, set())["finished"]
     assert [(entry["id"], entry["state"]) for entry in finished] == [("j2", "failed"), ("j1", "done")]
 
 
@@ -466,7 +466,7 @@ def test_asks_list_every_order_newest_first_with_its_thread() -> None:
         {"j1": job("o2", "done")},
         [],
     )
-    asks = view.board(data, found(), "live", [], T0)["asks"]
+    asks = view.board(data, found(), "live", [], T0, set())["asks"]
     assert [(ask["id"], ask["title"], ask["state"], ask["thread"], ask["jobs"]) for ask in asks] == [
         ("o2", "newer ask", "done", None, 1),
         ("o1", "older ask", "working", "1794200000.000100", 0),
@@ -484,7 +484,7 @@ def test_incidents_list_his_open_incident_orders_oldest_first() -> None:
         {},
         [],
     )
-    assert [(entry["id"], entry["title"]) for entry in view.board(data, found(), "live", [], T0)["incidents"]] == [
+    assert [(entry["id"], entry["title"]) for entry in view.board(data, found(), "live", [], T0, set())["incidents"]] == [
         ("o4", "Sand usage events set aside"),
         ("o1", "runs fail for one team"),
     ]
@@ -503,7 +503,7 @@ def test_plan_draws_each_milestone_with_its_parts_and_what_stands_before_each() 
         [pr(1, "o1", job="j2", wants_tap=True)],
     )
     asked = question("Which layout?", -20, "demo:j2-7-a")
-    [plan] = view.board(data, found([asked]), "live", [], T0)["milestones"]
+    [plan] = view.board(data, found([asked]), "live", [], T0, set())["milestones"]
     assert (plan["name"], [entry["id"] for entry in plan["features"]]) == ("Plan", ["o2", "o1"])
     assert [(part["title"], part["state"], part["blocks"], part["doing"]) for part in plan["parts"]] == [
         ("old work", "done", "", ""),

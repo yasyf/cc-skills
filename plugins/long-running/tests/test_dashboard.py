@@ -146,6 +146,30 @@ def test_a_thread_is_read_only_for_an_ask_of_this_drive(monkeypatch: pytest.Monk
     assert read == [("thread", "--channel", "D123", "--thread", "1794257898.401849", "--limit", dashboard.THREAD_MESSAGES)]
 
 
+def test_cited_code_is_read_at_its_prs_head_or_the_drives_default_branch_and_only_from_those(monkeypatch: pytest.MonkeyPatch) -> None:
+    board = dashboard.Board("demo", [])
+    board.heads, board.repo = {"yasyf/cc-skills#41": "abc123"}, "Forge-AI/monorepo"
+    read = []
+    monkeypatch.setattr(dashboard.github, "run", lambda cmd: read.append(cmd[2]) or "one\ntwo\nthree\n")
+    server, port = serving(board)
+    replies = {}
+    for cite, path in (("yasyf/cc-skills#41", "a/b.py"), ("Forge-AI/monorepo", "go/c.go"), ("yasyf/other", "a/b.py"), ("Forge-AI/monorepo", "../etc/passwd")):
+        connection = http.client.HTTPConnection(dashboard.LOOPBACK, port, timeout=5)
+        connection.request("GET", f"/api/source?{urllib.parse.urlencode({'cite': cite, 'path': path, 'line': 2, 'to': 2})}", headers={"Host": f"box:{port}"})
+        reply = connection.getresponse()
+        replies[(cite, path)] = (reply.status, json.loads(reply.read()).get("lines"))
+        connection.close()
+    server.shutdown()
+    window = [{"n": 1, "text": "one"}, {"n": 2, "text": "two"}, {"n": 3, "text": "three"}, {"n": 4, "text": ""}]
+    assert replies == {
+        ("yasyf/cc-skills#41", "a/b.py"): (200, window),
+        ("Forge-AI/monorepo", "go/c.go"): (200, window),
+        ("yasyf/other", "a/b.py"): (404, None),
+        ("Forge-AI/monorepo", "../etc/passwd"): (400, None),
+    }
+    assert read == ["repos/yasyf/cc-skills/contents/a/b.py?ref=abc123", "repos/Forge-AI/monorepo/contents/go/c.go"]
+
+
 def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_card_or_ask_thread_of_this_drive(monkeypatch: pytest.MonkeyPatch) -> None:
     card, ask = "https://acme.slack.com/archives/D1/p100", "https://acme.slack.com/archives/D1/p200"
     board = dashboard.Board("demo", [])
