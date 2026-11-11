@@ -12,7 +12,7 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import Answers, Drawing, Thread, Withdrawals
-from drive import card, cli, github, orca, render, slack, state, view
+from drive import card, cli, github, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -517,7 +517,6 @@ def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path:
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
     assert f'Show me line "{caption}" is 26 words; outside a code fence each is a caption of at most 25' in refusal
-    assert '"```sql" names a language, which Slack draws as the first line of the code; open the fence with ``` alone' in refusal
     assert "a ``` fence in the Show me is never closed" in refusal
     head, shown = SHORT_ASK.split("Show me:\n")
     example, options = shown.split("- One snapshot", 1)
@@ -559,22 +558,31 @@ def test_job_ask_refuses_an_option_that_lands_first_and_fixes_up_after(
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
-def test_job_ask_refuses_asking_him_to_tap_a_pr_he_tapped_or_that_merged(
-    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("pr", "add", PR, "--job", "j1", "--tap")
+    drawn = []
+
+    def freeze(language: str, source: str, out: Path) -> None:
+        drawn.append(language)
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "freeze", freeze)
     block = tmp_path / "ask.md"
-    block.write_text(
-        SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile <{PR}|the fix that lands the layout> waits on your tap.")
-    )
-    assert run("job", "ask", asking, str(block))[0] == 0
-    with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#42"].update(tap={"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}, state="merged")
-    assert cli.main(["job", "ask", asking, str(block)]) == 2
-    assert capsys.readouterr().err.startswith(
-        "drive: refused: this asks him to tap, approve or hold a PR the drive owes no tap on:"
-        f" Forge-AI/monorepo#42: he tapped Approve at {render.when('2026-11-10T18:40:00-08:00')}, merged. A tap is asked for only when owed"
-    )
+    block.write_text(SHORT_ASK.replace("```\nGET journal", "```sql\nGET journal", 1))
+    code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
+    assert code == 0
+    card = json.loads(printed)
+    shown = card["body"].split("*Show me*\n", 1)[1].splitlines()
+    pictures = [line.removeprefix("![").removesuffix(")").split("](") for line in shown if line.startswith("![")]
+    assert shown[0] == "The requests a finished run's page makes today, then with one snapshot file:"
+    assert [caption for caption, _ in pictures] == ["Show me", "Show me (2)"]
+    assert all(Path(path).is_file() for _, path in pictures)
+    assert "```" not in card["body"]
+    assert drawn == ["sql", ""]
+    assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
+    assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
+    assert drawn == ["sql", ""]
 
 
 def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(

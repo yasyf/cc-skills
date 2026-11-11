@@ -534,17 +534,16 @@ def test_a_placeholder_in_place_of_the_post_is_refused_wherever_it_goes(talker: 
     assert "is a placeholder" in message_limits.deny_reason(share)
 
 
-def test_a_post_asking_him_to_tap_a_pr_he_tapped_or_that_merged_is_refused(talker: str, transcript: Path) -> None:
+def test_a_pr_card_for_a_pr_he_tapped_is_refused_and_words_naming_it_go_out(talker: str, transcript: Path) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/4242"
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
-    asking = f"<{url}|The update-button fix> needs your tap."
-    assert posted(transcript, thread_ts="1.2", text=asking) is None
+    assert posted(transcript, text="Fix: approve the update button?", tap_prs=[url]) is None
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#4242"]["tap"] = {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}
-    assert "Forge-AI/monorepo#4242: he tapped Approve at " in posted(transcript, thread_ts="1.2", text=asking)
     assert "owes no tap on: Forge-AI/monorepo#4242" in posted(transcript, text="Fix: approve the update button?", tap_prs=[url])
-    assert posted(transcript, thread_ts="1.2", text=f"<{url}|The update-button fix> is live.") is None
+    card = {"title": said(10), "body": f"{said(20)}\n*Show me*\n```\nthe programs hold them until <{url}|the update-button fix> lands\n```", "options": [said(5), said(5)], "waits": "demo:j1-7"}
+    assert posted(transcript, card=card) is None
 
 
 def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:
@@ -637,43 +636,6 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
         " of the ASK block `drive job ask` kept and counted: post the same card with no text."
     )
     assert posted(transcript, card=card, text=asked.summary[0]) is None
-
-
-def test_a_card_whose_kept_block_has_a_show_me_carries_every_code_block_of_it_under_its_show_me_line(talker: str, transcript: Path) -> None:
-    limits.question(WATCHDOG_ASK)
-    asks = state.drive_dir("demo") / "asks"
-    asks.mkdir()
-    (asks / "j605-7c32364e.md").write_text(WATCHDOG_ASK)
-    card = {"title": WATCHDOG_QUESTION, "body": WATCHDOG_SUMMARY, "options": WATCHDOG_OPTIONS, "waits": "demo:j605-660176"}
-    assert posted(transcript, card=card, text="Watchdog: which hybrid") == (
-        "refused: the Show me goes in the card body under *Show me*, never only behind Explain more"
-        f" ({limits.SHOW_ME_RULING}); this body carries 0 of the 2 code blocks and 0 of the 2 other lines its kept `Show me:`"
-        " holds, and no `*Show me*` line: copy every line under `Show me:` there as written, fences, tables and pictures kept,"
-        " since cc-slack draws each on the card."
-    )
-    shown = f"{WATCHDOG_SUMMARY}\n*Show me*\n{WATCHDOG_SHOW_ME}"
-    assert posted(transcript, card=card | {"body": shown}) is None
-    sketched = shown.split("The listener:")[0] + "```\n# drive listen\n```"
-    assert "carries 1 of the 2 code blocks" in posted(transcript, card=card | {"body": sketched})
-    assert posted(transcript, card=card | {"body": WATCHDOG_SUMMARY, "waits": "demo:j606-660177"}) is None
-
-
-def test_a_card_that_rewrites_its_kept_show_mes_table_as_bullets_is_refused_naming_a_line_it_left_out(talker: str, transcript: Path) -> None:
-    table = "| Reading | Lands a PR |\n| --- | --- |\n| Listener | a session, after your tap |"
-    picture = "![The listener's one line per push](/Users/me/shots/listen.png)"
-    show_me = WATCHDOG_SHOW_ME.replace("The listener:", f"{table}\n{picture}\nThe listener:")
-    kept = WATCHDOG_ASK.replace(WATCHDOG_SHOW_ME, show_me)
-    limits.question(kept)
-    asks = state.drive_dir("demo") / "asks"
-    asks.mkdir()
-    (asks / "j607-7c32364e.md").write_text(kept)
-    card = {"title": WATCHDOG_QUESTION, "body": f"{WATCHDOG_SUMMARY}\n*Show me*\n{show_me}", "options": WATCHDOG_OPTIONS, "waits": "demo:j607-660178"}
-    assert posted(transcript, card=card) is None
-    bulleted = card["body"].replace(table, "Listener: lands a PR in a session, after your tap.")
-    assert (
-        'carries 2 of the 2 code blocks and 3 of the 6 other lines its kept `Show me:` holds, such as "| Reading | Lands a PR |":'
-        in posted(transcript, card=card | {"body": bulleted})
-    )
 
 
 def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:

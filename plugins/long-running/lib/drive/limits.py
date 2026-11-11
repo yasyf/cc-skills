@@ -87,14 +87,6 @@ LATER_STEP = re.compile(
 LANDS = re.compile(r"\b(?:land|merge|ship|release|deploy)(?:s|ed|ing)?\b", re.IGNORECASE)
 NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
 CLAUSE_END = re.compile(r"[.;:,!?\n]")
-ASKS_TAP = re.compile(
-    r"\b(?:tap|press|hit|click)\s+(?:on\s+)?(?:its\s+|the\s+)?(?:approve|hold)\b"
-    r"|\b(?:needs?|wants?|waits?\s+(?:on|for)|waiting\s+(?:on|for)|awaits?|awaiting|asks?\s+for|asking\s+for|ready\s+for|pending)"
-    r"\s+(?:your\s+|his\s+|a\s+|an\s+|the\s+)?(?:tap|approval|approve|go-ahead)\b"
-    r"|\bapprove\s*(?:or|/)\s*hold\b|\b(?:please|can\s+you|could\s+you|to)\s+(?:approve|hold|tap)\b"
-    r"|\b(?:approve|hold)\s+(?:it|this|them|these|the\s+(?:pr|prs|fix|stack|change))\b|^[ \t]*(?:-[ \t]*)?(?:approve|hold)\b",
-    re.IGNORECASE | re.MULTILINE,
-)
 
 
 @dataclass(frozen=True)
@@ -171,52 +163,6 @@ def card_refusal(card: dict, beside: str) -> str | None:
     if not problems:
         return None
     return f"refused: {'; '.join(problems)} ({READING})."
-
-
-def show_me_refusal(kept: str, body: str) -> str | None:
-    """Why a question card's body leaves out the Show me its kept ASK block carries: every code block and every other line of it, tables and pictures included, goes under the body's `*Show me*` line as written."""
-    _, *example = SHOW_ME.split(FINDINGS.split(kept, maxsplit=1)[0], maxsplit=1)
-    show_me = shown_and_options(example[0])[0] if example else []
-    if not any(line.strip() for line in show_me):
-        return None
-    blocks, lines = code_blocks(show_me), captions(show_me)
-    _, *shown = SHOWN.split(body, maxsplit=1)
-    drawn = trimmed(shown[0]) if shown else ""
-    drawn_lines = {line.strip() for line in drawn.splitlines()}
-    left_out = [line for line in lines if line not in drawn_lines]
-    if shown and not left_out and all(trimmed(block) in drawn for block in blocks):
-        return None
-    carried = [
-        f"{held} of the {len(kept_parts)} {what}"
-        for held, kept_parts, what in (
-            (sum(trimmed(block) in drawn for block in blocks), blocks, "code blocks"),
-            (len(lines) - len(left_out), lines, "other lines"),
-        )
-        if kept_parts
-    ]
-    missing = f', such as "{left_out[0]}"' if shown and left_out else ""
-    return (
-        f"refused: the Show me goes in the card body under *Show me*, never only behind Explain more ({SHOW_ME_RULING});"
-        f" this body carries {' and '.join(carried)} its kept `Show me:` holds{missing}"
-        f"{'' if shown else ', and no `*Show me*` line'}: copy every line under `Show me:` there as written, fences, tables"
-        " and pictures kept, since cc-slack draws each on the card."
-    )
-
-
-def code_blocks(show_me: list[str]) -> list[str]:
-    """Each fenced block of a Show me as written, its fence lines included."""
-    blocks, block = [], None
-    for line in show_me:
-        if FENCE.match(line) and block is not None:
-            blocks.append("\n".join([*block, line]))
-            block = None
-        elif FENCE.match(line) or block is not None:
-            block = [*(block or []), line]
-    return blocks
-
-
-def trimmed(text: str) -> str:
-    return "\n".join(line.rstrip() for line in text.splitlines())
 
 
 def question(text: str) -> Question:
@@ -326,12 +272,7 @@ def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
         for table in tables(show_me)
         if (value := one_value(table)) is not None
     ]
-    fences = [line.strip() for line in show_me if FENCE.match(line)]
-    problems += [
-        f'"{fence}" names a language, which Slack draws as the first line of the code; open the fence with ``` alone'
-        for fence in fences[::2]
-        if fence != "```"
-    ]
+    fences = [line for line in show_me if FENCE.match(line)]
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
     return problems
@@ -420,10 +361,8 @@ def tap_owed_not(pr: dict) -> str:
     return ", ".join(reason for reason in reasons if reason)
 
 
-def tap_refusal(text: str, prs: dict[str, dict], asking: bool = False) -> str | None:
-    """Why the text may not ask him to tap, approve or hold a PR it names that the drive records as owing no tap; asking says the text asks by what it is, as a PR card does."""
-    if not (asking or ASKS_TAP.search(text)):
-        return None
+def tap_refusal(text: str, prs: dict[str, dict]) -> str | None:
+    """Why a PR card or a ready record, which asks him to tap each PR it names by what it is, names one the drive records as owing no tap."""
     folded = {key.casefold(): (key, pr) for key, pr in prs.items()}
     named = dict.fromkeys(f"{owner}/{name}#{number}".casefold() for owner, name, number in [*PR_URL.findall(text), *PR_KEY.findall(text)])
     found = [f"{key}: {why}" for each in named if each in folded for key, pr in [folded[each]] if (why := tap_owed_not(pr))]

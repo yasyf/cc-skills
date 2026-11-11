@@ -22,7 +22,6 @@ QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
-WAITS = re.compile(r"(?P<drive>[^:\s]+):(?P<job>j\d+)-\d+")
 UNREAD = (
     "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
     " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post. When the"
@@ -175,7 +174,6 @@ def deny_reason(payload: dict) -> str | None:
     return (
         unread(payload, dm)
         or over_length(payload, dm)
-        or unshown(payload)
         or unlinked(payload)
         or untapped(payload)
         or unchecked(tool_input.get("text") or "")
@@ -183,26 +181,11 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def untapped(payload: dict) -> str | None:
-    """Why the post asks him for a tap the drive owes on no PR it names: a PR card through `tap_prs`, or words asking him to tap, approve or hold, for a PR he tapped or that merged or closed."""
-    tool_input = payload["tool_input"]
+    """Why a PR card asks him to tap a PR its `tap_prs` names that he tapped, or that merged or closed."""
+    if not (tap_prs := payload["tool_input"].get("tap_prs")):
+        return None
     prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
-    if tap_prs := tool_input.get("tap_prs"):
-        return limits.tap_refusal("\n".join(tap_prs), prs, asking=True)
-    card = tool_input.get("card") or {}
-    return limits.tap_refusal("\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])]), prs)
-
-
-def unshown(payload: dict) -> str | None:
-    """Why a question card leaves out the Show me of the ASK block `drive job ask` kept for it: the newest of its job's kept blocks that asks the card's question."""
-    card = payload["tool_input"].get("card") or {}
-    if not (waits := WAITS.fullmatch(card.get("waits") or "")):
-        return None
-    asked = f"ASK {(card.get('title') or '').strip()}"
-    asks = state.drive_dir(waits["drive"]) / "asks"
-    kept = [path for path in asks.glob(f"{waits['job']}-*.md") if path.read_text().split("\n", 1)[0].strip() == asked]
-    if not kept:
-        return None
-    return limits.show_me_refusal(max(kept, key=lambda path: path.stat().st_mtime).read_text(), card.get("body") or "")
+    return limits.tap_refusal("\n".join(tap_prs), prs)
 
 
 def unlinked(payload: dict) -> str | None:

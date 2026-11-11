@@ -235,7 +235,8 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   teammate's fix, is linked in the summary, `<url|the fix that adds the update button>`, since
   the card's title and options draw no links. A PR goes in by what it does, never by number
   alone, and every PR the question turns on is linked, never dropped. The Show me is drawn whole
-  on his card outside the 150 words, its fences naming no language; for an API question it is the
+  on his card outside the 150 words, each fence naming its language, such as ```sql, ```go or
+  ```text for output, so the card draws its code as a highlighted picture; for an API question it is the
   calls in code. A markdown table draws as a table, and a picture on a line of its own draws as an
   image where it sits; one inside a sentence or table cell stays text. Every row and cell holds
   real contents, measured or worked out from the code and marked as such, never the names of what

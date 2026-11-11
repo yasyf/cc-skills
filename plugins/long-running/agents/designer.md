@@ -60,8 +60,9 @@ Findings:
 ````
 
 The question, summary and options are at most 150 words in plain words, and the Show me is drawn
-whole on his card outside that count, so it holds the whole example: never cut it to fit. Its
-fences name no language. A markdown table draws as a table, and a picture on a line of its own
+whole on his card outside that count, so it holds the whole example: never cut it to fit. Each
+fence names its language, such as ```sql, ```go or ```text for output, and the card draws its
+code as a highlighted picture. A markdown table draws as a table, and a picture on a line of its own
 draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
 the code and marked as such, never the names of what will be measured later, and `drive job ask`
 refuses a table with one value in every cell. No option points at another by number or position,

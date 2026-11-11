@@ -9,7 +9,6 @@ from drive import limits, settled, state
 
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
-TAP_KINDS = {"report", "ask", "ready"}
 WITH_FILE = (
     f"refused: a drive record's text is one line of at most {RECORD_CHARS} characters, and this record attaches a file"
     " as its body; put the rest of its text in that file."
@@ -42,12 +41,11 @@ def unsettled(record: dict, names: list[str], cwd: str) -> str | None:
 
 
 def untapped(record: dict, prs: dict[str, dict]) -> str | None:
-    """Why a report, ask or ready record asks him for a tap the drive owes on no PR it names; a ready record asks by what it is."""
-    kind = (record.get("kind") or "").lower()
-    if kind not in TAP_KINDS:
+    """Why a ready record, which asks him to tap each PR it names, names one the drive owes no tap on."""
+    if (record.get("kind") or "").lower() != "ready":
         return None
     named = [record.get("text") or "", record.get("body") or "", record.get("url") or "", *map(str, record.get("pr") or [])]
-    return limits.tap_refusal("\n".join(named), prs, asking=kind == "ready")
+    return limits.tap_refusal("\n".join(named), prs)
 
 
 def decision(payload: dict) -> dict | None:
