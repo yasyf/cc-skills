@@ -29,9 +29,16 @@ VISUAL = {
             "enum": ["code", "arch", "mermaid", "chart", "compare", "dot", "image"],
             "description": "Code highlighted, an arch map, a Mermaid diagram, a chart, a before-and-after compare, Graphviz dot, or an image",
         },
-        "source": {"type": "string", "description": "The code or the diagram's source, as in a Show me fence, or an image's absolute path or URL"},
+        "source": {
+            "type": "string",
+            "description": (
+                "What it draws, as in a Show me fence: the code; Mermaid source; Graphviz dot source; a Vega-Lite JSON spec"
+                ' with its data inline for a chart; {"options": [{"name", "recommended", "language", "code", "points":'
+                ' ["+ a gain", "- a cost"]}]} for a compare; an arch/v1 JSON document for an arch; an image\'s absolute path or URL'
+            ),
+        },
         "language": {"type": "string", "description": "The code's language, for its highlighting"},
-        "caption": {"type": "string", "description": "One line naming what it shows"},
+        "caption": {"type": "string", "description": "One line naming what it shows: the picture's title in Slack and the line under it on the dashboard"},
     },
     "required": ["kind", "source"],
 }

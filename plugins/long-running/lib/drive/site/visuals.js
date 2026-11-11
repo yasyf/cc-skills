@@ -32,14 +32,18 @@ const CHART = {
 const MERMAID_THEME = {
   fontFamily: SANS,
   fontSize: "13px",
-  primaryColor: "#eef4fc",
-  primaryBorderColor: CATEGORICAL[0],
+  primaryColor: "#f6f8fa",
+  primaryBorderColor: "#8c959f",
   primaryTextColor: INK,
-  secondaryColor: "#fdf0ea",
-  tertiaryColor: "#f6f8fa",
+  secondaryColor: "#ffffff",
+  tertiaryColor: "#fbfbfa",
+  edgeLabelBackground: "#ffffff",
+  clusterBkg: "#fbfbfa",
+  clusterBorder: "#d1d9e0",
   lineColor: MUTED,
   textColor: INK,
 };
+const DOT_FONT = { fontname: "Helvetica,Arial,sans-serif", fontsize: 12 };
 const CSS = `
 .visual-code{margin:0;padding:8px 12px;width:max-content;max-width:760px;box-sizing:border-box;font:12.5px/1.5 ${MONO};color:#1f2328;background:#f6f8fa;border:1px solid #d1d9e0;border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;tab-size:4}
 .visual-code>code.hljs{display:block;padding:0;background:none;font:inherit;overflow:visible}
@@ -166,7 +170,7 @@ async function mermaid(host, source) {
 
 async function dot(host, source) {
   vizLoaded ??= import(VIZ).then(({ instance }) => instance());
-  const drawn = (await vizLoaded).renderSVGElement(source);
+  const drawn = (await vizLoaded).renderSVGElement(source, { graphAttributes: DOT_FONT, nodeAttributes: DOT_FONT, edgeAttributes: { ...DOT_FONT, fontsize: 11 } });
   drawn.style.maxWidth = "100%";
   drawn.style.height = "auto";
   host.replaceChildren(drawn);

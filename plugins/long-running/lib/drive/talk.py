@@ -1,10 +1,12 @@
 import json
+import re
 from pathlib import Path
 
 from drive import cli, picture, refs, slack, state
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
+UNNAMEABLE = re.compile(r'[\x00-\x1f/\\:*?"<>|\[\]]+')
 
 
 def say(name: str, post: dict) -> str:
@@ -78,15 +80,15 @@ def kind(visual: dict) -> str:
 
 
 def drawn(name: str, index: int, visual: dict) -> Path:
-    """The picture Slack shows for one visual: code highlighted, a diagram, chart or compare drawn as the dashboard draws it, an image as it is."""
+    """The picture Slack shows for one visual, named after its caption, which Slack titles it with: code highlighted, a diagram, chart or compare drawn as the dashboard draws it, an image as it is."""
     source = visual["source"]
     if visual["kind"] == "image" and not source.startswith(WEB):
         if not (local := Path(source).expanduser()).is_absolute() or not local.is_file():
             raise DriveError(f"visual {index}: {source} is neither a link nor a file here")
-        return local
+        source = local.as_uri()
     if visual["kind"] == "code" and (what := picture.raw(visual.get("language") or "", source)):
         raise DriveError(f"visual {index} is {what}, raw data or tool output, so nothing was posted; {picture.INSTEAD}")
     try:
-        return picture.cached(state.drive_dir(name) / "pictures", "show-me", kind(visual), source)
+        return picture.cached(state.drive_dir(name) / "pictures", " ".join(UNNAMEABLE.sub(" ", visual.get("caption") or "").split()) or "show-me", kind(visual), source)
     except picture.PictureError as error:
         raise DriveError(f"visual {index} ({visual['kind']}) does not draw, so nothing was posted: {error}") from None

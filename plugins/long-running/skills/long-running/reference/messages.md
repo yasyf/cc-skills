@@ -200,24 +200,25 @@ Slack data table and an HTML table. Pick the kind that shows what the words cann
 | a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
 
 A caption line of at most 25 words sits just above each fence, and `drive job card` makes it the
-picture's title: it replaces the fence with `![caption](/abs.png)`, which cc-slack posts as a Block
-Kit image block, so the words stay text and the picture holds only the visual. Code is drawn at a
-12.5 px font and cut to its longest line, highlighted in the language its fence names, Sand by its
-own grammar, by his 10:10 PM words "they are so big and not syhntax highlighted at all". A mixed
-visual is split into its parts: the diagram in its own fence, drawn as a picture sized to it, and
-each table as a markdown table, never one picture composited from both, by his 11:01 PM words "this
-fdiagram should be jsut the firdfst poart, then the two tables should be renderd in slack natively".
-Words and raw data never go in a fence: `drive job ask` refuses a fence naming no language or `text`;
-JSON, YAML, logs, a terminal session, command output or a stack trace, whatever language the fence
-names; a chart, compare or arch whose JSON does not parse; and a `Show me:` with no visual under it.
-His words, 10:52 PM, on a card whose Show me was two pictures of JSON and terminal output: "giving me
-random json and terminal shit in those first 2 images is absiolkteiyl useless". A visual that still
-fails to draw leaves the card with its caption, nothing in its place, and a picture inside a
-sentence or a table cell stays text, so `drive job ask` refuses one there. His words on the library,
-9:58 PM: "buold out a libary of difernetg visualizaions (charts, code sample, archietucre diagram,
-rendered from the same thing that shows it interactiverly in browser, mermaid dfiagrams, compatre and
-contracts, and custom image) and then use the approporiuate one each time". The Show me counts toward
-no limit.
+picture's title, as `say` does with a post's `visuals` caption: it replaces the fence with
+`![caption](/abs.png)`, which cc-slack posts as a Block Kit image block, so the words stay text and
+the picture holds only the visual. Code is drawn at a 12.5 px font and cut to its longest line,
+highlighted in the language its fence names, Sand by its own grammar, by his 10:10 PM words "they
+are so big and not syhntax highlighted at all". A mixed visual is split into its parts: the diagram
+in its own fence, drawn as a picture sized to it, and each table as a markdown table, never one
+picture composited from both, by his 11:01 PM words "this fdiagram should be jsut the firdfst poart,
+then the two tables should be renderd in slack natively". Words and raw data never go in a fence:
+`drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal session,
+command output or a stack trace, whatever language the fence names; a chart, compare or arch whose
+JSON does not parse; and a `Show me:` with no visual under it. His words, 10:52 PM, on a card whose
+Show me was two pictures of JSON and terminal output: "giving me random json and terminal shit in
+those first 2 images is absiolkteiyl useless". A visual that still fails to draw leaves the Slack
+card with its caption, nothing in its place, and the dashboard with its source as text. A picture
+inside a sentence or a table cell stays text, so `drive job ask` refuses one there. His words on the
+library, 9:58 PM: "buold out a libary of difernetg visualizaions (charts, code sample, archietucre
+diagram, rendered from the same thing that shows it interactiverly in browser, mermaid dfiagrams,
+compatre and contracts, and custom image) and then use the approporiuate one each time". The Show me
+counts toward no limit.
 
 Two to four options, each one line of at most 25 words saying what he gets and what it costs, the title,
 summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
