@@ -5,7 +5,7 @@ from itertools import groupby
 
 BATCH = 50
 FIELDS = (
-    "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } "
+    "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
     "... on CheckRun { name conclusion } ... on StatusContext { context state } } } } } } }"
 )
@@ -17,6 +17,7 @@ CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
 COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
 CANDIDATE = "rc/"
 HOLDS = ("ahead", "identical")
+HOLD_LABEL = "hold"
 
 
 class GithubError(Exception):
@@ -80,6 +81,7 @@ def flatten(node: dict) -> dict:
         "reviewDecision": node["reviewDecision"],
         "mergeable": node["mergeable"],
         "title": node["title"],
+        "labels": [label["name"] for label in node["labels"]["nodes"]],
     }
 
 
@@ -108,7 +110,7 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
 
 
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, whether it carries the hold label, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in read["checks"] if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
@@ -117,6 +119,7 @@ def live(read: dict, stored: dict) -> dict:
         "review": REVIEWS.get(read["reviewDecision"], "none"),
         "head": read["headRefOid"],
         "title": read["title"],
+        "hold_label": HOLD_LABEL in read["labels"],
     }
     if read["mergeable"] in CONFLICTS:
         fields["conflict"] = CONFLICTS[read["mergeable"]]

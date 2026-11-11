@@ -1313,6 +1313,8 @@ def refuse_an_exempt_revert(name: str, key: str) -> None:
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:
     if pr is None:
         return True, "not a drive PR"
+    if pr["hold_label"]:
+        return False, "held by the drive with the hold label"
     if pr.get("exempt"):
         return True, f"exempt: {pr['exempt']}"
     tap = pr.get("tap")

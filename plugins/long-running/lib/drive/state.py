@@ -228,6 +228,7 @@ def load(name: str) -> dict:
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
+        pr.setdefault("hold_label", False)
     data.setdefault("answers", {})
     for answer in data["answers"].values():
         answer.setdefault("jobs", {})
@@ -645,6 +646,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "failed_checks": [],
         "review": "none",
         "conflict": False,
+        "hold_label": False,
         "draft": False,
         "merged_sha": None,
         "stuck": None,

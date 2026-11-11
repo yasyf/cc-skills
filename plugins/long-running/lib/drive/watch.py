@@ -152,7 +152,7 @@ def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
 
 
 def held(pr: dict) -> bool:
-    return (pr.get("tap") or {}).get("label") == "Hold"
+    return (pr.get("tap") or {}).get("label") == "Hold" or pr["hold_label"]
 
 
 def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:

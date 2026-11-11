@@ -178,7 +178,11 @@ def pr_title(pr: dict) -> str:
 def tap_of(pr: dict) -> str | None:
     if pr.get("tap"):
         return pr["tap"]["label"]
-    return "wanted" if state.owed_step(pr) == "card" and pr["state"] == "open" else None
+    if pr["state"] != "open":
+        return None
+    if pr["hold_label"]:
+        return "labeled"
+    return "wanted" if state.owed_step(pr) == "card" else None
 
 
 def pr_entry(pr: dict) -> dict:
@@ -197,7 +201,7 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
 
 
 def waits_on_tap(pr: dict, card: dict | None) -> bool:
-    asked = state.owed_step(pr) == "card" and not pr.get("tap") and not pr["waits"] and pr["state"] == "open"
+    asked = state.owed_step(pr) == "card" and not pr.get("tap") and not pr["hold_label"] and not pr["waits"] and pr["state"] == "open"
     return asked and (pr["checks"] == "pass" or card is not None)
 
 

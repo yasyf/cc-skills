@@ -9,7 +9,7 @@ from drive import github, limits, picture, state
 from drive.github import GithubError, run
 from drive.render import cut
 
-FIELDS = "title,body,comments,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,url"
+FIELDS = "title,body,comments,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
 TAP_LABELS = ("Approve", "Hold")
 RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
@@ -201,8 +201,12 @@ def tap_label(entry: dict) -> str | None:
     return (entry.get("tap") or {}).get("label")
 
 
+def hold_labeled(pr: dict) -> bool:
+    return github.HOLD_LABEL in [label["name"] for label in pr["labels"]]
+
+
 def offers_approval(pr: dict, entry: dict) -> bool:
-    return pr["state"] == "OPEN" and state.owed_step(entry) == "card" and tap_label(entry) != "Approve"
+    return pr["state"] == "OPEN" and state.owed_step(entry) == "card" and tap_label(entry) != "Approve" and not hold_labeled(pr)
 
 
 def waits_on(pr: dict, entry: dict) -> str:
@@ -214,6 +218,8 @@ def waits_on(pr: dict, entry: dict) -> str:
             return "Closed without merging"
         case _ if tap_label(entry) == "Hold":
             return "Held by you"
+        case _ if hold_labeled(pr):
+            return "Held by the drive with the hold label on GitHub"
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":

@@ -90,6 +90,7 @@ def test_queue_puts_questions_then_ready_taps_then_late_promises() -> None:
             pr(5, "o1", wants_tap=True, exempt="test-only"),
             pr(6, "o1", wants_tap=False),
             pr(7, "o1", wants_tap=True, fundamental="now deletes the old page"),
+            pr(8, "o1", wants_tap=True, hold_label=True),
         ],
     )
     drawn = {"title": "Fix: approve change 3?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/3", "refresher": "One key"}]}
