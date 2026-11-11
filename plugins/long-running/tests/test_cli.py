@@ -441,6 +441,103 @@ def test_an_order_becomes_an_incident_only_once_a_job_owns_its_fix(run: Run, dem
     assert state.load("demo")["orders"]["o1"]["incident"] is True
 
 
+RECORD = "sandsql on plat: release 60 cannot restore databases, since 9:16 PM"
+FILED = ("--project", "Platform", "--workstream", "SandSQL")
+
+
+def recorded(calls: list[list[str]]) -> Callable[[list[str], Path], str]:
+    def read(argv: list[str], checkout: Path) -> str:
+        calls.append(argv)
+        return json.dumps({"id": "5f6b2b5c8a8d"} if argv[0] == "ccn" else {"freeze": {"id": "fvr7477syf"}, "by": {}})
+
+    return read
+
+
+def test_incident_open_files_the_order_a_job_on_each_part_and_its_evidence_record_in_one_call(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli.reads, "run", recorded(calls))
+    words = "SandSQL release 60 failed on plat"
+    assert run("incident", "open", words, "--release", "--record", RECORD, *FILED) == (
+        0,
+        (
+            "o1 record 5f6b2b5\n"
+            'j1 on "fix": start its agent now, its brief ending Drive: demo, order o1, job j1\n'
+            'j2 on "first check": start its agent now, its brief ending Drive: demo, order o1, job j2'
+        ),
+    )
+    assert calls == [["ccn", "investigation", "open", RECORD, "--body", f"{words}\n\nFrom terminal", "--label", "drive:demo", "--label", "incident", "--json"]]
+    run("incident", "open", "runs fail for one team", "--record", RECORD, *FILED)
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
+    orders = state.load("demo")["orders"]
+    assert [(order["incident"], order["kind"], list(order["parts"]), order["note"]) for order in orders.values()] == [
+        (True, "build", ["fix", "first check"], "record 5f6b2b5"),
+        (True, "build", ["fix", "rollback", "cause"], "record 5f6b2b5"),
+        (True, "build", ["fix", "stop", "cause"], "record 5f6b2b5"),
+    ]
+
+
+def test_incident_open_names_the_jobs_to_start_when_its_record_does_not_open(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def refused(argv: list[str], checkout: Path) -> str:
+        raise cli.reads.ReadError("ccn investigation open exited 1: no repository")
+
+    monkeypatch.setattr(cli.reads, "run", refused)
+    assert cli.main(["incident", "open", "SandSQL release 60 failed on plat", "--release", "--record", RECORD, *FILED]) == 2
+    err = capsys.readouterr().err
+    assert "o1 and its jobs are added, but its evidence record did not open: ccn investigation open exited 1: no repository" in err
+    assert 'j1 on "fix": start its agent now, its brief ending Drive: demo, order o1, job j1' in err
+    assert state.load("demo")["orders"]["o1"]["note"] is None
+
+
+def test_incident_stop_gives_an_open_incident_one_running_stop_job(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
+    assert run("incident", "stop", "o1") == (0, 'j4 on "stop": start its agent now, its brief ending Drive: demo, order o1, job j4')
+    data = state.load("demo")
+    assert (list(data["orders"]["o1"]["parts"]), data["jobs"]["j4"]["kind"]) == (["fix", "rollback", "cause", "stop"], "codex")
+    assert cli.main(["incident", "stop", "o1"]) == 2
+    assert "o1: refused, its stop runs as j4; resume that job instead" in capsys.readouterr().err
+    run("order", "add", "the dashboard is slow", *FILED)
+    assert cli.main(["incident", "stop", "o2"]) == 2
+    assert "o2: refused, it is no open incident order" in capsys.readouterr().err
+
+
+def test_incident_freeze_freezes_the_service_for_twelve_hours_and_notes_the_freeze(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[list[str]] = []
+    monkeypatch.setattr(cli.reads, "run", recorded(calls))
+    run("incident", "open", "SandSQL release 60 failed on plat", "--release", "--record", RECORD, *FILED)
+    code, said = run("incident", "freeze", "o1", "sandsql")
+    freeze = calls[-1]
+    assert (code, Path(freeze[0]).parts[-2:], freeze[1:6]) == (
+        0,
+        ("tools", "ci"),
+        ["release", "freeze", "sandsql", "--reason", "o1, SandSQL release 60 failed on plat: held until its root fix releases"],
+    )
+    assert timedelta(hours=11, minutes=59) < state.parse_time(freeze[7]) - state.now() <= timedelta(hours=12)
+    assert state.load("demo")["orders"]["o1"]["note"] == "record 5f6b2b5; freeze fvr7477syf"
+    assert said.endswith("the job that merges the root fix lifts it with tools/ci release unfreeze fvr7477syf before the fix's build starts")
+
+
+def test_no_stop_ends_the_last_running_job_on_an_open_incidents_fix(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "SandSQL mint endpoint failing", "--release", "--record", RECORD, *FILED)
+    assert cli.main(["job", "set", "j1", "--state", "stopped"]) == 2
+    assert "j1 is the last running job on incident o1's fix, and nothing stops an open incident's fix" in capsys.readouterr().err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert run("job", "set", "j2", "--state", "stopped")[0] == 0
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "release the default branch")
+    assert run("job", "set", "j1", "--state", "stopped")[0] == 0
+
+
 def test_an_incident_job_waits_on_his_card_only_once_the_incident_thread_says_so(
     run: Run, demo: str, slack_thread: Thread, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1579,6 +1676,20 @@ def test_pr_set_refuses_a_revert_the_incident_fix_exemption_and_names_the_tap_ca
     on_github.update(title="Fix: the mint endpoint answers again", body=CARD_BODY)
     assert run("pr", "set", PR, "--exempt", "incident fix")[0] == 0
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: incident fix")
+
+
+def test_pr_set_refuses_the_incident_fix_exemption_on_an_incidents_stop(
+    run: Run, demo: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(cli.reads, "run", recorded([]))
+    run("incident", "open", "table moves rerun on every write", "--no-rollback", "--record", RECORD, *FILED)
+    run("job", "add", "builder", "--order", "o1", "--part", "stop", "--goal", "ship the stop")
+    run("pr", "add", PR, "--job", "j4")
+    assert cli.main(["pr", "set", PR, "--exempt", "incident fix"]) == 2
+    refusal = capsys.readouterr().err
+    assert 'Forge-AI/monorepo#42: refused, it is o1\'s stop, which turns the failing path off, and a stop never lands as an "incident fix"' in refusal
+    assert f"Draw his tap card with drive pr set {PR} --tap --serves o1 --design none, its body quoting the bug from o1's record (record 5f6b2b5)" in refusal
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] is None
 
 
 def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:

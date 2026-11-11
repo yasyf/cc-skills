@@ -103,7 +103,7 @@ COORDINATOR_RULES = (
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
-        " every flag it takes its row in drive manual verbs, which the order, job, pr, heard and status tools run as ops"
+        " every flag it takes its row in drive manual verbs, which the order, job, pr, incident, heard and status tools run as ops"
         " in one call per tool: before acting on one these rules do not spell out, read"
         " that row alone, such as drive manual coordinator TAP or drive manual verbs \"job set\", never the whole page"
         " and never drive … --help."
@@ -203,9 +203,9 @@ FIRST_CALL = {
         " record, the rest as evidence records together at most every five minutes; arm no Monitor for it, and run"
         " drive watch only when a WATCH stopped line says it ended. A compaction keeps every tool you"
         " loaded before it, even one the deferred-tools list names, so call Monitor, SendMessage, TaskStop and"
-        " answer_add with no ToolSearch first. The drive's order, job, pr and status tools load once, the first time"
-        " you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
-        "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__status."
+        " answer_add with no ToolSearch first. The drive's order, job, pr, incident and status tools load once, the first"
+        " time you reach for one: ToolSearch select:mcp__plugin_long-running_drive__order,mcp__plugin_long-running_drive__job,"
+        "mcp__plugin_long-running_drive__pr,mcp__plugin_long-running_drive__incident,mcp__plugin_long-running_drive__status."
     ),
 }
 READS = {

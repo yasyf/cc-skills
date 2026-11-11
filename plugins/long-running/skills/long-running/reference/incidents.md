@@ -62,17 +62,17 @@ its root cause the verdict.
    incident's own release and rollback, so no card goes to him for either.
 2. Read the open incident orders on the dashboard's top strip: one on the same failing service makes
    this a join, by [One incident, one record](#one-incident-one-record), and nothing below starts.
-   Otherwise `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread
-   <ts> --incident --parts fix "first check" --due +5m --project "<p>" --workstream "<w>"`, filed under the
-   area it hit, or `--parts rollback fix cause` when no
-   release or new build came before the break. `--incident` refuses an order with no `fix` part,
-   records a codex job on each part, and prints each job's id beside its part, then each other open
-   incident order with its note. Open the record with `ccn investigation open "<service> on
-   <cluster>: <symptom>, since <time>" --body "<the alert or his words, with its link>" --label
-   drive:<name> --label incident`, then `drive order set <o> --note "record <id>"`. `--incident`
-   puts the order on the dashboard's top strip until it closes; an incident order made without it
-   gets `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
-3. In the next message, start every job the order printed, and no freeze, which waits until users
+   Otherwise open it in one call, filed under the area it hit: `drive incident open "<his words, or
+   the alert text>" --from slack:<channel>/<ts> --thread <ts> --record "<service> on <cluster>:
+   <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`. `--release`,
+   when a release or new build came before the break, gives it the parts `fix` and `first check`;
+   with no flag they are `fix`, `rollback` and `cause`, and with `--no-rollback`, when no build
+   lacks the failing path, `fix`, `stop` and `cause`. It records a codex job on each part, opens the
+   evidence record and names it on the order's note, and prints each job's start line, then each
+   other open incident order with its note. The order sits on the dashboard's top strip until it
+   closes; an order made another way gets `drive order set <o> --incident`, which refuses until a
+   job owns its `fix` part.
+3. In the next message, start every job the verb printed, and no freeze, which waits until users
    are unblocked by [Freeze the broken service](#freeze-the-broken-service). Each job is a
    `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the answer id from step
    1, the record's id and the brief template's `Incident:` line written out in full, its `Drive:`
@@ -110,8 +110,15 @@ its root cause the verdict.
        also proves the target can open everything the bad builds wrote since, such as a record in a
        newer format, by opening one on a test machine. When a build passes both, it starts the
        rollback inside its clock; when no build passes both, it returns that evidence inside its
-       clock instead, and the root fix is the only way out. In the monorepo the rollback is the
-       `release` skill's; for a tool this Mac runs it installs that release.
+       clock instead, and in that turn `drive incident stop <o>` starts the stop. In the monorepo the
+       rollback is the `release` skill's; for a tool this Mac runs it installs that release.
+     - **stop**, with apply authority, when no build lacks the failing path. Its PR turns the failing
+       automatic path off, and it lands only on his tap, on a card whose body quotes the bug from the
+       record: `drive pr set --exempt "incident fix"` refuses it. Design cards hold only the root
+       fix, never the stop. `drive incident open --no-rollback` starts it at the alert, and
+       `drive incident stop <o>` the turn a rollback finds no build. On Nov 10 table moves ran on plat,
+       SoFi and AIG from 7:26 PM past 10:46 PM with no build to roll back to and nothing that
+       stopped them.
      - **cause**, the diagnosis job, which owns the record and sends the fix job each suspect it
        confirms. It never gates the rollback or the fix.
    - A codex lane cannot read Sentry: it has no Sentry sign-in, and Sentry's site asks for one.
@@ -137,21 +144,28 @@ wtf fix it frist", and at 10:52 PM, once it had recovered, "well now its fixed s
 mnerge the fix, unfreeze and release". Together they are the request for a freeze the monorepo
 `release` skill waits for, given once for every release that breaks a service.
 
-In the turn users are unblocked, start a `long-running:builder` on Opus fast mode, added first with
-`drive job add builder --order <o> --part fix --goal "freeze <service> until its root fix releases"`
-so its brief's `Drive:` line records the agent. It runs `tools/ci release freeze <component> --reason
-"<the incident>: held until its root fix releases" --until <RFC 3339 time 12 hours out>`, the bare
-component covering every stack it deploys. It returns the freeze's id, which goes on the order's
-note beside the record's.
+In the turn users are unblocked, the coordinator runs `drive incident freeze <o> <component>`, the
+bare component covering every stack it deploys. It runs `tools/ci release freeze` from the
+coordinator's checkout for 12 hours, the reason naming the order and its root fix, and puts the
+freeze's id on the order's note beside the record's.
 
-- From an agent, only the session that set a freeze releases through it. A builder of the
-  coordinator's sets it, so each builder the coordinator starts, sharing that session, starts the
-  root fix's release through it. He does too, since a person releases through a freeze his own
+- From an agent, only the session that set a freeze releases through it. The coordinator's session
+  sets it, so each builder the coordinator starts, sharing that session, starts the root fix's
+  release through it. He does too, since a person releases through a freeze his own
   agent session set, and a rollback skips every freeze.
 - The job that merges the root fix lifts the freeze with `tools/ci release unfreeze <id>` in that
   turn, before the fix's build starts.
 - A freeze found on while users are still blocked is lifted in that turn, since it can only slow or
   block the release that unblocks them.
+
+## His stop in a thread
+
+His stop carries the scope his words give it: "leave it alone here" stops the work in that thread
+and nothing else, and nothing stops an open incident's fix. `drive job set <j> --state stopped`
+refuses the last running job on an open incident's `fix` part; a job taking the fix over is added
+first, or the order closes once its fix is live. Only his words saying he writes the fix himself
+close the incident for that reason. On Nov 10 at 9:19 PM his "dont bother I'll fix it in anther
+thread leave it alone here" was recorded as a stop on the table-move fix across the drive.
 
 ## His card on an incident
 
@@ -171,12 +185,13 @@ next time if thats blkocking an incident fucking tell me".
 ## When the first check returns
 
 - **The default branch's build works:** releasing the default branch is the fix. In that turn, a
-  `report` to the communicator saying so with what the test machine showed; the fix job is told
-  "the default branch's release is the fix" with `SendMessage` and `drive job set <j> --state
-  stopped --said "the default branch's release is the fix"`; and a `long-running:builder`, added
-  first with `drive job add builder --order <o> --part fix --goal "release the default branch"` so
-  its brief's `Drive:` line records the agent, starts the release of the default branch's head by the cut [Ship it](#ship-it) names. No
-  hotfix is built on the live build's commit, and no rollback or cause hunt starts.
+  `report` to the communicator saying so with what the test machine showed; a
+  `long-running:builder`, added first with `drive job add builder --order <o> --part fix --goal
+  "release the default branch"` so its brief's `Drive:` line records the agent, starts the release
+  of the default branch's head by the cut [Ship it](#ship-it) names; and the fix job is told "the
+  default branch's release is the fix" with `SendMessage` and `drive job set <j> --state stopped
+  --said "the default branch's release is the fix"`, which refuses while it is the fix's last
+  running job. No hotfix is built on the live build's commit, and no rollback or cause hunt starts.
 - **It fails too:** `drive order set <o> --parts fix "first check" rollback cause`, the first check's
   job resumed as the cause job with `drive job set <j> --part cause`, and a rollback job of step 3
   in that turn, added first with `drive job add codex --order <o> --part rollback --goal "rollback:
