@@ -11,7 +11,7 @@ from drive import cli, state, talk
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
-OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze")}
+OPS = {"order": ("add", "set", "posted"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
 WAITS = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
