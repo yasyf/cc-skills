@@ -19,8 +19,8 @@ question is a one-fact lookup: a reader runs on Opus otherwise, since a read tha
 a judgment call goes to Opus from the start, by his Nov 10 8:57 PM ruling; a design lane's call is in [Design first](design.md). **Never pass `name`.** Agent teams are on here, and a
 named agent becomes a teammate that never wakes on events. Add the job first,
 `drive job add <kind> --order <o> --goal "<one line>" [--part "<part>"]...`, so the brief's
-`Drive:` line names it: drive records on that job the agent the call starts, and marks the job
-running again on each `SendMessage` to that agent. The line the agent returns, or the first line
+`Drive:` line names it: the agent's first Bash, Read, Write or Edit call, or its stop, records it
+on that job, and its first after a `SendMessage` marks the job running again. The line the agent returns, or the first line
 it pipes to `drive job report <j> -`, sets the job's state and said line: `DONE` and a reader's
 answer make it done, `READY`, `WAITING` and `DESIGN` waiting, and `BLOCKED` failed; `drive job ask`
 already set an `ASK`'s, and only a `BUILT` is recorded by hand, with its branch and cards.

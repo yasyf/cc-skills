@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import limits, refs, slack, state
+from drive import agents, limits, refs, slack, state
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -52,20 +52,6 @@ def posts_to(payload: dict, dm: str) -> bool:
     return payload["tool_name"] in CHANNEL_POSTS and channel == dm
 
 
-def lane(payload: dict) -> Path:
-    """This handler's own transcript, beside the communicator's."""
-    return Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
-
-
-def brief(payload: dict) -> str:
-    """The prompt the communicator started this handler with, which quotes his message."""
-    if not payload.get("agent_id") or not (path := lane(payload)).is_file():
-        return ""
-    with path.open() as transcript:
-        content = json.loads(transcript.readline())["message"]["content"]
-    return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
-
-
 def last_read(path: Path, dm: str, thread: str) -> datetime | None:
     """When this handler last read the thread, by its own transcript: a slack_thread call on it that did not fail, and when the tool saved a long thread to a file, only once a later call of this handler opened that file."""
     calls: dict[str, datetime] = {}
@@ -104,7 +90,7 @@ def unread(payload: dict, dm: str) -> str | None:
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
-    if (read := last_read(lane(payload), dm, thread)) and datetime.now(UTC) - read < READ_WINDOW:
+    if (read := last_read(agents.transcript(payload), dm, thread)) and datetime.now(UTC) - read < READ_WINDOW:
         return None
     return UNREAD.format(dm=dm, thread=thread)
 
@@ -215,7 +201,7 @@ def over_length(payload: dict, dm: str) -> str | None:
         return None
     if not (asked := quotes(tool_input.get("asked") or "")):
         return refusal + WHOLE
-    if len(unbriefed := unsaid(asked, brief(payload))) < len(asked):
+    if len(unbriefed := unsaid(asked, agents.brief(payload))) < len(asked):
         return None
     try:
         missing = unsaid(unbriefed, his_messages(payload, dm))
