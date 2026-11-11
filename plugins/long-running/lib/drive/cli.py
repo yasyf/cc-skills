@@ -203,6 +203,7 @@ def order_set(args: argparse.Namespace) -> int:
     if args.state in state.CLOSED_ORDER_STATES:
         need_record_close(data, args.id, args.record)
     destination = order | {"thread": args.thread or order["thread"]}
+    closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
     changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn}
     moment = state.now()
@@ -214,11 +215,16 @@ def order_set(args: argparse.Namespace) -> int:
         order = data["orders"][args.id]
         before = apart_from_filing(order)
         order.update({field: value for field, value in changes.items() if value is not None})
-        if due:
-            need_thread(data, args.id, order)
+        if due and not (where := state.promise_thread(data, order)):
+            state.remind(order, state.stamp(due), moment)
+            promised = (
+                f"\nstored {render.when(state.stamp(due))} as the drive's own time: {args.id} has no thread, so no line to him"
+                " keeps it, and the watch says DUE once then; a time promised to him needs --thread <ts>"
+            )
+        elif due:
             held = state.owed_at(order) if state.owed(order) else None
             state.promise(order, state.stamp(due), moment)
-            promised = "\n" + promise_said(render.when(state.stamp(due)), held, state.promise_thread(data, order))
+            promised = "\n" + promise_said(render.when(state.stamp(due)), held, where)
         if closing and state.owed(order):
             state.keep(order, posts, announced=False)
             if state.owed(order):
@@ -434,7 +440,7 @@ def told_him(name: str, args: argparse.Namespace) -> None:
 
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
-    cards = [card for card in [args.card, *args.waits] if card and card not in data["jobs"]]
+    cards = [card for card in [args.card, *args.waits] if card and card not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(card)]
     incidents = state.open_incidents(data, [job["order"], *job["carries"]])
     if not (cards and incidents):
         return
@@ -835,7 +841,7 @@ def pr_add(args: argparse.Namespace) -> int:
         raise DriveError(f"{key}: {exposed}")
     with state.edit(name) as data:
         job = find(data["jobs"], args.job, "job")
-        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"]]
+        cards = [wait for wait in view.holding(data, job["waits"], view.live_cards(name)) if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
         if cards and key not in data["prs"] and not state.open_incidents(data, [job["order"], *job["carries"]]):
             raise DriveError(
                 f"{args.job} waits on his answer to {', '.join(cards)}: it puts up no PR until he answers each;"
@@ -872,7 +878,7 @@ def pr_set(args: argparse.Namespace) -> int:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     known = state.load(name)
     order = find(known["prs"], key, "drive PR")["order"]
-    if (cards := [wait for wait in args.waits if wait not in known["jobs"]]) and state.open_incidents(known, [order]):
+    if (cards := [wait for wait in args.waits if wait not in known["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]) and state.open_incidents(known, [order]):
         raise DriveError(
             f"--waits {', '.join(cards)}: {key} serves incident {order}, whose fix lands on the recommended option while his card"
             " stays open; a different pick of his starts a follow-up job on the same order"
@@ -913,15 +919,21 @@ def withdrawal(args: argparse.Namespace, held: list[str]) -> str | None:
 def check_waits(name: str, waits: list[str]) -> None:
     from drive import view
 
-    jobs = state.load(name)["jobs"]
-    cards = [wait for wait in waits if wait not in jobs]
+    data = state.load(name)
+    for wait in waits:
+        if (release := state.RELEASE_WAIT.fullmatch(wait)) and release["pr"] not in data["prs"]:
+            raise DriveError(f"--waits {wait}: the drive tracks no PR {release['pr']}; drive pr add it to its job first")
+    cards = [wait for wait in waits if wait not in data["jobs"] and not state.RELEASE_WAIT.fullmatch(wait)]
     found = view.live_cards(name)
     if not all(view.card_open(wait, found) for wait in cards):
         view.refresh_cards(name)
         found = view.live_cards(name)
     for wait in cards:
         if not (WAITS_CARD.fullmatch(wait) and view.card_open(wait, found)):
-            raise DriveError(f"--waits {wait}: name a job of this drive, or the Slack link or waits id of a card of his still open")
+            raise DriveError(
+                f"--waits {wait}: name a job of this drive, the Slack link or waits id of a card of his still open,"
+                " or release:<service>:<owner>/<repo>#<n>, the release of that service carrying that PR"
+            )
 
 
 def merged_waits(owner: dict, args: argparse.Namespace) -> list[str]:
@@ -1311,10 +1323,12 @@ def parser() -> argparse.ArgumentParser:
         "--waits",
         action="append",
         default=[],
-        metavar="CARD|JOB",
+        metavar="CARD|JOB|RELEASE",
         help=(
-            "a design card of his still open, by its Slack link or waits id, or for a PR a job, it waits on; repeat for each."
-            " The watch drops each as he answers it or the job ends, and says FREE once when the last is gone, which wakes the coordinator"
+            "a design card of his still open, by its Slack link or waits id, release:<service>:<owner>/<repo>#<n>, the next"
+            " release of that service carrying that PR the drive tracks, or for a PR a job, it waits on; repeat for each. The"
+            " watch drops each as he answers it, the job ends or GitHub shows the newest release of that service holds the PR's"
+            " merge commit, and says FREE once when the last is gone, which wakes the coordinator"
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")
@@ -1369,7 +1383,9 @@ def parser() -> argparse.ArgumentParser:
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id", help="the order")
     verb.add_argument("--state", choices=state.ORDER_STATES, help="done or dropped refuses while a promised line is not posted")
-    verb.add_argument("--due", help="when he hears next, owed from the next line in the order's thread")
+    verb.add_argument(
+        "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"
+    )
     verb.add_argument("--note", help="where the order stands, in a few words")
     verb.add_argument("--proof", help="the link that proves it done")
     verb.add_argument("--thread", help="the ts of the thread the order's lines go in")

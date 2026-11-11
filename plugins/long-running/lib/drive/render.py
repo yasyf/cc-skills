@@ -143,7 +143,8 @@ COORDINATOR_RULES = (
     ),
     (
         "Every part has an owner: an order add takes kind build and parts naming each deliverable his words name, each"
-        " job says its part, and an ORPHAN line gets a job, a card or a close in the same turn. A build order's first job"
+        " job says its part, and an ORPHAN line gets a job, a card or a close in the same turn; a job waiting on a release"
+        " gets drive job set <j> --waits release:<service>:<owner>/<repo>#<n>, never --due alone. A build order's first job"
         " is an Opus long-running:reader briefed Research: the Researched: block this build needs; its builder's or"
         " designer's brief carries Researched: <that reader's job>, which the job tool's brief op writes from the"
         " order's research, and a reader's DESIGN return starts the designer."

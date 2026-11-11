@@ -14,6 +14,9 @@ FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STAR
 PASSED = {"SUCCESS", "NEUTRAL", "SKIPPED"}
 REVIEWS = {"APPROVED": "approved", "CHANGES_REQUESTED": "changes"}
 CONFLICTS = {"CONFLICTING": True, "MERGEABLE": False}
+COMPONENTS = re.compile(r"^Components: (?P<names>.+)$", re.MULTILINE)
+CANDIDATE = "rc/"
+HOLDS = ("ahead", "identical")
 
 
 class GithubError(Exception):
@@ -133,6 +136,24 @@ def graphql(text: str) -> dict:
         return json.loads(reply)
     except ValueError as error:
         raise GithubError(f"unreadable GraphQL reply: {error}") from None
+
+
+def release_of(key: str, service: str, commit: str) -> str | None:
+    """The name of the newest published release that ships the service, when it holds the commit; a release candidate, named rc/, ships to staging and never counts."""
+    repo = repo_of(key)
+    shipping = [release for release in json.loads(run(["gh", "api", f"repos/{repo}/releases?per_page=100"])) if ships(release, service)]
+    if not shipping:
+        return None
+    newest = max(shipping, key=lambda release: release["published_at"])
+    compared = run(["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"]).strip()
+    return newest["name"] if compared in HOLDS else None
+
+
+def ships(release: dict, service: str) -> bool:
+    """Whether a published release's notes list the service among the components it shipped."""
+    listed = COMPONENTS.search(release["body"] or "")
+    published = not release["draft"] and not release["prerelease"] and not release["name"].startswith(CANDIDATE)
+    return published and bool(listed) and service in listed["names"].split(", ")
 
 
 def fetch(keys: list[str]) -> dict[str, dict]:

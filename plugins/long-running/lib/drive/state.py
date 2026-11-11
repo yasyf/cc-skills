@@ -13,7 +13,7 @@ CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
-RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "BLOCKED": "failed"}
+RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
@@ -24,6 +24,7 @@ LOCAL_ROUTE = "local"
 DISPATCH_PREFIX = "ctx_"
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
+RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
@@ -253,17 +254,25 @@ def agent_job(data: dict, agent: str | None) -> str | None:
     return next((job_id for job_id, job in data["jobs"].items() if agent and job.get("agent") == agent), None)
 
 
-def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line: a reader's answer or DESIGN to done, since a design lane takes its choice on, and `BUILT <branch>, waits on <cards>` to built on that branch, waiting on each card; an ASK's is set by drive job ask."""
-    job = data["jobs"][job_id]
+def result_state(job: dict, line: str) -> str | None:
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or DESIGN to done, since a design lane takes its choice on, `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
-    built = BUILT_LINE.match(line)
-    taken = "built" if built else "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
+    if BUILT_LINE.match(line):
+        return "built"
+    return "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
+
+
+def take_result(data: dict, job_id: str, line: str) -> None:
+    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names; an ASK keeps the said line drive job ask set, the question's title."""
+    job = data["jobs"][job_id]
+    taken = result_state(job, line)
     if job["state"] != "running" or not taken:
         return
-    job.update(state=taken, said=line, updated=stamp())
-    if built:
+    job.update(state=taken, updated=stamp())
+    if not re.match(r"ASK\b", line):
+        job["said"] = line
+    if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))
     if taken == "done":
         drop_carries(data, job_id)
@@ -507,6 +516,11 @@ def promise(order: dict, due: str, moment: datetime) -> None:
     order.update(next_due=due, next_set=stamp(moment))
 
 
+def remind(order: dict, due: str, moment: datetime) -> None:
+    """Set the time an order with no thread wakes the drive at: no post can keep it, so it replaces any time set before and is said once."""
+    order.update(due=due, promised=stamp(moment), kept=None, withdrawn=None, due_said=None, next_due=None, next_set=None)
+
+
 def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
     """Record the first drive post after the promise as keeping it; a post that lands before the next time starts that time from it."""
     kept = next((post for post in posts if post > parse_time(order["promised"])), None)
@@ -526,6 +540,10 @@ def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
 
 def open_pr_keys(data: dict) -> list[str]:
     return [key for key, pr in data["prs"].items() if pr["state"] == "open"]
+
+
+def open_prs(data: dict) -> list[dict]:
+    return [data["prs"][key] for key in open_pr_keys(data)]
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:

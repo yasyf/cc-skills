@@ -27,11 +27,13 @@ and the agent reads the file itself, so the brief never passes through this sess
 `Drive:` line names the job: the agent's first Bash, Read, Write or Edit call, or its stop, records
 it on that job, and its first after a `SendMessage` marks the job running again. The line the agent returns, or the first line
 it pipes to `drive job report <j> -`, sets the job's state and said line: `DONE` and a reader's
-answer make it done, `READY`, `WAITING` and `DESIGN` waiting, and `BLOCKED` failed; `drive job ask`
-already set an `ASK`'s, and only a `BUILT` is recorded by hand, with its branch and cards.
+answer make it done, `READY`, `WAITING`, `DESIGN` and `ASK` waiting, and `BLOCKED` failed, an `ASK`
+keeping the question's title `drive job ask` set as its said line, and only a `BUILT` is recorded by hand, with its branch and cards.
 The watch reads the agent's transcript, never the stored state: a running job whose agent ended
-its turn, wrote nothing for 30 minutes, or belonged to an earlier session makes its
-parts `ORPHAN`s.
+its turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes,
+or belonged to an earlier session makes its parts `ORPHAN`s. An agent that ends its turn on a line
+with no result word is parked on a task of its own, which usually wakes it; one still parked after 30
+minutes is said with the remedy, `SendMessage` wakes it.
 
 **Remote.** The same `job` call with `remote: true` on its `add`, then run `drive job launch <j>`
 from the monorepo checkout's root with `run_in_background: true`, which sends the brief the `brief`

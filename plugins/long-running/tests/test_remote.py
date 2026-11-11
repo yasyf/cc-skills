@@ -19,6 +19,7 @@ FINISHED_WORKER = {
     "worker": {"state": "succeeded", "startOptions": {"worktree": "id:repo-1::/home/sprite/monorepo"}},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "succeeded", "attention": {"categories": ["root_completion"]}},
     "terminal": {"branch": "refs/heads/ci-mac-box-prove"},
+    "dispatch": {"completedAt": state.stamp(T0 - timedelta(minutes=10))},
 }
 ROOT_DISPATCH = "ctx_ab821100f80b"
 ROOT_WORKER = {
@@ -487,6 +488,19 @@ def test_a_finished_lane_whose_job_still_runs_is_said_every_thirty_minutes_until
         data["jobs"]["j1"].update(state="waiting", said="WAITING CI", updated=state.stamp(T0))
     assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == []
     assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
+
+
+def test_a_lane_whose_report_lands_between_the_mail_read_and_the_worker_read_is_not_an_orphan(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    deliver(monkeypatch, [], [message("worker_done", "WAITING CI on #53935")])
+    monkeypatch.setattr(orca, "worker", lambda dispatch: FINISHED_WORKER | {"dispatch": {"completedAt": state.stamp(T0 + timedelta(seconds=20))}})
+    branches(monkeypatch, {})
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["updated"] = state.stamp(T0 - timedelta(minutes=10))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ["JOB j1 o1 WAITING CI on #53935"]
+    data = state.load(remote)
+    assert (data["jobs"]["j1"]["state"], data["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"]) == ("waiting", None)
 
 
 def test_a_running_job_with_an_open_pr_the_drive_does_not_track_is_said_until_it_is_added(
