@@ -1782,6 +1782,24 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
     assert after == before | {"parts": {parts[0]: state.new_part(), parts[1]: {**state.new_part(), "posted": told}}}
 
 
+def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread"
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "posted", "o1", line, "--record", "660611") == (
+        0,
+        f'o1 "first check": posted {line}, outside his threads, so it is no line to him and keeps no promised time',
+    )
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert (parts["fix"]["posted"], parts["first check"]["posted"]) == (None, line)
+
+
 def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_the_order_that_joins_it(
     run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:

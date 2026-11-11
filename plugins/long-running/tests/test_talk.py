@@ -1,7 +1,12 @@
+import json
+import os
+from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import picture, slack, state, talk, view
+from conftest import Thread
+from drive import cli, picture, slack, state, talk, view, watch
 from drive.state import DriveError
 
 WAITS = "demo:j1-7"
@@ -90,3 +95,45 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
     line = talk.say(demo, {"text": "done", "order": "o1"})
     assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")
     assert len(posts) == 1
+
+
+def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "fields": {"attrs": attrs}}))
+
+
+def test_a_post_for_a_report_delivers_the_part_its_job_answered(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why it fails, and the options", "--thread", thread, "--parts", "cause", "options as a card")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+        data["jobs"]["j1"] = state.new_job("o1", "codex", "find the cause", ["cause"], state.stamp()) | {"state": "done", "said": "DONE the cause"}
+        data["orders"]["o1"]["jobs"].append("j1")
+    answer = slack_thread.post(state.now(), from_claude=True)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"job": "j1", "thread": thread})
+    assert talk.say(demo, {"text": "The cause is the lock.", "thread_ts": thread, "order": "o1", "record": "661194"}) == f'POSTED {answer}; o1 "cause": posted {answer}'
+    parts = state.load(demo)["orders"]["o1"]["parts"]
+    assert (parts["cause"]["posted"], parts["options as a card"]["posted"]) == (answer, None)
+    later = state.now() + timedelta(minutes=30)
+    gaps = watch.part_gaps(watch.Watcher(demo, offset=0, ticked_at=later), state.load(demo), later)
+    assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
+
+
+def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whatever_title_it_came_with(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    report(monkeypatch, {"catch_up": "true"})
+    state.append_event(demo, "catch-up", dm="D123", since="9:00 AM", orders="o1")
+    state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
+    talk.say(demo, {"text": "The run page fix is live.", "record": "660299"})
+    talk.say(demo, {"text": "*Catch-up since 4:00 PM*\nThe run page fix is live.", "record": "660299"})
+    titled = "*Catch-up since 5:20 PM*\nThe run page fix is live."
+    assert [argv[-1] for argv in posts] == [titled, titled]
+    assert [kept["text"] for kept in said(demo)] == [titled, titled]
+    report(monkeypatch, {"orders": "o1"})
+    talk.say(demo, {"text": "The run page fix is live.", "record": "660300"})
+    assert posts[-1][-1] == "The run page fix is live."

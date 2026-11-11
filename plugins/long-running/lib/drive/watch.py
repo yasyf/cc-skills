@@ -34,6 +34,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
+UNSTAFFED_FOR = timedelta(minutes=5)
 RELAUNCH = timedelta(seconds=orca.LAUNCH_SECONDS)
 TAIL_BYTES = 65536
 COMPACT_PAST_TOKENS = 120_000
@@ -680,7 +681,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
         return None
     if not jobs:
-        return "no job"
+        return "no job" if moment - state.parse_time(order["updated"]) >= UNSTAFFED_FOR else None
     return None if None in gaps else gaps[-1]
 
 

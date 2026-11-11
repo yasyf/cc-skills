@@ -50,7 +50,7 @@ SAY = {
         " {pr:<number, owner/repo#number or URL>} become a link under the words that name the card or PR, which"
         " Slack draws the card under, and a link on the dashboard; a reference that names nothing of the drive's"
         " refuses the post. Prints POSTED <permalink>, plus CARD <permalink> for a card; with order it also records"
-        " the post on that order."
+        " the post on that order, delivering the parts its record names."
     ),
     "inputSchema": {
         "type": "object",
@@ -66,7 +66,14 @@ SAY = {
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
             "visuals": {"type": "array", "items": VISUAL},
             "order": {"type": "string", "description": "The order whose thread this post is in, which records the post on it"},
-            "part": {"type": "string", "description": "The part of that order this post delivers"},
+            "record": {
+                "type": "string",
+                "description": (
+                    "The cci seq of the report record this post carries. With order, the post delivers the part its part attr"
+                    " names, else each part of that order its job attr's job delivers, wherever it went. A record with"
+                    " catch_up=true is his catch-up, which opens with *Catch-up since <the time he was last heard>*"
+                ),
+            },
             "dry_run": {"type": "boolean", "description": "Resolve the references and draw the visuals, print what would post, and post nothing"},
         },
     },

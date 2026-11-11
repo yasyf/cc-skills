@@ -130,9 +130,9 @@ limit".
   holds the drive to it, from Slack's own record and never a session's word: `drive order add --due`
   counts from the ack that named the time, `drive order set --due` from the next line in the order's
   thread, and `DUE` repeats every 10 minutes until a drive post is in that thread. The handler
-  records each line it posts there with `drive order posted <o> <link>`: a line that delivers a
-  part names it with `--part`, and a progress or incident line names none, so it keeps the time
-  and delivers no part. His ruling, Nov 9
+  records each line it posts there with `say(order=<o>, record=<the report's seq>)`: the line
+  delivers the part the report's `part` attr names, or each part its `job` attr's job delivers, and
+  a progress line's report names neither, so it keeps the time and delivers no part. His ruling, Nov 9
   5:24 PM: "fix your toolking so tracking this stuff beciomes deterministic and it cant get lost at
   the whims of an agent".
 - No post in his DM goes out unchecked. The hook runs `cc-slack check-post` on the exact words of
@@ -330,8 +330,9 @@ Nothing to post; a line that says where things stand links it.
   and job results wait.
 - **His next message gets one catch-up, at his DM root**, right after its ack. `drive heard` tells
   the coordinator every order that changed while he was away. It sends one `report` for his DM root
-  covering them, grouped by feature, with what waits on him last, then `--lined` each. The catch-up
-  opens with the bold title `*Catch-up since <the time he was last heard>*`, and never goes in the
+  covering them, grouped by feature, with what waits on him last, then `--lined` each. The report
+  carries `catch_up=true`, so `say` opens the post with the bold title `*Catch-up since <the time he
+  was last heard>*` whatever the text says, and the catch-up never goes in the
   thread of the message that brought him back, since a thread gets only lines about its own order.
   His words, Nov 10 6:43 PM, under a thread that got a catch-up's lines about other orders: "why
   did all of these get sent in this thread?", and 6:47 PM: "this si the catch up post? it should be
