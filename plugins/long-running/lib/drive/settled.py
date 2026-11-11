@@ -8,10 +8,9 @@ from drive.render import cut
 from drive.state import DriveError
 
 MATCHES = 3
-WINDOW = 20
 APPROVAL = "kind:approval"
 APPROVED = re.compile(r"Approve\b")
-NAMES_PR = re.compile(r"#\d+|/pull/\d+")
+TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
@@ -32,7 +31,7 @@ def answers(card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:
 
 def matched(text: str, cwd: str, *flags: str) -> list[dict]:
     """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands."""
-    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", *flags, "--limit", str(WINDOW), "--json"]
+    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", *flags, "--limit", "-1", "--json"]
     found = json.loads(ccn(match, text, cwd, "could not check the question against his recorded answers"))
     return [answer for answer in found if APPROVAL not in answer["tags"]][:MATCHES]
 
@@ -49,10 +48,10 @@ def kind(words: str) -> list[str]:
 
 
 def backfill(cwd: str) -> None:
-    """Label as approvals the taps on PR cards recorded before `drive answer` labelled them: his words open with Approve and the question names a PR."""
+    """Label as approvals the taps on PR cards recorded before `drive answer` labelled them: his words open with Approve and the question, opening with Tap, Approve or Land, names a PR."""
     listed = ccn(["ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"], "", cwd, "could not read his recorded answers")
     for answer in json.loads(listed):
-        if APPROVAL not in answer["tags"] and APPROVED.match(answer["body"].lstrip()) and NAMES_PR.search(answer["title"]):
+        if APPROVAL not in answer["tags"] and APPROVED.match(answer["body"].lstrip()) and TAP_QUESTION.match(answer["title"]):
             ccn(["ccn", "answer", "edit", answer["id"], "--add-label", APPROVAL], "", cwd, f"could not label his answer {answer['id'][:7]} an approval")
 
 
@@ -94,10 +93,10 @@ def open_card_refusal(said: list[dict], why: str | None) -> str | None:
     if not (named := [answer for answer in said if answer["id"][:7] in (why or "")]):
         return None
     listed = "\n".join(f'- {answer["id"][:7]} under {answer["card"]}: "{cut(answer["words"], 200)}" ({answer["link"]})' for answer in named)
-    ids = " ".join(answer["id"][:7] for answer in named)
+    commands = ", then ".join(f"`drive answer {answer['id'][:7]}`" for answer in named)
     return (
         "refused: --unsettled names his words under this job's own card, and that card still asks him. His words under a card"
-        f" answer it: settle the card with `drive answer {ids}`, which shows his words on it, and the work goes ahead on them."
+        f" answer it: settle the card with {commands}, which shows his words on it, and the work goes ahead on them."
         f" Then ask only what they leave open, naming each id below with why it does not settle the new question.\n{listed}"
     )
 

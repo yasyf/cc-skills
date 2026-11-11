@@ -275,6 +275,10 @@ def load(name: str) -> dict:
         rebuild_asks(name, data)
     if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
+    if not data.get("may_settle_skips_approvals"):
+        for job in data["jobs"].values():
+            job["may_settle"] = None
+        data["may_settle_skips_approvals"] = True
     for job in data["jobs"].values():
         for question in job["questions"]:
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():

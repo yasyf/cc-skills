@@ -1618,6 +1618,16 @@ def test_job_ask_refuses_unsettled_naming_his_words_under_its_own_card_until_dri
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"] == why
 
 
+def test_the_open_card_refusal_gives_a_drive_answer_command_for_each_answer_of_his_it_names() -> None:
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    said = [
+        {"id": "6251dff", "card": link, "words": "keep one snapshot file", "link": f"{link}?thread_ts=1794300000.000100"},
+        {"id": "729fb9a", "card": link, "words": "and copy it once", "link": f"{link}?thread_ts=1794300000.000100"},
+    ]
+    refusal = settled.open_card_refusal(said, "6251dff, 729fb9a: not about copy")
+    assert "settle the card with `drive answer 6251dff`, then `drive answer 729fb9a`, which shows his words on it" in refusal
+
+
 def test_job_ask_refuses_a_question_his_words_in_its_orders_thread_may_settle_until_unsettled_names_each_by_permalink(
     run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -3847,7 +3857,20 @@ def test_the_settled_check_skips_his_taps_approving_a_pr_and_still_lists_three_o
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
     assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2", "c3", "e5"]
-    assert asked == [["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "20", "--json"]]
+    assert asked == [["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"]]
+
+
+def test_the_settled_check_finds_his_answer_ranked_past_twenty_of_his_taps_approving_a_pr(monkeypatch: pytest.MonkeyPatch) -> None:
+    taps = [{"id": f"{tap:02}" * 20, "title": f"Tap: #5020{tap}, a run's files move to the store", "tags": ["scope:durable", "kind:approval"]} for tap in range(20)]
+    ruling = {"id": "b2" * 20, "title": "Which store holds a run's files?", "tags": ["scope:durable"]}
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        limit = int(argv[argv.index("--limit") + 1])
+        ranked = [*taps, ruling]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(ranked if limit < 0 else ranked[:limit]), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2"]
 
 
 def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_before_drive_answer_labelled_them(
@@ -3860,6 +3883,8 @@ def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_befo
         {"id": "c3" * 20, "title": "Tap: #50134, runs resume from their snapshot", "body": "Approve at 704de36", "tags": ["scope:durable", "kind:approval"]},
         {"id": "d4" * 20, "title": "Tap: #48654. Does a converted chat need its own records?", "body": "Not approved as built. \"convert it like any other\"", "tags": ["scope:durable"]},
         {"id": "e5" * 20, "title": "Which store holds the blobs?", "body": "Approve the blob store as drawn", "tags": ["scope:durable"]},
+        {"id": "f6" * 20, "title": "For #123, which service owns snapshots?", "body": "Approve the design: snapshot-index owns all snapshots; never store them in the gateway.", "tags": ["scope:durable"]},
+        {"id": "a7" * 20, "title": "PR approvals tapped 10:12 AM Nov 5: #50861, #50795", "body": "Approve on #50861 and #50795.", "tags": ["scope:durable"]},
     ]
 
     def ccn(argv: list[str], input: str, cwd: str, **_: object) -> subprocess.CompletedProcess[str]:
@@ -3872,6 +3897,7 @@ def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_befo
         ["/work", "ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"],
         ["/work", "ccn", "answer", "edit", "a1" * 20, "--add-label", "kind:approval"],
         ["/work", "ccn", "answer", "edit", "b2" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "a7" * 20, "--add-label", "kind:approval"],
     ]
 
 
