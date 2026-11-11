@@ -166,3 +166,20 @@ def test_typed_words_reach_cc_slack_only_from_the_page_itself_and_only_under_a_c
     assert replied == (200, {"posted": True, "permalink": f"{card}#copy"})
     assert asked[0] == 200
     assert relayed == [("hold #41 until the stack lands", card), ("ship the dashboard", "")]
+
+
+def test_a_review_opens_only_from_the_page_itself_for_an_open_pr_of_this_drive_at_its_head(monkeypatch: pytest.MonkeyPatch) -> None:
+    board = dashboard.Board("demo", [])
+    board.heads = {"yasyf/cc-skills#41": "abc123"}
+    opened = []
+    monkeypatch.setattr(board.assistant, "url", lambda key, head: opened.append((key, head)) or "https://box.tail1.ts.net:5/s/r41")
+    server, port = serving(board)
+    page = f"http://box:{port}"
+    elsewhere = post(port, "https://evil.example", "/api/review/yasyf/cc-skills/41", {})
+    stranger = post(port, page, "/api/review/yasyf/cc-skills/42", {})
+    shown = post(port, page, "/api/review/yasyf/cc-skills/41", {})
+    server.shutdown()
+    assert elsewhere[0] == 403
+    assert stranger[0] == 404
+    assert shown == (200, {"url": "https://box.tail1.ts.net:5/s/r41"})
+    assert opened == [("yasyf/cc-skills#41", "abc123")]

@@ -1,6 +1,7 @@
 const ZONE = 'America/Los_Angeles';
 const STALL_MINUTES = 45;
 const GAP_MINUTES = 30;
+const REVIEW_KEEP_MS = 5 * 60 * 1000;
 const SLACK = /^https:\/\/[\w-]+\.slack\.com\//;
 const GROUPS = {
   blocked: 'Blocked',
@@ -66,6 +67,7 @@ const sent = new Map();
 const toasts = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
 let talk = null;
+let reviewing = null;
 
 const $ = (selector) => document.querySelector(selector);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -490,40 +492,56 @@ function drawArrows() {
   }
 }
 
-function diffHtml(diff) {
-  return diff.split(/^(?=diff --git )/m).filter(Boolean).map((file) => {
-    const name = file.match(/^diff --git a\/(\S+)/)?.[1] ?? 'file';
-    const lines = file.split('\n').slice(1).filter((line) => !/^(?:index |--- |\+\+\+ |new file|deleted file|similarity|rename )/.test(line));
-    const body = lines.map((line) => `<span class="${line.startsWith('+') ? 'add' : line.startsWith('-') ? 'del' : line.startsWith('@@') ? 'hunk' : ''}">${esc(line)}</span>`).join('\n');
-    return `<details class="file" open><summary>${esc(name)}</summary><pre class="diff">${body}</pre></details>`;
-  }).join('');
-}
-
 async function openPR(key) {
   talk = null;
+  reviewing = key;
   const drawer = $('#drawer');
   const entry = model.review.find((candidate) => candidate.key === key);
+  drawer.classList.add('wide');
   drawer.innerHTML = `<div class="dr-bar"><b>${esc(entry?.title ?? key)}</b><button class="linkish" data-close>Close</button></div><p class="empty small">Reading the change…</p>`;
   if (!drawer.open) drawer.showModal();
   const [repo, number] = key.split('#');
+  const review = startReview(key);
   const reply = await fetch(`/api/pr/${repo}/${number}`);
   const pr = await reply.json();
+  if (reviewing !== key) return;
   if (!reply.ok) {
     drawer.querySelector('.empty').textContent = pr.error;
     return;
   }
-  const more = pr.diff_lines > pr.diff.split('\n').length ? `<p class="meta">The diff runs ${pr.diff_lines} lines; the rest is on <a href="${esc(pr.url)}/files" target="_blank" rel="noopener">GitHub ↗</a>.</p>` : '';
   const answerable = entry?.card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : '';
   drawer.innerHTML = `<div class="dr-bar"><b>${esc(bare(pr.title))}</b><span class="acts"><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
-    <div class="dr-body">
-      <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
-      ${answerable}
-      ${entry ? talkBox(entry) : ''}
-      <div class="dr-tabs"><button class="on" data-drtab="body">Description</button><button data-drtab="diff">Changes</button></div>
-      <div class="dr-pane" data-pane="body">${prose(pr.body)}</div>
-      <div class="dr-pane" data-pane="diff" hidden>${diffHtml(pr.diff)}${more}</div>
+    <div class="pr-split">
+      <div class="pr-main">
+        <div class="dr-tabs"><button class="on" data-drtab="review">Code and review</button><button data-drtab="body">Description</button></div>
+        <div class="dr-pane review-pane" data-pane="review"><p class="empty small">Opening the review of ${esc(key)}…</p></div>
+        <div class="dr-pane body-pane" data-pane="body" hidden>${prose(pr.body)}</div>
+      </div>
+      <aside class="pr-side">
+        <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
+        ${answerable}
+        ${entry ? talkBox(entry) : ''}
+      </aside>
     </div>`;
   if (entry?.thread) drawTalk(entry);
+  showReview(key, await review);
+}
+
+async function startReview(key) {
+  const [repo, number] = key.split('#');
+  const reply = await fetch(`/api/review/${repo}/${number}`, { method: 'POST' });
+  return { ok: reply.ok, ...(await reply.json()) };
+}
+
+function showReview(key, review) {
+  const pane = $('#drawer [data-pane="review"]');
+  if (reviewing !== key || !pane) return;
+  if (!review.ok) {
+    pane.innerHTML = `<p class="refused">cc-review could not open ${esc(key)}: ${esc(review.error)}</p>`;
+    return;
+  }
+  if (pane.querySelector('iframe')?.getAttribute('src') === review.url) return;
+  pane.innerHTML = `<iframe class="review-frame" title="Code and review of ${esc(key)}" src="${esc(review.url)}" allow="clipboard-write"></iframe>`;
 }
 
 function talkBox(entry) {
@@ -625,8 +643,10 @@ function message(said, waiting) {
 
 async function openAsk(id) {
   talk = null;
+  reviewing = null;
   const ask = model.asks.find((candidate) => candidate.id === id);
   const drawer = $('#drawer');
+  drawer.classList.remove('wide');
   const head = `<div class="dr-bar"><b>${esc(ask.title)}</b><button class="linkish" data-close>Close</button></div>`;
   const words = `<blockquote class="said">${esc(ask.text)}</blockquote>`;
   drawer.innerHTML = `${head}<div class="dr-body">${words}${ask.thread ? '<p class="empty small">Reading the thread…</p>' : '<p class="meta">This ask came from the terminal, so it has no thread.</p>'}</div>`;
@@ -1162,5 +1182,13 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(render, 60000);
   window.addEventListener('resize', drawArrows);
   setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
+  setInterval(async () => {
+    const key = reviewing;
+    if (key && !document.hidden) showReview(key, await startReview(key));
+  }, REVIEW_KEEP_MS);
+  $('#drawer').addEventListener('close', () => {
+    reviewing = null;
+    $('#drawer').classList.remove('wide');
+  });
   connect();
 });
