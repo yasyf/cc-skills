@@ -7,6 +7,7 @@ from drive.render import cut, when
 from drive.state import DriveError
 
 OTHERS_STAND = 3
+TYPED_TAPS = ("Approve", "Hold")
 
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
@@ -113,6 +114,44 @@ def answer_cards(kept: dict, asked: dict[str, dict]) -> list[str]:
         if not result.get("already_answered"):
             done.append(f"{key}: its card {entry['card']} now shows his words and a link to them, so it no longer asks him")
     return done
+
+
+def closing(found: dict, kind: str, attrs: dict, url: str | None, answered: list[str]) -> tuple[list[dict], list[dict]]:
+    """The open question cards and PR cards an owner or answer record of his words closes: each question card its `thread_card` attr, the ask seq it answers or his message's place in the card's thread names, and, for an owner record, each PR card his message is under, but for his typed Approve or Hold, which its `tap` attr carries; an Undo, which reopens its card, closes none."""
+    if kind not in ("owner", "answer") or "undone" in attrs:
+        return [], []
+    questions = [
+        card
+        for card in found["questions"]
+        if (waits := card["card"].get("waits")) and (waits == attrs.get("thread_card") or waits.rpartition("-")[2] in answered) or (url and under(url, card["url"]))
+    ]
+    reworked = kind == "owner" and url and attrs.get("tap") not in TYPED_TAPS
+    return questions, [card for card in found["pr_cards"] if reworked and under(url, card["url"])]
+
+
+def close_card(card: dict, kind: str, words: str, link: str) -> str:
+    """Settle in place his question card that his answer answers, showing his words, or withdraw one his other words under it change, showing them as the reason, with no buttons either way, so a late tap records nothing; what was done, one line."""
+    answered = kind == "answer"
+    result = slack.cc_slack("card-answer", "--card", card["url"], "--label", words, "--settled" if answered else "--withdrawn", "--via", link)
+    waits = card["card"].get("waits") or card["url"]
+    if result.get("already_answered"):
+        return f"{waits}: his card {card['url']} already shows his answer {result['label']!r}"
+    return f"{waits}: his card {card['url']} now shows his words with no buttons, {'settled by' if answered else 'withdrawn for'} them"
+
+
+def unclosed_refusal(names: list[str], kind: str, attrs: dict, url: str | None, answered: list[str]) -> str | None:
+    """Why an owner or answer record goes only through the drive's `record` tool: his words in it close an open card of his, and only that tool settles or withdraws the card in the same call that sends them."""
+    for name in names:
+        questions, pr_cards = closing(view.live_cards(name) or view.NO_CARDS, kind, attrs, url, answered)
+        if cards := [card["url"] for card in [*questions, *pr_cards]]:
+            return (
+                f"refused: this {kind} record carries his words on his open card {cards[0]}, which keeps asking him until"
+                " something closes it; send it with the drive's `record` tool, his message's permalink as `url` and the card's"
+                " waits id as `waits` for his answer or as `thread_card` for his other words under it, which settles a question"
+                " card or withdraws it, and withdraws a PR card his words rework, in the same call. His words: \"So then why"
+                ' didn\'t you withdraw this card? / Why do I have to keep telling you?"'
+            )
+    return None
 
 
 def said(link: str, card: str) -> str:

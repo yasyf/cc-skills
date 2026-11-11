@@ -6,7 +6,7 @@ import os
 import shlex
 import subprocess
 
-from drive import cli, limits, state, talk
+from drive import cli, limits, slack, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -38,9 +38,29 @@ RECORD = {
     "properties": {
         "kind": {"enum": ["owner", "answer", "defect"], "description": "a report, ready or ask goes through cci post instead, whose hook reads it"},
         "text": {"type": "string", "description": "his words verbatim for owner, the tapped label or his words for answer, the refusal verbatim for defect"},
-        "url": {"type": "string", "description": "his message's or the card's permalink"},
+        "url": {
+            "type": "string",
+            "description": (
+                "his message's or the card's permalink; an owner or answer record whose message is in an open card's thread"
+                " settles or withdraws that card in the same call, and an owner record under a PR card withdraws it unless"
+                " attr tap is his typed Approve or Hold"
+            ),
+        },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
-        "waits": {"type": "string", "description": "the tapped question card's waits id, <drive>:<j>-<seq>: answers ask <seq> with attr job=<j>"},
+        "waits": {
+            "type": "string",
+            "description": (
+                "the waits id, <drive>:<j>-<seq>, of the question card his tap or words answer: answers ask <seq> with attr"
+                " job=<j>, and the card settles in the same call, showing his words with no buttons"
+            ),
+        },
+        "thread_card": {
+            "type": "string",
+            "description": (
+                "the waits id his message's thread_card names when his owner words under a question card answer nothing it"
+                " asks, such as a rework: kept as attr thread_card, and the card is withdrawn in the same call, showing his words"
+            ),
+        },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
         "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling"},
         "re": {"type": "array", "items": TEXT, "description": "seqs this answers, when no waits id names one"},
@@ -83,11 +103,15 @@ def verb_tools() -> list[dict]:
             "name": "record",
             "description": (
                 "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to another session of"
-                " the drive in one call, as this session's role: a defect reaches the meta session, or the communicator"
-                " while none is bound, and an owner record carrying a ruling reaches the meta session beside the"
-                " coordinator. A question card he tapped takes waits, which fills re with"
-                " the ask's seq and attr job; an Undo tap sets undone. A defect's text past one 120-character line goes as"
-                " that line cut at a word, the whole text atop its body. Returns each record's seq."
+                " the drive in one call, as this session's role, a handler's included: a defect reaches the meta session, or"
+                " the communicator while none is bound, and an owner record carrying a ruling reaches the meta session beside"
+                " the coordinator. A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
+                " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
+                " answer answers settles showing his words, one his owner words under it change is withdrawn showing them, and"
+                " a PR card his owner words rework is withdrawn with drive pr set --no-tap, unless attr tap is his typed Approve"
+                " or Hold; an answer whose waits names a card no longer waiting on him is refused, since his answer there is"
+                " recorded already. A defect's text past one 120-character line goes as that line cut at a word, the whole"
+                " text atop its body. Returns each record's seq, then each card closed."
             ),
             "inputSchema": {
                 "type": "object",
@@ -338,9 +362,49 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     project = state.session_project(data, session)
     lane, other = {"communicator": ("communicator", "root"), "meta": ("meta", "communicator")}.get(role) or (state.project_lane(project) if project else "root", "communicator")
     posts = [post(item, data, other, session) for item in records]
+    found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
+    closes = [closed_by(found, index, made) for index, made in enumerate(posts, start=1)]
     if dry_run:
-        return "\n".join(f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1))
-    return "\n".join(f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1))
+        said = [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
+    else:
+        said = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1)]
+    for index, (made, (questions, pr_cards)) in enumerate(zip(posts, closes, strict=True), start=1):
+        close(name, said, index, len(posts), made, questions, pr_cards, dry_run)
+    return "\n".join(said)
+
+
+def his_cards(name: str) -> dict:
+    """His open cards as cc-slack lists them now, read before a record of his words goes out, so each card it closes is closed in the same call."""
+    view.refresh_cards(name)
+    if (found := view.live_cards(name)) is None:
+        raise DriveError(f"his cards could not be read ({view.stored_cards(name)[1]}), so a card these words close would stay up; nothing posted, run this again")
+    return found
+
+
+def closed_by(found: dict, index: int, made: dict) -> tuple[list[dict], list[dict]]:
+    """The question cards and PR cards of his this record's words close; an answer naming a card that no longer waits on him is refused, posting nothing."""
+    attrs = made.get("attr") or {}
+    questions, pr_cards = superseded.closing(found, made["kind"], attrs, made.get("url"), made.get("re") or [])
+    if made["kind"] == "answer" and "undone" not in attrs and (attrs.get("job") or attrs.get("thread_card")) and not questions:
+        raise DriveError(
+            f"{index}: refused, nothing posted: the card this answer names no longer waits on him, so his answer on it is"
+            " recorded already; read his words as a message from him: a question, an order or a ruling"
+        )
+    return questions, pr_cards
+
+
+def close(name: str, said: list[str], index: int, count: int, made: dict, questions: list[dict], pr_cards: list[dict], dry_run: bool) -> None:
+    """Once the record is sent, close each card of his its words close: a question card settled showing his answer or withdrawn showing his other words, and a PR card his words rework withdrawn with drive pr set --no-tap, which drops its tap ask until its rework asks again; what was done, or would be on a dry run, appended to said a line each."""
+    for card in questions:
+        if dry_run:
+            said.append(f"{index} would {'settle' if made['kind'] == 'answer' else 'withdraw'} his card {card['url']} ({card['card'].get('waits')}), showing his words")
+            continue
+        try:
+            said.append(f"{index} {superseded.close_card(card, made['kind'], made['text'], made.get('url') or card['url'])}")
+        except slack.SlackError as error:
+            raise DriveError("\n".join([*said, f"{index} cc-slack card-answer on his card {card['url']} refused: {error}; the record went out, so close the card with slack_card_answer"])) from None
+    for url in [url for card in pr_cards for url in card["prs"]]:
+        ran(name, said, index, count, ("pr", "set"), {"url": url, "tap": False, "why": f"being reworked to his words: {made['text']}"}, dry_run)
 
 
 def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
@@ -377,7 +441,7 @@ def post(item: dict, data: dict, other: str, session: str | None) -> dict:
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
         attrs["job"], made["re"] = named[2], [named[3]]
-    for attr in ("thread", "ruling"):
+    for attr in ("thread", "ruling", "thread_card"):
         if item.get(attr):
             attrs[attr] = item[attr]
     lanes = ["root", "communicator", *(["meta"] if "meta" in data["roles"] else []), *map(state.project_lane, data["subcoordinators"])]

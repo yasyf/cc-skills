@@ -3,10 +3,14 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
-from drive import card, cli, limits, reads, state, tools
+from drive import card, cli, limits, reads, slack, state, tools, view
+from conftest import Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
+CARD = "https://acme.slack.com/archives/D123/p1794200000000700"
+UNDER_CARD = f"{CARD}?thread_ts=1794200000.000700"
+PR_CARD = "https://acme.slack.com/archives/D123/p1794200000000900"
 ANSWER = {
     "id": "73060f0349f75a509980c17434a2ef862397394c",
     "title": "Owner 9:54 PM Nov 10: should drive verbs such as drive heard be MCP tool calls?",
@@ -172,6 +176,7 @@ def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_
         return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
 
     monkeypatch.setattr(subprocess, "run", post)
+    open_cards(monkeypatch, "demo:j1-7")
     tap = {"kind": "answer", "text": "Ring", "waits": "demo:j1-7"}
     tools.run("record", demo, {"records": [tap, {"kind": "owner", "text": "also the logs page", "to": "iris"}, {"kind": "owner", "text": "a new order"}]})
     card.question_answered({"waits": "demo:j1-8", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100"})
@@ -235,13 +240,71 @@ def test_the_communicators_owner_or_answer_record_goes_to_the_session_hearing_it
         {"kind": "answer", "text": "Ring", "re": ["7"], "attrs": {"job": "j1"}, "thread": other},
         {"kind": "defect", "text": "cc-slack say fails", "thread": THREAD},
     ]
+    open_cards(monkeypatch, "demo:j1-7")
     said = tools.run("record", demo, {"records": records, "dry_run": True}).splitlines()
-    assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said] == [
+    assert [(json.loads(line.split(": ", 1)[1])["kind"], json.loads(line.split(": ", 1)[1])["to"]) for line in said[:4]] == [
         ("owner", ["iris@demo"]),
         ("owner", ["root@demo"]),
         ("answer", ["iris@demo"]),
         ("defect", ["root@demo"]),
     ]
+    assert said[4:] == [f"3 would settle his card {CARD} (demo:j1-7), showing his words"]
+
+
+def open_cards(monkeypatch: pytest.MonkeyPatch, *waits: str, prs: tuple[str, ...] = ()) -> list[tuple[str, ...]]:
+    """His open question card for each waits id, the first at CARD, and a PR card at PR_CARD carrying the PRs named; each card-answer call cc-slack gets, answered as a card that was waiting."""
+    found = {
+        "team_url": "",
+        "questions": [
+            {"card": {"waits": wait, "title": "Which ring?"}, "url": CARD if index == 0 else f"{CARD[:-2]}{index:02d}", "question": "Which ring?"}
+            for index, wait in enumerate(waits)
+        ],
+        "pr_cards": [{"url": PR_CARD, "prs": list(prs), "card": {"options": ["Approve", "Hold"]}}] if prs else [],
+    }
+    monkeypatch.setattr(view, "cards", lambda name: found)
+    answered: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: answered.append(argv) or {})
+    return answered
+
+
+def test_his_words_on_an_open_card_close_it_in_the_same_call_that_sends_them(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[dict]] = []
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or subprocess.CompletedProcess([], 0, "#51\n", ""))
+    answered = open_cards(monkeypatch, "demo:j1-7", "demo:j2-8")
+    answer = {"kind": "answer", "text": "the lazy copy, no sweeper", "url": UNDER_CARD, "waits": "demo:j1-7"}
+    assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle his card {CARD} (demo:j1-7), showing his words"]
+    assert answered == [] and posted == []
+    assert tools.run("record", demo, {"records": [answer]}) == f"1 answer #51\n1 demo:j1-7: his card {CARD} now shows his words with no buttons, settled by them"
+    assert answered == [("card-answer", "--card", CARD, "--label", "the lazy copy, no sweeper", "--settled", "--via", UNDER_CARD)]
+    rework = {"kind": "owner", "text": "So then why didn't you withdraw this card?", "url": f"{CARD[:-2]}01?thread_ts=1794200000.000701", "thread_card": "demo:j2-8"}
+    tools.run("record", demo, {"records": [rework]})
+    assert answered[-1] == ("card-answer", "--card", f"{CARD[:-2]}01", "--label", rework["text"], "--withdrawn", "--via", rework["url"])
+    assert posted[-1][0]["attr"] == {"thread_card": "demo:j2-8"}
+    with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
+        tools.run("record", demo, {"records": [{"kind": "answer", "text": "Ring", "waits": "demo:j3-9"}]})
+    assert len(posted) == 2
+
+
+def test_his_owner_words_under_a_pr_card_withdraw_it_and_his_typed_approve_leaves_it_up(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, withdrawals: Withdrawals
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    pr = "https://github.com/Forge-AI/monorepo/pull/54084"
+    run("pr", "add", pr, "--job", "j1")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess([], 0, "#61\n", ""))
+    open_cards(monkeypatch, prs=(pr,))
+    reply = f"{PR_CARD}?thread_ts=1794200000.000900"
+    rework = {"kind": "owner", "text": "Rework it to drop the sweeper", "url": reply}
+    [_, withdraw] = tools.run("record", demo, {"records": [rework], "dry_run": True}).splitlines()
+    assert withdraw.startswith(f"1 drive pr set {pr} ") and "--no-tap" in withdraw and "being reworked to his words: Rework it to drop the sweeper" in withdraw
+    assert withdrawals.asked == []
+    approve = {"kind": "owner", "text": "This seems correct I approve it", "url": reply, "attrs": {"tap": "Approve"}}
+    assert tools.run("record", demo, {"records": [approve]}) == "1 owner #61"
+    assert withdrawals.asked == []
+    assert tools.run("record", demo, {"records": [rework]}).splitlines()[0] == "1 owner #61"
+    assert withdrawals.asked == [(pr, "being reworked to his words: Rework it to drop the sweeper")]
+    assert state.load(demo)["prs"]["Forge-AI/monorepo#54084"]["wants_tap"] is False
 
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:

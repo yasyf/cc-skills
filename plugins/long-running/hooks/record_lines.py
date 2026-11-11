@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, settled, slack, state
+from drive import agents, limits, settled, slack, state, superseded
 
 SILENT_LANES = {"long-running:reader", "long-running:designer"}
 TO_OWNER = (
@@ -210,6 +210,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield lifted(record)
         yield limits.misnamed(kind(record), attrs(record))
         yield settled.ask_refusal(names, attrs(record), record.get("text") or "") if kind(record) == "ask" else None
+        yield superseded.unclosed_refusal(names, kind(record), attrs(record), record.get("url"), listed(record.get("re")))
         yield unkinded(record)
         yield untapped(record, prs)
         if kind(record) == "report" and addressed(record, "communicator"):

@@ -399,3 +399,15 @@ def test_his_words_in_the_thread_of_a_card_an_orders_job_drew_go_to_the_session_
     feedback = {"kind": "owner", "text": "that card is unclear", "to": ["root@demo"], "attrs": {"thread": CARD_THREAD}}
     assert record_lines.decision(post("talker", **feedback))["updatedInput"]["to"] == ["iris@demo"]
     assert state.thread_order(state.load(demo), CARD_THREAD) == "o1"
+
+
+def test_his_words_on_his_open_card_go_only_through_the_record_tool_that_closes_it(demo: str) -> None:
+    shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
+    state.cards_path(demo).write_text(json.dumps({"source": "live", "team_url": "", "questions": [shown], "pr_cards": []}))
+    answer = refusal(record_lines.decision(post(kind="answer", text="the lazy copy", re=["7"], attrs={"job": "j1"})))
+    assert f"his open card {CARD}" in answer and "send it with the drive's `record` tool" in answer
+    under = f"{CARD}?thread_ts={CARD_THREAD}"
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="why is this card still up", url=under)))
+    assert "the drive's `record` tool" in refusal(record_lines.decision(post(kind="owner", text="drop the sweeper", attrs={"thread_card": "demo:j1-7"})))
+    assert record_lines.decision(post(kind="owner", text="a new order")) is None
+    assert record_lines.decision(post(kind="answer", text="undone: Ring", re=["7"], attrs={"job": "j1", "undone": "Ring"})) is None
