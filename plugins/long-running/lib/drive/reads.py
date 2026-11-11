@@ -9,6 +9,7 @@ LOG = re.compile(r"LOG\s+(https?://\S+)")
 READ = re.compile(r"READ\s+(.+)")
 JOB_ID = re.compile(r"^j\d+[\s:,]+")
 READ_MARK = re.compile(r"^READ\b[\s:,]*")
+REFUSED = "ASK refused, fix each line and ask again:"
 READ_VERBS = (
     ("cci", "show"),
     ("cci", "grep"),
@@ -49,10 +50,20 @@ class ReadError(Exception):
 
 def request(body: str) -> str | None:
     """The read a remote lane's question asks for when its first line, past the lane's job id, opens with one: every `LOG <url>` the question names, with `READ:` before the first and any other text aside, or `READ <command>`; None for a report or a question only the coordinator can answer."""
-    line = JOB_ID.sub("", body.strip().partition("\n")[0], count=1)
+    line = opening(body)
     if LOG.match(READ_MARK.sub("", line, count=1)):
         return logs(body)
     return line if READ.match(line) else None
+
+
+def asks(body: str) -> bool:
+    """Whether a remote lane's question is its `ASK` block for his card."""
+    return opening(body).startswith("ASK ")
+
+
+def opening(body: str) -> str:
+    """A question's first line, past the lane's job id when it writes one."""
+    return JOB_ID.sub("", body.strip().partition("\n")[0], count=1)
 
 
 def logs(body: str) -> str | None:
@@ -62,7 +73,9 @@ def logs(body: str) -> str | None:
 
 
 def answer(question: str, checkout: Path) -> str:
-    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs; ReadError says why it could not."""
+    """Answer a read question with this Mac's credentials and records, never with nothing, a `LOG` read splitting the budget across its URLs, and an `ASK` the watch refused with its refusal; ReadError says why it could not."""
+    if question.startswith(REFUSED):
+        return question
     if question.startswith("LOG "):
         urls = question.split()[1:]
         said = "\n\n".join(read_log(url, checkout, BUDGET // len(urls)) for url in urls)

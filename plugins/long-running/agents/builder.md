@@ -230,10 +230,13 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   report's `PR:` line carries the PR's link, an `EXEMPT:` line names an exempt class, and a port's
   `SERVES: port of #N` line names its old PR, and the coordinator registers all three. An `ASK` report
   is the block itself, in the ASK section's shape, which the coordinator keeps with `drive job ask`.
-  Before you return it, run `drive job ask --check <file>`, which checks its shape alone with no drive
-  or job, and fix each thing it names until it prints `ready`.
+  The drive's watch on the coordinator's Mac checks it the moment it arrives, its words and the card
+  cc-slack draws from it, as `drive job ask` does, within about a minute. A reply opening
+  `ASK refused, fix each line and ask again:` names every fix: apply them all and ask again with the
+  whole block. Any other reply is his answer.
 - Report through Orca, never in a final message: `ASK` with
-  `orca orchestration ask --question "<your report>"`, then end your turn until his answer wakes you;
+  `orca orchestration ask --question "<your report>"`, then end your turn until his answer or the
+  watch's refusal wakes you;
   `DONE`, `READY`, `BUILT`, `WAITING` and `HANDOFF` with
   `orca orchestration send --type worker_done --outcome succeeded --subject "<first line>" --body "<your report>"`,
   and `BLOCKED` the same way with `--outcome failed`. The next PR event starts a fresh lane.
@@ -308,9 +311,10 @@ stack the PRs form on its own, as `drive card` groups them.
 ## ASK
 
 Write the block to a new file under your scratch directory, one per question, and run
-`drive job ask --check <file>`, which checks its shape alone and prints every fix or `ready`. Then run
-`drive job ask <your job> <file>`, which refuses a block out of shape and names each fix, and return
-the path it prints.
+`drive job ask --check <file>`, which checks its words and the card cc-slack draws from it and prints
+every fix or `ready`. Then run `drive job ask <your job> <file>`, which refuses a block out of shape
+and names each fix, and return the path it prints. On a Sprite, send it as On a Sprite says, and the
+watch runs the same check.
 
 ````
 ASK <the question, one line>

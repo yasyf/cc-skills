@@ -61,7 +61,7 @@ the shape to keep: "don't go based on what's currently there design this cleanly
 ## Each fork as a question block
 
 Keep each fork as its own `ASK` block before you return. Pipe it with a quoted heredoc into
-`drive job ask --check -` first, which checks its shape alone with no drive or job and prints every
+`drive job ask --check -` first, which checks its words and the card cc-slack draws from it, with no drive or job, and prints every
 fix or `ready`, then into `drive job ask <your job> -`, which keeps it and prints the path for your
 `Fork:` line. A refusal is deliberate and names every fix: apply them and run it again.
 
