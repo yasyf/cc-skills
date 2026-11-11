@@ -31,6 +31,10 @@ BRIEF_FLAGS = ("serves", "done_when", "where", "runs_as", "ruling", "native", "i
 BRIEF_NEEDS = ("serves", "done_when", "where")
 READER_RESEARCH = "the Researched: block this build needs"
 NO_SURFACE = re.compile(r"\s*none\b", re.IGNORECASE)
+REPORTER_HELP = (
+    "the bug report the order fixes, by its Slack permalink or slack:<channel>/<its thread's ts>, from the share or link in his"
+    " words: its thread gets one fix-live note once the fix is proven live, and done refuses until drive order told records it"
+)
 TOLD_LINK = (
     "Link each card where the line names it, as <its permalink|your card on what it decides>, never as its bare permalink,"
     " which `cc-slack check-post` refuses."
@@ -153,6 +157,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     from_thread = source_thread(args.source)
+    reported = state.reporter(args.reporter) if args.reporter else None
     if (args.incident or args.joins) and args.options_only:
         raise DriveError(
             "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks;"
@@ -197,6 +202,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             "jobs": [],
             "releases": {},
             "shipped": {},
+            "reporter": reported,
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
@@ -405,12 +411,16 @@ def apart_from_filing(order: dict) -> str:
 
 
 def order_set(args: argparse.Namespace) -> int:
-    """Change an order; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time."""
+    """Change an order; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, and closing one done refuses while the bug report it fixes has not heard it is fixed."""
     name = state.resolve(args.drive)
     withdrawn = his_words(args.withdrawn, "withdraw a promised line") if args.withdrawn else None
+    unreported = his_words(args.no_reporter, "take the reporter off an order") if args.no_reporter else None
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    reporter = None if unreported else state.reporter(args.reporter) if args.reporter else order["reporter"]
+    if args.state == "done" and reporter and not reporter["told"]:
+        raise DriveError(untold(args.id, reporter))
     noted = ""
     if args.thread and order["text"].startswith(state.TOOLING):
         noted, args.thread = rootless(args.thread) + "\n", None
@@ -487,6 +497,8 @@ def order_set(args: argparse.Namespace) -> int:
             order["kind"] = args.kind
         if args.complex is not None:
             order["complex"] = args.complex
+        if args.reporter or unreported:
+            order["reporter"] = reporter
         filed = [field for field in FILING if getattr(args, field) is not None]
         for field in filed:
             order[field] = getattr(args, field) or None
@@ -495,6 +507,18 @@ def order_set(args: argparse.Namespace) -> int:
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, noted + render.order_line(args.id, order) + promised, {"id": args.id, **order})
+
+
+def untold(order_id: str, reporter: dict) -> str:
+    """Why an order with a reporter may not close done yet: the thread its bug was reported in has not heard it is fixed."""
+    return (
+        f"{order_id}: refused, its bug was reported in {reporter['link']}, and no fix-live note there is recorded. Once drive order set"
+        f" {order_id} --proof <the check> keeps the proof its fix is live, the handler of a report on it posts one plain line in that"
+        f" thread with slack_reply saying what is fixed and since when, and records it with drive order told {order_id} <its permalink>;"
+        " when the bot cannot reach that thread, it says so to him in the order's thread and passes that line with --unreachable."
+        f" The coordinator, which posts nothing, sends that report with --attr close={order_id}, and drive order set {order_id}"
+        " --no-reporter <his message> takes the reporter off when he says not to tell them"
+    )
 
 
 def check_proof(proof: str) -> None:
@@ -583,6 +607,36 @@ def order_posted(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["orders"][args.id]["parts"][undone]["posted"] = None
     return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
+
+
+def order_told(args: argparse.Namespace) -> int:
+    """Record the one fix-live note the bug report an order fixes gets, posted in its thread once the fix is proven live, or, when the bot cannot reach that thread, the line in one of the order's threads that tells him in its place."""
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    order = communicators_order(data, args.id)
+    if not (reporter := order["reporter"]):
+        raise DriveError(f"{args.id} names no bug report to tell: drive order set {args.id} --reporter <its permalink> names one")
+    if reporter["told"]:
+        raise DriveError(f"{args.id}: refused, the thread its bug was reported in heard it is fixed once, in {reporter['told']}, and hears it only once")
+    if not order["proof"]:
+        raise DriveError(
+            f"{args.id}: refused, it keeps no proof that its fix is live, so a note now would come before the fix:"
+            f" drive order set {args.id} --proof <the check> records it once the fix is live"
+        )
+    if args.unreachable:
+        drive_post_at(args.link, data, args.id, False)
+    else:
+        posted, _ = slack.message_and_root(args.link)
+        found = state.CARD_LINK.search(args.link)
+        if not posted.get("from_claude") or (found[1], posted.get("thread_ts")) != (reporter["channel"], reporter["thread"]):
+            raise DriveError(
+                f"{args.link} is not the drive's post in {reporter['link']}, the thread the bug was reported in; when the bot cannot reach"
+                " that thread, pass the line that tells him in the order's thread with --unreachable"
+            )
+    with state.edit(name) as data:
+        data["orders"][args.id]["reporter"]["told"] = args.link
+    where = "said to him in place of the reporter's thread" if args.unreachable else "told in the reporter's thread"
+    return emit(args, f"{args.id}: {where}, {args.link}", {"id": args.id, "told": args.link, "unreachable": args.unreachable})
 
 
 def communicators_order(data: dict, order_id: str) -> dict:
@@ -2305,6 +2359,7 @@ def parser() -> argparse.ArgumentParser:
             ' "Drive tooling:" order the communicator, any other the role of the session adding it, else the coordinator'
         ),
     )
+    verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files this order under, reusing one drive order unfiled lists as in use where it fits")
     verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files this order under, reusing one in use where it fits")
     verb.set_defaults(run=order_add)
@@ -2314,7 +2369,11 @@ def parser() -> argparse.ArgumentParser:
         "--words",
         help='a "Drive tooling:" order\'s new words, which `cc-slack check-post` must pass, since its PR card quotes them; an order of his keeps his words verbatim',
     )
-    verb.add_argument("--state", choices=state.ORDER_STATES, help="done or dropped refuses while a promised line is not posted")
+    verb.add_argument(
+        "--state",
+        choices=state.ORDER_STATES,
+        help="done or dropped refuses while a promised line is not posted, and done while the bug report it fixes has not heard it is fixed",
+    )
     verb.add_argument(
         "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"
     )
@@ -2326,6 +2385,9 @@ def parser() -> argparse.ArgumentParser:
         "--withdrawn", metavar="LINK", help="his Slack message calling off the promised time; the order then owes no line for it"
     )
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
+    reported = verb.add_mutually_exclusive_group()
+    reported.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
+    reported.add_argument("--no-reporter", metavar="LINK", help="his Slack message saying not to tell the bug's reporter; the order then closes done with no fix-live note")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--kind", choices=state.ORDER_KINDS, help="sort it again: an answer whose work turns out to need a build becomes a build")
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
@@ -2361,6 +2423,15 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=order_posted)
+    verb = order.add_parser(
+        "told",
+        parents=both,
+        help="the communicator's handler posted the one fix-live note in the thread the order's bug was reported in, once its proof is kept; done refuses until then",
+    )
+    verb.add_argument("id", help="the order")
+    verb.add_argument("link", help="the Slack link of the drive's note in the reporter's thread, or with --unreachable of its line to him in one of the order's threads")
+    verb.add_argument("--unreachable", action="store_true", help="the bot cannot post in the reporter's thread, so the link is the line telling him in its place")
+    verb.set_defaults(run=order_told)
     verb = order.add_parser("show", parents=both, help="drive status for these ids")
     verb.add_argument("ids", nargs="+", metavar="ID", help=f"what to read: {ID_FORMS}")
     verb.set_defaults(run=status)
@@ -2379,6 +2450,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--thread", help="the ts of the thread the incident's lines go in; default: the thread the --from message is in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
+    verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     before = verb.add_mutually_exclusive_group()
     before.add_argument(
         "--release",

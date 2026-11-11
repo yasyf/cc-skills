@@ -26,6 +26,7 @@ def order(
         "withdrawn": None,
         "jobs": jobs or [],
         "proof": None,
+        "reporter": None,
         "note": None,
         "created": created,
         "updated": created,

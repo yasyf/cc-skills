@@ -38,6 +38,7 @@ PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
 VERDICT = re.compile(r"(?:^|[;.]\s+)(NOT )?READY\b")
 VERDICT_REASON = re.compile(r":\s+")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
+SLACK_SOURCE = re.compile(r"slack:([A-Z0-9]+)/(\d{10}\.\d{6})")
 OFFSET = re.compile(r"\+(\d+)([mhd])")
 CLOCK = re.compile(r"(\d{1,2}):(\d{2})(?:\s*([AaPp])\.?[Mm]\.?)?")
 OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
@@ -240,6 +241,7 @@ def load(name: str) -> dict:
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
+        order.setdefault("reporter", None)
         order.setdefault("owner", "communicator" if order["text"].startswith(TOOLING) else None)
         order["thread"] = dm_thread(data, order)
     mail = data.pop("lane_mail", {})
@@ -500,6 +502,22 @@ def whole_order(text: str) -> str:
 
 def new_part() -> dict:
     return {"posted": None, "orphan_said": None}
+
+
+def reporter(link: str) -> dict:
+    """The bug report an order fixes, as the Slack thread its one fix-live note goes in, read from its permalink, a reply's carrying its thread's ts, or from slack:<channel>/<thread ts>, with no Slack call, since the bot may not be in that channel; none told yet."""
+    if found := CARD_LINK.search(link):
+        channel, thread = found[1], found[4] or f"{found[2]}.{found[3]}"
+    elif found := SLACK_SOURCE.fullmatch(link):
+        channel, thread = found[1], found[2]
+    else:
+        raise DriveError(f"--reporter {link}: refused, name the bug report by its Slack permalink or as slack:<channel>/<its thread's ts>")
+    return {"link": link, "channel": channel, "thread": thread, "told": None, "tell_said": None}
+
+
+def told_in_thread(reporter: dict) -> bool:
+    """Whether the fix-live note went in the reporter's own thread, not to him in its place."""
+    return bool((found := CARD_LINK.search(reporter["told"] or "")) and found[1] == reporter["channel"])
 
 
 def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str) -> dict:

@@ -54,8 +54,8 @@ Four actions wait for his word: landing a `Forge-AI/*` change that is not an exe
 closing a session he did not name. His order to post, a tap on a card included, is that word for the
 one post it names, and nothing asks him to approve it again. A post nobody ordered, such as a reply
 to a bug's reporter or a teammate, goes to him as a question card asking whether to send it, never
-one asking him to approve a post. The fix-live note in a bug report's thread is the one exception,
-by [messages.md](messages.md).
+one asking him to approve a post. The fix-live note the drive owes a bug's reporter in that report's
+thread once the fix is live is the one exception, by [messages.md](messages.md).
 
 ## A question for him
 

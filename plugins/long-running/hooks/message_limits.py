@@ -202,9 +202,9 @@ def untooled(payload: dict, drive: dict, said: str) -> str | None:
 
 
 def his_words(payload: dict) -> list[dict]:
-    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to, and the brief the handler posting it was started with, which quotes him."""
+    """What Jev judges a refused post by besides the transcripts: his words in the thread it goes to in his DM, and the brief the handler posting it was started with, which quotes him; a thread outside his DM, such as a bug report's, holds others' words, never his."""
     words = [{"id": "brief", "source": "brief", "quote": brief, "detail": "the brief the communicator started this handler with, quoting his words"}] if (brief := agents.brief(payload)) else []
-    if (drive := his_drive(payload.get("session_id") or "")) is None:
+    if (drive := his_drive(payload.get("session_id") or "")) is None or not posts_to(payload, drive["slack"]["channel"]):
         return words
     try:
         return words + thread_words(payload, drive["slack"]["channel"])
@@ -238,7 +238,7 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
+    """What the drive's checks find in a post to his DM, which the say hook hands Jev to judge against his words: the coordinator posts nothing, a bug report's thread gets one fix-live note once the fix is proven live, a handler's line in his thread waits for its read of that thread, and then, every finding at once, the post keeps its length, links what it names, asks no tap that is not owed, backs each cause with its record, calls nothing by a word he corrected, and `cc-slack check-post` passes its exact words."""
     if posted := coordinator_post(payload):
         return posted
     if (drive := his_drive(payload.get("session_id") or "")) is None:
@@ -259,6 +259,8 @@ def deny_reason(payload: dict) -> str | None:
             f"The text {text} is a placeholder, and Slack would send it as written. Pass the post's own words as text,"
             " the exact words `cc-slack check-post -` passed."
         )
+    if refusal := reporter_post(payload, drive):
+        return refusal
     if not posts_to(payload, dm):
         return None
     if refusal := card_edit(payload, drive) or held_while_away(payload, drive) or unread(payload, dm):
@@ -283,6 +285,27 @@ def deny_reason(payload: dict) -> str | None:
     if refusal is None:
         hold_to_promise(payload, drive)
     return refusal
+
+
+def reporter_post(payload: dict, drive: dict) -> str | None:
+    """Why a post may not go in the thread a bug an order fixes was reported in: that thread gets one fix-live note, only once the fix is proven live."""
+    if payload["tool_name"] not in CHANNEL_POSTS - {EDIT}:
+        return None
+    tool_input = payload["tool_input"]
+    link = state.CARD_LINK.search(tool_input.get("url") or "")
+    where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
+    reported = [order for order in drive["orders"].values() if order["reporter"] and (order["reporter"]["channel"], order["reporter"]["thread"]) == where]
+    if not reported or any(order["state"] not in state.CLOSED_ORDER_STATES and order["proof"] and not order["reporter"]["told"] for order in reported):
+        return None
+    if told := next((order["reporter"]["told"] for order in reported if order["reporter"]["told"]), None):
+        return (
+            f"Refused on purpose: this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once."
+            " Post nothing more there."
+        )
+    return (
+        "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live, so a note now would come before"
+        " the fix. It goes once the coordinator records the proof and sends the report closing the order."
+    )
 
 
 def card_edit(payload: dict, drive: dict) -> str | None:

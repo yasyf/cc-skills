@@ -17,6 +17,7 @@ READ_THREAD = slack.thread
 LAUNCHER = slack.launcher
 CHECK_POST = slack.check_post
 DM = "D123"
+REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 HANDLER = "a1"
 HIS_WORDS = "Message (his words): why does the browser guess at the page map? explain the layout in full"
 WHOLE = "pass as asked each message of his it answers, word for word, one per line."
@@ -349,6 +350,27 @@ def test_a_line_in_his_thread_over_60_words_is_refused_with_its_count_limit_and_
     assert "It names no message of his as asked, so it is not an answer and keeps that limit." in reason
     assert reason.endswith(WHOLE)
     assert posted(transcript, text=said(60), thread_ts="1.2") is None
+
+
+def test_a_bug_reports_thread_gets_its_fix_live_note_only_once_the_fix_is_proven_live_and_a_second_live_report_posts_no_second_line(
+    run: Run, talker: str, transcript: Path, slack_thread: Thread
+) -> None:
+    run("order", "add", "--project", "p", "--workstream", "w", "fix the stuck staging deploy", "--reporter", REPORTED)
+    note = {"channel_id": "C0REPORTS01", "thread_ts": "1794400100.000200", "text": "Fixed: staging deploys go through again since 10:02 AM."}
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)).startswith(
+        "Refused on purpose: the fix for the bug reported in this thread keeps no proof that it is live"
+    )
+    run("order", "set", "o1", "--proof", "https://buildkite.com/forge/release/builds/14185")
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)) is None
+    slack_thread.messages.append({"ts": "1794418000.000100", "thread_ts": "1794400100.000200", "from_claude": True})
+    told = "https://acme.slack.com/archives/C0REPORTS01/p1794418000000100?thread_ts=1794400100.000200"
+    assert run("order", "told", "o1", told)[0] == 0
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note)) == (
+        f"Refused on purpose: this thread already heard its bug is fixed, in {told}, and a bug report's thread gets its fix-live note once."
+        " Post nothing more there."
+    )
+    assert message_limits.deny_reason(call("slack_reply", transcript, url=told, text=note["text"])).startswith("Refused on purpose: this thread already heard")
+    assert message_limits.deny_reason(call("slack_reply", transcript, **note | {"thread_ts": "1794400000.000100"})) is None
 
 
 def test_link_labels_count_as_the_words_he_reads(talker: str, transcript: Path) -> None:
