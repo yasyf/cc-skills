@@ -397,10 +397,12 @@ def test_an_incident_order_records_a_job_on_each_part_and_names_every_open_incid
     run("order", "set", "o3", "--state", "done")
     assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "sandsql-api times out on plat", "--incident", "--parts", "fix", "first check") == (
         0,
-        "o4\n"
-        'j6 on "fix": start its agent now, its brief ending Drive: demo, order o4, job j6\n'
-        'j7 on "first check": start its agent now, its brief ending Drive: demo, order o4, job j7\n'
-        "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1",
+        (
+            "o4\n"
+            'j6 on "fix": start its agent now, its brief ending Drive: demo, order o4, job j6\n'
+            'j7 on "first check": start its agent now, its brief ending Drive: demo, order o4, job j7\n'
+            "o1 open incident: SandSQL fork copies fail on plat; record 3fa2c1"
+        ),
     )
     data = state.load("demo")
     assert data["orders"]["o4"]["jobs"] == ["j6", "j7"]
@@ -895,6 +897,17 @@ def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert 'the direct fix "Add our status line beside their always-on button" is an option but not the recommended one' in capsys.readouterr().err
     block.write_text(other.replace("Ours waits unlanded meanwhile.", "Ours waits; add our status line beside their always-on button only if the download state beats a review."))
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
+def test_job_ask_refuses_a_question_that_hides_the_terms_its_findings_name(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should the change be laid out"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert 'the question names its object only as "the change", while its summary and findings name LTX, SQLite' in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("ASK How should a finished run's files be laid out", "ASK How should a finished run's LTX files be laid out"))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
