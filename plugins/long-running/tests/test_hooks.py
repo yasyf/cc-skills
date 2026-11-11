@@ -521,8 +521,30 @@ def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: l
 
 
 def test_guard_allows_a_repo_outside_forge(drive_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    origin_is(monkeypatch, "https://github.com/yasyf/cc-skills.git")
+    origin_is(monkeypatch, "https://github.com/yasyf/cc-slack.git")
     assert landing_guard.deny_reason(bash("gh pr merge 42 --squash --admin")) is None
+
+
+def test_guard_holds_a_cc_skills_merge_until_every_check_on_its_head_is_green(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    running = [
+        {"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS", "conclusion": ""},
+        {"__typename": "StatusContext", "context": "Socket Security", "state": "SUCCESS"},
+    ]
+    red = [{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "FAILURE"}, {"__typename": "StatusContext", "context": "Socket Security", "state": "PENDING"}]
+    green = [{"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"}, {"__typename": "CheckRun", "name": "lint", "status": "COMPLETED", "conclusion": "SKIPPED"}]
+    rollups = [running, red, green]
+
+    def answer(args: list[str], cwd: str) -> str:
+        assert args == ["gh", "pr", "view", "4153", "-R", "yasyf/cc-skills", "--json", "statusCheckRollup"]
+        return json.dumps({"statusCheckRollup": rollups.pop(0)})
+
+    monkeypatch.setattr(landing_guard, "run", answer)
+    merge = bash("gh pr merge 4153 -R yasyf/cc-skills --squash --admin")
+    assert landing_guard.deny_reason(merge) == (
+        "yasyf/cc-skills#4153: test not green on its head yet; its CI takes about a minute, so merge once every check passes, fixing a red one first"
+    )
+    assert landing_guard.deny_reason(merge).startswith("yasyf/cc-skills#4153: test, Socket Security not green")
+    assert landing_guard.deny_reason(merge) is None
 
 
 def test_guard_ignores_commands_that_do_not_land(drive_pr: str, no_calls: list[list[str]]) -> None:
@@ -732,7 +754,7 @@ def test_guard_reads_gh_repo_from_the_session_environment(
 
 
 def test_gh_repo_does_not_select_the_repo_for_ccx(drive_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    origin_is(monkeypatch, "https://github.com/yasyf/cc-skills.git")
+    origin_is(monkeypatch, "https://github.com/yasyf/cc-slack.git")
     assert landing_guard.deny_reason(bash("GH_REPO=Forge-AI/monorepo ccx vcs merge 42 --admin")) is None
 
 
