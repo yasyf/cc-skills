@@ -74,8 +74,14 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - Never paste the bare URL, which shows him a raw address, use the URL as its own label,
   `<permalink|permalink>`, which Slack never draws, or copy the card's words. `cc-slack check-post`
   refuses a waiting line with no open card linked, and a card link shown as a raw URL.
-- Slack draws only a message's first five links, and none it drew in the same thread a moment
-  before, so put the card link among the first five and make the words alone say which card it is.
+- Slack draws a message's first five Slack-message and alert links, and none it drew in the same
+  thread a moment before. Put each card on its own line: cc-slack sends a post to his DM that links
+  more than five as pages, each cut at the last blank line before the line holding its sixth, so
+  every card draws ("if you're telling me to tap something you need to include the unfurled card
+  here"), and refuses one line linking six.
+- A line that waits on him and links a PR draws that PR's tap card, as `tap_prs` does. When the PR
+  draws no card, such as one merged or one the card command skips, `say` is refused and nothing goes
+  out, so name a PR he has nothing to tap in a line that waits on nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
 - When a message promises him a time, the coordinator sets it with `--due` in the same turn, so the
@@ -498,8 +504,9 @@ GET 2 page ranges
   Check-post reads the words under each link, so a card, PR or order title it flags is named in the
   post's own words, `{pr:<number>|<words>}`; a `{record:}` always draws the record's own words, so a
   record whose words it flags is not the one to cite.
-- A post that draws a card, or a PR card through `tap_prs`, carries the card its words say waits on
-  him, so check-post's `waits-without-card` finding is dropped for it.
+- A post that draws a card, or a PR card through `tap_prs` or a PR its waiting line links, carries
+  the card its words say waits on him, so check-post's `waits-without-card` finding is dropped for
+  it. A check that fails on a post refuses it rather than let it out unchecked.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
   10 minutes, so the line cannot miss what he said there since. Past that read every other check
   runs. A post check-post flags, one over its limit, one naming something he could open with no link
