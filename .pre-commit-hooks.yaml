@@ -1,0 +1,11 @@
+- id: public-names
+  name: no teammate's name in what a commit adds to a public repository
+  entry: plugins/long-running/bin/public-check
+  language: script
+  types: [text]
+  stages: [pre-commit]
+- id: public-pr-body
+  name: nothing private in a pull request body for a public repository
+  entry: plugins/long-running/bin/public-check --body
+  language: script
+  stages: [manual]

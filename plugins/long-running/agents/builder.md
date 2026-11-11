@@ -129,9 +129,9 @@ prints and a remote lane's brief carries whole:
 - `## His words, step by step`: each step of his words beside the `path:line` that does it.
 
 - On a public repository a screenshot shows a demo drive or public data only, under a `demo-` or
-  `public-` path; a picture of the live drive, private code, Slack or a customer goes only to a
-  private repository's PR or his DM. The `landing_guard` hook refuses `gh pr create`/`edit` or a ship
-  putting up such a body: fix the body first.
+  `public-` path, and no line names a teammate; a picture of the live drive, private code, Slack, a
+  customer or a teammate's name goes only to a private repository's PR or his DM. The `landing_guard`
+  hook refuses `gh pr create`/`edit` or a ship putting up such a body: fix the body first.
 - Every section stands alone, since he reads the card with no other context. A number, fraction,
   size or ratio says what it measures and why that value, with one example. A mechanism gets one
   plain sentence before it is used. Nothing points at a list, finding, thread or PR the card does not

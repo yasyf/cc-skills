@@ -169,7 +169,7 @@ Drive: <name>, order <o>, job <j>
 ```
 
 Ask only for what the builder's definition and the drive's refusals allow, such as no picture of the
-live drive in a public repository's PR body, which `drive pr add` refuses.
+live drive or teammate's name in a public repository's PR body, which `drive pr add` refuses.
 
 ## What a job returns
 

@@ -69,11 +69,12 @@ for its repository says, then return `DONE <proof>`.
     code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Add at most one short
     caption sentence: the card shows pictures, not prose.
   - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
-    under a `demo-` or `public-` file or folder name, and the body names no private repository's PR. The
-    live drive, private code, Slack, or a customer's or teammate's data goes only into a private
-    repository's PR or a direct message to him. The `landing_guard` hook refuses such a body in
-    `gh pr create`/`edit` or `ccx vcs ship`, and `drive pr add` a PR with one; after a fix, delete
-    each earlier revision and the pictures' branch, since both stay readable.
+    under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
+    no teammate, by first name, full name, Slack handle or email. The live drive, private code, Slack, or
+    a customer's or teammate's data or name goes only into a private repository's PR or a direct message
+    to him. The `landing_guard` hook refuses such a body in `gh pr create`/`edit` or `ccx vcs ship`,
+    and `drive pr add` a PR with one; after a fix, delete each earlier revision and the pictures'
+    branch, since both stay readable.
   - `## Against the plan`: only when you departed from the plan: what it said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to run
     it. A PR with behavior of its own beyond that is not a port.

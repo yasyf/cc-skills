@@ -11,6 +11,7 @@ from drive import (
     github,
     orca,
     page,
+    public_check,
     settled,
     slack,
     state,
@@ -19,6 +20,11 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+TEAM = [
+    {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
+    {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
+    {"name": "mac.ivers", "real_name": "Mac Ivers", "email": "mac.ivers@example.com"},
+]
 LIVE_WORKER = {
     "worker": {"state": "ready"},
     "projection": {"liveness": {"verdict": "live"}, "outcome": "in_progress", "attention": {"categories": []}},
@@ -167,6 +173,13 @@ def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
     monkeypatch.setattr(watch, "ensure", lambda name: process.ensured.append(name) or f"the watch runs for {name}")
     monkeypatch.setattr(watch, "listen", lambda name, session: process.listened.append((name, session)))
     return process
+
+
+@pytest.fixture(autouse=True)
+def teammates(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    team = [dict(user) for user in TEAM]
+    monkeypatch.setattr(public_check, "roster", lambda: public_check.Roster.of(team, "me@example.com"))
+    return team
 
 
 @pytest.fixture(autouse=True)
