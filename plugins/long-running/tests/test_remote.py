@@ -215,10 +215,10 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
 def test_launch_clones_from_the_drives_recorded_checkout_whatever_folder_it_runs_in(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    state_folder = tmp_path / "state" / demo
-    (state_folder / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
+    state_folder = state.drive_dir(demo)
+    (state_folder / "brief.md").write_text("Drive: demo, order o1, job j1\n")
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
     checkouts = []
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
