@@ -241,7 +241,7 @@ SCRATCH_CREATOR_DRAWN = r'''![Show me]({root}/durable-agents/pictures/redraw/j57
 
 def ask(show_me: str, options: str) -> str:
     shown = show_me.replace("{root}", str(state.root()))
-    return f"ASK Which way should this go?\nThe pick below decides it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it; the recommended option is marked.\nShow me:\n{shown}\n{options}\nFindings:\nDirect fix: none: a design pick\nKept on disk.\n"
 
 
 @pytest.mark.parametrize(

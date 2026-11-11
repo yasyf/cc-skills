@@ -2,7 +2,7 @@ import json
 import re
 from pathlib import Path
 
-from drive import cli, picture, refs, slack, state
+from drive import cli, limits, picture, refs, slack, state
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
@@ -11,9 +11,11 @@ CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECA
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads posts nothing."""
+    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title its only addition; a post in an order's thread is recorded on that order too, delivering the parts its report record names, and one on an order in none of its threads, or calling a thing by a word he corrected, posts nothing."""
     if unbacked := refs.unbacked(post.get("text") or ""):
         raise DriveError(f"nothing posted: a line naming a cause carries {{record:<seq>}} of the record that measured it, on that line: {' | '.join(unbacked)}")
+    if corrected := limits.stand_in_refusal(post, state.load(name)["stand_ins"]):
+        raise DriveError(f"nothing posted: {corrected}")
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
