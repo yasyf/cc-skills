@@ -1259,7 +1259,7 @@ def test_job_set_takes_state_stopped_alone_and_says_the_line_a_job_returns_sets_
         assert "j1 is running, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line the job returns" in refusal
         assert (
             "which the watch reads or drive job report j1 - takes: DONE sets done, READY sets waiting, WAITING sets waiting, DESIGN sets waiting,"
-            " BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
+            " ASK sets waiting, BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
         ) in refusal
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
