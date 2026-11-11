@@ -160,18 +160,22 @@ summary of one feature is a line, 60 words at most.
 **A question card**, which a handler draws from an `ask` record: the job's `ASK` as `drive job ask`
 kept it, with nothing posted before or after it. Title: its question, in one sentence. Body: its
 summary, one to three lines: what was found and what is being decided, the recommendation, and
-what happens meanwhile, then a `*Show me*` line and the block's Show me under it, as written. That
-first line is how he gets the results of the investigation before the pick, by his Nov 9 6:22 PM
-words, "you need to give me the results of the investigation etc before sahowing this to me". The
-Show me is the worked example he picks from, above the options, in the visual kind below that fits
-it: the real code, call or query the choice changes, before and after, or one example for each option. For an API question it is
-the calls themselves in code, such as an imperative API beside the declarative one. His words, Nov
-10 4:38 PM, under a design card that had none: "this would also satidyt the rtequriement you care
-curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Every
-row and cell holds real contents, measured or worked out from the code and marked as such, never
-the names of what will be measured later, and `drive job ask` refuses a table with one value in
-every cell. His words, Nov 10 7:35 PM, under a card whose table read "time, bytes, disk" in every
-row: "this table just says `time,bytes,disk` for everything".
+what happens meanwhile; then, when the block has one, a `*Show me*` line and its Show me as written.
+That first line is how he gets the results of the investigation before the pick, by his Nov 9 6:22
+PM words, "you need to give me the results of the investigation etc before sahowing this to me".
+
+A Show me is there only when it shows him what the summary and options cannot: the flow between
+the parts the options change, the numbers they turn on, the options side by side, or the real calls
+of an API choice, such as an imperative API beside the declarative one. A constant, a name, a value
+or a call the words already say is no Show me, and a card with nothing that adds clarity has none.
+His words, Nov 10 11:03 PM, on a card whose pictures each showed a constant: "we needed an image to
+show a const? fucking use your brain show a sinippet when it makews sense, in this case none of these
+add any clarity at all and we should have had no show me"; 10:30 PM: "if theres nothing to show its
+bette rnot to show anyhting but her we could ahve done a mermaid chart"; 4:38 PM, on a design card:
+"the shw show-0me cvould be code snipeptrs". Every row and cell holds real contents, measured or
+worked out from the code and marked as such, never the names of what will be measured later, and
+`drive job ask` refuses a table with one value in every cell, by his 7:35 PM words "this table just
+says `time,bytes,disk` for everything".
 
 Each visual is one fence whose language names its kind, drawn from that one source on both
 surfaces: as a picture on his Slack card and live on the dashboard, by the same module,
@@ -179,29 +183,33 @@ surfaces: as a picture on his Slack card and live on the dashboard, by the same 
 
 | The question turns on | Kind | Fence holds |
 |---|---|---|
-| an API, call, query or schema shape | code | the real code, in a fence naming its language: ```sand, ```sql, ```go, ```console for a command and its output |
+| the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
 | components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
-| steps over time, a state machine, a small graph | mermaid | Mermaid source |
+| routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline, drawn in the dataviz palette |
 | a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
+| words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
 | a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
 
 A caption line of at most 25 words sits just above each fence, and `drive job card` makes it the
 picture's title: it replaces the fence with `![caption](/abs.png)`, which cc-slack posts as a Block
 Kit image block, so the words stay text and the picture holds only the visual. Code is drawn at a
-12.5 px font and cut to its longest line, so a one-line call is one short strip, highlighted in the
-language its fence names, Sand by its own grammar. A comparison of words goes in as a markdown table,
-which cc-slack draws as a native table. Words never go in a fence: `drive job ask` refuses a fence
-naming no language or `text`, a chart, compare or arch whose JSON does not parse, and a Show me with
-no visual, and a visual that still fails to draw leaves the card with its caption, nothing in its place. His words,
-Nov 10 10:30 PM, under cards whose pictures were text: "these images are not useful at all, at ALL
-… if theres nothing to show its bette rnot to show anyhting but her we could ahve done a mermaid
-chart"; 10:10 PM: "look at these images rthey are iunsnae, they are so big and not syhntax
-highlighted at all"; 9:58 PM: "buold out a libary of difernetg visualizaions (charts, code sample,
-archietucre diagram, rendered from the same thing that shows it interactiverly in browser, mermaid
-dfiagrams, compatre and contracts, and custom image) and then use the approporiuate one each time".
-A picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there. The
-Show me counts toward no limit.
+12.5 px font and cut to its longest line, highlighted in the language its fence names, Sand by its
+own grammar, by his 10:10 PM words "they are so big and not syhntax highlighted at all". A mixed
+visual is split into its parts: the diagram in its own fence, drawn as a picture sized to it, and
+each table as a markdown table, never one picture composited from both, by his 11:01 PM words "this
+fdiagram should be jsut the firdfst poart, then the two tables should be renderd in slack natively".
+Words and raw data never go in a fence: `drive job ask` refuses a fence naming no language or `text`;
+JSON, YAML, logs, a terminal session, command output or a stack trace, whatever language the fence
+names; a chart, compare or arch whose JSON does not parse; and a `Show me:` with no visual under it.
+His words, 10:52 PM, on a card whose Show me was two pictures of JSON and terminal output: "giving me
+random json and terminal shit in those first 2 images is absiolkteiyl useless". A visual that still
+fails to draw leaves the card with its caption, nothing in its place, and a picture inside a
+sentence or a table cell stays text, so `drive job ask` refuses one there. His words on the library,
+9:58 PM: "buold out a libary of difernetg visualizaions (charts, code sample, archietucre diagram,
+rendered from the same thing that shows it interactiverly in browser, mermaid dfiagrams, compatre and
+contracts, and custom image) and then use the approporiuate one each time". The Show me counts toward
+no limit.
 
 Two to four options, each one line of at most 25 words saying what he gets and what it costs, the title,
 summary and options 150 words in all. The findings stay in the job's file: Explain more on the card

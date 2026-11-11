@@ -86,6 +86,14 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_and_lea
         "```",
         "GET journal/0001.ltx",
         "```",
+        "The tag the coordinator read:",
+        "```json",
+        '{"type": "slack.message"}',
+        "```",
+        "```console",
+        "$ cc-slack subscribe --kind alerts",
+        "ALERT open monitor 315028134",
+        "```",
         "```go",
         "broken",
         "```",
@@ -96,7 +104,7 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_and_lea
         "After.",
     ]
     shown = picture.drawn(tmp_path / "pictures", show_me)
-    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "", "", "![The flow", "After."]
+    assert [line.split("](")[0] for line in shown] == ["![The call today", "![Show me", "", "", "", "", "![The flow", "After."]
     assert tried == ["code:sand", "code:proto", "code:go", "mermaid"]
 
 

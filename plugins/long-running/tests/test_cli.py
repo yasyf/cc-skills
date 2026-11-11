@@ -540,7 +540,7 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     assert 'plain words only: "/Users/me/repos/sand/reader.go" is a file path' in refusal
     assert 'plain words only: "progress_nodes" is a code name' in refusal
     assert '"#53288" is a number he cannot open; link it by what it is' in refusal
-    assert "no `Show me:` line after the summary with a visual under it" in refusal
+    assert "Show me" not in refusal
     assert "no `Findings:` line with the evidence under it" in refusal
 
 

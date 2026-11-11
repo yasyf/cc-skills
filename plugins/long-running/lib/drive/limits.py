@@ -16,16 +16,14 @@ OPTION_COUNT = range(2, 5)
 READING = 'the coordinator\'s reading of his Nov 9 9:33 PM words "your messages need to be way shorter rewrite this for a human"'
 LINE_REST = "Say what changed for him and what happens next, in plain words; everything else stays on disk until he asks for it."
 LINKS_RULING = 'his Nov 10 4:36 PM words "never mention somehting and expect me to go look it up myself"'
-SHOW_ME_RULING = (
-    'his Nov 10 4:38 PM words "bring me the card while /after flehsing out more of the dfesign and then the optins'
-    ' … the shw show-0me cvould be code snipeptrs"'
-)
 PLACEHOLDER_RULING = 'his Nov 10 7:35 PM words "this table just says `time,bytes,disk` for everything"'
 LIBRARY_RULING = 'his Nov 10 9:58 PM words "buold out a libary of difernetg visualizaions … and then use the approporiuate one each time"'
 WORDS_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all, at ALL … if theres nothing to show its bette rnot to show anyhting"'
+RAW_RULING = 'his Nov 10 10:52 PM words "giving me random json and terminal shit in those first 2 images is absiolkteiyl useless"'
 VISUALS = (
-    "code in a fence naming its language (```sand, ```sql, ```go, ```console for a command and its output), a ```mermaid,"
-    " ```chart, ```compare or ```arch fence, a picture on a line of its own, or a markdown table"
+    "a ```mermaid flow for routing or ownership, a ```compare or a markdown table for options, a ```chart for numbers,"
+    " an ```arch diagram for components, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
+    " question is about a code or API shape, or a picture on a line of its own"
 )
 JSON_KINDS = ("arch", "chart", "compare")
 COMPARE_SHAPE = '{"options": [{"name": …, "recommended": true, "language": …, "code": …, "points": ["+ a gain", "- a cost"]}, …]}'
@@ -261,10 +259,7 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> lis
     if below_options:
         return ["the options come after the Show me, never above it: summary, then `Show me:` and its example, then the options"]
     if not any(line.strip() for line in show_me):
-        return [
-            f"no `Show me:` line after the summary with a visual under it, the kind that shows what the words cannot: {VISUALS}"
-            f" ({SHOW_ME_RULING}; {LIBRARY_RULING})"
-        ]
+        return []
     problems = [
         f'Show me line "{line}" is {words(line)} words; outside a code fence each is a caption of at most {OPTION_WORDS}'
         for line in captions(show_me)
@@ -290,18 +285,28 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> lis
 
 
 def visual_problems(show_me: list[str]) -> list[str]:
-    """Why a Show me would draw nothing worth a picture: a fence of words, a chart, compare or arch whose JSON does not draw, or no visual at all."""
+    """Why a Show me would draw nothing worth a picture: a fence of words, a fence of raw data or tool output, a chart, compare or arch whose JSON does not draw, or no visual at all."""
     fences = list(picture.FENCE.finditer("\n".join(show_me)))
-    drawn = [fence for fence in fences if fence[1].lower() not in picture.WORDS]
+    named = [fence for fence in fences if fence[1].lower() not in picture.WORDS]
+    raw = [(fence, what) for fence in named if (what := picture.raw(fence[1], fence[2]))]
+    drawn = [fence for fence in named if not picture.raw(fence[1], fence[2])]
     problems = [
         f'the Show me fence holding "{cut(" ".join(fence[2].split()), 60)}" names no language, so his card would get a picture of'
-        f" words: name the code's language, ```console for a command and its output, or put the words in a caption or a table ({WORDS_RULING})"
+        f" words: name the code's language, or put the words in a caption or a table ({WORDS_RULING})"
         for fence in fences
         if fence[1].lower() in picture.WORDS
     ]
+    problems += [
+        f'the Show me ```{fence[1]} fence holding "{cut(" ".join(fence[2].split()), 60)}" is {what}, raw data or tool output,'
+        f" and a picture of it shows him nothing: {picture.INSTEAD} ({RAW_RULING})"
+        for fence, what in raw
+    ]
     problems += [f"the Show me ```{fence[1]} fence {problem}" for fence in drawn if (problem := json_problem(fence[1].lower(), fence[2]))]
-    if not drawn and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
-        problems.append(f"the Show me holds no visual, only words: add the kind that shows what the words cannot, {VISUALS} ({LIBRARY_RULING})")
+    if not drawn and not raw and not tables(show_me) and not any(PICTURE.fullmatch(line) for line in captions(show_me)):
+        problems.append(
+            f"the Show me holds no visual, only words: add the kind that shows what the words cannot, {VISUALS}, or leave out"
+            f" the `Show me:` line when nothing does ({LIBRARY_RULING}; {WORDS_RULING})"
+        )
     return problems
 
 

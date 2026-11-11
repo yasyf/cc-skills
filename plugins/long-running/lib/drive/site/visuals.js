@@ -5,6 +5,7 @@ const ARCH_MAP = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.c
 const MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.esm.min.mjs";
 const VEGA_EMBED = "https://cdn.jsdelivr.net/npm/vega-embed@7.3.0/+esm";
 const GUESSED = new Set(["", "text", "txt", "plain", "plaintext"]);
+const RAW = new Set(["json", "jsonc", "json5", "jsonl", "ndjson", "yaml", "yml", "csv", "tsv", "log", "logs", "console", "terminal", "shell-session", "sh-session", "pwsh-session", "output", "stdout", "stderr", "traceback", "pytb", "stacktrace"]);
 const GRAMMAR_FILES = { proto: "protobuf" };
 const SANS = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif";
 const MONO = "Menlo, ui-monospace, SFMono-Regular, monospace";
@@ -175,6 +176,7 @@ export async function draw(host, kind, source) {
   host.dataset.kind = base;
   switch (base) {
     case "code":
+      if (RAW.has(language.toLowerCase())) throw new Error(`a ${language} fence is raw data or tool output, which a picture shows nothing of: draw a mermaid flow, a compare, a table or a chart, or no picture`);
       host.replaceChildren(await code(document, language, source));
       return;
     case "compare":

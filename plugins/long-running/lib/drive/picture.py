@@ -15,6 +15,28 @@ IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"'
 BROWSER_KINDS = ("arch", "mermaid", "chart", "compare")
 DIAGRAMS = (*BROWSER_KINDS, "dot")
 WORDS = ("", "text", "txt", "plain")
+RAW = {
+    **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
+    **dict.fromkeys(("yaml", "yml"), "YAML"),
+    **dict.fromkeys(("csv", "tsv"), "raw rows"),
+    **dict.fromkeys(("log", "logs"), "log lines"),
+    **dict.fromkeys(("console", "terminal", "shell-session", "sh-session", "pwsh-session"), "a terminal session"),
+    **dict.fromkeys(("output", "stdout", "stderr"), "command output"),
+    **dict.fromkeys(("traceback", "pytb", "stacktrace"), "a stack trace"),
+}
+INSTEAD = (
+    "draw what it means instead, a ```mermaid flow for routing or ownership, a ```compare or a markdown table for"
+    " options, a ```chart for numbers, or show no picture at all"
+)
+PROMPT = re.compile(r"^[ \t]*(?:\$|%|❯|>>>)[ \t]+\S")
+STACK_TRACE = re.compile(
+    r"Traceback \(most recent call last\)|^goroutine \d+ \[|^panic: |thread '[^'\n]*' panicked at"
+    r"|^[ \t]+at [\w$.<>/]+ ?\(\S+:\d+(?::\d+)?\)[ \t]*$|^[ \t]+File \"[^\"\n]+\", line \d+",
+    re.MULTILINE,
+)
+LOG_LINE = re.compile(
+    r"^[ \t]*\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{2}:\d{2}:\d{2}\b)|\[(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\]|\blevel=\w+"
+)
 VISUALS = Path(__file__).parent / "site" / "visuals.js"
 VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
@@ -117,13 +139,37 @@ def downloaded(url: str, out: Path) -> None:
 
 def sources(show_me: str) -> list[tuple[str, str]]:
     """Each picture a Show me section holds, in order, as (kind, source): a diagram, chart or compare fence, a code fence naming its language, or an image link."""
-    found = [(match.start(), fence_kind(match[1]), match[2]) for match in FENCE.finditer(show_me) if match[1].lower() not in WORDS]
+    found = [
+        (match.start(), fence_kind(match[1]), match[2])
+        for match in FENCE.finditer(show_me)
+        if match[1].lower() not in WORDS and not raw(match[1], match[2])
+    ]
     found += [(match.start(), "image", match[1] or match[2]) for match in IMAGE.finditer(show_me)]
     return [(kind, source) for _, kind, source in sorted(found)]
 
 
 def fence_kind(language: str) -> str:
     return language.lower() if language.lower() in DIAGRAMS else f"code:{language.lower()}"
+
+
+def raw(language: str, source: str) -> str | None:
+    """What a fence holds when it is raw data or tool output, whatever language it names: JSON, YAML, raw rows, log lines, a terminal session, command output or a stack trace, of which a picture shows him nothing."""
+    if language.lower() in DIAGRAMS:
+        return None
+    if named := RAW.get(language.lower()):
+        return named
+    lines = [line for line in source.splitlines() if line.strip()]
+    output = [line for above, line in zip(["", *lines], lines, strict=False) if not PROMPT.match(line) and not above.rstrip().endswith("\\")]
+    if STACK_TRACE.search(source):
+        return "a stack trace"
+    if output and len(output) < len(lines):
+        return "a terminal session"
+    if len(lines) >= 2 and 2 * sum(bool(LOG_LINE.search(line)) for line in lines) >= len(lines):
+        return "log lines"
+    try:
+        return "JSON" if isinstance(json.loads(source), dict | list) else None
+    except json.JSONDecodeError:
+        return None
 
 
 def draw(kind: str, source: str, out: Path) -> Path:
@@ -167,11 +213,14 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, and a fence that does not draw leave the card with their caption, since a picture of words shows nothing."""
+    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, a fence of raw data or tool output, and a fence that does not draw leave the card with their caption, since a picture of words, JSON or a terminal shows nothing."""
 
     def picture_line(fence: re.Match[str]) -> str:
         if fence["language"].lower() in WORDS:
             print(f"drive card: its Show me holds words in a ``` fence, which leave the card: {fence['source'][:60]!r}", file=sys.stderr)
+            return ""
+        if what := raw(fence["language"], fence["source"]):
+            print(f"drive card: its Show me holds {what} in a ```{fence['language']} fence, which leaves the card; {INSTEAD}", file=sys.stderr)
             return ""
         shown = fence_kind(fence["language"])
         try:

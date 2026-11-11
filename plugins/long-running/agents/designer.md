@@ -59,7 +59,7 @@ ASK <the question, one line>
 <one to three lines: the design in a line and what is being decided; the recommendation; what happens meanwhile>
 Show me:
 <a caption of at most 25 words>
-```<the kind that fits: a language such as sand, sql or go, or mermaid, chart, compare or arch>
+```<the kind that fits: mermaid, compare, chart or arch, or a language such as sand, sql or go for the real call>
 <the design worked through: the code each option produces or the call before and after, the flow, the numbers, the options side by side>
 ```
 ![<what the screenshot shows, for a UI>](<its absolute path>)
@@ -69,16 +69,21 @@ Findings:
 <the design in plain words, what his words already settle, and what each option changes and costs>
 ````
 
-The question, summary and options are at most 150 words in plain words, and the Show me is drawn
-whole on his card outside that count, so it holds the whole example: never cut it to fit. Each
+The question, summary and options are at most 150 words in plain words. A Show me is there only
+when it shows what they cannot; a constant, a name or a value the words already say is none, and a
+card with nothing that adds clarity has no Show me, by his Nov 10 11:03 PM words "we needed an image
+to show a const? … show a sinippet when it makews sense". It is drawn whole on his card outside
+that count, so it holds the whole example: never cut it to fit. Each
 fence names its kind, and the card draws it as a picture, live on the dashboard by the same
-module: code naming its language (```sand, ```sql, ```go, ```console for a command and its output)
-for an API, call or schema shape; ```arch for components and the flow between them; ```mermaid for
-steps over time or a state machine; ```chart, a Vega-Lite spec, for sizes, counts and timings;
-```compare for the options side by side, each with its code and its gains and costs; a screenshot
-on a line of its own for a UI. Words never go in a fence: `drive job ask` refuses a fence naming no
-language or `text`, a chart, compare or arch whose JSON does not parse, and a Show me with no visual.
-A markdown table draws as a table, and a picture on a line of its own draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
+module: ```mermaid for routing, ownership, steps over time or a state machine; ```compare, or a
+markdown table, for the options side by side, each with its code and its gains and costs; ```chart,
+a Vega-Lite spec, for sizes, counts and timings; ```arch for components; code naming its language
+(```sand, ```sql, ```go) only for an API, call or schema shape, the real call itself; a screenshot
+on a line of its own for a UI. A mixed visual is split into its parts, the diagram in its own fence
+and each table as a markdown table, never one picture of both. Words and raw data never go in a
+fence: `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal
+session, command output or a stack trace, whatever language it names; a chart, compare or arch whose
+JSON does not parse; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
 the code and marked as such, never the names of what will be measured later, and `drive job ask`
 refuses a table with one value in every cell. No option points at another by number or position,
 none lands first and leaves a step for after, such as "land it now, then backfill", which `drive
