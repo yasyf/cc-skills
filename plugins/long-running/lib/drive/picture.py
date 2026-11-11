@@ -11,11 +11,14 @@ import urllib.request
 from pathlib import Path
 
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
+UNNAMEABLE = re.compile(r'[\x00-\x1f/\\:*?"<>|\[\]]+')
+ALT = re.compile(r"!\[([^\]]*)\]")
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
 NATIVE = ("chart",)
 WORDS = ("", "text", "txt", "plain")
-TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code"}
+TITLE_CHARS = 150
+TITLES = {"arch": "Architecture map", "mermaid": "Diagram", "compare": "Options side by side", "dot": "Graph", "code:": "Code", "image": "Picture"}
 RAW = {
     **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
     **dict.fromkeys(("yaml", "yml"), "YAML"),
@@ -143,15 +146,15 @@ def downloaded(url: str, out: Path) -> None:
         raise PictureError(f"{url} did not download: {error}") from None
 
 
-def sources(show_me: str) -> list[tuple[str, str]]:
-    """Each picture a Show me section holds, in order, as (kind, source): a diagram, chart or compare fence, a code fence naming its language and holding no sentences, or an image link."""
+def sources(show_me: str) -> list[tuple[str, str, str]]:
+    """Each picture a Show me section holds, in order, as (kind, source, caption): a diagram or compare fence, or a code fence naming its language and holding no sentences, captioned by the line just above it, or an image link, captioned by its alt text. A ```chart is no picture, since cc-slack draws it as Slack's own chart."""
     found = [
-        (match.start(), fence_kind(match[1]), match[2])
-        for match in FENCE.finditer(show_me)
-        if match[1].lower() not in WORDS and not raw(match[1], match[2]) and not quoted(match[1], match[2])
+        (match.start(), fence_kind(match["language"]), match["source"], match["caption"] or "")
+        for match in CAPTIONED.finditer(show_me)
+        if pictured(match["language"], match["source"])
     ]
-    found += [(match.start(), "image", match[1] or match[2]) for match in IMAGE.finditer(show_me)]
-    return [(kind, source) for _, kind, source in sorted(found)]
+    found += [(match.start(), "image", match[1] or match[2], alt[1] if (alt := ALT.match(match[0])) else "") for match in IMAGE.finditer(show_me)]
+    return [(kind, source, caption) for _, kind, source, caption in sorted(found)]
 
 
 def fence_kind(language: str) -> str:
@@ -207,6 +210,11 @@ def pictured(language: str, source: str) -> bool:
     return language.lower() not in (*WORDS, *NATIVE) and not raw(language, source) and not quoted(language, source)
 
 
+def file_name(caption: str) -> str:
+    """A caption as a file name, which Slack titles its picture with: each run of characters a file name cannot hold one space, cut to the most a Slack picture's title shows."""
+    return " ".join(UNNAMEABLE.sub(" ", caption).split())[:TITLE_CHARS].rstrip()
+
+
 def title(kind: str) -> str:
     """A picture's title when no caption line names it: the kind of picture it is, never a bare "Show me"."""
     return TITLES.get(kind) or f"{kind.removeprefix('code:')} code"
@@ -250,19 +258,23 @@ def fill(folder: Path, kept: list[str]) -> None:
 
 
 def pictures(folder: Path, label: str, show_me: str) -> list[str]:
-    """Local image files for a PR's Show me, drawn once per source under folder and named after the PR for Slack's title."""
+    """Local image files for a PR's Show me, drawn once per source under folder, a local image copied in, each also named its caption with no extension, since cc-slack titles a PR card's picture with its file's whole name."""
     drawn = []
-    for index, (kind, source) in enumerate(sources(show_me), start=1):
+    for kind, source, caption in sources(show_me):
         if kind == "image" and not source.startswith(("http://", "https://")):
-            if (local := Path(source).expanduser()).is_absolute() and local.is_file():
-                drawn.append(str(local))
-            else:
+            if not ((local := Path(source).expanduser()).is_absolute() and local.is_file()):
                 print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
-            continue
+                continue
+            source = local.as_uri()
+        name = file_name(caption) or title(kind)
         try:
-            drawn.append(str(cached(folder, label if index == 1 else f"{label} ({index})", kind, source)))
+            shot = cached(folder, name, kind, source)
         except (PictureError, ValueError) as error:
             print(f"drive card: {label}: its Show me {kind} does not draw: {error}", file=sys.stderr)
+            continue
+        if not (titled := shot.with_name(name)).exists():
+            titled.hardlink_to(shot)
+        drawn.append(str(titled))
     return drawn
 
 

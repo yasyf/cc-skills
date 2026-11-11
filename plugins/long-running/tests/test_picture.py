@@ -55,13 +55,18 @@ def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with
     }
 
 
-def test_sources_lists_diagrams_and_images_in_the_order_they_appear() -> None:
+def test_sources_lists_diagrams_and_images_in_the_order_they_appear_each_with_its_caption_and_no_chart() -> None:
     show_me = (
         "![before](https://example.com/before.png)\n\n```arch\n"
         + json.dumps(DOC)
-        + "\n```\n\n```mermaid\nflowchart LR\n```\n\n```dot\ndigraph { a -> b }\n```\n"
+        + "\n```\n\nThe wake, step by step:\n```mermaid\nflowchart LR\n```\n\nSeconds per wake\n```chart\n{\"mark\": \"bar\"}\n```\n\n```dot\ndigraph { a -> b }\n```\n"
     )
-    assert [kind for kind, _ in picture.sources(show_me)] == ["image", "arch", "mermaid", "dot"]
+    assert [(kind, caption) for kind, _, caption in picture.sources(show_me)] == [
+        ("image", "before"),
+        ("arch", ""),
+        ("mermaid", "The wake, step by step"),
+        ("dot", ""),
+    ]
 
 
 def test_a_picture_is_drawn_once_and_again_when_the_renderer_changes(tmp_path, monkeypatch) -> None:
@@ -98,11 +103,13 @@ def test_a_picture_drawn_before_pictures_kept_their_source_gets_it_from_the_kept
     assert (tmp_path / picture.SOURCED).exists()
 
 
-def test_a_local_image_is_used_where_it_is_and_a_missing_one_is_skipped(tmp_path) -> None:
+def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_is_skipped(tmp_path) -> None:
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n")
-    show_me = f"![shot]({shot})\n![gone](/nowhere/gone.png)\n"
-    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) == [str(shot)]
+    show_me = f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n"
+    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", show_me)
+    assert Path(copied).name == "The card after his tap"
+    assert Path(copied).read_bytes() == shot.read_bytes()
 
 
 def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
@@ -110,7 +117,30 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     shot = tmp_path / "shots" / "s106.png"
     shot.parent.mkdir()
     shot.write_bytes(b"\x89PNG\r\n")
-    assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
+    [copied] = picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n")
+    assert (Path(copied).name, Path(copied).read_bytes()) == ("the api", shot.read_bytes())
+
+
+def test_a_pr_cards_pictures_are_each_named_exactly_their_caption_which_slack_titles_them_with_and_its_chart_draws_none(tmp_path, monkeypatch) -> None:
+    drawn = []
+
+    def draw(kind: str, source: str, out) -> None:
+        drawn.append(kind)
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "visual_png", draw)
+    long = "Each lane's tree diff the coordinator reads on a wake " * 4
+    show_me = (
+        "Seconds per wake: before and after\n```chart\n{\"mark\": \"bar\"}\n```\n"
+        "1 · Feed first / then read [today]:\n```mermaid\nflowchart TD\n  a --> b\n```\n"
+        "```go\nfunc wake() {\n\tread()\n}\n```\n"
+        f"{long}\n```sand\nlane::diff(@tree) -> @diff\n```\n"
+    )
+    named = [Path(path).name for path in picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me)]
+    assert named == ["1 · Feed first then read today", "go code", " ".join(long.split())[: picture.TITLE_CHARS].rstrip()]
+    assert drawn == ["mermaid", "code:go", "code:sand"]
+    assert picture.pictures(tmp_path / "pictures", "monorepo PR 54043", show_me)[0].endswith("/1 · Feed first then read today")
+    assert drawn == ["mermaid", "code:go", "code:sand"]
 
 
 def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_and_leaves_out_what_does_not_draw(

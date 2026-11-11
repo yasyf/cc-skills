@@ -548,17 +548,36 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool, option
         for line in captions(show_me)
         if PICTURE.search(line) and not PICTURE.fullmatch(line)
     ]
-    problems += [
+    problems += placeholder_problems(show_me)
+    fences = [line for line in show_me if FENCE.match(line)]
+    if len(fences) % 2:
+        problems.append("a ``` fence in the Show me is never closed")
+    return (
+        problems
+        if kept
+        else [*problems, *visual_problems(show_me, options), *chart_problems(show_me), *column_problems(show_me), *gallery_problems(show_me, options), *flow_problems(show_me)]
+    )
+
+
+def placeholder_problems(show_me: list[str]) -> list[str]:
+    return [
         f'the Show me table headed "{" | ".join(table[0])}" holds "{value}" in every cell: a Show me shows real contents in'
         " every row and cell, measured or worked out from the code and marked as such, never a table of what will be measured"
         f" later ({PLACEHOLDER_RULING})"
         for table in tables(show_me)
         if (value := one_value(table)) is not None
     ]
-    fences = [line for line in show_me if FENCE.match(line)]
-    if len(fences) % 2:
-        problems.append("a ``` fence in the Show me is never closed")
-    return problems if kept else [*problems, *visual_problems(show_me, options), *chart_problems(show_me), *gallery_problems(show_me, options), *flow_problems(show_me)]
+
+
+def column_problems(show_me: list[str]) -> list[str]:
+    """Why a Show me table, which Slack draws as its own data table, compares nothing: it has one column, a list or every field crammed into one cell of each row."""
+    return [
+        f'the Show me table headed "{table[0][0]}" has one column, so it compares nothing across its rows: give each field a column'
+        " of its own under a header naming it, as `| run | seconds | bytes |`, with real values in every cell, or write the rows"
+        f" as a list ({PLACEHOLDER_RULING})"
+        for table in tables(show_me)
+        if max(map(len, table)) == 1
+    ]
 
 
 def visual_problems(show_me: list[str], options: int) -> list[str]:

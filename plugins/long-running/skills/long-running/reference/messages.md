@@ -168,7 +168,8 @@ Its Show me:
   card with nothing that adds clarity has none.
 - Fill every row and cell with real contents, measured or worked out from the code and marked as
   such, never the names of what will be measured later; `drive job ask` refuses a table with one
-  value in every cell.
+  value in every cell, and a table of one column, which compares nothing: give each field a column
+  of its own.
 - Each visual is one fence whose language names its kind, and one render layer,
   `lib/drive/site/visuals.js`, draws that one source for each surface. Slack gets a picture of it,
   since a Slack message takes no code or diagram blocks, except a chart, which Slack draws as its own
@@ -213,6 +214,7 @@ Its Show me:
     command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;
+  - a markdown table of one column;
   - two or more pictures whose captions do not each open with an option's number;
   - a `flowchart LR` or `graph LR` whose longest chain runs past four nodes;
   - a fence of one or two lines declaring a constant;

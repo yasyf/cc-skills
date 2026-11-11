@@ -66,9 +66,14 @@ for its repository says, then return `DONE <proof>`.
     dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
-    `chart` fence (Vega-Lite); a UI change gets a screenshot or gif as a markdown image. A fence holds
-    code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Add at most one short
-    caption sentence: the card shows pictures, not prose.
+    `chart` fence (Vega-Lite) or a markdown table; a UI change gets a screenshot or gif as a markdown
+    image. A fence holds code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Put a
+    caption line just above each fence and alt text on each image, since Slack titles each picture
+    with it; a fence with none is titled by its kind, such as "go code". His card carries each `chart`
+    fence and markdown table as written, and Slack draws them as its own chart and data table, so
+    `drive card` refuses a chart past Slack's limits in [Messages](messages.md), a table of one
+    column, and a table with one value in every cell. Open with at most one short sentence: the card
+    shows pictures, not prose.
   - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
     under a `demo-` or `public-` file or folder name, and the body names no private repository's PR and
     no teammate, by first name, full name, Slack handle or email. The live drive, private code, Slack, or

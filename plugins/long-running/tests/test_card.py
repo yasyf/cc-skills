@@ -276,7 +276,7 @@ def test_a_show_me_without_a_picture_shows_its_code_block() -> None:
     assert first["show_me"] == "The new call and its answer.\n```\nrun_journal(run)\n# => 12 steps\n```"
 
 
-def test_a_show_me_of_internals_prose_shows_nothing() -> None:
+def test_a_show_me_of_internals_prose_shows_only_its_table() -> None:
     body = """## Show me
 The network-readiness invariant has one owner, `cdpBrowser.trackNetwork`: the in-flight set and the lifecycle events describe the same requests.
 
@@ -288,7 +288,55 @@ The earlier #49744 fixes a separate invariant. Release relayed the raw folds in 
 </details>
 """
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["show_me"] == ""
+    assert first["show_me"] == "| warning | count |\n|---|---|\n| settle | 18 |"
+
+
+CHART = '{"mark": "bar", "data": {"values": [{"step": "before", "seconds": 40}, {"step": "after", "seconds": 2}]}, "encoding": {"x": {"field": "step", "type": "nominal"}, "y": {"field": "seconds", "type": "quantitative"}}}'
+NATIVE_SHOW_ME = f"""## Show me
+Each wake, before and after.
+
+```chart
+{CHART}
+```
+
+| wake | seconds |
+|---|---|
+| before | 40 (measured) |
+
+```mermaid
+flowchart TD
+  wake --> read
+```
+"""
+
+
+def test_a_pr_show_mes_tables_and_charts_slack_draws_reach_the_card_as_written_beside_its_caption() -> None:
+    first = card.render(pr_json(body=NATIVE_SHOW_ME), entry(), ("/pictures/abc/Diagram",))["prs"][0]
+    assert first["show_me"] == f"Each wake, before and after.\n```chart\n{CHART}\n```\n| wake | seconds |\n|---|---|\n| before | 40 (measured) |"
+    undrawable = NATIVE_SHOW_ME.replace('"before"', '"before the queue drains"')
+    assert card.render(pr_json(body=undrawable), entry())["prs"][0]["show_me"] == "Each wake, before and after.\n| wake | seconds |\n|---|---|\n| before | 40 (measured) |"
+
+
+@pytest.mark.parametrize(
+    ("shown", "refusal"),
+    [
+        (
+            "| run, seconds |\n|---|\n| r1, 4.2 s |",
+            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
+        ),
+        (
+            "| size | before | after |\n|---|---|---|\n| 1 GiB | time | time |\n| 2 GiB | time | time |",
+            'the Show me table headed "size | before | after" holds "time" in every cell',
+        ),
+        (
+            "```chart\n" + CHART.replace('"before"', '"before the queue drains"') + "\n```",
+            'the Show me ```chart fence has the label "before the queue drains", 23 characters, and each label holds 1 to 20, so Slack cannot draw it as its own chart',
+        ),
+    ],
+)
+def test_a_pr_show_me_table_or_chart_slack_cannot_draw_as_its_own_is_refused_naming_the_fix(shown: str, refusal: str) -> None:
+    problems = card.show_me_problems(pr_json(body=f"## Show me\nEach wake, before and after.\n{shown}\n"))
+    assert refusal in "; ".join(problems)
 
 
 def test_record_ids_never_reach_a_card_line() -> None:
