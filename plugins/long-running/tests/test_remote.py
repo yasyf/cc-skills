@@ -3,7 +3,7 @@ import json
 import subprocess
 import threading
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -731,6 +731,53 @@ def test_a_read_the_watch_stopped_before_answering_is_answered_by_the_next_watch
         ("reply", "--id", "relay_read", "--run", RUN, "--body", 'READ ccn answer search "dom extraction": empty, the read printed nothing'),
         ("run-use", "--id", DRIVE_RUN),
     ]
+
+
+def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_and_its_lane_runs_again(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch)
+    said = "LOG https://buildkite.com/forge/test/builds/123761 and LOG https://buildkite.com/forge/test/builds/123764 (#49869 and #53227)."
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ask="relay_kept", state="waiting", said=said, report=f"{said}\n#53313's two reds are fixed at 29d4d04e")
+    asked, replies = [], []
+    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append(question) or "FAIL hold_test.go:41")
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
+    assert asked == ["LOG https://buildkite.com/forge/test/builds/123761"]
+    assert ("reply", "--id", "relay_kept", "--run", RUN, "--body", "FAIL hold_test.go:41") in replies
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})
+
+
+def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whatever_older_card_its_job_has(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def cards(*drawn: tuple[str, datetime]) -> None:
+        listed = [{"question": "Run the data pass?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(at), "url": url, "card": {"title": "Run the data pass?"}} for url, at in drawn]
+        monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": listed, "pr_cards": []})
+
+    older, newer = (T0 - timedelta(hours=8), T0 + timedelta(minutes=61))
+    older_card, newer_card = "https://acme.slack.com/archives/D123/p1794345043324699", "https://acme.slack.com/archives/D123/p1794388741836339"
+    cards((older_card, older))
+    deliver(monkeypatch, [message("question", "Which fixture keeps the hold test deterministic?", id="relay_q")])
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["questions"] = [state.new_question(None, "Run the data pass?", state.stamp(older), card=older_card)]
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == ["JOB j1 o1 Which fixture keeps the hold test deterministic?"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
+    said = (
+        'ORPHAN o1 "ship the remote builder": j1\'s lane asked "Which fixture keeps the hold test deterministic?" {} minutes ago'
+        ' and nothing answered it: drive job resume j1 "<the answer>" answers it'
+    )
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [said.format(30)]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=45)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == [said.format(60)]
+    cards((older_card, older), (newer_card, newer))
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "Which fixture?", state.stamp(newer), card=newer_card))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=95)) == []
+    assert state.load(remote)["orders"]["o1"]["parts"]["ship the remote builder"]["orphan_said"] is None
 
 
 def test_mail_from_a_worker_the_job_replaced_is_only_kept(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

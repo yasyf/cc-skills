@@ -215,6 +215,8 @@ def load(name: str) -> dict:
         job.setdefault("waits", [])
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
+        if job.get("ask"):
+            job.setdefault("ask_at", job["updated"])
         if (job.get("agent") or "").startswith(DISPATCH_PREFIX):
             job.update(local_lane(job["agent"]), agent=None)
         if "questions" not in job:

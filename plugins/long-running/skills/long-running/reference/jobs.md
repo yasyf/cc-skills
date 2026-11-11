@@ -101,7 +101,10 @@ question.
   12,000 characters. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
-  to answer.
+  to answer. One nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes,
+  whatever card or PR the job has, since a card drawn before the question asks him something else.
+- A question kept for you that reads as a `LOG` or `READ`, such as one kept before the watch read it
+  that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
   until the answer goes through, past a refused reply or a watch restart. Its
   `WATCH the answer to <j>'s read failed` line needs nothing from you.
