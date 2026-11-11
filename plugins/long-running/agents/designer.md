@@ -4,7 +4,7 @@ description: The light design lane of a long-running drive, the one job besides 
 model: fable
 effort: medium
 background: true
-disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
+disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
 ---
 
 You draw the initial design for the one part your brief names, before anyone builds it, so the

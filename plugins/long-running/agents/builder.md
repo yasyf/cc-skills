@@ -5,7 +5,7 @@ model: opus
 effort: xhigh
 background: true
 autoCompactWindow: 300000
-disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
+disallowedTools: Agent, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_reply, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_long-running_drive__say, mcp__plugin_cc-slack_cc-slack__slack_edit, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
 ---
 
 You own one step of one change: writing it and opening its PR, or, when your brief carries a

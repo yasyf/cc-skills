@@ -147,7 +147,7 @@ never read for, drafted or checked. It names no time:
 the coordinator sets the order's due time, and the first summary says it.
 
 **A summary**, in a thread, which a handler writes from a `POST` report and posts with
-`slack_dm_status(text=…, thread_ts=<his thread>)`: what changed for him since the last one, grouped
+`say(text=…, thread_ts=<his thread>)`: what changed for him since the last one, grouped
 by feature, one bold line per feature and at most two sentences under it, 120 words in all. A
 summary of one feature is a line, 60 words at most.
 
@@ -207,7 +207,7 @@ summary and options 150 words in all. The findings stay in the job's file: Expla
 posts the one section its question rests on, in plain words, and that is the only way they reach
 him.
 
-The card is one `slack_dm_status(card=<what drive job card prints>, thread_ts=<his thread>)` call,
+The card is one `say(card=<what drive job card prints>, thread_ts=<his thread>)` call,
 the card printed by `drive job card <the record's ask file> --waits <its waits id>`, never one put
 together by hand. cc-slack posts a card that
 names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
@@ -249,7 +249,7 @@ drive tooling fix no exempt class covers, which serves its own order by [Scope](
 above it quotes that order: his words, or the tooling order's "Drive tooling: …" words, at his DM
 root. A port never gets one: he reads "port of #N landed" in its order's thread once it lands, and
 so for every class that lands with no tap.
-`slack_dm_status(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
+`say(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for

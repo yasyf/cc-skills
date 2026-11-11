@@ -336,6 +336,15 @@ def test_blocks_count_as_much_as_the_text(talker: str, transcript: Path) -> None
     assert "70 words" in posted(transcript, text="short", blocks=blocks)
 
 
+def test_a_say_post_is_checked_as_slack_shows_it_each_reference_linked_and_one_naming_nothing_is_refused(talker: str, transcript: Path) -> None:
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"] = state.new_pr("https://github.com/yasyf/cc-skills/pull/7", "j1", "o1") | {"title": "New: \U0001f680 " + said(10)}
+    say = call("slack_dm_status", transcript, text=said(55) + " {pr:7}") | {"tool_name": message_limits.SAY}
+    assert "65 words" in message_limits.deny_reason(say)
+    unknown = call("slack_dm_status", transcript, text="see {card:demo:j9-1}") | {"tool_name": message_limits.SAY}
+    assert "{card:demo:j9-1} names no card" in message_limits.deny_reason(unknown)
+
+
 def test_a_question_card_holds_150_words_and_options_of_25_whatever_it_quotes(talker: str, transcript: Path) -> None:
     card = {"title": said(10), "body": said(40), "options": [said(25), said(25), said(25)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None

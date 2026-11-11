@@ -336,7 +336,7 @@ def event_lines(watcher: Watcher) -> list[str]:
         return []
     watcher.offset = events[-1][1]
     prs = state.load(watcher.name)["prs"]
-    return [event_line(event, prs) for event, _ in events]
+    return [event_line(event, prs) for event, _ in events if event["kind"] != "said"]
 
 
 def overdue(order: dict, moment: datetime, away: bool) -> bool:

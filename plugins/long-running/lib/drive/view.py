@@ -59,7 +59,7 @@ NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
 NO_MILESTONE = "No milestone"
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
-HISTORY_EVENTS = ("tap", "refused")
+HISTORY_EVENTS = ("tap", "refused", "said")
 NODE_STATES = ("bad", "you", "doing", "waiting")
 JOB_TONES = {"running": "doing", "waiting": "waiting", "built": "waiting", "failed": "bad"}
 BLOCKER_WORDS = {("card", "you"): "Your answer", ("pr", "you"): "Your tap", ("pr", "bad"): "Tests fail", ("job", "bad"): "Failed"}
@@ -530,7 +530,7 @@ def progress(drive: dict) -> dict:
 
 
 def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
-    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps and refused cards."""
+    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps, refused cards and every message he was sent, with its visuals."""
     prs = drive["prs"]
     happened = []
     for order_id, order in drive["orders"].items():
@@ -546,6 +546,9 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
         if job["state"] == "failed":
             happened.append({"at": job["updated"], "kind": "failed", "text": job["goal"], "detail": said(job["said"]), "url": None, "feature": job["order"]})
     for event in (event for event in events if event["kind"] in HISTORY_EVENTS):
+        if event["kind"] == "said":
+            happened.append({"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"]})
+            continue
         pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
         detail = event["label"] if event["kind"] == "tap" else said(event["reason"])
         happened.append({"at": event["at"], "kind": event["kind"], "text": pr_title(pr), "detail": detail, "url": pr["url"], "feature": pr["order"]})

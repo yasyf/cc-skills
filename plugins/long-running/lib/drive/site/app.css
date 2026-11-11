@@ -223,6 +223,8 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .what { font-weight: 600; }
 .happened.order > .dot, .happened.tap > .dot { background: var(--warm); }
 .happened.merged > .dot { background: var(--violet); }
+.happened.said > .dot { background: var(--accent); }
+a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; white-space: nowrap; }
 .happened.live > .dot { background: var(--ok); }
 .happened.failed > .dot, .happened.refused > .dot { background: var(--bad); }
 .gap { padding: 6px 20px 6px 108px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 12px; }

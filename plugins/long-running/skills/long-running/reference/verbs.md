@@ -36,5 +36,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive dashboard` | `--port <n>`; `--serve`, in the foreground |
 | `drive watch` | the events Monitor follows |
 | `drive card` | answers one cc-slack card request, JSON on stdin and stdout |
+| `drive mcp` | serves `say` to a Claude Code session over stdio, as this plugin's `drive` MCP server |
+| `drive tool <name>` | `<name>` say; runs that MCP tool on the JSON arguments read from stdin and prints its one line |
 | `drive install <plugin>@<marketplace>` | `--sha <merge sha>`; `--repo <owner/name>`; `--timeout <seconds>`, default 900 |
 | `drive setup` | `--bin-dir <dir>` for the `drive` shim |

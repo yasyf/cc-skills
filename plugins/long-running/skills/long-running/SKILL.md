@@ -17,7 +17,9 @@ fable)", and 9:38 PM, which makes the design lane the one exception (`design`).
   plus a builder for tooling or a ruling, and nothing else; cc-slack has put the eyes on his message
   by then. It writes no text in its terminal: everything for him goes to Slack, and the turn ends
   on the one word `Sent.`. The handler does the work or hands it to the coordinator, answers him in
-  his thread, and returns one line: its permalinks and at most three facts, so his next message
+  his thread through `say`, this plugin's one call that posts to Slack and shows the post on the
+  dashboard, its `{card:<waits id>}` and `{pr:<number>}` linked as each place draws them, and
+  returns one line: its permalinks and at most three facts, so his next message
   never waits on the communicator. The `communicator` page quotes his rulings on both, Nov 9 4:07
   and 5:02 PM and Nov 10 9:53 and 10:20 PM.
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background

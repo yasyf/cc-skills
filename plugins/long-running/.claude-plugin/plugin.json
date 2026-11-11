@@ -23,5 +23,13 @@
       "marketplace": "skills",
       "version": ">=0.1.12"
     }
-  ]
+  ],
+  "mcpServers": {
+    "drive": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/drive",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
 }
