@@ -172,7 +172,7 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
     drive["prs"]["yasyf/cc-skills#11"] = drive["prs"]["yasyf/cc-skills#9"] | {
         "url": "https://github.com/yasyf/cc-skills/pull/11"
     }
-    lines = render.status_text(drive, "live", {}).splitlines()
+    lines = render.status_text(drive, {}).splitlines()
     pr_lines = [line for line in lines if line.startswith("    - ")]
     assert pr_lines == [
         "    - https://github.com/yasyf/cc-skills/pull/10",
@@ -182,9 +182,9 @@ def test_status_text_lists_each_jobs_pr_urls_and_registered_prs_once() -> None:
 
 
 def test_status_text_counts_open_orders() -> None:
-    text = render.status_text(sample(), "live", {"coordinator": "in no Orca terminal"})
+    text = render.status_text(sample(), {"coordinator": "in no Orca terminal"})
     assert text.splitlines()[:3] == [
-        "demo: 2 open of 3 orders; PR fields live",
+        "demo: 2 open of 3 orders",
         "communicator: not started; Hold with slack_watch: his DM D123",
         "coordinator: session s1, in no Orca terminal; Hold no Slack channel.",
     ]
@@ -193,8 +193,7 @@ def test_status_text_counts_open_orders() -> None:
 
 
 def test_status_data_keeps_only_open_work() -> None:
-    data = render.status_data(sample(), "stored", {"coordinator": "in no Orca terminal"})
-    assert data["pr_fields"] == "stored"
+    data = render.status_data(sample(), {"coordinator": "in no Orca terminal"})
     assert set(data["roles"]) == {"coordinator"}
     assert set(data["orders"]) == {"o1", "o3"}
     assert set(data["jobs"]) == {"j1"}
@@ -205,14 +204,14 @@ def test_status_lists_each_report_held_for_his_catch_up() -> None:
     drive = sample()
     at = state.stamp(state.now())
     drive["held"] = {"700": {"order": "o1", "at": at, "told": "701"}, "702": {"order": None, "at": at, "told": "703"}}
-    lines = render.status_text(drive, "live", {}).splitlines()
+    lines = render.status_text(drive, {}).splitlines()
     start = lines.index("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
     assert lines[start + 1 : start + 3] == [
         f"- report 700 (o1), held {render.when(at)}, its writer told in record 701",
         f"- report 702 (no order), held {render.when(at)}, its writer told in record 703",
     ]
-    assert render.status_data(drive, "live", {})["held"] == drive["held"]
-    assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), "live", {}).splitlines())
+    assert render.status_data(drive, {})["held"] == drive["held"]
+    assert not any(line.startswith("Held for his catch-up") for line in render.status_text(sample(), {}).splitlines())
 
 
 def test_when_names_the_day_for_other_days() -> None:
@@ -223,7 +222,7 @@ def test_when_names_the_day_for_other_days() -> None:
 def test_status_text_names_the_thread_each_orders_lines_go_in() -> None:
     drive = sample()
     drive["orders"]["o1"]["thread"] = "1794307360.614569"
-    lines = render.status_text(drive, "live", {}).splitlines()
+    lines = render.status_text(drive, {}).splitlines()
     due = render.when(drive["orders"]["o1"]["due"])
     assert next(line for line in lines if line.startswith("- o1 ")).startswith(
         f"- o1 working due {due}, its lines go in D123 thread 1794307360.614569: "

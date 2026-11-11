@@ -275,8 +275,7 @@ def test_start_adds_watch_to_a_drive_saved_before_watch_existed(run: Run, demo: 
     assert state.load("demo")["slack"]["watch"] == ["C0822AHFY3G"]
 
 
-def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
+def test_status_and_context_print_who_holds_each_channel(run: Run) -> None:
     run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     code, out = run("status")
@@ -294,7 +293,6 @@ def test_status_and_context_print_who_holds_each_channel(run: Run, monkeypatch: 
 
 
 def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_whether_its_watch_runs(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
     run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
@@ -316,7 +314,6 @@ def test_status_lists_each_sub_coordinator_with_its_lane_session_place_and_wheth
 def test_an_orphaned_terminal_gets_the_repository_setting_and_a_shown_one_the_switch_command(
     run: Run, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
     session = os.environ["CLAUDE_CODE_SESSION_ID"]
     shown = {"orphaned": True, "holds": True}
     settings: list[tuple[str, ...]] = []
@@ -2911,50 +2908,21 @@ def test_pr_tapped_json(run: Run, with_pr: str) -> None:
     assert json.loads(out) == {"key": with_pr, "may_land": False, "why": "no tap from him yet"}
 
 
-LIVE = {
-    "state": "OPEN",
-    "isDraft": False,
-    "headRefOid": "fff0000",
-    "committed": None,
-    "mergeCommit": None,
-    "checks": [{"name": "test", "conclusion": "SUCCESS"}],
-    "reviewDecision": "APPROVED",
-    "mergeable": "MERGEABLE",
-    "title": "Fix: the live title",
-    "labels": [],
-}
+def test_status_reads_the_prs_from_the_drive_and_never_from_github(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    def refused(*_: object, **__: object) -> str:
+        raise AssertionError("drive status read GitHub")
 
-
-def test_status_overlays_live_pr_fields_without_saving_them(
-    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    calls = []
-    monkeypatch.setattr(github, "fetch", lambda keys: calls.append(keys) or {with_pr: LIVE})
+    monkeypatch.setattr(github, "run", refused)
     with state.edit("demo") as data:
-        data["prs"]["Forge-AI/monorepo#7"] = data["prs"][with_pr] | {"state": "merged"}
-    stored = state.state_path("demo").read_text()
+        data["prs"][with_pr].update(title="Fix: the watched title", checks="pass", review="approved")
     code, out = run("status")
     assert code == 0
-    assert out.splitlines()[0] == "demo: 1 open of 1 orders; PR fields live"
-    assert 'Forge-AI/monorepo#42 "Fix: the live title" open, checks pass, review approved' in out
-    code, out = run("status", "--json")
-    payload = json.loads(out)
-    assert payload["pr_fields"] == "live"
-    assert (payload["prs"][with_pr]["head"], payload["prs"][with_pr]["title"]) == ("fff0000", "Fix: the live title")
-    assert calls == [[with_pr], [with_pr]]
-    assert state.state_path("demo").read_text() == stored
+    assert out.splitlines()[0] == "demo: 1 open of 1 orders"
+    assert 'Forge-AI/monorepo#42 "Fix: the watched title" open, checks pass, review approved' in out
+    assert json.loads(run("status", "--json")[1])["prs"][with_pr]["title"] == "Fix: the watched title"
 
 
-def test_status_names_the_prs_github_did_not_return(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
-    code, out = run("status")
-    assert code == 0
-    first = "demo: 1 open of 1 orders; PR fields live; stored for Forge-AI/monorepo#42, which GitHub did not return"
-    assert out.splitlines()[0] == first
-
-
-def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
+def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for key in ("o1", "j1", with_pr, PR):
         code, out = run("status", key)
@@ -2967,9 +2935,8 @@ def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str, monke
 
 
 def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_takes(
-    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     code, out = run("status", "42")
     assert (code, "land it" in out, "something else" in out) == (0, True, False)
@@ -2981,8 +2948,7 @@ def test_status_reads_a_tracked_pr_by_its_bare_number_and_names_the_forms_an_id_
     assert "42 is the number of Forge-AI/monorepo#42, Forge-AI/sand#42; name one as owner/repo#42" in capsys.readouterr().err
 
 
-def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
+def test_order_show_and_job_show_print_what_status_prints(run: Run, with_pr: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "something else")
     for verb, key in (("order", "o1"), ("job", "j1"), ("job", "42")):
         shown = run(verb, "show", key)
@@ -3001,25 +2967,12 @@ def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Ru
     run("order", "set", "o1", "--state", "done")
     lines = run("status", "j1")[1].splitlines()
     assert lines == [
-        "demo: 0 open of 1 orders; PR fields live",
+        "demo: 0 open of 1 orders",
         f"- o1 done: {' '.join(words.split())}",
         f"  parts: {state.load('demo')['orders']['o1']['parts'].popitem()[0]}",
         f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
         f"    said: {' '.join(said.split())}",
     ]
-
-
-def test_status_renders_stored_fields_when_github_fails(
-    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def broken(keys: list[str]) -> dict:
-        raise github.GithubError("HTTP 502")
-
-    monkeypatch.setattr(github, "fetch", broken)
-    code, out = run("status")
-    assert code == 0
-    assert out.splitlines()[0] == "demo: 1 open of 1 orders; PR fields stored (GitHub read failed: HTTP 502)"
-    assert "Forge-AI/monorepo#42 open, checks pending, review none" in out
 
 
 def test_context_prints_the_role_block_without_open_orders(run: Run, with_pr: str) -> None:
@@ -3794,7 +3747,6 @@ def test_a_repair_he_asked_to_run_once_puts_up_no_pr(run: Run, demo: str, capsys
 def test_status_names_the_open_incidents_and_each_running_job_whose_session_ended(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(github, "fetch", lambda keys: {})
     run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix", "first check")
     run("order", "set", "o1", "--note", "record 3fa2c1")
     run("order", "add", "--project", "p", "--workstream", "w", "fix the watch")
