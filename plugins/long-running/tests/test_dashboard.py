@@ -661,3 +661,20 @@ const reach = (el) => {{ const r = el.getBoundingClientRect(); return document.e
 done({{ inside: pre.getBoundingClientRect().right <= card.getBoundingClientRect().right + 1, scrolls: pre.scrollWidth > pre.clientWidth, copy: reach(figure.querySelector('[data-copy]')), enlarge: reach(figure.querySelector('.code-bar [data-enlarge]')), floating: getComputedStyle(figure.querySelector(':scope > .enlarge')).display }});
 """, board(history=[{"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "the placer", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}]))
     assert seen == {"inside": True, "scrolls": True, "copy": True, "enlarge": True, "floating": "none"}
+
+
+def test_a_new_dashboard_version_reloads_the_page_unless_he_is_in_the_middle_of_something(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+let reloads = 0;
+window.reloadPage = () => { reloads += 1; };
+location.hash = '#/queue/all';
+await wait(100);
+document.querySelector('#main [data-ask]').click();
+await wait(50);
+await push({ ...MODEL, code: '/plugins/long-running/9.9.9/lib/drive', at: '2026-11-11T00:09:00-08:00' });
+const typing = { reloads, chip: document.querySelector('#stale').textContent, shown: !document.querySelector('#stale').hidden, kept: document.querySelector('.qfoot').textContent.includes('12:00') };
+document.activeElement.blur();
+await push({ ...MODEL, code: '/plugins/long-running/9.9.9/lib/drive' });
+done({ typing, idle: reloads });
+""", board(queue=[QUESTION], code="/plugins/long-running/1.0.1/lib/drive"))
+    assert seen == {"typing": {"reloads": 0, "chip": "The dashboard was updated. Reload", "shown": True, "kept": True}, "idle": 1}

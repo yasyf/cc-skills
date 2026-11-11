@@ -89,6 +89,7 @@ const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
 const toasts = new Map();
+let outdated = false;
 const prTabs = new Map();
 const prRows = new Map();
 const prReads = new Map();
@@ -1502,13 +1503,24 @@ function keepPlace() {
   history.replaceState({ ...history.state, y: scrollY }, '');
 }
 
+function deployed() {
+  const busy = [...toasts.values()].some((shown) => shown.state === 'held') || [...sent.values()].some((was) => was.busy) || Boolean(document.activeElement?.closest('textarea, input'));
+  if (!busy) return reloadPage();
+  outdated = true;
+  fresh();
+}
+
+function reloadPage() {
+  location.reload();
+}
+
 function fresh() {
   const el = $('#fresh');
   el.classList.toggle('late', !connected);
   el.textContent = connected ? 'Live' : model ? 'Stale' : 'Connecting';
   el.title = !model ? '' : connected ? `Live, updated ${clock(model.at)} Pacific` : `Not updated since ${clock(lostAt)}, showing ${clock(model.at)} Pacific`;
-  $('#stale').hidden = connected || !model;
-  $('#stale').textContent = model && !connected ? `Not live: this is the drive as of ${clock(model.at)}. Reconnecting…` : '';
+  $('#stale').hidden = !outdated && (connected || !model);
+  $('#stale').innerHTML = outdated ? 'The dashboard was updated. <button type="button" class="linkish" data-reload>Reload</button>' : model && !connected ? `Not live: this is the drive as of ${esc(clock(model.at))}. Reconnecting…` : '';
 }
 
 async function answer(card, label) {
@@ -1625,7 +1637,9 @@ function connect() {
     fresh();
   };
   stream.onmessage = (message) => {
-    model = JSON.parse(message.data);
+    const next = JSON.parse(message.data);
+    if (model && next.code !== model.code) return deployed();
+    model = next;
     connected = true;
     render();
     notify();
@@ -1678,6 +1692,7 @@ document.addEventListener('click', (event) => {
   if (jumped) return goJump(jumped);
   if (event.target.id === 'jump') return $('#jump').close();
   if (event.target.closest('#incidents a')) $('#incidents').hidePopover();
+  if (event.target.closest('[data-reload]')) return reloadPage();
   const cam = event.target.closest('#main [data-cam]');
   if (cam) {
     const viewport = $('#main .viewport');
