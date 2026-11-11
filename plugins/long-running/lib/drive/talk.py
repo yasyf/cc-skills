@@ -7,10 +7,14 @@ from drive.state import DriveError
 
 WEB = ("http://", "https://")
 UNNAMEABLE = re.compile(r'[\x00-\x1f/\\:*?"<>|\[\]]+')
+CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard; a post in an order's thread is recorded on that order too."""
+    """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard; a post in an order's thread is recorded on that order too, delivering the parts its report record names."""
+    report = cli.report_attrs(post["record"]) if post.get("record") else {}
+    if report.get("catch_up"):
+        post = post | {"text": titled(name, post.get("text") or "")}
     if post.get("dry_run"):
         return dry(name, post)
     reply = posted(name, post)
@@ -21,10 +25,16 @@ def say(name: str, post: dict) -> str:
         line += f" WARNING {warning}"
     if order := post.get("order"):
         try:
-            line += "; " + cli.record_post(name, order, reply["permalink"], post.get("part"))[0]
+            line += "; " + cli.record_post(name, order, reply["permalink"], report)[0]
         except (DriveError, slack.SlackError) as error:
             line += f"; not recorded on {order}: {error}"
     return line
+
+
+def titled(name: str, text: str) -> str:
+    """His catch-up, opening with the title the tool writes from the time he was last heard before he came back, in place of any title the text came with."""
+    [*_, back] = [event for event, _ in state.read_events(name) if event["kind"] == "catch-up"]
+    return f"*Catch-up since {back['since']}*\n{CATCH_UP_TITLE.sub('', text, count=1)}"
 
 
 def dry(name: str, post: dict) -> str:

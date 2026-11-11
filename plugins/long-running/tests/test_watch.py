@@ -527,16 +527,30 @@ def files_order(data: dict, **overrides: object) -> None:
     data["jobs"]["j2"] = job(order="o2", parts=["stack 1"])
 
 
-def test_a_part_no_job_carries_is_an_orphan_in_the_same_pass_and_again_every_thirty_minutes(
+def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_and_again_every_thirty_minutes(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
         files_order(data)
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
-    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
-    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5, seconds=5)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == ['ORPHAN o2 "stack 2": no job']
+
+
+def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        files_order(data)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j2"]["parts"].append("stack 2")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=30)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == []
+    assert state.load(demo)["orders"]["o2"]["parts"]["stack 2"]["orphan_said"] is None
 
 
 def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -544,7 +558,7 @@ def test_due_names_every_part_nothing_carries(demo: str, monkeypatch: pytest.Mon
     with state.edit(demo) as data:
         files_order(data, due=state.stamp(T0 + timedelta(minutes=10)))
     watching = watcher(demo)
-    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
+    assert watch.run_pass(watching, T0) == []
     lines = watch.run_pass(watching, T0 + timedelta(minutes=11))
     assert lines[0].startswith('DUE o2 "build the files design"')
     assert lines[1:] == ['ORPHAN o2 "stack 2": no job']
@@ -555,7 +569,7 @@ def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
 ) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        files_order(data)
+        files_order(data, updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
     assert run("job", "set", "j1", "--carries", "o2", "--part", "stack 2")[0] == 0
@@ -563,15 +577,17 @@ def test_a_part_another_orders_job_carries_is_no_orphan_until_that_job_is_done(
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     with state.edit(demo) as data:
         state.take_result(data, "j1", "DONE carried it")
-    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == ['ORPHAN o2 "stack 2": no job']
+        data["orders"]["o2"]["updated"] = state.stamp(T0)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=5)) == ['ORPHAN o2 "stack 2": no job']
 
 
 def test_a_job_on_the_part_heals_the_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
-        files_order(data)
+        files_order(data, updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
-    watch.run_pass(watching, T0)
+    assert watch.run_pass(watching, T0) == ['ORPHAN o2 "stack 2": no job']
     with state.edit(demo) as data:
         data["jobs"]["j2"]["parts"].append("stack 2")
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []

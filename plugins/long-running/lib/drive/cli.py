@@ -266,21 +266,27 @@ def need_record_close(data: dict, order_id: str, seq: str | None) -> None:
                 " pass --record <that record's seq>"
             )
         return
-    try:
-        record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
-    except reads.ReadError as error:
-        raise DriveError(f"record {seq} could not be read: {error}") from None
-    closes = record["fields"].get("attrs", {}).get("close", "").split()
+    closes = report_attrs(seq).get("close", "").split()
     if not closes:
         raise DriveError(f"record {seq} has no close attr, so it closes no order; an orders attr only says what its line is about")
     if order_id not in closes:
         raise DriveError(f"record {seq} does not close {order_id}: its close attr names only {', '.join(closes)}")
 
 
+def report_attrs(seq: str) -> dict:
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up."""
+    try:
+        record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
+    except reads.ReadError as error:
+        raise DriveError(f"record {seq} could not be read: {error}") from None
+    return record["fields"].get("attrs", {})
+
+
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     if not args.undo:
-        return emit(args, *record_post(name, args.id, args.link, args.part))
+        report = (report_attrs(args.record) if args.record else {}) | ({"part": args.part} if args.part else {})
+        return emit(args, *record_post(name, args.id, args.link, report))
     order = communicators_order(state.load(name), args.id)
     [undone] = pick_parts(args.id, order, [args.part] if args.part else [])
     with state.edit(name) as data:
@@ -294,12 +300,22 @@ def communicators_order(data: dict, order_id: str) -> dict:
     return find(data["orders"], order_id, "order")
 
 
-def record_post(name: str, order_id: str, link: str, named: str | None) -> tuple[str, dict]:
-    """Record the drive's post in an order's thread: the promised time it keeps, the order's last line, and the part it delivers."""
+def reported_parts(data: dict, order_id: str, report: dict) -> list[str]:
+    """The parts of the order a report's post delivers: the part it names, else each part of the order its job delivers."""
+    if part := report.get("part"):
+        return [part]
+    if job_id := report.get("job"):
+        return state.job_parts(find(data["jobs"], job_id, "job"), order_id)
+    return []
+
+
+def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
+    """Record the drive's post in an order's thread: the promised time it keeps, the order's last line, and the parts its report delivers."""
     data = state.load(name)
     order = communicators_order(data, order_id)
-    parts = pick_parts(order_id, order, [named]) if named else list(order["parts"])
-    part = parts[0] if len(parts) == 1 else None
+    named = reported_parts(data, order_id, report)
+    parts = pick_parts(order_id, order, named) if named else list(order["parts"])
+    delivered = parts if named or len(parts) == 1 else []
     at, ours = drive_post_at(link, data, order_id, bool(named))
     line = state.stamp(at)
     with state.edit(name) as data:
@@ -308,11 +324,12 @@ def record_post(name: str, order_id: str, link: str, named: str | None) -> tuple
             if state.owed(order):
                 state.keep(order, [at])
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
-        if part:
+        for part in delivered:
             order["parts"][part]["posted"] = link
-    said = f'"{part}": posted' if part else "progress line, no part delivered:"
+    quoted = ", ".join(f'"{part}"' for part in delivered)
+    said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
-    return f"{order_id} {said} {link}{away}", {"id": order_id, "part": part, "posted": link, "due": order["due"]}
+    return f"{order_id} {said} {link}{away}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def job_add(args: argparse.Namespace) -> int:
@@ -1290,6 +1307,11 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--part",
         help="the part the post delivers, which counts in any channel; with none, the only part of an order of one, and no part of an order of several: a progress line, both only in the order's threads",
+    )
+    verb.add_argument(
+        "--record",
+        metavar="SEQ",
+        help="the report record the post carries: it delivers the part its part attr names, else each part of the order its job attr's job delivers, counted in any channel",
     )
     verb.set_defaults(run=order_posted)
 
