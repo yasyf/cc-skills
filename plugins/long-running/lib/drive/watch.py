@@ -923,8 +923,8 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
             try:
                 worker = orca.worker(job["dispatch"])
             except orca.OrcaError as error:
-                if orca.GONE in str(error):
-                    deaths[job_id] = (job["dispatch"], "Orca no longer holds its worker")
+                if why := orca.gone(error):
+                    deaths[job_id] = (job["dispatch"], why)
                     continue
                 lines += read_failed(watcher, source, error, moment)
                 continue
