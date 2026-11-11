@@ -53,11 +53,11 @@ job's state and its said line:
 
 | First line | The job's state |
 |---|---|
-| `DONE`, or a reader's answer | done |
-| `READY`, `WAITING`, `DESIGN`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
+| `DONE`, or a reader's answer, its `READY` or `NOT READY` on a PR included | done; a reader's `NOT READY` stays on each PR it names until a later reader's `READY` names it |
+| `READY` or `DESIGN` from any job but a reader, `WAITING`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
 | `HANDOFF <path>`, a job its session stopped before done | stopped |
-| `BUILT` | set by hand: `drive job set <j> --state built --branch <branch> --waits <card>` |
+| `BUILT <branch>, waits on <cards>` | built on that branch, waiting on each card it names |
 
 The watch reads the agent's transcript, never the stored state. A running job whose agent ended its
 turn on a result line, ended it 30 minutes ago on any other line, wrote nothing for 30 minutes, or

@@ -1373,6 +1373,25 @@ def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is
     assert watch.wakes(line, state.load(demo))
 
 
+def unready(name: str, redrawn: bool = False) -> dict:
+    verdict = {"job": "j2", "at": state.stamp(T0), "why": "Releasable alone needs #43 live first", "redrawn": redrawn}
+    with state.edit(name) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "not_ready": verdict}
+    return verdict
+
+
+def test_a_green_approved_pr_under_a_readers_not_ready_for_thirty_minutes_is_said_and_wakes_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    waiting_job(demo)
+    unready(demo, redrawn=True)
+    serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
+    watching = watcher(demo)
+    watch.run_pass(watching, T0)
+    line = f"PR {KEY}: green and approved under a reader's NOT READY that no later reader's READY answered for 30 minutes [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
+    assert watch.wakes(line, state.load(demo))
+    assert "no tap until a reader passes it, since reader j2 called it NOT READY at " in render.pr_line(KEY, state.load(demo)["prs"][KEY])
+
+
 @pytest.mark.parametrize("wants_tap", [False, True])
 def test_a_green_approved_exempt_pr_not_landed_for_thirty_minutes_is_said_and_wakes_the_coordinator(
     demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool
@@ -1739,6 +1758,23 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
         f"CARD {CARD} settled in place: {KEY} merged",
     ]
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
+
+
+def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_in_place_once_for_that_verdict(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
+    verdict = unready(demo)
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY)]})
+    serve(monkeypatch, {KEY: read()})
+    redraws.failure = "cc-slack daemon not running"
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    redraws.failure = None
+    line = f"CARD his open card for {KEY} redrawn in place with no Approve: reader j2 called it NOT READY at {render.when(verdict['at'])}: Releasable alone needs #43 live first [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [line]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
+    assert redraws.asked == [state.pr_url(KEY), state.pr_url(KEY)]
+    assert state.load(demo)["prs"][KEY]["not_ready"]["redrawn"] is True
 
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:

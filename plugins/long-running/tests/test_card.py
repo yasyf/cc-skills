@@ -73,6 +73,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "tap": {"label": tap, "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"} if tap else None,
         "exempt": exempt,
         "fundamental": None,
+        "not_ready": None,
         "state": pr_state,
         "title": "Fix: retry flaky uploads",
         "head": HEAD,
@@ -509,6 +510,30 @@ def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monke
     }
 
 
+VERDICT = {"job": "j9", "at": "2026-11-09T09:00:00-08:00", "why": "Releasable alone needs #7 live first", "redrawn": False}
+
+
+def test_a_pr_a_reader_called_not_ready_draws_no_fresh_card_and_his_open_one_loses_its_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", answering(pr_json(rollup=PASSING, review="APPROVED")))
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = VERDICT
+    [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
+    assert skipped["reason"].startswith("reader j9 called it NOT READY at ")
+    assert skipped["reason"].endswith(
+        ": Releasable alone needs #7 live first, so it draws no Approve until a later reader's READY names it: start a reader on its head"
+    )
+    tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card]})
+    view.refresh_cards(drive)
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
+    assert drawn["card"]["prs"][0]["blocks"].startswith("A reader's check found it not ready: Releasable alone needs #7 live first.")
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = None
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["options"]) == ("needs_you", ["Approve", "Hold"])
+
+
 def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
     with state.edit(drive) as data:
@@ -811,6 +836,17 @@ def test_a_card_drawn_after_its_body_is_fixed_clears_the_refusal(stacked: list[l
     monkeypatch.setattr(card, "STACK_HEADING", "the stack")
     assert len(ask(asks(41, 42, 43))["cards"]) == 1
     assert not any(state.load("demo")["prs"][f"Forge-AI/monorepo#{n}"].get("refused") for n in (41, 42, 43))
+
+
+def test_a_stack_with_one_pr_a_reader_called_not_ready_draws_no_approve_for_the_stack(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    ask(asks(41, 42, 43))
+    shown = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [stack_url(n) for n in (41, 42, 43)], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "New: the orders table moves"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [shown]})
+    view.refresh_cards("demo")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#42"]["not_ready"] = VERDICT
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert (drawn["card"]["status"], "options" in drawn["card"]) == ("info", False)
 
 
 def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[list[str]]) -> None:

@@ -1026,7 +1026,7 @@ function prTone(pr) {
 
 function prSaid(pr) {
   const said = pr.state === 'open' ? CHECKS[pr.checks] ?? pr.checks : pr.state;
-  const held = { Hold: ', held by you', labeled: ', held by its hold label', wanted: ', wants your tap' }[pr.tap] ?? '';
+  const held = { Hold: ', held by you', labeled: ', held by its hold label', wanted: ', wants your tap', 'not ready': ", a reader's check found it not ready" }[pr.tap] ?? '';
   return said + held;
 }
 

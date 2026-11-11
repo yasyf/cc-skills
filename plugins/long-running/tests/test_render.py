@@ -77,6 +77,7 @@ def sample() -> dict:
             "checks": "pass",
             "review": "none",
             "hold_label": False,
+            "not_ready": None,
             "draft": False,
             "merged_sha": None,
             "updated": "2026-11-09T08:00:00-08:00",
