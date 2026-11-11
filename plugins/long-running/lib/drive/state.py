@@ -215,6 +215,7 @@ def load(name: str) -> dict:
         job.setdefault("waits", [])
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
+        job.setdefault("due", None)
         if job.get("ask"):
             job.setdefault("ask_at", job["updated"])
         if (job.get("agent") or "").startswith(DISPATCH_PREFIX):
@@ -369,6 +370,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "state": "running",
         "said": None,
         "may_settle": None,
+        "due": None,
         "created": created,
         "updated": created,
     }
