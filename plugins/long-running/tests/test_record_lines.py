@@ -90,7 +90,7 @@ def test_an_ask_naming_its_jobs_earlier_answered_question_is_refused_until_drive
     earlier = kept(demo, "j1", LAYOUT, card=CARD)
     reason = refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
     assert f"{earlier['ask']} keeps j1's question \"{LAYOUT}\", which this record does not ask" in reason
-    assert "`drive job ask j1` with no file for a remote lane's ASK, which reads its report" in reason
+    assert "`drive job ask j1` with no file for a remote lane's ASK the watch did not keep, which reads its report" in reason
     assert f"his answer closed j1's question \"{LAYOUT}\"" in refusal(record_lines.decision(post(kind="ask", text=LAYOUT, attrs=earlier)))
     assert record_lines.decision(post(kind="ask", text=HANDLE, attrs=kept(demo, "j1", HANDLE))) is None
 

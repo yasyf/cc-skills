@@ -1,4 +1,3 @@
-import hashlib
 import itertools
 import json
 import subprocess
@@ -48,7 +47,7 @@ One copy took 40 minutes on the primary.
 
 
 def kept_ask(drive: str) -> Path:
-    return state.drive_dir(drive) / "asks" / f"j1-{hashlib.sha256(ASK_IN_SHAPE.encode()).hexdigest()[:8]}.md"
+    return state.drive_dir(drive) / "asks" / f"j1-{state.ask_hash(ASK_IN_SHAPE)}.md"
 
 
 def message(kind: str, text: str, **overrides: str | None) -> dict:
@@ -270,7 +269,7 @@ def test_a_sprite_brief_carries_every_drive_file_it_names_whole_a_lanes_report_k
     assert "# Drive file repro/j1.sh, which your brief names\n\nexit 1\n" in composed
     assert "# Drive file scratch/j1/notes.md, which your brief names\n\nthe notes\n" in composed
     carried = composed.split(orca.BRIEF_HEADING)[0]
-    assert (carried.count("# Report of j2"), carried.count("# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 3, False, False)
+    assert (carried.count("\n# Report of j2"), carried.count("\n# Drive file"), "j9-1a2b3c4d" in carried, "a job the brief only lists" in carried) == (1, 3, False, False)
     assert orca.uncarried(demo, text) is None
     assert orca.brief_of(composed) == text
 
