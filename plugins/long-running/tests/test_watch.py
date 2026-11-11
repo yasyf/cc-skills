@@ -1760,7 +1760,7 @@ def test_a_merged_pr_settles_its_own_card_only_once_every_other_card_carrying_it
     assert (asked, shown) == ([(state.pr_url(other), f"{KEY} merged, {other} merged"), (state.pr_url(KEY), f"{KEY} merged")], [])
 
 
-def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_in_place_once_for_that_verdict(
+def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_each_read_while_it_asks_and_said_once_for_that_verdict(
     demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
 ) -> None:
     verdict = unready(demo)
@@ -1770,11 +1770,14 @@ def test_his_open_card_on_a_pr_a_reader_called_not_ready_is_redrawn_in_place_onc
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     redraws.failure = None
-    line = f"CARD his open card for {KEY} redrawn in place with no Approve: reader j2 called it NOT READY at {render.when(verdict['at'])}: Releasable alone needs #43 live first [o1 j1]"
+    line = f"CARD his open card for {KEY} is being redrawn in place with no Approve: reader j2 called it NOT READY at {render.when(verdict['at'])}: Releasable alone needs #43 live first [o1 j1]"
     assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [line]
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == []
-    assert redraws.asked == [state.pr_url(KEY), state.pr_url(KEY)]
+    assert redraws.asked == [state.pr_url(KEY)] * 3
     assert state.load(demo)["prs"][KEY]["not_ready"]["redrawn"] is True
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
+    assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
+    assert redraws.asked == [state.pr_url(KEY)] * 3
 
 
 def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
