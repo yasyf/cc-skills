@@ -649,6 +649,18 @@ def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refu
     assert run("pr", "set", PR, "--serves", "o1")[0] == 0
 
 
+def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his(run: Run, with_pr: str, on_github: dict) -> None:
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    on_github["body"] = CARD_BODY.split("## His words")[0] + "## His words, step by step\nNone: drive tooling.\n"
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 2
+    assert run("order", "add", "Drive tooling: a tooling PR lands on his Approve") == (0, "o2")
+    code, out = run("pr", "set", PR, "--tap", "--serves", "o2", "--design", "none")
+    assert code == 0
+    assert out.splitlines()[-1] == "serves o2, his words: Drive tooling: a tooling PR lands on his Approve"
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["wants_tap"], pr["serves"]) == (True, "o2")
+
+
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0

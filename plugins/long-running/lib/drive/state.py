@@ -14,6 +14,7 @@ JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
+TOOLING = "Drive tooling:"
 ROLES = ("communicator", "coordinator")
 
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")

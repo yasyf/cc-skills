@@ -70,6 +70,19 @@ def slack_thread(monkeypatch: pytest.MonkeyPatch) -> Thread:
 
 
 @dataclass
+class Checked:
+    findings: list[str] = field(default_factory=list)
+    texts: list[str] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def checked(monkeypatch: pytest.MonkeyPatch) -> Checked:
+    check = Checked()
+    monkeypatch.setattr(slack, "check_post", lambda text: check.texts.append(text) or list(check.findings))
+    return check
+
+
+@dataclass
 class Withdrawals:
     cards: list[str] = field(default_factory=list)
     asked: list[tuple[str, str]] = field(default_factory=list)

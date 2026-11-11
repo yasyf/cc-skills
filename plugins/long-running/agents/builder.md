@@ -72,13 +72,13 @@ you built up.
 6. Return as soon as the PR is registered: `WAITING` naming the checks or review still out, or
    `READY` when the PR is already green and waits only on his tap, or for a port only on the
    coordinator's check against the old PR, or `WAITING` naming the check or review still out.
-   A PR that is not a port and whose his-words list is empty or says none is not his order and
-   never becomes a PR card. Drive tooling is such a PR, and its list says none rather than quote
-   his words for the order whose work it unblocks. Land a `yasyf/*` one yourself by the landing
-   reference. A `Forge-AI/*` one an exempt class covers returns `READY` with an `EXEMPT:` line,
-   and any other returns `ASK` whose question opens `Drive tooling:` and says what it unblocks.
-   Any other PR with no order of his returns `BLOCKED no order of his names this` instead of
-   `READY`. A PR that makes a design decision he never answered is not `READY` either: return
+   A PR that is not a port and whose his-words list is empty or says none is not his order.
+   Drive tooling is such a PR, and its list says none rather than quote his words for the order
+   whose work it unblocks. Land a `yasyf/*` one yourself by the landing reference. A `Forge-AI/*`
+   one returns `READY` with `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line
+   when an exempt class covers it: the coordinator registers it under its own Drive tooling order,
+   and his Approve on its PR card lands it. Any other PR with no order of his returns `BLOCKED no
+   order of his names this` instead of `READY`. A PR that makes a design decision he never answered is not `READY` either: return
    `ASK` with that decision. Put the install command and the check that proves it live on `INSTALL:` and
    `PROVE:` lines, so a later handoff runs them without reading your transcript.
 

@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 import pytest
-from drive import card, state
+from drive import card, cli, state
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -446,6 +446,17 @@ def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch
     body = FIX_BODY.split("## His words, step by step")[0]
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"] == []
+
+
+def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    body = FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\nNone: drive tooling.\n"
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    assert cli.main(["order", "add", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o1"
+    reply = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})
+    assert [(drawn["number"], drawn["card"]["status"]) for drawn in reply["cards"]] == [(42, "needs_you")]
+    assert "refused" not in [event["kind"] for event in events(drive)]
 
 
 def test_an_exempt_port_with_no_his_words_still_draws(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:

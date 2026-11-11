@@ -2,6 +2,7 @@ import html
 import json
 import re
 import sys
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
@@ -11,6 +12,8 @@ from drive import limits, slack, state
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
 DM_POST = SLACK + "slack_dm_status"
 EDIT = SLACK + "slack_edit"
+THREAD_READ = SLACK + "slack_thread"
+READ_WINDOW = timedelta(minutes=10)
 CHANNEL_POSTS = {SLACK + "slack_reply", SLACK + "slack_send", EDIT}
 PERMALINK_CHANNEL = re.compile(r"/archives/([A-Z0-9]+)")
 SPACE = re.compile(r"\s+")
@@ -18,6 +21,10 @@ BETWEEN_QUOTES = re.compile(r"…|\.{3}|\n|\s/\s")
 QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
+UNREAD = (
+    "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
+    " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post."
+)
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
@@ -41,16 +48,57 @@ def posts_to(payload: dict, dm: str) -> bool:
     return payload["tool_name"] in CHANNEL_POSTS and channel == dm
 
 
+def lane(payload: dict) -> Path:
+    """This handler's own transcript, beside the communicator's."""
+    return Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
+
+
 def brief(payload: dict) -> str:
     """The prompt the communicator started this handler with, which quotes his message."""
-    if not payload.get("agent_id"):
+    if not payload.get("agent_id") or not (path := lane(payload)).is_file():
         return ""
-    lane = Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
-    if not lane.is_file():
-        return ""
-    with lane.open() as transcript:
+    with path.open() as transcript:
         content = json.loads(transcript.readline())["message"]["content"]
     return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
+
+
+def last_read(path: Path, dm: str, thread: str) -> datetime | None:
+    """When this handler last called slack_thread on the thread, by its own transcript, counting only a call that did not fail."""
+    calls: dict[str, datetime] = {}
+    read = None
+    with path.open() as transcript:
+        for line in transcript:
+            row = json.loads(line)
+            content = (row.get("message") or {}).get("content")
+            for part in content if isinstance(content, list) else []:
+                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id"), part["input"].get("thread_ts")) == (dm, thread):
+                    calls[part["id"]] = datetime.fromisoformat(row["timestamp"])
+                elif part.get("type") == "tool_result" and part.get("tool_use_id") in calls and not part.get("is_error"):
+                    read = calls[part["tool_use_id"]]
+    return read
+
+
+def unread(payload: dict, dm: str) -> str | None:
+    """Why a handler's new line in his thread waits for a read of that thread, which its own transcript must show in the last 10 minutes; a card is drawn from a record, not written from the thread."""
+    tool_input = payload["tool_input"]
+    if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
+        return None
+    if (read := last_read(lane(payload), dm, thread)) and datetime.now(UTC) - read < READ_WINDOW:
+        return None
+    return UNREAD.format(dm=dm, thread=thread)
+
+
+def unchecked(text: str) -> str | None:
+    """What `cc-slack check-post` finds in the exact words the post sends."""
+    if not text:
+        return None
+    try:
+        findings = slack.check_post(text)
+    except slack.SlackError as error:
+        return f"refused: `cc-slack check-post` could not check this post's words, so it does not go out: {error}."
+    if not findings:
+        return None
+    return "refused: `cc-slack check-post` finds this in the post's exact words; fix each, then post the fixed words:\n" + "\n".join(findings)
 
 
 def his_messages(payload: dict, dm: str) -> str:
@@ -92,7 +140,7 @@ def unsaid(parts: list[str], said: str) -> list[str]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a post to his DM goes out longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer quoting any message of his word for word as asked goes out whole."""
+    """Why a post to his DM does not go out as written: a handler's line in his thread waits for its read of that thread, the post keeps its length, and `cc-slack check-post` passes its exact words."""
     dm = his_dm(payload.get("session_id") or "")
     if dm is None:
         return None
@@ -104,6 +152,12 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
+    return unread(payload, dm) or over_length(payload, dm) or unchecked(tool_input.get("text") or "")
+
+
+def over_length(payload: dict, dm: str) -> str | None:
+    """Why the post is longer than he reads: a routine line, summary or card keeps its limit, an edit may reword its post at that post's length, and an answer quoting any message of his word for word as asked goes out whole."""
+    tool_input = payload["tool_input"]
     if (refusal := limits.post_refusal(tool_input)) is None or tool_input.get("card"):
         return refusal
     try:

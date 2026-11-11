@@ -37,6 +37,17 @@ def cc_slack(*args: str) -> dict:
     return json.loads(result.stdout)
 
 
+def check_post(text: str) -> list[str]:
+    """What `cc-slack check-post` finds in a post's exact words, one finding and its fix a line."""
+    try:
+        result = subprocess.run([launcher(), "check-post", "-"], input=text, check=False, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SlackError(str(error)) from None
+    if result.returncode > 1:
+        raise SlackError(" ".join(result.stderr.split()) or f"cc-slack check-post exited {result.returncode}")
+    return result.stdout.splitlines()
+
+
 def thread(*where: str) -> list[dict]:
     return cc_slack("thread", *where)["messages"]
 
