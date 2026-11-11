@@ -3,10 +3,21 @@ import re
 import subprocess
 from pathlib import Path
 
-from drive import limits, slack, state
+from drive import limits, slack, state, superseded, view
 from drive.render import cut
 from drive.state import DriveError
 
+UNKEPT_ASK = (
+    "refused: an ask record names the ASK `drive job ask` kept, as the attr `ask` set to the path it printed, and the"
+    " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
+    " record again with that path"
+)
+UNJOBBED = "refused: an ask record names the job that kept its ASK, which his answer resumes; post it again with `--attr job=<j>`, the j in the ASK's file name"
+KEEP_ASKED = (
+    "the communicator draws the card from that file alone. Keep this record's question with `drive job ask {job} <file>`, or"
+    " `drive job ask {job}` with no file for a remote lane's ASK, which reads its report, since nothing keeps it for you;"
+    " then post this record again with the path it prints"
+)
 MATCHES = 3
 APPROVAL = "kind:approval"
 APPROVED = re.compile(r"Approve\b")
@@ -19,9 +30,30 @@ COMMON = {
 }
 
 
-def kept(names: list[str], ask: str | None) -> bool:
-    """An ASK that `drive job ask` kept in one of these drives, which it checked against his answers before keeping."""
-    return bool(ask) and any(Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks") for name in names)
+def ask_refusal(names: list[str], named: dict[str, str], text: str) -> str | None:
+    """Why an ask record may not go out: the communicator draws its card from the ASK file its `ask` attr names, so that file is one `drive job ask` kept in one of these drives, checked against his answers, for the question of the job its `job` attr names that this record asks and his answer has not closed; another job's file, another question's or an answered one's draws no card for it."""
+    if (name := keeper(names, named.get("ask"))) is None:
+        return UNKEPT_ASK
+    file = Path(named["ask"]).expanduser()
+    if not (job_id := named.get("job")):
+        return UNJOBBED
+    data = state.load(name)
+    job = data["jobs"].get(job_id)
+    keep = KEEP_ASKED.format(job=job_id)
+    if not (question := job and state.kept_in(job, file)):
+        return f"refused: {file} keeps no question of {job_id}, and {keep}"
+    if " ".join(question["title"].split()).casefold() not in " ".join(text.split()).casefold():
+        return f'refused: {file} keeps {job_id}\'s question "{question["title"]}", which this record does not ask, and {keep}'
+    if question["card"] or question["waits"]:
+        view.refresh_cards(name)
+    if not any(open_question is question for open_question in superseded.unanswered(data, job, view.live_cards(name))):
+        return f'refused: his answer closed {job_id}\'s question "{question["title"]}" kept in {file}, so its card never draws again, and {keep}'
+    return None
+
+
+def keeper(names: list[str], ask: str | None) -> str | None:
+    """The drive among these whose asks folder holds this file, the one place `drive job ask` keeps an ASK."""
+    return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
 def answers(card: str, whole: str, drives: list[str], cwd: str) -> list[dict]:

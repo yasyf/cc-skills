@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 import record_lines
-from drive import limits, state
+from conftest import SHORT_ASK
+from drive import limits, settled, state, view
 
 SESSION = "session-under-test"
 LONG = (
@@ -21,6 +22,14 @@ def post(session: str = SESSION, **tool_input: object) -> dict:
 def refusal(made: dict | None) -> str:
     assert made and made["permissionDecision"] == "deny"
     return made["permissionDecisionReason"]
+
+
+def kept(name: str, job_id: str, title: str, card: str | None = None) -> dict[str, str]:
+    with state.edit(name) as data:
+        job = data["jobs"].setdefault(job_id, state.new_job("o1", "builder", "build it", [], state.stamp()))
+        file = state.drive_dir(name) / "asks" / f"{job_id}-{len(job['questions'])}.md"
+        job["questions"].append(state.new_question(str(file), title, state.stamp(), card=card) | {"waits": card and f"{name}:{job_id}-7"})
+    return {"ask": str(file), "job": job_id}
 
 
 def test_a_drive_record_arrives_as_one_line_with_the_rest_at_the_top_of_its_body(demo: str) -> None:
@@ -42,9 +51,10 @@ def test_a_one_line_record_and_another_sessions_record_are_left_alone(demo: str)
 
 
 def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
-    records = [{"kind": "ask", "text": LONG, "attrs": {"ask": str(state.drive_dir(demo) / "asks" / "j12-6581.md"), "job": "j12"}}, {"kind": "answer", "text": LONG}]
+    asked = f"{LAYOUT}\nproof: https://github.com/yasyf/cc-skills/pull/4093"
+    records = [{"kind": "ask", "text": asked, "attrs": kept(demo, "j12", LAYOUT)}, {"kind": "answer", "text": LONG}]
     shortened, whole = record_lines.decision(post(records=records))["updatedInput"]["records"]
-    assert len(shortened["text"]) <= limits.RECORD_CHARS and shortened["body"] == LONG
+    assert shortened["text"] == LAYOUT and shortened["body"] == asked
     assert whole == records[1]
 
 
@@ -57,6 +67,8 @@ def test_a_long_record_that_attaches_a_file_is_cut_to_one_line_and_keeps_its_fil
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"
+LAYOUT = "How should a finished run's files be laid out so its page opens without guessing?"
+HANDLE = "How does an agent another agent started get the handle it sends its starter messages through?"
 
 
 def test_an_ask_naming_no_ask_drive_job_ask_kept_is_refused_whatever_it_says(demo: str) -> None:
@@ -68,9 +80,47 @@ def test_an_ask_naming_no_ask_drive_job_ask_kept_is_refused_whatever_it_says(dem
 
 
 def test_an_ask_naming_the_ask_drive_job_ask_kept_goes_out_and_other_sessions_are_not_checked(demo: str) -> None:
-    kept = state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md"
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": str(kept), "job": "j1"})) is None
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=kept(demo, "j1", IDLE))) is None
     assert record_lines.decision(post(session="another-session", kind="ask", text=IDLE)) is None
+
+
+def test_an_ask_naming_its_jobs_earlier_answered_question_is_refused_until_drive_job_ask_keeps_its_own(demo: str) -> None:
+    earlier = kept(demo, "j1", LAYOUT, card=CARD)
+    reason = refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
+    assert f"{earlier['ask']} keeps j1's question \"{LAYOUT}\", which this record does not ask" in reason
+    assert "`drive job ask j1` with no file for a remote lane's ASK, which reads its report" in reason
+    assert f"his answer closed j1's question \"{LAYOUT}\"" in refusal(record_lines.decision(post(kind="ask", text=LAYOUT, attrs=earlier)))
+    assert record_lines.decision(post(kind="ask", text=HANDLE, attrs=kept(demo, "j1", HANDLE))) is None
+
+
+def test_an_ask_naming_another_open_question_or_another_jobs_file_is_refused_and_one_redoing_its_own_open_card_goes_out(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    shown = {"url": CARD, "question": LAYOUT, "asked": state.stamp(), "card": {"title": LAYOUT, "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    earlier = kept(demo, "j1", LAYOUT, card=CARD)
+    assert "which this record does not ask" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=earlier)))
+    elsewhere = kept(demo, "j2", HANDLE)
+    assert f"{elsewhere['ask']} keeps no question of j1" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs=elsewhere | {"job": "j1"})))
+    redone = earlier | {"waits": "demo:j1-7", "reworking": "the layout is being redone, back by 5 PM"}
+    assert record_lines.decision(post(kind="ask", text=f"ASK (o1, j1): {LAYOUT}", attrs=redone)) is None
+
+
+def test_a_jobs_second_question_from_a_remote_lane_goes_out_on_the_new_file_drive_job_ask_keeps(
+    run: Callable[..., tuple[int, str]], demo: str, tmp_path: Path
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    first = run("job", "ask", "j1", str(block))[1]
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["questions"][0].update(waits="demo:j1-7", card=CARD)
+        data["jobs"]["j1"]["report"] = SHORT_ASK.replace(f"ASK {LAYOUT}", f"ASK {HANDLE}")
+    assert "drive job ask j1" in refusal(record_lines.decision(post(kind="ask", text=HANDLE, attrs={"ask": first, "job": "j1"})))
+    code, second = run("job", "ask", "j1")
+    assert code == 0 and second != first
+    assert record_lines.decision(post(kind="ask", text=HANDLE, attrs={"ask": second, "job": "j1"})) is None
 
 
 TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
@@ -86,8 +136,8 @@ def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) 
     assert made["permissionDecision"] == "deny"
     assert "Forge-AI/monorepo#4242: he tapped Approve at " in made["permissionDecisionReason"]
     assert "he tapped Approve" in record_lines.decision(post(kind="report", text=f"POST the update-button fix needs your tap: {TAPPED}"))["permissionDecisionReason"]
-    kept = {"ask": str(state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md"), "job": "j1"}
-    assert "he tapped Approve" in record_lines.decision(post(kind="ask", text=f"tap Approve on {TAPPED}?", attrs=kept))["permissionDecisionReason"]
+    tap = f"tap Approve on {TAPPED}?"
+    assert "he tapped Approve" in record_lines.decision(post(kind="ask", text=tap, attrs=kept(demo, "j1", tap)))["permissionDecisionReason"]
     assert record_lines.decision(post(kind="report", text=f"FYI the update-button fix merged: {TAPPED}")) is None
 
 
@@ -153,9 +203,9 @@ def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: st
 
 
 def test_an_ask_naming_no_job_is_refused(demo: str) -> None:
-    kept = str(state.drive_dir(demo) / "asks" / "j750-ab12.md")
-    assert "--attr job=<j>" in refusal(record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": kept})))
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": kept, "job": "j750"})) is None
+    asked = kept(demo, "j750", IDLE)
+    assert refusal(record_lines.decision(post(kind="ask", text=IDLE, attrs={"ask": asked["ask"]}))) == settled.UNJOBBED
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs=asked)) is None
 
 
 def test_a_ready_record_says_which_kind_its_prs_are(demo: str) -> None:
@@ -174,9 +224,9 @@ def test_a_ready_record_naming_its_order_takes_its_kind_from_that_order(run: Cal
 
 
 def test_an_ask_attaching_its_kept_file_takes_it_as_its_ask(demo: str) -> None:
-    kept = str(state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md")
-    made = record_lines.decision(post(kind="ask", text=IDLE, path=kept, attrs={"job": "j1"}))
-    assert made["updatedInput"]["attrs"] == {"job": "j1", "ask": kept}
+    asked = kept(demo, "j1", IDLE)
+    made = record_lines.decision(post(kind="ask", text=IDLE, path=asked["ask"], attrs={"job": "j1"}))
+    assert made["updatedInput"]["attrs"] == asked
 
 
 def test_a_record_carrying_a_max_words_attr_is_refused_on_any_kind(demo: str) -> None:
@@ -211,7 +261,7 @@ def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_ref
         assert f"`--attr {attr}=" in reason
     assert record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={"catch_up": "true"})) is None
     assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={"order": "o1", "incident": "i3", "close": "o1"})) is None
-    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"catchup": "true", "ask": str(state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md"), "job": "j1"})) is None
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"catchup": "true", **kept(demo, "j1", IDLE)})) is None
 
 
 def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:

@@ -499,6 +499,11 @@ def new_question(file: str | None, title: str | None, asked: str, unsettled: str
     return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card}
 
 
+def kept_in(job: dict, file: Path) -> dict | None:
+    """The job's newest question kept in this ASK file."""
+    return next((question for question in reversed(job["questions"]) if question["file"] and Path(question["file"]).resolve() == file.resolve()), None)
+
+
 def same_question(one: str | None, other: str | None) -> bool:
     """Whether two questions ask him the same thing: the same words, whatever their case and spacing."""
     return bool(one and other) and " ".join(one.split()).casefold() == " ".join(other.split()).casefold()

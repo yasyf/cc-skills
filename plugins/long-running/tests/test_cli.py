@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -46,32 +46,6 @@ Settled: "copy one store"
 Native: none: he never sees it
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
-"""
-SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
-A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
-Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
-Meanwhile nothing is built on either layout.
-Show me:
-1 · One snapshot file per finished run, the requests its page makes:
-```http
-GET snapshot.ltx      map at a fixed place
-GET 2 page ranges
-```
-
-2 · A map file beside each journal file, the requests its page makes:
-```http
-GET journal/0001.map  the map, no guessing
-GET journal/0001.ltx  one page range
-... 180 files, two requests each
-```
-- One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
-- A map file beside each journal file: no guessing, but one request per file and twice the objects
-- Map at the start of each file: changes the shared file format and still needs a length read first
-
-Findings:
-Direct fix: none: a design choice, with no defect behind it
-(1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
-(2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
 FINDINGS_FIRST = """ASK Two design picks for the new run page: how a run's files are laid out, and what the runner keeps.
 
