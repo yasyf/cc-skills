@@ -125,11 +125,21 @@ def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
 @dataclass
 class Answers:
     found: list[dict] = field(default_factory=list)
+    nearest: list[dict] = field(default_factory=list)
     asked: list[str] = field(default_factory=list)
+    near: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
-    monkeypatch.setattr(settled, "answers", lambda text, cwd: answers.asked.append(text) or list(answers.found))
+
+    def matched(text: str, cwd: str, *flags: str) -> list[dict]:
+        if "--nearest" in flags:
+            answers.near.append((text, flags))
+            return list(answers.nearest)
+        answers.asked.append(text)
+        return list(answers.found)
+
+    monkeypatch.setattr(settled, "matched", matched)
     return answers

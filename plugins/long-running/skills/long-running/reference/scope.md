@@ -48,11 +48,18 @@ Within his orders, do everything else and report the result with a count: ports,
 restarts, backfills, CI fixes, cleanups, tool fixes.
 
 - A question he has answered is never asked again, in any wording. `drive job ask` and every `ask`
-  record check the question against his recorded answers, and refuse it with every answer that
-  may settle it, by id and first line, the same list each time for the same question. Read each:
-  one that settles it is his answer, and the work goes ahead on it. Only when none does, the ask
-  goes out with one `--unsettled` string, or the record's `unsettled` attr, naming every id and why
-  that answer does not settle this question, such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`.
+  record check it twice: the part he reads against every recorded answer of his, and the whole
+  block, findings included, against the drive's own answers, nearest first, since his answer often
+  rules past the question it was given under and names the subject only in his words. Each refuses
+  with every answer that may settle it, by id and first line, the same list each time for the same
+  question. Read each: one that settles it is his answer, and the work goes ahead on it. One that
+  already names what you would recommend, such as a service he said to build, settles what that
+  thing does: build it, and ask nothing. Only when none does, the ask goes out with one
+  `--unsettled` string, or the record's `unsettled` attr, naming every id and why that answer does
+  not settle this question, such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`. His ruling,
+  Nov 10 9:46 PM, on a card asking what may delete a file from a team's shared folder, whose own
+  findings quoted his earlier answer naming the service: "I alrady told you to build this service
+  as `ssql-blobstore` and move all the blob logic from al over into there only".
 - A trust line waits for his word: landing a change in a `Forge-AI/*` repo that is not an exempt
   class ([reference/landing.md](landing.md)), posting as him to anyone else,
   changing production, and stopping or closing sessions he did not name. His order to post, in his

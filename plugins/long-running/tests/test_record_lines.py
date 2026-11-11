@@ -50,10 +50,11 @@ RULING = {"id": "ac6134849ff8a392c9f26294d4303635d1c27a58", "title": "close ever
 
 def test_an_ask_his_recorded_answer_may_settle_is_refused_until_a_reason_names_that_answer(demo: str, recorded: Answers) -> None:
     recorded.found = [RULING]
-    made = record_lines.decision(post(kind="ask", text=IDLE))
+    made = record_lines.decision(post(kind="ask", text=IDLE, body="14 sessions idle since Nov 8"))
     assert made["permissionDecision"] == "deny"
     assert "- ac61348 close every completed or idle Claude or Codex session and its terminal" in made["permissionDecisionReason"]
     assert recorded.asked == [IDLE]
+    assert recorded.near == [(f"{IDLE}\n\n14 sessions idle since Nov 8", ("--nearest", "--label", f"drive:{demo}"))]
     assert record_lines.decision(post(records=[{"kind": "report", "text": "j12 merged"}, {"kind": "ask", "text": IDLE}]))["permissionDecision"] == "deny"
     named = {"unsettled": "ac61348: it lets a lane close them; the session guard still needs his tap on each terminal"}
     assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"unsettled": "the guard needs his tap"}))["permissionDecision"] == "deny"
