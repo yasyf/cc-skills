@@ -245,7 +245,7 @@ def decision(payload: dict) -> dict | None:
 
 
 def main() -> None:
-    if made := decision(json.load(sys.stdin)):
+    if made := decision(agents.seen(json.load(sys.stdin))):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", **made}} | agents.ruled(made.get("permissionDecisionReason") or "")))
 
 

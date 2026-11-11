@@ -49,7 +49,7 @@ def bash_reason(role: str, command: str) -> str | None:
 
 
 def main() -> None:
-    payload = json.load(sys.stdin)
+    payload = agents.seen(json.load(sys.stdin))
     if not (reason := deny_reason(payload)):
         agents.hold(payload)
         return

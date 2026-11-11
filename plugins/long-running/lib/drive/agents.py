@@ -1,13 +1,18 @@
 import json
 import re
+import subprocess
 from pathlib import Path
 from typing import Self
 
-from drive import reads, state
+from drive import reads, render, state
 from drive.brief import BRIEF_JOB, carried
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 HANDLER = "long-running:handler"
+HIS_WORDS = "Message (his words)"
+SCRATCH = re.compile(r"Scratch:\s*(\S+)")
+LABEL = re.compile(rf"^({'|'.join(re.escape(label) for label in render.HANDLER_LABELS)}):")
+HANDLER_SETTINGS = {"bashOutputMaxChars": 6000, "outputStyle": "default", "env": {"CLAUDE_CODE_SILENT_TURN_REMINDER": "0"}}
 
 
 class Ruled(str):
@@ -33,8 +38,69 @@ def ruled(reason: str) -> dict:
 
 
 def transcript(payload: dict) -> Path:
-    """The transcript of the agent whose step fired a hook, beside its session's."""
+    """The transcript of the agent whose step fired a hook: a handler's own session's, else the one beside its session's."""
+    if path := payload.get("agent_transcript_path"):
+        return Path(path)
     return Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
+
+
+def seen(payload: dict) -> dict:
+    """A hook's payload as the drive's checks read it: a handler's own `claude --bg` session reads as an agent of the communicator's session, as a handler ran before it had a session of its own, so every check on a handler binds it unchanged."""
+    if payload.get("agent_id") or payload.get("agent_type") != HANDLER or not (names := state.session_drives(payload["session_id"])):
+        return payload
+    data = state.saved(names[0])
+    return payload | {
+        "session_id": data["roles"]["communicator"]["session"],
+        "agent_id": state.handler_id(data, payload["session_id"]),
+        "agent_transcript_path": payload["transcript_path"],
+        "handler_session": payload["session_id"],
+    }
+
+
+def beyond_brief(prompt: str) -> str | None:
+    """The first line of a handler's prompt that is no line of its brief: each line opens with a brief label, his words may run on below their label, and Context runs to at most three lines."""
+    label, context = None, 0
+    for line in prompt.strip().splitlines():
+        if found := LABEL.match(line):
+            label, context = found[1], 1
+        elif line.strip() and not (label == HIS_WORDS or (label == "Context" and (context := context + 1) <= 3)):
+            return line.strip()
+    return None
+
+
+def scratch(prompt: str) -> Path | None:
+    """The folder a drive agent's brief names as its Scratch, which must exist before the agent's first write."""
+    match = SCRATCH.search(prompt)
+    return Path(match[1].rstrip(".,;")).expanduser() if match else None
+
+
+def start_handler(name: str, handler: str, prompt: str) -> None:
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in this session's checkout, its SessionStart hook binding it to the drive by the id in its environment."""
+    settings = HANDLER_SETTINGS | {"env": HANDLER_SETTINGS["env"] | {state.HANDLER_ENV: f"{name}/{handler}"}}
+    argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
+    reads.run(argv, Path.cwd())
+
+
+def bind_handler(payload: dict, handler: str) -> None:
+    """Bind a handler's session to the drive the moment it starts, before its first step, so every check on the communicator's handlers finds it."""
+    name, _, handler_id = handler.partition("/")
+    with state.edit(name) as data:
+        data["handlers"][handler_id].update(session=payload["session_id"], transcript=payload["transcript_path"])
+
+
+def end_handler(payload: dict) -> None:
+    """Hand the line a handler ended on to the communicator as one cci record and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
+    name = state.session_drives(payload["session_id"])[0]
+    with state.edit(name) as data:
+        del data["handlers"][payload["agent_id"]]
+        if job_id := state.agent_job(data, payload["agent_id"]):
+            data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
+    line = (payload.get("last_assistant_message") or "").strip()
+    cwd = Path(payload["cwd"])
+    reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], cwd)
+    listed = json.loads(reads.run(["claude", "agents", "--json"], cwd))
+    own = next(row["id"] for row in listed if row.get("sessionId") == payload["handler_session"])
+    subprocess.Popen(["claude", "rm", own], cwd=cwd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 
 
 def ended(row: dict) -> bool:
@@ -47,7 +113,7 @@ def brief(payload: dict) -> str:
     if not payload.get("agent_id") or not (path := transcript(payload)).is_file():
         return ""
     with path.open() as handle:
-        content = json.loads(handle.readline())["message"]["content"]
+        content = next(row for line in handle if (row := json.loads(line)).get("type") == "user")["message"]["content"]
     prompt = carried(content if isinstance(content, str) else " ".join(part.get("text", "") for part in content))
     return f"{prompt}\n{record(named[1])}" if (named := RECORD.search(prompt)) else prompt
 

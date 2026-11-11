@@ -11,7 +11,7 @@ from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
 OPS = {"order": ("add", "set", "posted", "told"), "job": ("add", "set", "brief"), "pr": ("add", "set"), "incident": ("open", "stop", "freeze", "release")}
-ONE_VERB = {"heard": ("heard",), "status": ("status",), "search_plan": ("plan", "search")}
+ONE_VERB = {"heard": ("heard",), "handler": ("handler",), "status": ("status",), "search_plan": ("plan", "search")}
 POST_SECONDS = 60
 DRY_RUN = {"type": "boolean", "description": "print the drive command or record each op would run, and run nothing"}
 DRIVE = {"type": "string", "description": "the drive this call acts on, as --drive names it; default the drive bound to this session, else the only drive"}
@@ -101,6 +101,16 @@ def verb_tools() -> list[dict]:
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}},
         },
         {
+            "name": "handler",
+            "description": (
+                "Start a long-running:handler on its brief as its own claude --bg session, recording that he wrote when the"
+                " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
+                " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
+                " with it."
+            ),
+            "inputSchema": {"type": "object", "properties": {**schema(leaf("handler"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
+        },
+        {
             "name": "record",
             "description": (
                 "Send his words (owner), his answer to a card (answer) or a tool's refusal (defect) to another session of"
@@ -183,7 +193,7 @@ def run(tool: str, name: str, arguments: dict) -> str:
     match tool:
         case "record":
             return record(name, listing(arguments, "records", "owner, answer or defect records"), dry_run)
-        case "heard" | "status" | "search_plan":
+        case "heard" | "handler" | "status" | "search_plan":
             said: list[str] = []
             return "\n".join(ran(name, said, 1, 1, ONE_VERB[tool], arguments, dry_run) or said)
         case group:

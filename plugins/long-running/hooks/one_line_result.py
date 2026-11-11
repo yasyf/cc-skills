@@ -22,7 +22,7 @@ STAFF_ROUTES = ("break-glass", "db-read")
 
 
 def block_reason(payload: dict) -> str | None:
-    """Why a drive session's background agent may not stop yet: its final message lands whole in that session's context, so it is one line."""
+    """Why a drive session's background agent, a handler's own session included, may not stop yet: its final message lands whole in that session's context, a handler's as its cci record, so it is one line."""
     if payload.get("stop_hook_active"):
         return None
     session = payload.get("session_id") or ""
@@ -143,12 +143,14 @@ def take_result(payload: dict, refused: bool) -> None:
 
 
 def main() -> None:
-    payload = json.load(sys.stdin)
+    payload = agents.seen(json.load(sys.stdin))
     agents.hold(payload)
     reason = block_reason(payload)
     take_result(payload, bool(reason))
     if reason:
         print(json.dumps({"decision": "block", "reason": reason}))
+    elif "handler_session" in payload:
+        agents.end_handler(payload)
 
 
 if __name__ == "__main__":

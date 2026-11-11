@@ -1,14 +1,12 @@
 import json
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import brief, state
+from drive import agents, brief, state
 
 AGENTS = "long-running:"
-SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 
 
 def named_job(payload: dict) -> tuple[str, dict, str, str] | None:
@@ -49,12 +47,11 @@ def scratch_folder(payload: dict) -> Path | None:
     tool_input = payload["tool_input"]
     if not str(tool_input.get("subagent_type") or "").startswith(AGENTS):
         return None
-    match = SCRATCH.search(tool_input.get("prompt") or "")
-    return Path(match.group(1).rstrip(".,;")).expanduser() if match else None
+    return agents.scratch(tool_input.get("prompt") or "")
 
 
 def main() -> None:
-    payload = json.load(sys.stdin)
+    payload = agents.seen(json.load(sys.stdin))
     if reason := deny_reason(payload):
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason}}))
         return

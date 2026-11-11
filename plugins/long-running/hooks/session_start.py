@@ -1,12 +1,13 @@
 import contextlib
 import json
+import os
 import sys
 from pathlib import Path
 
 PLUGIN = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PLUGIN / "lib"))
 
-from drive import reads, render, state, watch
+from drive import agents, reads, render, state, watch
 
 
 def role_context(session: str) -> str | None:
@@ -42,8 +43,12 @@ def respond(payload: dict) -> dict | None:
 
 
 def main() -> None:
+    payload = json.load(sys.stdin)
+    if handler := os.environ.get(state.HANDLER_ENV):
+        agents.bind_handler(payload, handler)
+        return
     try:
-        output = respond(json.load(sys.stdin))
+        output = respond(payload)
     except Exception:
         return
     if output:

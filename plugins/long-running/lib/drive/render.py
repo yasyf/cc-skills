@@ -10,11 +10,11 @@ PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.j
 SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
 DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
 COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
-COMMUNICATOR_DRIVE = ("say", "heard", "record", "order", "job")
+COMMUNICATOR_DRIVE = ("say", "heard", "handler", "record", "order", "job")
 COMMUNICATOR_AGENTS = ("Agent", "SendMessage", "ToolSearch")
 OWN_CALLS = (
-    "the ack, a +1, the watch on his DM, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, record, order"
-    " and job tools, and a drive, cci or cc-slack command in Bash"
+    "the ack, a +1, the watch on his DM, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, handler,"
+    " record, order and job tools, and a drive, cci or cc-slack command in Bash"
 )
 EYES = (
     "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
@@ -40,24 +40,26 @@ COMMUNICATOR_RULES = (
         " comes when the rewrite is installed."
     ),
     (
-        "Your next message holds the drive's heard tool (away: true when he says he is going to sleep or away), which"
-        " returns heard or away and nothing to act on, and the background long-running:handler, which posts his owner"
-        " record for an order, alert or ruling and none for a read-only question, since the coordinator answers any"
-        " question it hears; then the turn ends, but for one call more for a read-only question, so the"
-        ' watch holds his answer: the job tool with ops `[{add: {kind: "reader", order: {words: "<his words,'
-        ' verbatim>", kind: "answer", complex: true, from: "slack:<channel>/<ts>", thread: "<ts>", project: "<the'
-        ' project in use his words are about>", workstream: "<its workstream>"}, goal: "<one line>", agent: "<id>"}}]`,'
-        " leaving out complex only for a one-fact lookup."
+        "Your next message is the drive's handler tool (away: true when he says he is going to sleep or away), which"
+        " records that he wrote and starts the long-running:handler as its own claude --bg session, returning started"
+        " <its id> and nothing to act on; the handler posts his owner record for an order, alert or ruling and none for"
+        " a read-only question, since the coordinator answers any question it hears. Then the turn ends, but for one"
+        " call more for a read-only question, so the watch holds his answer: the job tool with ops `[{add: {kind:"
+        ' "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
+        ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
+        ' "<its workstream>"}, goal: "<one line>", agent: "<the id handler returned>"}}]`, leaving out complex only for'
+        " a one-fact lookup."
     ),
     (
-        'Chatter ("ok", "thanks") gets a +1 react for its ack, then heard and no handler. Words typed in your terminal,'
-        " and an owner record from the coordinator, are his message, acked at his DM root. His message in another"
-        " channel (relayed) was written to the people there: no ack, and heard and a handler only when it orders the"
-        " drive or rules on a job's work."
+        'Chatter ("ok", "thanks") gets a +1 react for its ack, then the heard tool and no handler. Words typed in your'
+        " terminal, and an owner record from the coordinator, are his message, acked at his DM root. His message in"
+        " another channel (relayed) was written to the people there: no ack, and the handler tool only when it orders"
+        " the drive or rules on a job's work."
     ),
     (
-        "A handler's MISSING <path> gets an owner record with his share words and that path; its `DEFECT <tool>:"
-        " <refusal>` is tooling, below; any other line is context for his next message."
+        "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
+        " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; any"
+        " other line is context for his next message."
     ),
     (
         "A question-card answer (slack.action with waits: true), whether he tapped it, typed its number in its thread"
@@ -69,21 +71,22 @@ COMMUNICATOR_RULES = (
     ),
     (
         "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
-        " line, draft, check-post, read of any kind and anything taking more than one call runs in a background handler"
-        " that posts its own result. A POST report, a ready record and an ask record each get one handler, its prompt"
-        " the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
+        " line, draft, check-post, read of any kind and anything taking more than one call runs in a handler the drive's"
+        " handler tool starts, which posts its own result. A POST report, a ready record and an ask record each get one"
+        " handler, its brief the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
         " any path it names are the handler's to read. Your own calls are "
         + OWN_CALLS
         + ", and a hook refuses any other; load no skill and no tool past those below, since each comes back after"
         " every compaction."
     ),
     (
-        "A handler's prompt is a few lines, each opening with one of "
+        "A handler's brief is a few lines, each opening with one of "
         + ", ".join(f"{label}:" for label in HANDLER_LABELS)
         + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable and any path you know"
-        " that answers it, retyping no rule, since its agent definition is its standing brief. A handler runs on Opus, and the Agent hook"
-        " drops any model passed for it, since a ready record draws his PR card and his words, research, an explanation,"
-        ' a design, a question card and any judgment call keep Opus: "for more complex use opus from the start".'
+        " that answers it, retyping no rule, since its agent definition is its standing brief, and the handler tool"
+        " refuses any other line. A handler runs on its definition's Opus, since a ready record draws his PR card and his"
+        ' words, research, an explanation, a design, a question card and any judgment call keep Opus: "for more complex'
+        ' use opus from the start".'
     ),
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
@@ -108,7 +111,7 @@ COMMUNICATOR_RULES = (
     ),
     (
         "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
-        " each thread where he waits on a handler that has not returned: what is happening and when he hears next."
+        " each thread where he waits on a handler whose line has not come back: what is happening and when he hears next."
     ),
     "Post nothing on your own clock: summaries come as reports, and while he is away only cards post.",
 )
@@ -292,7 +295,7 @@ REPROS_SHOWN = 5
 NOT_READY_CHARS = 240
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
-    "A drive tool these rules name that your session does not list, such as heard or job, is one its drive MCP server"
+    "A drive tool these rules name that your session does not list, such as handler or job, is one its drive MCP server"
     " started before: pipe the tool's fields as JSON to drive tool <name> in Bash until /reload-plugins or a restart"
     " lists it."
 )
@@ -301,7 +304,8 @@ FIRST_CALL = {
         "Your first call now, before anything else, loads the tools your turn needs: ToolSearch"
         " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
         "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
-        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__job,"
+        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__handler,mcp__plugin_long-running_drive__record,"
+        "mcp__plugin_long-running_drive__job,"
         "mcp__plugin_long-running_drive__order"
     ),
     "coordinator": (

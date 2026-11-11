@@ -571,7 +571,7 @@ def denial(reason: str) -> dict:
 
 def main() -> None:
     try:
-        payload = json.load(sys.stdin)
+        payload = agents.seen(json.load(sys.stdin))
         judged = judged_reason(payload)
         reason = judged or guarded_reason(payload)
     except (ValueError, KeyError):
