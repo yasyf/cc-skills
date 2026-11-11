@@ -243,6 +243,17 @@ def find(records: dict, key: str, label: str) -> dict:
     return records[key]
 
 
+def named_file(source: str, what: str) -> Path:
+    path = Path(source).expanduser()
+    if not path.is_file():
+        raise DriveError(f"no {what} at {path.absolute()}")
+    return path
+
+
+def named_text(source: str, what: str) -> str:
+    return sys.stdin.read() if source == "-" else named_file(source, what).read_text()
+
+
 def his_words(link: str) -> str:
     if not slack.message(link).get("from_user"):
         raise DriveError(f"{link} is not his message; only his own words withdraw a promised line")
@@ -636,7 +647,7 @@ def job_ask(args: argparse.Namespace) -> int:
     from drive import superseded
 
     if args.check:
-        limits.question(sys.stdin.read() if args.check == "-" else Path(args.check).expanduser().read_text())
+        limits.question(named_text(args.check, "ASK block file"))
         print("ready")
         return 0
     if args.id is None:
@@ -644,7 +655,7 @@ def job_ask(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
-    text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text() if args.file else job.get("report")
+    text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
     asked = limits.question(text)
@@ -681,7 +692,7 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     if not JOB_ID.fullmatch(args.ask):
         if not args.waits:
             raise DriveError(f"{args.ask}: a card drawn from a file needs --waits <drive>:<job>-<the ask record's seq>; drive job card <j> draws a job's newest kept ASK")
-        return Path(args.ask).expanduser(), args.waits
+        return named_file(args.ask, "ASK block file"), args.waits
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
     kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
@@ -775,9 +786,7 @@ def job_report(args: argparse.Namespace) -> int:
 
 
 def keep_repro(name: str, job_id: str, source: str) -> str:
-    path = Path(source).expanduser()
-    if not path.is_file():
-        raise DriveError(f"no reproduction file at {source}")
+    path = named_file(source, "reproduction file")
     kept = state.drive_dir(name) / "repro" / f"{job_id}{path.suffix}"
     kept.parent.mkdir(exist_ok=True)
     if not kept.exists() or not kept.samefile(path):
@@ -878,22 +887,25 @@ def transcript_line(job_id: str, job: dict) -> str | None:
 
 
 def job_launch(args: argparse.Namespace) -> int:
-    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching so the watch reads it as starting until the launch could have finished."""
+    """Start a job's Orca lane, on a Sprite or with --local on this Mac, stamped as launching once nothing refuses it so the watch reads it as starting until the launch could have finished."""
     name = state.resolve(args.drive)
-    with state.edit(name) as data:
-        unstarted = find(data["jobs"], args.id, "job")
-        if dispatch := unstarted.get("dispatch"):
-            raise DriveError(f"{args.id} already started as dispatch {dispatch}")
-        if not unstarted.get("agent"):
-            unstarted.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
-        job = remote_job(data, args.id)
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    if dispatch := job.get("dispatch"):
+        raise DriveError(f"{args.id} already started as dispatch {dispatch}")
+    if job.get("agent"):
+        remote_job(data, args.id)
     if not (args.brief or job.get("brief")):
         raise DriveError(f"{args.id} has no brief: write it with drive job brief {args.id}, or name its file")
     root = checkout()
-    text = sys.stdin.read() if args.brief == "-" else Path(args.brief or job["brief"]).read_text()
+    text = named_text(args.brief or job["brief"], "brief file")
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
     if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text, None):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
+    with state.edit(name) as data:
+        job = data["jobs"][args.id]
+        if not job.get("agent"):
+            job.update(where="remote", route=state.LOCAL_ROUTE if args.local else None, launching=state.stamp())
     run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
     with state.edit(name) as data:
         data["jobs"][args.id]["run"] = run
@@ -967,23 +979,21 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         data["jobs"][args.id].update(
             started, handoff=str(kept), ask=None, report=None, reads={}, state="running", updated=state.stamp()
         )
-    carrying = "a handoff carrying its brief, its branch, its last line, its report, its PRs and the message"
+    carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
     local = state.on_mac(job)
     if end.worktree:
         line = (
-            f"{args.id}: its lane {was} had finished ({end.why}), so the message was not sent to it; started the job's "
-            f"next worker in its terminal {orca.ON_MAC if local else 'on the same Sprite'} as dispatch {started['dispatch']} "
-            f"with {carrying}"
+            f"{args.id}: the message went to the job's next worker, started in its terminal {orca.ON_MAC if local else 'on the same Sprite'}"
+            f" as dispatch {started['dispatch']} {carrying}; its lane {was} had finished ({end.why})"
         )
     else:
         line = (
-            f"{args.id}: its lane {was} was dead ({end.why}), so the message was not sent to it; relaunched the job "
-            f"{'in a fresh worktree ' + orca.ON_MAC if local else orca.place({**job, **started})} as dispatch "
-            f"{started['dispatch']} with {carrying}; work not pushed from {'its worktree' if local else ended['workspace']} "
-            "is not carried over"
+            f"{args.id}: the message went to the job's next worker, relaunched {'in a fresh worktree ' + orca.ON_MAC if local else orca.place({**job, **started})}"
+            f" as dispatch {started['dispatch']} {carrying}; its lane {was} was dead ({end.why}), and work not pushed from"
+            f" {'its worktree' if local else ended['workspace']} is not carried over"
         )
     how = f"started {orca.ON_MAC if local else 'on its Sprite'}" if end.worktree else "relaunched"
-    return emit(args, line, {"id": args.id, "how": how, "ended": ended, **started})
+    return emit(args, line, {"id": args.id, "how": how, "ended": ended, "handoff": str(kept), **started})
 
 
 def job_replies(args: argparse.Namespace) -> int:
