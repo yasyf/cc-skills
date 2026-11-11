@@ -237,7 +237,7 @@ button.al.bad::before { content: ""; display: inline-block; width: 7px; height: 
 .happened.order > .dot, .happened.tap > .dot { background: var(--warm); }
 .happened.merged > .dot { background: var(--violet); }
 .happened.said > .dot { background: var(--accent); }
-a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; white-space: nowrap; }
+a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; text-decoration: none; overflow-wrap: anywhere; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .happened.live > .dot { background: var(--ok); }
 .happened.failed > .dot, .happened.refused > .dot { background: var(--bad); }
 .gap { padding: 6px 20px 6px 108px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 12px; }

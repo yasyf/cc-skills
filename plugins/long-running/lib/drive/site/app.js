@@ -1733,8 +1733,14 @@ document.addEventListener('click', (event) => {
   if (ask) {
     composing = composing === ask.dataset.ask ? null : ask.dataset.ask;
     render();
-    return composing && $('#main .ask-box textarea')?.focus();
+    return composing ? $('#main .ask-box textarea').focus() : $('#main [data-ask]').focus();
   }
+});
+document.addEventListener('mouseout', (event) => {
+  const choices = event.target.closest('#main .choices');
+  if (!choices || !picked || choices.contains(event.relatedTarget) || choices.contains(document.activeElement)) return;
+  picked = null;
+  render();
 });
 document.addEventListener('mouseover', (event) => {
   const choice = event.target.closest('#main .choice[data-preview]');
@@ -1812,6 +1818,20 @@ document.addEventListener('keydown', (event) => {
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
     return openJump();
+  }
+  const tab = event.target.closest?.('#main [data-prtab]');
+  if (tab && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+    const tabs = [...tab.parentElement.querySelectorAll('[data-prtab]')];
+    const next = tabs[(tabs.indexOf(tab) + (event.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+    event.preventDefault();
+    next.click();
+    return next.focus();
+  }
+  if (event.key === 'Escape' && composing && event.target.closest?.('#main') && !document.querySelector('dialog[open]')) {
+    event.preventDefault();
+    composing = null;
+    render();
+    return $('#main [data-ask]').focus();
   }
   const writing = event.target.closest?.('input, textarea');
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z' && !writing) {
