@@ -64,6 +64,13 @@ only for the step that needs it. Before that, on Nov 9 at 10:45 PM, the coordina
 brought back 25,000 characters of briefs and logs it had written, the first 20,000 of a
 67,000-character skill body, and 31 tools whose definitions ran to 73,000 characters.
 
+A skill body comes back as the session first loaded it: no install since replaces it, and loading
+the skill again in the same Claude Code process sends nothing new; only a restart loads it afresh.
+So the role's block names the long-running version installed now and wins wherever the two
+disagree. On Nov 10 the communicator, which had loaded 1.0.14 on Nov 9, kept running
+`drive heard --thread` from that old text after 1.0.129 dropped the flag, and the drive refused
+each one.
+
 1. Never switch a live session's model with `/model`. A Claude Code build older than its model
    runs it at a 200k window it does not know is wrong: on Nov 9 the communicator, on 2.1.319, ran
    Fable 5.2 that way and compacted every 6 to 10 minutes. A session on another model, or one whose

@@ -1,7 +1,10 @@
+import json
 from datetime import datetime
+from pathlib import Path
 
 from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_key, pr_url, promise_thread
 
+PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 COMMUNICATOR_RULES = (
     (
         "Write no text in this terminal, which he never reads: every message of your turn is tool calls alone,"
@@ -12,9 +15,10 @@ COMMUNICATOR_RULES = (
     (
         "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
         " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
-        " cc-slack while you compacted and gets no ack of yours. drive heard (--away when he says he is going to sleep"
-        " or away), any record its row names and the long-running:handler go in the next message, then the turn ends,"
-        " with one drive call more only to record a read-only question's handler: drive job add reader --order"
+        " cc-slack while you compacted and gets no ack of yours. drive heard, which takes no --thread since his"
+        " catch-up goes at his DM root (--away when he says he is going to sleep or away), any record its row names"
+        " and the long-running:handler go in the next message, then the turn ends, with one drive call more only to"
+        " record a read-only question's handler: drive job add reader --order"
         ' "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>"'
         " --agent <id>, or a tooling builder, by the next rule."
     ),
@@ -315,7 +319,16 @@ def context(drive: dict, role: str) -> str:
     ]
     if role == "coordinator":
         lines.extend(owed_lines(drive))
-    lines += [READS[role], FIRST_CALL[role]]
+    lines += [
+        (
+            f"This block comes from long-running {json.loads(PLUGIN_JSON.read_text())['version']}, installed now. The"
+            " long-running skill text Claude Code brings back after a compaction is the one this session first loaded,"
+            " at the version its base directory names, and no install since replaces it: where that text disagrees with"
+            " this block, this block wins."
+        ),
+        READS[role],
+        FIRST_CALL[role],
+    ]
     return "\n".join(lines)
 
 
