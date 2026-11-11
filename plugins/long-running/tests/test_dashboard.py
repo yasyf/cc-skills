@@ -318,7 +318,7 @@ def board(**changed: object) -> dict:
     } | changed
 
 
-def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600") -> object:
+def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str) -> object:
     """Load the dashboard page in headless Chrome on a stub stream that sends model, run steps (an async module that may call push(model) and
     wait(ms)), and return what steps put in done(result)."""
     harness = f"""<script>
@@ -332,7 +332,7 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
     page = page.replace('<link rel="stylesheet" href="/app.css">', f"<style>{(SITE / 'app.css').read_text()}</style>")
     page = page.replace('<script src="/app.js"></script>', f"{harness}<script>{(SITE / 'app.js').read_text()}</script><script type=\"module\">await wait(100);\n{steps}</script>")
     (tmp_path / "page.html").write_text(page)
-    dumped = picture.headless(tmp_path / "page.html", f"--window-size={size}", "--no-sandbox", "--dump-dom")
+    dumped = picture.headless(tmp_path / "page.html", f"--window-size={size}", "--no-sandbox", *flags, "--dump-dom")
     return json.loads(html.unescape(RESULT.search(dumped)[1]))
 
 
@@ -519,3 +519,37 @@ const chips = [...document.querySelectorAll('#alerts > *')].map((chip) => chip.g
 done({ shown: chips.length, inside: chips.every((chip) => chip.width > 0 && chip.left >= 0 && chip.right <= innerWidth) });
 """, board(incidents=incidents, queue=[QUESTION, QUESTION | {"kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300"}]), size="390,844")
     assert seen == {"shown": 3, "inside": True}
+
+
+def test_now_zooms_from_projects_to_a_task_inside_one_canvas_without_leaving_his_place(tmp_path: Path) -> None:
+    iris = FEATURE | {"id": "o2", "title": "chats open on the Mac", "project": "Iris", "workstream": "Desktop app"}
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(150);
+window.scrollTo(0, 120);
+await wait(200);
+const canvas = document.querySelector('#main .canvas');
+const world = canvas.querySelector('.world');
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, top: scrollY, scale: Number(world.style.getPropertyValue('--k')) });
+const overview = look();
+canvas.querySelector('.region[data-cam-key="Platform"]').click();
+await wait(800);
+const project = look();
+canvas.querySelector('.stream[data-cam-key="Platform/SandSQL"]').click();
+await wait(800);
+const stream = look();
+canvas.querySelector('.stream.here a.task-row').click();
+await wait(300);
+const task = { ...look(), sheet: canvas.querySelector('.task-sheet h2').textContent };
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+await wait(300);
+done({ overview, project, stream, task, closed: { ...look(), sheet: !!canvas.querySelector('.task-sheet') } });
+""", board(status=[{"state": "running", "features": [FEATURE, iris]}]), "1200,600", "--force-prefers-reduced-motion")
+    assert {name: {key: value for key, value in view.items() if key != "scale"} for name, view in seen.items()} == {
+        "overview": {"hash": "#/now", "level": "all", "same": True, "top": 120},
+        "project": {"hash": "#/now/Platform", "level": "project", "same": True, "top": 120},
+        "stream": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120},
+        "task": {"hash": "#/now/Platform/SandSQL/o1", "level": "stream", "same": True, "top": 120, "sheet": "ship the fix"},
+        "closed": {"hash": "#/now/Platform/SandSQL", "level": "stream", "same": True, "top": 120, "sheet": False},
+    }
+    assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
