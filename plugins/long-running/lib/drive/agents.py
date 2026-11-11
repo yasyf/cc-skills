@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 
 from drive import state
-from drive.brief import BRIEF_JOB
+from drive.brief import BRIEF_JOB, carried
 
 
 def transcript(payload: dict) -> Path:
@@ -11,12 +11,12 @@ def transcript(payload: dict) -> Path:
 
 
 def brief(payload: dict) -> str:
-    """The prompt the session started the agent whose step fired a hook with; empty for the session's own steps."""
+    """The prompt the session started the agent whose step fired a hook with, and the brief file it names read in; empty for the session's own steps."""
     if not payload.get("agent_id") or not (path := transcript(payload)).is_file():
         return ""
     with path.open() as handle:
         content = json.loads(handle.readline())["message"]["content"]
-    return content if isinstance(content, str) else " ".join(part.get("text", "") for part in content)
+    return carried(content if isinstance(content, str) else " ".join(part.get("text", "") for part in content))
 
 
 def free(data: dict, job_id: str) -> bool:

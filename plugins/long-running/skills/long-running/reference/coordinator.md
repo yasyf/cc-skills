@@ -1,5 +1,17 @@
 # The coordinator
 
+Every `drive order`, `drive job` and `drive pr` verb that adds or sets, and `drive status`, runs as
+a tool of this plugin's `drive` MCP server, never in Bash: `order` (`add`, `set`, `posted`), `job`
+(`add`, `set`, `brief`), `pr` (`add`, `set`) and `status`. One call of a tool carries every op the
+turn needs from it, in order, each op one verb with its flags as fields named as in `drive manual
+verbs`, dashes as underscores, such as `pr` with ops `[{set: {url: "<url>", tap: true, serves:
+"o4", design: "none"}}, {set: {url: "<url 2>", waits: ["<card>"]}}]`. An op after an `add` that
+names no `id` acts on what that add made, and a `job` `add` whose `order` holds `order add`'s fields
+adds the order with it. A call prints one line per op and stops at the first refusal, naming the
+op and those left unrun; `dry_run: true` prints the commands and runs nothing. The rows below name
+each verb as its `drive` command with its flags; `drive answer`, `drive card`, `drive job ask`,
+`report`, `replies`, `launch`, `resume` and `end`, `drive place` and `drive manual` stay in Bash.
+
 | Input | Do, in this turn |
 |---|---|
 | An order, in an `owner` record | `drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts> --parts "<part>"...` for each order in it, one part for each deliverable his words name (each stack, each design, each question); an order of one deliverable needs no `--parts`. Add `--milestone "<name>"` naming the outcome the order moves, such as "Releases ship without waiting", reusing a name the drive already has when the order serves it; the dashboard's Plan screen draws each milestone and what stands in its way, and lists an order open or done in the last day that names none under "No milestone" (`drive order set <o> --milestone` names or renames it later). Add `--project "<name>" --workstream "<name>"` too, reusing the pairs `drive order unfiled` lists as in use: the dashboard's Now screen splits his work into projects, then workstreams, then orders, and Work groups the agents by workstream, so an order naming neither lands under "Unfiled" until `drive order set <o> --project "<name>" --workstream "<name>"` files it; `drive order unfiled` lists each open order still missing one. Then decide for each part whether it carries a tricky design, by [Design first](design.md): such a part's first job is a design lane, and its builder may build the recommended options while his questions are open but puts up no PR until he has answered them. Give every part a background job now, in the order he stated them, each job naming the parts it delivers with `--part`. `drive job add` prints the new job's id, then each job still running or waiting on one of those parts: when one already does that work, start no agent for the new job, `drive job set <it> --state stopped`, and leave the part with the job already on it. A part that asks for cards or a summary is delivered by those cards: its job reads and writes them, and no job builds a fix for one before his pick on its card, by [Scope](scope.md). Every order goes to a job: a past-due one, a one-line one and a session close too. A part found later is `drive order set <o> --parts` with the whole list. An order to land a change that a design card of his still open is on lands nothing: in this turn a `report` to his order's thread redraws that card, and the change lands on its `FREE` row once he answers, by [Design first](design.md). Set `--due` for when he hears next. |

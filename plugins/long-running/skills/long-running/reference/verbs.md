@@ -6,6 +6,18 @@ them; a test holds this table and the parser equal. Read a verb's row with
 `drive … --help`. The rows leave out `--drive <name>`, which defaults to this session's drive,
 and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` what repeats.
 
+A session runs the verbs it uses each turn as the drive MCP server's tools, never through Bash:
+`heard` and `status` take the verb's flags as fields, and `order`, `job` and `pr` take `ops`, a list
+run in order that stops at the first refusal, each op one verb (`order`: add, set, posted; `job`:
+add, set, brief; `pr`: add, set) with its flags as fields, dashes as underscores, its
+positionals by the names below, and an op after an add that names no `id` acting on what that add
+made. `drive job set j3 --state waiting --said "WAITING CI"` is
+`job(ops=[{set: {id: "j3", state: "waiting", said: "WAITING CI"}}])`. A job add's `order` may be
+the fields of an order add, which adds that order first. `record` posts records to the other
+session. Every tool takes `dry_run`, which prints each command or record and runs nothing, and
+prints one line for each op. A verb that runs for minutes, such as `drive job launch`, `drive job
+resume` or `drive job end`, stays a background Bash call, since a tool call ends at three minutes.
+
 | Verb | Takes |
 |---|---|
 | `drive start <name>` | `--role communicator/coordinator`, required; `--channel <his DM id>`; `--watch <channel>`..., another channel the coordinator subscribes to |
@@ -18,7 +30,8 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive job ask <j> [<file>]` | keeps the question beside the job's other open ones; the ASK block's file, `-` for stdin, default a remote lane's latest report; `--unsettled "<why>"`: each answer of his the refusal listed, by id, and why it does not settle this |
 | `drive job card <file>` | the card a kept ASK block draws, as JSON, and gives the question kept in that file its waits id; `--waits <drive>:<j>-<seq>`, required |
 | `drive job report <j> [-]` | `-` keeps the return piped on stdin, its first line setting a running job's state and said line, and refuses a reader's `DESIGN` without two to four options and a build's `READY` without a `REUSES:` line when its research found what exists; with nothing, prints the kept one |
-| `drive job launch <j> <brief>` | starts a remote job's lane on a Sprite; `-` reads the brief from stdin; refuses a build order's builder or designer brief with no `Researched: <its reader's job>` line |
+| `drive job brief <j>` | writes the job's brief from his order's stored words, each ruling's recorded words whole, the earlier jobs' transcripts and, for a build order's builder or designer, `Researched: <its reader's job>` from the order's research, and prints `Read your brief first: <path>`, a local job's whole Agent prompt; `--serves "<port of #N, drive tooling or his order>"`, `--done-when "<check>"` and `--where "<repo, base, branch>"`, required; `--ruling <answer id>`...; `--runs-as "<service account>"`; `--handoff "<event>"`; `--plan "<section>"`; `--incident "<line>"`; `--scratch <dir>`, default one in the drive |
+| `drive job launch <j> [<brief>]` | starts a remote job's lane on a Sprite from the brief `drive job brief` wrote, or this file; `-` reads it from stdin; refuses a build order's builder or designer brief with no `Researched: <its reader's job>` line |
 | `drive job resume <j> "<text>"` | answers a remote lane or sends its next event; `-` reads the text from stdin; run it with the Bash timeout at 20 seconds (`timeout: 20000`), never `run_in_background`, since a send returns in about 5 seconds and a relaunch moves itself to the background at 20 |
 | `drive job replies <j>` | each result and question a remote lane sent, oldest first |
 | `drive job end <j>` | ends a done remote lane and frees its Sprite |
@@ -36,7 +49,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive dashboard` | `--port <n>`; `--serve`, in the foreground |
 | `drive watch` | the events Monitor follows |
 | `drive card` | answers one cc-slack card request, JSON on stdin and stdout |
-| `drive mcp` | serves `say` to a Claude Code session over stdio, as this plugin's `drive` MCP server |
-| `drive tool <name>` | `<name>` say; runs that MCP tool on the JSON arguments read from stdin and prints its one line |
+| `drive mcp` | serves `say` and the verb tools to a Claude Code session over stdio, as this plugin's `drive` MCP server, listing the newest install's tools and telling the session when an install changes them; `--list` prints the tools as JSON |
+| `drive tool <name>` | `<name>` say, heard, record, order, job, pr or status; runs that MCP tool on the JSON arguments read from stdin and prints its lines |
 | `drive install <plugin>@<marketplace>` | `--sha <merge sha>`; `--repo <owner/name>`; `--timeout <seconds>`, default 900 |
 | `drive setup` | `--bin-dir <dir>` for the `drive` shim |

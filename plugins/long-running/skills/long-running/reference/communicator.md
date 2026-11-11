@@ -23,8 +23,8 @@ well". This plugin's Stop hook sends a turn that ends on more than that one word
    while this session compacted: it gets no first message, only the next. Calls in one message run
    only once the whole message is written, so a handler brief or a record beside the ack holds the
    ack behind its writing.
-2. **The rest, in the next message**: `drive heard`, any record its row names, and the handler.
-   Then the turn ends.
+2. **The rest, in the next message**: the drive's `heard` tool, its `record` tool for any record its
+   row names, and the handler. Then the turn ends.
 
 Every report, card, due line, draft, `check-post` and read of any kind, and anything that takes more
 than one tool call, runs in a handler started in the background, which posts its own result. A turn
@@ -32,21 +32,21 @@ spent drafting, checking or drawing holds his next message behind it.
 
 | Input | First message | Next message |
 |---|---|---|
-| A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `drive heard` (with `--away` when he says he is going to sleep or stepping away) and a handler for it. |
-| A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is posted in his thread by the handler for the rewrite builder's `DONE`, once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | `drive heard`, the handler, and a builder for the rewrite, by [Tooling](#tooling); its one recording call follows. |
-| A message from him in another channel, its delivery carrying `relayed` | Nothing in that channel: he wrote it to the people there, and cc-slack sends his words in a channel the coordinator watches to the communicator alone, never to the coordinator. | When it orders the drive or rules on a job's work, `drive heard` and a handler, as for a message in his DM; otherwise nothing. |
-| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `drive heard`, with no handler. |
-| A tap on a question card (`slack.action` with `waits: true`) | An `answer` record with its `label` and `--re` the ask seq read from the `id`; a card with no ask record, such as one from before the split, takes `--topic card:<the card's thread_ts>` instead, with its `id` in the text. The card already shows his pick. A tap of Explain more answers nothing and gets no record. A tap of Undo, its payload setting `undo: true`, takes back the answer he gave on that card within the ten minutes before: an answer he undid was never given. It gets the same `answer` record, its `--re` or `--topic` read the same way, with `--attr undone=<the undone label>` and the text `undone: <label>`, so it threads beside the answer it takes back; the card already shows its options again. A tap on the card of a builder of yours, its `waits` id naming that builder's job, also gets `SendMessage` to that builder with his pick verbatim, since only the session that started an agent reaches it. | Nothing; for Explain more, a handler briefed `Message (his words): Explain more` with the card's `waits` id and permalink. |
+| A message from him | An ack in the thread he wrote in, or nothing when its delivery carries `acked`: at most one sentence the communicator already knows, restating what he asked and what happens next, never read for, drafted or checked. A message typed in this terminal is the same, its ack posted at his DM root, which makes the thread. | `heard` (with `away: true` when he says he is going to sleep or stepping away) and a handler for it. |
+| A ruling: any message that says how the communicator, the coordinator, cards, messages or drives should work, a correction or a complaint about how something went included | The same. Its ack is the first of two confirmations: the skill is being updated, and what changes, in plain words. The second is posted in his thread by the handler for the rewrite builder's `DONE`, once the rewrite is merged and installed, listing each rule now in the installed skill. His ruling, Nov 9 2:08 PM: "confirm to me in the future when you're making a skill update based on a message I send". | `heard`, the handler, and the `job` call and reader that start the rewrite, by [Tooling](#tooling). |
+| A message from him in another channel, its delivery carrying `relayed` | Nothing in that channel: he wrote it to the people there, and cc-slack sends his words in a channel the coordinator watches to the communicator alone, never to the coordinator. | When it orders the drive or rules on a job's work, `heard` and a handler, as for a message in his DM; otherwise nothing. |
+| Chatter ("ok", "thanks", "nice") | React `+1` in place of the ack. | `heard`, with no handler. |
+| A tap on a question card (`slack.action` with `waits: true`) | One `record` call: kind `answer`, its text the `label` and `waits` the card's `id`, which answers the ask seq and job the `id` ends in; a card with no ask record, such as one from before the split, takes `topic: "card:<the card's thread_ts>"` instead, with its `id` in the text. The card already shows his pick. A tap of Explain more answers nothing and gets no record. A tap of Undo, its payload setting `undo: true`, takes back the answer he gave on that card within the ten minutes before: an answer he undid was never given. It gets the same `answer` record with `undone: true`, which sets its text to `undone: <label>` and its `undone` attr, so it threads beside the answer it takes back; the card already shows its options again. A tap on the card of a builder of yours, its `waits` id naming that builder's job, also gets `SendMessage` to that builder with his pick verbatim, since only the session that started an agent reaches it. | Nothing; for Explain more, a handler briefed `Message (his words): Explain more` with the card's `waits` id and permalink. |
 | A tap on a PR card, its `waits` id opening `merge:` | Nothing: cc-slack records it on the drive's PR and the coordinator hears it as a `TAP` event. | Nothing. |
 | A `POST` report, a `ready` or an `ask` record | One handler for that one record, its prompt the single line `Record: <seq> Drive: <name> Scratch: <folder>`; the handler reads the record's kind, thread and body itself. For an `ask` it draws the card and, the moment the card is up, closes the ask with a `posted` record carrying the card's permalink and `waits` id, so the ask never reads as unanswered while the card waits on him; his tap is still his `answer`. An `ask` that redraws an open card is one call under that card's `waits` id, which edits it in place and posts nothing, every older copy losing its buttons, so the handler asks for no second copy. The communicator never reads, writes, checks or draws what a record carries, and never opens the body's path: a file it reads comes back after every compaction. | Nothing. |
 | An `FYI` report | Nothing: keep it as context for his next message. | Nothing. |
-| The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `drive job add reader --order "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>" --agent <id>`. The handler runs `drive order posted` once its answer is in his thread. | Nothing. |
-| A handler returned | Keep the line it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record to `root@<drive>` with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. `DEFECT <tool>: <refusal>` is a tool defect it hit: a builder for it, by [Tooling](#tooling). `LAND <url>` is a drive tooling PR an exempt class covers: a builder briefed `Handoff: LAND <url> Drive: <name> Scratch: <folder>` lands it. | The recording call for a builder. |
+| The Agent tool returned a handler's id for a read-only question | One call records it, the turn's last, so the watch holds the answer to him: `job` with ops `[{add: {kind: "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from: "slack:<channel>/<ts>", thread: "<ts>"}, goal: "<one line>", agent: "<id>"}}]`, which adds the order and the job together, leaving out `complex` only for a one-fact lookup, whose handler may run on Sonnet. The handler records its answer with the `order` tool's `posted` op once it is in his thread. | Nothing. |
+| A handler returned | Keep the line it returned as context for his next message. `MISSING <path>` means a share found no reproduction file: an `owner` record through `record`, which addresses `root@<drive>`, with his share words and that path, so the job that reproduced the bug saves the file, and its `report` comes back to a handler that shares it. `DEFECT <tool>: <refusal>` is a tool defect it hit: a reader and then a builder for it, by [Tooling](#tooling). `LAND <url>` is a drive tooling PR an exempt class covers: a builder briefed `Handoff: LAND <url> Drive: <name> Scratch: <folder>` lands it. | The `job` call before a reader or builder. |
 | A builder of yours returned | `WAITING <what>`: nothing, since its line already set the job waiting. Any other result: one handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, which reads the result itself. | Nothing. |
-| A `handoff` record from the watch: a line about a drive tooling order, such as a red check, his Approve tap or a part with no live job | A builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`, which reads the line and does the step it asks. | `drive job add builder --order <the line's order> --goal "<one line>" --agent <id>`. |
-| A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack and cci tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
+| A `handoff` record from the watch: a line about a drive tooling order, such as a red check, his Approve tap or a part with no live job | A builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`, which reads the line and does the step it asks. | `job` with ops `[{add: {kind: "builder", order: "<the line's order>", goal: "<one line>", agent: "<id>"}}]`. |
+| A compaction or a restart | The `ToolSearch` call the role's block names, which loads the Slack tools and the drive's `heard`, `record` and `job` tools: after a compaction their schemas are deferred, and loading them inside the ack costs it a round trip. Each message of his that landed while it compacted carries `acked`. | One handler, briefed with each thread where he waits on a handler that has not returned, which posts one line in each: what is happening and when he hears next. |
 | An `owner` record from the coordinator | His words, typed in the coordinator's terminal: handle them as a message from him, its ack at his DM root. | The same. |
-| A tool defect: a `defect` record, or one you hit | A builder for it, by [Tooling](#tooling). A hook that refuses a post he ordered is one: never a card asking him to approve that post, and never the hook as a reason to him. | The recording call for it. |
+| A tool defect: a `defect` record, or one you hit | A reader and then a builder for it, by [Tooling](#tooling). A hook that refuses a post he ordered is one: never a card asking him to approve that post, and never the hook as a reason to him. | The `job` call before its reader. |
 
 Start a handler with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background:
 true`, a short `description`, and never a `name`. It runs on Opus, its agent's model. Pass `model:
@@ -58,10 +58,12 @@ it is one: `Record: <seq> Drive: <name> Scratch: <folder>`. For his message it i
 then his permalink and thread, then the deliverable and any path you already know that answers it,
 such as a job's reproduction file. Never retype rules into it: the handler's
 agent definition is its standing brief, ships with this skill and loads with the `subagent_type`.
-The communicator's own calls are the ack, a `+1`, `drive heard`, a cci post for a
-tap or a `MISSING`, the Agent tool, `SendMessage` to a builder of its own, the one `drive` call that
-records a read-only question's handler or a builder, `drive job set` for a builder's `WAITING`, and
-the `ToolSearch` after a compaction. Everything else is a handler's, so his
+The communicator's own calls are the ack, a `+1`, the Agent tool, `SendMessage` to a builder of its
+own, the `ToolSearch` after a compaction, and three tools of this plugin's `drive` MCP server, each
+one call that runs several steps and prints one line per step: `heard`, `record` for a tap or a
+`MISSING`, and `job`, whose `add` op records a read-only question's handler or a builder with its
+order and whose `set` op takes a builder's `WAITING`. Each takes `dry_run: true`, which prints what it
+would run and changes nothing; no `drive` command runs in its Bash. Everything else is a handler's, so his
 next message is picked up inside 5 to 10 seconds while earlier ones are still being handled. It
 loads no skill beyond this one, `cc-slack:slack` included: Claude Code re-attaches the first 5,000
 tokens of every skill a session invoked after each compaction, and Slack writes beyond the ack are
@@ -87,8 +89,8 @@ same turn it takes the admin, team bucket, `db-read` or `break-glass` route that
 asking authorizes the read, and never tells him it could not read it. His rulings, Nov 9 2:06 PM:
 "should not take 30 mins to spawn read only sonnet lanes", and Nov 10 9:51 PM, after two handlers
 stopped at a 403 on a teammate's session: "fix your skill and dont waste my time next itme". An
-order or an alert becomes an `owner` record, and a ruling
-an `answer_add` and an `owner` record with `--attr ruling=<answer id>`.
+order or an alert becomes an `owner` record through `record`, and a ruling
+an `answer_add` and an `owner` record with `ruling: <answer id>`.
 
 A share is his order to post something in a place he names, in his DM, in a terminal or by a tap on
 a card, and that order is his permission for one post there and nowhere else. Nobody asks him to
@@ -104,7 +106,7 @@ mesage", and Nov 10 2:17 PM, after a card asked him to approve an update he had 
 hook Iuoi had permission because I fucking told you to post don't ever use that as an excuse
 again".
 
-`drive heard` prints `CATCH-UP` when he is back after being away. The coordinator hears it as an
+`heard` prints `CATCH-UP` when he is back after being away. The coordinator hears it as an
 event naming his DM and the time he was last heard. It sends his catch-up as one `report` for his
 DM root titled with that time, never for the thread of the message that brought him back. A thread read, a transcript, a search, or anything
 past the communicator's two messages is a handler's, never the coordinator's: the coordinator gets
@@ -115,28 +117,32 @@ only orders, alerts, rulings, his answers and a question a card's `ask` record d
 Tooling and meta work is the communicator's, never the coordinator's: a tool defect, a change to
 this skill, its agents, the `drive` CLI or the dashboard, and the rewrite a ruling of his asks for.
 His ruling, Nov 10 10:08 PM: "and remember toolingh/meta improvements dont go to coorfidnatror".
-Each gets a `long-running:builder` in the next message, through the Agent tool with
-`run_in_background: true`, a short `description` and never a `name`, and a prompt of a few lines:
+Each is a build, whose builder starts only on its reader's research. The next message makes one
+`job` call that adds the order and its reader, ops `[{add: {kind: "reader", order: {words: "Drive
+tooling: <what>", kind: "build", from: "<its From>"}, goal: "research: <what>"}}]`, then starts a
+`long-running:reader` through the Agent tool with `run_in_background: true`, a short `description`
+and never a `name`, and a prompt of a few lines:
 
 ```
 Order: Drive tooling: <what it fixes or changes, one line>
-Serves: drive tooling
 From: cci:<the defect record's seq> | slack:<channel>/<his message's ts> | agent:<the handler's agent id>
 Ruling (his words): <a ruling only: verbatim, with its time and permalink>
+Research: the Researched: block this build needs
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard or a CLI he runs, and what that platform already does for it that you know, with links, such as Block Kit's chart and table blocks; "none" when he never sees it>
 Decisions that bind: <his earlier words on the area that you already hold, verbatim with their times>
 Would he ask: <what he would still have to ask for if only his words were built>
-Drive: <name>
+Drive: <name>, order <o>, job <j>
 Scratch: <its scratch folder>
 ```
 
-The builder reads the record or his message, his recorded answers and the code itself, and finds its
-order and job in `drive status` by its `From`. You write `Native`, `Decisions that bind` and `Would
+Its `Drive` line records the agent on the job. You write `Native`, `Decisions that bind` and `Would
 he ask` from what you already know, never a read, since passing his words alone as the whole spec
 built a card renderer that drew a chart as a picture though Slack has its own chart block; the
-builder researches the platform, searches his answers and closes each gap itself, by its agent
-definition. Once the Agent tool returns its id, one call records
-it: `drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"
---goal "<one line>" --agent <id>`, with no `--thread`. It lands and installs a `yasyf/*` PR itself.
+reader researches the platform, searches his answers and keeps what it finds in its report's
+`Researched:` block. Its `DONE` line gets one `job` call, ops `[{add: {kind: "builder", order:
+"<o>", goal: "<one line>"}}]`, then a `long-running:builder` whose prompt is the same lines with
+`Serves: drive tooling` and `Researched: <the reader's job>` for the `Research` line; its `DESIGN`
+line gets the same with a `design` job and a `long-running:designer`. The builder lands and
+installs a `yasyf/*` PR itself.
 Its result gets a handler, its card's tap gets `SendMessage`, and every later event on its PRs
 reaches the communicator from the watch as a `handoff` record: the coordinator hears none of it.

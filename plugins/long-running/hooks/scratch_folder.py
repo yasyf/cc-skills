@@ -12,16 +12,17 @@ SCRATCH = re.compile(r"Scratch:\s*(\S+)")
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session may not start this agent: its brief's Drive line names a job whose order refuses that brief or model."""
+    """Why a drive session may not start this agent: its brief's Drive line, in its prompt or the brief file the prompt names, names a job whose order refuses that brief or model."""
     tool_input = payload["tool_input"]
-    match = brief.BRIEF_JOB.search(tool_input.get("prompt") or "")
+    text = brief.carried(tool_input.get("prompt") or "")
+    match = brief.BRIEF_JOB.search(text)
     names = state.session_drives(payload["session_id"]) if match and payload.get("session_id") else []
     if not names:
         return None
     data = state.load(names[0])
     if match[1] not in data["jobs"]:
         return None
-    refused = brief.brief_refusal(names[0], data, match[1], tool_input["prompt"], tool_input.get("model"))
+    refused = brief.brief_refusal(names[0], data, match[1], text, tool_input.get("model"))
     return f"refused, no agent started: {refused}" if refused else None
 
 

@@ -9,6 +9,8 @@ WEB = ("http://", "https://")
 
 def say(name: str, post: dict) -> str:
     """Post one message to his DM through cc-slack and keep the same item on the drive's dashboard; a post in an order's thread is recorded on that order too."""
+    if post.get("dry_run"):
+        return dry(name, post)
     reply = posted(name, post)
     line = f"POSTED {reply['permalink']}"
     if card := reply.get("card_permalink"):
@@ -21,6 +23,16 @@ def say(name: str, post: dict) -> str:
         except (DriveError, slack.SlackError) as error:
             line += f"; not recorded on {order}: {error}"
     return line
+
+
+def dry(name: str, post: dict) -> str:
+    """What say would post, its references resolved and its visuals drawn, with nothing posted."""
+    text = post.get("text") or ""
+    drawn_ones = [drawn(name, index, visual) for index, visual in enumerate(post.get("visuals") or [], start=1)]
+    where = f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
+    card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
+    prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
+    return f"DRY {where}, {len(drawn_ones)} pictures{card}{prs}: {refs.slack(text, refs.resolved(name, text))}"
 
 
 def posted(name: str, post: dict) -> dict:

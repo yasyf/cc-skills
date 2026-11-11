@@ -14,13 +14,18 @@ with this Mac's `DEVBOX_AWS_PROFILE`.
 
 **On this Mac.** Start the job with the Agent tool: `subagent_type` `long-running:builder`,
 `long-running:reader` or `codex:codex-wrapper`, `run_in_background: true`, a short
-`description`, and the brief as `prompt`, plus `model: "sonnet"` for a reader only when its
+`description`, and the line the `brief` op printed as the whole `prompt`, plus `model: "sonnet"` for a reader only when its
 question is a one-fact lookup: a reader runs on Opus otherwise, since a read that needs research or
 a judgment call goes to Opus from the start, by his Nov 10 8:57 PM ruling; a design lane's call is in [Design first](design.md). **Never pass `name`.** Agent teams are on here, and a
-named agent becomes a teammate that never wakes on events. Add the job first,
-`drive job add <kind> --order <o> --goal "<one line>" [--part "<part>"]...`, so the brief's
-`Drive:` line names it: the agent's first Bash, Read, Write or Edit call, or its stop, records it
-on that job, and its first after a `SendMessage` marks the job running again. The line the agent returns, or the first line
+named agent becomes a teammate that never wakes on events. Add the job and write its brief first, in one `job` call:
+`[{add: {kind: "builder", order: "<o>", goal: "<one line>", part: ["<part>"]}}, {brief: {serves: "<his order's words, a port of #N, or drive tooling>", done_when: "<…>", where: "<repo and branch>", ruling: ["<answer id>"]}}]`.
+The `brief` op writes the brief from what the drive holds: his order's words verbatim, each ruling
+`ruling` names as its answer's title and body word for word, the earlier jobs' transcripts, a
+scratch folder and, for a build order's builder or designer, `Researched: <its reader's job>`, plus
+`runs_as`, `handoff`, `plan` and `incident` when given. It prints `Read your brief first: <path>`,
+and the agent reads the file itself, so the brief never passes through this session. The brief's
+`Drive:` line names the job: the agent's first Bash, Read, Write or Edit call, or its stop, records
+it on that job, and its first after a `SendMessage` marks the job running again. The line the agent returns, or the first line
 it pipes to `drive job report <j> -`, sets the job's state and said line: `DONE` and a reader's
 answer make it done, `READY`, `WAITING` and `DESIGN` waiting, and `BLOCKED` failed; `drive job ask`
 already set an `ASK`'s, and only a `BUILT` is recorded by hand, with its branch and cards.
@@ -28,10 +33,11 @@ The watch reads the agent's transcript, never the stored state: a running job wh
 its turn, wrote nothing for 30 minutes, or belonged to an earlier session makes its
 parts `ORPHAN`s.
 
-**Remote.** `drive job add builder --order <o> --goal "<one line>" --remote`, then run
-`drive job launch <j> - <<'BRIEF'`, the brief, and `BRIEF` from the monorepo checkout's root with
-`run_in_background: true`; a job added without `--remote` that no agent of this Mac holds launches the same way. A brief, handoff or message for a lane always goes on stdin that way,
-`drive job resume <j> -` included, never through a file the coordinator writes: Claude Code reads the
+**Remote.** The same `job` call with `remote: true` on its `add`, then run `drive job launch <j>`
+from the monorepo checkout's root with `run_in_background: true`, which sends the brief the `brief`
+op wrote; a job added without `remote` that no agent of this Mac holds launches the same way. A
+handoff or message for a lane goes on stdin, `drive job resume <j> -`, never through a file the
+coordinator writes: Claude Code reads the
 files a session wrote back into its context after every compaction. It starts the builder through the
 `orca` skill's launcher as an Orca worker on a Sprite, on an Orca Run of its own that only this
 drive's watch reads, and its notification says where it started or why it could not. Orca types

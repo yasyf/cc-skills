@@ -269,6 +269,18 @@ def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_j
     assert (job["agent"], job["state"], job["said"]) == ("a-9", "done", "j1 is answered: the hook never ran")
 
 
+def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, out.splitlines()[0])))
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["state"], job["brief"]) == ("a-9", "running", str(state.drive_dir("demo") / "jobs" / "j1.brief.md"))
+
+
 def turn_stop(message: str, **fields: object) -> dict:
     return {
         "session_id": os.environ["CLAUDE_CODE_SESSION_ID"],
@@ -350,6 +362,14 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert folder.is_dir()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j2\nScratch: {folder}")) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", bare, session="another-session")) is None
+    code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
+    prompt = out.splitlines()[0]
+    assert code == 0
+    assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt, "sonnet")) == (
+        "refused, no agent started: o1 is a build order: its reader, designer and builder run on Opus; pass no model, or opus"
+    )
 
 
 def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:
