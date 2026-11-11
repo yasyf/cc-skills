@@ -6,6 +6,7 @@ from drive import github
 
 GATE = "LTX Behavioral Gate (short)"
 OPEN_ON = github.open_on
+VISIBILITY = github.visibility
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
 
 
@@ -128,7 +129,7 @@ def test_run_sends_a_gh_command_through_ccx_gateway_under_the_drive_caller_and_a
         return subprocess.CompletedProcess(cmd, 0, "public\n", "")
 
     monkeypatch.setattr(github.subprocess, "run", fake)
-    assert github.visibility("a/one") == "public"
+    assert VISIBILITY("a/one") == "public"
     github.run(["gh", "pr", "close", "https://github.com/a/one/pull/1"])
     github.run(["git", "remote", "get-url", "origin"])
     assert ran == [
