@@ -1,7 +1,7 @@
 {
   "name": "long-running",
   "description": "Run a long drive as three Claude Code sessions: a communicator that acks every message of the owner's within seconds and writes everything he sees, a coordinator that turns each order into a background agent shipping it end to end while one watcher turns CI, merges, taps and promised times into events, and a meta session that owns every fix to the drive's own tools, skill rewrite and install.",
-  "version": "1.0.335",
+  "version": "1.0.336",
   "author": {
     "name": "Yasyf Mohamedali",
     "url": "https://github.com/yasyf"
