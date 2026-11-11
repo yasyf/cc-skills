@@ -34,7 +34,7 @@ class Run:
 
 
 def newest_run(transcript: Path) -> Run | None:
-    """The run of the newest reply file codex-ask printed into the relay's tool results, read by `codex-ask --collect` on its run folder; None when the relay asked codex nothing, or its `-l` lane folder now holds another relay's later run."""
+    """The run of the newest reply file codex-ask printed into the relay's tool results whose folder holds codex-ask's `meta` file, read by `codex-ask --collect` on that run folder; a printed path in any other folder, such as a reply codex wrote into a job's scratch folder and the relay read back, is passed over. None when the relay asked codex nothing, or its `-l` lane folder now holds another relay's later run."""
     reply = None
     for row in reversed(transcript.read_bytes().splitlines()):
         if PRINTED not in row:
@@ -43,7 +43,7 @@ def newest_run(transcript: Path) -> Run | None:
             entry = json.loads(row)
         except ValueError:
             continue
-        if found := printed(entry):
+        if found := [path for path in printed(entry) if (path.parent / "meta").is_file()]:
             reply = found[-1]
             break
     if reply is None or not reply.is_file():
@@ -55,8 +55,12 @@ def newest_run(transcript: Path) -> Run | None:
         raise CodexError(str(error)) from None
     if result.returncode:
         raise CodexError(" ".join(result.stderr.split()) or f"codex-ask --collect exited {result.returncode}")
-    record = json.loads(result.stdout)
-    return Run(record["state"], reply, Path(record["log_file"])) if record["reply_file"] == str(reply) else None
+    try:
+        records = [json.loads(line) for line in result.stdout.splitlines()]
+    except ValueError:
+        raise CodexError(f"codex-ask --collect printed no record: {' '.join(result.stdout.split())[:200]}") from None
+    record = next((record for record in records if record["reply_file"] == str(reply)), None)
+    return Run(record["state"], reply, Path(record["log_file"])) if record else None
 
 
 def printed(entry: dict) -> list[Path]:

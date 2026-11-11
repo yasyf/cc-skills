@@ -15,8 +15,6 @@ from drive.shell import expanded, runnable, templates
 
 GUARDED_OWNER = "forge-ai"
 MONOREPO = "Forge-AI/monorepo"
-WAITS_FOR_CI = frozenset({"yasyf/cc-skills"})
-PASSED = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -67,9 +65,8 @@ UNCHECKED = (
     " checked. Run this again once both answer"
 )
 UNREAD = (
-    "landing_guard let this run unchecked, since a read it needed failed, so a yasyf/cc-skills PR's checks or a Forge-AI"
-    " drive PR's tap and open cards went unread. Once GitHub answers, read them with `gh pr checks <n> -R yasyf/cc-skills`"
-    " or `drive status <PR url>`, and fix a red check forward. The read said: {error}"
+    "landing_guard let this run unchecked, since a read it needed failed, so a Forge-AI drive PR's tap and open cards"
+    " went unread. Once GitHub answers, read them with `drive status <PR url>`. The read said: {error}"
 )
 AGENTS = "long-running:"
 COORDINATOR_WORK = (
@@ -362,20 +359,6 @@ def stacked(keys: list[str], session: str) -> list[str]:
     return [*members, *(key for key in keys if key.lower() not in shown)]
 
 
-def checks_reason(key: str, cwd: str) -> str | None:
-    """Why a PR in a repository whose CI runs in about a minute must not merge yet: a check on its head still runs or is red."""
-    repo, number = key.split("#")
-    rollup = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", "statusCheckRollup"], cwd))["statusCheckRollup"]
-    waiting = [
-        check["name"] if check["__typename"] == "CheckRun" else check["context"]
-        for check in rollup
-        if (check["conclusion"] if check["__typename"] == "CheckRun" else check["state"]) not in PASSED
-    ]
-    if not waiting:
-        return None
-    return f"{key}: {', '.join(waiting)} not green on its head yet; its CI takes about a minute, so merge once every check passes, fixing a red one first"
-
-
 def merged_through_api(refs: list[str], options: dict[str, list[str]]) -> list[str] | None:
     """The PR a `gh api` call merges, as its URL, when it PUTs GitHub's merge or merge-async endpoint of a pull request."""
     merged = MERGE_ENDPOINT.fullmatch(next(iter(refs), ""))
@@ -393,15 +376,12 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return None
     named = refs if landing.every_pr else refs[:1] or [None]
     repo = target_repo(landing, next(iter(named), None), options, shell)
-    guarded = repo.split("/")[0].lower() == GUARDED_OWNER
-    if not guarded and repo.lower() not in WAITS_FOR_CI:
+    if repo.split("/")[0].lower() != GUARDED_OWNER:
         return None
-    if guarded and switched_on(options, "admin"):
+    if switched_on(options, "admin"):
         return ADMIN_REASON
     selected = selected_repo(landing, options, shell)
     keys = [resolve_key(ref, repo, selected, shell.cwd) for ref in named]
-    if not guarded:
-        return next(filter(None, (checks_reason(key, shell.cwd) for key in keys)), None)
     if landing.every_pr and shell.driving:
         every = stacked(keys, shell.session)
         listed = {key.lower() for key in keys}
@@ -556,7 +536,7 @@ def judged_reason(payload: dict) -> str | None:
 
 
 def guarded_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or puts up a drive's public PR body showing what only a private place may."""
+    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or puts up a drive's public PR body showing what only a private place may."""
     _, shell = shell_of(payload)
     command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):

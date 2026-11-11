@@ -112,19 +112,12 @@ for its repository says, then return `DONE <proof>`.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking. His plan put the green gate back on
-for cc-skills, whose CI takes about a minute; every other `yasyf/*` repository keeps it off
-until he lifts it.
+No tap and no green gate: by his standing rule a `yasyf/*` PR merges without asking, and by his words
+"can merge past CI on personal repos and fix reds after the fact" it merges without waiting on CI.
 
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
-2. Merge with `gh pr merge <n> -R <repo> --squash --admin`. In cc-skills, merge once every check on
-   the PR's head is green, which `ccx vcs ship` waits for and prints; the landing guard refuses the
-   merge while one still runs or is red. When GitHub does not answer the guard's read, the merge runs
-   and a note beside its output says so: read its checks once GitHub answers and fix a red one
-   forward. A merge before its check ran once pushed the skill body past
-   its 8,000-character cap and left main red. Any other
-   `yasyf/*` PR merges at once, waiting only for a check that is red on the PR's own change: fix it,
-   push, merge. A mid-stack PR runs no CI, so never wait on one.
+2. Merge at once with `gh pr merge <n> -R <repo> --squash --admin`, whatever its checks show. Read
+   them once they finish and fix a red one forward in a follow-up PR.
 3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
    - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
      `long-running@skills`) waits for the release that holds the merge, updates the plugin, and
