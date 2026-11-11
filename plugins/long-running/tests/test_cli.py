@@ -1206,11 +1206,14 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     assert 'demo:j1-7: his words under that card answer it' in refusal
     assert '"its one snapshot file, just wait for the copy"' in refusal
     assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"] if question["waits"] == "demo:j1-7"] == [kept[0]]
+    assert run("answer", "a2", "--words", "One snapshot file", "--link", link)[0] == 0
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     assert cli.main(["job", "ask", asking, "-"]) == 2
-    assert f"- a1 his words under this job's card {link}: its one snapshot file, just wait for the copy" in capsys.readouterr().err
+    refusal = capsys.readouterr().err
+    assert f"- a1 his words under this job's card {link}: its one snapshot file, just wait for the copy" in refusal
+    assert f"- a2 his pick on this job's card {link}: One snapshot file" in refusal
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
-    assert run("job", "ask", asking, "-", "--unsettled", "a1: he picked the layout, not when it is written")[0] == 0
+    assert run("job", "ask", asking, "-", "--unsettled", "a1, a2: he picked the layout, not when it is written")[0] == 0
 
 
 IDLE_RULING = {

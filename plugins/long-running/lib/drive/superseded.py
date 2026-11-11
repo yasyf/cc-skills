@@ -78,12 +78,16 @@ def under(link: str, card: str) -> bool:
 def said_under(data: dict, job: dict) -> list[dict]:
     """Each answer of his written under a card this job asked on, as `drive job ask`'s settled check lists one."""
     return [
-        {"id": answer_id, "title": f"his words under this job's card {question['card']}: {cut(answer['words'], 160)}"}
+        {"id": answer_id, "title": f"his {said(answer['link'], question['card'])} this job's card {question['card']}: {cut(answer['words'], 160)}"}
         for question in job["questions"]
         if question["card"]
         for answer_id, answer in data["answers"].items()
         if under(answer["link"], question["card"])
     ]
+
+
+def said(link: str, card: str) -> str:
+    return "pick on" if view.message_key(link) == view.message_key(card) else "words under"
 
 
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
