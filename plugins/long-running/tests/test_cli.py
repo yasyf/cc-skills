@@ -2132,12 +2132,27 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
         assert code == 2
         assert f'j1: refused, nothing kept: it reports a limit as a finding left standing: "DONE {finding}". A limit or capacity finding is his choice' in err
         assert "return ASK or DESIGN with two to four options for it, one recommended" in err
+    refusal = "GraphQL: API rate limit already exceeded for user ID 709645."
+    for own_words in (
+        "UNPROVEN: the queue state of the stack; the read stopped when it hit GitHub's 5,000 calls an hour rate limit",
+        f'UNPROVEN: the queue state of the stack; it hit the 5,000 calls an hour rate limit, "{refusal}"',
+        f'UNPROVEN: the queue state of the stack, read for each of its four PRs before the merge, after the restack and at the enqueue; every read was refused with "{refusal}"',
+    ):
+        code, err = keep(monkeypatch, capsys, "j1", f"DONE the copy finished\n{check}{own_words}\n")
+        assert code == 2
+        assert f'it reports a limit as a finding left standing: "{own_words.rpartition("; ")[2]}". A limit or capacity finding is his choice' in err
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     design = "DESIGN the bucket caps at 5k objects/s, left as is\n- shard the copy across buckets (recommended)\n- copy at 5k objects/s\n"
     assert keep(monkeypatch, capsys, "j1", design) == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
     assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
+    for evidence in (
+        f'DEFECT: ccx vcs gh refuses every read on this Sprite: "{refusal}"',
+        f'Measured: stack-enqueue read the queue under its "GitHub rate limit floor" of 500 calls, then its 1:20 PM read was refused: "{refusal}"',
+        f'Measured: gh pr view was refused 3 times between 1:10 PM and 1:24 PM, each "{refusal}"',
+    ):
+        assert keep(monkeypatch, capsys, "j2", f"DONE the copy finished\n{check}{evidence}\n") == (0, "")
 
 
 def test_a_builders_ready_names_prs_whose_tap_card_draws(

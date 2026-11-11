@@ -26,7 +26,7 @@ LEFT_FOR = re.compile(
 )
 LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rate[- ]limit\w*|limit\w*|max(?:imum)?)\b", re.IGNORECASE)
 LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
-STATEMENT_BREAK = re.compile(r"[.;:!?]+(?=\s|$)")
+STATEMENT = re.compile(r"(?:(?![.;:!?]+(?=\s|$)).)+")
 CHOICE_OPENINGS = ("ASK", "DESIGN")
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
@@ -160,7 +160,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit in its own words as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -177,7 +177,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if opening not in CHOICE_OPENINGS and (finding := limit_finding(lines)):
         return (
-            f'it reports a limit as a finding left standing: "{cut(finding, 120)}". A limit or capacity finding is his'
+            f'it reports a limit as a finding left standing: "{finding}". A limit or capacity finding is his'
             " choice, so return ASK or DESIGN with two to four options for it, one recommended, in place of this report"
         )
     if job["kind"] == "design" and opening not in UNDESIGNED and (missing := design_missing(lines)):
@@ -242,8 +242,14 @@ def design_missing(lines: list[str]) -> list[str]:
 
 
 def limit_finding(lines: list[str]) -> str | None:
-    """The first line with a statement naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside."""
-    return next((line for line in lines if any(limited(statement) and left_standing(statement) for statement in STATEMENT_BREAK.split(line))), None)
+    """The first statement, as written, naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside. Only the report's own words count, so a quote, code, link or URL it cites as evidence reads as blank, except on an UNPROVEN: line, where a quoted refusal is the reason it gives for leaving the step unproven."""
+    for line in lines:
+        for found in STATEMENT.finditer(limits.masked(line)):
+            statement = line[found.start() : found.end()]
+            read = statement if line.startswith("UNPROVEN:") else found[0]
+            if limited(read) and left_standing(read):
+                return statement.strip()
+    return None
 
 
 def limited(statement: str) -> bool:
