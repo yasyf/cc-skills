@@ -36,6 +36,14 @@ def test_warming_queues_each_pr_once_per_head(assistant: review.Assistant) -> No
     assert [assistant.warming.get_nowait() for _ in range(assistant.warming.qsize())] == [(KEY, "h1"), ("yasyf/cc-skills#42", "h9"), (KEY, "h2")]
 
 
+def test_a_restarted_dashboard_warms_only_reviews_not_started_at_their_head(assistant: review.Assistant, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(review.subprocess, "run", lambda argv, **kwargs: subprocess.CompletedProcess(argv, 0, STARTED, ""))
+    assistant.url(KEY, "h1", viewing=False)
+    restarted = review.Assistant("demo")
+    restarted.warm([(KEY, "h1"), (KEY, "h2")])
+    assert [restarted.warming.get_nowait() for _ in range(restarted.warming.qsize())] == [(KEY, "h2")]
+
+
 def test_his_requests_are_served_once_per_attempt_and_only_his_own_comments(assistant: review.Assistant) -> None:
     assistant.queues[KEY] = queue.Queue()
     asked = {"type": "ai.request.created", "request": {"id": "q1", "attempt": 1, "text": "why a new process?"}}
