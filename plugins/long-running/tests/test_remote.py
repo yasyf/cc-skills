@@ -270,6 +270,22 @@ def test_resume_answers_the_open_question_then_sends_to_the_dispatch(
     assert (job["ask"], job["state"]) == (None, "running")
 
 
+def test_resume_answers_an_open_question_naming_logs_with_those_logs_ahead_of_its_text(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls, asked = [], []
+    monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
+    monkeypatch.setattr(reads, "answer", lambda question, root: asked.append((question, root)) or "FAIL hold_test.go:41")
+    report = "j1 READ, two reads: (1) LOG https://buildkite.com/forge/test/builds/1 (2) the field facts"
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(ask="msg_q1", state="waiting", report=report)
+    code, out = run("job", "resume", "j1", "The field facts: none")
+    assert code == 0
+    assert "with LOG https://buildkite.com/forge/test/builds/1 read ahead of your text" in out
+    assert asked == [("LOG https://buildkite.com/forge/test/builds/1", tmp_path)]
+    assert ("reply", "--id", "msg_q1", "--run", RUN, "--body", "FAIL hold_test.go:41\n\nThe field facts: none") in calls
+
+
 def dead(verdict: str = "exited") -> dict:
     return {"projection": {"liveness": {"verdict": verdict}, "outcome": "in_progress", "attention": {"categories": []}}}
 
@@ -642,6 +658,18 @@ def test_the_watch_answers_a_read_question_itself_and_keeps_the_job_as_it_was(
     assert (job["ask"], job["state"], job["said"]) == (None, "running", None)
 
 
+def test_a_question_naming_logs_past_its_first_line_goes_to_the_coordinator_saying_resume_reads_them(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    deliver(monkeypatch, [message("question", "j1 PUSHED #7\nLOG https://buildkite.com/forge/test/builds/1", id="msg_q")])
+    monkeypatch.setattr(reads, "answer", lambda question, root: pytest.fail(f"the watch read {question}"))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == [
+        "JOB j1 o1 j1 PUSHED #7; drive job resume reads LOG https://buildkite.com/forge/test/builds/1 ahead of your answer"
+    ]
+    assert state.load(remote)["jobs"]["j1"]["ask"] == "msg_q"
+
+
 def test_a_read_that_cannot_be_answered_tells_its_lane_why_and_says_so(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     question = "LOG https://buildkite.com/forge/test/builds/1"
     deliver(monkeypatch, [message("question", question, id="msg_log")])
@@ -756,7 +784,7 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     monkeypatch.setattr(reads, "answer", lambda question, root: asked.append(question) or "FAIL hold_test.go:41")
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     assert watch.run_pass(watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == []
-    assert asked == ["LOG https://buildkite.com/forge/test/builds/123761"]
+    assert asked == ["LOG https://buildkite.com/forge/test/builds/123761 https://buildkite.com/forge/test/builds/123764"]
     assert ("reply", "--id", "relay_kept", "--run", RUN, "--body", "FAIL hold_test.go:41") in replies
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})

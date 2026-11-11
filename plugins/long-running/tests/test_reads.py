@@ -5,6 +5,7 @@ import pytest
 from drive import reads
 
 BUILD = "https://buildkite.com/forge/test/builds/121531"
+OTHER = "https://buildkite.com/forge/test/builds/121532"
 FAILED_JOB = "01a1c150-b658-46c9-a067-e38eebe83af2"
 LOG = (
     "\x1b_bk;t=1\x07~~~ Running repository pre-command hook\r\n"
@@ -52,6 +53,8 @@ def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
             f"LOG {BUILD}",
         ),
         (f"LOG {BUILD}#{FAILED_JOB} — need: did the sand-next-tests step run\nmore", f"LOG {BUILD}#{FAILED_JOB}"),
+        (f"j232 LOG {BUILD} and LOG {OTHER} are both red on #7", f"LOG {BUILD} {OTHER}"),
+        (f"LOG {BUILD}\nthen LOG {OTHER} if the first is green\nLOG {BUILD}", f"LOG {BUILD} {OTHER}"),
         ("READ cci show 2065", "READ cci show 2065"),
         ("j247: READ ccn answer show 5299250c9a85\nfor his words", "READ ccn answer show 5299250c9a85"),
         ("READY https://x/pull/1", None),
@@ -61,10 +64,32 @@ def serve(monkeypatch: pytest.MonkeyPatch, build: str) -> list[list[str]]:
         ("j242 PUSHED #7\nLOG https://buildkite.com/forge/test/builds/1", None),
     ],
 )
-def test_a_read_question_opens_with_its_read_past_the_job_id_and_ignores_prose_after_it(
+def test_a_read_question_opens_with_its_read_past_the_job_id_and_reads_every_log_it_names(
     body: str, question: str | None
 ) -> None:
     assert reads.request(body) == question
+
+
+@pytest.mark.parametrize(
+    ("body", "question"),
+    [
+        (f"j242 PUSHED #7\nLOG {BUILD} is red, and LOG {OTHER} too. Which do I fix first?", f"LOG {BUILD} {OTHER}"),
+        ("j242 READY https://x/pull/1", None),
+    ],
+)
+def test_logs_names_every_log_a_question_names_once_wherever_it_names_them(body: str, question: str | None) -> None:
+    assert reads.logs(body) == question
+
+
+def test_a_log_read_naming_two_builds_reads_both_in_half_the_budget_each(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    serve(monkeypatch, build_json(job(FAILED_JOB, "failed")))
+    limits = []
+    monkeypatch.setattr(reads, "excerpt", lambda log, limit: limits.append(limit) or "cut")
+    said = f"== step 01a1: failed, exit 1, {BUILD}#{FAILED_JOB}\ncut"
+    assert reads.answer(f"LOG {BUILD} {OTHER}", tmp_path) == f"{said}\n\n{said}"
+    assert limits == [reads.BUDGET // 2] * 2
 
 
 def test_excerpt_keeps_the_command_output_without_hooks_or_markup() -> None:

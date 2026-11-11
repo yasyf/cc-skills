@@ -216,7 +216,9 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
-  read, not a report. Ask one read per question, on its first line; text after a `LOG` URL is ignored.
+  read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
+  names, splitting the 12,000 characters across them, and a `READ` question runs its first line
+  alone. A question for the coordinator that names a `LOG <url>` gets that log ahead of its answer.
 
 | Read | What it returns |
 | --- | --- |

@@ -990,9 +990,10 @@ def started_job(data: dict, job_id: str) -> dict:
 
 
 def job_resume(args: argparse.Namespace) -> int:
-    """Send the lane its next event, or, when its worker takes no messages, start the job's next worker with the event in its handoff."""
+    """Send the lane its next event, or, when its worker takes no messages, start the job's next worker with the event in its handoff; an answer to an open question that names `LOG <url>`s carries those logs ahead of the text, read here as the watch reads them."""
     name = state.resolve(args.drive)
-    job = started_job(state.load(name), args.id)
+    data = state.load(name)
+    job = started_job(data, args.id)
     try:
         end = orca.lane_end(job)
     except orca.OrcaError as error:
@@ -1001,7 +1002,15 @@ def job_resume(args: argparse.Namespace) -> int:
         ) from None
     if end:
         return restart(args, name, job["dispatch"], end)
-    how = orca.answer(name, job, args.text)
+    text = args.text
+    asked = reads.logs(job["report"] or "") if job.get("ask") else None
+    if asked:
+        try:
+            said = reads.answer(asked, Path(data["roles"]["coordinator"]["cwd"]))
+        except reads.ReadError as error:
+            said = f"{asked}: {error}"
+        text = f"{said}\n\n{args.text}"
+    how = orca.answer(name, job, text) + (f", with {asked} read ahead of your text" if asked else "")
     with state.edit(name) as data:
         fresh = data["jobs"][args.id]
         if fresh.get("ask") == job.get("ask"):

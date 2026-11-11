@@ -95,7 +95,9 @@ question.
 
 - Its first line opens with the read, after the lane's job id when it writes one: `LOG <url>` for a
   red Buildkite or GitHub Actions check, or `READ <command>` for a `cci` or `ccn` read the builder
-  agent lists. `READ: LOG <url>` reads as `LOG <url>`, and text after a `LOG` URL is ignored.
+  agent lists. `READ: LOG <url>` reads as `LOG <url>`. A `LOG` question reads every `LOG <url>` it
+  names, each in an even share of the 12,000 characters, and a `READ` question runs its first line
+  alone.
 - The watch answers it itself, with no event: it runs `tools/ci bk`, `ccx vcs job-log`, `cci` or
   `ccn` in the directory the coordinator started the drive from and replies with the output, cut to
   12,000 characters. A `LOG` answer leads each failed job's share with its failure lines, such as a
@@ -104,8 +106,10 @@ question.
   of its log. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
-  to answer. One nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes,
-  whatever card or PR the job has, since a card drawn before the question asks him something else.
+  to answer. One that names a `LOG <url>` past its first line says so on its line, and
+  `drive job resume` reads each such log ahead of your text, so start no reader for it. One
+  nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
+  the job has, since a card drawn before the question asks him something else.
 - A question kept for you that reads as a `LOG` or `READ`, such as one kept before the watch read it
   that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
