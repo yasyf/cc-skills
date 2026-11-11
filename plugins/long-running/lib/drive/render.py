@@ -222,6 +222,14 @@ def job_line(job_id: str, job: dict) -> str:
     return f"{job_id} {job['kind']} {job['state']}{built}{handle}: {cut(job['goal'], 100)}{repro}{carries}{waits}"
 
 
+def question_line(question: dict) -> str:
+    drawn = question["card"] or question["waits"]
+    card = f"card {drawn}" if drawn else "no card drawn yet"
+    waits = f" ({question['waits']})" if question["card"] and question["waits"] else ""
+    kept = f", kept in {question['file']}" if question["file"] else ""
+    return f"asks him: {cut(question['title'] or 'his question card', 80)}; {card}{waits}{kept}"
+
+
 def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     keys = dict.fromkeys([*map(pr_key, job["prs"]), *job_prs(drive, job_id)])
     return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
@@ -254,6 +262,7 @@ def order_block(drive: dict, order_id: str, order: dict, limit: int) -> list[str
     for job_id in order["jobs"]:
         job = drive["jobs"][job_id]
         lines.append(f"  - {job_line(job_id, job)}")
+        lines.extend(f"    - {question_line(question)}" for question in job["questions"])
         lines.extend(f"    - {line}" for line in job_pr_lines(drive, job_id, job))
     return lines
 

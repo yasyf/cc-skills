@@ -7,7 +7,7 @@ from drive.state import DriveError
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
     """Every card asking him and every PR not yet live, by the key a mark names it with: each open question card by its waits id, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
-    drawn = {view.message_key(job["card"]): job_id for job_id, job in data["jobs"].items() if job.get("card")}
+    drawn = {view.message_key(question["card"]): job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"]}
     asked = {}
     for card in found["questions"]:
         key = card["card"].get("waits") or view.message_key(card["url"])

@@ -433,7 +433,7 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     assert (code, out) == (0, str(kept))
     assert kept.read_text() == SHORT_ASK
     job = state.load("demo")["jobs"]["j1"]
-    assert job["question"] == str(kept)
+    assert [question["file"] for question in job["questions"]] == [str(kept)]
     assert job["state"] == "waiting"
     assert job["said"] == "How should a finished run's files be laid out so its page opens without guessing?"
     shown = json.loads(run("job", "ask", asking, str(block), "--json")[1])
@@ -639,7 +639,64 @@ def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
         "ASK How should a finished run's files be laid out so its page opens without guessing?",
         "ASK Where should a finished run's files be laid out so its page opens without guessing?",
     ]
-    assert state.load("demo")["jobs"]["j1"]["question"] == str(kept[1])
+    assert [question["file"] for question in state.load("demo")["jobs"]["j1"]["questions"]] == [str(path) for path in kept]
+
+
+def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_own_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "freeze", lambda language, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    titles = ["How should", "Where should", "When should"]
+    kept = []
+    for title in titles:
+        monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", f"ASK {title}")))
+        kept.append(run("job", "ask", asking, "-")[1])
+    links = [f"https://acme.slack.com/archives/D123/p179430000000010{n}" for n in range(3)]
+    shown = [
+        {"question": title, "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": title, "waits": f"demo:j1-{n}"}}
+        for n, (title, link) in enumerate(zip(titles, links, strict=True))
+    ]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown), "pr_cards": []})
+    for n, (path, link) in enumerate(zip(kept[:2], links, strict=True)):
+        assert run("job", "card", path, "--waits", f"demo:j1-{n}")[0] == 0
+        assert run("job", "set", asking, "--card", link)[0] == 0
+    assert run("job", "set", asking, "--card", links[2])[0] == 0
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [
+        (kept[0], "demo:j1-0", links[0]),
+        (kept[1], "demo:j1-1", links[1]),
+        (kept[2], None, None),
+        (None, "demo:j1-2", links[2]),
+    ]
+    shown.pop(0)
+    view.refresh_cards("demo")
+    status = run("status")[1]
+    assert links[0] not in status
+    assert f"asks him: Where should a finished run's files be laid out so its page opens without guess…; card {links[1]} (demo:j1-1)" in status
+    assert f"no card drawn yet, kept in {kept[2]}" in status
+    assert f"asks him: When should; card {links[2]} (demo:j1-2)" in status
+
+
+def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_posted_holds_nothing(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "freeze", lambda language, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("opens in 3 requests", "opens in 3 calls"), SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        kept.append(run("job", "ask", asking, "-")[1])
+    run("job", "card", kept[0], "--waits", "demo:j1-7")
+    run("job", "set", asking, "--card", link)
+    run("job", "card", kept[1], "--waits", "demo:j1-7")
+    run("job", "card", kept[2], "--waits", "demo:j1-8")
+    questions = state.load("demo")["jobs"]["j1"]["questions"]
+    assert [(question["file"], question["waits"], question["card"]) for question in questions] == [(kept[1], "demo:j1-7", link), (kept[2], "demo:j1-8", None)]
+    status = run("status")[1]
+    assert f"card {link} (demo:j1-7)" in status
+    assert "asks him: Where should" not in status
 
 
 IDLE_RULING = {
@@ -665,7 +722,7 @@ def test_job_ask_refuses_a_question_his_recorded_answer_may_settle_until_a_reaso
     assert cli.main(["job", "ask", asking, str(block), "--unsettled", "it closes sessions, not a run's files"]) == 2
     why = "ac61348: it closes sessions; this asks how a run's files are laid out"
     assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
-    assert state.load("demo")["jobs"]["j1"]["unsettled"] == why
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"] == why
 
 
 def test_job_ask_lists_every_candidate_in_the_same_order_whatever_the_reason_names(
@@ -1238,7 +1295,7 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
     data = state.load("demo")
     assert list(data["orders"]["o1"]["parts"]) == ["stack 1", "stack 2", "stack 3"]
     assert data["jobs"]["j1"]["parts"] == ["stack 2", "stack 3", "stack 1"]
-    assert data["jobs"]["j1"]["card"] == "https://acme.slack.com/archives/D1/p1"
+    assert [question["card"] for question in data["jobs"]["j1"]["questions"]] == ["https://acme.slack.com/archives/D1/p1"]
 
 
 def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str) -> None:
@@ -1333,7 +1390,7 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
     answer = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", answer)[0] == 2
     with state.edit("demo") as data:
-        data["jobs"]["j1"]["card"] = "https://acme.slack.com/archives/D123/p1794200000000100"
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(), card="https://acme.slack.com/archives/D123/p1794200000000100"))
     assert run("order", "posted", "o1", answer)[0] == 0
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer
 

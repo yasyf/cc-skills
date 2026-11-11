@@ -131,6 +131,16 @@ def card_open(url: str, found: dict | None) -> bool:
     return message_key(url) in shown or url in waits
 
 
+def open_questions(job: dict, found: dict | None) -> list[dict]:
+    """The questions a job asked him that his answer has not closed: each not drawn yet, and each whose card, by its link or else its waits id, is still open."""
+    return [question for question in job["questions"] if not (drawn := question["card"] or question["waits"]) or card_open(drawn, found)]
+
+
+def open_cards(job: dict, found: dict | None) -> list[str]:
+    """The cards of his a job's questions are drawn on that he has not answered, each by its link or else its waits id."""
+    return [drawn for question in open_questions(job, found) if (drawn := question["card"] or question["waits"])]
+
+
 def holding(drive: dict, waits: list[str], found: dict | None) -> list[str]:
     """The waits of a job or PR that still hold: each of his cards still open, each job not finished."""
     jobs = drive["jobs"]
@@ -323,7 +333,7 @@ def blocking(drive: dict, jobs: list[dict], prs: list[dict], found: dict) -> lis
     """His open question cards a feature waits on: each its jobs and open PRs wait on, and each a job of it asked."""
     owners = [*jobs, *(pr for pr in prs if pr["state"] == "open")]
     named = {message_key(wait) for owner in owners for wait in owner["waits"] if wait not in drive["jobs"]}
-    named |= {message_key(job["card"]) for job in jobs if job.get("card")}
+    named |= {message_key(question["card"]) for job in jobs for question in job["questions"] if question["card"]}
     held = (card for card in found["questions"] if {message_key(card["url"]), card["card"].get("waits")} & named)
     return [{"title": card["question"], "url": card["url"], "asked": card["asked"]} for card in held]
 
@@ -458,8 +468,8 @@ class Chart:
             job = self.drive["jobs"][job_id]
             self.node(node_id, "job", JOB_TONES[job["state"]], cut(job["goal"], TITLE_CHARS), said(job["said"]), job["order"], None, job["updated"])
             self.waits(job["waits"], node_id)
-            if job.get("card") and card_open(job["card"], self.found):
-                self.arrow(self.card(job["card"]), node_id)
+            for card in open_cards(job, self.found):
+                self.arrow(self.card(card), node_id)
         return node_id
 
     def pr(self, key: str, pr: dict) -> str:

@@ -35,7 +35,7 @@ def order(**overrides: object) -> dict:
 
 
 def job(**overrides: object) -> dict:
-    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "state": "running", "said": None, "updated": state.stamp(T0)}
+    base = {"order": "o1", "kind": "builder", "goal": "watch", "prs": [], "branch": None, "waits": [], "questions": [], "state": "running", "said": None, "updated": state.stamp(T0)}
     return {**base, **overrides}
 
 
@@ -268,7 +268,7 @@ def test_a_drive_line_in_the_thread_of_the_orders_card_keeps_its_promised_time(
         data["orders"]["o1"].update(
             thread="1794200000.000100", due=state.stamp(T0 - timedelta(minutes=30)), promised=state.stamp(T0 - timedelta(minutes=60))
         )
-        data["jobs"]["j1"]["card"] = f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, None, state.stamp(T0), card=f"https://acme.slack.com/archives/D123/p{card.replace('.', '')}"))
     watching = watcher(demo)
     assert said_due(watching, T0)[0].startswith("DUE o1")
     threads[card].append({"ts": f"{(T0 + timedelta(minutes=5)).timestamp():.6f}", "thread_ts": card, "from_claude": True})
@@ -496,7 +496,9 @@ def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_ca
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
-        data["jobs"]["j1"].update(state="waiting", said="ASK which store?", card=CARD, updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j1"].update(
+            state="waiting", said="ASK which store?", questions=[state.new_question(None, "Which store?", state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10))
+        )
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
@@ -513,7 +515,7 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "pr_cards": []})
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
-        data["jobs"]["j2"] = job(order="o2", kind="design", state="done", card=CARD, updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"] = job(order="o2", kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
@@ -755,6 +757,25 @@ def test_a_built_job_is_freed_once_when_he_answers_the_last_card_it_waits_on(dem
     assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
     assert watch.run_pass(watching, T0 + timedelta(minutes=3)) == []
     assert state.load(demo)["jobs"]["j1"]["waits"] == []
+
+
+def test_a_built_job_asking_him_its_own_question_is_freed_only_once_he_answers_it_too(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    asked = f"{CARD[:-1]}9"
+    own = question("demo:j1-9") | {"url": asked}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a"), own], "pr_cards": []})
+    watch.view.refresh_cards(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"] |= {"state": "built", "branch": "lane/built", "waits": ["demo:j1-7-a"], "questions": [state.new_question("/asks/j1.md", "Pick?", state.stamp(T0), card=asked)]}
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [own], "pr_cards": []})
+    watch.view.refresh_cards(demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+    assert state.load(demo)["jobs"]["j1"]["waits"] == ["demo:j1-7-a"]
+    asking(monkeypatch, demo)
+    assert watch.run_pass(watching, T0 + timedelta(minutes=2)) == ["FREE j1 o1: demo:j1-7-a answered or done, nothing else holds it, built on lane/built"]
 
 
 def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_waits_clears_them(

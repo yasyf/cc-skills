@@ -71,7 +71,7 @@ def withdraw_pr_card(url: str, reason: str) -> list[str]:
 
 def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
-    links = (CARD_LINK.search(data["jobs"][job_id].get("card") or "") for job_id in order["jobs"])
+    links = (CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])
     return list(dict.fromkeys((link[1], link[4] or f"{link[2]}.{link[3]}") for link in links if link))
 
 

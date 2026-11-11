@@ -281,7 +281,7 @@ def job_add(args: argparse.Namespace) -> int:
             "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
             "parts": parts,
             "carries": {},
-            "card": None,
+            "questions": [],
             "where": "remote" if args.remote else "local",
             "repo": args.repo,
             "branch": args.branch,
@@ -300,12 +300,15 @@ def job_add(args: argparse.Namespace) -> int:
 
 def job_set(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said, "card": args.card, "branch": args.branch}
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     check_waits(name, args.waits)
+    shown = args.card and shown_card(name, args.card)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
         job.update({field: value for field, value in changes.items() if value is not None})
+        if args.card:
+            hold_card(job, args.card, shown)
         job["waits"] = merged_waits(job, args)
         if args.state == "built" and not (job["branch"] and job["waits"]):
             raise DriveError(
@@ -334,6 +337,36 @@ def job_set(args: argparse.Namespace) -> int:
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
 
 
+def shown_card(name: str, url: str) -> dict | None:
+    """His open question card at this link as cc-slack lists it, read again when the drive's copy lacks it; None when his cards cannot be read or it is not open."""
+    from drive import view
+
+    found = view.live_cards(name)
+    if not (found and view.asked_card(found, url)):
+        view.refresh_cards(name)
+        found = view.live_cards(name)
+    return found and view.asked_card(found, url)
+
+
+def hold_card(job: dict, url: str, shown: dict | None) -> None:
+    """Keep the card on the question it draws, found by its waits id or its link, else on a question of its own, so each card a job asked on stays open until his answer to it."""
+    from drive import view
+
+    waits = shown and shown["card"].get("waits")
+    question = next(
+        (
+            question
+            for question in job["questions"]
+            if waits and question["waits"] == waits or question["card"] and view.message_key(question["card"]) == view.message_key(url)
+        ),
+        None,
+    )
+    if question is None:
+        question = state.new_question(None, shown and shown["question"], state.stamp())
+        job["questions"].append(question)
+    question.update(card=url, waits=question["waits"] or waits)
+
+
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
     name = state.resolve(args.drive)
@@ -351,17 +384,32 @@ def job_ask(args: argparse.Namespace) -> int:
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
-        data["jobs"][args.id].update(question=str(kept), state="waiting", said=asked.title, unsettled=args.unsettled, updated=state.stamp())
+        job = data["jobs"][args.id]
+        job["questions"].append(state.new_question(str(kept), asked.title, state.stamp(), args.unsettled))
+        job.update(state="waiting", said=asked.title, updated=state.stamp())
     return emit(args, str(kept), {"id": args.id, "question": str(kept), **vars(asked)})
 
 
 def job_card(args: argparse.Namespace) -> int:
-    """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures."""
+    """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
     name = state.resolve(args.drive)
-    asked = limits.question(Path(args.file).expanduser().read_text())
+    path = Path(args.file).expanduser()
+    asked = limits.question(path.read_text())
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
+    with state.edit(name) as data:
+        keep_waits(find(data["jobs"], args.waits.partition(":")[2].partition("-")[0], "job"), str(path), args.waits)
     return emit(args, json.dumps(card), card)
+
+
+def keep_waits(job: dict, file: str, waits: str) -> None:
+    """Give the waits id to the newest question kept in the file; a question of the job that held it before, which this card redraws, hands over its card and leaves the job."""
+    question = next((question for question in reversed(job["questions"]) if question["file"] == file), None)
+    if question is None:
+        return
+    redrawn = next((other["card"] for other in job["questions"] if other is not question and other["waits"] == waits and other["card"]), None)
+    question.update(waits=waits, card=question["card"] or redrawn)
+    job["questions"] = [other for other in job["questions"] if other is question or other["waits"] != waits]
 
 
 def job_report(args: argparse.Namespace) -> int:
@@ -863,7 +911,13 @@ def only(data: dict, ids: list[str]) -> None:
 
 
 def status(args: argparse.Namespace) -> int:
-    data = state.load(state.resolve(args.drive))
+    from drive import view
+
+    name = state.resolve(args.drive)
+    data = state.load(name)
+    found = view.live_cards(name)
+    for job in data["jobs"].values():
+        job["questions"] = view.open_questions(job, found)
     if args.ids:
         only(data, args.ids)
     pr_fields = overlay_live(data)
@@ -1066,12 +1120,18 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--carries", action="append", default=[], metavar="ORDER", help="another order whose part this job delivers, until it is done"
     )
-    verb.add_argument("--card", help="the Slack link of the question card that carries this job's parts until he answers it")
+    verb.add_argument(
+        "--card",
+        help=(
+            "the Slack link of a question card the job asked on, which carries its parts until he answers it; each card"
+            " keeps its own question, so a job holds every card it asked on, each closed by his answer to it"
+        ),
+    )
     verb.set_defaults(run=job_set)
     verb = job.add_parser(
         "ask",
         parents=both,
-        help="keep a job's ASK in the drive, refused unless it is in the shape he reads, and set the job waiting",
+        help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting",
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
             " decided, the recommendation, what happens meanwhile), `Show me:` and its worked example (code in ```"
@@ -1079,8 +1139,9 @@ def parser() -> argparse.ArgumentParser:
             " two to four `- ` options of at most 25 words with exactly one ending"
             " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"
-            " its own and print its path, which the ask record carries; refuse it with every way it is out of shape, and"
-            " while a recorded answer of his may already settle it."
+            " its own and print its path, which the ask record carries, and add it to the job's open questions, each"
+            " open until his answer to its own card. Refuse it with every way it is out of shape, and while a recorded"
+            " answer of his may already settle it."
         ),
     )
     verb.add_argument("id")
@@ -1102,7 +1163,9 @@ def parser() -> argparse.ArgumentParser:
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced visual (code naming its"
             " language, arch, mermaid, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
             " titled with the caption line above it; a fence of words or one that does not draw is left off, and a"
-            " Show me left empty is dropped; its options, the recommended one, the drive, and --waits."
+            " Show me left empty is dropped; its options, the recommended one, the drive, and --waits. The question kept"
+            " in that file takes the waits id, and one of the job's that held it before, a card this redraws, hands over"
+            " its card and leaves the job."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")

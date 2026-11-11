@@ -49,6 +49,7 @@ def sample() -> dict:
             "branch": "lr-rewrite",
             "worktree": None,
             "prs": ["https://github.com/yasyf/cc-skills/pull/9"],
+            "questions": [],
             "state": "running",
             "said": None,
             "created": "2026-11-09T08:00:00-08:00",

@@ -176,6 +176,9 @@ def load(name: str) -> dict:
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])
+        if "questions" not in job:
+            asked, card = job.get("question"), job.get("card")
+            job["questions"] = [new_question(asked, job["said"], job["updated"], job.get("unsettled"), card)] if asked or card else []
     for pr in data["prs"].values():
         waits = pr.get("waits")
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
@@ -221,6 +224,10 @@ def whole_order(text: str) -> str:
 
 def new_part() -> dict:
     return {"posted": None, "orphan_said": None}
+
+
+def new_question(file: str | None, title: str | None, asked: str, unsettled: str | None = None, card: str | None = None) -> dict:
+    return {"file": file, "title": title, "asked": asked, "unsettled": unsettled, "waits": None, "card": card}
 
 
 def save(name: str, data: dict) -> None:

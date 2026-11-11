@@ -37,11 +37,11 @@ details .said {{ margin-top: 6px; color: #b6bcc6; }}
 
 
 def kept(job_id: str, job: dict, reports: set[str]) -> list[str]:
-    """The files the drive keeps for a job, in reading order: its brief, its report, the question it asked back, its reproduction, and its session's transcript when it ran on this Mac."""
+    """The files the drive keeps for a job, in reading order: its brief, its report, the questions it asked back, its reproduction, and its session's transcript when it ran on this Mac."""
     held = {
         "brief": job.get("brief"),
         "report": job.get("report") or job_id in reports,
-        "question": job.get("question"),
+        "question": any(question["file"] for question in job["questions"]),
         "repro": job.get("repro"),
         "transcript": job.get("where") != "remote" and job.get("agent") and job.get("session"),
     }
@@ -57,6 +57,10 @@ def page(name: str, job_id: str, job: dict, kind: str) -> str:
             return drawn(title, "", prose_body(f"This Mac no longer holds the transcript of agent {job['agent']}."))
         turns = turns_of(path.read_text(errors="replace"))
         return drawn(title, f"{len(turns)} {'turn' if len(turns) == 1 else 'turns'} · {path}", "".join(turn_html(entry) for entry in turns))
+    if kind == "question":
+        asked = [Path(question["file"]) for question in job["questions"] if question["file"]]
+        held = "".join(prose_body(path.read_text(errors="replace") if path.is_file() else f"This Mac no longer holds {path}.") for path in asked)
+        return drawn(title, f"{len(asked)} {'question' if len(asked) == 1 else 'questions'}, oldest first", held)
     path = state.drive_dir(name) / "reports" / f"{job_id}.md" if kind == "report" else Path(job[kind])
     if kind == "report" and not path.is_file():
         return drawn(title, "the lane's latest report", prose_body(job["report"]))
