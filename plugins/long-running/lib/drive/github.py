@@ -3,7 +3,6 @@ import re
 import subprocess
 from itertools import groupby
 
-BATCH = 50
 FIELDS = (
     "state isDraft headRefOid title reviewDecision mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { committedDate statusCheckRollup { contexts(first: 100) { nodes { "
@@ -35,6 +34,14 @@ def run(cmd: list[str], cwd: str | None = None, timeout: int = 120) -> str:
     return result.stdout
 
 
+def read(what: str, cmd: list[str]) -> str:
+    """Run a gh read; one that fails names what it could not read."""
+    try:
+        return run(cmd)
+    except GithubError as error:
+        raise GithubError(f"could not read {what} from GitHub: {error}") from None
+
+
 def close(url: str) -> None:
     """Close a pull request on GitHub."""
     run(["gh", "pr", "close", url])
@@ -43,7 +50,7 @@ def close(url: str) -> None:
 def visibility(repo: str) -> str | None:
     """public, private or internal, as GitHub reports the repository to us; None when it knows no repository by that name."""
     try:
-        return run(["gh", "api", f"repos/{repo}", "--jq", ".visibility"]).strip()
+        return read(f"{repo}'s visibility", ["gh", "api", f"repos/{repo}", "--jq", ".visibility"]).strip()
     except GithubError as error:
         if "HTTP 404" in str(error):
             return None
@@ -164,23 +171,23 @@ def parse(payload: dict, keys: list[str]) -> dict[str, dict]:
     return found
 
 
-def graphql(text: str) -> dict:
-    reply = run(["gh", "api", "graphql", "-f", f"query={text}"])
+def graphql(text: str, what: str) -> dict:
+    reply = read(what, ["gh", "api", "graphql", "-f", f"query={text}"])
     try:
         return json.loads(reply)
     except ValueError as error:
-        raise GithubError(f"unreadable GraphQL reply: {error}") from None
+        raise GithubError(f"unreadable GraphQL reply for {what}: {error}") from None
 
 
 def release_of(key: str, service: str, commit: str) -> str | None:
     """The name of the newest published release that ships the service, when it holds the commit; a release candidate, named rc/, ships to staging and never counts."""
     repo = repo_of(key)
-    shipping = [release for release in json.loads(run(["gh", "api", f"repos/{repo}/releases?per_page=100"])) if ships(release, service)]
+    shipping = [release for release in json.loads(read(f"{repo}'s releases", ["gh", "api", f"repos/{repo}/releases?per_page=100"])) if ships(release, service)]
     if not shipping:
         return None
     newest = max(shipping, key=lambda release: release["published_at"])
-    compared = run(["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"]).strip()
-    return newest["name"] if compared in HOLDS else None
+    compared = read(f"whether {repo}'s release {newest['tag_name']} holds {commit[:7]}", ["gh", "api", f"repos/{repo}/compare/{commit}...{newest['tag_name']}", "--jq", ".status"])
+    return newest["name"] if compared.strip() in HOLDS else None
 
 
 def ships(release: dict, service: str) -> bool:
@@ -191,12 +198,8 @@ def ships(release: dict, service: str) -> bool:
 
 
 def fetch(keys: list[str]) -> dict[str, dict]:
-    """Read every PR key ("owner/name#123") in batches of 50, one `gh api graphql` call per batch."""
-    found = {}
-    for start in range(0, len(keys), BATCH):
-        chunk = keys[start : start + BATCH]
-        found.update(parse(graphql(query(chunk)), chunk))
-    return found
+    """Read every PR key ("owner/name#123") in one `gh api graphql` call, however many there are."""
+    return parse(graphql(query(keys), f"{len(keys)} PRs of {', '.join(sorted({repo_of(key) for key in keys}))}"), keys)
 
 
 def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
@@ -214,20 +217,18 @@ def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
 
 
 def open_on(heads: list[tuple[str, str]]) -> dict[str, dict]:
-    """Every open PR whose head is one of the (owner/name, branch) heads, keyed "owner/name#123" with its branch, checks and review, one `gh api graphql` call per 50 heads."""
+    """Every open PR whose head is one of the (owner/name, branch) heads, keyed "owner/name#123" with its branch, checks and review, in one `gh api graphql` call, however many heads there are."""
+    repos = sorted({repo for repo, _ in heads})
+    data = graphql(heads_query(heads, repos), f"the open PRs on running jobs' branches in {', '.join(repos)}").get("data") or {}
     found = {}
-    for start in range(0, len(heads), BATCH):
-        chunk = heads[start : start + BATCH]
-        repos = sorted({repo for repo, _ in chunk})
-        data = graphql(heads_query(chunk, repos)).get("data") or {}
-        for slot, (repo, branch) in enumerate(chunk):
-            for node in ((data.get(f"r{repos.index(repo)}") or {}).get(f"h{slot}") or {}).get("nodes", []):
-                read = flatten(node)
-                found[f"{repo}#{node['number']}"] = {
-                    "branch": branch,
-                    "checks": checks(read["checks"], []),
-                    "review": REVIEWS.get(read["reviewDecision"], "none"),
-                }
+    for slot, (repo, branch) in enumerate(heads):
+        for node in ((data.get(f"r{repos.index(repo)}") or {}).get(f"h{slot}") or {}).get("nodes", []):
+            pulled = flatten(node)
+            found[f"{repo}#{node['number']}"] = {
+                "branch": branch,
+                "checks": checks(pulled["checks"], []),
+                "review": REVIEWS.get(pulled["reviewDecision"], "none"),
+            }
     return found
 
 

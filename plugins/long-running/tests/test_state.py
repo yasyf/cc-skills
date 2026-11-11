@@ -245,6 +245,15 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     assert state.session_role(state.load("other"), "me") == "communicator"
 
 
+def test_resolving_a_sessions_drive_loads_no_drive_it_is_not_bound_to(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    make("mine", "me")
+    make("other", "someone-else")
+    loaded = []
+    monkeypatch.setattr(state, "load", lambda name: loaded.append(name) or {})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "me")
+    assert (state.resolve(), state.session_drives("someone-else"), loaded) == ("mine", ["other"], [])
+
+
 def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordinator_holds_the_coordinator_role_for_its_project_alone(
     state_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -486,7 +495,9 @@ def test_a_bare_number_two_repositories_share_judges_the_pr_on_the_readers_order
     assert state.named_prs(judged(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]
 
 
-def test_load_turns_each_kept_not_ready_into_a_verdict_on_the_head_github_shows_unless_it_committed_since(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_turns_each_kept_not_ready_into_a_verdict_on_no_head_with_no_github_read_and_a_read_dates_it_onto_the_head_unless_it_committed_since(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from drive import github
 
     data = judged()
@@ -502,14 +513,37 @@ def test_load_turns_each_kept_not_ready_into_a_verdict_on_the_head_github_shows_
         pr["not_ready"] = None
     data["prs"][f"{MONOREPO}#4302"]["state"] = "merged"
     state.create(data)
-    committed = {f"{MONOREPO}#4289": REFERENCE, f"{MONOREPO}#4279": REFERENCE + timedelta(minutes=30)}
-    monkeypatch.setattr(github, "fetch", lambda keys: {key: {"committed": state.stamp(committed.get(key, REFERENCE))} for key in keys})
+    asked: list[list[str]] = []
+    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or "{}")
     kept = state.load("demo")
+    assert asked == []
     rework, recheck = kept["prs"][f"{MONOREPO}#4289"], kept["prs"][f"{MONOREPO}#4279"]
-    assert (rework["verdict"]["why"], rework["verdict"]["head"], rework["verdict"]["said"], state.owed_step(rework)) == ("a second check is left", "abc", False, "rework")
+    assert (rework["verdict"]["why"], rework["verdict"]["head"], rework["verdict"]["said"], state.owed_step(rework)) == ("a second check is left", None, False, "recheck")
+    assert (kept["prs"][f"{MONOREPO}#4302"]["verdict"], unready(kept)) == (None, [f"{MONOREPO}#4289", f"{MONOREPO}#4279"])
+    state.date_verdict(kept, f"{MONOREPO}#4289", "abc", state.stamp(REFERENCE))
+    state.date_verdict(kept, f"{MONOREPO}#4279", "abc", state.stamp(REFERENCE + timedelta(minutes=30)))
+    assert (rework["verdict"]["head"], kept["jobs"]["j803"]["checks"], state.owed_step(rework)) == ("abc", {f"{MONOREPO}#4289": "abc"}, "rework")
     assert (recheck["verdict"]["head"], kept["jobs"]["j804"]["checks"], state.owed_step(recheck)) == (None, {f"{MONOREPO}#4279": None}, "recheck")
-    assert unready(kept) == [f"{MONOREPO}#4289", f"{MONOREPO}#4279"]
     assert not any("not_ready" in pr for pr in kept["prs"].values())
+
+
+def test_resolving_the_sessions_drive_reads_nothing_from_github_while_another_drive_still_needs_its_verdicts_rebuilt(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive import github
+
+    old = judged()
+    old["name"] = "rs-proof"
+    for number in range(1, 146):
+        key = f"{MONOREPO}#{number}"
+        old["prs"][key] = {field: value for field, value in state.new_pr(state.pr_url(key), "j622", "o226").items() if field not in ("verdict", "check", "ready_said", "pulled")}
+    state.create(old)
+    make("durable-agents", session="the-session")
+    asked: list[list[str]] = []
+    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or "{}")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "the-session")
+    monkeypatch.delenv("LONG_RUNNING_DRIVE", raising=False)
+    assert (state.resolve(), state.session_drives("the-session"), asked) == ("durable-agents", ["durable-agents"], [])
 
 
 def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untitled_one_matches_none() -> None:

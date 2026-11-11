@@ -58,6 +58,7 @@ def read(**overrides: object) -> dict:
         "state": "OPEN",
         "isDraft": False,
         "headRefOid": "aaaaaaa111",
+        "committed": None,
         "mergeCommit": None,
         "checks": RUNNING,
         "reviewDecision": None,
@@ -1678,6 +1679,43 @@ def test_a_pr_that_wants_no_tap_is_never_said_to_have_no_card_and_only_its_failu
 def hold(name: str) -> None:
     with state.edit(name) as data:
         data["prs"][KEY] |= {"wants_tap": True, "tap": {"label": "Hold", "at": state.stamp(T0), "head": "aaaaaaa111", "source": "pressed the button"}}
+
+
+@pytest.mark.parametrize(
+    ("committed", "change"),
+    [
+        (None, "NOT READY on an older head after his Hold, which stands: check owed on aaaaaaa"),
+        (state.stamp(T0 - timedelta(hours=1)), "NOT READY at aaaaaaa after his Hold, which stands: follow-up owed on its order"),
+    ],
+)
+def test_a_held_pr_under_a_not_ready_kept_with_no_head_says_its_owed_step_once_on_the_head_github_dates_it_to(
+    demo: str, monkeypatch: pytest.MonkeyPatch, committed: str | None, change: str
+) -> None:
+    hold(demo)
+    waiting_job(demo)
+    unready(demo)
+    with state.edit(demo) as data:
+        data["jobs"]["j2"] = job(kind="reader", goal="check", state="done", checks={KEY: None})
+        data["prs"][KEY]["verdict"]["head"] = None
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": []})
+    serve(monkeypatch, {KEY: read(committed=committed)})
+    watching = watcher(demo)
+    line = f"PR {KEY}: {change}: Releasable alone needs #43 live first [o1 j1]"
+    assert watch.run_pass(watching, T0) == [line]
+    assert watch.wakes(line, state.load(demo))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+
+
+@pytest.mark.parametrize("count", [1, 120])
+def test_a_watch_pass_reads_github_in_one_call_however_many_open_prs_it_watches(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    with state.edit(demo) as data:
+        for number in range(1, count):
+            key = f"Forge-AI/monorepo#{1000 + number}"
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": f"head{number}"}
+    asked: list[list[str]] = []
+    monkeypatch.setattr(github, "run", lambda cmd, cwd=None, timeout=120: asked.append(cmd) or json.dumps({"data": {}}))
+    watch.run_pass(watcher(demo), T0)
+    assert [(cmd[:3], cmd[4].count("pullRequest(")) for cmd in asked] == [(["gh", "api", "graphql"], count)]
 
 
 def test_a_held_green_approved_pr_is_never_said_to_have_no_card(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

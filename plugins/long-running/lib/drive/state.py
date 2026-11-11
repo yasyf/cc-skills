@@ -208,8 +208,8 @@ def new_drive(
     }
 
 
-def load(name: str) -> dict:
-    """Read a drive; one saved with a single driver session reads as that session coordinating."""
+def saved(name: str) -> dict:
+    """A drive as saved, with the sessions bound to it: one saved with a single driver session reads as that session coordinating."""
     try:
         data = json.loads(state_path(name).read_text())
     except FileNotFoundError:
@@ -219,6 +219,12 @@ def load(name: str) -> dict:
     data.setdefault("subcoordinators", {})
     for held in data["roles"].values():
         held.setdefault("terminal", None)
+    return data
+
+
+def load(name: str) -> dict:
+    """Read a drive, bringing a drive saved by an older install up to the fields this one reads, from what is on this Mac alone."""
+    data = saved(name)
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -439,32 +445,33 @@ def named_prs(data: dict, order_id: str, words: str) -> list[str]:
     return [key for key in dict.fromkeys(keys) if key]
 
 
-def judge(data: dict, job_id: str, line: str, at: str) -> None:
-    """Keep each verdict a reader's line gives on the reader job, on the head it was started on for that PR or else the PR's head now, and on the PR as its newest verdict, unsaid until the watch acts on it."""
+def judge(data: dict, job_id: str, line: str, at: str, kept: bool = False) -> None:
+    """Keep each verdict a reader's line gives on the reader job, on the head it was started on for that PR, else the PR's head now, or no head for an answer kept before verdicts carried their head, and on the PR as its newest verdict, unsaid until the watch acts on it."""
     job = data["jobs"][job_id]
     for passed, named, why in verdicts(line):
         for key in named_prs(data, job["order"], named):
-            head = job["checks"].setdefault(key, data["prs"][key]["head"])
+            head = job["checks"].setdefault(key, None if kept else data["prs"][key]["head"])
             data["prs"][key]["verdict"] = {"job": job_id, "head": head, "ready": passed, "why": why, "at": at, "said": False}
 
 
 def judge_kept(data: dict) -> None:
-    """Give each PR of a drive kept before verdicts carried their head the verdict its readers' kept answers leave standing, each answer in the order it came, on an older head when GitHub reports its head committed after the verdict; a standing NOT READY on an open PR stays unsaid, so the watch names its owner once."""
-    from drive import github
-
-    reads = github.fetch([key for key, pr in data["prs"].items() if pr["state"] == "open"])
+    """Give each PR of a drive kept before verdicts carried their head the verdict its readers' kept answers leave standing, each answer in the order it came, on the head its reader recorded or else on no head until `date_verdict` reads the PR from GitHub; a standing NOT READY on an open PR stays unsaid, so the watch names its owner once. It reads nothing from GitHub, since every verb and hook loads every drive."""
     for pr in data["prs"].values():
         pr.pop("not_ready", None)
         pr.update(verdict=None, check=None)
     answered = [(job_id, job) for job_id, job in data["jobs"].items() if job["kind"] == "reader" and job["state"] == "done" and job["said"]]
     for job_id, job in sorted(answered, key=lambda found: parse_time(found[1]["updated"])):
-        judge(data, job_id, job["said"], job["updated"])
-    for key, pr in data["prs"].items():
-        if not (verdict := pr["verdict"]):
-            continue
-        if key in reads and parse_time(reads[key]["committed"]) > parse_time(verdict["at"]):
-            verdict["head"] = data["jobs"][verdict["job"]]["checks"][key] = None
-        verdict["said"] = verdict["ready"] or key not in reads
+        judge(data, job_id, job["said"], job["updated"], kept=True)
+    for pr in data["prs"].values():
+        if verdict := pr["verdict"]:
+            verdict["said"] = verdict["ready"] or pr["state"] != "open"
+
+
+def date_verdict(data: dict, key: str, head: str, committed: str | None) -> None:
+    """Put a PR's verdict kept on no head on the head GitHub reads for it now, when GitHub reports that head committed by the verdict's time; one committed after leaves the verdict on an older head."""
+    verdict = data["prs"][key]["verdict"]
+    if verdict and verdict["head"] is None and committed and parse_time(committed) <= parse_time(verdict["at"]):
+        verdict["head"] = data["jobs"][verdict["job"]]["checks"][key] = head
 
 
 def check_status(pr: dict) -> str:
@@ -707,9 +714,10 @@ def last_started(data: dict) -> str:
 
 
 def session_drives(session: str) -> list[str]:
+    """The drives that bind the session, the newest binding first, read from each drive's saved bindings alone, so a call loads no drive it is not bound to."""
     bound = []
     for name in names():
-        bound += [(held["started"], name) for held in bound_sessions(load(name)).values() if held["session"] == session]
+        bound += [(held["started"], name) for held in bound_sessions(saved(name)).values() if held["session"] == session]
     return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
