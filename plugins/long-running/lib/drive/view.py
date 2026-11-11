@@ -34,7 +34,7 @@ import subprocess
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from drive import artifacts, github, slack, state
+from drive import artifacts, github, limits, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import NOT_READY_CHARS, cut
 
@@ -54,6 +54,12 @@ UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said")
 LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
+TAP_CLAIM = re.compile(
+    r"(?<!not )(?<!n't )(?<!never )\b(?:wait\w*|await\w*|needs?|owed?|pending|blocked)\b(?:(?!\b(?:no|not|never|without)\b)[^.!?\n]){0,40}?\b(?:tap|approv(?:e|al))\b",
+    re.IGNORECASE,
+)
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n")
+TAP_CLAIM_RULING = 'his Nov 11 1:51 PM words "Again you fucking told me something waits for my tap and didn\'t give me something to tap"'
 
 
 class CardsError(Exception):
@@ -235,6 +241,38 @@ def card_for(pr_cards: list[dict], url: str) -> dict | None:
 def waits_on_tap(pr: dict, card: dict | None) -> bool:
     asked = state.owed_step(pr) == "card" and not pr.get("tap") and not pr["hold_label"] and not pr["waits"] and pr["state"] == "open"
     return asked and (pr["checks"] == "pass" or card is not None)
+
+
+def tap_claim_refusal(data: dict, order_id: str, text: str, pr_cards: list[dict]) -> str | None:
+    """Why words say a PR waits on his tap or Approve when he has nothing to tap: each PR such a sentence names passes only while its open tap card stands at its head now and the words link that card."""
+    linked = set(SLACK_TS.findall(text))
+    found = []
+    for sentence in SENTENCE_BREAK.split(text):
+        if not TAP_CLAIM.search(SLACK_LINK.sub(r"\1", sentence)):
+            continue
+        for ref in dict.fromkeys(match[0] for match in state.PR_REF.finditer(sentence)):
+            if not (keys := state.named_prs(data, order_id, ref)):
+                found.append(f"{ref}: the drive holds no such PR, so no tap card of his is known for it")
+                continue
+            pr = data["prs"][keys[0]]
+            card = card_for(pr_cards, pr["url"])
+            if card is None or pr["head"] not in card_heads(card, pr["url"]):
+                found.append(f"{keys[0]}: {limits.tap_owed_not(pr) or 'no open tap card of his stands at its head'}")
+            elif message_key(card["url"]) not in linked:
+                found.append(f"{keys[0]}: the words do not link its open tap card {card['url']}")
+    if not found:
+        return None
+    return (
+        f"refused: these words say a PR waits on his tap or Approve with nothing for him to tap: {'; '.join(dict.fromkeys(found))}."
+        " Say a PR waits on his tap only while its open tap card stands at its head, and link that card where you say it, as <permalink|its tap card>; else say what happened to the PR"
+        f" ({TAP_CLAIM_RULING})"
+    )
+
+
+def card_heads(card: dict, url: str) -> list[str]:
+    """The head each row of a PR card shows for the PR at url."""
+    listed = [*(card["card"].get("prs") or []), *(row["pr"] for row in card["card"].get("rows") or [] if row.get("pr"))]
+    return [pr.get("head") or "" for pr in listed if pr["url"] == url]
 
 
 def tap_detail(pr: dict) -> str:
