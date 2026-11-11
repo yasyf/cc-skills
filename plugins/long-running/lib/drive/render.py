@@ -186,7 +186,9 @@ READS = {
     "coordinator": (
         "Everything else is on disk, read on demand by id: drive status <order, job or PR>..., which prints each"
         " named order whole with its parts and each job's goal and said line, never a script over drive.json;"
-        " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>."
+        " drive job report <j>, drive view, cci digest, and the skill's pages, drive manual <page>. A Bash result over"
+        " 6,000 characters arrives as its first 2 KB and the path of the whole, so cap no output with cut, head or tail:"
+        " grep that path for the part you need."
     ),
 }
 KEEP = {
