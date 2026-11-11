@@ -96,10 +96,13 @@ def posted(name: str, post: dict) -> dict:
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     visuals, words, lifted = shown(name, post)
-    prs = state.load(name)["prs"]
+    data = state.load(name)
+    prs = data["prs"]
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
     if strays := [key for key in stack if key not in prs]:
         raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
+    if unquoted := unquoted_tooling(data, stack, text):
+        raise DriveError(unquoted)
     argv = ["dm-status", "--agent", "claude"]
     if thread := post.get("thread_ts"):
         argv += ["--thread", thread]
@@ -124,6 +127,15 @@ def posted(name: str, post: dict) -> dict:
         prs=stack,
     )
     return reply
+
+
+def unquoted_tooling(data: dict, stack: list[str], text: str) -> str | None:
+    """Why a PR card may not go out: a PR on it serves a drive tooling order whose own words the line above the card leaves out."""
+    for key in stack:
+        order = data["orders"].get(data["prs"][key].get("serves"))
+        if order and order["text"].startswith(state.TOOLING) and order["text"] not in text:
+            return f'{key} serves a drive tooling order, so the line above its card quotes that order, and nothing was posted: put "{order["text"]}" in text'
+    return None
 
 
 def kind(visual: dict) -> str:
