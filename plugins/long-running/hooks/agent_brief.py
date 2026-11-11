@@ -146,17 +146,17 @@ def deny_reason(payload: dict) -> str | None:
     kind = call.get("subagent_type") or ""
     prompt = call.get("prompt") or ""
     if call.get("name"):
-        return (
+        return agents.Unjudged(
             f"refused: the {role} starts no named agent, since agent teams are on and a named agent becomes a teammate that"
             " never wakes on events; start it again without `name`"
         )
     if "fable" in (call.get("model") or "").lower() and kind != DESIGNER:
-        return (
+        return agents.Unjudged(
             f"refused: Fable runs only the coordinator and {DESIGNER}; start {kind or 'this agent'} on its own default"
             " model, or `sonnet` for a one-fact lookup"
         )
     if kind == agents.HANDLER and (extra := beyond_brief(prompt)):
-        return (
+        return agents.Unjudged(
             f"refused: a handler's prompt is its brief alone, each line opening with one of {', '.join(LABELS)}, his words"
             f" running on below theirs and Context at most three lines; `{extra}` is more. Its rules load with its agent"
             " definition, and a rule typed into a prompt overrides it: drop the line"

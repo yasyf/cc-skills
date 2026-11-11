@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import render, state
+from drive import agents, render, state
 
 OWN_TOOLS = {
     *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
@@ -18,6 +18,15 @@ PICKUP = render.SLACK_TOOLS + "slack_pickup"
 OWN_SKILLS = {"long-running", "long-running:long-running"}
 OWN_COMMAND = re.compile(r"\s*(?:drive|cci|cc-slack)\s")
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
+STATE_CLAIM = re.compile(
+    r"(?<!\bif )(?<!\bwhen )(?<!\bonce )(?<!\bunless )\byou(?:'ve| have| are|'re| seem(?: to be)?| look| were| got)?(?: been| gone| went)?"
+    r" (?:stopped|stalled|stuck|idle|silent|hung|quiet|dead|died|crashed|late|overdue)\b"
+    r"|\bno (?:word|line|update|reply|output|report)s? (?:back )?from you\b|\b(?:have ?n[o']t|not) heard (?:back )?from you\b"
+    r"|\byour (?:lane|worker|session) (?:has |is |was |seems )?(?:died|dead|stopped|stalled|stuck|idle|hung|quiet|silent|ended)\b"
+    r"|\bstatus\?|\bany (?:update|progress|news)\s*\?|\bare you (?:still )?(?:working|there|alive|stuck|running|on it)\b|\bstill (?:working|there|alive|running)\?",
+    re.IGNORECASE,
+)
+STATE_RULE = "A message that states or asks a running job's own state, such as that it stopped, stalled or went quiet, sent with no read of its transcript."
 FRESH_STATES = ("built", "done")
 READ_WINDOW = timedelta(minutes=10)
 TAIL_BYTES = 65536
@@ -109,12 +118,13 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
 
 
 def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
-    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in: an absent message is no evidence, and a state guessed reaches the job as fact. Jev judges whether the message claims a state, so a ruling, an answer or a refusal relayed goes through."""
+    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in or asks it: an absent message is no evidence, and a state guessed reaches the job as fact. An order, a ruling, an answer or a refusal relayed states no state, even one that says stop, land or stuck, so it goes through unread, and Jev judges each refusal by its rule."""
     job = data["jobs"][job_id]
     call = payload["tool_input"]
     text = str(call.get("message") or "") if payload["tool_name"] == "SendMessage" else call.get("command") or ""
     resumed = RESUME.search(text)
-    if job["state"] != "running" or (resumed and transcript_read(job_id, job).search(text[: resumed.start()])):
+    claim = STATE_CLAIM.search(text[resumed.end() :] if resumed else text)
+    if job["state"] != "running" or not claim or (resumed and transcript_read(job_id, job).search(text[: resumed.start()])):
         return None
     if read_job(Path(payload["transcript_path"]), job_id, job):
         return None
@@ -123,15 +133,17 @@ def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
         if job.get("where") == "remote"
         else f"`cc-transcript` on agent {job['agent']}'s transcript"
     )
-    return (
-        f"A message that tells {job_id} it stopped, stalled, went quiet or is stuck needs a read of its transcript first, and"
-        " your transcript shows none in the last 10 minutes, so that state is a guess that reaches the job as fact. Read it"
-        f" with {how}, in an earlier call or before the resume in this command, then send."
+    return agents.Ruled(
+        f"A message that tells {job_id} it stopped, stalled, went quiet or is stuck, or asks it whether it is, needs a read of"
+        f" its transcript first (`{claim[0]}`), and your transcript shows none in the last 10 minutes, so"
+        f" that state is a guess that reaches the job as fact. Read it with {how}, in an earlier call or before the resume in"
+        " this command, then send.",
+        STATE_RULE,
     )
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator sends no PR event to a builder that returned and messages no running job before it reads that job's transcript."""
+    """Why a drive session's own call does not run: the communicator's turn holds only the ack and what starts a handler, and the coordinator sends no PR event to a builder that returned and tells no running job its state, or asks it, before it reads that job's transcript."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -158,6 +170,7 @@ def main() -> None:
                         "permissionDecisionReason": reason,
                     }
                 }
+                | agents.ruled(reason)
             )
         )
 

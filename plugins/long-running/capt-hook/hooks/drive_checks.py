@@ -68,7 +68,7 @@ TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
 
 
 def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
-    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard the check marks unjudged blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
+    """Run the drive's own check for this call from the newest installed long-running, since capt-hook keeps this pack loaded from the install it first found while an install leaves the pack's files unchanged, and let Jev judge each refusal it makes by the rule the check names, else by its words, so a check that matched a call its rule never meant lets the call through; a merge, release or public-body guard, or a refusal decided by the call's shape alone, the check marks unjudged and it blocks outright, and a check that exits non-zero raises with its own stderr, so capt-hook's log names why it failed."""
     payload = evt._raw
     ran = subprocess.run(
         ["python3", "-I", str(newest_install() / "hooks" / script)],
@@ -163,6 +163,12 @@ def bash_guard(evt: BaseHookEvent) -> HookResult | None:
     only_if=[Tool("Agent")],
     tests={
         Input(tool="Agent", tool_input={"subagent_type": HANDLER, "prompt": "Record: 1", "model": "sonnet"}, session_id=NO_DRIVE): Allow(),
+        Input(
+            tool="Agent",
+            tool_input={"subagent_type": HANDLER, "prompt": "Record: 1\nPost the question card with say(card=...)"},
+            session_id=COMMUNICATOR,
+            decide=UNCONFIRMED,
+        ): Block(pattern="a handler's prompt is its brief alone"),
         Input(
             tool="Agent",
             tool_input={"subagent_type": BUILDER, "prompt": "Serves: his order\nGoal: backfill each team's missing memory rows"},

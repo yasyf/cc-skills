@@ -109,7 +109,7 @@ def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcrip
     builder(where="remote", dispatch="ctx_9", agent=None, state="running")
     resume = 'drive job resume j1 "status?"'
     reason = communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=resume))
-    assert reason.startswith("A message that tells j1 it stopped, stalled, went quiet or is stuck needs a read of its transcript first")
+    assert reason.startswith("A message that tells j1 it stopped, stalled, went quiet or is stuck, or asks it whether it is, needs a read of its transcript first")
     assert "`drive job replies j1`" in reason
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"drive job replies j1 --limit 20 && {resume}")) is None
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f"{resume} && drive job replies j1")) is not None
@@ -123,3 +123,24 @@ def test_the_coordinator_messages_a_running_job_only_after_reading_its_transcrip
     read = transcript(tmp_path, "cc-transcript show ~/.claude/projects/x/s/subagents/agent-a-7.jsonl --tail 40")
     assert communicator_calls.deny_reason(call("SendMessage", read, to="a-7", message="status?")) is None
     assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command="drive status o1")) is None
+
+
+def test_an_order_to_a_running_job_goes_unread_and_only_a_claim_or_ask_about_its_state_waits_for_a_read(
+    demo: str, builder: Callable[..., None], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    builder(where="local", dispatch=None, agent="a-7", state="running")
+    for order in (
+        "STOP landing #4244 now: do not enqueue it, his card on it is still open",
+        "Do not land #4244: it is not in the merge queue now, so wait for his tap",
+        "He picked Approve",
+        "If you are stuck on the rebase, return ASK with the conflict",
+    ):
+        assert communicator_calls.deny_reason(call("SendMessage", transcript(tmp_path), to="a-7", message=order)) is None
+    builder(where="remote", dispatch="ctx_9", agent=None)
+    relayed = 'drive job resume j1 "Your ASK was not sent, it is out of shape: it asks him for the proper fix of a bug hurting someone now"'
+    assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=relayed)) is None
+    for claim in ("You went quiet 40 minutes ago: are you stuck?", "No word from you since the push", "Any update?"):
+        assert communicator_calls.deny_reason(call("Bash", transcript(tmp_path), command=f'drive job resume j1 "{claim}"')) is not None
+    output = json.loads(hook_output(monkeypatch, capsys, call("Bash", transcript(tmp_path), command='drive job resume j1 "you have been silent"')))
+    assert "(`you have been silent`)" in output["hookSpecificOutput"]["permissionDecisionReason"]
+    assert output["rule"] == communicator_calls.STATE_RULE

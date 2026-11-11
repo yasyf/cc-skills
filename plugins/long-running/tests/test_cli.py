@@ -2873,6 +2873,15 @@ def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_whi
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
 
 
+def test_job_add_records_an_agent_already_running_past_the_macs_cap_and_its_limit(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(place, "busy", lambda: 0.95)
+    monkeypatch.setattr(place, "limit", lambda: 0.8)
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    for _ in range(place.LOCAL_BUILDERS):
+        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--agent", "a")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--agent", "a-9")[0] == 0
+    assert state.load(demo)["jobs"]["j9"]["agent"] == "a-9"
+
 def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_research_and_keeps_each_flag_left_out(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

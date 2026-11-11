@@ -298,8 +298,10 @@ A job's state is its transcript. Before you report on a running job or message i
 transcript: `cc-transcript` on the file its agent id names, or for a remote lane `drive job replies
 <j>` or `orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An
 absent message is never evidence. The `communicator_calls` hook refuses a `SendMessage` or
-`drive job resume` that tells a running job it stopped, stalled or is stuck with no such read in
-your last 10 minutes or earlier in the same command; Jev judges whether the message says so.
+`drive job resume` that tells a running job it stopped, stalled, went quiet or is stuck, or asks it
+whether it is, such as `status?`, with no such read in your last 10 minutes or earlier in the same
+command. An order, ruling, answer or relayed refusal goes through unread, even one that says stop,
+land or stuck.
 
 A close job closes only what he named: each session or terminal his words or tapped card name, by
 its exact id after a fresh idle check and never a live drive lane, returning the closed count with

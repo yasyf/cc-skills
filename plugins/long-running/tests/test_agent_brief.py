@@ -5,6 +5,7 @@ from collections.abc import Callable
 import agent_brief
 import pytest
 from conftest import RESEARCH
+from drive import agents
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = (
@@ -27,6 +28,7 @@ def test_a_handlers_prompt_is_its_brief_alone(communicator: str) -> None:
     assert retyped.startswith("refused: a handler's prompt is its brief alone")
     assert "`Do not answer the card; he picked nothing.` is more" in retyped
     assert retyped.endswith("drop the line")
+    assert agents.ruled(retyped) == {"judged": False}
     assert agent_brief.deny_reason(started("long-running:handler", "Record: 661229 Drive: durable-agents Scratch: /scratch/h1")) is None
     context = "\nContext: he replies to the card drawn at 11:21 PM\nits question: the bucket copy\nits options: skip or wait"
     his_lines = HIS_BRIEF.replace("again?", "again?\nand again?")
