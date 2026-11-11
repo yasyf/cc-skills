@@ -389,11 +389,17 @@ def reported(line: str) -> bool:
     return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
 
 
-def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
-    """Whether the drive already keeps the line a job's agent returned: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, or the first line of its kept report."""
-    asked = ASK_LINE.fullmatch(line)
+def kept_result(name: str, job_id: str, job: dict, line: str) -> str | None:
+    """The result the drive keeps for a job whose agent returned the line: that line when it is an `ASK <path>` naming the block `drive job ask` kept for one of its questions, else its kept report's first line, which is its result whatever line the agent ended on, or None when it keeps neither."""
+    if (asked := ASK_LINE.fullmatch(line)) and kept_in(job, Path(asked["file"])):
+        return line
     kept = report_text(name, job_id, job).strip().splitlines()
-    return bool(asked and kept_in(job, Path(asked["file"]))) or bool(kept) and kept[0].strip() == line
+    return kept[0].strip() if kept else None
+
+
+def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
+    """Whether the line a job's agent returned is the result the drive keeps for it, word for word."""
+    return kept_result(name, job_id, job, line) == line
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:

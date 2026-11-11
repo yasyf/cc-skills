@@ -936,7 +936,7 @@ def said_last(entry: dict) -> str:
 
 
 class Unrecorded(str):
-    """A running local job's gap when its agent ended its turn on a result line its job never took, carrying that line."""
+    """A running local job's gap when its agent ended its turn on a result line its job never took, carrying the line its take records: that one, or the result the drive keeps for the job."""
 
     line: str
 
@@ -1024,7 +1024,7 @@ def launching(job: dict, moment: datetime) -> bool:
 
 
 def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line the drive already keeps, an `ASK <path>` naming the block `drive job ask` kept or its kept report's first line, has that line taken as the job's result, as its stop hook takes it, so a stop that skipped the take leaves no gap; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
+    """Each running job's gap from its agent or lane, with each PR it has open, and a remote lane, running or waiting, whose worker died; a lane recorded by its dispatch alone gets its Run, Task and terminal from the worker-show read for its liveness. A local agent that ended its turn on a result line has the result the drive keeps for its job taken, as its stop hook takes it, so a stop that skipped the take leaves no gap: that line when it is an `ASK <path>` naming the block `drive job ask` kept, else its kept report's first line, whatever line the agent ended on, since a wake or a stop can re-run a job after its report took its result; a codex job's relay that ended its turn has its codex-ask run taken once that run ended, so a relay that ended before codex answered needs no wake."""
     data = state.load(watcher.name)
     gaps, deaths, heads, found, taken, lines = {}, {}, {}, {}, {}, []
     for order in heard_orders(watcher, data).values():
@@ -1036,8 +1036,9 @@ def agent_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 heads.setdefault(job_id, set()).add((job.get("repo"), job["branch"]))
             if not remote:
                 gap = running and local_gap(job_id, job, data, moment)
-                if isinstance(gap, Answered) or isinstance(gap, Unrecorded) and state.kept_return(watcher.name, job_id, job, gap.line):
-                    taken[job_id] = gap
+                kept = isinstance(gap, Unrecorded) and state.kept_result(watcher.name, job_id, job, gap.line)
+                if isinstance(gap, Answered) or kept:
+                    taken[job_id] = Unrecorded(job_id, kept) if kept else gap
                     heads.pop(job_id, None)
                 elif running:
                     gaps[job_id] = gap
