@@ -168,7 +168,8 @@ Its Show me:
   card with nothing that adds clarity has none.
 - Fill every row and cell with real contents, measured or worked out from the code and marked as
   such, never the names of what will be measured later; `drive job ask` refuses a table with one
-  value in every cell.
+  value in every cell, and a table of one column, which compares nothing: give each field a column
+  of its own.
 - Each visual is one fence whose language names its kind, and one render layer,
   `lib/drive/site/visuals.js`, draws that one source for each surface. Slack gets a picture of it,
   since a Slack message takes no code or diagram blocks, except a chart, which Slack draws as its own
@@ -199,7 +200,8 @@ Its Show me:
   recommended option 1 and the rest in their order, and a middle dot, as `1 · Feed first`.
 - Leave a ```chart as its fence on the card, which cc-slack draws as Slack's chart. Its title is at
   most 50 characters and each label at most 20; it draws at most 12 series or slices and 20
-  categories, and a card holds at most 2 charts.
+  categories, and a card holds at most 2 charts. Each row's value is a number, above 0 in a pie, each
+  label is text or a number, and each series holds exactly one row for each category.
 - Draw a Mermaid flow whose longest chain runs past four nodes top to bottom, `flowchart TD`, because
   drawn left to right it shrinks its words to about 5 px on his phone.
 - Name the code's language on its fence, because the picture highlights the code in that language,
@@ -213,6 +215,7 @@ Its Show me:
     command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;
+  - a markdown table of one column;
   - two or more pictures whose captions do not each open with an option's number;
   - a `flowchart LR` or `graph LR` whose longest chain runs past four nodes;
   - a fence of one or two lines declaring a constant;

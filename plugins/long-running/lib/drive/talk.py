@@ -6,7 +6,6 @@ from drive import cli, limits, picture, refs, slack, state
 from drive.state import DriveError
 
 WEB = ("http://", "https://")
-UNNAMEABLE = re.compile(r'[\x00-\x1f/\\:*?"<>|\[\]]+')
 CATCH_UP_TITLE = re.compile(r"\A\s*\**\s*catch-up since\b[^\n]*\n*", re.IGNORECASE)
 
 
@@ -157,6 +156,6 @@ def drawn(name: str, which: str, visual: dict) -> Path:
     if visual["kind"] == "code" and (what := picture.raw(visual.get("language") or "", source)):
         raise DriveError(f"{which} is {what}, raw data or tool output, so nothing was posted; {picture.INSTEAD}")
     try:
-        return picture.cached(state.drive_dir(name) / "pictures", " ".join(UNNAMEABLE.sub(" ", visual.get("caption") or "").split()) or "show-me", kind(visual), source)
+        return picture.cached(state.drive_dir(name) / "pictures", picture.file_name(visual.get("caption") or "") or "show-me", kind(visual), source)
     except picture.PictureError as error:
         raise DriveError(f"{which} ({visual['kind']}) does not draw, so nothing was posted: {error}") from None

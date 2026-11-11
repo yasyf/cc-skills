@@ -273,10 +273,10 @@ def test_closing_git_trailers_never_reach_the_card() -> None:
 def test_a_show_me_without_a_picture_shows_its_code_block() -> None:
     body = "## Show me\nThe new call and its answer.\n\n```sand\nrun_journal(run)\n# => 12 steps\n```\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["show_me"] == "The new call and its answer.\n```\nrun_journal(run)\n# => 12 steps\n```"
+    assert first["show_me"] == "The new call and its answer.\n\n```\nrun_journal(run)\n# => 12 steps\n```"
 
 
-def test_a_show_me_of_internals_prose_shows_nothing() -> None:
+def test_a_show_me_of_internals_prose_shows_only_its_table() -> None:
     body = """## Show me
 The network-readiness invariant has one owner, `cdpBrowser.trackNetwork`: the in-flight set and the lifecycle events describe the same requests.
 
@@ -288,7 +288,92 @@ The earlier #49744 fixes a separate invariant. Release relayed the raw folds in 
 </details>
 """
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["show_me"] == ""
+    assert first["show_me"] == "| warning | count |\n|---|---|\n| settle | 18 |"
+
+
+CHART = '{"mark": "bar", "data": {"values": [{"step": "before", "seconds": 40}, {"step": "after", "seconds": 2}]}, "encoding": {"x": {"field": "step", "type": "nominal"}, "y": {"field": "seconds", "type": "quantitative"}}}'
+NATIVE_SHOW_ME = f"""## Show me
+Each wake, before and after.
+
+```chart
+{CHART}
+```
+
+| wake | seconds |
+|---|---|
+| before | 40 (measured) |
+
+```mermaid
+flowchart TD
+  wake --> read
+```
+"""
+
+
+def test_a_pr_show_mes_tables_and_charts_slack_draws_reach_the_card_as_written_beside_its_caption() -> None:
+    first = card.render(pr_json(body=NATIVE_SHOW_ME), entry(), ("/pictures/abc/Diagram",))["prs"][0]
+    assert first["show_me"] == f"Each wake, before and after.\n\n```chart\n{CHART}\n```\n\n| wake | seconds |\n|---|---|\n| before | 40 (measured) |"
+    undrawable = NATIVE_SHOW_ME.replace('"before"', '"before the queue drains"')
+    assert card.render(pr_json(body=undrawable), entry())["prs"][0]["show_me"] == "Each wake, before and after.\n\n| wake | seconds |\n|---|---|\n| before | 40 (measured) |"
+
+
+def test_two_show_me_tables_reach_the_card_as_two_tables_with_a_blank_line_between() -> None:
+    body = "## Show me\nEach restore, timed and sized.\n\n| run | seconds |\n|---|---|\n| r1 | 4.2 |\n\n| run | bytes |\n|---|---|\n| r1 | 3 MiB |\n"
+    first = card.render(pr_json(body=body), entry())["prs"][0]
+    assert first["show_me"] == "Each restore, timed and sized.\n\n| run | seconds |\n|---|---|\n| r1 | 4.2 |\n\n| run | bytes |\n|---|---|\n| r1 | 3 MiB |"
+
+
+def test_a_stack_cards_charts_stop_at_the_two_one_slack_message_draws_the_lowest_prs_first() -> None:
+    show_me = f"## Show me\nEach wake, before and after.\n\n```chart\n{CHART}\n```\n\n```chart\n{CHART}\n```\n"
+    members = [(pr_json(url=stack_url(number), body=show_me), {**entry(), "url": stack_url(number)}, (), ()) for number in (41, 42)]
+    assert [row["show_me"] for row in card.drawn_card(members)["prs"]] == [
+        f"Each wake, before and after.\n\n```chart\n{CHART}\n```\n\n```chart\n{CHART}\n```",
+        "Each wake, before and after.",
+    ]
+
+
+ROWS = '[{"step": "before", "seconds": 40}, {"step": "after", "seconds": 2}]'
+
+
+@pytest.mark.parametrize(
+    ("chart", "refusal"),
+    [
+        (CHART.replace(ROWS, "[1]"), "the Show me ```chart fence is no chart Slack draws"),
+        (CHART.replace('"encoding": {', '"encoding": {"color": "step", '), "the Show me ```chart fence is no chart Slack draws"),
+        (CHART.replace('"seconds": 40', '"seconds": "40"'), 'the Show me ```chart fence has a row whose "seconds" is "40", and each value is a number'),
+        (CHART.replace('"after"', '"before"'), 'the Show me ```chart fence has the series "seconds" without exactly one row for each category'),
+    ],
+)
+def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card_and_is_refused(chart: str, refusal: str) -> None:
+    body = f"## Show me\nEach wake, before and after.\n\n```chart\n{chart}\n```\n"
+    assert card.render(pr_json(body=body), entry())["prs"][0]["show_me"] == "Each wake, before and after."
+    assert refusal in "; ".join(card.show_me_problems(pr_json(body=body)))
+
+
+@pytest.mark.parametrize(
+    ("shown", "refusal"),
+    [
+        (
+            "| run, seconds |\n|---|\n| r1, 4.2 s |",
+            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
+        ),
+        (
+            "| run, seconds |\n|---|\n| r1 \\| 4.2 s |",
+            'the Show me table headed "run, seconds" has one column, so it compares nothing across its rows: give each field a column of its own',
+        ),
+        (
+            "| size | before | after |\n|---|---|---|\n| 1 GiB | time | time |\n| 2 GiB | time | time |",
+            'the Show me table headed "size | before | after" holds "time" in every cell',
+        ),
+        (
+            "```chart\n" + CHART.replace('"before"', '"before the queue drains"') + "\n```",
+            'the Show me ```chart fence has the label "before the queue drains", 23 characters, and each label holds 1 to 20, so Slack cannot draw it as its own chart',
+        ),
+    ],
+)
+def test_a_pr_show_me_table_or_chart_slack_cannot_draw_as_its_own_is_refused_naming_the_fix(shown: str, refusal: str) -> None:
+    problems = card.show_me_problems(pr_json(body=f"## Show me\nEach wake, before and after.\n{shown}\n"))
+    assert refusal in "; ".join(problems)
 
 
 def test_record_ids_never_reach_a_card_line() -> None:
@@ -306,7 +391,7 @@ def test_record_ids_never_reach_a_card_line() -> None:
 def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
     body = "## Show me\nA shell session.\n\n```sh\n# list the drives\ndrive status\n```\n\n## ELI5\nIt lists drives.\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
-    assert first["show_me"] == "A shell session.\n```\n# list the drives\ndrive status\n```"
+    assert first["show_me"] == "A shell session.\n\n```\n# list the drives\ndrive status\n```"
     assert first["refresher"] == "It lists drives."
 
 
@@ -815,6 +900,22 @@ def test_a_stack_draws_one_card_listing_each_pr_bottom_first(stacked: list[list[
     assert all(row["hate_most"] == "Retries could send a file twice. The server drops the copy." for row in stack_card["prs"])
     keys = ["Forge-AI/monorepo#41", "Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
+
+
+def test_a_stack_cards_pictures_titled_alike_are_numbered_apart_so_each_pr_keeps_its_own(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    stacked_gh = card.run
+
+    def gh(cmd: list[str]) -> str:
+        if cmd[1] == "api":
+            return stacked_gh(cmd)
+        pr = json.loads(stacked_gh(cmd))
+        pr["body"] += f"\n## Show me\n```mermaid\nflowchart TD\n  a --> b{cmd[3]}\n```\n"
+        return json.dumps(pr)
+
+    monkeypatch.setattr(card, "run", gh)
+    [drawn] = ask(asks(41, 42))["cards"]
+    assert [[Path(path).name for path in row["pictures"]] for row in drawn["card"]["prs"]] == [["Diagram"], ["Diagram (2)"]]
 
 
 def test_a_stack_card_waiting_on_him_needs_the_stack_section(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:

@@ -430,3 +430,16 @@ def test_an_options_heading_is_refused_in_a_new_block_and_dropped_from_a_kept_on
 def test_a_screenshot_kept_outside_the_drives_folders_still_draws() -> None:
     shot = "The New Chat screen while connected:\n![The New Chat screen](/Users/me/shots/new-chat.png)"
     assert limits.question(ask(shot, LANDING_OPTIONS)).show_me[1] == "![The New Chat screen](/Users/me/shots/new-chat.png)"
+
+
+def test_a_show_me_table_of_one_column_is_refused_naming_the_columns_it_needs_and_a_kept_one_still_redraws() -> None:
+    crammed = "Each restore, timed:\n| run, seconds, bytes |\n|---|\n| r1, 4.2 s, 3 MiB (measured) |\n| r2, 3.9 s, 3 MiB (measured) |"
+    with pytest.raises(DriveError) as refused:
+        limits.question(ask(crammed, RESTORE_PARKED_OPTIONS))
+    assert (
+        'the Show me table headed "run, seconds, bytes" has one column, so it compares nothing across its rows: give each field a'
+        " column of its own under a header naming it, as `| run | seconds | bytes |`"
+    ) in str(refused.value)
+    assert limits.question(ask(crammed, RESTORE_PARKED_OPTIONS), kept=True).show_me[1] == "| run, seconds, bytes |"
+    split = "Each restore, timed:\n| run | seconds | bytes |\n|---|---|---|\n| r1 | 4.2 (measured) | 3 MiB |\n| r2 | 3.9 (measured) | 3 MiB |"
+    assert limits.question(ask(split, RESTORE_PARKED_OPTIONS)).show_me[1] == "| run | seconds | bytes |"
