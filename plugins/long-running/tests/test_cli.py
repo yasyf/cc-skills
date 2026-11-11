@@ -12,7 +12,7 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import Answers, Thread, Withdrawals
-from drive import card, cli, github, orca, slack, state
+from drive import card, cli, github, orca, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -1161,3 +1161,84 @@ def test_the_skill_body_stays_a_short_map_of_pages_drive_manual_prints(run: Run)
     assert len(skill) < 8_000
     code, out = run("manual", "jobs")
     assert (code, out) == (0, (cli.PAGES / "jobs.md").read_text().strip())
+
+
+DESIGN_CARD = "https://acme.slack.com/archives/D123/p1794300000000100"
+TAP_CARD = "https://acme.slack.com/archives/D123/p1794300000000200"
+PICK = "https://acme.slack.com/archives/D123/p1794300000000300"
+WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
+STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
+
+
+def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
+    question = {"question": "Which topology?", "options": ["Tree", "Ring"], "recommended": "Tree", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which topology?", "waits": "demo:j2-7"}}
+    tap = {"asked": state.stamp(), "url": TAP_CARD, "prs": list(prs), "card": {"title": "New: land it?", "waits": "merge:Forge-AI:monorepo:42"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap]})
+    view.refresh_cards("demo")
+    settled: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "already_answered": False, "label": args[4], "other": False, "at": "now"})
+    return settled
+
+
+@pytest.fixture
+def designing(run: Run, with_pr: str) -> str:
+    run("job", "add", "design", "--order", "o1", "--goal", "pick a topology")
+    run("job", "set", "j2", "--card", DESIGN_CARD)
+    return with_pr
+
+
+def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_superseded_one_is_settled_in_place(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settled = cards_asking(monkeypatch, PR)
+    assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
+    assert "run it with --words and --link alone first" in capsys.readouterr().err
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert f"  demo:j2-7  question  j2 o1  Which topology?  {DESIGN_CARD}" in listed
+    assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
+    assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
+    assert capsys.readouterr().err.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
+    assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
+    assert "demo:j2-7: not a card still asking him that a1 has not marked" in capsys.readouterr().err
+    code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
+    assert out.splitlines() == [
+        "his answer a1 recorded: 1 standing, 1 superseded by it",
+        f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
+        f"{designing} no longer waits on his tap",
+        "j1 stopped: end its agent, or its lane with drive job end j1",
+    ]
+    assert (code, settled) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
+    data = state.load("demo")
+    assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == (False, "stopped", "running")
+    assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
+
+
+def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_needs_no_mark(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cards_asking(monkeypatch, PR)
+    run("order", "add", "the new tool")
+    run("job", "add", "builder", "--order", "o2", "--goal", "build the tool")
+    assert run("answer", "a1", "--words", WORDS, "--link", TAP_CARD)[0] == 2
+    assert list(state.load("demo")["answers"]["a1"]["cards"]) == ["demo:j2-7"]
+    assert run("answer", "a1", "--superseded", "demo:j2-7=j2")[0] == 2
+    assert run("answer", "a1", "--superseded", "demo:j2-7=j9")[0] == 2
+    assert state.load("demo")["jobs"]["j2"]["state"] == "running"
+    assert run("answer", "a1", "--superseded", "demo:j2-7=j3")[0] == 0
+    data = state.load("demo")
+    assert (data["jobs"]["j2"]["state"], data["jobs"]["j3"]["carries"]) == ("stopped", {"o1": ["land it"]})
+    assert "j3" in data["orders"]["o1"]["jobs"]
+
+
+def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_marked_and_settles_it_once(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("pr", "add", STACKED, "--job", "j1", "--tap")
+    settled = cards_asking(monkeypatch, PR, STACKED)
+    assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
+    assert run("answer", "a1", "--superseded", f"{designing}=stop")[0] == 2
+    assert settled == []
+    assert run("answer", "a1", "--superseded", f"{designing}=stop", "Forge-AI/monorepo#43=stop", "--others-stand")[0] == 0
+    assert len(settled) == 1
+    assert [pr["wants_tap"] for pr in state.load("demo")["prs"].values()] == [False, False]

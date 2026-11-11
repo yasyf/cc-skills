@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import dashboard, github, orca, page, reads, slack, state, view
+from drive import dashboard, github, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
 from drive.render import cut, when
 from drive.state import DriveError
@@ -20,7 +20,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 BATCH_EVERY = timedelta(minutes=5)
-AT_ONCE = ("TAP ", "DUE ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ")
+AT_ONCE = ("TAP ", "DUE ", "ANSWER ", "JOB ", "LANE ", "EVENT catch-up ", "EVENT unheard ")
 LINE_LIMIT = 300
 OWING_STATES = ("working", "waiting")
 LIVE_JOB_STATES = ("running", "waiting")
@@ -347,6 +347,29 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
                 why = unread or f"no line in its thread since {when(order['promised'])}"
                 lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
     return lines
+
+
+def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each answer of his that leaves a card still asking him marked neither standing nor superseded by it, again every ten minutes until each is."""
+    if watcher.cards is None:
+        return []
+    data = state.load(watcher.name)
+    asked = superseded.asking(data, watcher.cards)
+    owed = {
+        answer_id: keys
+        for answer_id, kept in data["answers"].items()
+        if moment - state.parse_time(kept["said"]) >= DUE_EVERY and (keys := superseded.unmarked(kept, asked))
+    }
+    if not owed:
+        return []
+    with state.edit(watcher.name) as data:
+        for answer_id in owed:
+            data["answers"][answer_id]["said"] = state.stamp(moment)
+    return [
+        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": {len(keys)} {"card" if len(keys) == 1 else "cards"}'
+        f" still asking him, marked neither standing nor superseded by it; drive answer {answer_id} lists them: {', '.join(keys)}"
+        for answer_id, keys in owed.items()
+    ]
 
 
 def transcript(holder: dict, agent: str) -> Path:
@@ -682,7 +705,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, the waits his answers or a job's end release, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -691,6 +714,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
+        lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
         lines += agent_lines(watcher, moment)
         lines += compact_lines(watcher, moment)
@@ -706,7 +730,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def delivered(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
-    """What the coordinator hears from this pass: taps, promised times, lane reports, a dead lane, his return and his late answer at once; every other line waits so they arrive together at most once every five minutes, and goes out with anything that goes sooner."""
+    """What the coordinator hears from this pass: taps, promised times, his answers that leave cards unmarked, lane reports, a dead lane, his return and his late answer at once; every other line waits so they arrive together at most once every five minutes, and goes out with anything that goes sooner."""
     now = [line for line in lines if line.startswith(AT_ONCE)]
     held = watcher.held + [line for line in lines if not line.startswith(AT_ONCE)]
     if not now and (not held or watcher.printed_at and moment - watcher.printed_at < BATCH_EVERY):

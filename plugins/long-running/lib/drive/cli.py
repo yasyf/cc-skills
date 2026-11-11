@@ -477,7 +477,8 @@ def job_end(args: argparse.Namespace) -> int:
     job = started_job(data, args.id)
     reclaimed = orca.reclaim(job["run"], job["dispatch"], checkout())
     with state.edit(name) as data:
-        data["jobs"][args.id].update(state="done", ask=None, updated=state.stamp())
+        ended = data["jobs"][args.id]
+        ended.update(state=ended["state"] if ended["state"] in state.FINISHED_JOB_STATES else "done", ask=None, updated=state.stamp())
         state.drop_carries(data, args.id)
     return emit(args, reclaimed or f"{args.id} ended", {"id": args.id, "reclaim": reclaimed})
 
@@ -634,6 +635,71 @@ def pr_tapped(args: argparse.Namespace) -> int:
     may_land, why = tap_verdict(pr)
     emit(args, f"{key}: {why}", {"key": key, "may_land": may_land, "why": why})
     return 0 if may_land else 1
+
+
+def answer(args: argparse.Namespace) -> int:
+    """Record an answer or ruling of his against every card asking him when it came: refuse until each is marked standing or superseded by it, and settle each superseded card in place."""
+    from drive import superseded, view
+
+    name = state.resolve(args.drive)
+    found = view.live_cards(name)
+    if found is None:
+        raise DriveError("his cards could not be read, so nothing can say what this answer leaves asking him; the watch rereads them every minute, run this again then")
+    data = state.load(name)
+    asked = superseded.asking(data, found)
+    if args.id not in data["answers"]:
+        if args.stands or args.superseded or args.others_stand:
+            raise DriveError(f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him, and mark them once you have read it")
+        if not (args.words and args.link):
+            raise DriveError(f'{args.id} is not recorded yet: pass --words "<his words, verbatim>" and --link <the permalink of his message or the card he tapped>')
+        with state.edit(name) as data:
+            data["answers"][args.id] = superseded.record(args.words, args.link, asked, state.stamp())
+    kept = data["answers"][args.id]
+    open_keys = superseded.unmarked(kept, asked)
+    named = [*args.stands, *(key for key, _ in args.superseded)]
+    if twice := sorted({key for key in named if named.count(key) > 1}):
+        raise DriveError(f"{', '.join(twice)}: marked twice; mark each card once, standing or superseded")
+    if stray := [key for key in named if key not in open_keys]:
+        raise DriveError(f"{', '.join(stray)}: not a card still asking him that {args.id} has not marked\n{superseded.listing(args.id, kept, open_keys, asked)}")
+    refusals = [
+        superseded.stack_refusal(asked, [key for key, _ in args.superseded]),
+        *(superseded.fold_refusal(data, key, asked[key], into) for key, into in args.superseded if into),
+    ]
+    if why := next((refusal for refusal in refusals if refusal), None):
+        raise DriveError(why)
+    with state.edit(name) as data:
+        data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
+    done = []
+    settled: set[str] = set()
+    try:
+        for key, into in args.superseded:
+            card = asked[key]["card"]
+            if card and card not in settled:
+                superseded.settle(card, kept)
+                settled.add(card)
+            with state.edit(name) as data:
+                data["answers"][args.id]["cards"][key] = {"mark": "superseded", "job": asked[key]["job"], "into": into, "card": card}
+                shown = f"{key}: its card {card} now shows his words and a link to them, with no buttons" if card else f"{key}: no card was drawn for it"
+                done += [shown, *superseded.supersede(data, args.id, key, asked[key], into)]
+    finally:
+        if args.superseded:
+            view.refresh_cards(name)
+    with state.edit(name) as data:
+        kept = data["answers"][args.id]
+        if args.others_stand:
+            kept["cards"].update({key: {"mark": "stands"} for key in superseded.unmarked(kept, asked)})
+    if left := superseded.unmarked(kept, asked):
+        raise DriveError("\n".join([*done, superseded.listing(args.id, kept, left, asked)]))
+    marked = [mark["mark"] for mark in kept["cards"].values() if mark]
+    line = f"his answer {args.id} recorded: {marked.count('stands')} standing, {marked.count('superseded')} superseded by it"
+    return emit(args, "\n".join([line, *done]), {"id": args.id, **kept})
+
+
+def superseded_mark(text: str) -> tuple[str, str | None]:
+    key, _, how = text.rpartition("=")
+    if not key or not how:
+        raise argparse.ArgumentTypeError("say <key>=stop, or <key>=<the live job that carries its work on>")
+    return key, None if how == "stop" else how
 
 
 def heard(args: argparse.Namespace) -> int:
@@ -1014,6 +1080,35 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("lane_run", metavar="run")
     verb.add_argument("command", nargs=argparse.REMAINDER, help="after --, the command and its arguments")
     verb.set_defaults(run=bound)
+    verb = verbs.add_parser(
+        "answer",
+        parents=both,
+        help="record an answer or ruling of his against every card still asking him, each marked standing or superseded by it",
+        description=(
+            "Run for every answer and ruling of his, once answer_add gives its id. The first call, with --words and"
+            " --link alone, records it, lists every question card of his still open and every PR waiting on his tap"
+            " (key, kind, job, order, title, link), and exits 2. Each later call marks cards: --stands for one this"
+            " answer leaves open, --superseded for one it replaces, which settles that card in place showing his words"
+            " and a link to them with no buttons, drops its PR's tap ask, and stops its job or folds what the job"
+            " carries into the live job named. It exits 2, listing the rest, until every card is marked; the watch says"
+            " ANSWER every 10 minutes while one is not."
+        ),
+    )
+    verb.add_argument("id", help="his answer's cc-notes id")
+    verb.add_argument("--words", help="his words, verbatim, which a superseded card shows; the first call needs them")
+    verb.add_argument("--link", help="the permalink of his message or of the card he tapped, which a superseded card links; the first call needs it")
+    verb.add_argument("--stands", action="extend", nargs="+", default=[], metavar="KEY", help="a card his answer leaves asking him")
+    verb.add_argument(
+        "--superseded",
+        action="extend",
+        nargs="+",
+        default=[],
+        type=superseded_mark,
+        metavar="KEY=stop|KEY=JOB",
+        help="a card his answer replaces: settled in place, its PR's tap ask dropped, and its job stopped, or folded into the live job named",
+    )
+    verb.add_argument("--others-stand", action="store_true", help="every card still unmarked after this call's marks stands")
+    verb.set_defaults(run=answer)
     verb = verbs.add_parser(
         "heard", parents=both, help="he wrote: record it, and tell the coordinator the orders his catch-up covers"
     )

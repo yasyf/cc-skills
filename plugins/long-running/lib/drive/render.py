@@ -85,6 +85,12 @@ COORDINATOR_RULES = (
         " an answer id alone; an id or title you see after a compaction is read whole with cc-notes answer show first."
     ),
     (
+        "An answer or ruling of his is not done at answer_add: drive answer <its id> --words \"<his words>\" --link"
+        " <permalink> lists every card still asking him and refuses until each is --stands or --superseded <key>=stop|<job>,"
+        " which settles that card in place with his words and link, drops its PR's tap ask and stops or folds its job;"
+        " ANSWER repeats every 10 minutes until then."
+    ),
+    (
         "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"
         " --part, and an ORPHAN line gets a job, a card or a close in the same turn."
     ),
