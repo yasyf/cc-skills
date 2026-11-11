@@ -66,8 +66,16 @@ Show me:
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
 - <another option, the same way; two to four in all>
 Findings:
+Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
 <the design in plain words, what his words already settle, and what each option changes and costs>
 ````
+
+A question's options come from the job's own evidence: the fix its diagnosis points at is always one
+of them, and the recommended one unless the summary names it and says why another is better. The
+`Direct fix:` line names that option by its words, whole or up to its first colon, or says `none:
+<why>` when no diagnosis points at one, and `drive job ask` refuses a block without it. His words,
+Nov 10 11:28 PM, on a card that left out waiting on the server-side copy its own diagnosis pointed
+at: "so why was that not the suggested optin to me, or even any of the options?"
 
 The question, summary and options are at most 150 words in plain words, and the question and
 options hold no link or markdown, since Slack draws a card's title and buttons as plain text; the

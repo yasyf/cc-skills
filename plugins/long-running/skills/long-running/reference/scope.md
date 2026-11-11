@@ -77,11 +77,17 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
   of one to three lines, what was found and what is being decided, the recommendation, and what
   happens meanwhile, with each thing it names that he could open linked; a Show me, the worked
   example drawn whole in the visual kind that fits it, with real contents in every row and cell; and two to four options,
-  one line each, saying what he gets and what it costs. Each option lands releasable alone, by
+  one line each, saying what he gets and what it costs. The fix the job's diagnosis points at is
+  always one of them, and the recommended one unless the summary names it and says why another is
+  better; the block's `Direct fix:` line names it, and `drive job ask` refuses a block without one.
+  Each option lands releasable alone, by
   [Land a change](landing.md#every-pr): no option lands a change first and leaves a fill, backfill,
   pass or command for after its release, and `drive job ask` refuses one that does. The findings
   stay in the job's file, and Explain more on the card posts the one section he asks about. No
   separate findings post, ever.
-- His answer is the option he tapped, or his own words when he writes one: a written reply that
-  names no single option settles nothing, is never mapped to the closest option, and goes back to
-  him under the card. No option asks a reporter or anyone else to retry or confirm.
+- His answer is the option he tapped, or his own words when he writes them under or about the card,
+  a direction included: they settle the card, which closes showing them, and the work goes ahead on
+  them. Words are never mapped to the closest option. Only a reply that leaves the question open,
+  such as "neither of these" with no other way named, gets a follow-up question, and that goes out
+  on a new card, never redrawn on the one he answered. No option asks a reporter or anyone else to
+  retry or confirm.

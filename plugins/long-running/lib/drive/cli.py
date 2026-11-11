@@ -435,6 +435,8 @@ def hold_card(job: dict, url: str, shown: dict | None) -> None:
 
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
+    from drive import superseded
+
     name = state.resolve(args.drive)
     data = state.load(name)
     job = find(data["jobs"], args.id, "job")
@@ -444,7 +446,8 @@ def job_ask(args: argparse.Namespace) -> int:
     asked = limits.question(text)
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
-    if refused := settled.refusal("\n".join([asked.title, *asked.summary, *asked.options]), text, [name], os.getcwd(), args.unsettled, "--unsettled"):
+    shown = "\n".join([asked.title, *asked.summary, *asked.options])
+    if refused := settled.refusal(shown, text, [name], os.getcwd(), args.unsettled, "--unsettled", superseded.said_under(data, job)):
         raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
@@ -458,9 +461,14 @@ def job_ask(args: argparse.Namespace) -> int:
 
 def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
+    from drive import superseded
+
     name = state.resolve(args.drive)
     path = Path(args.file).expanduser()
     asked = limits.question(path.read_text(), kept=True)
+    data = state.load(name)
+    if refused := superseded.redraw_refusal(data, find(data["jobs"], args.waits.partition(":")[2].partition("-")[0], "job"), args.waits, str(path)):
+        raise DriveError(refused)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
     with state.edit(name) as data:
@@ -1330,7 +1338,9 @@ def parser() -> argparse.ArgumentParser:
             " session, command output or a stack trace in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words with exactly one ending"
             " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
-            " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"
+            " could open linked where it is named, then `Findings:` with the evidence, its `Direct fix:` line naming the"
+            " option that is the fix the job's diagnosis points at, recommended unless the summary names it and says why"
+            " not, or `none: <why>`. Keep it in the drive in a file of"
             " its own and print its path, which the ask record carries, and add it to the job's open questions, each"
             " open until his answer to its own card. Refuse it with every way it is out of shape, and while a recorded"
             " answer of his may already settle it."
@@ -1358,7 +1368,8 @@ def parser() -> argparse.ArgumentParser:
             " draw is left off, and a"
             " Show me left empty is dropped; its options, the recommended one, the drive, and --waits. The question kept"
             " in that file takes the waits id, and one of the job's that held it before, a card this redraws, hands over"
-            " its card and leaves the job."
+            " its card and leaves the job. Refused when his words under that card answered it: they are his answer, and a"
+            " question they leave open goes on a card of its own."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")

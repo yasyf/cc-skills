@@ -1,7 +1,7 @@
 """What each answer or ruling of his leaves standing: every card open and every PR not yet live when it was recorded, until each is marked standing, superseded or reopened by it."""
 
 from drive import slack, state, view
-from drive.render import cut
+from drive.render import cut, when
 from drive.state import DriveError
 
 
@@ -40,15 +40,44 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside every card asking him and every PR not yet live as it is recorded, none marked yet, but the card it answers."""
-    answered = view.message_key(link)
+    """A new answer of his beside every card asking him and every PR not yet live as it is recorded, none marked yet, but the card it answers: the one he tapped or wrote under."""
     return {
         "words": words,
         "link": link,
         "at": moment,
         "said": moment,
-        "cards": {key: None for key, entry in asked.items() if not (entry["card"] and view.message_key(entry["card"]) == answered)},
+        "cards": {key: None for key, entry in asked.items() if not (entry["card"] and under(link, entry["card"]))},
     }
+
+
+def under(link: str, card: str) -> bool:
+    """Whether his message at this link is the card itself or a reply in the card's own thread, so it answers that card."""
+    return (view.card_thread(link) or "").replace(".", "") == view.message_key(card)
+
+
+def said_under(data: dict, job: dict) -> list[dict]:
+    """Each answer of his written under a card this job asked on, as `drive job ask`'s settled check lists one."""
+    return [
+        {"id": answer_id, "title": f"his words under this job's card {question['card']}: {cut(answer['words'], 160)}"}
+        for question in job["questions"]
+        if question["card"]
+        for answer_id, answer in data["answers"].items()
+        if under(answer["link"], question["card"])
+    ]
+
+
+def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
+    """Why this card may not be redrawn with another question: his words under it already answered it."""
+    drawn = next((question for question in job["questions"] if question["waits"] == waits and question["card"] and question["file"] != file), None)
+    said = [answer for answer in data["answers"].values() if drawn and under(answer["link"], drawn["card"])]
+    if not said:
+        return None
+    answer = said[-1]
+    return (
+        f'{waits}: his words under that card answer it, {when(answer["at"])}: "{cut(answer["words"], 200)}" ({answer["link"]}).'
+        " A direction he gives under a card is his answer: the card stays settled showing his words, and the work goes ahead"
+        f" on them. Ask only what they leave open, on a card of its own drawn with its own ask record's waits id, never {waits}"
+    )
 
 
 def unmarked(kept: dict, asked: dict[str, dict]) -> list[str]:
