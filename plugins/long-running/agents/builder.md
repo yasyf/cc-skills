@@ -66,6 +66,14 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 4. Write the change:
    - Fix the cause: no pin, flag, header, cap, retry, timer or wait stands in for it, since he ruled
      for fundamental fixes over hacks.
+   - On a `Drive tooling: post feedback:` order, fix what let the post through, never the post, which
+     its handler already fixed: a rule in `cc-slack check-post` with its case in
+     `check_post_test.py`, a check in `lib/drive/limits.py` or a hook, or the library that draws posts
+     and cards, `lib/drive/card.py`, `picture.py` and `site/visuals.js`. Match the class his words
+     fault: its test refuses the post's own words and another post of that class and passes a
+     rewrite of each, since a list of that one post's phrases is the literal fix he ruled out ("Don't
+     just literally make that fix but extrapolate from it"). Your report says how many of the drive's
+     kept posts, the `said` events in its `events.jsonl`, the changed check flags.
    - Keep one rule in one function: when code that does part of the job exists, call or extend it.
    - Shape it so a release cut at its merge commit is safe alone, its targets going out in any order
      with nothing run after it (the landing reference's `Every PR`). Split a change that needs a later

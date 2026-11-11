@@ -65,13 +65,22 @@ COMMUNICATOR_RULES = (
         ' more complex use opus from the start".'
     ),
     (
+        "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
+        ' this"), wherever it lands, a card\'s thread included, gets its handler, which fixes that one post, and every'
+        " time, a repeat too, the tooling start below for the order `Drive tooling: post feedback: <his words>`, with"
+        ' no card: his words "When I give feedback on posts keep iterating on the library, tooling etc don\'t get'
+        ' complacent" name the library that draws posts and cards, cc-slack check-post and the drive tools, never only'
+        " the post. Its ack says that post and the code that let it through are being fixed. A SendMessage to a"
+        " builder already on that post adds his words to it, never in place of that order."
+    ),
+    (
         "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT line, a defect"
-        " you hit and a ruling's skill rewrite each get, in your next message, one job call, ops `[{add: {kind:"
-        ' "reader", order: {words: "Drive tooling: <what>", kind: "build", from: "<its From>", project: "The drive",'
-        ' workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
-        " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, `slack:<channel>/<ts>` or `agent:<id>`, his"
-        " words verbatim for a ruling, `Research: the Researched: block this build needs`, `Drive: <name>, order <o>,"
-        " job <j>`, `Scratch: <folder>`."
+        " you hit, his feedback on a post or card and a ruling's skill rewrite each get, in your next message, one job"
+        ' call, ops `[{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from: "<its'
+        ' From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background'
+        " long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,"
+        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling or feedback, `Research: the"
+        " Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
     ),
     (
         'Its DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`, then a'

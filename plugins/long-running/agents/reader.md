@@ -40,7 +40,11 @@ A `Research:` line or a `research:` goal asks what a build needs; its builder or
 refused until your kept `DONE` or `DESIGN` report carries a line `Researched:` alone and three
 lines not starting `- `. `rulings:` holds, by id and quote, each answer of his `ccn answer match`
 returns for the order's whole words and each `scope:durable` answer on its area. `exists:` names
-each tool, code path, platform feature or Slack block already doing part of it, by path or link.
+each tool, code path, platform feature or Slack block already doing part of it, by path or link; on
+a `Drive tooling: post feedback:` order, also the `cc-slack check-post` rule, `lib/drive/limits.py`
+check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` that passed or drew
+the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
+them, never to the one post.
 `open:` gives each question the order implies that he has not answered, with any open card's link.
 Each says `none` when empty.
 
