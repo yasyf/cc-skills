@@ -105,7 +105,7 @@ limit".
 - Any line that names a card, in a summary, a catch-up or a link line, names it by the card's own
   permalink: the bare URL on a line of its own, the form Slack unfurls. Slack draws the card
   there, and cc-slack posts no copy of it, so the card stays one message he answers where it sits. Never a copy of the
-  card's words, never the permalink as link text (`<url|text>`), never `card-copy`. His words, Nov
+  card's words, and never the permalink as link text (`<url|text>`). His words, Nov
   10 7:31 PM, under "The first needs your tap: <permalink|permalink>": "this should have ben an
   embeeded exopanded card, instad its just a random URL", and 7:32 PM: "you keep doing variants of
   not just embeddingf htre card and havingf slack unfurl it: you copied it, yuoiu put the bare
@@ -185,7 +185,8 @@ The card is one `slack_dm_status(card=<what drive job card prints>, thread_ts=<h
 the card printed by `drive job card <the record's ask file> --waits <its waits id>`, never one put
 together by hand. cc-slack posts a card that
 names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
-never rests on a handler's reading. It puts one copy of the card with its buttons in that thread.
+never rests on a handler's reading. In that thread it posts the card's bare permalink, which Slack
+unfurls into the card with its buttons.
 A drive tooling card is given no thread, since its order has none. The handler then closes
 the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His tap
 still comes back as an `answer` record, so card posted and he answered stay two states. A card that
@@ -227,8 +228,8 @@ cc-slack draw one card at his DM root for the stack those PRs form (`drive card`
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
 them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
-The same call puts a copy of the card under the line in his thread, so that thread carries its
-buttons. The call's `card_permalink` names the card and its `permalink` only
+The same call posts the card's bare permalink under the line in his thread, which Slack unfurls
+into the card, so that thread carries its buttons. The call's `card_permalink` names the card and its `permalink` only
 the line; when the card command gives a PR no card, the call fails with its reason and posts
 nothing. Each PR on it gets its own section, opened by its title, link and Open
 button, then its Refresher, its biggest surprise, what he will hate most, where it stands and what
