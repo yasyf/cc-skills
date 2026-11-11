@@ -90,8 +90,13 @@ minutes is said with the remedy, a `SendMessage` to wake it.
 5. A "You have N orchestration messages" line Orca types into your terminal needs nothing: the watch
    turns that mail into `JOB` events, so leave the `orca orchestration check` it names unrun. Your
    terminal holds a lane's Run only while a call starts a worker or sends an answer.
-6. When a remote job is done, run `drive job end <j>` in the background to free its Sprite, as the
-   coordinator page's event rows say.
+6. When a remote lane returns its line, run `drive job end <j>` in the background to free its
+   Sprite, as the coordinator page's event rows say. The job keeps the state its line set, with its
+   waits, PRs and carried parts: a `WAITING` job stays waiting, so nothing waiting on it is freed,
+   and its next event starts its next lane. While the job is not finished, end refuses, ending
+   nothing, when its Sprite holds uncommitted changes or a branch or stash on no remote, naming
+   each, since the next lane starts on a fresh Sprite: send the lane the `drive job resume` the
+   refusal names, and end it once it returns.
 
 ## Remote lanes
 

@@ -675,15 +675,71 @@ def test_resume_and_end_refuse_a_lane_that_never_started(run: Run, demo: str, tm
     assert run("job", "end", "j1")[0] == 2
 
 
-def test_end_reclaims_the_sprite_and_marks_the_job_done(
+def carrying(run: Run, remote: str) -> list[str]:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "show the tallies")
+    with state.edit(remote) as data:
+        parts = list(data["orders"]["o2"]["parts"])
+        state.carry(data, "j1", "o2", parts)
+    return parts
+
+
+def test_end_frees_a_waiting_lane_and_the_job_keeps_waiting_with_its_waits_prs_and_carried_parts(
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
+    parts = carrying(run, remote)
+    run("job", "add", "builder", "--order", "o1", "--goal", "restack onto the fix", "--remote")
+    url = "https://github.com/Forge-AI/monorepo/pull/53430"
+    key = state.pr_key(url)
+    with state.edit(remote) as data:
+        data["prs"][key] = state.new_pr(url, "j1", "o1")
+        data["jobs"]["j1"].update(state="waiting", said=f"WAITING CI on {url}", prs=[url], waits=[key], workspace="pool-one")
+        data["jobs"]["j2"].update(state="waiting", waits=["j1"])
     reclaimed = []
-    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: reclaimed.append((run_id, dispatch)) or "")
-    assert run("job", "end", "j1") == (0, "j1 ended")
+    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: None)
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: reclaimed.append((run_id, dispatch)) or "destroyed pool-one dispatch ctx_lane0001")
+    assert run("job", "end", "j1") == (0, "destroyed pool-one dispatch ctx_lane0001\nj1's lane ended; j1 stays waiting")
     assert reclaimed == [(RUN, DISPATCH)]
-    assert state.load(remote)["jobs"]["j1"]["state"] == "done"
+    data = state.load(remote)
+    job = data["jobs"]["j1"]
+    assert (job["state"], job["waits"], job["prs"], job["carries"], data["orders"]["o2"]["jobs"]) == ("waiting", [key], [url], {"o2": parts}, ["j1"])
+    assert (job["deaths"][-1]["dispatch"], job["deaths"][-1]["why"]) == (DISPATCH, "ended by drive job end")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: pytest.fail("a lane drive job end ended is never read again as one that died"))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    later = state.now() + timedelta(minutes=10)
+    assert (watch.waits_lines(watching, later), watch.agent_lines(watching, later), watch.orphan_lines(watching, later, set())) == ([], [], [])
+    assert state.load(remote)["jobs"]["j2"]["waits"] == ["j1"]
+
+
+def test_end_refuses_while_the_sprite_of_a_job_still_at_work_holds_what_its_next_lane_would_not_get(
+    remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="waiting", workspace="pool-ie7ugrhamhjtmnwa")
+    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: "commits on no remote on tallies-final")
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: pytest.fail("a refused end reclaims nothing"))
+    assert cli.main(["job", "end", "j1"]) == 2
+    assert (
+        "j1: refused, nothing ended: it is waiting, and its next lane starts on a fresh Sprite without what pool-ie7ugrhamhjtmnwa"
+        ' holds: commits on no remote on tallies-final. Have this lane push it first with drive job resume j1 "push what is on no'
+        ' remote, then return your line", then end it'
+    ) in capsys.readouterr().err
+    assert state.load(remote)["jobs"]["j1"].get("deaths", []) == []
+
+
+def test_end_of_a_finished_job_never_reads_its_sprite_and_drops_the_parts_it_carried(
+    run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    carrying(run, remote)
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(state="stopped", workspace="pool-one")
+    monkeypatch.setattr(orca, "held", lambda run_id, dispatch, root: pytest.fail("a finished job's lane ends whatever its Sprite holds"))
+    monkeypatch.setattr(orca, "reclaim", lambda run_id, dispatch, root: "")
+    assert run("job", "end", "j1") == (0, "j1's lane ended; j1 stays stopped")
+    data = state.load(remote)
+    assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["carries"], data["orders"]["o2"]["jobs"]) == ("stopped", {}, [])
 
 
 def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:

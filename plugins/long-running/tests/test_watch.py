@@ -1388,14 +1388,21 @@ def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_
     assert cli.main(["pr", "set", url, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
 
 
-def test_a_job_waits_only_on_his_cards_so_his_tap_frees_it(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_job_never_waits_on_a_job_and_the_refusal_names_the_card_or_pr_to_wait_on(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
     with state.edit(demo) as data:
         data["jobs"]["j2"] = job(goal="root fix", state="waiting")
+        data["jobs"]["j3"] = job(goal="asked him", state="waiting", questions=[state.new_question(None, "Pick?", state.stamp(T0)) | {"waits": "demo:j1-7-a"}])
     assert cli.main(["job", "set", "j2", "--waits", "j1", "--drive", demo]) == 2
-    assert "--waits j1: a job waits only on a card of his" in capsys.readouterr().err
-    assert cli.main(["job", "set", "j2", "--waits", "demo:j1-7-a", "--drive", demo]) == 0
-    assert state.load(demo)["jobs"]["j2"]["waits"] == ["demo:j1-7-a"]
+    assert capsys.readouterr().err.strip().endswith(
+        f"--waits j1: a job waits on his card, a PR the drive tracks or a release, never on another job; open on j1: {KEY}; wait on the one this job needs, as --waits {KEY}"
+    )
+    assert cli.main(["job", "set", "j2", "--waits", "j3", "--drive", demo]) == 2
+    assert "open on j3: demo:j1-7-a; wait on the one this job needs, as --waits demo:j1-7-a" in capsys.readouterr().err
+    assert cli.main(["job", "set", "j2", "--waits", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
+    assert state.load(demo)["jobs"]["j2"]["waits"] == [KEY, "demo:j1-7-a"]
 
 
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
