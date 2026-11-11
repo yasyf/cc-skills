@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Redraws, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -4256,7 +4256,7 @@ def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, 
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": [tap]})
     view.refresh_cards("demo")
     settled: list[tuple[str, ...]] = []
-    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or ({"redrawing": 1} if args[0] == "redraw-pr-cards" else {"answered": True, "label": args[4], "at": "now"}))
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: settled.append(args) or {"answered": True, "label": args[4], "at": "now"})
     return settled
 
 
@@ -4417,7 +4417,7 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
 
 
 def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
-    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], redraws: Redraws
 ) -> None:
     settled = cards_asking(monkeypatch, PR)
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
@@ -4443,7 +4443,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
         "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them; it asks his tap again once a reader's READY passes the rework",
         "Forge-AI/monorepo#45: 1 open card of his carrying it redrawn in place, its row saying his answer reworks it",
     ]
-    assert (code, settled) == (0, [ANSWERED, ("redraw-pr-cards", "--pr", PR), ("redraw-pr-cards", "--pr", "https://github.com/Forge-AI/monorepo/pull/45")])
+    assert (code, settled, redraws.asked) == (0, [ANSWERED], [PR, "https://github.com/Forge-AI/monorepo/pull/45"])
     data = state.load("demo")
     reworked = data["prs"][designing]
     assert (reworked["wants_tap"], reworked["tap"], state.owed_step(reworked), data["jobs"]["j1"]["state"]) == (True, None, "rework", "running")
