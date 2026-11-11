@@ -9,7 +9,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from drive import github, limits, orca, picture, place, reads, render, settled, slack, state, watch
+from drive import brief, github, limits, orca, picture, place, reads, render, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -93,6 +93,8 @@ def order_add(args: argparse.Namespace) -> int:
             "jobs": [],
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident or joined is not None,
+            "kind": "build" if args.incident or joined is not None else args.kind,
+            "complex": args.complex,
             "milestone": args.milestone or None,
             "project": args.project or None,
             "workstream": args.workstream or None,
@@ -210,6 +212,10 @@ def order_set(args: argparse.Namespace) -> int:
             )
         if args.incident is not None:
             order["incident"] = args.incident
+        if args.kind:
+            order["kind"] = args.kind
+        if args.complex is not None:
+            order["complex"] = args.complex
         for field in ("milestone", "project", "workstream"):
             if (named := getattr(args, field)) is not None:
                 order[field] = named or None
@@ -305,6 +311,8 @@ def job_add(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
         parts = pick_parts(args.order, order, args.part)
+        if refused := brief.job_refusal(name, data, args.order, args.kind):
+            raise DriveError(f"refused, no job added: {refused}")
         beside = [
             f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
             for other_id in order["jobs"]
@@ -471,18 +479,21 @@ def keep_waits(job: dict, file: str, waits: str) -> None:
 def job_report(args: argparse.Namespace) -> int:
     """Keep a job's whole return from stdin in the drive, its first line setting a running job's state, or print the one kept, or a remote lane's latest report."""
     name = state.resolve(args.drive)
-    job = find(state.load(name)["jobs"], args.id, "job")
-    kept = state.drive_dir(name) / "reports" / f"{args.id}.md"
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    kept = state.report_path(name, args.id)
     if args.stdin:
         whole = sys.stdin.read()
         if not whole.strip():
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
+        if refused := brief.report_refusal(name, data, args.id, whole):
+            raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, whole.strip().splitlines()[0].strip())
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
-    text = kept.read_text() if kept.exists() else job.get("report")
+    text = state.report_text(name, args.id, job)
     if not text:
         raise DriveError(f"{args.id} kept no report; its one-line result is all it returned")
     return emit(args, text.rstrip("\n"), {"id": args.id, "report": text})
@@ -543,17 +554,20 @@ def job_launch(args: argparse.Namespace) -> int:
     if dispatch := job.get("dispatch"):
         raise DriveError(f"{args.id} already started as dispatch {dispatch}")
     root = checkout()
+    text = sys.stdin.read() if args.brief == "-" else Path(args.brief).read_text()
+    if refused := brief.brief_refusal(name, data, args.id, text, None):
+        raise DriveError(f"{args.id}: refused, not launched: {refused}")
     run = job.get("run") or orca.new_run(f"drive {name} {args.id}: {job['goal']}")
     with state.edit(name) as data:
         data["jobs"][args.id]["run"] = run
-    brief = state.drive_dir(name) / "jobs" / f"{args.id}.md"
-    brief.parent.mkdir(exist_ok=True)
-    brief.write_text(orca.vm_brief(name, args.id, sys.stdin.read() if args.brief == "-" else Path(args.brief).read_text()))
-    receipt = orca.launch(name, orca.lane_name(name, args.id), brief, root, run)
+    kept = state.drive_dir(name) / "jobs" / f"{args.id}.md"
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(orca.vm_brief(name, args.id, text))
+    receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run)
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
-        job.update(started, brief=str(brief), ask=None, report=None, updated=state.stamp())
+        job.update(started, brief=str(kept), ask=None, report=None, updated=state.stamp())
     return emit(args, f"{args.id} started on Sprite {started['workspace']} as dispatch {started['dispatch']}", started)
 
 
@@ -601,19 +615,19 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
         state.lane_died(job, dispatch, end.why, state.now())
     ended = job["deaths"][-1]
     attempt = f"{args.id}-{len(job['deaths']) + 1}"
-    brief = state.drive_dir(name) / "jobs" / f"{attempt}.md"
+    kept = state.drive_dir(name) / "jobs" / f"{attempt}.md"
     taking_over = orca.handoff(orca.brief_of(Path(job["brief"]).read_text()), ended, job, args.text, end)
-    brief.parent.mkdir(exist_ok=True)
-    brief.write_text(orca.vm_brief(name, args.id, taking_over))
+    kept.parent.mkdir(exist_ok=True)
+    kept.write_text(orca.vm_brief(name, args.id, taking_over))
     lane = orca.lane_name(name, attempt)
     if end.worktree:
-        receipt = orca.start_after(name, lane, brief, job, end.worktree)
+        receipt = orca.start_after(name, lane, kept, job, end.worktree)
     else:
-        receipt = orca.launch(name, lane, brief, root, job["run"])
+        receipt = orca.launch(name, lane, kept, root, job["run"])
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         data["jobs"][args.id].update(
-            started, handoff=str(brief), ask=None, report=None, reads={}, state="running", updated=state.stamp()
+            started, handoff=str(kept), ask=None, report=None, reads={}, state="running", updated=state.stamp()
         )
     carrying = "a handoff carrying its brief, its branch, its last line, its report, its PRs and the message"
     if end.worktree:
@@ -1138,6 +1152,15 @@ def parser() -> argparse.ArgumentParser:
         metavar="ORDER",
         help="an incident order on the same failing service as this open incident order: it takes that order's record and starts no job, since that incident's owner carries it",
     )
+    verb.add_argument(
+        "--kind",
+        choices=state.ORDER_KINDS,
+        help=(
+            "answer: one reader lane researches it and answers him, with no other job; build: an Opus reader keeps its"
+            " Researched: block before any builder or designer starts, and their briefs name it. An incident order is a build"
+        ),
+    )
+    verb.add_argument("--complex", action="store_true", help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet")
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under")
@@ -1155,6 +1178,8 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
+    verb.add_argument("--kind", choices=state.ORDER_KINDS, help="sort it again: an answer whose work turns out to need a build becomes a build")
+    verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under; an empty name takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")

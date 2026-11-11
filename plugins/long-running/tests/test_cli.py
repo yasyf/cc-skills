@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import Answers, Drawing, Thread, Withdrawals
+from conftest import RESEARCH, Answers, Drawing, Thread, Withdrawals
 from drive import card, cli, github, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -22,6 +22,9 @@ UNLISTED = {"-h", "--help", "--drive", "--json"}
 FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
+    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n"
+)
 CARD_BODY = """## Releasable alone
 A release at its merge commit lands it on every target, in any order, and nothing runs after it.
 
@@ -846,6 +849,81 @@ def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.C
     assert cli.main(["job", "report", "j1", "-"]) == 2
     assert "stdin held no report for j1" in capsys.readouterr().err
     assert run("job", "report", "j1")[0] == 2
+
+
+def keep(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], job_id: str, text: str) -> tuple[int, str]:
+    monkeypatch.setattr("sys.stdin", io.StringIO(text))
+    code = cli.main(["job", "report", job_id, "-"])
+    return code, capsys.readouterr().err
+
+
+def test_an_answer_order_is_one_readers_and_a_build_orders_builder_waits_on_its_readers_research(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "why did the copy stall?", "--kind", "answer", "--complex")
+    assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["answer", True]
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "fix the copy"]) == 2
+    assert "refused, no job added: o1 is an answer order: one reader researches it and answers him" in capsys.readouterr().err
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "answer him")[0] == 0
+    run("order", "add", "Drive tooling: copy one store", "--kind", "build")
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
+    assert "o2 is a build order, so its builder starts only once an Opus reader has kept a Researched: line" in capsys.readouterr().err
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j2", "DONE read the copy path\n")
+    assert cli.main(["job", "add", "builder", "--order", "o2", "--goal", "build it"]) == 2
+    capsys.readouterr()
+    assert keep(monkeypatch, capsys, "j2", RESEARCH) == (0, "")
+    assert run("job", "add", "builder", "--order", "o2", "--goal", "build it")[1].splitlines()[0] == "j3"
+    run("order", "add", "an order from an older skill")
+    run("order", "add", "SandSQL copies fail on plat", "--incident", "--parts", "fix", "first check")
+    assert state.load("demo")["orders"]["o4"]["kind"] == "build"
+    for order_id, part in (("o3", []), ("o4", ["--part", "fix"])):
+        assert run("job", "add", "builder", "--order", order_id, "--goal", "fix it", *part)[0] == 0
+
+
+def test_a_readers_design_return_carries_his_options_and_holds_the_builder_until_a_design_job_starts(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    one_option = DESIGN_RESEARCH.replace("- on a separate worker that reads the bucket\n", "")
+    for refused in (one_option, DESIGN_RESEARCH.replace("(recommended)", "")):
+        code, err = keep(monkeypatch, capsys, "j1", refused)
+        assert (code, "j1: refused, nothing kept: a reader's DESIGN return is a choice for him" in err) == (2, True)
+    assert run("job", "report", "j1")[0] == 2
+    assert keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH) == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "build it"]) == 2
+    assert "j1 returned DESIGN: the choice its research found goes to him as cards before any builder" in capsys.readouterr().err
+    assert run("job", "add", "design", "--order", "o1", "--goal", "cards: where the copy runs")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "build it")[0] == 0
+
+
+def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    keep(monkeypatch, capsys, "j1", RESEARCH)
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    ready = "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: drive tooling\n"
+    code, err = keep(monkeypatch, capsys, "j2", ready)
+    assert code == 2
+    assert "j2: refused, nothing kept: j1's research found what already does part of this: supervisor/copies.rs store_copy_at copies one store." in err
+    assert keep(monkeypatch, capsys, "j2", ready + "REUSES: calls store_copy_at for each store\n") == (0, "")
+    run("order", "add", "Drive tooling: a new verb", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the verb")
+    keep(monkeypatch, capsys, "j3", RESEARCH.replace("exists: supervisor/copies.rs store_copy_at copies one store", "exists: none"))
+    run("job", "add", "builder", "--order", "o2", "--goal", "build it")
+    assert keep(monkeypatch, capsys, "j4", ready) == (0, "")
+
+
+def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
+    run("order", "add", "why did the copy stall?", "--kind", "answer")
+    assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0
+    assert [state.load("demo")["orders"]["o1"][field] for field in ("kind", "complex")] == ["build", True]
+    run("order", "set", "o1", "--no-complex")
+    assert state.load("demo")["orders"]["o1"]["complex"] is False
 
 
 @pytest.mark.parametrize(

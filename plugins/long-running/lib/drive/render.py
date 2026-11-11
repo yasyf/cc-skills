@@ -20,20 +20,21 @@ COMMUNICATOR_RULES = (
         " catch-up goes at his DM root (--away when he says he is going to sleep or away), any record its row names"
         " and the long-running:handler go in the next message, then the turn ends, with one drive call more only to"
         " record a read-only question's handler: drive job add reader --order"
-        ' "$(drive order add "<his words, verbatim>" --from slack:<channel>/<ts> --thread <ts>)" --goal "<one line>"'
-        " --agent <id>, or a tooling builder, by the next rule."
+        ' "$(drive order add "<his words, verbatim>" --kind answer --complex --from slack:<channel>/<ts> --thread <ts>)"'
+        ' --goal "<one line>" --agent <id>, leaving out --complex only for a one-fact lookup, or a tooling reader, by the'
+        " next rule."
     ),
     (
-        "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT <tool: refusal>"
-        " line, a defect you hit and a ruling's skill rewrite each get a long-running:builder in the next message, its"
-        " prompt the lines `Order: Drive tooling: <what>`, `Serves: drive tooling`, `From: cci:<seq>`,"
-        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Native:` where he sees or uses the"
-        " result and what that platform already does for it, with links, `Decisions that bind:` his earlier words on the"
-        " area, `Would he ask:` what he would still ask for if only his words were built, those three from what you"
-        " already know and never a read, `Drive: <name>`, `Scratch: <folder>`, then one call:"
-        ' drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"'
-        ' --goal "<one line>" --agent <id>. A builder of yours that returns WAITING needs nothing, since its line set its'
-        ' job waiting; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a'
+        "Tooling and meta work is yours, never the coordinator's, and a build: a defect record, a handler's DEFECT"
+        " <tool: refusal> line, a defect you hit and a ruling's skill rewrite each get in the next message drive job add"
+        ' reader --order "$(drive order add "Drive tooling: <what>" --kind build --from <its From>)" --goal "research:'
+        ' <what>", then a long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,'
+        " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling, `Research: the Researched: block this"
+        " build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`. Its DONE line gets drive job add"
+        ' builder --order <o> --goal "<one line>", then a long-running:builder, its prompt the same lines with `Serves:'
+        " drive tooling` and `Researched: <the reader's job>` for the Research line; its DESIGN line the same with a"
+        " design job and a long-running:designer. A builder of yours that returns WAITING needs nothing, since its line"
+        " set its job waiting; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a"
         " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
     ),
     (
@@ -135,8 +136,10 @@ COORDINATOR_RULES = (
         " them; ANSWER repeats every 10 minutes until then."
     ),
     (
-        "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"
-        " --part, and an ORPHAN line gets a job, a card or a close in the same turn."
+        "Every part has an owner: drive order add --kind build --parts names each deliverable his words name, each job"
+        " says its --part, and an ORPHAN line gets a job, a card or a close in the same turn. A build order's first job"
+        " is an Opus long-running:reader briefed Research: the Researched: block this build needs; its builder's or"
+        " designer's brief carries Researched: <that reader's job>, and a reader's DESIGN return starts the designer."
     ),
     "Never block: your own calls are reads of drive, cci and one gh call, beside the verbs the skill names.",
     (

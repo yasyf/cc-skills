@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 ORDER_STATES = ("open", "working", "waiting", "done", "dropped")
+ORDER_KINDS = ("answer", "build")
 CLOSED_ORDER_STATES = ("done", "dropped")
 JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
@@ -69,6 +70,16 @@ def cards_path(name: str) -> Path:
 
 def replies_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "jobs" / f"{job_id}.replies.jsonl"
+
+
+def report_path(name: str, job_id: str) -> Path:
+    return drive_dir(name) / "reports" / f"{job_id}.md"
+
+
+def report_text(name: str, job_id: str, job: dict) -> str:
+    """A job's whole return as kept in the drive, or a remote lane's latest report, or nothing."""
+    path = report_path(name, job_id)
+    return path.read_text() if path.exists() else job.get("report") or ""
 
 
 def keep_reply(name: str, job_id: str, message: dict) -> None:
@@ -174,6 +185,8 @@ def load(name: str) -> dict:
         order.setdefault("milestone", None)
         order.setdefault("project", None)
         order.setdefault("workstream", None)
+        order.setdefault("kind", None)
+        order.setdefault("complex", False)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])
@@ -214,9 +227,11 @@ def agent_job(data: dict, agent: str | None) -> str | None:
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, a reader's answer to done, with that line as its said line; an ASK's is set by drive job ask, and a BUILT's branch and cards by hand."""
+    """Move a running job to the state its result line opens with, a reader's answer or DESIGN to done, since a design lane takes its choice on, with that line as its said line; an ASK's is set by drive job ask, and a BUILT's branch and cards by hand."""
     job = data["jobs"][job_id]
-    taken = RESULT_STATES.get(re.match(r"[A-Z]*", line)[0], "done" if job["kind"] == "reader" else None)
+    opening = re.match(r"[A-Z]*", line)[0]
+    reader = job["kind"] == "reader"
+    taken = "done" if reader and opening == "DESIGN" else RESULT_STATES.get(opening, "done" if reader else None)
     if job["state"] != "running" or not taken:
         return
     job.update(state=taken, said=line, updated=stamp())
