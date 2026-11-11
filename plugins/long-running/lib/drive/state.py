@@ -19,6 +19,7 @@ FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_STOP = "stop"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
+ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
@@ -366,6 +367,13 @@ def reported(line: str) -> bool:
     """Whether a line opens with a result other than an ASK, so a lane that sent it as an Orca question returned that result and asked nothing."""
     opening = re.match(r"[A-Z]*", line)[0]
     return bool(BUILT_LINE.match(line)) or opening in RESULT_STATES and opening != "ASK"
+
+
+def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
+    """Whether the drive already keeps the line a job's agent returned: an `ASK <path>` naming the block `drive job ask` kept for one of its questions, or the first line of its kept report."""
+    asked = ASK_LINE.fullmatch(line)
+    kept = report_text(name, job_id, job).strip().splitlines()
+    return bool(asked and kept_in(job, Path(asked["file"]))) or bool(kept) and kept[0].strip() == line
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
