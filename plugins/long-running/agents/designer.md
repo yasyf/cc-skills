@@ -74,6 +74,9 @@ refuses a table with one value in every cell. No option points at another by num
 none lands first and leaves a step for after, such as "land it now, then backfill", which `drive
 job ask` refuses, and no question asks what his words settle.
 
+A tool that breaks on you is not a block: route around it, and send `cci post --kind defect --lane
+root --to communicator@<drive>` quoting its refusal, since the communicator starts every tool fix.
+
 Then keep the design by piping it with a heredoc into `drive job report <your job> -`, never a
 report file, which the harness refuses a subagent; your final message is its first line alone,
 since it lands whole in the coordinator's context, and the coordinator reads the rest with `drive

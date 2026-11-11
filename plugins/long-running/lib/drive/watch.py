@@ -35,6 +35,9 @@ COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
 STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card drawn"}
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+OWN_MOVE = re.compile(r"^PR \S+: (?:new head|checks passed|approved)\b")
+HANDING = "handoff post to the communicator"
 
 
 @dataclass
@@ -50,19 +53,25 @@ class Watcher:
     agent_gaps: dict[str, str | None] = field(default_factory=dict)
     held: list[str] = field(default_factory=list)
     printed_at: datetime | None = None
+    unsent: list[str] = field(default_factory=list)
 
 
 def read_failed(watcher: Watcher, source: str, error: Exception, moment: datetime) -> list[str]:
     """Retry a failed read on the next poll; say so once it fails three times running, then at most every ten minutes."""
+    if watcher.failures.get(source, 0) + 1 < FAILURES_BEFORE_SAYING:
+        watcher.read_at = None
+    return failed(watcher, source, f"{source} read", error, moment)
+
+
+def failed(watcher: Watcher, source: str, what: str, error: Exception, moment: datetime) -> list[str]:
     failures = watcher.failures[source] = watcher.failures.get(source, 0) + 1
     if failures < FAILURES_BEFORE_SAYING:
-        watcher.read_at = None
         return []
     said = watcher.failure_said.get(source)
     if said and moment - said < FAILURE_EVERY:
         return []
     watcher.failure_said[source] = moment
-    return [f"WATCH {source} read failed {failures} times in a row: {error}"]
+    return [f"WATCH {what} failed {failures} times in a row: {error}"]
 
 
 def ids(pr: dict) -> str:
@@ -313,12 +322,12 @@ def page_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def event_line(event: dict, prs: dict) -> str:
+    key = f"{event.get('repo')}#{event.get('number')}"
+    suffix = f" {ids(prs[key])}" if key in prs else ""
     if event["kind"] == "tap":
-        key = f"{event['repo']}#{event['number']}"
-        suffix = f" {ids(prs[key])}" if key in prs else ""
         return f"TAP {event['label']} {key}{suffix}"
     details = " ".join(f"{name}={value}" for name, value in event.items() if name not in ("kind", "at"))
-    return f"EVENT {event['kind']} {details}".rstrip()
+    return f"EVENT {event['kind']} {details}".rstrip() + suffix
 
 
 def event_lines(watcher: Watcher) -> list[str]:
@@ -710,7 +719,9 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
     data = state.load(watcher.name)
     if state.owner_away(data, moment):
         return []
-    owing = [key for key, order in data["orders"].items() if owes_line(order, data["jobs"], moment)]
+    owing = [
+        key for key, order in data["orders"].items() if not order["text"].startswith(state.TOOLING) and owes_line(order, data["jobs"], moment)
+    ]
     return [f"TICK {' '.join(owing)}"] if owing else []
 
 
@@ -736,7 +747,41 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)
-    return [LINE_BREAKS.sub(" ", line)[:LINE_LIMIT] for line in lines]
+    return [line[:LINE_LIMIT] for line in handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)]
+
+
+def tooling(line: str, data: dict) -> bool:
+    found = ABOUT.search(line)
+    order = found and data["orders"].get(found["order"] or found["named"])
+    return bool(order) and order["text"].startswith(state.TOOLING)
+
+
+def needs_step(line: str, data: dict) -> bool:
+    if not line.startswith("PR "):
+        return True
+    return not OWN_MOVE.match(line) and data["jobs"][ABOUT.search(line)["job"]]["state"] != "running"
+
+
+def handed(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:
+    if not lines and not watcher.unsent:
+        return []
+    data = state.load(watcher.name)
+    owed = watcher.unsent + [line for line in lines if tooling(line, data) and needs_step(line, data)]
+    kept = [line for line in lines if not tooling(line, data)]
+    watcher.unsent, refusal = [], None
+    for line in owed:
+        try:
+            reads.run(
+                ["cci", "post", "--drive", watcher.name, "--lane", "root", "--kind", "handoff", "--to", f"communicator@{watcher.name}", "--text", line[:LINE_LIMIT]],
+                Path(data["roles"]["coordinator"]["cwd"]),
+            )
+        except reads.ReadError as error:
+            watcher.unsent.append(line)
+            refusal = error
+    if refusal is None:
+        watcher.failures.pop(HANDING, None)
+        return kept
+    return kept + failed(watcher, HANDING, HANDING, refusal, moment)
 
 
 def delivered(watcher: Watcher, lines: list[str], moment: datetime) -> list[str]:

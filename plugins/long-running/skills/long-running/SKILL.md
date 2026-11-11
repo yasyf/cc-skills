@@ -1,11 +1,11 @@
 ---
 name: long-running
-description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack: it acks each message of his inside 5 to 10 seconds, alone, then starts a handler that answers him in his thread and hands orders and rulings over, and writes nothing in its terminal. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
+description: Run a long drive as two Claude Code sessions. The communicator is the one the owner talks to in Slack: it acks each message of his inside 5 to 10 seconds, alone, then starts a handler that answers him in his thread and hands orders and rulings over, starts every tool fix and skill rewrite itself, and writes nothing in its terminal. The coordinator turns his orders into background agents that each ship one deliverable end to end (code, PR, CI, merge, install, check), routes the events one watcher makes of CI, merges, his PR-card taps, promised times and a 30-minute tick, and sends the communicator what to post, batched into summaries. They share the drive's state file and talk through cci. Use when the work will outlive one context window, spans several PRs or repos, waits on CI or merges, or when the owner says "drive", "long-running" or names a drive.
 ---
 
 # Long-running drives
 
-A drive is two sessions and the background agents one of them starts. His ruling, Nov 9 7:46 AM:
+A drive is two sessions and the background agents they start. His ruling, Nov 9 7:46 AM:
 "We like the coordinator / communicator split". Both sessions run Fable 5.2, `claude-fable-5-2`,
 and the only other Fable is the design lane (`design`). Handlers and readers run on Opus unless the ask is very
 simple (`communicator`); every other job keeps the model its agent names. His rulings, Nov 9 1:32 PM: "Our coordinator and
@@ -14,12 +14,12 @@ fable)", and 9:38 PM, which makes the design lane the one exception (`design`).
 
 - **The communicator** is the only session he talks to, and its turn is two messages of tool calls: a
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
-  and nothing else; cc-slack has put the eyes on his message by then. It writes no text in its
-  terminal: everything for him goes to Slack, and the turn ends on the one word `Sent.`. The
-  handler does the work or hands it to the coordinator, answers him in his thread, and returns one
-  line: its permalinks and at most three facts, so his next message never waits on the
-  communicator. The `communicator` page quotes his rulings on both, Nov 9 4:07 and 5:02 PM and
-  Nov 10 9:53 and 10:20 PM.
+  plus a builder for tooling or a ruling, and nothing else; cc-slack has put the eyes on his message
+  by then. It writes no text in its terminal: everything for him goes to Slack, and the turn ends
+  on the one word `Sent.`. The handler does the work or hands it to the coordinator, answers him in
+  his thread, and returns one line: its permalinks and at most three facts, so his next message
+  never waits on the communicator. The `communicator` page quotes his rulings on both, Nov 9 4:07
+  and 5:02 PM and Nov 10 9:53 and 10:20 PM.
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
   agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
@@ -28,8 +28,8 @@ fable)", and 9:38 PM, which makes the design lane the one exception (`design`).
 The drive's state lives in one file, written only by the `drive` CLI and read by both
 sessions. His rulings live in cc-notes answers. The two sessions talk only through cci records,
 which outlive a compaction or a restart. An agent answers only to the session that started it, so
-every handler is the communicator's and every job is the coordinator's. Other sessions reach the
-drive through cci, addressed to `root`, the coordinator.
+every handler and drive tooling builder is the communicator's and every other job the coordinator's.
+Other sessions reach the drive through cci, addressed to `root`, the coordinator.
 
 ## Pages
 
@@ -56,20 +56,23 @@ Read no page by Read, Write or Edit: a compaction reads back files, not output, 
 
 ## Tooling
 
-A tool defect either session hits gets a builder on that tool's repo that turn, under its own
-"Drive tooling:" order (`scope`), started by the coordinator, and the blocked work takes a route
-that works meanwhile; never an excuse or a question to him. Before a fix, search cc-notes papercuts for the same symptom:
+Tooling and meta work is the communicator's: a tool defect, a change to this skill, its agents, the
+`drive` CLI or dashboard, a ruling's rewrite. It starts the builder that turn under its own
+"Drive tooling:" order (`scope`). The coordinator starts none: a defect it, a job or another session
+hits is a `defect` record to `communicator@<drive>`, and the blocked work takes a route that works;
+never an excuse or a question to him. Before a fix, search cc-notes papercuts for the same symptom:
 a third fix for one symptom is a class fix that deletes the earlier patches.
 
 ## Never
 
 - The communicator's turn is two messages of tool calls: the ack alone inside 5 to 10 seconds,
-  then `drive heard` and the handler, with no text in its terminal but the closing `Sent.`. Every read, report, card, due line, draft, `check-post`,
-  share and post past the ack belongs to a handler. It never starts a builder or waits on
-  anything, and only orders, alerts, rulings, his answers, defects and a question a card's `ask`
-  record does not answer go to the coordinator.
+  then `drive heard` and the handler, plus a builder for tooling, with no text in its terminal but
+  the closing `Sent.`. Every read, report, card, due line, draft, `check-post`, share and post past
+  the ack belongs to a handler. It starts no builder but a tooling one, waits on nothing, and only
+  orders, alerts, rulings, his answers and a question a card's `ask` record does not answer go to
+  the coordinator.
 - Neither session treats his correction about how the drive works as a one-off: it is a ruling,
-  recorded and sent for a skill rewrite in the turn it arrives.
+  recorded, and the communicator starts its skill rewrite in the turn it arrives (Tooling).
 - Never build, polish or card a PR that is neither a port, his order nor drive tooling, and never
   draw a tap card for a port.
 - Never start a builder on a tricky design before a design lane has drawn it and its questions are

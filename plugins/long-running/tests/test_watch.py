@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread
-from drive import cli, github, render, slack, state, watch
+from drive import cli, github, reads, render, slack, state, watch
 
 KEY = "Forge-AI/monorepo#42"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
@@ -202,9 +202,60 @@ def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.Mon
     state.append_event(demo, "refused", repo="Forge-AI/monorepo", number=42, reason="stale")
     assert watch.run_pass(watching, T0) == [
         f"TAP Approve {KEY} [o1 j1]",
-        "EVENT refused repo=Forge-AI/monorepo number=42 reason=stale",
+        "EVENT refused repo=Forge-AI/monorepo number=42 reason=stale [o1 j1]",
     ]
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
+
+
+def tooling_order(name: str, job_state: str) -> None:
+    with state.edit(name) as data:
+        data["orders"]["o1"]["text"] = "Drive tooling: the watch sends tooling lines to the communicator"
+        data["jobs"]["j1"]["state"] = job_state
+
+
+def posts(monkeypatch: pytest.MonkeyPatch, outcomes: list[bool] | None = None) -> list[list[str]]:
+    sent, queue = [], list(outcomes or [])
+
+    def post(argv: list[str], checkout: Path) -> str:
+        if queue and not queue.pop(0):
+            raise reads.ReadError("cci post exited 1: no drive demo")
+        sent.append(argv)
+        return ""
+
+    monkeypatch.setattr(watch.reads, "run", post)
+    return sent
+
+
+def test_a_drive_tooling_orders_lines_go_to_the_communicator_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling_order(demo, "waiting")
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
+    sent = posts(monkeypatch)
+    watching = watcher(demo)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    assert watch.run_pass(watching, T0) == []
+    assert sent == [
+        ["cci", "post", "--drive", demo, "--lane", "root", "--kind", "handoff", "--to", f"communicator@{demo}", "--text", line]
+        for line in (f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]")
+    ]
+
+
+def test_a_tooling_prs_moves_while_its_builder_runs_are_the_builders_own(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling_order(demo, "running")
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED, state="MERGED", mergeCommit="ccc333")})
+    sent = posts(monkeypatch)
+    assert watch.run_pass(watcher(demo), T0) == []
+    assert sent == []
+
+
+def test_a_handoff_the_communicator_did_not_get_goes_again_and_says_so_from_the_third_failure(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    tooling_order(demo, "waiting")
+    serve(monkeypatch, {KEY: read(checks=RED)})
+    sent = posts(monkeypatch, [False, False, False, True])
+    watching = watcher(demo)
+    said = [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5, 10, 15, 20)]
+    failing = "WATCH handoff post to the communicator failed 3 times in a row: cci post exited 1: no drive demo"
+    assert said == [[], [], [failing], [], []]
+    assert [argv[-1] for argv in sent] == [f"PR {KEY}: checks failed [o1 j1]"]
 
 
 def test_partial_event_line_waits_for_its_newline(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -322,6 +373,8 @@ def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monke
         data["jobs"]["j6"] = job(order="o6", updated=state.stamp(T0 + timedelta(minutes=3)))
         data["orders"]["o7"] = order(state="done", jobs=[], last_line=None, updated=state.stamp(T0 + timedelta(minutes=8)))
         data["orders"]["o8"] = order(state="done", jobs=[], last_line=None, updated=state.stamp(T0 - timedelta(hours=3)))
+        data["orders"]["o9"] = order(text="Drive tooling: the watch sends tooling lines to the communicator", jobs=["j9"])
+        data["jobs"]["j9"] = job(order="o9", updated=state.stamp(T0 + timedelta(minutes=3)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ["TICK o2 o5 o6 o7"]

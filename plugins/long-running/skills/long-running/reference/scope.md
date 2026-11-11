@@ -20,12 +20,13 @@ this? It's not in scope for us."
   licenses none of the fixes: a fix waits for his pick on its card. A PR is registered under an
   order only when that order's words ask for it, never because the jobs it unblocks serve it.
 - **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards or
-  CI plumbing, by [Tooling](../SKILL.md#tooling). It is an order of its own, `drive order add
-  "Drive tooling: <what it fixes>" --from cci:<seq>` with no `--thread`, never a job of his feature
-  order and never `--serves` to it, and its PR's His words list says none. A `yasyf/*` PR lands
-  with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with `drive
-  pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at his DM
-  root like any other. The line above the card quotes the order's "Drive tooling: …" words, and his
+  CI plumbing, or a rewrite of this skill a ruling of his asks for, by [Tooling](../SKILL.md#tooling).
+  It is the communicator's: an order of its own, `drive order add "Drive tooling: <what it fixes>"
+  --from cci:<seq>` with no `--thread`, which the communicator adds with its builder, never a job of
+  his feature order and never `--serves` to it, and its PR's His words list says none. A `yasyf/*`
+  PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
+  `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at
+  his DM root like any other. The line above the card quotes the order's "Drive tooling: …" words, and his
   Approve lands it with nothing done by hand. A card refusal saying no order of his names it is
   answered that way, never by writing his words for another change into its body. His ruling, Nov
   10 3:21 AM, on a Sprite launcher fix carded in his journal thread as journal work: "What the
