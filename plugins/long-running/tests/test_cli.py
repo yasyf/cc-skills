@@ -1240,6 +1240,24 @@ def test_status_reads_only_the_orders_its_ids_name(run: Run, with_pr: str, monke
     assert run("status", "j9")[0] != 0
 
 
+def test_status_prints_each_order_its_ids_name_whole_and_closed_ones_too(run: Run, demo: str) -> None:
+    words = "move the replica's restore " + "onto the primary's one restore code path, " * 4
+    run("order", "add", words)
+    run("order", "add", "something else")
+    run("job", "add", "builder", "--order", "o1", "--goal", "one restore code path " * 8)
+    said = "DONE " + "merged and installed, the replica now calls the primary's restore code, " * 4
+    run("job", "set", "j1", "--state", "done", "--said", said)
+    run("order", "set", "o1", "--state", "done")
+    lines = run("status", "j1")[1].splitlines()
+    assert lines == [
+        "demo: 0 open of 1 orders; PR fields live",
+        f"- o1 done: {' '.join(words.split())}",
+        f"  parts: {state.load('demo')['orders']['o1']['parts'].popitem()[0]}",
+        f"  - j1 builder done: {' '.join(('one restore code path ' * 8).split())}",
+        f"    said: {' '.join(said.split())}",
+    ]
+
+
 def test_status_renders_stored_fields_when_github_fails(
     run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

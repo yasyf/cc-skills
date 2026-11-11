@@ -29,7 +29,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive bound <run> <command>...` | runs the command after `--` with a lane's Run bound to this terminal |
 | `drive answer <id>` | `--words "<his words>"` and `--link <permalink>` on the first call, which lists every open card and PR and exits 2; then `--stands <key>...`, `--superseded <key>=stop` or `<key>=<j>`..., `--reopened <key>=<j>`... and `--others-stand` until each is marked |
 | `drive heard` | `--away`, he said he is going to sleep or away |
-| `drive status [<id>...]` | orders, jobs or PRs; default every open order |
+| `drive status [<id>...]` | the orders these orders, jobs or PRs belong to, open or closed, each whole: its words, parts, and each job's goal and said line; default every open order, a line each, under the sessions |
 | `drive manual <page> [<row>]` | `<page>` start, records, communicator, coordinator, jobs, scope, design, messages, concepts, landing, incidents, migration or verbs; `<row>` prints the table rows whose first cell names it |
 | `drive context` | `--role communicator/coordinator`, default this session's |
 | `drive view` | what waits on him and where each feature stands |
