@@ -74,6 +74,11 @@ def withdraw_pr_card(url: str, reason: str) -> list[str]:
     return cc_slack("withdraw-pr-card", "--pr", url, "--reason", reason)["withdrawn"]
 
 
+def redraw_pr_cards(url: str) -> int:
+    """Redraw in place, from `drive card`, every open card carrying the PR, keeping its buttons; how many cc-slack queued, with no new post."""
+    return cc_slack("redraw-pr-cards", "--pr", url)["redrawing"]
+
+
 def card_threads(data: dict, order: dict) -> list[tuple[str, str]]:
     """The channel and thread of each card the order's jobs drew, where his answers to that card go."""
     links = (state.CARD_LINK.search(question["card"]) for job_id in order["jobs"] for question in data["jobs"][job_id]["questions"] if question["card"])

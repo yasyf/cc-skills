@@ -1214,6 +1214,11 @@ def pr_set(args: argparse.Namespace) -> int:
             " stays open; a different pick of his starts a follow-up job on the same order"
         )
     check_waits(name, args.waits)
+    try:
+        shipped = {wait: shipping for wait in args.waits if (shipping := view.shipped_by(known, wait))}
+    except github.GithubError as error:
+        raise DriveError(f"{key}: could not read from GitHub whether each release it would wait on is out: {error}; run this again") from None
+    args.waits = [wait for wait in args.waits if wait not in shipped]
     if args.exempt == INCIDENT_EXEMPTION:
         refuse_an_exempt_stop(known, key)
         refuse_an_exempt_revert(name, key)
@@ -1231,25 +1236,40 @@ def pr_set(args: argparse.Namespace) -> int:
         state.append_event(name, "untapped", repo=repo, number=int(number), label=dropped["label"], source=dropped["source"], why=args.why)
         untapped = f"\ndropped the {dropped['label']} the drive gave itself ({dropped['source']}): {args.why}"
     withdrawn: list[str] = []
-    if why := withdrawal(args, view.holding(data, args.waits, view.live_cards(name))):
+    if why := withdrawal(args):
         try:
             withdrawn = slack.withdraw_pr_card(pr["url"], why)
         except slack.SlackError as error:
             raise DriveError(f"{key}: withdrawing its open card failed, so his Approve still shows: {error}; run this again") from None
         view.refresh_cards(name)
-    line = render.pr_line(key, pr) + served + untapped + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn)
+    corrected = correct_card(name, key, pr["url"]) if args.waits or args.no_waits else ""
+    out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
+    line = render.pr_line(key, pr) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
 
 
-def withdrawal(args: argparse.Namespace, held: list[str]) -> str | None:
-    """Why his open card for the PR is withdrawn: it no longer waits on his tap, it is a port, or it now waits on something that holds."""
+def withdrawal(args: argparse.Namespace) -> str | None:
+    """Why his open card for the PR is withdrawn: it no longer waits on his tap, or it is a port. A wait never withdraws it: his card is corrected in place."""
     if args.tap is False:
         return args.why
     if args.port_of:
         return f"port of #{args.port_of}, which lands with no tap"
-    if held:
-        return f"it waits on {', '.join(held)} before his tap"
     return None
+
+
+def correct_card(name: str, key: str, url: str) -> str:
+    """Redraw in place his open card carrying the PR, its Approve and Hold kept, so it says what the PR waits on now; nothing new posts."""
+    from drive import view
+
+    view.refresh_cards(name)
+    found = view.live_cards(name)
+    if found is not None and not view.card_for(found["pr_cards"], url):
+        return ""
+    try:
+        redrawing = slack.redraw_pr_cards(url)
+    except slack.SlackError as error:
+        raise DriveError(f"{key}: its waits are stored, but redrawing his open card in place failed, so it does not name them yet: {error}; run this again") from None
+    return f"\nredrawing in place the {redrawing} open card(s) of his carrying it, Approve and Hold kept, to say what it waits on" if redrawing else ""
 
 
 def check_waits(name: str, waits: list[str]) -> None:
@@ -1750,7 +1770,8 @@ def parser() -> argparse.ArgumentParser:
             " release:<service>:<owner>/<repo>#<n>, the next release of that service carrying that PR, or for a PR a job, it waits on;"
             " repeat for each. The watch drops each as he answers or taps it, the PR merges or closes, the job ends or GitHub shows the"
             " newest release of that service holds the PR's merge commit, and says FREE once when the last is gone, which wakes the"
-            " coordinator"
+            " coordinator. On a PR it never withdraws his open card: the card is redrawn in place, Approve and Hold kept, to say"
+            " what it waits on, and a release GitHub shows already out is not stored"
         ),
     )
     waits_opt.add_argument("--no-waits", action="store_true", help="drop every wait it carries before adding any --waits")

@@ -69,6 +69,7 @@ RECORD_ID = re.compile(
     r"|\b[ojm]\d{1,5}\b"
     r"|\brmw[0-9a-z]{4,}\b|\bcard-[0-9a-z][0-9a-z-]*"
 )
+Member = tuple[dict, dict, tuple[str, ...], tuple[str, ...]]
 EMOJI_CATEGORIES = {"So", "Cf"}
 EMOJI_MARKS = {chr(0xFE0E), chr(0xFE0F), chr(0x20E3), *map(chr, range(0x1F3FB, 0x1F400))}
 
@@ -207,7 +208,7 @@ def offers_approval(pr: dict, entry: dict) -> bool:
     return pr["state"] == "OPEN" and state.owed_step(entry) == "card" and tap_label(entry) != "Approve" and not hold_labeled(pr)
 
 
-def waits_on(pr: dict, entry: dict) -> str:
+def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
     approved = tap_label(entry) == "Approve"
     match pr["state"], checks(pr, entry):
         case "MERGED", _:
@@ -224,16 +225,23 @@ def waits_on(pr: dict, entry: dict) -> str:
             return "CI failed; the agent is fixing it"
         case _ if pr["reviewDecision"] == "CHANGES_REQUESTED":
             return "A reviewer asked for changes; the agent is making them"
-        case _, "pending":
-            return "Lands once CI passes" if approved else "CI is still running"
+        case _, "pending" if not approved:
+            return "CI is still running"
         case _ if pr["reviewDecision"] == "REVIEW_REQUIRED" and not approved:
             return "Waits on a code review"
+        case _, verdict if verdict == "pending" or held:
+            return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
         case _:
             return "CI passed; the agent is landing it"
 
 
-def lands_after_tap(pr: dict, entry: dict) -> str:
-    return "you approve" if checks(pr, entry) == "pass" else "you approve and CI passes"
+def lands_after_tap(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
+    """What his card says the PR lands once: his Approve, CI when it has not passed, and each of its waits that still holds."""
+    return in_turn(["you approve", *([] if checks(pr, entry) == "pass" else ["CI passes"]), *held])
+
+
+def in_turn(steps: list[str]) -> str:
+    return " and ".join(steps) if len(steps) < 3 else ", ".join(steps[:-1]) + " and " + steps[-1]
 
 
 def merge_waits(url: str) -> str:
@@ -252,8 +260,8 @@ def body_of(pr: dict) -> str:
     return rest if rest and all(TRAILER.fullmatch(line.strip()) for line in last.splitlines()) else body
 
 
-def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
-    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, and its drawn Show me pictures."""
+def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, ...] = ()) -> dict:
+    """The cc-slack PR card for a `gh pr view` payload, the drive's entry for that PR, its drawn Show me pictures, and what each of its waits that holds waits for, in his card's words."""
     kind, plain = kind_and_title(pr["title"])
     body = body_of(pr)
     found = {heading: HTML_TAG.sub("", text) for heading, text in sections(body).items()}
@@ -276,7 +284,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
     card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
     if offers_approval(pr, entry):
         row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else ""
-        row["lands"] = lands_after_tap(pr, entry)
+        row["lands"] = lands_after_tap(pr, entry, held)
         card |= {
             "status": "needs_you",
             "title": framed(f"{kind}: approve ", plain, "?"),
@@ -285,7 +293,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = ()) -> dict:
             "waits": merge_waits(pr["url"]),
         }
     else:
-        row["blocks"] = waits_on(pr, entry)
+        row["blocks"] = waits_on(pr, entry, held)
         card["status"] = "done" if pr["state"] == "MERGED" else "info"
     if shown:
         card["pictures"] = list(shown)
@@ -321,10 +329,10 @@ def stack_words(pr: dict) -> tuple[str, str]:
     return title.strip(), clipped(" ".join(rest.split()), STACK_CHARS)
 
 
-def render_stack(members: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
+def render_stack(members: list[Member]) -> dict:
     """One card for a stack of PRs, bottom first: its title and summary from the bottom PR, a section per PR, and one Approve for all."""
-    drawn = [render(pr, entry, shown) for pr, entry, shown in members]
-    kinds = [kind_and_title(pr["title"]) for pr, _, _ in members]
+    drawn = [render(*member) for member in members]
+    kinds = [kind_and_title(member[0]["title"]) for member in members]
     kind = next((each for each in STACK_KINDS if any(each == found for found, _ in kinds)), "Change")
     title, summary = stack_words(members[0][0])
     count = len(members)
@@ -336,7 +344,7 @@ def render_stack(members: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
             "status": "needs_you",
             "options": list(TAP_LABELS),
             "recommended": "Approve",
-            "waits": stack_waits([state.pr_key(pr["url"]) for pr, _, _ in members]),
+            "waits": stack_waits([state.pr_key(member[0]["url"]) for member in members]),
         }
     elif all(one["status"] == "done" for one in drawn):
         card["status"] = "done"
@@ -448,7 +456,7 @@ def drawn(known: dict[str, tuple[str, dict]], members: list[str]) -> None:
         entry.pop("refused")
 
 
-def drawn_card(shown: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
+def drawn_card(shown: list[Member]) -> dict:
     return render_stack(shown) if len(shown) > 1 else render(*shown[0])
 
 
@@ -458,7 +466,7 @@ def tooling(name: str, entry: dict) -> bool:
     return order is not None and order["text"].startswith(state.TOOLING)
 
 
-def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: set[str]) -> str:
+def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
     if len(shown) > STACK_MOST:
         return (
             f"its stack holds {len(shown)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
@@ -468,7 +476,7 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: 
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
     unordered, unreleasable = [], []
-    for (pr, entry, _), row in zip(shown, card["prs"], strict=True):
+    for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
         if not offers_approval(pr, entry):
             continue
         if not row["hate_most"]:
@@ -500,17 +508,29 @@ def refusal(shown: list[tuple[dict, dict, tuple[str, ...]]], card: dict, tools: 
     )
 
 
-def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no Approve is drawn for the members yet: each design card of his still open, or job not finished, one of them waits on."""
+def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
+    """Each wait of the PR that still holds, with what it waits for in his card's words."""
     from drive import view
 
-    held = []
-    for key in members:
-        name, entry = known[key]
-        held += view.holding(state.load(name), entry["waits"], view.live_cards(name))
+    name, entry = known[key]
+    data, found = state.load(name), view.live_cards(name)
+    return {wait: view.wait_words(data, wait, found) for wait in view.holding(data, entry["waits"], found)}
+
+
+def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on."""
+    held = [wait for key in members for wait in holding(known, key)]
     if not held:
         return ""
     return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"
+
+
+def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> bool:
+    """Whether an open card of his already carries one of the PRs: a wait redraws that card in place, Approve and Hold kept, and never draws a fresh one."""
+    from drive import view
+
+    listed = ((view.live_cards(known[key][0]), reads[key]["url"]) for key in members)
+    return any(found is not None and view.card_for(found["pr_cards"], url) is not None for found, url in listed)
 
 
 def read_all(keys: list[str]) -> dict[str, dict]:
@@ -523,7 +543,7 @@ def read_all(keys: list[str]) -> dict[str, dict]:
 
 
 def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
-    shown = [(reads[key], known[key][1], ()) for key in members]
+    shown = [(reads[key], known[key][1], (), ()) for key in members]
     return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])})
 
 
@@ -550,9 +570,10 @@ def cards(asked: list[dict]) -> dict:
             continue
         if len(group) > 1 and group in fresh:
             remember(known, group)
-        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key])) for key in members]
+        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key]), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
-        if reason := waiting(known, members) or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
+        held = "" if on_his_card(known, reads, members) else waiting(known, members)
+        if reason := held or refusal(shown, card, {reads[key]["url"] for key in members if tooling(*known[key])}):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

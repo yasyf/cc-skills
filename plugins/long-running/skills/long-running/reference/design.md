@@ -67,9 +67,11 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      job asked him is open, which wakes the coordinator. Then a handoff builder opens the PR,
      rebuilding first wherever his pick differs from the option it built.
 4. **Nothing lands around an open card.** When an open PR carries a design card he has not
-   answered, run `drive pr set <url> --waits <card>` for each card, which withdraws any PR card
-   drawn for it. While a wait holds, `drive pr set --tap` and `drive card` refuse to draw it, and
-   the watch says `FREE <pr>` once the last is answered; nothing is closed for this.
+   answered, run `drive pr set <url> --waits <card>` for each card, which redraws his open PR card for it in
+   place, Approve and Hold kept, to say it lands once he approves and answers that card. While a
+   wait holds, `drive pr set --tap` and `drive card` draw no fresh card for it, his Approve lands it
+   only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
+   closed for this.
    - Outside an incident, land, enqueue or decide nothing on a recommended option while his card on
      it is open, because the recommendation is yours and the decision is his.
    - In an incident, by his pick, the fix's PR opens and lands on the recommended option while the
