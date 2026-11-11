@@ -22,9 +22,17 @@ UNLISTED = {"-h", "--help", "--drive", "--json"}
 FLAG = re.compile(r"(?<![\w-])--[a-z][\w-]*")
 PLACEHOLDER = re.compile(r"<[^<>`]*>|\"[^\"]*\"|…|\[|\]|\.\.\.")
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
+DIRECT_FIX = "Direct fix: on the primary, beside the queries it serves\n"
 DESIGN_RESEARCH = RESEARCH.replace("DONE researched the store copy", "DESIGN where the copy runs") + (
-    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n"
+    "- on the primary, beside the queries it serves (recommended)\n- on a separate worker that reads the bucket\n" + DIRECT_FIX
 )
+DESIGNED = """DESIGN the store copy
+Design: one copy per store, in the order the stores list
+Settled: "copy one store"
+Native: none: he never sees it
+Fork: none: one layout fits
+Facts: lib/drive/state.py:18
+"""
 CARD_BODY = """## Releasable alone
 A release at its merge commit lands it on every target, in any order, and nothing runs after it.
 
@@ -1602,6 +1610,136 @@ def test_a_builders_ready_says_how_it_reuses_what_its_research_found(
     assert keep(monkeypatch, capsys, "j4", ready) == (0, "")
 
 
+def test_a_builders_report_opens_with_a_result_word_and_a_handoff_stops_its_job(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    code, err = keep(monkeypatch, capsys, "j1", "Summary: built the strip\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n")
+    assert code == 2
+    assert (
+        'j1: refused, nothing kept: its first line opens "Summary: built the strip", and a builder\'s report opens with DONE,'
+        " READY, BUILT, WAITING, ASK, BLOCKED, DESIGN or HANDOFF"
+    ) in err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert keep(monkeypatch, capsys, "j1", "READY https://github.com/yasyf/cc-skills/pull/4244\n") == (0, "")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
+    assert keep(monkeypatch, capsys, "j2", "HANDOFF /scratch/j2/left.md\nBRANCH: lr-strip\n") == (0, "")
+    assert state.load("demo")["jobs"]["j2"]["state"] == "stopped"
+
+
+def test_a_report_naming_a_repro_file_keeps_it_on_the_job_first(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why does the copy stall?")
+    run("job", "add", "reader", "--order", "o1", "--goal", "reproduce the stall")
+    script = tmp_path / "r.sh"
+    script.write_text("echo stall\n")
+    report = f"The copy stalls on the second store\nREPRO: {script}\n"
+    code, err = keep(monkeypatch, capsys, "j1", report)
+    assert code == 2
+    assert "j1: refused, nothing kept: it names a REPRO: file, but j1 keeps none in the drive: run drive job set j1 --repro <path> first" in err
+    run("job", "set", "j1", "--repro", str(script))
+    assert keep(monkeypatch, capsys, "j1", report) == (0, "")
+
+
+def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    code, err = keep(monkeypatch, capsys, "j1", "DONE wrote the forks\n")
+    assert code == 2
+    assert (
+        "j1: refused, nothing kept: a design lane's report is the design in its shape, which the coordinator reads for its"
+        " forks, and this one lacks a first line DESIGN <the part>, a Settled: line, a Native: line, a Fork: line, a Facts: line"
+    ) in err
+    assert "this one lacks a Fork: line: DESIGN <the part" in keep(monkeypatch, capsys, "j1", DESIGNED.replace("Fork: none: one layout fits\n", ""))[1]
+    assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
+    assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy again")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
+    assert keep(monkeypatch, capsys, "j2", "HANDOFF /scratch/j2/left.md\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j3", "BLOCKED the store list is unreadable\n") == (0, "")
+    jobs = state.load("demo")["jobs"]
+    assert (jobs["j2"]["state"], jobs["j3"]["state"]) == ("stopped", "failed")
+
+
+def test_a_research_readers_report_carries_its_filled_researched_block(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    code, err = keep(monkeypatch, capsys, "j1", "DONE found two callers\n")
+    assert code == 2
+    assert (
+        "j1: refused, nothing kept: j1 researches a build order, so its report carries a Researched: line and under it"
+        " rulings:, exists: and open: lines, each filled or none, which its builder's brief names; it lacks rulings:, exists:, open:"
+    ) in err
+    assert keep(monkeypatch, capsys, "j1", RESEARCH.replace("open: none\n", "open:\n"))[1].endswith("it lacks open:\n")
+    assert keep(monkeypatch, capsys, "j1", RESEARCH) == (0, "")
+
+
+def test_a_readers_design_names_the_fix_its_evidence_points_at_and_counts_only_its_options(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    code, err = keep(monkeypatch, capsys, "j1", DESIGN_RESEARCH.replace(DIRECT_FIX, ""))
+    assert code == 2
+    assert "j1: refused, nothing kept: a reader's DESIGN names among its options the fix its evidence points at: no `Direct fix:` line" in err
+    bulleted = DESIGN_RESEARCH.replace("\nrulings:", "\n- rulings:").replace("\nexists:", "\n- exists:").replace("\nopen:", "\n- open:")
+    assert keep(monkeypatch, capsys, "j1", bulleted) == (0, "")
+
+
+def test_a_done_or_ready_leaves_no_step_for_someone_else(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "backfill the copies")
+    run("job", "add", "builder", "--order", "o1", "--goal", "backfill")
+    done = "DONE the copies page lists every store\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    for left in ("NEXT: coordinator runs the backfill once it ships", "UNPROVEN: the old stores, until the coordinator runs the backfill"):
+        code, err = keep(monkeypatch, capsys, "j1", f"{done}{left}\n")
+        assert code == 2
+        assert f'j1: refused, nothing kept: a DONE leaves a step for someone else: "{left}". Do that step yourself before you return, or return ASK' in err
+    assert keep(monkeypatch, capsys, "j1", f"{done}NEXT: no coordinator runs a backfill; the release applies it automatically\n") == (0, "")
+    assert keep(monkeypatch, capsys, "j1", f"{done}PROVE: after release, open the run page\n") == (0, "")
+
+
+def test_a_builders_ready_names_prs_whose_tap_card_draws(
+    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
+    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
+    assert code == 2
+    assert f"j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"What you'll hate most\" section in the body of {PR}" in err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    on_github["body"] = CARD_BODY
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+
+
+def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
+    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    other = PR.removesuffix("42") + "43"
+    run("pr", "add", other, "--job", "j1", "--tap")
+    branches = {"42": ("main", "land-it"), "43": ("land-it", "land-more")}
+
+    def gh(cmd: list[str]) -> str:
+        base, head = branches[cmd[3]]
+        return json.dumps(on_github | {"url": PR.removesuffix("42") + cmd[3], "baseRefName": base, "headRefName": head})
+
+    monkeypatch.setattr(card, "run", gh)
+    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n")
+    assert code == 2
+    assert (
+        "j1: refused, nothing kept: the PRs it names would draw no tap card: its tap card needs a \"The stack\" section with the"
+        f" stack's one-line title then its summary in the body of {PR}"
+    ) in err
+    branches["43"] = ("main", "land-more")
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR} {other}\n") == (0, "")
+
+
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
     assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0
@@ -1618,6 +1756,7 @@ def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
         ("builder", "WAITING: CI on #7", "waiting"),
         ("design", "DESIGN the table move", "waiting"),
         ("builder", "BLOCKED no order of his names this", "failed"),
+        ("builder", "HANDOFF /scratch/j1/left.md", "stopped"),
         ("reader", "The flag exists since 1.0.40", "done"),
         ("builder", "BUILT lr-move, waits on demo:j1-3", "built"),
         ("builder", "I pushed the fix", None),
@@ -1630,8 +1769,9 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     run("job", "add", kind, "--order", "o1", "--goal", "ship")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
+    rest = DESIGNED.split("\n", 1)[1] if kind == "design" else ""
     for job_id in ("j1", "j2"):
-        monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\n{rest}CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
         run("job", "report", job_id, "-")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, first) if taken else ("running", None))
@@ -1661,7 +1801,7 @@ def test_job_set_takes_state_stopped_alone_and_says_the_line_a_job_returns_sets_
         assert "j1 is running, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line the job returns" in refusal
         assert (
             "which the watch reads or drive job report j1 - takes: DONE sets done, READY sets waiting, WAITING sets waiting, DESIGN sets waiting,"
-            " ASK sets waiting, BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
+            " ASK sets waiting, BLOCKED sets failed, HANDOFF sets stopped, and BUILT <branch>, waits on <cards> sets built"
         ) in refusal
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0

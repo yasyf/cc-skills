@@ -292,7 +292,17 @@ listing decisions that block nothing is not a result.
 | `WAITING <what, in plain words>` | CI, a review, a merge queue, another PR. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
 | `BLOCKED <what>`, then what you tried | Only when no route works. A broken tool is not a block: route around it and name it, with `cci post --kind defect --lane root --to communicator@<drive>` quoting its refusal, or for drive tooling a `DEFECT:` line. |
-| `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. |
+| `HANDOFF <path>` | The session that started you told you to stop before you were done; the file, under your scratch directory, names the branch, what was decided and what is left. It sets the job stopped. |
+
+`drive job report` refuses a report whose first line opens with none of these words, naming them. It
+refuses a `REPRO:` line until `drive job set <your job> --repro <path>` has kept that file. It refuses
+a `DONE` or `READY` whose `NEXT:` or `UNPROVEN:` line leaves a step for someone else, such as "NEXT:
+coordinator runs the backfill once it ships" or "until the coordinator runs it": do that step
+yourself before you return, or return `ASK` when it needs his choice. "PROVE: after release, open the
+run page" checks what is live and passes, and so does a line ruling a step out, such as "NEXT: no
+coordinator runs it". It refuses a `READY` naming a drive PR that waits on his tap whose body his tap
+card would refuse, naming every section each body lacks, as `drive pr set --tap` does, and checks each
+stack the PRs form on its own, as `drive card` groups them.
 
 ## ASK
 
