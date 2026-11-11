@@ -289,8 +289,7 @@ def order_set(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     if args.thread:
         check_thread(data, order["from"], args.thread)
-    if args.state in state.CLOSED_ORDER_STATES:
-        need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note))
+    report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     destination = order | {"thread": args.thread or order["thread"]}
     closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
@@ -315,12 +314,16 @@ def order_set(args: argparse.Namespace) -> int:
             state.promise(order, state.stamp(due), moment)
             promised = "\n" + promise_said(render.when(state.stamp(due)), held, where)
         if closing and state.owed(order):
-            state.keep(order, posts, announced=False)
+            if report:
+                state.keep_closing(order, posts, state.parse_time(report["written"]))
+            else:
+                state.keep(order, posts, announced=False)
             if state.owed(order):
                 why = f" ({unread})" if unread else ""
+                say = f" with say(order={args.id}, record={args.record})" if report else ""
                 raise DriveError(
                     f"{args.id} owes him the line promised for {render.when(state.owed_at(order))}, and no drive post is in"
-                    f" its thread since {render.when(order['promised'])}{why}: post it there first, or pass"
+                    f" its thread since {render.when(order['promised'], seconds=True)}{why}: post it there first{say}, or pass"
                     " --withdrawn <his message> when he called it off"
                 )
         if args.state:
@@ -371,28 +374,31 @@ def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
     )
 
 
-def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_note: bool) -> None:
+def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_note: bool) -> dict:
+    """The report that closes the order, read from cci, or none when the order closes without one."""
     if seq is None:
         if not dropped_with_note and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
             raise DriveError(
                 f"{order_id}: a handler closes only an order the report record it posted names in its close attr;"
                 " pass --record <that record's seq>, or drop an order no record names with --state dropped --note <why>"
             )
-        return
-    closes = report_attrs(seq).get("close", "").split()
+        return {}
+    report = report_attrs(seq)
+    closes = report.get("close", "").split()
     if not closes:
         raise DriveError(f"record {seq} has no close attr, so it closes no order; an orders attr only says what its line is about")
     if order_id not in closes:
         raise DriveError(f"record {seq} does not close {order_id}: its close attr names only {', '.join(closes)}")
+    return report
 
 
 def report_attrs(seq: str) -> dict:
-    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer."""
+    """The attrs of a record, read from cci: a report's close, part, job and catch_up, with the lane that wrote it as its writer and when as written."""
     try:
         record = json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()))
     except reads.ReadError as error:
         raise DriveError(f"record {seq} could not be read: {error}") from None
-    return record["fields"].get("attrs", {}) | {"writer": record["lane"]}
+    return record["fields"].get("attrs", {}) | {"writer": record["lane"], "written": record["at"]}
 
 
 def order_posted(args: argparse.Namespace) -> int:
@@ -442,10 +448,15 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     delivered = parts if named or len(parts) == 1 else []
     at, ours = drive_post_at(link, data, order_id, bool(named))
     line = state.stamp(at)
+    closing = order_id in report.get("close", "").split()
+    kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
         if ours:
-            if state.owed(order):
+            if state.owed(order) and closing:
+                state.keep_closing(order, [at], state.parse_time(report["written"]))
+                kept = "" if state.owed(order) else f", its close keeps the line promised for {render.when(order['due'])}"
+            elif state.owed(order):
                 state.keep(order, [at])
             order["last_line"] = max(order["last_line"] or line, line, key=state.parse_time)
         for part in delivered:
@@ -453,7 +464,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
     quoted = ", ".join(f'"{part}"' for part in delivered)
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
-    return f"{order_id} {said} {link}{away}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+    return f"{order_id} {said} {link}{away}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def job_add(args: argparse.Namespace) -> int:

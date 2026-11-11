@@ -142,7 +142,7 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
 
 
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": attrs}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
 
 def test_a_post_for_a_report_delivers_the_part_its_job_answered(

@@ -241,15 +241,15 @@ def cut(text: str, limit: int) -> str:
     return flat if len(flat) <= limit else flat[: limit - 1].rstrip() + "…"
 
 
-def clock(moment: datetime) -> str:
-    return moment.strftime("%-I:%M %p")
+def clock(moment: datetime, seconds: bool = False) -> str:
+    return moment.strftime("%-I:%M:%S %p" if seconds else "%-I:%M %p")
 
 
-def when(iso: str) -> str:
+def when(iso: str, seconds: bool = False) -> str:
     moment = parse_time(iso)
     if moment.date() == now().date():
-        return clock(moment)
-    return f"{moment.strftime('%b %-d')} {clock(moment)}"
+        return clock(moment, seconds)
+    return f"{moment.strftime('%b %-d')} {clock(moment, seconds)}"
 
 
 def waiting_line(entry: dict) -> str:
