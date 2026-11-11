@@ -1914,7 +1914,11 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
     run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
     check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
-    for finding in ("the bucket caps at 5k objects/s, left as is", "the copy hit the 5k objects/s rate limit"):
+    for finding in (
+        "the bucket caps at 5k objects/s, left as is",
+        "the copy hit the 5k objects/s rate limit",
+        "the copy did not lose data and hit the 5k objects/s rate limit",
+    ):
         code, err = keep(monkeypatch, capsys, "j1", f"DONE {finding}\n{check}")
         assert code == 2
         assert f'j1: refused, nothing kept: it reports a limit as a finding left standing: "DONE {finding}". A limit or capacity finding is his choice' in err
@@ -1923,7 +1927,7 @@ def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
     design = "DESIGN the bucket caps at 5k objects/s, left as is\n- shard the copy across buckets (recommended)\n- copy at 5k objects/s\n"
     assert keep(monkeypatch, capsys, "j1", design) == (0, "")
     run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
-    assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
     assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
 
 

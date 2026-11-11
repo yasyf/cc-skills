@@ -25,6 +25,7 @@ LEFT_FOR = re.compile(
 )
 LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rate[- ]limit\w*|limit\w*|max(?:imum)?)\b", re.IGNORECASE)
 LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
+STATEMENT_BREAK = re.compile(r"[.;:!?]+(?=\s|$)")
 CHOICE_OPENINGS = ("ASK", "DESIGN")
 QUESTION = re.compile(r"(?:^|[,;?]|\band\b)\s*(?:why|who|whom|whose|when|where|what|which|how|whether)\b", re.IGNORECASE | re.MULTILINE)
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
@@ -244,16 +245,16 @@ def design_missing(lines: list[str]) -> list[str]:
 
 
 def limit_finding(lines: list[str]) -> str | None:
-    """The first line naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a clause ruling that out, as "never hit" does, aside."""
-    return next((line for line in lines if limited(line) and left_standing(line)), None)
+    """The first line with a statement naming a limit beside a number, in one clause, as a finding left standing: left as is, unchanged, hit or exceeded, a word ruling that out just before it, as "never hit" does, aside."""
+    return next((line for line in lines if any(limited(statement) and left_standing(statement) for statement in STATEMENT_BREAK.split(line))), None)
 
 
-def limited(line: str) -> bool:
-    return any(LIMIT.search(part) and re.search(r"\d", part) for part in limits.CLAUSE_BREAK.split(line))
+def limited(statement: str) -> bool:
+    return any(LIMIT.search(part) and re.search(r"\d", part) for part in limits.CLAUSE_BREAK.split(statement))
 
 
-def left_standing(line: str) -> bool:
-    return any(not limits.NEGATION.search(limits.CLAUSE_END.split(line[: found.start()])[-1]) for found in LEFT_STANDING.finditer(line))
+def left_standing(statement: str) -> bool:
+    return any(not limits.RULED_OUT.search(statement, 0, found.start()) for found in LEFT_STANDING.finditer(statement))
 
 
 def left_steps(text: str) -> str | None:

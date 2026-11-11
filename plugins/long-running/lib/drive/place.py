@@ -53,15 +53,20 @@ def verdict(share: float, ceiling: float, local_builders: int) -> tuple[str, str
 
 
 def local_builders(data: dict, moment: datetime) -> int:
-    """The builders at work on this Mac: running here, their agent started and still writing."""
+    """The builders at work on this Mac: running here, as an agent still writing or an Orca lane started with --local that has not ended."""
     return sum(
-        job["kind"] == "builder"
-        and job["state"] == "running"
-        and job.get("where") != "remote"
-        and bool(job["agent"])
-        and watch.local_gap(job_id, job, data, moment) is None
-        for job_id, job in data["jobs"].items()
+        job["kind"] == "builder" and job["state"] == "running" and at_work_here(job_id, job, data, moment) for job_id, job in data["jobs"].items()
     )
+
+
+def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
+    if job.get("where") != "remote":
+        return bool(job["agent"]) and watch.local_gap(job_id, job, data, moment) is None
+    if not state.on_mac(job):
+        return False
+    if not job.get("dispatch"):
+        return watch.launching(job, moment)
+    return all(death["dispatch"] != job["dispatch"] for death in job.get("deaths", []))
 
 
 def waiting_builders(data: dict) -> list[str]:
