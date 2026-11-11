@@ -14,11 +14,12 @@ Contents:
 - Every job is the coordinator's except a drive tooling order's reader, designer and builder, which
   the communicator starts under its own "Drive tooling:" order, by
   [Tooling](communicator.md#tooling).
-- At most eight builders run on this Mac at once; remote lanes do not count. Before you start a
-  Forge-AI/monorepo builder, run `drive place` and start it where it says. It answers `remote` when
-  this Mac's CPU is at or over its load gate's limit or eight builders run here, and `local`
-  otherwise; a remote builder runs its builds and checks on its own Sprite. Past eight, a builder on
-  any other repository waits as `open`, oldest due first.
+- At most eight builders run on this Mac at once, counting Orca workers started here with
+  `drive job launch --local`; lanes on a Sprite do not count, and `drive job add builder` refuses a
+  ninth without `--remote`. Before you start a Forge-AI/monorepo builder, run `drive place` and start
+  it where it says. It answers `remote` when this Mac's CPU is at or over its load gate's limit or
+  eight builders run here, and `local` otherwise; a remote builder runs its builds and checks on its
+  own Sprite. Past eight, a builder on any other repository waits as `open`, oldest due first.
 - Readers, codex jobs, builders on any other repository (a yasyf/* tool installs on this Mac), any
   job that touches this Mac's processes, and a handoff whose `PROVE:` line runs `ci mac-box` or
   `ci devbox` always run here. A Sprite holds no AWS sign-in, and both verbs sign in with this Mac's
@@ -166,8 +167,10 @@ Where: <repo, base branch, existing branch or PR to adopt>
 Runs as: <only for a pass, migration, backfill, conversion or bulk repair over a team's data: the service account in that team's cluster it runs as, and how it starts with no person's role, such as a pipeline or an in-cluster schedule>
 Handoff: <a PR event or a built branch freed only: the PR URLs or the built branch, its head, the event line verbatim, and the INSTALL: and PROVE: lines the first builder returned>
 Decisions that bind: <each ruling the call's ruling field names, its answer's title and body word for word, and every other ruling of his on the whole area this touches, found with answer_search; "none named; search his answers on the area" when the call names none>
+Research: <a build order's reader only: the Researched: block this build needs>
 Researched: <a build order's builder or designer only: the reader job whose kept report holds the order's rulings, what exists and its open questions>
 Native: <where he sees or uses the result, such as a Slack post or card, the dashboard, a CLI he runs or a product UI, and what that platform already does for it, with links, such as Block Kit's chart and table blocks; "none" for work he never sees>
+Interactions: <when Native names his surface: each click or step he takes on the result, which the builder walks through and records; its order is proven done by that recording or the live post>
 Would he ask: <what he would still have to ask for if only his words were built, such as the next piece, a link, or a native piece passed over>
 Plan: <the plan section this implements, quoted>
 Incident: <an incident job only: the record's id, which its owner, the first check or the cause job, keeps and every other job appends what it observed to; roll back to the newest build provably without the failing change, however many releases back; never a revert, which lands only on his tap; the fix starts at the alert's code path or the failed release's step and is the root fix of the cause, never a pin, flag, header, prefix rule, cap, retry, timeout raise, timer, wait, cache or special case; a card of his that blocks it never stops it: build the recommended option meanwhile, unless his words on the order ask for options and no fix; from the merged fix to its build nothing stops, no dry run, no cover or cause read, no comparison of open builds, no question; the job that merges the fix lifts the service's freeze, named here by its id, with tools/ci release unfreeze <id>; start the build at the fix commit with the cut reference/incidents.md names and report its link; the approve gate is the only check and reads run while it builds; return the inputs to a write-up, not the write-up>

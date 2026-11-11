@@ -88,10 +88,11 @@ def builder_refusal(text: str) -> str | None:
         " started from a pipeline or an in-cluster schedule, never under a person's sign-in: write the brief again with"
         f" drive job brief {job[1] if job else '<j>'} --runs-as \"<service account, how it starts>\""
     )
+SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief and runs on Opus but for the two light records, a job's agent fits its kind, and a builder's brief says its scope."""
+    """Why a drive's coordinator or communicator may not start this agent: a named agent joins the agent team and never wakes on events, Fable runs only the coordinator and the design lane, a handler's prompt is its brief and runs on Opus but for the two light records, a job's agent fits its kind, a builder's brief says its scope, and drive tooling is the communicator's alone."""
     if payload.get("agent_id"):
         return None
     session = payload.get("session_id") or ""
@@ -125,6 +126,11 @@ def deny_reason(payload: dict) -> str | None:
             " record or a `POST` report briefed as its one `Record:` line; pass no model"
         )
     text = brief.carried(prompt)
+    if kind == BUILDER and role == "coordinator" and SERVES_TOOLING.search(text):
+        return (
+            "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
+            f" communicator@{names[0]} naming the tool and its refusal verbatim, and the communicator's builder takes it over"
+        )
     if refused := job_refusal(names[0], data, kind, text):
         return refused
     return builder_refusal(text) if kind == BUILDER else None

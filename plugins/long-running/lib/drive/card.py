@@ -22,6 +22,7 @@ REFRESHER_HEADINGS = ("refresher", "eli5", "in plain words", "context")
 STACK_HEADING = "the stack"
 STACK_CHARS = 700
 STACK_MOST = 4
+NO_TAP_OWNER = "yasyf"
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
@@ -44,6 +45,7 @@ REFRESHER_HEADING = re.compile(r"^#{2,3}[ \t]+(?:Refresher|ELI5)[ \t]*$", re.MUL
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
 FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+CODE = re.compile(r"^[ \t]*```.*?^[ \t]*```|`[^`\n]*`|https?://\S+", re.DOTALL | re.MULTILINE)
 TRAILER = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:[ \t]+\S.*")
 HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
@@ -125,6 +127,11 @@ def without_records(text: str) -> str:
         elif said := " ".join(part for part in SENTENCES.split(line) if not RECORD_ID.search(part)).strip():
             kept.append(said)
     return "\n".join(kept)
+
+
+def record_ids(pr: dict) -> list[str]:
+    """Each record id a PR's body names outside its code and links, which says nothing to him."""
+    return list(dict.fromkeys(RECORD_ID.findall(CODE.sub("", body_of(pr)))))
 
 
 def first_paragraph(text: str) -> str:
@@ -442,11 +449,17 @@ def tooling(name: str, entry: dict) -> bool:
     return order is not None and order["text"].startswith(state.TOOLING)
 
 
+def merges_untapped(key: str) -> bool:
+    return key.split("/")[0] == NO_TAP_OWNER
+
+
 def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
-    if len(shown) > STACK_MOST:
+    tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or merges_untapped(state.pr_key(pr["url"])))]
+    if len(tapped) > STACK_MOST:
         return (
-            f"its stack holds {len(shown)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
-            " with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one"
+            f"its stack holds {len(tapped)} PRs and a stack is at most {STACK_MOST}, so his card shows each in its own section"
+            f" with its pictures: split it into stacks of that size, or fold PRs that carry one decision into one; exempt and"
+            f" {NO_TAP_OWNER}/* PRs, which land with no tap, are not counted"
         )
     needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
@@ -462,6 +475,8 @@ def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
         if not names_his_order(pr) and pr["url"] not in tools:
             needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
             unordered.append(pr["url"])
+        if ids := record_ids(pr):
+            needs.setdefault(pr["url"], []).append(f"plain words for what each of {', '.join(ids)} is, in place of the record id, which says nothing to him")
     if not needs:
         return ""
     wanted = "; ".join(f"{' and '.join(each)} in the body of {url}" for url, each in needs.items())

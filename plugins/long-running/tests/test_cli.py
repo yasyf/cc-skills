@@ -14,8 +14,8 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
-from drive import card, cli, github, limits, orca, picture, render, slack, state, view
+from conftest import CARD_BODY, RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
+from drive import card, cli, github, limits, orca, picture, place, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
 UNLISTED = {"-h", "--help", "--drive", "--json"}
@@ -32,12 +32,6 @@ Settled: "copy one store"
 Native: none: he never sees it
 Fork: none: one layout fits
 Facts: lib/drive/state.py:18
-"""
-CARD_BODY = """## What you'll hate most
-It lands without a second look.
-
-## His words, step by step
-- "land it" beside `land.py:1`
 """
 SHORT_ASK = """ASK How should a finished run's files be laid out so its page opens without guessing?
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
@@ -1877,26 +1871,6 @@ def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> 
     assert run("job", "report", "j1") == (0, "DONE installed 1.0.76\nCHECK: drive --version")
 
 
-@pytest.fixture(autouse=True)
-def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
-    pr = {
-        "title": "Fix: land it",
-        "body": CARD_BODY,
-        "comments": [],
-        "state": "OPEN",
-        "isDraft": False,
-        "headRefOid": "abc",
-        "baseRefName": "main",
-        "headRefName": "land-it",
-        "statusCheckRollup": [],
-        "reviewDecision": "REVIEW_REQUIRED",
-        "labels": [],
-        "url": PR,
-    }
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
-    return pr
-
-
 @pytest.fixture
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
@@ -2168,16 +2142,49 @@ def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refu
     assert run("pr", "set", PR, "--serves", "o1")[0] == 0
 
 
-def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his(run: Run, with_pr: str, on_github: dict) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his_and_only_the_communicator_sets_it(
+    run: Run, communicator: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    run("pr", "add", PR, "--job", "j1")
     on_github["body"] = CARD_BODY.split("## His words")[0] + "## His words, step by step\nNone: drive tooling.\n"
-    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 2
-    assert run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve") == (0, "o2")
-    code, out = run("pr", "set", PR, "--tap", "--serves", "o2", "--design", "none")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: Forge-AI/monorepo#42 --serves o1: refused, o1 is a "Drive tooling:" order, which only the communicator acts on:'
+        " send a defect record to communicator@demo naming what it needs, and the communicator's builder takes it over"
+    )
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is False
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "session-under-test")
+    code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert code == 0
-    assert out.splitlines()[-1] == "serves o2, his words: Drive tooling: a tooling PR lands on his Approve"
-    pr = state.load("demo")["prs"][with_pr]
-    assert (pr["wants_tap"], pr["serves"]) == (True, "o2")
+    assert out.splitlines()[-1] == "serves o1, his words: Drive tooling: a tooling PR lands on his Approve"
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["wants_tap"], pr["serves"]) == (True, "o1")
+
+
+def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_nor_the_reverse(
+    run: Run, communicator: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: the ask card redraws")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: fix ask")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "redraw it")
+    run("pr", "add", PR, "--job", "j1")
+    crossed = "o1 is a drive tooling order and o3 is an order of his feature work, and one job or PR never carries both: start a job on o3 with drive job add <kind> --order o3"
+    assert cli.main(["job", "set", "j1", "--carries", "o3"]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: j1 --carries o3: refused, {crossed}"
+    assert cli.main(["pr", "set", PR, "--serves", "o3", "--no-tap", "--why", "drive tooling"]) == 2
+    assert capsys.readouterr().err.strip() == f"drive: Forge-AI/monorepo#42 --serves o3: refused, {crossed}"
+    assert state.load("demo")["jobs"]["j1"]["carries"] == {}
+    assert run("job", "set", "j1", "--carries", "o2")[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["carries"] == {"o2": ["Drive tooling: fix ask"]}
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "elsewhere")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the page")
+    run("job", "add", "builder", "--order", "o4", "--goal", "land it")
+    assert cli.main(["job", "set", "j2", "--carries", "o2"]) == 2
+    assert "j2 --carries o2: refused, o2 is a \"Drive tooling:\" order, which only the communicator acts on: send a defect record to communicator@demo" in capsys.readouterr().err
 
 
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:
@@ -2192,16 +2199,26 @@ def test_pr_set_tap_on_an_exempt_pr_draws_no_card_so_checks_none(run: Run, with_
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_pr_set_port_of_reads_no_body(run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    def unread(cmd: list[str]) -> str:
-        raise AssertionError("a port draws no card, so its body is never read")
-
-    monkeypatch.setattr(card, "run", unread)
-    assert run("pr", "set", PR, "--port-of", "51234")[0] == 0
+def test_pr_set_port_of_refuses_a_title_that_does_not_open_port(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_github["title"] = "move strip"
+    assert cli.main(["pr", "set", PR, "--port-of", "4100"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f'drive: {with_pr}: refused, its title "move strip" does not open Port:, since it is a port of #4100, the kind of change his card'
+        ' names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "Port: move strip", then run this again'
+    )
+    on_github["title"] = "Fix: move strip"
+    assert cli.main(["pr", "set", PR, "--port-of", "4100"]) == 2
+    assert 'does not open Port:, since it is a port of #4100' in capsys.readouterr().err
+    assert state.load("demo")["prs"][with_pr]["exempt"] is None
+    on_github["title"] = "Port: move strip"
+    assert run("pr", "set", PR, "--port-of", "4100")[0] == 0
     assert state.load("demo")["prs"][with_pr]["exempt"] == "pure port"
 
 
-def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, withdrawals: "Withdrawals") -> None:
+def test_pr_set_port_of_exempts_it_with_no_tap(run: Run, with_pr: str, on_github: dict, withdrawals: "Withdrawals") -> None:
+    on_github["title"] = "Port: land it"
     code, out = run("pr", "set", PR, "--port-of", "51234")
     pr = state.load("demo")["prs"][with_pr]
     assert code == 0
@@ -2236,6 +2253,193 @@ def test_pr_set_no_tap_withdraws_his_open_card_showing_why(
 def test_pr_set_on_a_pr_the_drive_does_not_track_names_drive_pr_add(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(["pr", "set", PR, "--no-tap", "--why", "not his order"]) == 2
     assert f"no drive PR Forge-AI/monorepo#42: add it first with drive pr add {PR} --job <j>, then set it" in capsys.readouterr().err
+
+
+def test_pr_add_refuses_a_title_his_card_cannot_name_the_kind_of(run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "move the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "move it")
+    on_github["title"] = "move strip"
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: Forge-AI/monorepo#42: refused, its title "move strip" does not open Fix:, New:, Cleanup: or Port:, the kind of change'
+        ' his card names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "<Fix|New|Cleanup|Port>: move strip", then run this again'
+    )
+    assert state.load("demo")["prs"] == {}
+    for title in ("Port: move strip", "store: 🐛 move strip", "fix(store): move strip"):
+        on_github["title"] = title
+        assert run("pr", "add", PR, "--job", "j1")[0] == 0
+
+
+def test_pr_set_tap_refuses_a_title_retitled_since_drive_pr_add_read_it(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_github["title"] = "move strip"
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f'drive: {with_pr}: refused, its title "move strip" does not open Fix:, New:, Cleanup: or Port:, the kind of change'
+        ' his card names it by: retitle it with gh pr edit 42 -R Forge-AI/monorepo --title "<Fix|New|Cleanup|Port>: move strip", then run this again'
+    )
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
+    on_github["title"] = "Fix: move strip"
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+    assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
+
+
+def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap(
+    run: Run, demo: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
+    on_github.update(title="Fix: the mint endpoint answers again", body="Reverts Forge-AI/monorepo#41")
+    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
+    refusal = capsys.readouterr().err
+    assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
+    assert f"Add it waiting on his tap with drive pr add {PR} --job j1 --tap. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
+    assert state.load("demo")["prs"] == {}
+    assert run("pr", "add", PR, "--job", "j1", "--tap")[0] == 0
+    on_github["body"] = CARD_BODY
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+
+
+def test_a_tap_card_refuses_a_body_naming_record_ids(run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]) -> None:
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look. It follows cci 661229.")
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: {with_pr}: its tap card needs plain words for what each of cci 661229 is, in place of the record id, which says"
+        f" nothing to him in the body of {PR}"
+    )
+    on_github["body"] = CARD_BODY.replace("It lands without a second look.", "It lands without a second look, per his 11:23 PM card answer.")
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+
+
+def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_while_drive_place_says_remote(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(place, "busy", lambda: 0.95)
+    monkeypatch.setattr(place, "limit", lambda: 0.8)
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo"]) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: refused, no job added: this Mac is 95% busy, at or over its 80% limit, so this builder starts remote: add --remote,"
+        " or wait until drive place says local"
+    )
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--remote")[0] == 0
+    for _ in range(place.LOCAL_BUILDERS):
+        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
+    assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills"]) == 2
+    assert "refused, no job added: 8 builders already run on this Mac, its cap of 8, so this builder starts remote" in capsys.readouterr().err
+    assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
+    with state.edit("demo") as data:
+        state.lane_died(data["jobs"]["j9"], "dispatch-9", "its worker finished", state.now())
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+
+
+def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_research_and_keeps_each_flag_left_out(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the run page")
+    code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "researched", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    assert "\nResearch: the Researched: block this build needs\n" in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("job", "add", "builder", "--order", "o2", "--goal", "draw the steps")
+    assert cli.main(["job", "brief", "j2"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: j2 has no earlier brief to keep --serves, --done-when, --where from: name each"
+    first = ["job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "the dashboard's run page"]
+    assert cli.main(first) == 2
+    assert capsys.readouterr().err.strip() == (
+        "drive: j2's result is something he uses, by --native: name each click or step he takes on it with --interactions,"
+        " which its builder walks through and records as its proof"
+    )
+    code, out = run(*first, "--interactions", "open the run page, click a step, read its log", "--would-he-ask", "a link to the run from his DM")
+    written = Path(out.splitlines()[0].removeprefix("Read your brief first: "))
+    assert code == 0
+    assert (
+        "Native: the dashboard's run page\nInteractions: open the run page, click a step, read its log\nWould he ask: a link to the run from his DM\n"
+        in written.read_text()
+    )
+    code, out = run("job", "brief", "j2", "--plan", "the steps section")
+    assert code == 0
+    assert out.splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where, --native, --interactions, --would-he-ask"
+    assert "Serves: his order\n" in written.read_text()
+    assert "Native: the dashboard's run page\n" in written.read_text()
+    assert "Plan: the steps section\n" in written.read_text()
+
+
+def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    view, walk, log, log_walk = (tmp_path / saved for saved in ("view.json", "walk.mov", "log.json", "log.mov"))
+    for saved in (view, walk, log, log_walk):
+        saved.write_text("saved")
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's steps")
+    run("job", "add", "builder", "--order", "o1", "--goal", "draw the steps")
+    run(
+        "job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--native", "the dashboard's run page", "--interactions", "open the run page, click a step",
+    )
+    assert cli.main(["order", "set", "o1", "--state", "done", "--proof", str(view)]) == 2
+    assert capsys.readouterr().err.startswith(
+        f"drive: --proof {view}: refused, o1 builds something he uses (the dashboard's run page), so it is proven done on that surface:"
+    )
+    assert state.load("demo")["orders"]["o1"]["state"] == "open"
+    assert run("order", "set", "o1", "--state", "done", "--proof", str(walk))[0] == 0
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "count the runs")
+    run("job", "add", "builder", "--order", "o2", "--goal", "count them")
+    run("job", "brief", "j2", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main", "--native", "none: he never sees it")
+    assert run("order", "set", "o2", "--state", "done", "--proof", str(view))[0] == 0
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "show the run's log")
+    run("job", "add", "builder", "--order", "o3", "--goal", "draw the log")
+    assert run("order", "set", "o3", "--proof", str(log))[0] == 0
+    run(
+        "job", "brief", "j3", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main",
+        "--native", "the dashboard's log page", "--interactions", "open the log page",
+    )
+    assert cli.main(["order", "set", "o3", "--state", "done"]) == 2
+    refusal = capsys.readouterr().err
+    assert refusal.startswith(f"drive: its proof {log}: refused, o3 builds something he uses (the dashboard's log page)")
+    assert refusal.strip().endswith("; close it with --proof <that recording or link>")
+    assert state.load("demo")["orders"]["o3"]["state"] == "open"
+    assert run("order", "set", "o3", "--state", "done", "--proof", str(log_walk))[0] == 0
+
+
+def test_job_brief_refuses_an_adopted_prs_waiting_job_until_an_event_hands_it_off(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "land the strip")
+    run("job", "add", "builder", "--order", "o1", "--goal", "Fix: land it", "--repo", "Forge-AI/monorepo", "--remote")
+    monkeypatch.setattr("sys.stdin", io.StringIO(f"WAITING {PR}\n"))
+    run("job", "report", "j1", "-")
+    run("pr", "add", PR, "--job", "j1")
+    brief = ["job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "Forge-AI/monorepo main"]
+    assert cli.main(brief) == 2
+    assert capsys.readouterr().err.strip() == (
+        f"drive: j1 is an adopted PR's job, waiting with no agent on {PR}: its builder starts only on an event that needs action,"
+        " failed checks, requested changes, a new head or his tap; when the watch reports one, brief it with --handoff <the PR,"
+        " its head and the event line verbatim>"
+    )
+    assert run(*brief, "--handoff", f"{PR} head abc: CHECK test failed")[0] == 0
+
+
+def test_job_ask_on_a_port_names_the_pr_it_ports_in_its_summary(
+    run: Run, asking: str, on_github: dict, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    on_github["title"] = "Port: move strip"
+    run("pr", "add", PR, "--job", asking)
+    run("pr", "set", PR, "--port-of", "4100")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert capsys.readouterr().err.strip() == (
+        'drive: j1\'s PR is a port of #4100: its ASK\'s summary says "port of #4100", as the text of that PR\'s link, and what in the'
+        " target tree forces a choice #4100 did not make, such as what that tree lacks"
+    )
+    ported = "This is a <https://github.com/Forge-AI/monorepo/pull/4100|port of #4100>; the target tree lacks the snapshot writer. A finished run is about"
+    block.write_text(SHORT_ASK.replace("A finished run is about", ported))
+    assert run("job", "ask", asking, str(block))[0] == 0
 
 
 def test_pr_tapped_unknown_pr_may_land(run: Run, demo: str) -> None:
