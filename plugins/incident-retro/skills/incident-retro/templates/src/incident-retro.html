@@ -2313,8 +2313,8 @@ const LV_ROLES=["fixer","ic","monitor","human"];
 const LV_ROLE_LABEL={fixer:"Fixer",ic:"IC",monitor:"Monitors",human:"People"};
 const LV_ROLE_LONG={fixer:"Fixer",ic:"Incident commander",monitor:"Monitor",human:"Person"};
 const LV_FIX_STEPS=[["investigating","Investigating"],["diagnosed","Diagnosed"],["fixing","Fixing"],["pr-opened","PR open"],["pr-merged","Merged"],["hotfixing","Deploying"],["shipped","Shipped"]];
-const LV_FIX_OFF={stuck:"Stuck",refused:"Refused","release-failed":"Release failed",unproven:"Release unproven",muted:"Muted"};
-const LV_FIX_AT={stuck:2,refused:2,"release-failed":5,unproven:5,muted:6};
+const LV_FIX_OFF={stuck:"Stuck",refused:"Refused",degraded:"Lost a tool",blocked:"Merge blocked","release-failed":"Release failed",unproven:"Release unproven",muted:"Muted",unmuted:"Alerting while muted"};
+const LV_FIX_AT={stuck:2,refused:2,degraded:2,blocked:3,"release-failed":5,unproven:5,muted:6,unmuted:6};
 const LV_KEY_KINDS=["alert","deploy","mitigation","resolution","allclear"];
 const LV_PHASE_TITLE={before:"Before detection",undetected:"Before detection",detected:"Detected",investigating:"Investigating",identified:"Cause identified",mitigated:"Mitigated",resolved:"Resolved"};
 const LV_LANES_KEY="ir-lvlanes";
@@ -2548,6 +2548,7 @@ function lvRenderBar(){
 function lvFixSteps(s){
  if(s.waiting)return `<p class="lv-stepl">Stood down, waiting on <b>${esc(s.waiting.from)}</b> since ${esc(fmtClock(tsOf(s.waiting.since)))}: ${esc(s.waiting.on)}</p>`;
  if(s.phase==="applied")return `<p class="lv-stepl"><b>Fix applied</b>, confirming it worked</p>`;
+ if(s.phase==="live")return `<p class="lv-stepl"><b>Fix live</b>, confirming it worked</p>`;
  const off=LV_FIX_OFF[s.phase],at=off?LV_FIX_AT[s.phase]:LV_FIX_STEPS.findIndex(([k])=>k===s.phase);
  const done=s.phase==="shipped";
  return `<ol class="lv-steps" aria-hidden="true">`+LV_FIX_STEPS.map(([,label],i)=>
