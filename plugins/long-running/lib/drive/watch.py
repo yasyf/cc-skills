@@ -287,15 +287,15 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
         return None
     job["report"] = body
     if kind == "question":
-        job["ask"] = message["id"]
-        job["state"] = "waiting"
+        job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
     if kind == "worker_done":
         state.take_result(data, job_id, job["said"])
     return f"JOB {job_id} {job['order']} {job['said']}"
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions queue on their job to be answered here, and mail from a worker the job has since replaced is only kept."""
+    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept."""
+    queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes: dict[str, dict[str, str]] = {}
     for job_id, job in live_lanes(data).items():
@@ -329,6 +329,21 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 lines.append(mail_line(data, job_id, message, moment))
                 track_lane_prs(data, job_id, message["body"] or "")
     return [line for line in lines + read_lines(watcher, data, moment) if line]
+
+
+def queue_kept_reads(watcher: Watcher) -> None:
+    """Queue each live lane's open question that asks a read, so a question kept as the coordinator's, such as one the watch read before it took a `LOG` with words after its URL, is answered here and its lane runs again."""
+    if not any(kept_read(job) for job in live_lanes(state.load(watcher.name)).values()):
+        return
+    with state.edit(watcher.name) as data:
+        for job in live_lanes(data).values():
+            if question := kept_read(job):
+                job.setdefault("reads", {})[job["ask"]] = question
+                job.update(ask=None, state="running")
+
+
+def kept_read(job: dict) -> str | None:
+    return reads.request(job["report"] or "") if job.get("ask") else None
 
 
 def live_lanes(data: dict) -> dict[str, dict]:
@@ -740,6 +755,17 @@ def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: dat
     return any(due and state.parse_time(due) > moment for due in dues)
 
 
+def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> str | None:
+    """A lane's question nothing has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else."""
+    if not job.get("ask"):
+        return None
+    asked = state.parse_time(job["ask_at"])
+    drawn = (question for question in view.open_questions(job, cards) if question["card"] or question["waits"])
+    if moment - asked < QUIET_FOR or any(state.parse_time(question["asked"]) >= asked for question in drawn):
+        return None
+    return f'{job_id}\'s lane asked "{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
+
+
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
     """Why the job leaves its parts with no one, None when it carries them, or SETTLING while a change in the last two minutes is still being handed over."""
     if moment - state.parse_time(job["updated"]) < HANDOFF:
@@ -747,6 +773,8 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
     if job["state"] == "running":
         return watcher.agent_gaps.get(job_id)
     if job["state"] in ("waiting", "built"):
+        if asked := unanswered(job_id, job, watcher.cards, moment):
+            return asked
         if can_wake(job_id, job, data, watcher.cards, moment):
             return None
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
@@ -764,7 +792,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
     order = data["orders"][order_id]
     jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
-    if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and job["state"] == "running"]:
+    if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
     if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
         return None
