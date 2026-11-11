@@ -15,6 +15,7 @@ from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 INCIDENT_FIX = "fix"
+FILING = ("project", "workstream")
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
@@ -97,9 +98,8 @@ def order_add(args: argparse.Namespace) -> int:
             "incident": args.incident or joined is not None,
             "kind": "build" if args.incident or joined is not None else args.kind,
             "complex": args.complex,
-            "milestone": args.milestone or None,
-            "project": args.project or None,
-            "workstream": args.workstream or None,
+            "project": args.project,
+            "workstream": args.workstream,
             "proof": None,
             "note": joined and joined["note"],
             "created": created,
@@ -147,7 +147,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
         joins = (
             "; when his message at the root of that thread is another alert on this incident, that alert is its own order, which the"
             f' coordinator records with drive order add "<his alert>" --from slack:{slack.CARD_LINK.search(link)[1]}/{root["ts"]}'
-            f" --thread {root['ts']} --joins {order_id}, and this line goes on that order"
+            f" --thread {root['ts']} --joins {order_id} --project \"{data['orders'][order_id]['project']}\" --workstream \"{data['orders'][order_id]['workstream']}\", and this line goes on that order"
             if data["orders"][order_id]["incident"] and root and root.get("from_user")
             else ""
         )
@@ -169,6 +169,11 @@ def pick_parts(order_id: str, order: dict, named: list[str]) -> list[str]:
     return list(dict.fromkeys(named))
 
 
+def apart_from_filing(order: dict) -> str:
+    """The order apart from its project and workstream, so filing it alone leaves the time it last moved, which the dashboard reads as when a done order went live."""
+    return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
+
+
 def order_set(args: argparse.Namespace) -> int:
     """Change an order; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time."""
     name = state.resolve(args.drive)
@@ -188,6 +193,7 @@ def order_set(args: argparse.Namespace) -> int:
     promised = ""
     with state.edit(name) as data:
         order = data["orders"][args.id]
+        before = apart_from_filing(order)
         order.update({field: value for field, value in changes.items() if value is not None})
         if due:
             need_thread(data, args.id, order)
@@ -218,10 +224,11 @@ def order_set(args: argparse.Namespace) -> int:
             order["kind"] = args.kind
         if args.complex is not None:
             order["complex"] = args.complex
-        for field in ("milestone", "project", "workstream"):
-            if (named := getattr(args, field)) is not None:
-                order[field] = named or None
-        order["updated"] = state.stamp(moment)
+        filed = [field for field in FILING if getattr(args, field) is not None]
+        for field in filed:
+            order[field] = getattr(args, field) or None
+        if not filed or args.lined or apart_from_filing(order) != before:
+            order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, render.order_line(args.id, order) + promised, {"id": args.id, **order})
@@ -1230,9 +1237,8 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.add_argument("--complex", action="store_true", help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet")
-    verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under")
-    verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under")
-    verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under")
+    verb.add_argument("--project", metavar="NAME", required=True, help="the project the dashboard's Now screen files this order under, reusing one drive order unfiled lists as in use where it fits")
+    verb.add_argument("--workstream", metavar="NAME", required=True, help="the workstream inside its project the Now screen files this order under, reusing one in use where it fits")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id", help="the order")
@@ -1249,7 +1255,6 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--kind", choices=state.ORDER_KINDS, help="sort it again: an answer whose work turns out to need a build becomes a build")
     verb.add_argument("--complex", action=argparse.BooleanOptionalAction, help="mark or unmark it as more than a one-fact lookup")
-    verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under; an empty name takes it out")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(

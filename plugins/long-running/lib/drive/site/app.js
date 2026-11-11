@@ -49,9 +49,6 @@ const TALK_FOLLOW_MS = 15 * 60 * 1000;
 const FRAMES_KEPT = 4;
 const STOP_WORDS = { blocked: 'Blocked', running: 'Being built', built: 'Built, waits on your answers', waiting: 'Waiting', merged: 'Merged, not live yet', live: 'Live', 'not started': 'Not started' };
 const STOP_TONES = { blocked: 'bad', running: 'doing', built: 'you', waiting: 'waiting', merged: 'merged', live: 'done', 'not started': 'not-started' };
-const PART_WORDS = { bad: 'Blocked', you: 'Waits on you', doing: 'Being built', waiting: 'Waiting', 'not started': 'Not started', done: 'Done' };
-const PART_COUNTS = { bad: 'blocked', you: 'waiting on you', doing: 'being built', waiting: 'waiting', 'not started': 'not started' };
-const NODE_KINDS = { part: 'Part', job: 'Job', pr: 'Change', card: 'Your question' };
 const FILE_WORDS = { brief: 'Brief', report: 'Report', question: 'Question', repro: 'Reproduction', transcript: 'Transcript' };
 const SOURCE_CITE = /(^|[^\w/.@`-])`?((?:[\w.@-]+\/)+[\w.@-]+\.[A-Za-z][A-Za-z0-9]*):(\d+)(?:-(\d+))?`?(?![\w-]|[./]\w)/g;
 const PR_FIELDS = [
@@ -65,14 +62,12 @@ const PR_FIELDS = [
 const SCREENS = [
   ['queue', '#/', 'Your queue'],
   ['now', '#/now', 'Now'],
-  ['plan', '#/plan', 'Plan'],
   ['work', '#/work', 'Work'],
   ['history', '#/history', 'History'],
 ];
 const ICONS = {
   queue: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
-  plan: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
 };
@@ -88,7 +83,6 @@ let queueAt = null;
 let queueSlot = 0;
 let picked = null;
 let composing = null;
-const opened = new Map();
 const expanded = new Set();
 const answers = new Map();
 const drafts = new Map();
@@ -559,12 +553,8 @@ function projectsLevel(tree) {
     const sub = key === NONE ? 'Orders the coordinator has not filed under a project yet' : counted(streams.size, 'workstream');
     return zoomCard(zoomHref('now', key), fileName(key), sub, [...streams.values()].flat(), key === NONE);
   });
-  const stops = model.milestones;
-  const live = stops.filter((stop) => stop.state === 'live').length;
-  const strip = stops.length ? `<h2 class="sec">Milestones</h2><section class="panel">${journey(currentStop())}<p class="meta">${live} of ${stops.length} milestones are live. <a class="more" href="#/plan">Plan ›</a></p></section>` : '';
   return `<h2 class="sec">Projects <span class="count">${tree.size}</span></h2>
-    <div class="zoom-list">${cards.join('') || '<p class="empty small">No open orders.</p>'}</div>
-    ${strip}`;
+    <div class="zoom-list">${cards.join('') || '<p class="empty small">No open orders.</p>'}</div>`;
 }
 
 function streamsLevel(project, streams) {
@@ -629,153 +619,8 @@ function story(scope) {
   </aside>`;
 }
 
-function currentStop() {
-  return model.milestones.findIndex((stop) => stop.state !== 'live');
-}
-
-function needsYou(stop) {
-  return stop.parts.some((part) => part.state === 'you');
-}
-
 function pill(word, tone) {
   return `<span class="pill t-${tone}">${esc(word)}</span>`;
-}
-
-function stopWaits(stop) {
-  const open = stop.parts.filter((part) => part.state !== 'done');
-  if (!open.length) return stop.state === 'live' ? 'Nothing: it is live' : 'Nothing open';
-  const counts = Object.entries(PART_COUNTS).map(([state, word]) => [open.filter((part) => part.state === state).length, word]).filter(([n]) => n);
-  return `${open.length} of ${stop.parts.length} parts open: ${counts.map(([n, word]) => `${n} ${word}`).join(', ')}`;
-}
-
-function journey(current) {
-  const stops = model.milestones;
-  return `<div class="journey" style="--n:${stops.length}">${stops.map((stop, i) => `<a class="ms t-${STOP_TONES[stop.state]}${i === current ? ' cur' : ''}" href="#/plan/${i}">
-      <span class="here">${i === current ? 'Drive is here' : ''}</span><span class="pin"></span>
-      <span class="nm">${esc(stop.name)}</span><span class="st">${STOP_WORDS[stop.state]}</span>${needsYou(stop) ? '<span class="need">Needs you</span>' : ''}
-    </a>`).join('')}</div>`;
-}
-
-function planRow(href, cells) {
-  return `<a class="prow" href="${href}">${cells.map((cell) => `<span>${cell}</span>`).join('')}</a>`;
-}
-
-function planHead(...labels) {
-  return `<div class="phead">${labels.map((label) => `<span>${label}</span>`).join('')}</div>`;
-}
-
-function planFold(id, label, rows) {
-  if (!rows.length) return '';
-  return `<details class="pfold" data-group="${id}"${opened.get(id) ? ' open' : ''}><summary>${label}</summary>${rows.join('')}</details>`;
-}
-
-function partsTable(parts, group) {
-  const partRow = (part) => planRow(`#/feature/${esc(part.order)}`, [`<b>${esc(part.title)}</b>`, pill(PART_WORDS[part.state], part.state.replace(' ', '-')), esc(part.blocks), esc(part.doing)]);
-  const open = parts.filter((part) => !['done', 'not started'].includes(part.state));
-  const waiting = parts.filter((part) => part.state === 'not started');
-  const done = parts.filter((part) => part.state === 'done');
-  return `<div class="ptable parts">${planHead('Part', 'State', 'What blocks it', 'What is being done')}${open.map(partRow).join('') || '<p class="empty small">Every started part is done.</p>'}
-      ${planFold(`${group}-waiting`, `<b>Not started</b> <span class="count">${waiting.length}</span>`, waiting.map(partRow))}
-      ${planFold(`${group}-done`, `<b>Done</b> <span class="count">${done.length}</span>`, done.map(partRow))}
-    </div>`;
-}
-
-function planScreen() {
-  const stops = model.milestones;
-  const loose = model.unplanned ? `<h2 class="sec">${esc(model.unplanned.name)}</h2>${partsTable(model.unplanned.parts, 'plan-loose')}` : '';
-  if (!stops.length) return `<h1 class="h1">Plan</h1><p class="empty">No milestones yet. Once the coordinator names the milestone each of your orders moves, their map shows here.</p>${loose}`;
-  const parts = stops.flatMap((stop) => stop.parts);
-  const done = parts.filter((part) => part.state === 'done');
-  const share = parts.length ? Math.round((100 * done.length) / parts.length) : 0;
-  const current = currentStop();
-  const live = stops.filter((stop) => stop.state === 'live').length;
-  const lead = current < 0 ? `All ${stops.length} milestones are live.` : `${live} of ${stops.length} milestones are live. ${stops[current].name}: ${STOP_WORDS[stops[current].state].toLowerCase()}, ${stopWaits(stops[current]).replace(/^./, (c) => c.toLowerCase())}.`;
-  const stopRow = (stop) => planRow(`#/plan/${stops.indexOf(stop)}`, [`<b>${esc(stop.name)}</b>`, `${pill(STOP_WORDS[stop.state], STOP_TONES[stop.state])}${needsYou(stop) ? ' <span class="need">Needs you</span>' : ''}`, esc(stopWaits(stop))]);
-  const later = stops.filter((stop, i) => stop.state === 'not started' && i > current);
-  const middle = stops.filter((stop) => stop.state !== 'live' && !later.includes(stop));
-  return `<div class="plan-head">
-      <div><h1 class="h1">Plan</h1><p class="lead">${esc(lead)}</p></div>
-      <div class="ringbox"><span class="ring" style="--p:${share}%"><span>${share}<small>%</small></span></span><span>${done.length} of ${parts.length} parts done</span></div>
-    </div>
-    <section class="panel">${journey(current)}</section>
-    <h2 class="sec">Milestones</h2>
-    <div class="ptable stops">${planHead('Milestone', 'State', 'What it waits on')}
-      ${planFold('plan-live', `<b>${live} ${live === 1 ? 'milestone' : 'milestones'} live</b>`, stops.filter((stop) => stop.state === 'live').map(stopRow))}
-      ${middle.map(stopRow).join('')}
-      ${planFold('plan-later', `<b>${later.length} ${later.length === 1 ? 'milestone' : 'milestones'} later</b>`, later.map(stopRow))}
-    </div>
-    <h2 class="sec">Parts still open</h2>
-    ${partsTable(parts, 'plan')}
-    ${loose}`;
-}
-
-function milestoneScreen(at) {
-  const stops = model.milestones;
-  const i = Number(at);
-  const stop = stops[i];
-  if (!stop) return '<p class="empty">This milestone is no longer on the plan. <a href="#/plan">Back to Plan</a></p>';
-  const step = (j, label, key) => (stops[j] ? `<a class="btn ghost" href="#/plan/${j}">${label} <kbd>${key}</kbd></a>` : '');
-  const prs = stop.features.flatMap((entry) => entry.prs);
-  const done = stop.parts.filter((part) => part.state === 'done');
-  return `<a class="back" href="#/plan">‹ Plan</a>
-    <div class="kick">Milestone ${i + 1} of ${stops.length} · ${pill(STOP_WORDS[stop.state], STOP_TONES[stop.state])}${needsYou(stop) ? ' <span class="need">Needs you</span>' : ''}</div>
-    <h1 class="h1">${esc(stop.name)}</h1>
-    <dl class="factlist">
-      <dt>What it waits on</dt><dd>${esc(stopWaits(stop))}</dd>
-      <dt>Your orders in it</dt><dd>${stop.features.map((entry) => `<a href="#/feature/${esc(entry.id)}">${esc(entry.title)}</a> ${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}`).join('<br>')}</dd>
-    </dl>
-    ${stop.nodes.length ? `<h3 class="sec">What stands in its way, each arrow pointing at what it holds up</h3>${chart(stop)}` : '<p class="empty small">Nothing stands in its way.</p>'}
-    ${planFold(`plan-done-${i}`, `<b>Done so far</b> <span class="count">${done.length}</span>`, done.map((part) => planRow(`#/feature/${esc(part.order)}`, [`<b>${esc(part.title)}</b>`])))}
-    ${prs.length ? `<h3 class="sec">Its pull requests <span class="count">${prs.length}</span></h3><ul class="prlist card">${prs.map(prItem).join('')}</ul>` : ''}
-    <p class="steps">${step(i - 1, '‹ Previous milestone', 'K')}${step(i + 1, 'Next milestone ›', 'J')}</p>`;
-}
-
-function chart(stop) {
-  const into = Map.groupBy(stop.edges, (edge) => edge.to);
-  const depth = new Map();
-  const visit = (id, d, path) => {
-    if (path.has(id) || (depth.get(id) ?? -1) >= d) return;
-    depth.set(id, d);
-    for (const edge of into.get(id) ?? []) visit(edge.from, d + 1, new Set([...path, id]));
-  };
-  visit('milestone', 0, new Set());
-  const deepest = Math.max(...depth.values());
-  const place = new Map([['milestone', 0]]);
-  const columns = [];
-  for (let d = 1; d <= deepest; d++) {
-    const column = stop.nodes.filter((node) => depth.get(node.id) === d);
-    const heldUp = (node) => stop.edges.filter((edge) => edge.from === node.id && place.has(edge.to)).map((edge) => place.get(edge.to));
-    const score = new Map(column.map((node, n) => [node.id, heldUp(node).length ? Math.min(...heldUp(node)) : n]));
-    column.sort((a, b) => score.get(a.id) - score.get(b.id));
-    column.forEach((node, n) => place.set(node.id, n));
-    columns.unshift(column);
-  }
-  const goal = `<div class="stage goal"><div class="node t-${STOP_TONES[stop.state]}" data-node="milestone"><span class="nb">Then</span><b>${esc(stop.name)}</b></div></div>`;
-  return `<div class="chart"><div class="flow" data-edges="${esc(JSON.stringify(stop.edges))}"><svg class="arrows" aria-hidden="true"></svg>${columns.map((column) => `<div class="stage">${column.map(nodeBox).join('')}</div>`).join('')}${goal}</div></div>`;
-}
-
-function nodeBox(node) {
-  const tone = node.state.replace(' ', '-');
-  const inner = `<span class="nb">${NODE_KINDS[node.kind]} · ${PART_WORDS[node.state]}</span><b title="${esc(node.text)}">${esc(node.text)}</b>${node.how ? `<span class="how" title="${esc(node.how)}">${esc(node.how)}</span>` : ''}${node.since ? `<span class="clk">since ${clock(node.since)}</span>` : ''}`;
-  if (node.kind === 'pr') return `<button class="node t-${tone}" data-node="${esc(node.id)}" data-pr="${esc(prKey(node.url))}">${inner}</button>`;
-  return `<a class="node t-${tone}" data-node="${esc(node.id)}" href="${node.kind === 'card' ? '#/queue/question' : `#/feature/${esc(node.order)}`}">${inner}</a>`;
-}
-
-function drawArrows() {
-  for (const flow of document.querySelectorAll('#main .flow[data-edges]')) {
-    const frame = flow.getBoundingClientRect();
-    const box = (id) => flow.querySelector(`[data-node="${CSS.escape(id)}"]`).getBoundingClientRect();
-    const tone = (id) => flow.querySelector(`[data-node="${CSS.escape(id)}"]`).className.match(/\bt-([\w-]+)/)[1];
-    const paths = JSON.parse(flow.dataset.edges).map(({ from, to }) => {
-      const [a, b] = [box(from), box(to)];
-      const [x1, y1, x2, y2] = [a.right - frame.left, a.top + a.height / 2 - frame.top, b.left - frame.left - 2, b.top + b.height / 2 - frame.top];
-      const bend = Math.max(24, (x2 - x1) / 2);
-      return `<path class="t-${tone(from)}" d="M${x1} ${y1} C${x1 + bend} ${y1} ${x2 - bend} ${y2} ${x2} ${y2}" marker-end="url(#head)"/>`;
-    });
-    const svg = flow.querySelector('svg');
-    svg.setAttribute('viewBox', `0 0 ${frame.width} ${frame.height}`);
-    svg.innerHTML = `<defs><marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 10 5 0 10z"/></marker></defs>${paths.join('')}`;
-  }
 }
 
 function go(href) {
@@ -957,8 +802,7 @@ function message(said, waiting) {
 }
 
 const index = perModel(() => {
-  const all = [...model.status.flatMap((group) => group.features), ...model.milestones.flatMap((stop) => stop.features)];
-  const list = [...new Map(all.map((entry) => [entry.id, entry])).values()];
+  const list = model.status.flatMap((group) => group.features);
   const projects = [...Map.groupBy(list, (entry) => fileKey(entry.project))].sort(byName);
   const tree = new Map(projects.map(([project, entries]) => [project, new Map([...Map.groupBy(entries, (entry) => fileKey(entry.workstream))].sort(byName))]));
   return { list, byId: new Map(list.map((entry) => [entry.id, entry])), tree };
@@ -1188,7 +1032,6 @@ function jumpItems() {
   return [
     ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href })),
     ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: '#/queue/all', item: noticeKey(item) })),
-    ...model.milestones.map((stop, i) => ({ kind: 'Milestone', title: stop.name, href: `#/plan/${i}` })),
     ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
     ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
     ...model.work.map((job) => ({ kind: 'Job', title: job.goal, href: `#/feature/${job.feature}` })),
@@ -1368,7 +1211,6 @@ function featureScreen(id) {
   const facts = [
     entry.now ? ['Where it is', esc(entry.now)] : null,
     ['Asked', clock(entry.created)],
-    entry.milestone ? ['Milestone', `<a href="#/plan/${model.milestones.findIndex((stop) => stop.name === entry.milestone)}">${esc(entry.milestone)}</a>`] : null,
     entry.due ? ['Promised', `${clock(entry.due)}${entry.late ? ' <b class="red">late</b>' : ''}`] : null,
     entry.proof ? ['Proof', esc(entry.proof)] : null,
     entry.note ? ['Note', esc(entry.note)] : null,
@@ -1404,7 +1246,7 @@ function render() {
   const raised = strip();
   $('#alerts').innerHTML = raised;
   $('#alerts').hidden = !raised;
-  const screens = { queue: () => queueScreen(id), now: nowScreen, plan: () => (id === undefined ? planScreen() : milestoneScreen(id)), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
   const open = new Set(model.review.map((entry) => entry.key));
   for (const [key, frame] of slotted) {
     if (open.has(key)) continue;
@@ -1426,7 +1268,6 @@ function render() {
   if ($('#jump').open) drawJump();
   window.scrollTo(0, y);
   measure();
-  drawArrows();
   fill();
   fresh();
 }
@@ -1565,10 +1406,6 @@ function connect() {
   };
 }
 
-document.addEventListener('toggle', (event) => {
-  const id = event.target.dataset?.group;
-  if (id) opened.set(id, event.target.open);
-}, true);
 document.addEventListener('input', (event) => {
   const box = event.target.closest('textarea[data-draft]');
   if (box) drafts.set(box.dataset.draft, box.value);
@@ -1685,7 +1522,7 @@ document.addEventListener('keydown', (event) => {
     return undo(held[0]);
   }
   const free = !event.metaKey && !event.ctrlKey && !event.altKey && !writing && !document.querySelector('dialog[open]');
-  const { screen, id } = route();
+  const { screen } = route();
   if (free && event.key === 'Escape' && up()) {
     event.preventDefault();
     return go(up());
@@ -1701,12 +1538,6 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       return answer(currentItem().answer, option);
     }
-  }
-  const stepped = { j: 1, k: -1 }[event.key];
-  if (stepped && screen === 'plan' && id !== undefined && free) {
-    const next = Number(id) + stepped;
-    if (model.milestones[next]) location.hash = `#/plan/${next}`;
-    return;
   }
   if (!$('#jump').open) return;
   const rows = [...document.querySelectorAll('#jumplist [data-jump]')];
@@ -1728,7 +1559,6 @@ window.addEventListener('DOMContentLoaded', () => {
   setInterval(render, 60000);
   window.addEventListener('resize', () => {
     measure();
-    drawArrows();
     place();
   });
   new ResizeObserver(place).observe($('#main'));

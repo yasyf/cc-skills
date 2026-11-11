@@ -22,17 +22,8 @@
 the drive keeps for it, of `brief`, `report`, `question`, `repro` and `transcript`), `history` (every day of the drive,
 newest first, his orders each with `swears`, the swear words in his words), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and that card's `thread` when it has one), `incidents` (his
-open incident orders, each with `id`, `title` and `created`), `milestones`, `unplanned` (his orders open or done in
-the last day that name no milestone, drawn as one more milestone named "No milestone", or null when there are none)
-and each feature's `text`, `note`, `created` and `jobs`. Each feature also has the `project` and `workstream` the
-coordinator filed its order under, each null until filed.
-
-Each of `milestones` is a name the coordinator gave some of his orders, in the order its first order came in, with
-its `state` rolled up from those orders' features, the `features` themselves, its `parts` (each part of those orders,
-with `state` `done` or the most urgent of the nodes before it, `blocks` and `doing`), and the chart of what stands
-in its way: `nodes`, each open part and each job, PR or card of his before one, with `kind`, `state` (`bad`, `you`,
-`doing`, `waiting`, or a part's `not started`), `text`, `how`, `order`, `url` and `since`, and `edges`, each an
-arrow `from` one node `to` the node it holds up, a part's arrow going to `milestone`.
+open incident orders, each with `id`, `title` and `created`) and each feature's `text`, `note`, `created` and `jobs`.
+Each feature also has the `project` and `workstream` the coordinator filed its order under, each null until filed.
 """
 
 import json
@@ -56,13 +47,9 @@ SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
 TITLE_CHARS = 100
 NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
-NO_MILESTONE = "No milestone"
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said")
-NODE_STATES = ("bad", "you", "doing", "waiting")
-JOB_TONES = {"running": "doing", "waiting": "waiting", "built": "waiting", "failed": "bad"}
-BLOCKER_WORDS = {("card", "you"): "Your answer", ("pr", "you"): "Your tap", ("pr", "bad"): "Tests fail", ("job", "bad"): "Failed"}
 
 
 class CardsError(Exception):
@@ -346,7 +333,6 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "title": plain(order["text"], TITLE_CHARS),
         "state": feature_state(order, jobs, prs),
         "now": latest_line(order, jobs),
-        "milestone": order["milestone"],
         "project": order["project"],
         "workstream": order["workstream"],
         "due": order.get("due"),
@@ -365,132 +351,6 @@ def status(drive: dict, moment: datetime, found: dict) -> list[dict]:
     features.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     features.sort(key=lambda entry: (entry["due"] is None, entry["due"] and state.parse_time(entry["due"])))
     return [{"state": name, "features": [entry for entry in features if entry["state"] == name]} for name in STATES]
-
-
-def milestones(drive: dict, found: dict, moment: datetime) -> list[dict]:
-    """His orders under the milestones the coordinator named, each milestone in the order its first order came in; dropped orders leave it."""
-    named: dict[str, list[str]] = {}
-    for order_id, order in oldest_first(drive):
-        if order["milestone"] and order["state"] != "dropped":
-            named.setdefault(order["milestone"], []).append(order_id)
-    prs = prs_by_job(drive)
-    return [milestone(Chart(drive, found, prs), name, order_ids, moment) for name, order_ids in named.items()]
-
-
-def unplanned(drive: dict, found: dict, moment: datetime) -> dict | None:
-    """His orders with no milestone named, open or done in the last day, under "No milestone" so the plan hides none of them."""
-    order_ids = [order_id for order_id, order in oldest_first(drive) if not order["milestone"] and shown(order, moment)]
-    return milestone(Chart(drive, found, prs_by_job(drive)), NO_MILESTONE, order_ids, moment) if order_ids else None
-
-
-def oldest_first(drive: dict) -> list[tuple[str, dict]]:
-    return sorted(drive["orders"].items(), key=lambda item: state.parse_time(item[1]["created"]))
-
-
-def prs_by_job(drive: dict) -> dict[str, list[tuple[str, dict]]]:
-    prs: dict[str, list[tuple[str, dict]]] = {}
-    for key, pr in drive["prs"].items():
-        prs.setdefault(pr["job"], []).append((key, pr))
-    return prs
-
-
-def milestone(chart: "Chart", name: str, order_ids: list[str], moment: datetime) -> dict:
-    orders = chart.drive["orders"]
-    features = [feature(chart.drive, order_id, orders[order_id], moment, chart.found) for order_id in order_ids]
-    return {
-        "name": name,
-        "state": rolled_up({entry["state"] for entry in features}),
-        "features": features,
-        "parts": [chart.part(order_id, part) for order_id in order_ids for part in orders[order_id]["parts"]],
-        "nodes": list(chart.nodes.values()),
-        "edges": [{"from": source, "to": target} for target, sources in chart.into.items() for source in sources],
-    }
-
-
-def rolled_up(states: set[str]) -> str:
-    """Live once every order is live; otherwise the first state its other orders are in, blocked before running and so on."""
-    return next((name for name in STATES if name != "live" and name in states), "live")
-
-
-class Chart:
-    """What stands in one milestone's way: each open part of its orders, and before each the jobs, PRs and cards of his it waits on."""
-
-    def __init__(self, drive: dict, found: dict, prs: dict[str, list[tuple[str, dict]]]) -> None:
-        self.drive, self.found, self.prs = drive, found, prs
-        self.nodes: dict[str, dict] = {}
-        self.into: dict[str, list[str]] = {}
-
-    def arrow(self, source: str, target: str) -> None:
-        sources = self.into.setdefault(target, [])
-        if source not in sources:
-            sources.append(source)
-
-    def node(self, node_id: str, kind: str, tone: str, text: str, how: str, order: str | None, url: str | None, since: str | None) -> None:
-        self.nodes[node_id] = {"id": node_id, "kind": kind, "state": tone, "text": text, "how": how, "order": order, "url": url, "since": since}
-
-    def part(self, order_id: str, part: str) -> dict:
-        order, jobs = self.drive["orders"][order_id], self.drive["jobs"]
-        mine = [job_id for job_id in order["jobs"] if part in state.job_parts(jobs[job_id], order_id)]
-        title = plain(order["text"], TITLE_CHARS) if len(order["parts"]) == 1 else part
-        entry = {"id": f"part:{order_id}:{part}", "order": order_id, "title": title, "state": "done", "blocks": "", "doing": ""}
-        shipped = order["parts"][part]["posted"] or any(jobs[job_id]["state"] == "done" and jobs[job_id]["kind"] == "builder" for job_id in mine)
-        if order["state"] == "done" or shipped and all(jobs[job_id]["state"] in state.FINISHED_JOB_STATES for job_id in mine):
-            return entry
-        self.node(entry["id"], "part", "waiting", title, "", order_id, None, order["updated"])
-        self.arrow(entry["id"], "milestone")
-        for job_id in mine:
-            if jobs[job_id]["state"] not in state.FINISHED_JOB_STATES or jobs[job_id]["state"] == "failed" and job_id == mine[-1]:
-                self.arrow(self.job(job_id), entry["id"])
-        for key, pr in (owned for job_id in mine for owned in self.prs.get(job_id, [])):
-            if pr["state"] == "open":
-                self.arrow(self.pr(key, pr), entry["id"])
-        before = [self.nodes[node_id] for node_id in self.upstream(entry["id"])]
-        tone = next((name for name in NODE_STATES if any(node["state"] == name for node in before)), "waiting" if mine else "not started")
-        self.nodes[entry["id"]]["state"] = tone
-        stuck = next((node for name in ("bad", "you") for node in before if node["state"] == name), None)
-        running = next((node["how"] for node in before if node["kind"] == "job" and node["state"] == "doing" and node["how"]), "")
-        blocks = f"{BLOCKER_WORDS[stuck['kind'], stuck['state']]}: {stuck['text']}" if stuck else ""
-        return entry | {"state": tone, "blocks": blocks, "doing": running}
-
-    def upstream(self, node_id: str) -> list[str]:
-        seen: list[str] = []
-        ahead = [node_id]
-        while ahead:
-            for source in self.into.get(ahead.pop(), []):
-                if source not in seen:
-                    seen.append(source)
-                    ahead.append(source)
-        return seen
-
-    def job(self, job_id: str) -> str:
-        node_id = f"job:{job_id}"
-        if node_id not in self.nodes:
-            job = self.drive["jobs"][job_id]
-            self.node(node_id, "job", JOB_TONES[job["state"]], cut(job["goal"], TITLE_CHARS), said(job["said"]), job["order"], None, job["updated"])
-            self.waits(job["waits"], node_id)
-            for card in open_cards(job, self.found):
-                self.arrow(self.card(card), node_id)
-        return node_id
-
-    def pr(self, key: str, pr: dict) -> str:
-        node_id = f"pr:{key}"
-        if node_id not in self.nodes:
-            tapped = waits_on_tap(pr, card_for(self.found["pr_cards"], pr["url"]))
-            tone = "bad" if pr["checks"] == "fail" else "you" if tapped else "doing" if pr["checks"] == "pending" else "waiting"
-            self.node(node_id, "pr", tone, pr_title(pr), tap_detail(pr), pr["order"], pr["url"], pr["updated"])
-            self.waits(pr["waits"], node_id)
-        return node_id
-
-    def waits(self, waits: list[str], node_id: str) -> None:
-        for wait in holding(self.drive, waits, self.found):
-            self.arrow(self.job(wait) if wait in self.drive["jobs"] else self.card(wait), node_id)
-
-    def card(self, wait: str) -> str:
-        node_id = f"card:{message_key(wait)}"
-        if node_id not in self.nodes:
-            asked = asked_card(self.found, wait)
-            self.node(node_id, "card", "you", asked["question"] if asked else "his question card", "", None, asked and asked["url"], asked and asked["asked"])
-        return node_id
 
 
 def build(drive: dict, found: dict, moment: datetime) -> dict:
@@ -593,13 +453,8 @@ def review(drive: dict, found: dict) -> list[dict]:
 def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment: datetime, reports: set[str]) -> dict:
     """The dashboard's model: `build`'s, with progress, work, history and each shown feature's full order and jobs; reports names the jobs whose whole return the drive keeps."""
     model = build(drive, found, moment) | {"cards": source}
-    plan = milestones(drive, found, moment)
-    loose = unplanned(drive, found, moment)
     shown_ids = {entry["id"] for group in model["status"] for entry in group["features"]}
-    for entry in [
-        *(entry for group in model["status"] for entry in group["features"]),
-        *(entry for stop in [*plan, *([loose] if loose else [])] for entry in stop["features"]),
-    ]:
+    for entry in (entry for group in model["status"] for entry in group["features"]):
         order = drive["orders"][entry["id"]]
         entry |= {
             "text": order["text"],
@@ -615,8 +470,6 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         "history": history(drive, events, found["team_url"]),
         "review": review(drive, found),
         "incidents": incidents(drive),
-        "milestones": plan,
-        "unplanned": loose,
         "channel": drive["slack"]["channel"],
     }
 

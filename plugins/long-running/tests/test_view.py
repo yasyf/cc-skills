@@ -35,7 +35,6 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "created": at(-120),
         "updated": at(-60),
         "last_line": None,
-        "milestone": None,
         "project": None,
         "workstream": None,
         "parts": {text: state.new_part()},
@@ -505,59 +504,7 @@ def test_incidents_list_his_open_incident_orders_oldest_first() -> None:
     ]
 
 
-def test_plan_draws_each_milestone_with_its_parts_and_what_stands_before_each() -> None:
-    parts = {"chart": state.new_part(), "toast": state.new_part()}
-    data = drive_of(
-        {
-            "o1": order("ship the plan", ["j1", "j2"], milestone="Plan", parts=parts),
-            "o2": order("old work", [], milestone="Plan", state="done", created=at(-200)),
-            "o3": order("dropped work", [], milestone="Other", state="dropped"),
-            "o4": order("no milestone", []),
-        },
-        {"j1": job("o1", "running", "drawing it", parts=["chart"]), "j2": job("o1", "waiting", parts=["toast"], waits=["demo:j2-7-a"])},
-        [pr(1, "o1", job="j2", wants_tap=True)],
-    )
-    asked = question("Which layout?", -20, "demo:j2-7-a")
-    [plan] = view.board(data, found([asked]), "live", [], T0, set())["milestones"]
-    assert (plan["name"], [entry["id"] for entry in plan["features"]]) == ("Plan", ["o2", "o1"])
-    assert [(part["title"], part["state"], part["blocks"], part["doing"]) for part in plan["parts"]] == [
-        ("old work", "done", "", ""),
-        ("chart", "doing", "", "drawing it"),
-        ("toast", "you", "Your tap: change 1", ""),
-    ]
-    card = "card:demo:j2-7-a"
-    assert {(node["id"], node["state"]) for node in plan["nodes"]} == {
-        ("part:o1:chart", "doing"),
-        ("part:o1:toast", "you"),
-        ("job:j1", "doing"),
-        ("job:j2", "waiting"),
-        ("pr:yasyf/cc-skills#1", "you"),
-        (card, "you"),
-    }
-    assert {(edge["from"], edge["to"]) for edge in plan["edges"]} == {
-        ("part:o1:chart", "milestone"),
-        ("part:o1:toast", "milestone"),
-        ("job:j1", "part:o1:chart"),
-        ("job:j2", "part:o1:toast"),
-        ("pr:yasyf/cc-skills#1", "part:o1:toast"),
-        (card, "job:j2"),
-    }
-
-
-def test_plan_lists_every_order_with_no_milestone_under_no_milestone_and_hides_none() -> None:
-    data = drive_of(
-        {
-            "o1": order("ship the plan", [], milestone="Plan"),
-            "o2": order("fix the watch", ["j1"], parts={"watch": state.new_part()}),
-            "o3": order("old fix", [], state="done", created=at(-3000), updated=at(-2000)),
-            "o4": order("dropped work", [], state="dropped"),
-            "o5": order("fresh fix", [], state="done", updated=at(-30)),
-        },
-        {"j1": job("o2", "running", "fixing it", parts=["watch"])},
-        [],
-    )
-    loose = view.board(data, found([]), "live", [], T0, set())["unplanned"]
-    assert (loose["name"], [entry["id"] for entry in loose["features"]]) == ("No milestone", ["o2", "o5"])
-    assert [(part["title"], part["state"], part["doing"]) for part in loose["parts"]] == [("fix the watch", "doing", "fixing it"), ("fresh fix", "done", "")]
-    with_none = drive_of({"o1": order("ship the plan", [], milestone="Plan")}, {}, [])
-    assert view.board(with_none, found([]), "live", [], T0, set())["unplanned"] is None
+def test_the_dashboard_model_carries_no_plan() -> None:
+    data = drive_of({"o1": order("ship the plan", [])}, {}, [])
+    assert not {"milestones", "unplanned"} & set(view.board(data, found(), "live", [], T0, set()))
+    assert "milestone" not in view.board(data, found(), "live", [], T0, set())["status"][-1]["features"][0]

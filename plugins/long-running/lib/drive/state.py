@@ -182,7 +182,7 @@ def load(name: str) -> dict:
             order.update(promised=order.get("due") and order["updated"], next_due=None, kept=None, withdrawn=None)
         order.setdefault("next_set", None)
         order.setdefault("incident", False)
-        order.setdefault("milestone", None)
+        order.pop("milestone", None)
         order.setdefault("project", None)
         order.setdefault("workstream", None)
         order.setdefault("kind", None)

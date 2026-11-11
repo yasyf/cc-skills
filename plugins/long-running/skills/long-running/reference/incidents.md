@@ -46,7 +46,8 @@ its root cause the verdict.
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
   cause. The coordinator reads `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it: `drive order add
-  "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --joins <o>` records it
+  "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --joins <o>` with `<o>`'s own
+  `--project` and `--workstream` records it
   with the record of `<o>` and no job of its own, it takes the parts his words ask for with `drive
   order set <new> --parts "<part>"`, and the owner carries it with `drive job set <owner> --carries
   <new> --part "<part>"`. On Nov 10 three SandSQL alerts on shared prod became three incident
@@ -62,7 +63,8 @@ its root cause the verdict.
 2. Read the open incident orders on the dashboard's top strip: one on the same failing service makes
    this a join, by [One incident, one record](#one-incident-one-record), and nothing below starts.
    Otherwise `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread
-   <ts> --incident --parts fix "first check" --due +5m`, or `--parts rollback fix cause` when no
+   <ts> --incident --parts fix "first check" --due +5m --project "<p>" --workstream "<w>"`, filed under the
+   area it hit, or `--parts rollback fix cause` when no
    release or new build came before the break. `--incident` refuses an order with no `fix` part,
    records a codex job on each part, and prints each job's id beside its part, then each other open
    incident order with its note. Open the record with `ccn investigation open "<service> on

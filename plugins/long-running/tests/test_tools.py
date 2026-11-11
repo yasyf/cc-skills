@@ -15,7 +15,7 @@ ANSWER = {
 
 
 def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_made(demo: str) -> None:
-    order = {"words": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD}
+    order = {"words": "Fix the card", "from": f"slack:D123/{THREAD}", "thread": THREAD, "project": "The drive", "workstream": "Drive tooling"}
     said = tools.run("job", demo, {"ops": [{"add": {"kind": "builder", "order": order, "goal": "fix it"}}, {"set": {"state": "waiting", "said": "WAITING CI"}}]})
     assert said.splitlines()[:2] == ["1 order add: o1", "1 job add: j1"]
     assert said.splitlines()[2].startswith("2 job set: j1")
@@ -27,7 +27,7 @@ def test_a_call_runs_its_ops_in_order_and_an_op_after_an_add_acts_on_what_it_mad
 
 def test_a_refusal_keeps_the_lines_before_it_and_names_the_ops_left_unrun(demo: str) -> None:
     with pytest.raises(DriveError) as refused:
-        tools.run("order", demo, {"ops": [{"add": {"words": "Ship it"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})
+        tools.run("order", demo, {"ops": [{"add": {"words": "Ship it", "project": "The drive", "workstream": "Drive tooling"}}, {"set": {"id": "o9", "note": "x"}}, {"set": {"note": "never"}}]})
     assert str(refused.value).splitlines() == ["1 order add: o1", "2 order set refused: drive: no order o9; ops 3-3 not run"]
     assert state.load(demo)["orders"]["o1"]["note"] is None
     with pytest.raises(DriveError, match="invalid choice: 'finished'"):
@@ -55,7 +55,7 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     job_set = ops["set"]["set"]
     assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
-    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words"]
+    assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "project", "workstream"]
     assert listed["status"]["annotations"] == {"readOnlyHint": True}
 
 
@@ -86,7 +86,7 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(reads, "run", lambda argv, checkout: json.dumps(ANSWER))
-    run("order", "add", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "add", "builder", "--order", "o1", "--goal", "make the verbs MCP tools")
     brief = {"id": "j2", "serves": "drive tooling", "done_when": "installed", "where": "yasyf/cc-skills main", "ruling": ["73060f0"]}

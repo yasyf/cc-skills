@@ -22,7 +22,7 @@ this? It's not in scope for us."
 - **Drive tooling**: a fix to a tool the drive runs on, such as a launcher, the watch, cards or
   CI plumbing, or a rewrite of this skill a ruling of his asks for, by [Tooling](../SKILL.md#tooling).
   It is the communicator's: an order of its own, `drive order add "Drive tooling: <what it fixes>"
-  --from cci:<seq>` with no `--thread`, which the communicator adds with its builder, never a job of
+  --from cci:<seq> --project "The drive" --workstream "<w>"` with no `--thread`, which the communicator adds with its builder, never a job of
   his feature order and never `--serves` to it, and its PR's His words list says none. A `yasyf/*`
   PR lands with no tap. A `Forge-AI/*` one lands under an exempt class, or serves its own order with
   `drive pr set <url> --tap --serves <its Drive tooling order> --design none` and gets a PR card at

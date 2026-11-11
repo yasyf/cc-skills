@@ -23,7 +23,7 @@ ORIGIN = "git@github.com:Forge-AI/monorepo.git"
 
 @pytest.fixture
 def drive_pr(run: Run, demo: str) -> str:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("pr", "add", PR, "--job", "j1", "--tap")
     return state.pr_key(PR)
@@ -65,7 +65,7 @@ def hook_output(module: object, monkeypatch: pytest.MonkeyPatch, capsys: pytest.
 
 
 def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "resume"})
     assert output["hookSpecificOutput"]["hookEventName"] == "SessionStart"
     context = output["hookSpecificOutput"]["additionalContext"]
@@ -177,7 +177,7 @@ def agent_stop(message: str, session: str | None = None, **fields: object) -> di
 def test_a_drive_job_with_a_long_final_message_is_sent_back_to_keep_it_in_its_report(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     long = "WAITING CI on the PR\nPR: https://github.com/yasyf/cc-skills/pull/1\nCHECK: build 12"
@@ -202,7 +202,7 @@ def test_a_handler_is_held_to_one_line_and_other_sessions_are_left_alone(demo: s
 def test_a_drive_jobs_returned_line_sets_its_state_once_the_line_is_let_through(
     demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     run("job", "set", "j1", "--agent", "a-7")
     returned = "WAITING: CI on #1\nPR: https://github.com/yasyf/cc-skills/pull/1"
@@ -228,7 +228,7 @@ def stepped(tmp_path: Path, brief: str, session: str | None = None, **fields: ob
 def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_after_a_wake_runs_it_again(
     demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     brief = "Goal: fix it\nDrive: demo, order o1, job j1\nScratch: /x"
@@ -248,7 +248,7 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
 def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     run("job", "set", "j2", "--state", "stopped")
@@ -261,7 +261,7 @@ def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
 def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_job(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
     stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1"))
     assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
@@ -272,7 +272,7 @@ def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_j
 def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "ship the fix")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "merged", "--where", "yasyf/cc-skills main")
     assert code == 0
@@ -339,7 +339,7 @@ def drive_agent(subagent_type: str, prompt: str, model: str | None = None, sessi
 def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_research(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    run("order", "add", "Drive tooling: copy one store", "--kind", "build")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
@@ -373,9 +373,9 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
 
 
 def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:
-    run("order", "add", "why did the copy stall?", "--kind", "answer", "--complex")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him")
-    run("order", "add", "which flag sets the cap?", "--kind", "answer")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "which flag sets the cap?", "--kind", "answer")
     run("job", "add", "reader", "--order", "o2", "--goal", "answer him")
     assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Researched: j9\nDrive: demo, order o1, job j1")) == (
         "refused, no agent started: j1 answers o1, an answer order: its one lane does its own research, reading code,"
@@ -595,7 +595,7 @@ def test_guard_judges_a_shared_pr_by_the_newest_drive_that_knows_it(
 ) -> None:
     approve(drive_pr)
     run("start", "later", "--role", "coordinator")
-    run("order", "add", "land it again", "--drive", "later")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", "later")
     run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", "later")
     run("pr", "add", PR, "--job", "j1", "--tap", "--drive", "later")
     run("start", "unrelated", "--role", "coordinator")
