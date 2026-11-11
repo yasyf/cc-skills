@@ -505,6 +505,18 @@ def test_refused_appends_one_event_per_new_reason(drive: str) -> None:
     ]
 
 
+def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: str) -> None:
+    copy = state.new_drive("copy", "coordinator", "s2", "/work", "D123")
+    copy["prs"] = {"Forge-AI/monorepo#42": {**entry(), "updated": "2026-11-11T00:20:00-08:00"}}
+    state.create(copy)
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:42:12-08:00"
+    assert card.drive_prs()["Forge-AI/monorepo#42"][0] == drive
+    with state.edit("copy") as data:
+        data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:43:00-08:00"
+    assert card.drive_prs()["Forge-AI/monorepo#42"][0] == "copy"
+
+
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
     answer = {
         "repo": "Forge-AI/monorepo",

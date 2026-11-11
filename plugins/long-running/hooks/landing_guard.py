@@ -34,6 +34,7 @@ CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
+MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
 UNKEPT_ASK = (
     "An ask record names the ASK `drive job ask` kept (--attr ask=<the path it printed>), and the communicator draws"
     " its card from that file; keep the question with `drive job ask <j> <file>`, then post the record with that path"
@@ -44,6 +45,7 @@ UNKEPT_ASK = (
 class Shell:
     cwd: str
     env: dict[str, str]
+    session: str
 
 
 @dataclass(frozen=True)
@@ -55,6 +57,7 @@ class Landing:
     repo: str | None = None
     label: str | None = None
     reads: tuple[str, ...] = ()
+    endpoint: bool = False
 
 
 LANDINGS = (
@@ -74,6 +77,12 @@ LANDINGS = (
         label="merge",
     ),
     Landing(("gh", "stack", "merge"), frozenset({"repo", "merge-method"}), {"R": "repo"}),
+    Landing(
+        ("gh", "api"),
+        frozenset({"method", "field", "raw-field", "header", "input", "jq", "template", "hostname", "cache", "preview"}),
+        {"X": "method", "F": "field", "f": "raw-field", "H": "header", "q": "jq", "t": "template", "p": "preview"},
+        endpoint=True,
+    ),
     Landing(("ccx", "vcs", "merge"), frozenset({"repo", "match-head-commit", "red-on-main"}), {"R": "repo"}),
     Landing(("ci", "trunk", "submit"), frozenset({"priority"}), every_pr=True, repo=MONOREPO),
     Landing(("stack-enqueue",), frozenset(), every_pr=True, repo=MONOREPO, reads=("check", "status", "dequeue")),
@@ -236,23 +245,36 @@ def resolve_key(ref: str | None, repo: str, selected: str | None, cwd: str) -> s
     return pr_view(ref, repo, cwd)
 
 
-def judged_by(key: str) -> dict | None:
-    """The drive's entry for a PR, from the newest-started drive that knows it."""
+def judged_by(key: str, session: str) -> dict | None:
+    """The drive's entry for a PR: this session's own drive's when it tracks the PR, else the entry updated last, since a drive copied from another keeps the older copy of each entry."""
+    own = state.session_drives(session)
     known = [
-        (state.parse_time(state.last_started(data)), pr)
-        for data in map(state.load, state.names())
-        for stored, pr in data["prs"].items()
+        (name in own, state.parse_time(pr["updated"]), pr)
+        for name in state.names()
+        for stored, pr in state.load(name)["prs"].items()
         if stored.lower() == key.lower()
     ]
-    return max(known, key=lambda pair: pair[0])[1] if known else None
+    return max(known, key=lambda entry: entry[:2])[2] if known else None
 
 
-def tap_reason(key: str) -> str | None:
-    may_land, why = tap_verdict(judged_by(key))
+def tap_reason(key: str, session: str) -> str | None:
+    may_land, why = tap_verdict(judged_by(key, session))
     return None if may_land else f"{key}: {why}. {TAP_HINT}"
 
 
+def merged_through_api(refs: list[str], options: dict[str, list[str]]) -> list[str] | None:
+    """The PR a `gh api` call merges, as its URL, when it PUTs GitHub's merge or merge-async endpoint of a pull request."""
+    merged = MERGE_ENDPOINT.fullmatch(next(iter(refs), ""))
+    if not merged or options.get("method", ["GET"])[-1].upper() != "PUT":
+        return None
+    return [f"https://github.com/{merged[1]}/pull/{merged[2]}"]
+
+
 def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[str]], shell: Shell) -> str | None:
+    if landing.endpoint:
+        if (merged := merged_through_api(refs, options)) is None:
+            return None
+        refs, options = merged, {}
     if not lands(landing, options):
         return None
     named = refs if landing.every_pr else refs[:1] or [None]
@@ -263,7 +285,7 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return ADMIN_REASON
     selected = selected_repo(landing, options, shell)
     keys = (resolve_key(ref, repo, selected, shell.cwd) for ref in named)
-    return next(filter(None, map(tap_reason, keys)), None)
+    return next(filter(None, (tap_reason(key, shell.session) for key in keys)), None)
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
@@ -306,7 +328,7 @@ def asks_posted(script: str, shell: Shell) -> list[str | None]:
 def deny_reason(payload: dict) -> str | None:
     """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap, merges with --admin, or posts a drive's ask record past the check against his answers."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
-    shell = Shell(payload.get("cwd") or os.getcwd(), env)
+    shell = Shell(payload.get("cwd") or os.getcwd(), env, payload.get("session_id") or "")
     command = payload["tool_input"]["command"]
     asks = asks_posted(command, shell)
     if asks and (names := state.session_drives(payload.get("session_id") or "")) and not all(settled.kept(names, ask) for ask in asks):

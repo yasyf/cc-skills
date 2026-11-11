@@ -628,26 +628,62 @@ def test_guard_looks_up_a_merge_naming_no_pr_or_repo_in_the_checkout(
     assert calls == [["git", "remote", "get-url", "origin"], ["gh", "pr", "view", "--json", "url", "-q", ".url"]]
 
 
-def started_at(name: str, moment: str) -> None:
+def updated_at(name: str, key: str, moment: str) -> None:
     with state.edit(name) as data:
-        data["roles"]["coordinator"]["started"] = moment
+        data["prs"][key]["updated"] = moment
 
 
-def test_guard_judges_a_shared_pr_by_the_newest_drive_that_knows_it(
+def copy_of_demo(run: Run, name: str) -> None:
+    run("start", name, "--role", "coordinator")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", name)
+    run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", name)
+    run("pr", "add", PR, "--job", "j1", "--tap", "--drive", name)
+
+
+def test_guard_judges_a_shared_pr_by_the_entry_updated_last_not_the_drive_started_last(
     drive_pr: str, run: Run, no_calls: list[list[str]]
 ) -> None:
     approve(drive_pr)
-    run("start", "later", "--role", "coordinator")
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it again", "--drive", "later")
-    run("job", "add", "builder", "--order", "o1", "--goal", "again", "--drive", "later")
-    run("pr", "add", PR, "--job", "j1", "--tap", "--drive", "later")
-    run("start", "unrelated", "--role", "coordinator")
-    started_at("demo", "2026-11-09T08:00:00-05:00")
-    started_at("later", "2026-11-09T09:00:00-05:00")
-    started_at("unrelated", "2026-11-09T12:00:00-05:00")
-    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")).startswith(f"{drive_pr}: no tap from him yet")
-    started_at("demo", "2026-11-09T07:30:00-08:00")
+    copy_of_demo(run, "copy")
+    with state.edit("copy") as data:
+        data["roles"]["coordinator"]["session"] = "the-copy's-session"
+    updated_at("demo", drive_pr, "2026-11-11T00:42:12-08:00")
+    updated_at("copy", drive_pr, "2026-11-11T00:20:00-08:00")
     assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")) is None
+    updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR}")).startswith(f"{drive_pr}: no tap from him yet")
+
+
+def test_guard_judges_a_shared_pr_by_the_sessions_own_drive_first(
+    drive_pr: str, run: Run, no_calls: list[list[str]]
+) -> None:
+    copy_of_demo(run, "copy")
+    approve(drive_pr)
+    with state.edit("copy") as data:
+        data["roles"]["coordinator"]["session"] = "the-copy's-session"
+    updated_at("demo", drive_pr, "2026-11-11T00:20:00-08:00")
+    updated_at("copy", drive_pr, "2026-11-11T00:43:00-08:00")
+    mine = bash(f"gh pr merge {PR}") | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    assert landing_guard.deny_reason(mine) is None
+    assert landing_guard.deny_reason(mine | {"session_id": "the-copy's-session"}).startswith(f"{drive_pr}: no tap from him yet")
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "gh api -X PUT repos/Forge-AI/monorepo/pulls/42/merge-async -f sha=abc -f merge_method=squash -f merge_action=direct_merge",
+        "gh api --method=put /repos/Forge-AI/monorepo/pulls/42/merge -f merge_method=squash",
+    ],
+)
+def test_guard_holds_a_merge_through_the_api_to_his_tap(drive_pr: str, no_calls: list[list[str]], command: str) -> None:
+    assert landing_guard.deny_reason(bash(command)).startswith(f"{drive_pr}: no tap from him yet")
+    approve(drive_pr)
+    assert landing_guard.deny_reason(bash(command)) is None
+
+
+def test_guard_lets_an_api_read_of_a_merge_through(drive_pr: str, no_calls: list[list[str]]) -> None:
+    assert landing_guard.deny_reason(bash("gh api repos/Forge-AI/monorepo/pulls/42/merge")) is None
+    assert landing_guard.deny_reason(bash("gh api -X PUT repos/Forge-AI/monorepo/pulls/42/requested_reviewers")) is None
 
 
 def test_guard_reads_gh_repo_from_the_session_environment(

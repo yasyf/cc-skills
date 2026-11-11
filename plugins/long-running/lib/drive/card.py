@@ -341,7 +341,13 @@ def render_stack(members: list[tuple[dict, dict, tuple[str, ...]]]) -> dict:
 
 
 def drive_prs() -> dict[str, tuple[str, dict]]:
-    return {key: (name, entry) for name in state.names() for key, entry in state.load(name)["prs"].items()}
+    """Each PR the drives track, with the drive whose entry for it was updated last, since a drive copied from another keeps the older copy of each entry."""
+    known: dict[str, tuple[str, dict]] = {}
+    for name in state.names():
+        for key, entry in state.load(name)["prs"].items():
+            if key not in known or state.parse_time(entry["updated"]) > state.parse_time(known[key][1]["updated"]):
+                known[key] = (name, entry)
+    return known
 
 
 def keys_of(asks: list[dict], known: dict[str, tuple[str, dict]]) -> list[str]:
