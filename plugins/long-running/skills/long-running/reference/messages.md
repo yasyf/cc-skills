@@ -164,7 +164,9 @@ names its drive and waits on him at his DM root, whatever thread it is given, so
 never rests on a handler's reading. It puts one copy of the card with its buttons in that thread.
 A drive tooling card is given no thread, since its order has none. The handler then closes
 the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His tap
-still comes back as an `answer` record, so card posted and he answered stay two states. To change
+still comes back as an `answer` record, so card posted and he answered stay two states. A card that
+an answer or ruling he gave elsewhere replaces never keeps asking: the coordinator's `drive answer`
+settles it in place, showing his words and a link to them where its buttons were. To change
 the words of a card he has not answered, draw it again under its `waits` id. That one call edits
 the card where it sits, redraws every copy of it already in a thread, and posts one fresh copy
 beside it. While a card he has not answered is being redone, it says so where it sits and keeps its
@@ -207,7 +209,8 @@ button, then its Refresher, its biggest surprise, what he will hate most, where 
 it waits on only when that is not green and his tap, how it differs from the plan when it does, and
 its Show me with its pictures inline. A stack card's title and opening summary come from `## The
 stack` in its bottom PR. Once he answers, the card folds to its title, his pick, and one line per
-PR. Its words come from each PR's title and body, with record ids dropped, so a bad card is fixed in
+PR; once an answer or ruling of his replaces the work it carries, `drive answer` settles it the same
+way as a question card, with his words and their link and no buttons. Its words come from each PR's title and body, with record ids dropped, so a bad card is fixed in
 the PR body, never in the message.
 
 **A confirmation of a skill update**, twice for each message of his that leads to one: the ack

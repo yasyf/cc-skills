@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+from conftest import Thread
 from drive import cli, github, slack, state, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -917,3 +918,21 @@ def test_lines_held_when_the_watch_stops_are_delivered_by_the_next_watch(demo: s
     state.save_held_lines(demo, [f"PR {KEY}: approved [o1 j1]"])
     restarted = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, held=state.held_lines(demo))
     assert watch.delivered(restarted, [], T0) == [f"PR {KEY}: approved [o1 j1]"]
+
+
+def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_until_it_is_marked(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    asking(monkeypatch, demo, "demo:j1-7-a")
+    with state.edit(demo) as data:
+        data["answers"]["a1"] = {"words": "one new tool", "link": f"{CARD}9", "at": state.stamp(T0), "said": state.stamp(T0), "cards": {"demo:j1-7-a": None}}
+    watching = watcher(demo)
+
+    def said(minutes: int) -> list[str]:
+        return [line for line in watch.run_pass(watching, T0 + timedelta(minutes=minutes)) if line.startswith("ANSWER")]
+
+    line = 'ANSWER a1 "one new tool": 1 card still asking him, marked neither standing nor superseded by it; drive answer a1 lists them: demo:j1-7-a'
+    assert (said(5), said(10), said(15), said(20)) == ([], [line], [], [line])
+    assert watch.delivered(watching, [line], T0 + timedelta(minutes=20)) == [line]
+    with state.edit(demo) as data:
+        data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
+    assert said(40) == []

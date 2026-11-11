@@ -148,6 +148,7 @@ def new_drive(
         "orders": {},
         "jobs": {},
         "prs": {},
+        "answers": {},
     }
 
 
@@ -178,6 +179,7 @@ def load(name: str) -> dict:
         pr["waits"] = waits if isinstance(waits, list) else [waits] if waits else []
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
+    data.setdefault("answers", {})
     return data
 
 
