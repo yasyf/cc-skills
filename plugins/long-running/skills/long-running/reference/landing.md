@@ -60,8 +60,8 @@ itself.
     nothing to run.
   - `## Show me`: a concrete example of the change in the visual kind that fits, which his card draws
     as a picture and the dashboard draws live: the real SQL, code, CLI call or Sand call it changes,
-    before and after, in a fence naming its language (`sql`, `go`, `sand`, `console` for a command and
-    its output), never words in a fence; a `mermaid` or `arch` fence for a flow between components, a
+    before and after, in a fence naming its language (`sql`, `go`, `sand`), never words, JSON, YAML,
+    logs, terminal output or a stack trace in a fence; a `mermaid` or `arch` fence for a flow, a
     `chart` (Vega-Lite) for numbers before and after; for a UI change, a screenshot or gif linked as a
     markdown image. What a screenshot may show depends on who can read the
     PR. On a public repository, such as every `yasyf/*` one, it shows a demo drive or public data only,

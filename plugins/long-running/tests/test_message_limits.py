@@ -655,6 +655,13 @@ def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carri
         ('```compare\n{"options": [{"name": "Listener"}]}\n```', "the Show me ```compare fence compares fewer than two named options"),
         ('```chart\n{"mark": "bar",}\n```', "the Show me ```chart fence is not the JSON it draws from"),
         ("", "the Show me holds no visual, only words"),
+        ('```json\n{"type": "slack.message", "watch_id": 2816}\n```', 'the Show me ```json fence holding "{"type": "slack.message", "watch_id": 2816}" is JSON'),
+        ("```yaml\nwatch: [C0822AHFY3G]\n```", "is YAML, raw data or tool output"),
+        ("```console\n$ cc-slack subscribe --kind alerts\nALERT open monitor 315028134\n```", "is a terminal session"),
+        ("```bash\n$ drive status\ndurable-agents: 180 open of 287 orders\n```", "is a terminal session"),
+        ('```python\nTraceback (most recent call last):\n  File "cli.py", line 3, in main\n```', "is a stack trace"),
+        ("```go\n2026-11-10T22:41:03Z replica lane unproven\n2026-11-10T22:41:04Z replica lane unproven\n```", "is log lines"),
+        ('```js\n{"count": 384}\n```', "is JSON, raw data or tool output, and a picture of it shows him nothing: draw what it means instead"),
     ],
 )
 def test_a_show_me_of_words_or_of_a_visual_that_cannot_draw_is_refused_but_a_block_kept_earlier_still_reads(shown: str, refusal: str) -> None:
@@ -662,6 +669,14 @@ def test_a_show_me_of_words_or_of_a_visual_that_cannot_draw_is_refused_but_a_blo
     with pytest.raises(DriveError, match=re.escape(refusal)):
         limits.question(block)
     assert limits.question(block, kept=True).show_me[0] == "What each reading builds, beside what runs today."
+
+
+def test_a_real_call_draws_and_a_block_with_nothing_to_show_has_no_show_me() -> None:
+    call = "The call each option makes.\n```bash\n$ drive status --json\n```"
+    assert limits.question(WATCHDOG_ASK.replace(WATCHDOG_SHOW_ME, call)).show_me[0] == "The call each option makes."
+    asked = limits.question(WATCHDOG_ASK.replace(f"Show me:\n{WATCHDOG_SHOW_ME}\n", ""))
+    assert asked.show_me == []
+    assert "*Show me*" not in asked.card("demo", "demo:j1-1")["body"]
 
 
 def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:

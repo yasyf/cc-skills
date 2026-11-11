@@ -67,6 +67,8 @@ def drawn(name: str, index: int, visual: dict) -> Path:
         if not (local := Path(source).expanduser()).is_absolute() or not local.is_file():
             raise DriveError(f"visual {index}: {source} is neither a link nor a file here")
         return local
+    if visual["kind"] == "code" and (what := picture.raw(visual.get("language") or "", source)):
+        raise DriveError(f"visual {index} is {what}, raw data or tool output, so nothing was posted; {picture.INSTEAD}")
     try:
         return picture.cached(state.drive_dir(name) / "pictures", "show-me", kind(visual), source)
     except picture.PictureError as error:
