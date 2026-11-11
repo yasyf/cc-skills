@@ -4,7 +4,7 @@
 
 ## Drive verbs as tools
 
-- Run the `drive order`, `drive job` and `drive pr` verbs that add or set, and `drive status`, as tools of this plugin's `drive` MCP server, never in Bash: `order` (`add`, `set`, `posted`), `job` (`add`, `set`, `brief`), `pr` (`add`, `set`) and `status`.
+- Run the `drive order`, `drive job` and `drive pr` verbs that add or set, and `drive status`, as tools of this plugin's `drive` MCP server, never in Bash: `order` (`add`, `set`, `posted`), `job` (`add`, `set`, `brief`), `pr` (`add`, `set`), `status` and `search_plan`.
 - One call of a tool carries every op the turn needs from it, in order, each op one verb with its flags as fields named as in `drive manual verbs`, dashes as underscores, such as `pr` with ops `[{set: {url: "<url>", tap: true, serves: "o4", design: "none"}}, {set: {url: "<url 2>", waits: ["<card>"]}}]`.
 - An op after an `add` that names no `id` acts on what that add made, and a `job` `add` whose `order` holds `order add`'s fields adds the order too.
 - A call prints one line per op and stops at the first refusal, naming it and the ops left unrun; `dry_run: true` prints the commands and runs nothing.

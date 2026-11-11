@@ -19,7 +19,9 @@ Contents:
   ninth without `--remote`. Before you start a Forge-AI/monorepo builder, run `drive place` and start
   it where it says. It answers `remote` when this Mac's CPU is at or over its load gate's limit or
   eight builders run here, and `local` otherwise; a remote builder runs its builds and checks on its
-  own Sprite. Past eight, a builder on any other repository waits as `open`, oldest due first.
+  own Sprite. Past eight, the `agent_brief` hook refuses a ninth builder here and names the builder
+  jobs waiting for one, oldest due first: the earliest time promised him on an order each serves,
+  then the oldest added. When a builder here finishes, start the first of them.
 - Readers, codex jobs, builders on any other repository (a yasyf/* tool installs on this Mac), any
   job that touches this Mac's processes, and a handoff whose `PROVE:` line runs `ci mac-box` or
   `ci devbox` always run here. A Sprite holds no AWS sign-in, and both verbs sign in with this Mac's
@@ -41,7 +43,8 @@ team and never wakes on events; Fable on any agent but `long-running:designer`; 
 other type; a build order's codex lane before its reader's research is kept; and a builder whose
 brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own
 action backfills, bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:`
-line; a Goal that only names a PR, stack or check for a pass is not one. The `scratch_folder` hook refuses
+line; a Goal that only names a PR, stack or check for a pass is not one; and a builder while eight run
+on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses
 `sonnet` or `haiku` on any lane of a build order or a complex answer order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's
 builder or designer whose brief lacks the `Researched:` line the `brief` op writes once its reader's
 research is kept. Each refusal names its fix: do it, never route around it.

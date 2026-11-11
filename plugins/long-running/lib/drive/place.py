@@ -2,6 +2,9 @@ import ctypes
 import os
 import sys
 import time
+from datetime import datetime
+
+from drive import state, watch
 
 LIMIT_ENV = "HOOKS_ADMISSION_LOAD_PER_CORE"
 MONOREPO = "Forge-AI/monorepo"
@@ -47,3 +50,40 @@ def verdict(share: float, ceiling: float, local_builders: int) -> tuple[str, str
         return "remote", f"{local_builders} builders already run on this Mac, its cap of {LOCAL_BUILDERS}"
     load = f"this Mac is {share:.0%} busy, under its {ceiling:.0%} limit"
     return "local", f"{load}, with {local_builders} of {LOCAL_BUILDERS} builders"
+
+
+def local_builders(data: dict, moment: datetime) -> int:
+    """The builders at work on this Mac: running here, as an agent still writing or an Orca lane started with --local that has not ended."""
+    return sum(
+        job["kind"] == "builder" and job["state"] == "running" and at_work_here(job_id, job, data, moment) for job_id, job in data["jobs"].items()
+    )
+
+
+def at_work_here(job_id: str, job: dict, data: dict, moment: datetime) -> bool:
+    if job.get("where") != "remote":
+        return bool(job["agent"]) and watch.local_gap(job_id, job, data, moment) is None
+    if not state.on_mac(job):
+        return False
+    if not job.get("dispatch"):
+        return watch.launching(job, moment)
+    return all(death["dispatch"] != job["dispatch"] for death in job.get("deaths", []))
+
+
+def waiting_builders(data: dict) -> list[str]:
+    """The builder jobs for this Mac that no agent runs yet, oldest due first: the earliest time promised him on an order each serves, then the oldest added."""
+    waiting = [
+        job_id
+        for job_id, job in data["jobs"].items()
+        if job["kind"] == "builder" and job["state"] == "running" and job.get("where") != "remote" and not job["agent"]
+    ]
+    return sorted(waiting, key=lambda job_id: due_first(data, data["jobs"][job_id]))
+
+
+def promised(data: dict, job: dict) -> str | None:
+    """The earliest time promised him on an order the job serves, its own or one it carries."""
+    return min((due for order_id in [job["order"], *job["carries"]] if (due := data["orders"][order_id]["due"])), key=state.parse_time, default=None)
+
+
+def due_first(data: dict, job: dict) -> tuple[bool, datetime]:
+    due = promised(data, job)
+    return due is None, state.parse_time(due or job["created"])

@@ -1908,6 +1908,29 @@ def test_a_done_or_ready_leaves_no_step_for_someone_else(
     assert keep(monkeypatch, capsys, "j1", f"{done}PROVE: after release, open the run page\n") == (0, "")
 
 
+def test_a_limit_left_standing_is_his_choice_and_returns_ask_or_design(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy the bucket")
+    run("job", "add", "builder", "--order", "o1", "--goal", "copy it")
+    check = "CHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"
+    for finding in (
+        "the bucket caps at 5k objects/s, left as is",
+        "the copy hit the 5k objects/s rate limit",
+        "the copy did not lose data and hit the 5k objects/s rate limit",
+    ):
+        code, err = keep(monkeypatch, capsys, "j1", f"DONE {finding}\n{check}")
+        assert code == 2
+        assert f'j1: refused, nothing kept: it reports a limit as a finding left standing: "DONE {finding}". A limit or capacity finding is his choice' in err
+        assert "return ASK or DESIGN with two to four options for it, one recommended" in err
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    design = "DESIGN the bucket caps at 5k objects/s, left as is\n- shard the copy across buckets (recommended)\n- copy at 5k objects/s\n"
+    assert keep(monkeypatch, capsys, "j1", design) == (0, "")
+    run("job", "add", "builder", "--order", "o1", "--goal", "queue the cards")
+    assert keep(monkeypatch, capsys, "j2", f"DONE the queue caps at 4 cards, as his order asked; the card title is unchanged\n{check}") == (0, "")
+    assert keep(monkeypatch, capsys, "j2", f"DONE the 5k objects/s cap was never hit\n{check}") == (0, "")
+
+
 def test_a_builders_ready_names_prs_whose_tap_card_draws(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -2497,8 +2520,9 @@ def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_whi
         " or wait until drive place says local"
     )
     assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "Forge-AI/monorepo", "--remote")[0] == 0
-    for _ in range(place.LOCAL_BUILDERS):
-        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
+    for _ in range(place.LOCAL_BUILDERS - 1):
+        assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills", "--agent", "a")[0] == 0
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills")[0] == 0
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills"]) == 2

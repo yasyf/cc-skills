@@ -110,3 +110,26 @@ def test_a_builder_passing_over_a_teams_data_names_what_it_runs_as(demo: str) ->
         "migrate tests to pytest",
     ):
         assert agent_brief.deny_reason(started("long-running:builder", f"{order}Goal: {goal}")) is None
+
+
+def test_a_ninth_builder_here_waits_and_its_refusal_names_the_jobs_waiting_oldest_due_first(demo: str, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tidy the docs")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the card", "--due", "+2h", "--thread", "1.2")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch", "--due", "+1h", "--thread", "1.3")
+    run("job", "add", "builder", "--order", "o1", "--goal", "tidy the docs")
+    run("job", "add", "builder", "--order", "o2", "--goal", "fix the card")
+    run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch")
+    for number in range(1, 9):
+        run("job", "add", "builder", "--order", "o1", "--goal", f"build part {number}", "--agent", f"a{number}")
+    run("job", "add", "builder", "--order", "o3", "--goal", "fix the watch on a Sprite", "--remote")
+    brief = "Order (his words): fix the watch\nServes: his order\nGoal: fix it\nDrive: demo, order o3, job j3"
+    refused = agent_brief.deny_reason(started("long-running:builder", brief))
+    assert refused.startswith(
+        "refused: 8 builders already run on this Mac, its cap of 8, so this one waits: start no builder here until one"
+        " finishes, then start the first job waiting, oldest due first: j3 (due "
+    )
+    assert refused.index('"fix the watch"; j2 (due ') < refused.index('"fix the card"; j1 (no time promised) "tidy the docs".')
+    assert "j12" not in refused
+    assert refused.endswith("A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>")
+    run("job", "set", "j4", "--state", "stopped")
+    assert agent_brief.deny_reason(started("long-running:builder", brief)) is None

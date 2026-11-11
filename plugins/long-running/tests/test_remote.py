@@ -122,6 +122,24 @@ def test_place_counts_only_running_builders_on_this_mac(
     assert run("place")[1] == "remote: 8 builders already run on this Mac, its cap of 8"
 
 
+def test_place_counts_a_builder_lane_started_on_this_mac_while_it_launches_or_runs(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(place, "busy", lambda: 0.2)
+    monkeypatch.setenv(place.LIMIT_ENV, "0.5")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "many")
+    for goal in ("lane here", "lane here ended", "launching here", "never started here", "on a Sprite"):
+        run("job", "add", "builder", "--order", "o1", "--goal", goal, "--remote")
+    run("job", "set", "j1", "--agent", "ctx_here1")
+    run("job", "set", "j2", "--agent", "ctx_here2")
+    with state.edit(demo) as data:
+        state.lane_died(data["jobs"]["j2"], "ctx_here2", "its worker finished", state.now())
+        data["jobs"]["j3"].update(route=state.LOCAL_ROUTE, launching=state.stamp())
+        data["jobs"]["j4"].update(route=state.LOCAL_ROUTE, launching=state.stamp(state.now() - timedelta(hours=1)))
+        data["jobs"]["j5"].update(dispatch="ctx_sprite5", workspace="pool-one", environment="env-one")
+    assert json.loads(run("place", "--json")[1])["local_builders"] == 2
+
+
 def test_place_skips_a_running_builder_whose_agent_is_gone(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:

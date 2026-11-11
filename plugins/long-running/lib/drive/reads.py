@@ -28,6 +28,10 @@ READ_VERBS = (
     ("ccn", "doc", "show"),
 )
 QUERY_VERBS = ("search", "grep")
+PLAN_HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t#]*$")
+PLAN_WORD = re.compile(r"[^\W_]+")
+PLANS = 5
+PLAN_SECTIONS = 6
 BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
 BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
@@ -110,6 +114,34 @@ def read_records(command: str, checkout: Path) -> str:
     if len(output) <= BUDGET:
         return output
     return f"[first {BUDGET} of {len(output)} characters]\n{output[:BUDGET]}"
+
+
+def plan_sections(words: str, checkout: Path) -> list[dict]:
+    """The sections of the cc-notes plans in the checkout that carry the most of the words, best first, each with its plan and the headings above it."""
+    terms = set(PLAN_WORD.findall(words.casefold()))
+    plans = json.loads(run(["ccn", "plan", "search", words, "--limit", str(PLANS), "--json"], checkout))
+    found = [
+        {"plan": plan["id"][:7], "title": plan["title"], "status": plan["status"], **section}
+        for plan in plans
+        for section in sections(json.loads(run(["ccn", "plan", "show", plan["id"], "--json"], checkout))["body"])
+    ]
+    scored = [(sum(term in f"{section['heading']}\n{section['text']}".casefold() for term in terms), section) for section in found]
+    return [section for score, section in sorted(scored, key=lambda item: -item[0]) if score][:PLAN_SECTIONS]
+
+
+def sections(body: str) -> list[dict]:
+    """A plan's text split at each markdown heading outside a code fence, each part under the path of headings above it."""
+    path: list[tuple[int, str]] = []
+    parts: list[dict] = [{"heading": "", "lines": []}]
+    fenced = False
+    for line in body.splitlines():
+        fenced ^= line.lstrip().startswith("```")
+        if heading := None if fenced else PLAN_HEADING.match(line):
+            path = [*(kept for kept in path if kept[0] < len(heading[1])), (len(heading[1]), heading[2])]
+            parts.append({"heading": " › ".join(title for _, title in path), "lines": []})
+        else:
+            parts[-1]["lines"].append(line)
+    return [{"heading": part["heading"], "text": text} for part in parts if (text := "\n".join(part["lines"]).strip())]
 
 
 def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path, budget: int) -> str:
