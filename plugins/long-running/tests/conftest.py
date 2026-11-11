@@ -193,14 +193,19 @@ def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
 @dataclass
 class WatchProcess:
     ensured: list[str] = field(default_factory=list)
-    listened: list[tuple[str, str]] = field(default_factory=list)
+    listened: list[tuple[str, ...]] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
 def watch_process(monkeypatch: pytest.MonkeyPatch) -> WatchProcess:
     process = WatchProcess()
-    monkeypatch.setattr(watch, "ensure", lambda name: process.ensured.append(name) or f"the watch runs for {name}")
-    monkeypatch.setattr(watch, "listen", lambda name, session: process.listened.append((name, session)))
+
+    def ensure(name: str, project: str | None = None) -> str:
+        process.ensured.append(f"{name} --project {project}" if project else name)
+        return f"the watch runs for {name}"
+
+    monkeypatch.setattr(watch, "ensure", ensure)
+    monkeypatch.setattr(watch, "listen", lambda name, session, project=None: process.listened.append((name, session, project) if project else (name, session)))
     return process
 
 

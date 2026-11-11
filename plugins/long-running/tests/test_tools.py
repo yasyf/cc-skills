@@ -3,7 +3,7 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
-from drive import cli, limits, reads, state, tools
+from drive import card, cli, limits, reads, state, tools
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -94,6 +94,37 @@ def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text
     [[sent]] = posted
     assert len(sent["text"]) <= limits.RECORD_CHARS and sent["text"].startswith("cc-slack delete hides --url:") and sent["text"].endswith("…")
     assert sent["body"] == f"{defect.strip()}\n\nseen on the run page"
+
+
+def test_a_sub_coordinator_posts_from_its_lane_and_his_answer_to_its_card_or_an_owner_record_heard_routes_reaches_it(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build it")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", demo, "--role", "coordinator", "--project", "Iris")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", demo, "--role", "communicator")
+    posted: list[tuple[str, list[dict]]] = []
+
+    def post(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        records = json.loads(kwargs["input"])
+        posted.append((argv[argv.index("--lane") + 1], records))
+        return subprocess.CompletedProcess(argv, 0, "".join(f"#{n}\n" for n, _ in enumerate(records)), "")
+
+    monkeypatch.setattr(subprocess, "run", post)
+    tap = {"kind": "answer", "text": "Ring", "waits": "demo:j1-7"}
+    tools.run("record", demo, {"records": [tap, {"kind": "owner", "text": "also the logs page", "to": "iris"}, {"kind": "owner", "text": "a new order"}]})
+    card.question_answered({"waits": "demo:j1-8", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100"})
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    tools.run("record", demo, {"records": [{"kind": "defect", "text": "cc-slack delete hides --url"}]})
+    assert [(lane, [(record["kind"], record["to"]) for record in records]) for lane, records in posted] == [
+        ("communicator", [("answer", ["iris@demo"]), ("owner", ["iris@demo"]), ("owner", ["root@demo"])]),
+        ("communicator", [("answer", ["iris@demo"])]),
+        ("iris", [("defect", ["communicator@demo"])]),
+    ]
+    with pytest.raises(DriveError, match="to platform: no session of drive demo reads that lane; name one of root, communicator, iris"):
+        tools.run("record", demo, {"records": [{"kind": "owner", "text": "fix the alert", "to": "platform"}]})
 
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:

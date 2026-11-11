@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import CARD_BODY, RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
-from drive import card, cli, github, limits, orca, picture, place, render, slack, state, view
+from drive import card, cli, github, limits, orca, picture, place, render, slack, state, tools, view
 
 Run = Callable[..., tuple[int, str]]
 UNLISTED = {"-h", "--help", "--drive", "--json"}
@@ -96,6 +96,63 @@ def test_a_coordinators_start_starts_the_watch_and_says_so(run: Run, watch_proce
     code, out = run("start", "demo", "--role", "coordinator")
     assert (code, watch_process.ensured) == (0, ["demo"])
     assert "\nthe watch runs for demo\ncoordinator: " in out
+
+
+def test_a_sub_coordinator_binds_beside_the_top_for_a_project_an_order_is_filed_under_and_a_new_session_replaces_it(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    watch_process.ensured.clear()
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    code, out = run("start", "demo", "--role", "coordinator", "--project", "Iris")
+    lines = out.splitlines()
+    assert code == 0
+    assert lines[0].startswith("You are the sub-coordinator for project Iris of drive demo: you run his orders filed under Iris,")
+    assert "The top coordinator: session session-under-test. The communicator: not started." in lines[0]
+    assert lines[1:4] == [
+        "Your cci lane is iris: post with --lane iris; the watch for Iris and the communicator's records reach you at iris@demo.",
+        "Hold no Slack channel: the top coordinator holds the drive's.",
+        f"Subscribe: cci drive use demo, then cci subscribe --reader iris --cursor coordinator-iris {render.COORDINATOR_KINDS}",
+    ]
+    assert lines[-2:] == ["the watch runs for demo", "sub-coordinator for Iris: session iris-1, in no Orca terminal"]
+    assert watch_process.ensured == ["demo --project Iris"]
+    assert run("context")[1].splitlines()[:4] == lines[:4]
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-2")
+    assert run("start", "demo", "--role", "coordinator", "--project", "Iris")[0] == 0
+    data = state.load("demo")
+    assert data["roles"]["coordinator"]["session"] == "session-under-test"
+    assert {project: held["session"] for project, held in data["subcoordinators"].items()} == {"Iris": "iris-2"}
+    assert state.session_project(data, "iris-1") is None
+
+
+def test_start_refuses_a_project_to_the_communicator_and_one_no_order_is_filed_under(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    assert cli.main(["start", "demo", "--role", "communicator", "--project", "Iris"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project binds a sub-coordinator, which holds the coordinator role; the communicator holds no project"
+    assert cli.main(["start", "demo", "--role", "coordinator", "--project", "Platform"]) == 2
+    assert capsys.readouterr().err.strip() == "drive: --project Platform: no order is filed under it; the projects in use: Iris"
+    data = state.load("demo")
+    assert (data["subcoordinators"], "communicator" in data["roles"]) == ({}, False)
+
+
+def test_heard_names_the_lane_of_the_sub_coordinator_his_threads_order_is_filed_under_and_its_tool_says_the_same(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
+    iris, platform = "1794200000.000100", "1794200000.000200"
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = iris, platform
+    assert run("heard", "--thread", iris) == (0, "heard")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Iris")
+    routed = "heard; o1 in this thread is filed under Iris: his owner record goes --to iris, its sub-coordinator's lane"
+    assert run("heard", "--thread", iris) == (0, routed)
+    assert json.loads(run("heard", "--thread", iris, "--json")[1])["to"] == "iris"
+    assert [run("heard", "--thread", platform), run("heard")] == [(0, "heard"), (0, "heard")]
+    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}"
 
 
 def test_start_needs_a_role(run: Run) -> None:

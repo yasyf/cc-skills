@@ -44,6 +44,13 @@ RECORD = {
         "re": {"type": "array", "items": TEXT, "description": "seqs this answers, when no waits id names one"},
         "resolves": {"type": "array", "items": TEXT, "description": "seqs this closes"},
         "topic": {"type": "string", "description": "a pairing key, such as card:<thread_ts> for a card with no ask record"},
+        "to": {
+            "type": "string",
+            "description": (
+                "the lane it goes to in place of the other session's, such as the sub-coordinator's lane heard names for his"
+                " thread; an answer naming waits goes to the lane of the coordinator session that hears that job's order"
+            ),
+        },
         "attrs": {"type": "object", "additionalProperties": TEXT},
         "body": {"type": "string", "description": "the rest past the text's one line"},
     },
@@ -64,7 +71,8 @@ def verb_tools() -> list[dict]:
             "name": "heard",
             "description": (
                 "Record that he wrote, each time he does. Returns heard, away when away is set, or, when he is back from"
-                " away, CATCH-UP since <time>: <ids>, the orders his catch-up covers."
+                " away, CATCH-UP since <time>: <ids>, the orders his catch-up covers; given his thread, it adds the lane"
+                " his owner record goes to when that thread's newest order has a sub-coordinator."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("heard"))["properties"], "dry_run": DRY_RUN}},
         },
@@ -250,12 +258,15 @@ def ran(name: str, said: list[str], index: int, count: int, words: tuple[str, ..
 
 
 def record(name: str, records: list[dict], dry_run: bool) -> str:
-    """Post the records as one cci batch from this session's lane to the drive's other session."""
-    role = state.session_role(state.load(name), os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    """Post the records as one cci batch from this session's lane, a sub-coordinator's its project's, to the drive's other session or the lane each names."""
+    data = state.load(name)
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    role = state.session_role(data, session)
     if role is None:
         raise DriveError(f"this session holds no role in drive {name}, so no lane to post as")
-    lane, other = ("communicator", "root") if role == "communicator" else ("root", "communicator")
-    posts = [post(item, name, f"{other}@{name}") for item in records]
+    project = state.session_project(data, session)
+    lane, other = ("communicator", "root") if role == "communicator" else (state.project_lane(project) if project else "root", "communicator")
+    posts = [post(item, data, other) for item in records]
     if dry_run:
         return "\n".join(f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1))
     return "\n".join(f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1))
@@ -279,12 +290,13 @@ def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
     return done.stdout.split()
 
 
-def post(item: dict, drive: str, other: str) -> dict:
-    """The cci record an item posts as, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record."""
+def post(item: dict, data: dict, other: str) -> dict:
+    """The cci record an item posts as, to the lane it names, else the other session's, a defect's long text cut to one line with the whole at the top of its body, as the post hook cuts a record; his answer to a question card from the communicator goes to the lane of the coordinator session hearing that job's order, a sub-coordinator's for its project."""
+    drive = data["name"]
     if item["kind"] not in RECORD["properties"]["kind"]["enum"]:
         raise DriveError(f"record posts owner, answer and defect records; a {item['kind']} goes through cci post, whose hook reads it")
     text, attrs = item["text"], dict(item.get("attrs") or {})
-    made = {"kind": item["kind"], "to": [other]}
+    made = {"kind": item["kind"]}
     for key in ("url", "re", "resolves", "topic", "body"):
         if item.get(key):
             made[key] = item[key]
@@ -294,6 +306,12 @@ def post(item: dict, drive: str, other: str) -> dict:
         if named[1] != drive:
             raise DriveError(f"{waits} is a card of drive {named[1]}, not {drive}: record its answer in that drive")
         attrs["job"], made["re"] = named[2], [named[3]]
+        if other == "root" and (job := data["jobs"].get(named[2])):
+            other = state.order_lane(data, data["orders"][job["order"]])
+    lanes = ["root", "communicator", *map(state.project_lane, data["subcoordinators"])]
+    if (to := item.get("to") or other) not in lanes:
+        raise DriveError(f"to {to}: no session of drive {drive} reads that lane; name one of {', '.join(lanes)}")
+    made["to"] = [f"{to}@{drive}"]
     for attr in ("thread", "ruling"):
         if item.get(attr):
             attrs[attr] = item[attr]

@@ -193,6 +193,34 @@ def test_resolve_finds_the_newest_drive_bound_to_this_session(
     assert state.session_role(state.load("other"), "me") == "communicator"
 
 
+def test_a_drive_saved_before_sub_coordinators_loads_with_none_and_a_sub_coordinator_holds_the_coordinator_role_for_its_project_alone(
+    state_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    make("demo", "top", "2026-11-11T01:00:00-08:00")
+    saved = json.loads(state.state_path("demo").read_text())
+    del saved["subcoordinators"]
+    saved["orders"] = {
+        order_id: {"text": text, "jobs": [], "parts": {}, "promised": None, "project": project}
+        for order_id, project, text in (("o1", "Iris", "ship the run page"), ("o2", "Platform", "fix the alert"), ("o3", None, "a new order"))
+    }
+    state.state_path("demo").write_text(json.dumps(saved))
+    with state.edit("demo") as data:
+        assert data["subcoordinators"] == {}
+        data["subcoordinators"]["Iris"] = {"session": "iris", "terminal": None, "cwd": "/work", "started": "2026-11-11T02:00:00-08:00"}
+    data = state.load("demo")
+    assert [state.session_role(data, session) for session in ("top", "iris", "nobody")] == ["coordinator", "coordinator", None]
+    assert [state.session_project(data, session) for session in ("top", "iris")] == [None, "Iris"]
+    assert (state.session_drives("iris"), state.session_drives("top")) == (["demo"], ["demo"])
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris")
+    assert state.resolve() == "demo"
+    orders = data["orders"]
+    assert [order_id for order_id, order in orders.items() if state.hears(data, order, "Iris")] == ["o1"]
+    assert [order_id for order_id, order in orders.items() if state.hears(data, order, None)] == ["o2", "o3"]
+    assert [state.order_lane(data, order) for order in orders.values()] == ["iris", "root", "root"]
+    assert [state.project_lane(project) for project in ("Iris", "The drive", "SandSQL", "Platform / infra")] == ["iris", "the-drive", "sandsql", "platform-infra"]
+    assert list(state.bound_sessions(data)) == ["coordinator", "sub-coordinator Iris"]
+
+
 def test_resolve_falls_back_to_the_only_drive(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     make("solo", "someone-else")
     assert state.resolve() == "solo"

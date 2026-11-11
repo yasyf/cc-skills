@@ -88,6 +88,8 @@ COORDINATOR_WORK = (
     ("orca",),
 )
 TRANSCRIPT_READ = ("orca", "orchestration", "worker-read")
+RELEASE_CUTS = frozenset({"start", "approve", "rollback"})
+PLAN_ONLY = frozenset({"--plan", "--dry-run"})
 UNKEPT_ASK = (
     "An ask record names the ASK `drive job ask` kept (--attr ask=<the path it printed>), and the communicator draws"
     " its card from that file; keep the question with `drive job ask <j> <file>`, then post the record with that path"
@@ -415,6 +417,22 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
     return next(filter(None, (pr_reason(landing, key, shell) for key in keys)), None)
 
 
+def cut_reason(words: list[str], session: str) -> str | None:
+    """Why a sub-coordinator's session, or an agent it started, may not start, approve or roll back a production cut: the top coordinator alone does, one at a time, since one cut carries every project's changes."""
+    if Path(words[0]).name != "ci" or words[1:2] != ["release"] or not RELEASE_CUTS & set(words[2:3]) or PLAN_ONLY & set(words):
+        return None
+    for name in state.session_drives(session):
+        data = state.load(name)
+        if project := state.session_project(data, session):
+            top = data["roles"].get("coordinator", {}).get("session") or "not started"
+            return (
+                f"ci release {words[2]}: the sub-coordinator for {project} starts, approves and rolls back no production cut; the"
+                f" top coordinator of drive {name} (session {top}) does, one at a time. Send it a record at root@{name} naming"
+                " the merged changes the cut must carry"
+            )
+    return None
+
+
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
     """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, export and nested shell scripts."""
     for segment in segments(script):
@@ -432,8 +450,8 @@ def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], 
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
-    landed = (landing_reason(*found, run_in) for _, words, run_in in commands(script, shell) if (found := landing_of(words)))
-    return next(filter(None, landed), None)
+    reasons = (landing_reason(*found, run_in) if (found := landing_of(words)) else cut_reason(words, run_in.session) for _, words, run_in in commands(script, shell))
+    return next(filter(None, reasons), None)
 
 
 def own_work(script: str, shell: Shell) -> str | None:
@@ -488,7 +506,7 @@ def asks_posted(script: str, shell: Shell) -> list[str | None]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
+    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     session = payload.get("session_id") or ""
     names = state.session_drives(session)

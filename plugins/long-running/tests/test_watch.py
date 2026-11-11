@@ -1,5 +1,6 @@
 import json
 import os
+import shlex
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -9,6 +10,7 @@ from conftest import Redraws, Thread, WatchProcess, Withdrawals
 from drive import cli, github, reads, render, slack, state, talk, watch
 
 KEY = "Forge-AI/monorepo#42"
+OTHER = "Forge-AI/monorepo#43"
 T0 = state.parse_time("2026-11-09T10:00:00-05:00")
 GATE = "LTX Behavioral Gate (short)"
 RUNNING = [{"name": "test", "conclusion": None}]
@@ -80,6 +82,7 @@ def watcher(name: str, moment: datetime = T0) -> watch.Watcher:
 
 
 REAL_ENSURE = watch.ensure
+REAL_LISTEN = watch.listen
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
@@ -181,13 +184,13 @@ def test_a_good_read_starts_the_failure_count_over(demo: str, monkeypatch: pytes
     assert lines == [[], [], [], [], ["WATCH github read failed 3 times in a row: HTTP 502"]]
 
 
-def run_watch(name: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def run_watch(name: str, monkeypatch: pytest.MonkeyPatch, project: str | None = None) -> None:
     def stop(seconds: float) -> None:
         raise KeyboardInterrupt
 
     monkeypatch.setattr(watch.time, "sleep", stop)
     with pytest.raises(KeyboardInterrupt):
-        watch.main(name)
+        watch.main(name, project)
 
 
 def test_a_restarted_watch_replays_events_written_while_none_ran(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -529,6 +532,112 @@ def test_drive_watch_starts_the_watch_and_points_only_the_coordinators_channel_a
     assert cli.main(["watch", "--drive", demo]) == 0
     assert capsys.readouterr().out == f"the watch runs for {demo}\n" * 2
     assert (watch_process.ensured, watch_process.listened) == ([demo, demo], [(demo, "session-under-test")])
+
+
+def sub_coordinated(name: str, project: str = "Iris", session: str = "iris-1") -> None:
+    with state.edit(name) as data:
+        data["orders"]["o1"]["project"] = project
+        data["subcoordinators"][project] = {"session": session, "terminal": None, "cwd": "/work", "started": state.stamp(T0)}
+
+
+def test_a_projects_watch_hears_only_its_orders_jobs_prs_and_orphans_and_the_drives_watch_the_rest(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    sub_coordinated(demo)
+    still = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+        data["orders"]["o2"] = order(text="fix the alert", jobs=["j2"], project="Platform")
+        data["jobs"]["j2"] = job(order="o2", state="waiting", prs=[state.pr_url(OTHER)])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"head": "aaaaaaa111"}
+        data["orders"]["o3"] = order(text="the logs page", jobs=[], project="Iris", updated=still)
+        data["orders"]["o4"] = order(text="a page for alerts", jobs=[], project=None, updated=still)
+    calls = serve(monkeypatch, {KEY: read(checks=RED), OTHER: read(checks=RED)})
+    iris, top = watch.Watcher(demo, offset=state.events_end(demo), ticked_at=T0, project="Iris"), watcher(demo)
+    for number in (42, 43):
+        state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=number, label="Approve")
+    state.append_event(demo, "unheard", question="Which?", pick="Yes")
+    assert watch.run_pass(iris, T0) == [f"PR {KEY}: checks failed [o1 j1]", f"TAP Approve {KEY} [o1 j1]", 'ORPHAN o3 "the logs page": no job']
+    assert watch.run_pass(top, T0) == [
+        f"PR {OTHER}: checks failed [o2 j2]",
+        f"TAP Approve {OTHER} [o2 j2]",
+        "EVENT unheard question=Which? pick=Yes",
+        'ORPHAN o4 "a page for alerts": no job',
+    ]
+    assert calls == [[KEY], [OTHER]]
+    assert (iris.lane, top.lane) == ("iris", "root")
+
+
+def test_the_drives_watch_keeps_a_projects_lines_until_a_sub_coordinator_is_bound_for_it_and_that_ones_watch_takes_them_from_there(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["project"] = "Iris"
+        data["jobs"]["j1"]["state"] = "waiting"
+    reads = {KEY: read(checks=RED)}
+    calls = serve(monkeypatch, reads)
+    top = watcher(demo)
+    assert watch.run_pass(top, T0) == [f"PR {KEY}: checks failed [o1 j1]"]
+    sub_coordinated(demo)
+    iris = watch.Watcher(demo, offset=top.offset, ticked_at=T0, project="Iris")
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    reads[KEY] = read(state="MERGED", mergeCommit="ccc333", checks=RED)
+    later = T0 + timedelta(minutes=2)
+    assert watch.run_pass(top, later) == []
+    assert watch.run_pass(iris, later) == [f"PR {KEY}: merged [o1 j1]", f"TAP Approve {KEY} [o1 j1]"]
+    assert calls == [[KEY], [KEY]]
+
+
+def test_a_projects_watch_runs_as_its_own_process_from_where_the_drives_watch_stands_and_posts_to_its_sub_coordinators_lane(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sub_coordinated(demo)
+    started = []
+
+    class Started:
+        pid = 4242
+
+        def __init__(self, argv: list[str], **options: object) -> None:
+            started.append((argv, options))
+
+    monkeypatch.setattr(watch.subprocess, "Popen", Started)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Hold")
+    state.save_watch_cursor(demo, state.events_end(demo))
+    drives_cursor = state.watch_cursor(demo)
+    assert REAL_ENSURE(demo, "Iris") == "started the watch for Iris as pid 4242; it posts its lines to the sub-coordinator for Iris over cci, so arm no Monitor for it"
+    [(argv, options)] = started
+    assert (argv, options["stdout"].name) == ([str(watch.DRIVE), "watch", "--loop", "--drive", demo, "--project", "Iris"], str(state.drive_dir(demo) / "watch-iris.log"))
+    assert state.watch_cursor(demo, "Iris") == state.events_end(demo)
+    state.append_event(demo, "tap", repo="Forge-AI/monorepo", number=42, label="Approve")
+    serve(monkeypatch, {})
+    sent = posts(monkeypatch)
+    run_watch(demo, monkeypatch, "Iris")
+    assert posted(sent) == [("handoff", f"iris@{demo}", f"TAP Approve {KEY} [o1 j1]")]
+    assert (state.watch_cursor(demo, "Iris"), state.pid_path(demo, "Iris").name, state.pid_path(demo, "Iris").exists()) == (state.events_end(demo), "watchd-iris.pid", False)
+    assert state.watch_cursor(demo) == drives_cursor
+
+    def crash(watching: watch.Watcher, moment: datetime) -> list[str]:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(watch, "run_pass", crash)
+    with pytest.raises(OSError):
+        watch.main(demo, "Iris")
+    assert posted(sent)[-1] == ("handoff", f"iris@{demo}", "WATCH stopped: disk full; drive watch --project Iris starts it again")
+
+
+def test_drive_watch_project_starts_only_from_its_sub_coordinators_session_and_points_that_channel_at_it(
+    demo: str, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess, capsys: pytest.CaptureFixture[str]
+) -> None:
+    sub_coordinated(demo)
+    assert cli.main(["watch", "--drive", demo, "--project", "Iris"]) == 2
+    assert "only the sub-coordinator for Iris starts its watch, from its own session (iris-1)" in capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    assert cli.main(["watch", "--drive", demo, "--project", "Iris"]) == 0
+    assert cli.main(["watch", "--drive", demo]) == 0
+    assert (watch_process.ensured, watch_process.listened) == ([f"{demo} --project Iris", demo], [(demo, "iris-1", "Iris")])
+    subscribed = []
+    monkeypatch.setattr(watch.reads, "run", lambda argv, checkout, env: subscribed.append((argv, env["CLAUDE_CODE_SESSION_ID"])))
+    REAL_LISTEN(demo, "iris-1", "Iris")
+    assert subscribed == [([*shlex.split(render.subscribe("coordinator", "Iris")), "--drive", demo], "iris-1")]
+    assert render.subscribe("coordinator", "Iris").startswith("cci subscribe --reader iris --cursor coordinator-iris --to-kind ")
 
 
 REAL_LOCAL_GAP = watch.local_gap

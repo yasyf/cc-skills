@@ -80,6 +80,19 @@ def test_session_start_gives_each_role_its_own_context(demo: str, run: Run, monk
     assert (watch_process.ensured, watch_process.listened) == (["demo"], [("demo", "session-under-test")])
 
 
+def test_session_start_gives_a_sub_coordinator_its_projects_context_and_starts_and_subscribes_it_to_its_projects_watch(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, watch_process: WatchProcess
+) -> None:
+    run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
+    run("start", "demo", "--role", "coordinator", "--project", "Iris")
+    watch_process.ensured.clear()
+    context = session_start.respond({"session_id": "iris-1", "source": "resume"})["hookSpecificOutput"]["additionalContext"]
+    assert context.startswith("You are the sub-coordinator for project Iris of drive demo: ")
+    assert "Subscribe: cci drive use demo, then cci subscribe --reader iris --cursor coordinator-iris --to-kind " in context
+    assert (watch_process.ensured, watch_process.listened) == (["demo --project Iris"], [("demo", "iris-1", "Iris")])
+
+
 def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("start", "demo", "--role", "coordinator", "--channel", "D123", "--watch", "C0B75AL4XEW", "--watch", "C0822AHFY3G")
     output = session_start.respond({"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"})
@@ -563,6 +576,27 @@ def test_guard_allows_an_exempt_drive_pr(drive_pr: str, run: Run, no_calls: list
 
 def test_guard_allows_a_pr_the_drive_does_not_know(drive_pr: str, no_calls: list[list[str]]) -> None:
     assert landing_guard.deny_reason(bash("gh pr merge 999 -R Forge-AI/monorepo --squash")) is None
+
+
+def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_approving_and_rolling_back_cuts_to_the_top(
+    drive_pr: str, run: Run, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(drive_pr)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "drive-sub")
+    assert run("start", "demo", "--role", "coordinator", "--project", "The drive")[0] == 0
+    sub, top = {"session_id": "drive-sub"}, {"session_id": "session-under-test"}
+    assert landing_guard.deny_reason(bash(f"gh pr merge {PR} --squash") | sub) is None
+    cuts = ("tools/ci release start api dashboard", "tools/ci release approve releases/2026-11-11/3", "cd /work && ci release rollback releases/2026-11-11/3 api")
+    refused = [landing_guard.deny_reason(bash(command) | sub) for command in cuts]
+    assert refused[0] == (
+        "ci release start: the sub-coordinator for The drive starts, approves and rolls back no production cut; the top coordinator"
+        " of drive demo (session session-under-test) does, one at a time. Send it a record at root@demo naming the merged changes"
+        " the cut must carry"
+    )
+    assert [reason.split(":")[0] for reason in refused] == ["ci release start", "ci release approve", "ci release rollback"]
+    reads = ("tools/ci release rollback releases/2026-11-11/3 --plan", "tools/ci release status", "tools/ci release watch 4242")
+    assert [landing_guard.deny_reason(bash(command) | sub) for command in reads] == [None, None, None]
+    assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [None, None, None]
 
 
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:

@@ -37,6 +37,7 @@ OFFSET_UNITS = {"m": "minutes", "h": "hours", "d": "days"}
 AWAY_AFTER = timedelta(minutes=60)
 PART_CHARS = 80
 REBUILT_ASKS = ".rebuilt"
+NOT_LANE = re.compile(r"[^a-z0-9]+")
 
 
 class DriveError(Exception):
@@ -63,20 +64,29 @@ def events_path(name: str) -> Path:
     return drive_dir(name) / "events.jsonl"
 
 
-def pid_path(name: str) -> Path:
-    return drive_dir(name) / "watchd.pid"
+def project_lane(project: str) -> str:
+    """The cci lane of a project's sub-coordinator: its name lowercased, each run of other characters a dash."""
+    return NOT_LANE.sub("-", project.lower()).strip("-")
+
+
+def watch_suffix(project: str | None) -> str:
+    return f"-{project_lane(project)}" if project else ""
+
+
+def pid_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watchd{watch_suffix(project)}.pid"
 
 
 def monitor_pid_path(name: str) -> Path:
     return drive_dir(name) / "watch.pid"
 
 
-def watch_log_path(name: str) -> Path:
-    return drive_dir(name) / "watch.log"
+def watch_log_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.log"
 
 
-def cursor_path(name: str) -> Path:
-    return drive_dir(name) / "watch.cursor"
+def cursor_path(name: str, project: str | None = None) -> Path:
+    return drive_dir(name) / f"watch{watch_suffix(project)}.cursor"
 
 
 def held_path(name: str) -> Path:
@@ -174,6 +184,7 @@ def new_drive(
     return {
         "name": name,
         "roles": {role: {"session": session, "terminal": terminal, "cwd": cwd, "started": stamp()}},
+        "subcoordinators": {},
         "slack": {"channel": channel, "page": None, "watch": []},
         "owner": {"heard": None, "away": False},
         "orders": {},
@@ -191,6 +202,7 @@ def load(name: str) -> dict:
         raise DriveError(f"no drive named {name}") from None
     if "driver" in data:
         data["roles"] = {"coordinator": data.pop("driver")}
+    data.setdefault("subcoordinators", {})
     for order in data["orders"].values():
         if "parts" not in order:
             whole = whole_order(order["text"])
@@ -448,7 +460,33 @@ def next_id(records: dict, prefix: str) -> str:
 
 
 def session_role(data: dict, session: str | None) -> str | None:
-    return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+    """The role a session holds; a sub-coordinator's is coordinator, so every rule of that role binds it too."""
+    role = next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
+    return role or ("coordinator" if session_project(data, session) else None)
+
+
+def session_project(data: dict, session: str | None) -> str | None:
+    """The project a session is the sub-coordinator for, or None for any other session."""
+    return next((project for project, held in data["subcoordinators"].items() if session and held["session"] == session), None)
+
+
+def bound_sessions(data: dict) -> dict[str, dict]:
+    """Every session bound to the drive: each role's by the role's name, each sub-coordinator's as `sub-coordinator <its project>`."""
+    return data["roles"] | {f"sub-coordinator {project}": held for project, held in data["subcoordinators"].items()}
+
+
+def projects(data: dict) -> list[str]:
+    return sorted({order["project"] for order in data["orders"].values() if order["project"]})
+
+
+def order_lane(data: dict, order: dict) -> str:
+    """The cci lane of the coordinator session that hears an order: the sub-coordinator's for its project, else root."""
+    return project_lane(order["project"]) if order["project"] in data["subcoordinators"] else "root"
+
+
+def hears(data: dict, order: dict, project: str | None) -> bool:
+    """Whether the coordinator session for project hears an order: a sub-coordinator its project's, the top coordinator every other one, unfiled or filed under a project no sub-coordinator is bound for."""
+    return order["project"] == project if project else order["project"] not in data["subcoordinators"]
 
 
 def agent_gone(data: dict, job: dict) -> bool:
@@ -472,10 +510,8 @@ def last_started(data: dict) -> str:
 def session_drives(session: str) -> list[str]:
     bound = []
     for name in names():
-        data = load(name)
-        if role := session_role(data, session):
-            bound.append((data["roles"][role]["started"], name))
-    return [name for _, name in sorted(bound, reverse=True)]
+        bound += [(held["started"], name) for held in bound_sessions(load(name)).values() if held["session"] == session]
+    return list(dict.fromkeys(name for _, name in sorted(bound, reverse=True)))
 
 
 def resolve(name: str | None = None) -> str:
@@ -507,15 +543,15 @@ def events_end(name: str) -> int:
     return path.stat().st_size if path.exists() else 0
 
 
-def watch_cursor(name: str) -> int:
-    """The events offset the drive's watch has read up to; the log's end for a drive whose watch never ran."""
-    path = cursor_path(name)
+def watch_cursor(name: str, project: str | None = None) -> int:
+    """The events offset the drive's watch, or a project's, has read up to; the log's end for a watch that never ran."""
+    path = cursor_path(name, project)
     return int(path.read_text()) if path.exists() else events_end(name)
 
 
-def save_watch_cursor(name: str, offset: int) -> None:
-    path = cursor_path(name)
-    tmp = path.with_name("watch.cursor.tmp")
+def save_watch_cursor(name: str, offset: int, project: str | None = None) -> None:
+    path = cursor_path(name, project)
+    tmp = path.with_name(f"{path.name}.tmp")
     tmp.write_text(f"{offset}\n")
     os.replace(tmp, path)
 
