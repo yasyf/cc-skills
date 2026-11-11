@@ -130,6 +130,41 @@ def card_refusal(card: dict) -> str | None:
     return f"refused: {'; '.join(problems)} ({READING})."
 
 
+def show_me_refusal(kept: str, body: str) -> str | None:
+    """Why a question card's body leaves out the Show me its kept ASK block carries: every code block of it goes under the body's `*Show me*` line as written."""
+    _, *example = SHOW_ME.split(FINDINGS.split(kept, maxsplit=1)[0], maxsplit=1)
+    show_me = shown_and_options(example[0])[0] if example else []
+    if not any(line.strip() for line in show_me):
+        return None
+    blocks = code_blocks(show_me)
+    _, *shown = SHOWN.split(body, maxsplit=1)
+    drawn = trimmed(shown[0]) if shown else ""
+    if shown and all(trimmed(block) in drawn for block in blocks):
+        return None
+    carried = sum(trimmed(block) in drawn for block in blocks)
+    return (
+        f"refused: the Show me goes in the card body under *Show me*, never only behind Explain more ({SHOW_ME_RULING});"
+        f" this body carries {carried} of the {len(blocks)} code blocks its kept `Show me:` holds"
+        f"{'' if shown else ', and no `*Show me*` line'}: copy every line under `Show me:` there as written, fences kept."
+    )
+
+
+def code_blocks(show_me: list[str]) -> list[str]:
+    """Each fenced block of a Show me as written, its fence lines included."""
+    blocks, block = [], None
+    for line in show_me:
+        if FENCE.match(line) and block is not None:
+            blocks.append("\n".join([*block, line]))
+            block = None
+        elif FENCE.match(line) or block is not None:
+            block = [*(block or []), line]
+    return blocks
+
+
+def trimmed(text: str) -> str:
+    return "\n".join(line.rstrip() for line in text.splitlines())
+
+
 def question(text: str) -> Question:
     """The one question a job's ASK block puts to him, refused with every way it is out of shape."""
     asked, *findings = FINDINGS.split(text, maxsplit=1)

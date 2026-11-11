@@ -22,6 +22,7 @@ QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
+WAITS = re.compile(r"(?P<drive>[^:\s]+):(?P<job>j\d+)-\d+")
 UNREAD = (
     "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
     " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post. When the"
@@ -171,7 +172,20 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
-    return unread(payload, dm) or over_length(payload, dm) or unlinked(payload) or unchecked(tool_input.get("text") or "")
+    return unread(payload, dm) or over_length(payload, dm) or unshown(payload) or unlinked(payload) or unchecked(tool_input.get("text") or "")
+
+
+def unshown(payload: dict) -> str | None:
+    """Why a question card leaves out the Show me of the ASK block `drive job ask` kept for it: the newest of its job's kept blocks that asks the card's question."""
+    card = payload["tool_input"].get("card") or {}
+    if not (waits := WAITS.fullmatch(card.get("waits") or "")):
+        return None
+    asked = f"ASK {(card.get('title') or '').strip()}"
+    asks = state.drive_dir(waits["drive"]) / "asks"
+    kept = [path for path in asks.glob(f"{waits['job']}-*.md") if path.read_text().split("\n", 1)[0].strip() == asked]
+    if not kept:
+        return None
+    return limits.show_me_refusal(max(kept, key=lambda path: path.stat().st_mtime).read_text(), card.get("body") or "")
 
 
 def unlinked(payload: dict) -> str | None:

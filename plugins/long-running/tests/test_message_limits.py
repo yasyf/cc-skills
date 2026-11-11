@@ -8,7 +8,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import limits, slack
+from drive import limits, slack, state
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -177,6 +177,33 @@ new:  ~/.sand/sandsql-pair/primary/data/db/<chat>.db   records its server in pri
 Findings:
 Kent sees Untitled, unstarted chats marked state_missing that must be forked.
 """
+HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
+WATCHDOG_QUESTION = 'Which "1+2 hybrid" did you pick on Nov 9: an always-on listener that never acts, or a service that also lands and installs?'
+WATCHDOG_SUMMARY = (
+    f"<{HIS_PICK}|Your Nov 9 pick> reads two ways, and only the watcher that saves its place is built.\n"
+    "Recommended: one always-on listener that takes GitHub pushes and runs the stuck-work watchdog, and lands nothing."
+)
+WATCHDOG_SHOW_ME = """What each reading builds, beside what runs today.
+```
+                         today          listener, never acts      service that lands and installs
+hears a push             60 s read      at once, from GitHub      at once, from GitHub
+lands a PR               a session,     a session,                the service, only a PR
+                         after your tap after your tap            you tapped Approve
+```
+The listener: one process per Mac, started at login, its state in the drive's file.
+```
+# drive listen
+on push, check, review or merge from GitHub -> append one line to events.jsonl
+never: gh pr merge, an install, a push, a new job
+```"""
+WATCHDOG_OPTIONS = [
+    "An always-on listener that feeds pushes and runs the watchdog but never lands or installs: one new process; landing still needs a session.",
+    "An always-on service that also lands PRs you tapped Approve and installs after merge: nothing waits for a session; it holds merge rights.",
+]
+WATCHDOG_ASK = (
+    f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
+    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nOnly the watcher that saves its place is built today.\n"
+)
 
 
 def said(count: int) -> str:
@@ -556,6 +583,24 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
         limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
     longer = [*asked.options[:2], asked.options[2].replace("costs time.", "costs time and money.")]
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
+
+
+def test_a_card_whose_kept_block_has_a_show_me_carries_every_code_block_of_it_under_its_show_me_line(talker: str, transcript: Path) -> None:
+    limits.question(WATCHDOG_ASK)
+    asks = state.drive_dir("demo") / "asks"
+    asks.mkdir()
+    (asks / "j605-7c32364e.md").write_text(WATCHDOG_ASK)
+    card = {"title": WATCHDOG_QUESTION, "body": WATCHDOG_SUMMARY, "options": WATCHDOG_OPTIONS, "waits": "demo:j605-660176"}
+    assert posted(transcript, card=card, text="Watchdog: which hybrid") == (
+        "refused: the Show me goes in the card body under *Show me*, never only behind Explain more"
+        f" ({limits.SHOW_ME_RULING}); this body carries 0 of the 2 code blocks its kept `Show me:` holds, and no `*Show me*`"
+        " line: copy every line under `Show me:` there as written, fences kept."
+    )
+    shown = f"{WATCHDOG_SUMMARY}\n*Show me*\n{WATCHDOG_SHOW_ME}"
+    assert posted(transcript, card=card | {"body": shown}) is None
+    sketched = shown.split("The listener:")[0] + "```\n# drive listen\n```"
+    assert "carries 1 of the 2 code blocks" in posted(transcript, card=card | {"body": sketched})
+    assert posted(transcript, card=card | {"body": WATCHDOG_SUMMARY, "waits": "demo:j606-660177"}) is None
 
 
 def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:
