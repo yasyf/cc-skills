@@ -282,7 +282,9 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   The question, summary and options are at most 150 words in plain words: no file paths, table
   or function names or internal ids. Each thing they name that he could open, such as a PR or a
   teammate's fix, is linked in the summary, `<url|the fix that adds the update button>`, since
-  the card's title and options draw no links. A PR goes in by what it does, never by number
+  Slack draws the card's title and option buttons as plain text: a link or markdown there shows
+  raw, and `drive job ask` refuses it, by his Nov 10 11:21 PM words "look at the formatting you have
+  a link in teh titkle that is just raw markfowen". A PR goes in by what it does, never by number
   alone, and every PR the question turns on is linked, never dropped. A Show me is there only when
   it shows what the summary and options cannot; a constant, a name or a value the words already say
   is none, and a card with nothing that adds clarity has no Show me, by his Nov 10 11:03 PM words "we

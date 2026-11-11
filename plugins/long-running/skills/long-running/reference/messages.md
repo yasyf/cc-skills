@@ -158,7 +158,10 @@ summary of one feature is a line, 60 words at most.
 ```
 
 **A question card**, which a handler draws from an `ask` record: the job's `ASK` as `drive job ask`
-kept it, with nothing posted before or after it. Title: its question, in one sentence. Body: its
+kept it, with nothing posted before or after it. Title: its question, in one sentence of plain
+words, since Slack draws a card's title and buttons as plain text and a link or markdown there
+shows raw, so `drive job ask` refuses one, by his Nov 10 11:21 PM words "look at the formatting you
+have a link in teh titkle that is just raw markfowen"; the link goes in the summary. Body: its
 summary, one to three lines: what was found and what is being decided, the recommendation, and
 what happens meanwhile; then, when the block has one, a `*Show me*` line and its Show me as written.
 That first line is how he gets the results of the investigation before the pick, by his Nov 9 6:22

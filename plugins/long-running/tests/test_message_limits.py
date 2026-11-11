@@ -679,6 +679,27 @@ def test_a_real_call_draws_and_a_block_with_nothing_to_show_has_no_show_me() -> 
     assert "*Show me*" not in asked.card("demo", "demo:j1-1")["body"]
 
 
+@pytest.mark.parametrize(
+    ("question", "option", "found"),
+    [
+        ("Staging's smoke fails a page check since [release 14345](https://buildkite.com/forge/release/builds/14345); fix it?", None, "[release 14345](https://buildkite.com/forge/release/builds/14345)"),
+        ("Does <https://github.com/yasyf/cc-skills/pull/4189|the raw data refusal> cover logs?", None, "<https://github.com/yasyf/cc-skills/pull/4189|the raw data refusal>"),
+        ("Should the *listener* land PRs?", None, "*listener*"),
+        (None, "Run `drive listen` at login: one new process", "`drive listen`"),
+    ],
+)
+def test_markdown_or_a_link_in_a_cards_title_or_an_option_is_refused_since_slack_draws_it_raw(question: str | None, option: str | None, found: str) -> None:
+    block = WATCHDOG_ASK.replace(WATCHDOG_QUESTION, question or WATCHDOG_QUESTION).replace(WATCHDOG_OPTIONS[1], option or WATCHDOG_OPTIONS[1])
+    for kept in (False, True):
+        with pytest.raises(DriveError, match=re.escape(f'holds "{found}", which Slack draws as raw text')):
+            limits.question(block, kept=kept)
+
+
+def test_a_show_me_table_row_is_no_caption_and_runs_past_25_words() -> None:
+    row = "| Hash by key | writes arrive but the file stays flat, or over half are upserts on one key | rows spread by key; a full part is cloned, each copy drops half |"
+    limits.question(WATCHDOG_ASK.replace("| Hears a push |", f"{row}\n| Hears a push |"))
+
+
 def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:
     picture = "![The listener's one line per push](/Users/me/shots/listen.png)"
     limits.question(WATCHDOG_ASK.replace("The listener:", f"{picture}\nThe listener:"))

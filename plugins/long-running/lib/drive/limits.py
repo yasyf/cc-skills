@@ -68,6 +68,11 @@ NAMED = (
 KIND = re.compile(rf"\b(?:{KINDS})\b", re.IGNORECASE)
 LINK = re.compile(r"<[^<>|]+\|([^<>]*)>")
 NUMBER_LABEL = re.compile(r"\s*(?:(?:PR|pull request)\s*)?#?\d+\s*", re.IGNORECASE)
+MARKUP = re.compile(
+    r"\[[^\]\n]*\]\([^)\s]*\)|<(?:https?://|mailto:|[@#!])[^<>\n]*>|https?://\S+|`[^`\n]+`"
+    r"|(?<![\w*_~])[*_~](?=\S)[^*_~\n]*?(?<=\S)[*_~](?![\w*_~])"
+)
+PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
 NOT_PLAIN = (
     ("a file path", re.compile(r"(?<!\S)(?:~|\.{1,2})?/[\w.-]+/[\w./-]*")),
     ("a file name", re.compile(r"\b[\w-]+\.(?:py|go|tsx|rs|md|json|jsonl|ya?ml|sql|toml|sh|txt)\b")),
@@ -220,6 +225,12 @@ def question(text: str, kept: bool = False) -> Question:
     ]
     problems += unlinked([*summary, *captions(show_me)], [title, *options])
     problems += [
+        f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
+        f" say it in plain words there and put the link in the summary ({PLAIN_TEXT_RULING})"
+        for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
+        for found in MARKUP.findall(line)
+    ]
+    problems += [
         f'option "{option}" lands first and leaves "{step}" for after: dev must always be releasable ({RELEASABLE_RULING}),'
         " so no option lands a change a release cut at its merge commit cannot carry alone; offer a split whose every part"
         " is safe to release by itself, or drop the option"
@@ -263,7 +274,7 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool) -> lis
     problems = [
         f'Show me line "{line}" is {words(line)} words; outside a code fence each is a caption of at most {OPTION_WORDS}'
         for line in captions(show_me)
-        if words(line) > OPTION_WORDS
+        if not line.startswith("|") and words(line) > OPTION_WORDS
     ]
     problems += [
         f'Show me line "{line}" holds a picture inside a sentence or table, which cc-slack draws as text; put each picture'
