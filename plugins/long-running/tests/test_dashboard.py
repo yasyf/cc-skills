@@ -642,3 +642,22 @@ done({ chosen, up: location.hash });
     assert seen["chosen"]["hash"].startswith("#/work/Platform/SandSQL/j")
     assert {key: value for key, value in seen["chosen"].items() if key != "hash"} == {"same": True, "top": 400, "on": True}
     assert seen["up"] == "#/work/Platform/SandSQL"
+
+
+def test_a_code_embed_wider_than_its_card_scrolls_inside_its_box_and_keeps_copy_and_enlarge_in_reach(tmp_path: Path) -> None:
+    long_line = "ctx.restate.run(() => RunAssignment.placeWokenAgents(ctx, { teamId: ctx.restate.key, agents, window: 30, retries: 5 })),"
+    seen = browse(tmp_path, f"""
+location.hash = '#/history';
+await wait(100);
+const card = document.querySelector('#main .said-text');
+card.style.width = '420px';
+card.insertAdjacentHTML('beforeend', `<figure class="visual"><div class="visual-host drawn" data-kind="code" data-visual="code:ts" data-source="x"><div class="code-bar"><span>ts</span><span class="acts"><button type="button" class="linkish" data-copy>Copy</button><button type="button" class="linkish" data-enlarge>Enlarge</button></span></div><pre class="visual-code"><code>{long_line}</code></pre></div><button type="button" class="enlarge" data-enlarge aria-label="Enlarge"></button></figure>`);
+await wait(50);
+const figure = card.querySelector('figure.visual');
+figure.scrollIntoView({{ block: 'center' }});
+await wait(50);
+const pre = figure.querySelector('pre');
+const reach = (el) => {{ const r = el.getBoundingClientRect(); return document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2) === el; }};
+done({{ inside: pre.getBoundingClientRect().right <= card.getBoundingClientRect().right + 1, scrolls: pre.scrollWidth > pre.clientWidth, copy: reach(figure.querySelector('[data-copy]')), enlarge: reach(figure.querySelector('.code-bar [data-enlarge]')), floating: getComputedStyle(figure.querySelector(':scope > .enlarge')).display }});
+""", board(history=[{"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "the placer", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}]))
+    assert seen == {"inside": True, "scrolls": True, "copy": True, "enlarge": True, "floating": "none"}
