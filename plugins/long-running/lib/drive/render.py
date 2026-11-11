@@ -173,14 +173,21 @@ OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 REPROS_SHOWN = 5
 WHOLE = sys.maxsize
-MONITOR_LINE = "Arm Monitor `drive watch` now (timeout 1800000) unless one is running."
-SLACK_TOOLS_LINE = (
-    "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
-    " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
-    "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
-    "mcp__plugin_cc-inbox_cci__post"
-)
-FIRST_CALL = {"communicator": SLACK_TOOLS_LINE, "coordinator": MONITOR_LINE}
+FIRST_CALL = {
+    "communicator": (
+        "Your first call now, before anything else, loads the tools your first message needs: ToolSearch"
+        " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
+        "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
+        "mcp__plugin_cc-inbox_cci__post"
+    ),
+    "coordinator": (
+        "Your first call now, before anything else, loads every tool you reach for between compactions, in one"
+        " ToolSearch: select:Monitor,SendMessage,TaskStop,mcp__plugin_cc-notes_cc-notes__answer_add,"
+        "mcp__plugin_cc-notes_cc-notes__answer_search,mcp__plugin_cc-notes_cc-notes__answer_show,"
+        "mcp__plugin_cc-notes_cc-notes__answer_edit,mcp__plugin_cc-slack_cc-slack__slack_thread; then arm Monitor"
+        " `drive watch` (timeout 1800000) unless one is running."
+    ),
+}
 READS = {
     "communicator": "Everything else is on disk, read by a handler on demand, never by you: drive status <id>, drive view.",
     "coordinator": (
