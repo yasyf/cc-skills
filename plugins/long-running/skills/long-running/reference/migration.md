@@ -98,7 +98,7 @@ in cc-notes answers.
    `cci post --drive <old> --lane root --kind ask --to <session> --text "Run cc-slack unfollow for each
    of your Slack watches and reply with the ids; keep answering him until drive <new> says it holds
    them."` Then the communicator holds his DM and the coordinator the other channels (Start step 2)
-   and, once every `slack_watch` succeeds, the coordinator
+   and, once every `slack_watch` and `slack_subscribe` succeeds, the coordinator
    posts `cci post --drive <old> --lane root --kind handoff --to <session> --text "Drive <new> holds
    <DM> and <channels>."` The old holder keeps answering him until that record arrives.
 3. Each order still open (its deliverable is not live, and he neither dropped nor replaced it), in his

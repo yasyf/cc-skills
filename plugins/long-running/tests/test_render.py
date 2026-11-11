@@ -139,7 +139,7 @@ def test_his_dm_is_the_communicators_and_watched_channels_the_coordinators() -> 
     drive = sample()
     drive["slack"]["watch"] = ["C0B75AL4XEW", "C0822AHFY3G"]
     assert render.context(drive, "communicator").splitlines()[1] == "Hold with slack_watch: his DM D123"
-    assert render.context(drive, "coordinator").splitlines()[1] == "Hold with slack_watch: C0B75AL4XEW, C0822AHFY3G"
+    assert render.context(drive, "coordinator").splitlines()[1] == 'Hold with slack_subscribe(kinds=["alerts", "releases", "posts"]): C0B75AL4XEW, C0822AHFY3G'
 
 
 def test_hold_line_reads_a_drive_saved_before_watch_existed() -> None:

@@ -266,6 +266,9 @@ def job_pr_lines(drive: dict, job_id: str, job: dict) -> list[str]:
     return [pr_line(key, drive["prs"][key]) if key in drive["prs"] else pr_url(key) for key in keys]
 
 
+FEED_SUBSCRIPTION = 'slack_subscribe(kinds=["alerts", "releases", "posts"])'
+
+
 def held_channels(drive: dict, role: str) -> list[str]:
     slack = drive["slack"]
     if role == "communicator":
@@ -275,7 +278,10 @@ def held_channels(drive: dict, role: str) -> list[str]:
 
 def hold_line(drive: dict, role: str) -> str:
     channels = held_channels(drive, role)
-    return f"Hold with slack_watch: {', '.join(channels)}" if channels else "Hold no Slack channel."
+    if not channels:
+        return "Hold no Slack channel."
+    tool = "slack_watch" if role == "communicator" else FEED_SUBSCRIPTION
+    return f"Hold with {tool}: {', '.join(channels)}"
 
 
 def who(drive: dict, role: str) -> str:

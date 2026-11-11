@@ -8,7 +8,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 
 | Verb | Takes |
 |---|---|
-| `drive start <name>` | `--role communicator/coordinator`, required; `--channel <his DM id>`; `--watch <channel>`..., another channel to hold |
+| `drive start <name>` | `--role communicator/coordinator`, required; `--channel <his DM id>`; `--watch <channel>`..., another channel the coordinator subscribes to |
 | `drive order add "<his words>"` | `--from slack:<channel>/<ts>`, default terminal; `--thread <ts>`; `--due <time>` his ack promised a line by; `--parts "<part>"...`, each deliverable his words name; `--incident`, which needs a `fix` part and records a codex job on each part, its agent started at once; `--joins <o>`, an incident on the failing service of open incident `<o>`, with its record and no job; `--milestone <name>`; `--project <name>` and `--workstream <name>` the Now screen files it under |
 | `drive order set <o>` | `--state open/working/waiting/done/dropped`; `--due <time>`; `--note "<text>"`; `--proof <link>`; `--thread <ts>`; `--lined`; `--withdrawn <link>`, his message calling off a promised time; `--parts "<part>"...`, replacing the list; `--incident`, refused until a job owns its `fix` part, or `--no-incident`; `--milestone <name>`, `--project <name>` and `--workstream <name>`, each empty to take it out; `--record <seq>`, the handler's report a close from the communicator needs |
 | `drive order unfiled` | each open order naming no project or workstream yet, then the pairs in use |
