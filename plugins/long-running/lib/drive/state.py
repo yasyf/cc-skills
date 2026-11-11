@@ -3,7 +3,7 @@ import json
 import os
 import re
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -388,10 +388,9 @@ def save(name: str, data: dict) -> None:
 
 
 @contextmanager
-def locked(name: str) -> Iterator[None]:
-    directory = drive_dir(name)
-    directory.mkdir(parents=True, exist_ok=True)
-    with open(directory / ".lock", "a") as handle:
+def flocked(path: Path) -> Iterator[None]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a") as handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
         try:
             yield
@@ -399,17 +398,13 @@ def locked(name: str) -> Iterator[None]:
             fcntl.flock(handle, fcntl.LOCK_UN)
 
 
-@contextmanager
-def binding(name: str) -> Iterator[None]:
+def locked(name: str) -> AbstractContextManager[None]:
+    return flocked(drive_dir(name) / ".lock")
+
+
+def binding(name: str) -> AbstractContextManager[None]:
     """Hold the coordinator terminal's one Run binding for a bind and the call that needs it: a launch's worker-start, a reply."""
-    directory = drive_dir(name)
-    directory.mkdir(parents=True, exist_ok=True)
-    with open(directory / ".binding.lock", "a") as handle:
-        fcntl.flock(handle, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+    return flocked(drive_dir(name) / ".binding.lock")
 
 
 @contextmanager

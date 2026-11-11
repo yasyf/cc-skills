@@ -87,13 +87,19 @@ def reload_command(terminal: str) -> str:
     return f"orca terminal send --terminal {terminal} --text {RELOAD} --enter"
 
 
-def reload_plugins(terminal: str, wait_ms: int) -> None:
-    """Type /reload-plugins into a Claude Code session's terminal once its turn is over; OrcaError coded timeout while it is still busy after wait_ms."""
+def reload_plugins(terminal: str, wait_ms: int) -> bool:
+    """Type /reload-plugins into a Claude Code session's terminal once its turn is over, or once wait_ms pass into its busy prompt, where Claude Code holds it until the turn ends; whether the session was idle, or OrcaError when it shows a prompt the text would answer."""
     waiting = ("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(wait_ms))
-    waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
-    if not waited["satisfied"]:
+    try:
+        waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
+    except OrcaError as error:
+        if error.code != TIMEOUT:
+            raise
+        waited = None
+    if waited and not waited["satisfied"]:
         raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
     request("terminal", "send", "--terminal", terminal, "--text", RELOAD, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
+    return waited is not None
 
 
 def terminal(handle: str) -> dict:

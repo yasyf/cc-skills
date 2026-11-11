@@ -65,4 +65,5 @@ whole, refusals included. Rows leave out `--drive <name>`, by default this sessi
 | `drive mcp` | serves `say` and the verb tools over stdio as this plugin's `drive` MCP server, listing the newest install's tools and telling the session when they change; `--list` prints them as JSON |
 | `drive tool <name>` | `<name>` say, heard, record, order, job, pr, incident or status; runs that MCP tool on the JSON arguments read from stdin and prints its lines |
 | `drive install <plugin>@<marketplace>` | `--sha <merge sha>`; `--repo <owner/name>`; `--timeout <seconds>`, default 900 |
+| `drive reload` | types `/reload-plugins` into both sessions of every drive on this Mac, as an install does after its update: at once when idle, otherwise queued behind a turn still running after 30 seconds |
 | `drive setup` | `--bin-dir <dir>` for the `drive` shim |
