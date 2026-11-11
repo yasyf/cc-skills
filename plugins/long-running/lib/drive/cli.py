@@ -1114,7 +1114,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--channel", help="his DM channel id")
     verb.add_argument(
-        "--watch", action="append", default=[], metavar="CHANNEL", help="another channel to hold, kept across restarts"
+        "--watch", action="append", default=[], metavar="CHANNEL", help="another channel the coordinator subscribes to, kept across restarts"
     )
     verb.set_defaults(run=start)
 

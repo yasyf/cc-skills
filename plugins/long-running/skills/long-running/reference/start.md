@@ -81,8 +81,11 @@ disagree. On Nov 10 the communicator, which had loaded 1.0.14 on Nov 9, kept pas
    role's block, then the role's line above. His DM is the communicator's. Each alert channel the drive reads is a `--watch`,
    kept in the drive across restarts and held by the coordinator; a later `--watch` adds one. His own
    words in such a channel reach the communicator, which holds his DM, and never the coordinator.
-2. Hold every channel the block's `Hold with slack_watch` line names: one
-   `slack_watch(channel_id=<id>)` each, with no thread. One session holds a channel at a time, so a
+2. Hold every channel the block's `Hold with` line names, each with no thread: his DM with
+   `slack_watch(channel_id=<id>)`, and each of the coordinator's channels with
+   `slack_subscribe(channel_id=<id>, kinds=["alerts", "releases", "posts"])`, which delivers one line
+   per alert, release state or top-level post in place of each message. Subscribing a channel the
+   session already watches turns that watch into the subscription. One session holds a channel at a time, so a
    channel another session holds is not yours until that session runs `cc-slack unfollow`
    ([reference/migration.md](migration.md)).
 3. `cci drive use <name>`, then the block's `Subscribe:` line: `cci subscribe --reader communicator
