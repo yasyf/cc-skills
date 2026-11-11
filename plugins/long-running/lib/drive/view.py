@@ -458,9 +458,10 @@ def progress(drive: dict) -> dict:
 
 
 def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
-    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps, refused cards and every message he was sent, with its visuals."""
+    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps, refused cards and every message he was sent, with its visuals, a message reworded in place showing its newest words at the time it was sent."""
     prs = drive["prs"]
     happened = []
+    sent: dict[str, dict] = {}
     for order_id, order in drive["orders"].items():
         url = thread_url(drive, team_url, order)
         swears = len(SWEARS.findall(order["text"]))
@@ -474,11 +475,14 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
         if job["state"] == "failed":
             happened.append({"at": job["updated"], "kind": "failed", "text": job["goal"], "detail": said(job["said"]), "url": None, "feature": job["order"]})
     for event in (event for event in events if event["kind"] in HISTORY_EVENTS):
+        if event["kind"] == "said" and event.get("edited") and (post := sent.get(message_key(event["url"]))):
+            post["text"] = event["text"]
+            continue
         if event["kind"] == "said":
             stack = [pr_entry(prs[key]) for key in event.get("prs", [])]
-            happened.append(
-                {"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"], "prs": stack}
-            )
+            post = {"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"], "prs": stack}
+            sent[message_key(event["url"])] = post
+            happened.append(post)
             continue
         pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
         detail = event["label"] if event["kind"] == "tap" else said(event["reason"])

@@ -60,7 +60,9 @@ SAY = {
         " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix: a reference that names nothing,"
         " or a finding Jev upheld against his words, such as a line naming a cause (because, caused) with no {record:}"
-        " or a word `cc-slack check-post` flags: make the fix and call again. The communicator's ack to his message is one sentence: what he asked and what"
+        " or a word `cc-slack check-post` flags: make the fix and call again. edit=<the permalink of a post of yours in his DM>"
+        " rewords that post in place with text, its references linked as a new post's are, and the dashboard shows the new"
+        " words for it; it returns EDITED <permalink>. The communicator's ack to his message is one sentence: what he asked and what"
         " happens next."
     ),
     "inputSchema": {
@@ -97,6 +99,13 @@ SAY = {
                     " lane, and on one the meta session holds, a report from the meta lane, since a coordinator's report is refused"
                     " there. catch_up=true makes it his catch-up, opening *Catch-up"
                     " since <when he was last heard>* in place of any title"
+                ),
+            },
+            "edit": {
+                "type": "string",
+                "description": (
+                    "The permalink of a post of yours in his DM to reword in place with text, in place of a new post; it takes"
+                    " text and asked alone, since a card is redrawn with drive job card"
                 ),
             },
             "drive": tools.DRIVE,
