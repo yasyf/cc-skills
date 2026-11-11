@@ -1048,9 +1048,12 @@ def returned(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: s
         ("reader", "ASK {kept}\n\nThe card asks whether sessions renew while used.", None, "waiting", ASKED),
         ("reader", "ASK {kept}", "DONE OURS migration 0340 gave every session one expiry\nError he sees: Cannot reach the thread index\n", "waiting", ASKED),
         ("builder", "DONE shipped\nPR: x", "DONE shipped\nPR: x\n", "done", "DONE shipped"),
+        ("builder", "DONE shipped, reworded at the stop", "DONE shipped\nPR: x\n", "done", "DONE shipped"),
+        ("builder", "WAITING builds unstarted", "WAITING the test builds are scheduled and unstarted\n", "waiting", "WAITING the test builds are scheduled and unstarted"),
+        ("reader", "My report was kept before your message arrived, so I did not resubmit.", "DONE ccx stages its sweep\nResearched:\n", "done", "DONE ccx stages its sweep"),
     ],
 )
-def test_a_local_agent_that_ended_on_a_line_the_drive_keeps_has_it_taken_and_is_no_orphan(
+def test_a_local_agent_that_ended_on_a_result_line_has_the_result_the_drive_keeps_taken_and_is_no_orphan(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None, taken: str, said: str
 ) -> None:
     returned(demo, tmp_path, monkeypatch, kind, text, report)
@@ -1065,11 +1068,10 @@ def test_a_local_agent_that_ended_on_a_line_the_drive_keeps_has_it_taken_and_is_
     ("kind", "text", "report"),
     [
         ("builder", "DONE shipped\nPR: x", None),
-        ("builder", "DONE shipped\nPR: x", "DONE an earlier result\n"),
         ("reader", "ASK {kept}.old", None),
     ],
 )
-def test_a_local_agent_that_ended_on_a_line_the_drive_does_not_keep_is_an_orphan(
+def test_a_local_agent_that_ended_on_a_result_line_with_nothing_kept_is_an_orphan(
     demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str, text: str, report: str | None
 ) -> None:
     returned(demo, tmp_path, monkeypatch, kind, text, report)
