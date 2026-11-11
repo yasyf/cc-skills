@@ -159,6 +159,10 @@ function up() {
   return zoomHref(screen, ...path.slice(0, screen === 'work' && path.length > 1 ? 1 : path.length - 1));
 }
 
+const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare']);
+const WORD_FENCES = new Set(['', 'text', 'txt', 'plain']);
+const PICTURE_LINE = /^\s*!\[([^\]]*)\]\((\/[^)\s]+)\)\s*$/;
+
 function inline(text, cite = model.repo) {
   const spans = [];
   const keep = (html) => `\u0000${spans.push(html) - 1}\u0000`;
@@ -190,7 +194,7 @@ function prose(text, cite) {
   parts.forEach((part, i) => {
     if (i % 3 === 1) return;
     if (i % 3 === 2) {
-      blocks.push(parts[i - 1].toLowerCase() === 'arch' ? `<div class="arch-fig" data-arch="${esc(part)}"></div>` : `<pre><code>${esc(part.replace(/\n$/, ''))}</code></pre>`);
+      blocks.push(fenced(parts[i - 1].toLowerCase(), part));
       return;
     }
     for (const para of part.split(/\n\s*\n/)) {
@@ -202,7 +206,12 @@ function prose(text, cite) {
         lines.shift();
         if (!lines.length) continue;
       }
-      if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
+      if (lines.some((line) => PICTURE_LINE.test(line))) {
+        blocks.push(...lines.map((line) => {
+          const shot = line.match(PICTURE_LINE);
+          return shot ? shown(shot[2], shot[1]) : `<p>${inline(line, cite)}</p>`;
+        }));
+      } else if (lines.every((line) => /^\s*\|.*\|\s*$/.test(line))) {
         blocks.push(table(lines, cite));
       } else if (lines.every((line) => /^\s*(?:[-*•]|\d+[.)])\s/.test(line))) {
         blocks.push(`<ul>${lines.map((line) => `<li>${inline(line.replace(/^\s*(?:[-*•]|\d+[.)])\s+/, ''), cite)}</li>`).join('')}</ul>`);
@@ -214,16 +223,32 @@ function prose(text, cite) {
   return blocks.join('');
 }
 
+function fenced(language, source) {
+  if (language === 'dot' || WORD_FENCES.has(language)) return `<pre><code>${esc(source.replace(/\n$/, ''))}</code></pre>`;
+  return visual(VISUAL_KINDS.has(language) ? language : `code:${language}`, source);
+}
+
+function shown(path, caption) {
+  const drawn = model.visuals?.[path];
+  if (drawn) return visual(drawn.kind, drawn.source, caption);
+  const src = `/api/picture?path=${encodeURIComponent(path)}`;
+  return `<a class="shot" href="${src}" target="_blank" rel="noopener"><img src="${src}" alt="${esc(caption)}" loading="lazy"></a>`;
+}
+
+function visual(kind, source, caption = '') {
+  return `<figure class="visual"><div class="visual-host" data-visual="${esc(kind)}" data-source="${esc(source)}"></div>${caption ? `<figcaption>${esc(caption)}</figcaption>` : ''}</figure>`;
+}
+
 async function drawFigures(root) {
-  const figures = [...root.querySelectorAll('.arch-fig:not(.drawn)')];
-  if (!figures.length) return;
-  for (const figure of figures) figure.classList.add('drawn');
-  const { mount } = await import(model.arch_lib);
-  for (const figure of figures) {
+  const hosts = [...root.querySelectorAll('.visual-host:not(.drawn)')];
+  if (!hosts.length) return;
+  for (const host of hosts) host.classList.add('drawn');
+  const { draw } = await import('/visuals.js');
+  for (const host of hosts) {
     try {
-      mount(figure, JSON.parse(figure.dataset.arch), { key: false });
-    } catch (error) {
-      figure.innerHTML = `<p class="refused">This diagram does not draw: ${esc(error.message)}</p>`;
+      await draw(host, host.dataset.visual, host.dataset.source);
+    } catch {
+      host.closest('.visual').remove();
     }
   }
 }

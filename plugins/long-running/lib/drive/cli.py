@@ -1096,13 +1096,13 @@ def parser() -> argparse.ArgumentParser:
     verb = job.add_parser(
         "card",
         parents=both,
-        help="print the question card a kept ASK block draws, its Show me code drawn as pictures",
+        help="print the question card a kept ASK block draws, its Show me visuals drawn as pictures",
         description=(
             "Read a kept ASK block and print its question card as JSON for `slack_dm_status(card=…)`: its question as"
-            " the title, its summary, then a `*Show me*` line and its Show me with each fenced block but mermaid drawn"
-            " as a picture on a line of its own, cut to the code's size and highlighted in the language its fence names,"
-            " Sand included, or a guessed one, and a fence that does not draw left as text; its options, the recommended"
-            " one, the drive, and --waits."
+            " the title, its summary, then a `*Show me*` line and its Show me with each fenced visual (code naming its"
+            " language, arch, mermaid, chart or compare) drawn by site/visuals.js as a picture on a line of its own,"
+            " titled with the caption line above it; a fence of words or one that does not draw is left off, and a"
+            " Show me left empty is dropped; its options, the recommended one, the drive, and --waits."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")

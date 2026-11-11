@@ -240,8 +240,9 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 
 .pics { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
 .pics img { display: block; max-width: min(100%, 520px); max-height: 360px; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
-.arch-fig { margin: 10px 0; }
-.arch-fig .smap-canvas { max-height: 60vh; }
+.visual { margin: 10px 0; overflow-x: auto; }
+.visual figcaption { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.visual .smap-canvas { max-height: 60vh; }
 .shot img { display: block; max-width: 100%; margin: 6px 0; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
 .thread { display: grid; gap: 10px; }
 .talk { margin: 0 0 4px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }

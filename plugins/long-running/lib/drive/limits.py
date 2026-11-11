@@ -136,7 +136,7 @@ def post_refusal(post: dict, edited: int = 0) -> str | None:
 
 
 def card_body(summary: list[str], show_me: list[str]) -> str:
-    return "\n".join([*summary, "*Show me*", *show_me])
+    return "\n".join([*summary, "*Show me*", *show_me] if any(line.strip() for line in show_me) else summary)
 
 
 def card_words(card: dict) -> int:

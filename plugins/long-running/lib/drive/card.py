@@ -173,7 +173,7 @@ def show_me_words(text: str, pictured: bool) -> str:
     first = SENTENCES.split(first_paragraph(without_records(bare)), maxsplit=1)[0].strip()
     readable = first and not first.startswith("|") and "`" not in first and len(first) <= CAPTION_CHARS
     shown = [first] if readable else []
-    code = next((match for match in picture.FENCE.finditer(text) if match[1].lower() not in (*picture.DIAGRAMS, "mermaid")), None)
+    code = next((match for match in picture.FENCE.finditer(text) if match[1].lower() not in picture.DIAGRAMS), None)
     if code and not pictured:
         shown.append("```\n" + code_clipped(code[2].strip("\n")) + "\n```")
     return "\n".join(shown)

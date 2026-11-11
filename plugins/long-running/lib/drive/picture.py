@@ -12,38 +12,35 @@ from pathlib import Path
 
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
-DIAGRAMS = ("arch", "dot")
-UNDRAWN = ("", "mermaid", "text", "txt", "plain")
+BROWSER_KINDS = ("arch", "mermaid", "chart", "compare")
+DIAGRAMS = (*BROWSER_KINDS, "dot")
+WORDS = ("", "text", "txt", "plain")
 VISUALS = Path(__file__).parent / "site" / "visuals.js"
-VISUAL_WINDOW = 1000
+VISUAL_WINDOW = 1200
 VISUAL_SCALE = 2
 VISUAL_PAGE = """<!doctype html>
-<html><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}</style></head>
+<html data-print><head><meta charset="utf-8"><style>html,body{margin:0;background:#fff}#visual{display:inline-block}#visual:not([data-kind=code]){padding:8px}#visual[data-kind=arch]{display:block;width:960px}.smap.printing>.smap-canvas{max-height:none!important}.smap-readout:not(:has(> :not(.smap-hint))){display:none}</style></head>
 <body><div id="visual"></div><script type="application/json" id="source">SOURCE</script>
 <script type="module">VISUALS
 const host = document.getElementById("visual");
 const shown = JSON.parse(document.getElementById("source").textContent);
-await draw(host, shown.kind, shown.source);
-const box = host.getBoundingClientRect();
-document.documentElement.dataset.drawn = `${Math.ceil(box.width)}x${Math.ceil(box.height)}`;
-</script></body></html>
-"""
-ARCH_LIB = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js"
-ARCH_WIDTH = 1200
-ARCH_SCALE = 2
-ARCH_PAGE = """<!doctype html>
-<html data-print><head><meta charset="utf-8">
-<style>html,body{{margin:0;background:#fff}}.smap.printing>.smap-canvas{{max-height:none!important}}.smap-readout:not(:has(> :not(.smap-hint))){{display:none}}</style></head>
-<body><div id="map"></div><script type="application/json" id="doc">{doc}</script>
-<script type="module">
-const {{ mount }} = await import({lib});
-const map = document.getElementById("map");
-const drawn = mount(map, JSON.parse(document.getElementById("doc").textContent), {{ key: false }});
-await drawn.ready;
-document.documentElement.dataset.drawn = drawn.problems.length ? drawn.problems.join("; ") : Math.ceil(map.getBoundingClientRect().height);
+try {
+  await draw(host, shown.kind, shown.source);
+  await document.fonts.ready;
+  const box = host.getBoundingClientRect();
+  document.documentElement.dataset.drawn = `${Math.ceil(box.width)}x${Math.ceil(box.height)}`;
+} catch (error) {
+  document.documentElement.dataset.drawn = String(error?.message ?? error);
+}
 </script></body></html>
 """
 DRAWN = re.compile(r'<html[^>]*\bdata-drawn="([^"]*)"')
+SIZE = re.compile(r"(\d+)x(\d+)")
+CAPTIONED = re.compile(
+    r"(?:^(?![ \t]*(?:```|!\[|\||[-*•][ \t]|\d+[.)][ \t]|#))[ \t]*(?P<caption>\S[^\n]*?)[ \t:]*\n)?"
+    r"^[ \t]*```[ \t]*(?P<language>[A-Za-z0-9_+-]*)[^\n]*\n(?P<source>.*?)^[ \t]*```[ \t]*$",
+    re.MULTILINE | re.DOTALL,
+)
 CHROME_APPS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium")
 CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROME_SECONDS = 60
@@ -79,16 +76,17 @@ def headless(page: Path, *args: str) -> str:
     return result.stdout
 
 
-def arch_png(source: str, out: Path) -> None:
-    """Draw an arch/v1 diagram with cc-present's arch-map, the component the dashboard draws it with: once to measure its height at ARCH_WIDTH, then a screenshot of exactly that."""
-    with tempfile.TemporaryDirectory(prefix="drive-arch-") as scratch:
-        page = Path(scratch) / "arch.html"
-        page.write_text(ARCH_PAGE.format(doc=json.dumps(json.loads(source)).replace("</", "<\\/"), lib=json.dumps(ARCH_LIB)))
-        if not (drawn := DRAWN.search(headless(page, f"--window-size={ARCH_WIDTH},{ARCH_WIDTH}", "--dump-dom"))):
-            raise PictureError("arch-map did not finish drawing it")
-        if not (height := html.unescape(drawn[1])).isdecimal():
-            raise PictureError(height)
-        headless(page, f"--window-size={ARCH_WIDTH},{height}", f"--force-device-scale-factor={ARCH_SCALE}", f"--screenshot={out}")
+def visual_png(kind: str, source: str, out: Path) -> None:
+    """Draw one visual with site/visuals.js, the module the dashboard draws it with live: once to measure it, then a screenshot of exactly that box."""
+    with tempfile.TemporaryDirectory(prefix="drive-visual-") as scratch:
+        page = Path(scratch) / "visual.html"
+        shown = json.dumps({"kind": kind, "source": source}).replace("</", "<\\/")
+        page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
+        if not (drawn := DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom"))):
+            raise PictureError(f"the {kind} did not finish drawing")
+        if not (size := SIZE.fullmatch(said := html.unescape(drawn[1]))):
+            raise PictureError(said)
+        headless(page, f"--window-size={size[1]},{size[2]}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
     if not out.is_file():
         raise PictureError("Chrome wrote no screenshot")
 
@@ -109,20 +107,6 @@ def dot_png(source: str, out: Path) -> None:
         raise PictureError(" ".join(result.stderr.split()) or f"dot exited {result.returncode}")
 
 
-def code_png(language: str, source: str, out: Path) -> None:
-    """Draw code with site/visuals.js, the renderer the dashboard uses, highlighted in its fence's language or a guessed one when the fence names none or one highlight.js lacks, once to measure the code and then a screenshot of exactly that size."""
-    with tempfile.TemporaryDirectory(prefix="drive-code-") as scratch:
-        page = Path(scratch) / "code.html"
-        shown = json.dumps({"kind": f"code:{language}", "source": source}).replace("</", "<\\/")
-        page.write_text(VISUAL_PAGE.replace("VISUALS", VISUALS.read_text(), 1).replace("SOURCE", shown, 1))
-        if not (drawn := DRAWN.search(headless(page, f"--window-size={VISUAL_WINDOW},{VISUAL_WINDOW}", "--dump-dom"))):
-            raise PictureError("the code did not finish drawing")
-        width, height = html.unescape(drawn[1]).split("x")
-        headless(page, f"--window-size={width},{height}", f"--force-device-scale-factor={VISUAL_SCALE}", f"--screenshot={out}")
-    if not out.is_file():
-        raise PictureError("Chrome wrote no screenshot")
-
-
 def downloaded(url: str, out: Path) -> None:
     try:
         with urllib.request.urlopen(url, timeout=DOWNLOAD_SECONDS) as reply:
@@ -132,38 +116,36 @@ def downloaded(url: str, out: Path) -> None:
 
 
 def sources(show_me: str) -> list[tuple[str, str]]:
-    """Each picture a Show me section holds, in order, as (kind, source): an arch or dot fence, a code fence drawn highlighted, or an image link."""
-    found = [(match.start(), match[1].lower(), match[2]) for match in FENCE.finditer(show_me) if match[1].lower() in DIAGRAMS]
-    found += [
-        (match.start(), f"code:{match[1].lower()}", match[2])
-        for match in FENCE.finditer(show_me)
-        if match[1].lower() not in (*DIAGRAMS, *UNDRAWN)
-    ]
+    """Each picture a Show me section holds, in order, as (kind, source): a diagram, chart or compare fence, a code fence naming its language, or an image link."""
+    found = [(match.start(), fence_kind(match[1]), match[2]) for match in FENCE.finditer(show_me) if match[1].lower() not in WORDS]
     found += [(match.start(), "image", match[1] or match[2]) for match in IMAGE.finditer(show_me)]
     return [(kind, source) for _, kind, source in sorted(found)]
 
 
+def fence_kind(language: str) -> str:
+    return language.lower() if language.lower() in DIAGRAMS else f"code:{language.lower()}"
+
+
 def draw(kind: str, source: str, out: Path) -> Path:
-    match kind:
-        case "arch":
-            arch_png(source, out)
+    match kind.split(":")[0]:
         case "dot":
             dot_png(source, out)
-        case _ if kind.startswith("code:"):
-            code_png(kind.removeprefix("code:"), source, out)
-        case _:
+        case "image":
             out = out.with_suffix(Path(source.split("?")[0]).suffix or ".png")
             downloaded(source, out)
+        case _:
+            visual_png(kind, source, out)
     return out
 
 
 def cached(folder: Path, name: str, kind: str, source: str) -> Path:
     """The picture of one source, drawn once under folder and named name."""
-    renderer = ARCH_LIB if kind == "arch" else VISUALS.read_text() if kind.startswith("code:") else ""
+    renderer = VISUALS.read_text() if kind.split(":")[0] in ("code", *BROWSER_KINDS) else ""
     home = folder / hashlib.sha256(f"{kind}\n{source}{renderer}".encode()).hexdigest()[:16]
     if found := sorted(home.glob(f"{name}.*")):
         return found[0]
     home.mkdir(parents=True, exist_ok=True)
+    (home / "source.json").write_text(json.dumps({"kind": kind, "source": source}))
     return draw(kind, source, home / f"{name}.png")
 
 
@@ -185,21 +167,18 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block but mermaid replaced by one line holding its picture, `![Show me](/abs.png)`, which cc-slack draws on the card where the line sits: arch and dot as diagrams, any other fence as highlighted code; a fence that does not draw stays text, so a picture never refuses a card."""
-    count = 0
+    """A question card's Show me with each fenced block replaced by one line holding its picture, `![caption](/abs.png)`, which cc-slack draws as an image block where the line sits, titled with the caption line just above the fence. A fence of words, with no language or `text`, and a fence that does not draw leave the card with their caption, since a picture of words shows nothing."""
 
     def picture_line(fence: re.Match[str]) -> str:
-        nonlocal count
-        language = fence[1].lower()
-        if language == "mermaid":
-            return fence[0]
-        kind = language if language in DIAGRAMS else f"code:{language}"
+        if fence["language"].lower() in WORDS:
+            print(f"drive card: its Show me holds words in a ``` fence, which leave the card: {fence['source'][:60]!r}", file=sys.stderr)
+            return ""
+        shown = fence_kind(fence["language"])
         try:
-            path = cached(folder, "show-me", kind, fence[2])
+            path = cached(folder, "show-me", shown, fence["source"])
         except (PictureError, ValueError) as error:
-            print(f"drive card: its Show me {kind} does not draw, so it stays text: {error}", file=sys.stderr)
-            return fence[0]
-        count += 1
-        return f"![Show me{f' ({count})' if count > 1 else ''}]({path})"
+            print(f"drive card: its Show me {shown} does not draw, so it leaves the card: {error}", file=sys.stderr)
+            return ""
+        return f"![{fence['caption'] or 'Show me'}]({path})"
 
-    return FENCE.sub(picture_line, "\n".join(show_me)).split("\n")
+    return CAPTIONED.sub(picture_line, "\n".join(show_me)).split("\n")
