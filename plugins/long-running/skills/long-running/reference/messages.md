@@ -102,17 +102,23 @@ limit".
   the handler's cut took lines out of five reports written longer, an incident line among them.
   Each item in it that waits on him carries its card's permalink or `waits` id, so the handler
   never searches for the card.
-- Any line that names a card, in a summary, a catch-up or a link line, names it by the card's own
-  permalink: the bare URL on a line of its own, the form Slack unfurls. Slack draws the card
-  there, and cc-slack posts no copy of it, so the card stays one message he answers where it sits. Never a copy of the
-  card's words, and never the permalink as link text (`<url|text>`). His words, Nov
-  10 7:31 PM, under "The first needs your tap: <permalink|permalink>": "this should have ben an
-  embeeded exopanded card, instad its just a random URL", and 7:32 PM: "you keep doing variants of
-  not just embeddingf htre card and havingf slack unfurl it: you copied it, yuoiu put the bare
-  link, but why not teh slack-native thing?". They repeat Nov 9 1:49 PM, "Anything that says waiting on me you always need to embed the card
-  with the buttons", and 6:19 PM, "if u are ever asking for my pick it has to embed and unfirl the
-  link to the card that has buittons to action". cc-slack refuses a line that says something waits
-  on him with no open card linked, and `check-post` flags it first. Nothing else has buttons.
+- Any line that names a card, in a summary, a catch-up or a link line, links the card's own
+  permalink under words that name it, `<permalink|the lock card>`. The line reads as those words,
+  Slack draws the card with its buttons under the line, and cc-slack posts no copy of it, so the
+  card stays one message he answers where it sits. Never the bare URL, which shows him a raw address
+  above the card; never the URL as its own link text, `<permalink|permalink>`, which Slack never
+  draws; and never a copy of the card's words. Slack draws only a message's first five links, and
+  none it drew in the same thread a moment earlier, so the words alone must still say which card it
+  is. His words, Nov 10 10:02 PM, under a line holding nothing but a card's bare URL: "dont just
+  paste the URLs embed the cards properlt in the slack native way". At 7:31 PM, under "The first
+  needs your tap: <permalink|permalink>", which drew no card: "this should have ben an embeeded
+  exopanded card, instad its just a random URL", and 7:32 PM: "you keep doing variants of not just
+  embeddingf htre card and havingf slack unfurl it: you copied it, yuoiu put the bare link, but why
+  not teh slack-native thing?". They repeat Nov 9 1:49 PM, "Anything that says waiting on me you
+  always need to embed the card with the buttons", and 6:19 PM, "if u are ever asking for my pick it
+  has to embed and unfirl the link to the card that has buittons to action". cc-slack refuses a line
+  that says something waits on him with no open card linked, or that shows a card's link as a raw
+  URL, and `check-post` flags both first. Nothing else has buttons.
 - In a bug report's thread the drive posts once, after the fix ships: plain English, no jargon, and
   no asks such as "please retry" or "please confirm". His ruling, Nov 9 1:53 PM: "we have
   authorization to message once in bug fix threads after we ship the fix … it needs to be in plain
@@ -190,8 +196,8 @@ The card is one `slack_dm_status(card=<what drive job card prints>, thread_ts=<h
 the card printed by `drive job card <the record's ask file> --waits <its waits id>`, never one put
 together by hand. cc-slack posts a card that
 names its drive and waits on him at his DM root, whatever thread it is given, so where it sits
-never rests on a handler's reading. In that thread it posts the card's bare permalink, which Slack
-unfurls into the card with its buttons.
+never rests on a handler's reading. In that thread it posts the card's permalink under the card's
+question, and Slack draws the card with its buttons under it.
 A drive tooling card is given no thread, since its order has none. The handler then closes
 the `ask` record with a `posted` record carrying the card's permalink and `waits` id. His tap
 still comes back as an `answer` record, so card posted and he answered stay two states. A card that
@@ -233,8 +239,8 @@ cc-slack draw one card at his DM root for the stack those PRs form (`drive card`
 Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
 them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
-The same call posts the card's bare permalink under the line in his thread, which Slack unfurls
-into the card, so that thread carries its buttons. The call's `card_permalink` names the card and its `permalink` only
+The same call posts the card's permalink under the card's question in his thread, and Slack draws
+the card under it, so that thread carries its buttons. The call's `card_permalink` names the card and its `permalink` only
 the line; when the card command gives a PR no card, the call fails with its reason and posts
 nothing. Each PR on it gets its own section, opened by its title, link and Open
 button, then its Refresher, its biggest surprise, what he will hate most, where it stands and what
@@ -291,8 +297,8 @@ Nothing to post; a line that says where things stand links it.
   His words, Nov 10 6:43 PM, under a thread that got a catch-up's lines about other orders: "why
   did all of these get sent in this thread?", and 6:47 PM: "this si the catch up post? it should be
   tititled as such".
-- **Anything that says it waits on him carries its card**, named by its permalink on a line of its
-  own as [The short form](#the-short-form) says, so he answers it there without clicking away.
+- **Anything that says it waits on him carries its card**, its permalink linked under words that
+  name it as [The short form](#the-short-form) says, so he answers it there without clicking away.
 - **His read-only question gets its answer within minutes** from the handler, which reads the
   source that owns the fact through whatever access opens it, a staff route included, and never
   answers that it could not read it; the communicator reads nothing itself.
