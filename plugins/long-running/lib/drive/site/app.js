@@ -400,9 +400,21 @@ function planFold(id, label, rows) {
   return `<details class="pfold" data-group="${id}"${opened.get(id) ? ' open' : ''}><summary>${label}</summary>${rows.join('')}</details>`;
 }
 
+function partsTable(parts, group) {
+  const partRow = (part) => planRow(`#/feature/${esc(part.order)}`, [`<b>${esc(part.title)}</b>`, pill(PART_WORDS[part.state], part.state.replace(' ', '-')), esc(part.blocks), esc(part.doing)]);
+  const open = parts.filter((part) => !['done', 'not started'].includes(part.state));
+  const waiting = parts.filter((part) => part.state === 'not started');
+  const done = parts.filter((part) => part.state === 'done');
+  return `<div class="ptable parts">${planHead('Part', 'State', 'What blocks it', 'What is being done')}${open.map(partRow).join('') || '<p class="empty small">Every started part is done.</p>'}
+      ${planFold(`${group}-waiting`, `<b>Not started</b> <span class="count">${waiting.length}</span>`, waiting.map(partRow))}
+      ${planFold(`${group}-done`, `<b>Done</b> <span class="count">${done.length}</span>`, done.map(partRow))}
+    </div>`;
+}
+
 function planScreen() {
   const stops = model.milestones;
-  if (!stops.length) return '<h1 class="h1">Plan</h1><p class="empty">No milestones yet. Once the coordinator names the milestone each of your orders moves, their map shows here.</p>';
+  const loose = model.unplanned ? `<h2 class="sec">${esc(model.unplanned.name)}</h2>${partsTable(model.unplanned.parts, 'plan-loose')}` : '';
+  if (!stops.length) return `<h1 class="h1">Plan</h1><p class="empty">No milestones yet. Once the coordinator names the milestone each of your orders moves, their map shows here.</p>${loose}`;
   const parts = stops.flatMap((stop) => stop.parts);
   const done = parts.filter((part) => part.state === 'done');
   const share = parts.length ? Math.round((100 * done.length) / parts.length) : 0;
@@ -412,9 +424,6 @@ function planScreen() {
   const stopRow = (stop) => planRow(`#/plan/${stops.indexOf(stop)}`, [`<b>${esc(stop.name)}</b>`, `${pill(STOP_WORDS[stop.state], STOP_TONES[stop.state])}${needsYou(stop) ? ' <span class="need">Needs you</span>' : ''}`, esc(stopWaits(stop))]);
   const later = stops.filter((stop, i) => stop.state === 'not started' && i > current);
   const middle = stops.filter((stop) => stop.state !== 'live' && !later.includes(stop));
-  const partRow = (part) => planRow(`#/feature/${esc(part.order)}`, [`<b>${esc(part.title)}</b>`, pill(PART_WORDS[part.state], part.state.replace(' ', '-')), esc(part.blocks), esc(part.doing)]);
-  const open = parts.filter((part) => !['done', 'not started'].includes(part.state));
-  const waiting = parts.filter((part) => part.state === 'not started');
   return `<div class="plan-head">
       <div><h1 class="h1">Plan</h1><p class="lead">${esc(lead)}</p></div>
       <div class="ringbox"><span class="ring" style="--p:${share}%"><span>${share}<small>%</small></span></span><span>${done.length} of ${parts.length} parts done</span></div>
@@ -427,10 +436,8 @@ function planScreen() {
       ${planFold('plan-later', `<b>${later.length} ${later.length === 1 ? 'milestone' : 'milestones'} later</b>`, later.map(stopRow))}
     </div>
     <h2 class="sec">Parts still open</h2>
-    <div class="ptable parts">${planHead('Part', 'State', 'What blocks it', 'What is being done')}${open.map(partRow).join('') || '<p class="empty small">Every started part is done.</p>'}
-      ${planFold('plan-waiting', `<b>Not started</b> <span class="count">${waiting.length}</span>`, waiting.map(partRow))}
-      ${planFold('plan-done', `<b>Done</b> <span class="count">${done.length}</span>`, done.map(partRow))}
-    </div>`;
+    ${partsTable(parts, 'plan')}
+    ${loose}`;
 }
 
 function milestoneScreen(at) {

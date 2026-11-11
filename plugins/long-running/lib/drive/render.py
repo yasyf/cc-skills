@@ -73,6 +73,12 @@ COORDINATOR_RULES = (
         " finding becomes a question card."
     ),
     (
+        "Dev stays releasable: a PR lands only when a release cut at its merge commit is safe alone, in any order of"
+        " targets, with no step after it such as a fill, a backfill, a hand command or another release first; its body's"
+        " `## Releasable alone` says what that release does, and no card offers landing first and fixing after. Before a"
+        " card or line names a tap, read drive status <pr>: a PR he tapped, merged or closed is never asked for again."
+    ),
+    (
         "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
         " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
         " long-running:designer on Fable, which fleshes the design out with worked examples and keeps each fork as an"
@@ -86,9 +92,10 @@ COORDINATOR_RULES = (
     ),
     (
         "An answer or ruling of his is not done at answer_add: drive answer <its id> --words \"<his words>\" --link"
-        " <permalink> lists every card still asking him and refuses until each is --stands or --superseded <key>=stop|<job>,"
-        " which settles that card in place with his words and link, drops its PR's tap ask and stops or folds its job;"
-        " ANSWER repeats every 10 minutes until then."
+        " <permalink> lists every card still asking him and every PR not yet live, and refuses until each is --stands,"
+        " --superseded <key>=stop|<job>, which settles that card in place with his words and link, drops its PR's tap ask"
+        " and stops or folds its job, or --reopened <PR>=<job> for a PR his words change, which that live job reworks to"
+        " them; ANSWER repeats every 10 minutes until then."
     ),
     (
         "Every part has an owner: drive order add --parts names each deliverable his words name, each job says its"

@@ -34,7 +34,12 @@ you built up.
    which `Decisions that bind` names with the option to build, is the exception, by his ruling
    of Nov 10 1:26 AM: "it can proactively build the recommended but can't put up a PR until I
    answer design Qs". Build that option, push the branch, open no PR and return `BUILT`.
-3. Write the change. Before you push, compile the Go or Rust you touched and run nothing else:
+3. Write the change in a shape the default branch can release alone, by the landing reference's
+   `Every PR`: a release cut at its merge commit is safe by itself, its targets going out in any
+   order, with nothing run after it. Split a change that needs a later step: a fill, backfill,
+   pass, hand-run command, a migration another release applies, or one target out before another.
+   Each PR is then safe alone, such as the readers first and the writer once they are live; when
+   no split works, return `ASK`. Before you push, compile the Go or Rust you touched and run nothing else:
    tests, typechecks, linters and review bots are CI's, and a local run only repeats them. When this Mac's load gate refuses a Rust or Go check in
    Forge-AI/monorepo, run that check on the remote builder instead, from the package's
    directory: `remote-builder exec --lane cargo --machine linux -- check -p <crate>` or
@@ -53,7 +58,9 @@ you built up.
    prints and a remote lane's brief carries whole: `## The stack`, the
    stack's title and summary, on a stack's bottom PR; `## Refresher`, for someone who
    knows the codebase but has not read this code lately; `## Biggest surprise`;
-   `## What you'll hate most`; `## Show me`, a concrete example (the real SQL, code or call
+   `## What you'll hate most`; `## Releasable alone`, what a release cut at its merge commit
+   does with nothing else and, for each order its targets could go out in, what a person sees;
+   `## Show me`, a concrete example (the real SQL, code or call
    with its before and after, plus a diagram or screenshot when it helps; a public
    repository's screenshot shows a demo drive or public data only, under a `demo-` or
    `public-` path, and a picture of the live drive, private code, Slack or a customer goes
@@ -61,10 +68,12 @@ you built up.
    `## Against the plan`, only when there is a departure; `## Port`, for ports; and
    `## His words, step by step`, each step beside the `path:line` that does it; with no
    record ids anywhere. A PR that waits on his tap gets no card without
-   `## What you'll hate most` and `## His words, step by step`, nor a stack without
-   `## The stack` on its bottom PR. `drive pr set` refuses `--tap`, `--serves` or `--design`
-   on such a PR in one message naming every section each body lacks, so one edit fixes them
-   all. The title opens
+   `## What you'll hate most`, `## Releasable alone` and `## His words, step by step`, nor a
+   stack without `## The stack` on its bottom PR. Nor does one whose Releasable alone or risk
+   section, or whose `INSTALL:`, risk or `PROVE:` line, leaves a step to run after the release.
+   "PROVE: after release, open the run page" checks what is live and passes; "then run the
+   backfill" does not. `drive pr set` refuses `--tap`, `--serves` or `--design` on such a
+   PR in one message naming every section each body lacks, so one edit fixes them all. The title opens
    with Fix:, New:, Cleanup: or Port: in plain words. Keep a stack to four PRs at most;
    split or fold anything bigger. Every section stands alone, since he reads the card with
    no other context: a number, fraction, size or ratio says what it measures, why that
@@ -228,9 +237,14 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   alone, and every PR the question turns on is linked, never dropped. The Show me is drawn whole
   on his card outside the 150 words, its fences naming no language; for an API question it is the
   calls in code. A markdown table draws as a table, and a picture on a line of its own draws as an
-  image where it sits; one inside a sentence or table cell stays text. Each option stands alone in full words and never points at another by number or
-  position. The findings stay on disk: his tap on Explain more posts the one section his question
-  rests on.
+  image where it sits; one inside a sentence or table cell stays text. Every row and cell holds
+  real contents, measured or worked out from the code and marked as such, never the names of what
+  will be measured later. `drive job ask` refuses a table with one value in every cell, by his
+  words in the messages reference. Each option stands alone in full words and never points at
+  another by number or position, and none lands a change first and leaves a step for after, such
+  as "land it now, then backfill", which `drive job ask` refuses. A card never asks him to tap,
+  approve or hold a PR `drive status <pr>` shows he tapped or that merged or closed. The findings
+  stay on disk: his tap on Explain more posts the one section his question rests on.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
   not a block; route around it and say which tool broke.
 

@@ -68,9 +68,12 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
 - A question card is the job's `ASK` as `drive job ask` kept it. It holds the question; a summary
   of one to three lines, what was found and what is being decided, the recommendation, and what
   happens meanwhile, with each thing it names that he could open linked; a Show me, the worked
-  example drawn whole as code; and two to four options, one line each, saying what he gets and
-  what it costs. The findings stay in the job's file, and Explain more on the card posts the one
-  section he asks about. No separate findings post, ever.
+  example drawn whole as code, with real contents in every row and cell; and two to four options,
+  one line each, saying what he gets and what it costs. Each option lands releasable alone, by
+  [Land a change](landing.md#every-pr): no option lands a change first and leaves a fill, backfill,
+  pass or command for after its release, and `drive job ask` refuses one that does. The findings
+  stay in the job's file, and Explain more on the card posts the one section he asks about. No
+  separate findings post, ever.
 - His answer is the option he tapped, or his own words when he writes one: a written reply that
   names no single option settles nothing, is never mapped to the closest option, and goes back to
   him under the card. No option asks a reporter or anyone else to retry or confirm.

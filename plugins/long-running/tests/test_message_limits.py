@@ -204,6 +204,41 @@ WATCHDOG_ASK = (
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
     f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nOnly the watcher that saves its place is built today.\n"
 )
+FROZEN_COPIES_ASK = """ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
+Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
+Show me:
+The 30 frozen copies, counted by the move's metric. Names and sizes need an in-cluster credential, so most are unread.
+
+| Cluster | Frozen copies | Last write | Names read | Size |
+| --- | --- | --- | --- | --- |
+| demo-prod | 26 | Oct 13, 15:45 to 15:49Z (frozen then) | demo-a1 (bucket folder already empty), demo-b2, demo-c3 | unread |
+| demo-east | 2 | Oct 13 | none | unread |
+| demo-west | 1 | Oct 13 | none | unread |
+| demo-north | 1 | Oct 13 | none | unread |
+
+What one removal deletes, in order:
+```
+source fleet: database file, redo and side files, replica metadata      local disk, gone
+source fleet: catalog record -> Retired; registry row marked removed
+team bucket: wal/<team>/<db>/<provision>/                               every object, same call, no waiting period
+kept: the team's blobs, the system fleet's copy and its own bucket folder
+skipped: a bucket that denies deletes keeps its folder
+```
+The recommended check, per copy, before that removal:
+```
+position_frozen = source.freeze(db).durable_seq          already frozen, so this only reads
+position_live   = system.ship_full_snapshot(db)          a fresh full copy in the system fleet's bucket folder
+if position_live < position_frozen: fail the step, naming team and db; delete nothing
+source.remove(db, id)
+```
+- Delete each only after its live copy uploads a fresh full snapshot at or past the frozen position; unproven ones stay and are named. (recommended)
+- Same proof, and first copy each frozen bucket folder to a backup you delete later by word; adds a copy step and a cleanup.
+- Keep all 30; a read-only pipeline run prints each one's name, size and positions, and you pick from that table.
+Findings:
+- Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
+- A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
+- Whether the Oct 13 build had the snapshot upload step is unread, which is why the 30 are re-proved.
+"""
 
 
 def said(count: int) -> str:
@@ -499,6 +534,19 @@ def test_a_placeholder_in_place_of_the_post_is_refused_wherever_it_goes(talker: 
     assert "is a placeholder" in message_limits.deny_reason(share)
 
 
+def test_a_post_asking_him_to_tap_a_pr_he_tapped_or_that_merged_is_refused(talker: str, transcript: Path) -> None:
+    url = "https://github.com/Forge-AI/monorepo/pull/4242"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(url, "j1", "o1")
+    asking = f"<{url}|The update-button fix> needs your tap."
+    assert posted(transcript, thread_ts="1.2", text=asking) is None
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#4242"]["tap"] = {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}
+    assert "Forge-AI/monorepo#4242: he tapped Approve at " in posted(transcript, thread_ts="1.2", text=asking)
+    assert "owes no tap on: Forge-AI/monorepo#4242" in posted(transcript, text="Fix: approve the update button?", tap_prs=[url])
+    assert posted(transcript, thread_ts="1.2", text=f"<{url}|The update-button fix> is live.") is None
+
+
 def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:
     assert posted(transcript, thread_ts="1.2", text="<https://github.com/yasyf/cc-skills/pull/1|the fix>") is None
     assert posted(transcript, thread_ts="1.2", text="<@U123>") is None
@@ -573,11 +621,22 @@ def test_a_cards_title_and_options_name_only_what_its_summary_links(talker: str,
 def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused_by_both(talker: str, transcript: Path) -> None:
     card = limits.question(KENTS_ASK).card("demo", "demo:j585-7")
     assert posted(transcript, card=card) is None
-    assert posted(transcript, card=card, text="Kent's stray chats: pick a fix").startswith("refused: this card is 155 words")
     with pytest.raises(DriveError, match="the question, summary and options are 151 words; at most 150"):
         limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
     longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
+
+
+def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carries_no_text_beside_it(talker: str, transcript: Path) -> None:
+    asked = limits.question(FROZEN_COPIES_ASK)
+    card = asked.card("demo", "demo:j620-660354")
+    assert limits.card_words(card) == limits.card_words({"title": asked.title, "body": "\n".join(asked.summary), "options": asked.options}) == 138
+    assert posted(transcript, card=card) is None
+    assert posted(transcript, card=card, text="Question: what must prove each moved copy is whole before the 30 frozen copies are deleted?") == (
+        "refused: this post's text is 16 words cc-slack draws atop the card, and a drive's question card carries only the words"
+        " of the ASK block `drive job ask` kept and counted: post the same card with no text."
+    )
+    assert posted(transcript, card=card, text=asked.summary[0]) is None
 
 
 def test_a_card_whose_kept_block_has_a_show_me_carries_every_code_block_of_it_under_its_show_me_line(talker: str, transcript: Path) -> None:

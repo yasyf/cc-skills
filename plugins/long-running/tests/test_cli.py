@@ -12,11 +12,14 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import Answers, Drawing, Thread, Withdrawals
-from drive import card, cli, github, orca, slack, state, view
+from drive import card, cli, github, orca, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
-CARD_BODY = """## What you'll hate most
+CARD_BODY = """## Releasable alone
+A release at its merge commit lands it on every target, in any order, and nothing runs after it.
+
+## What you'll hate most
 It lands without a second look.
 
 ## His words, step by step
@@ -261,6 +264,30 @@ def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) 
     assert state.parse_time(orders["o2"]["due"]) > state.now()
 
 
+def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "send the numbers")
+    assert cli.main(["order", "set", "o1", "--due", "+30m"]) == 2
+    assert "o1: refused, no time stored: a promised time needs the thread its line goes in" in capsys.readouterr().err
+    past = "2026-01-01T09:00:00-08:00"
+    assert cli.main(["order", "set", "o1", "--due", past, "--thread", "1.2"]) == 2
+    assert f"o1: refused, no time stored: {render.when(past)} is already past" in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["due"] is None
+    first = run("order", "set", "o1", "--due", "+30m", "--thread", "1.2")[1].splitlines()[-1]
+    due = render.when(state.load("demo")["orders"]["o1"]["due"])
+    assert first == (
+        f"stored {due}: it waits on the next drive post in D123 thread 1.2, which tells him the time; from that post he is owed a line by {due}"
+    )
+    later = run("order", "set", "o1", "--due", "+2h")[1].splitlines()
+    order = state.load("demo")["orders"]["o1"]
+    assert render.when(order["due"]) in later[0]
+    assert later[-1] == (
+        f"stored {render.when(order['next_due'])} behind the line already owed for {due}: that time keeps firing DUE until the next"
+        f" drive post in D123 thread 1.2 lands, which tells him {render.when(order['next_due'])} and makes it the time owed"
+    )
+
+
 def test_order_add_json(run: Run, demo: str) -> None:
     code, out = run("order", "add", "words", "--json")
     assert code == 0
@@ -497,6 +524,57 @@ def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path:
     block.write_text(f"{head}- One snapshot{options.split('Findings:')[0]}Show me:\n{example}Findings:\nmeasured\n")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "the options come after the Show me, never above it" in capsys.readouterr().err
+
+
+PLANNED_TABLE = """| Database size | 0 change files | 100 change files |
+| --- | --- | --- |
+| 100 MiB | {cell} | time, bytes, disk |
+| 1 GiB | time, bytes, disk | time, bytes, disk |
+"""
+
+
+@pytest.mark.parametrize(("cell", "refused"), [("time, bytes, disk", True), ("0.4 s, 2 MiB, 0 (measured)", False)])
+def test_job_ask_refuses_a_show_me_table_whose_every_cell_says_the_same(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], cell: str, refused: bool
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Show me:\n", "Show me:\n" + PLANNED_TABLE.format(cell=cell) + "\n", 1))
+    assert cli.main(["job", "ask", asking, str(block)]) == (2 if refused else 0)
+    placeholder = (
+        'the Show me table headed "Database size | 0 change files | 100 change files" holds "time, bytes, disk" in every cell:'
+        " a Show me shows real contents in every row and cell"
+    )
+    assert (placeholder in capsys.readouterr().err) == refused
+
+
+def test_job_ask_refuses_an_option_that_lands_first_and_fixes_up_after(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    landing = "- Land the snapshot writer now, then backfill old runs from a pass box: opens in 3 requests"
+    block.write_text(SHORT_ASK.replace("- A map file beside each journal file", f"{landing}\n- A map file beside each journal file"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert f'option "{landing[2:]}" lands first and leaves "then backfill" for after: dev must always be releasable' in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("- A map file beside each journal file", "- Land the snapshot writer with no backfill: old runs keep guessing"))
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
+def test_job_ask_refuses_asking_him_to_tap_a_pr_he_tapped_or_that_merged(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("pr", "add", PR, "--job", "j1", "--tap")
+    block = tmp_path / "ask.md"
+    block.write_text(
+        SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile <{PR}|the fix that lands the layout> waits on your tap.")
+    )
+    assert run("job", "ask", asking, str(block))[0] == 0
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#42"].update(tap={"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}, state="merged")
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert capsys.readouterr().err.startswith(
+        "drive: refused: this asks him to tap, approve or hold a PR the drive owes no tap on:"
+        f" Forge-AI/monorepo#42: he tapped Approve at {render.when('2026-11-10T18:40:00-08:00')}, merged. A tap is asked for only when owed"
+    )
 
 
 def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
@@ -776,6 +854,31 @@ def test_pr_set_tap_refuses_a_body_his_card_would_refuse_naming_every_missing_se
         f"drive: {with_pr}: its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\""
         f" list naming his order in the body of {PR}. No order of his names {PR}: "
     )
+
+
+@pytest.mark.parametrize(
+    ("alone", "lines", "refused"),
+    [
+        ("", "", 'a "Releasable alone" section saying why a release cut at its merge commit is safe by itself'),
+        ("None.", "", 'a "Releasable alone" section saying why'),
+        ("The new column ships empty and readers skip it.", "", ""),
+        ("The new column ships empty; then run the fill from a pass box.", "", 'but it says "then run" in'),
+        ("Every target reads both shapes, so any order is safe.", "- **Install:** merge, then backfill after the deploy\n", 'but it says "then backfill" in "- **Install:** merge'),
+        ("Every target reads both shapes, so any order is safe.", "## Risk\nIt needs no backfill and no pass box.\n", ""),
+        ("Every target reads both shapes, so any order is safe.", "PROVE: after release, open the run page and see its steps\n", ""),
+        ("Every target reads both shapes.", "```\nINSTALL: drive install x\nthen run fill\n```\n", ""),
+    ],
+)
+def test_pr_set_tap_refuses_a_body_that_is_not_releasable_alone(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str], alone: str, lines: str, refused: str
+) -> None:
+    run("pr", "set", PR, "--no-tap", "--why", "not his order")
+    section = f"## Releasable alone\n{alone}\n\n" if alone else ""
+    on_github["body"] = section + CARD_BODY.split("\n\n", 1)[1] + lines
+    code = cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"])
+    error = capsys.readouterr().err
+    assert (code, refused in error) == ((2, True) if refused else (0, True))
+    assert ("Dev must always be releasable" in error) == bool(refused)
 
 
 def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refuse(
@@ -1084,6 +1187,23 @@ def test_an_order_lists_its_parts_and_each_job_names_the_ones_it_delivers(run: R
     assert data["jobs"]["j1"]["card"] == "https://acme.slack.com/archives/D1/p1"
 
 
+def test_job_add_prints_each_live_job_already_carrying_its_part_under_its_id(run: Run, demo: str) -> None:
+    run("order", "add", "three spikes", "--parts", "spike 1", "spike 2", "spike 3")
+    run("job", "add", "builder", "--order", "o1", "--goal", "spike 1: restore cost at three database sizes, one operation at a time", "--part", "spike 1")
+    run("job", "add", "reader", "--order", "o1", "--goal", "spike 2", "--part", "spike 2")
+    run("job", "set", "j2", "--state", "done")
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "spike 2 again", "--part", "spike 2") == (0, "j3")
+    code, out = run("job", "add", "builder", "--order", "o1", "--goal", "spikes", "--part", "spike 1", "--part", "spike 2", "--part", "spike 3")
+    assert (code, out.splitlines()) == (
+        0,
+        [
+            "j4",
+            'j1 builder running on "spike 1": spike 1: restore cost at three database sizes, one operation',
+            'j3 builder running on "spike 2": spike 2 again',
+        ],
+    )
+
+
 def test_an_order_of_one_deliverable_is_one_part_its_jobs_take_by_default(run: Run, demo: str) -> None:
     run("order", "add", "fix   the\nwatch")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix", "--agent", "a")
@@ -1162,6 +1282,46 @@ def test_an_answer_counts_as_posted_in_the_thread_of_one_of_the_orders_cards(
         data["jobs"]["j1"]["card"] = "https://acme.slack.com/archives/D123/p1794200000000100"
     assert run("order", "posted", "o1", answer)[0] == 0
     assert state.load("demo")["orders"]["o1"]["parts"]["how fast can restore go?"]["posted"] == answer
+
+
+def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_thread(
+    run: Run, demo: str, slack_thread: "Thread"
+) -> None:
+    run("order", "add", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
+    run("job", "add", "builder", "--order", "o1", "--goal", "web search")
+    run("pr", "add", PR, "--job", "j1", "--tap")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    root = {"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_claude": True}
+    slack_thread.messages.append(root | {"text": "New: approve web search? — ✓ *Approve* · <https://github.com/Forge-AI/monorepo/pull/41|PR 41>"})
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert run("order", "posted", "o1", line)[0] == 2
+    slack_thread.messages[0] = root | {"text": f"New: approve web search? — ✓ *Approve* · answered 7:10pm · <{PR}|monorepo PR 42>"}
+    assert run("order", "posted", "o1", line) == (0, f'o1 "ship web search": posted {line}')
+    order = state.load("demo")["orders"]["o1"]
+    assert (order["parts"]["ship web search"]["posted"], order["last_line"]) == (line, state.stamp(slack.sent_at(slack_thread.messages[-1])))
+
+
+def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_keeps_no_promised_time(
+    run: Run, demo: str, slack_thread: "Thread"
+) -> None:
+    parts = ["answer why it fails silently", "tell the two stopped people now"]
+    run("order", "add", "tell the stopped people", "--thread", "1794100000.000100", "--due", "+30m", "--parts", *parts)
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    told = slack_thread.post(state.now(), from_claude=True).replace("/D123/", "/C0SHARE01/")
+    before = state.load("demo")["orders"]["o1"]
+    assert run("order", "posted", "o1", told)[0] == 2
+    assert run("order", "posted", "o1", told, "--part", parts[1]) == (
+        0,
+        f'o1 "{parts[1]}": posted {told}, outside his threads, so it is no line to him and keeps no promised time',
+    )
+    after = state.load("demo")["orders"]["o1"]
+    assert after == before | {"parts": {parts[0]: state.new_part(), parts[1]: {**state.new_part(), "posted": told}}}
 
 
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
@@ -1253,10 +1413,10 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     assert capsys.readouterr().err.split("no mark:")[1].split("\n")[1].startswith(f"  {designing}  tap")
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
-    assert "demo:j2-7: not a card still asking him that a1 has not marked" in capsys.readouterr().err
+    assert "demo:j2-7: not a card or PR that a1 has not marked" in capsys.readouterr().err
     code, out = run("answer", "a1", "--superseded", f"{designing}=stop")
     assert out.splitlines() == [
-        "his answer a1 recorded: 1 standing, 1 superseded by it",
+        "his answer a1 recorded: 1 standing, 1 superseded, 0 reopened by it",
         f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
         f"{designing} no longer waits on his tap",
         "j1 stopped: end its agent, or its lane with drive job end j1",
@@ -1265,6 +1425,39 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == (False, "stopped", "running")
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
+
+
+def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    settled = cards_asking(monkeypatch, PR)
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2")
+    run("job", "add", "builder", "--order", "o1", "--goal", "shipped")
+    run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3")
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#45"]["state"] = data["prs"]["Forge-AI/monorepo#46"]["state"] = "merged"
+        data["jobs"]["j3"]["state"] = "done"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert "; 1 card and 3 PRs have no mark:" in listed
+    assert "  Forge-AI/monorepo#44  open  j1 o1  " in listed
+    assert "  Forge-AI/monorepo#45  merged  j2 o1  " in listed
+    assert "#46" not in listed
+    assert run("answer", "a1", "--reopened", "demo:j2-7=j1")[0] == 2
+    assert run("answer", "a1", "--reopened", "Forge-AI/monorepo#45=j3")[0] == 2
+    code, out = run("answer", "a1", "--reopened", f"{designing}=j1", "Forge-AI/monorepo#45=j1", "--others-stand")
+    assert out.splitlines() == [
+        "his answer a1 recorded: 2 standing, 0 superseded, 2 reopened by it",
+        f"{designing}: its card {TAP_CARD} now shows his words and a link to them, with no buttons",
+        f"{designing} no longer waits on his tap until j1 reworks it",
+        f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
+        "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
+    ]
+    assert (code, settled) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
+    data = state.load("demo")
+    assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"]) == (False, "running")
+    assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
 
 
 def test_a_superseded_card_folds_its_job_into_a_live_one_and_the_card_he_tapped_needs_no_mark(

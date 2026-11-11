@@ -350,7 +350,7 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each answer of his that leaves a card still asking him marked neither standing nor superseded by it, again every ten minutes until each is."""
+    """Each answer of his that leaves a card still asking him or a PR not yet live with no mark, standing, superseded or reopened by it, again every ten minutes until each has one."""
     if watcher.cards is None:
         return []
     data = state.load(watcher.name)
@@ -366,8 +366,8 @@ def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for answer_id in owed:
             data["answers"][answer_id]["said"] = state.stamp(moment)
     return [
-        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": {len(keys)} {"card" if len(keys) == 1 else "cards"}'
-        f" still asking him, marked neither standing nor superseded by it; drive answer {answer_id} lists them: {', '.join(keys)}"
+        f'ANSWER {answer_id} "{cut(data["answers"][answer_id]["words"], 80)}": {superseded.counted(keys, asked)} with no mark,'
+        f" standing, superseded or reopened by it; drive answer {answer_id} lists them"
         for answer_id, keys in owed.items()
     ]
 

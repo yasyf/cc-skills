@@ -36,7 +36,10 @@ public or Sand-facing API shape; or a new background process. When unsure, it co
    declarative, the rows a schema holds or the bytes a file format lays down. It names what his
    words already settle, and each real fork as an `ASK` block it kept with `drive job ask`: the
    design in a line, a Show me of each option in code, then two to four one-line options,
-   recommendation first.
+   recommendation first. Every option lands releasable alone, by [Land a change](landing.md#every-pr):
+   a shape that needs a fill, backfill, hand-run command or target order after its release is split
+   until each part is safe alone, or left out. `drive job ask` refuses an option that lands first and
+   fixes up after, such as "land it now, then backfill".
 2. **He is asked before any PR.** Each fork goes to him as its own question card by the `DESIGN`
    row of the job results, the design and its Show me above the options. It is never a wall of
    findings nor a high-level line he must ask to have fleshed out, and what his words settle is

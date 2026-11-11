@@ -5,10 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import settled, state
+from drive import limits, settled, state
 
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
+TAP_KINDS = {"report", "ask", "ready"}
 WITH_FILE = (
     f"refused: a drive record's text is one line of at most {RECORD_CHARS} characters, and this record attaches a file"
     " as its body; put the rest of its text in that file."
@@ -40,15 +41,26 @@ def unsettled(record: dict, names: list[str], cwd: str) -> str | None:
     return settled.refusal(record.get("text") or "", cwd, attrs.get("unsettled"), "the attr `unsettled` set to")
 
 
+def untapped(record: dict, prs: dict[str, dict]) -> str | None:
+    """Why a report, ask or ready record asks him for a tap the drive owes on no PR it names; a ready record asks by what it is."""
+    kind = (record.get("kind") or "").lower()
+    if kind not in TAP_KINDS:
+        return None
+    named = [record.get("text") or "", record.get("body") or "", record.get("url") or "", *map(str, record.get("pr") or [])]
+    return limits.tap_refusal("\n".join(named), prs, asking=kind == "ready")
+
+
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused while an ask in it may be settled already, else every record in it one line, the rest in its body for whoever acts on it."""
+    """What a drive session's post becomes: refused while an ask in it may be settled already or a record in it asks for a tap no PR it names is owed, else every record in it one line, the rest in its body for whoever acts on it."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
     records = tool_input.get("records") or [tool_input]
     cwd = payload.get("cwd") or os.getcwd()
-    if refused := next(filter(None, (unsettled(record, names, cwd) for record in records)), None):
+    prs = {key: pr for name in names for key, pr in state.load(name)["prs"].items()}
+    checks = (check for record in records for check in (unsettled(record, names, cwd), untapped(record, prs)))
+    if refused := next(filter(None, checks), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     cut = [shortened(record) for record in records]
     if not any(cut):
