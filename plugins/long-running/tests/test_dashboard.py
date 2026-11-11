@@ -623,3 +623,22 @@ await wait(100);
 done({ wide: document.documentElement.scrollWidth, room: innerWidth });
 """, board(history=[said]), "390,844")
     assert seen["wide"] <= seen["room"]
+
+
+def test_choosing_a_lane_keeps_the_lane_grid_where_he_scrolled_it_and_esc_steps_back_one_level(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/work/Platform/SandSQL';
+await wait(100);
+const cards = document.querySelector('#main .lane-cards');
+cards.scrollTop = 400;
+const lane = [...cards.querySelectorAll('.lane-card')].find((card) => card.offsetTop > 400);
+lane.click();
+await wait(100);
+const chosen = { hash: location.hash, same: document.querySelector('#main .lane-cards') === cards, top: cards.scrollTop, on: cards.querySelector('.lane-card.on') === lane };
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+await wait(100);
+done({ chosen, up: location.hash });
+""", board())
+    assert seen["chosen"]["hash"].startswith("#/work/Platform/SandSQL/j")
+    assert {key: value for key, value in seen["chosen"].items() if key != "hash"} == {"same": True, "top": 400, "on": True}
+    assert seen["up"] == "#/work/Platform/SandSQL"
