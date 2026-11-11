@@ -2172,7 +2172,7 @@ def test_a_post_for_a_report_delivers_the_part_its_record_names_in_any_thread(
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": {"part": "first check", "incident": "true"}}}))
     line = slack_thread.post(state.now(), from_claude=True)
     assert run("order", "posted", "o1", line, "--record", "660611") == (
         0,
@@ -2214,11 +2214,51 @@ def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, sla
     assert (order["state"], order["withdrawn"]) == ("dropped", his)
 
 
+def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_the_line_that_told_him_that_time(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    moment = state.now()
+    reports = {"21": ("o1", moment - timedelta(seconds=35)), "22": ("o1", moment + timedelta(minutes=2)), "23": ("o2", moment + timedelta(seconds=30))}
+    monkeypatch.setattr(
+        cli.reads,
+        "run",
+        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": {"close": reports[argv[2]][0]}}}),
+    )
+    fix = "ship the background-thread fix"
+    for text in ("unfreeze and release", fix):
+        run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    run("order", "set", "o1", "--due", "+28m")
+    run("order", "set", "o2", "--due", "+28m")
+    done = slack_thread.post(moment + timedelta(minutes=1), from_claude=True)
+    run("order", "posted", "o1", done)
+    told = state.load("demo")["orders"]["o1"]
+    assert (told["promised"], state.owed(told)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), True)
+    assert cli.main(["order", "set", "o1", "--state", "done", "--record", "22"]) == 2
+    assert (
+        f"o1 owes him the line promised for {render.when(told['due'])}, and no drive post is in its thread since"
+        f" {render.when(told['promised'], seconds=True)}: post it there first with say(order=o1, record=22)"
+    ) in capsys.readouterr().err
+    assert run("order", "set", "o1", "--state", "done", "--record", "21")[0] == 0
+    closed = state.load("demo")["orders"]["o1"]
+    assert (closed["state"], closed["kept"], closed["due"]) == ("done", told["promised"], told["due"])
+    due = state.load("demo")["orders"]["o2"]["due"]
+    assert run("order", "posted", "o2", done, "--record", "23") == (
+        0,
+        f'o2 "{state.whole_order(fix)}": posted {done}, its close keeps the line promised for {render.when(due)}',
+    )
+    kept = state.load("demo")["orders"]["o2"]
+    assert (kept["kept"], kept["next_due"], state.owed(kept)) == (told["promised"], None, False)
+
+
 def test_a_handler_closes_only_an_order_its_report_record_closes(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     attrs = {"10": {"orders": "o1", "thread": "1794200000.000100"}, "11": {"orders": "o1", "close": "o2"}, "12": {"close": "o2 o1"}}
-    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "fields": {"attrs": attrs[argv[2]]}}))
+    monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs[argv[2]]}}))
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the watch")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "fix the handler")
     run("start", "demo", "--role", "communicator")

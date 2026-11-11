@@ -586,6 +586,14 @@ def keep(order: dict, posts: list[datetime], announced: bool = True) -> None:
     keep(order, posts, announced=False)
 
 
+def keep_closing(order: dict, posts: list[datetime], written: datetime) -> None:
+    """Record the line of a report that closes the order as keeping every time it owes: the first drive post after the promise, or the post that told him the time when the report was written before it, since that post is also the order's last line."""
+    promised = parse_time(order["promised"])
+    kept = next((post for post in posts if post > promised or post == promised >= written), None)
+    if kept is not None:
+        order.update(kept=kept.isoformat(), next_due=None, next_set=None)
+
+
 def open_pr_keys(data: dict) -> list[str]:
     return [key for key, pr in data["prs"].items() if pr["state"] == "open"]
 

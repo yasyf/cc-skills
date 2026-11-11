@@ -291,3 +291,16 @@ def test_a_moved_time_is_kept_only_by_lines_after_it_was_set() -> None:
     assert (order["promised"], order["kept"]) == (at(40).isoformat(), None)
     state.keep(order, [at(-10), at(10), at(40), at(50)])
     assert order["kept"] == at(50).isoformat()
+
+
+def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a_line_before_the_report_does_not() -> None:
+    at = lambda minutes: REFERENCE + timedelta(minutes=minutes)
+    order = {"due": None, "promised": None, "kept": None, "withdrawn": None, "next_due": None, "next_set": None, "due_said": None}
+    state.promise(order, state.stamp(at(28)), at(0))
+    state.keep(order, [at(16)])
+    state.keep(order, [at(16)], announced=False)
+    assert (order["due"], order["promised"], state.owed(order)) == (state.stamp(at(28)), at(16).isoformat(), True)
+    state.keep_closing(order, [at(16)], at(17))
+    assert state.owed(order)
+    state.keep_closing(order, [at(16)], at(15))
+    assert (order["kept"], order["next_due"], state.owed(order)) == (at(16).isoformat(), None, False)
