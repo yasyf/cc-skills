@@ -30,8 +30,9 @@ RAW = {
     **dict.fromkeys(("traceback", "pytb", "stacktrace"), "a stack trace"),
 }
 INSTEAD = (
-    "draw what it means instead, a ```mermaid flow for routing or ownership, a ```compare or a markdown table for"
-    " options, a ```chart for numbers, or show no picture at all"
+    "draw what it means instead, a ```mermaid flow for routing or ownership or a ```mermaid sequenceDiagram for calls"
+    " between services, a ```compare or a markdown table for options or before and after, a ```chart for numbers, or"
+    " show no picture at all"
 )
 PROMPT = re.compile(r"^[ \t]*(?:\$|%|❯|>>>)[ \t]+\S")
 STACK_TRACE = re.compile(
@@ -42,6 +43,13 @@ STACK_TRACE = re.compile(
 LOG_LINE = re.compile(
     r"^[ \t]*\[?(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\d{2}:\d{2}:\d{2}\b)|\[(?:TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL)\]|\blevel=\w+"
 )
+HTTP_STATUS = re.compile(r"^[ \t<]*HTTP/\d(?:\.\d)?[ \t]+[1-5]\d\d\b", re.MULTILINE)
+HTTP_REQUEST = re.compile(r"\b(?:GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS)[ \t]+(?:https?://|/|[\w.-]+/)")
+HTTP_ANSWER = re.compile(
+    r"(?:->|→|<-|←)[ \t]*(?:[1-5]\d\d(?=[ \t]*(?:$|[,;{\[(]|OK\b|[A-Z][a-z]+\b))|[{\[][ \t]*[\"{\[\]}])"
+    r"|(?:^[ \t]*(?:#+|//)?|:)[ \t]*[1-5]\d\d[ \t]+[{\[][ \t]*[\"{\[\]}]"
+)
+COMMENT = re.compile(r"^[ \t]*(?://|#|--|/?\*)")
 SPAN = re.compile(r"<[^<>\n]*\|([^<>\n]*)>|<https?://[^<>\s]*>|https?://\S+|`[^`\n]*`")
 CODE_LINE = re.compile(
     r"^(?:[+-][ \t]+)?(?:"
@@ -164,7 +172,7 @@ def fence_kind(language: str) -> str:
 
 
 def raw(language: str, source: str) -> str | None:
-    """What a fence holds when it is raw data or tool output, whatever language it names: JSON, YAML, raw rows, log lines, a terminal session, command output or a stack trace, of which a picture shows him nothing."""
+    """What a fence holds when it is raw data or tool output, whatever language it names: JSON, YAML, raw rows, log lines, a terminal session, an HTTP exchange, command output or a stack trace, of which a picture shows him nothing."""
     if language.lower() in DIAGRAMS:
         return None
     if named := RAW.get(language.lower()):
@@ -177,10 +185,20 @@ def raw(language: str, source: str) -> str | None:
         return "a terminal session"
     if len(lines) >= 2 and 2 * sum(bool(LOG_LINE.search(line)) for line in lines) >= len(lines):
         return "log lines"
+    if exchange(source):
+        return "an HTTP exchange"
     try:
         return "JSON" if isinstance(json.loads(source), dict | list) else None
     except json.JSONDecodeError:
         return None
+
+
+def exchange(source: str) -> bool:
+    """Whether a fence holds an HTTP exchange: a response's status line as curl or httpie prints it, or requests with their answers, a status or a JSON body after an arrow or a status opening a JSON body, on as many lines as the rest, comments narrating them aside. A request alone is the real call, never an exchange."""
+    lines = [line for line in source.splitlines() if line.strip()]
+    calls = [line for line in lines if HTTP_REQUEST.search(line) or HTTP_ANSWER.search(line)]
+    told = [line for line in lines if line not in calls and not COMMENT.match(line)]
+    return bool(HTTP_STATUS.search(source)) or any(map(HTTP_REQUEST.search, calls)) and any(map(HTTP_ANSWER.search, calls)) and len(calls) >= len(told)
 
 
 def spoken(source: str) -> list[str]:

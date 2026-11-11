@@ -34,6 +34,80 @@ The plan said three retries; this does five.
 ## His words, step by step
 - "uploads should survive a flaky network" beside `upload.go:42`
 """
+RENEW_EXCHANGE = """The same agent at minute 10 and minute 15, before and after:
+
+```sh
+before  00:15  SandSQL inbox read with the pushed pass        -> refused, the pass expired
+before  00:15  model call through the api as "Agent <token>"  -> 401, the token expired
+after   00:10  POST /agent-hosts/agt_.../permission/renew {"writer":1}
+               -> 200 {"token":"eyJ...","tokenExpiresAt":"...T00:25:00Z","inbox":{"db":"inbox-agt_...","token":"sat1.inbox",...}}
+after   00:10  the same renew against an api replica from before this change -> 404, and the agent keeps its hold
+after   00:15  inbox read and model call on the renewed pair  -> 200
+after   00:10  the same ack from a pod that no longer holds the agent -> 409 {"error":"over"}, no pass minted
+```
+"""
+SESSIONS_EXCHANGE = """Each page of chats the list asks for.
+
+```sh
+# launch: the newest 50, plus where the next page starts
+GET /api/sessions?team=team_acme
+-> { "sessions": [50 chats], "next": "1794294151630439:sess_01k..." }
+
+# a Show more click: every chat down to that cursor, then 50 older
+GET /api/sessions?team=team_acme&through=1794294151630439%3Asess_01k...
+-> { "sessions": [100 chats], "next": "1794201022118000:sess_01h..." }
+```
+"""
+CONFLICT_RESPONSE = """What a pod that lost its hold gets back.
+
+```http
+HTTP/1.1 409 Conflict
+content-type: application/json
+
+{"error": "over"}
+```
+"""
+RENEW_REWRITTEN = """The same agent's calls at minute 15, before and after the pod renews at minute 10.
+
+| call at minute 15 | before | after |
+|---|---|---|
+| SandSQL inbox read | refused, the pass expired | 200 |
+| model call as the agent | 401, the token expired | 200 |
+| renew from a pod that lost the agent | no such route | 409, no pass minted |
+
+```mermaid
+sequenceDiagram
+  participant pod as cloud pod
+  participant api
+  pod->>api: minute 10, POST /agent-hosts/:hostId/permission/renew
+  api-->>pod: a fresh token and inbox pass, good to minute 25
+  pod->>api: minute 15, inbox read and model call
+  api-->>pod: both answered
+```
+"""
+RENEW_CALL = """The call the pod makes at minute 10.
+
+```http
+POST /agent-hosts/agt_1/permission/renew HTTP/1.1
+Authorization: Executor <pod token>
+
+{"writer": 1}
+```
+"""
+RENEW_HANDLER = """The handler that answers it.
+
+```go
+// POST /agent-hosts/{id}/permission/renew -> 200
+func (h *Hosts) Renew(w http.ResponseWriter, r *http.Request) {
+	held, err := h.placements.Held(r.Context(), r.PathValue("id"), writer(r))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	writeJSON(w, h.mint(held))
+}
+```
+"""
 
 
 def pr_json(
@@ -374,6 +448,18 @@ def test_a_pr_show_me_chart_whose_rows_slack_cannot_draw_leaves_the_card_and_is_
 def test_a_pr_show_me_table_or_chart_slack_cannot_draw_as_its_own_is_refused_naming_the_fix(shown: str, refusal: str) -> None:
     problems = card.show_me_problems(pr_json(body=f"## Show me\nEach wake, before and after.\n{shown}\n"))
     assert refusal in "; ".join(problems)
+
+
+@pytest.mark.parametrize("show_me", [RENEW_EXCHANGE, SESSIONS_EXCHANGE, CONFLICT_RESPONSE], ids=["calls and answers in an sh fence", "requests and JSON answers between comments", "a response dump"])
+def test_a_pr_show_me_of_an_http_exchange_is_refused_naming_what_to_draw_instead(show_me: str) -> None:
+    problems = "; ".join(card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")))
+    assert "is an HTTP exchange, raw data or tool output, and a picture of it shows him nothing" in problems
+    assert "a ```mermaid sequenceDiagram for calls between services, a ```compare or a markdown table for options or before and after" in problems
+
+
+@pytest.mark.parametrize("show_me", [RENEW_REWRITTEN, RENEW_CALL, RENEW_HANDLER], ids=["a table and a sequence diagram", "the request alone", "code naming its route in a comment"])
+def test_a_pr_show_me_drawing_what_an_http_exchange_means_or_the_call_alone_passes(show_me: str) -> None:
+    assert card.show_me_problems(pr_json(body=f"## Show me\n{show_me}")) == []
 
 
 def test_record_ids_never_reach_a_card_line() -> None:

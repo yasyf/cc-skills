@@ -42,7 +42,6 @@ AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
 CONSTANT = re.compile(
     r"^[ \t]*(?:(?:export|pub|public|private|final)[ \t]+)*(?:const|let|var|val|static)[ \t]+\w[^=\n]*=|^[ \t]*[A-Z][A-Z0-9_]+[ \t]*(?::[^=\n]+)?=(?!=)"
 )
-COMMENT = re.compile(r"^[ \t]*(?://|#|--|/?\*)")
 VISUALS = (
     "a ```mermaid flow for routing or ownership, a ```compare or a markdown table for options, a ```chart for numbers,"
     " an ```arch diagram for components, the real call in a fence naming its language (```sand, ```sql, ```go) when the"
@@ -780,7 +779,7 @@ def flow_chain(source: str) -> int:
 
 def constant(source: str) -> bool:
     """Whether a code fence's code, its comments aside, is one or two lines declaring a value."""
-    lines = [line for line in source.splitlines() if line.strip() and not COMMENT.match(line)]
+    lines = [line for line in source.splitlines() if line.strip() and not picture.COMMENT.match(line)]
     return 1 <= len(lines) <= 2 and all(CONSTANT.match(line) for line in lines)
 
 

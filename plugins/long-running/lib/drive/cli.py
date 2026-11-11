@@ -2411,7 +2411,7 @@ def parser() -> argparse.ArgumentParser:
             " when nothing shows what the words cannot (a mermaid flow, a compare or a table for options, a chart for numbers,"
             " an arch diagram, whose JSON parses, the real call in a fence naming its language for a code or API shape, or a"
             " picture on a line of its own as ![caption](/absolute/path.png); never words, JSON, YAML, logs, a terminal"
-            " session, command output or a stack trace in a fence), captions of at most 25 words,"
+            " session, an HTTP exchange, command output or a stack trace in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words, each saying what runs, on what trigger, what it reads and what"
             " reaches whom, then what he gets and what it costs, with exactly one ending (recommended), no mechanism such as"
             " polling, a push or an event named by a bare word on the question or an option, the question, summary and"
