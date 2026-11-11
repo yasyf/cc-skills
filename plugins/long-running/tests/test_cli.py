@@ -646,7 +646,7 @@ def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
 def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_own_card(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(picture, "freeze", lambda language, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     titles = ["How should", "Where should", "When should"]
     kept = []
     for title in titles:
@@ -658,7 +658,7 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
         for n, (title, link) in enumerate(zip(titles, links, strict=True))
     ]
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(shown), "pr_cards": []})
-    for n, (path, link) in enumerate(zip(kept[:2], links, strict=True)):
+    for n, (path, link) in enumerate(zip(kept[:2], links[:2], strict=True)):
         assert run("job", "card", path, "--waits", f"demo:j1-{n}")[0] == 0
         assert run("job", "set", asking, "--card", link)[0] == 0
     assert run("job", "set", asking, "--card", links[2])[0] == 0
@@ -681,7 +681,7 @@ def test_a_job_keeps_every_question_it_asks_each_open_until_his_answer_to_its_ow
 def test_a_redrawn_card_moves_to_the_question_that_redoes_it_and_a_card_never_posted_holds_nothing(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(picture, "freeze", lambda language, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
     link = "https://acme.slack.com/archives/D123/p1794300000000100"
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
