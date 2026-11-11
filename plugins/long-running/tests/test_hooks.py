@@ -905,6 +905,17 @@ def test_bash_posts_a_drive_ask_only_when_it_carries_a_kept_ask(demo: str, no_ca
     assert landing_guard.deny_reason(asked_from_bash("cci post --kind ask 'Close these sessions?'", "another-session")) is None
 
 
+def test_a_bash_report_naming_an_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, no_calls: list[list[str]]) -> None:
+    session = os.environ["CLAUDE_CODE_SESSION_ID"]
+    catch_up = "cci post --drive demo --kind report --lane root --to communicator@demo --attr 'catchup=1:46 AM-3:10 AM' 'POST his catch-up'"
+    reason = landing_guard.deny_reason(asked_from_bash(catch_up, session))
+    assert "no `catchup` attr on a report" in reason and "`--attr catch_up=true`" in reason
+    closes = "zsh -c \"cci post --kind=REPORT --lane root --attr closes=o1 'FYI j1 merged'\""
+    assert "`--attr close=" in landing_guard.deny_reason(asked_from_bash(closes, session))
+    assert landing_guard.deny_reason(asked_from_bash("cci post --kind report --lane root --attr catch_up=true 'POST his catch-up'", session)) is None
+    assert landing_guard.deny_reason(asked_from_bash(catch_up, "another-session")) is None
+
+
 def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hearing_its_order_is_refused(
     run: Run, demo: str, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

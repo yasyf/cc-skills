@@ -210,6 +210,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
         yield lifted(record)
+        yield limits.misnamed(kind(record), attrs(record))
         yield unkept(record, names)
         yield unkinded(record)
         yield untapped(record, prs)

@@ -186,6 +186,19 @@ def test_a_catch_up_names_no_thread(demo: str, turn: Path) -> None:
     assert record_lines.decision(coordinator(turn, kind="report", text="POST *Catch-up since 9 PM*", to=TO, attrs={"catch_up": "true"})) is None
 
 
+def test_a_report_attr_a_separator_or_one_letter_from_one_the_drive_reads_is_refused_naming_it(demo: str, turn: Path) -> None:
+    catch_up = "POST his catch-up: the import fix merged and the upload page is live"
+    for key in ("catchup", "catch-up", "catchUp"):
+        reason = refusal(record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={key: "1:46 AM-3:10 AM"})))
+        assert f"no `{key}` attr" in reason and "`--attr catch_up=true`" in reason
+    for key, attr in (("closes", "close"), ("Part", "part"), ("jobs", "job"), ("thred", "thread"), ("wait", "waits")):
+        assert f"no `{key}` attr on a report" in (reason := refusal(record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={key: "x"}))))
+        assert f"`--attr {attr}=" in reason
+    assert record_lines.decision(coordinator(turn, kind="report", text=catch_up, to=TO, attrs={"catch_up": "true"})) is None
+    assert record_lines.decision(post(kind="report", text="POST j702 merged", to=TO, attrs={"order": "o1", "incident": "i3", "close": "o1"})) is None
+    assert record_lines.decision(post(kind="ask", text=IDLE, attrs={"catchup": "true", "ask": str(state.drive_dir(demo) / "asks" / "j1-0a1b2c3d.md"), "job": "j1"})) is None
+
+
 def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
