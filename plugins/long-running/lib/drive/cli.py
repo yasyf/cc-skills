@@ -542,7 +542,7 @@ def job_set(args: argparse.Namespace) -> int:
         )
     if args.state == "stopped":
         fix_kept(state.load(name), args.id)
-    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
+    changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     if jobs := [wait for wait in args.waits if wait in state.load(name)["jobs"]]:
         raise DriveError(
@@ -597,6 +597,17 @@ def fix_kept(data: dict, job_id: str) -> None:
             ' thread stops that thread\'s work, as his "leave it alone here" of Nov 10 9:19 PM meant his own thread. Add the job that takes'
             f" the fix over first, with drive job add <kind> --order {order_id} --part {INCIDENT_FIX}, or close {order_id} once its fix is live"
         )
+
+
+def job_clock(job_id: str, due: str | None) -> str | None:
+    """The time a job's clock runs out, which the watch says once as DUE if the job still runs then; a time already past is refused."""
+    if due is None:
+        return None
+    moment = state.now()
+    at = state.parse_due(due, moment)
+    if at <= moment:
+        raise DriveError(f"{job_id}: refused, no clock set: {render.when(state.stamp(at))} is already past; set a time to come")
+    return state.stamp(at)
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
@@ -1809,6 +1820,7 @@ def parser() -> argparse.ArgumentParser:
     )
     verb.add_argument("--branch", help="the pushed branch it works or built on")
     verb.add_argument("--said", help="its latest line")
+    verb.add_argument("--due", help="its clock: when it must have returned, said once as DUE if it still runs then, a time or +10m")
     verb.add_argument("--repro", help="the job's pick-up-and-run reproduction file, kept in the drive")
     verb.add_argument("--pr", action="append", default=[], help="a PR it opened or took over")
     verb.add_argument("--part", action="append", default=[], help="another part of the order this job delivers, or of the one order --carries names")

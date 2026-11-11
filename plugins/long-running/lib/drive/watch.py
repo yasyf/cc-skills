@@ -22,7 +22,7 @@ ANSWERED_ELSEWHERE = "answer_conflict"
 FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
-WAKES = ("TAP ", "DUE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
+WAKES = ("TAP ", "DUE ", "LIVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
 OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
@@ -44,7 +44,7 @@ COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
 STUCK_WORDS = {"red": "still red", "ready": "green and approved with no card drawn"}
-ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
+ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
 OWN_MOVE = re.compile(rf"^PR \S+: (?:{'|'.join(OWN_MOVES)})\b")
 
@@ -182,12 +182,18 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. A release that ships an open incident order's PR says once that its fix is live and the order still open."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     owners = [*(job for job in data["jobs"].values() if not view.open_cards(job, watcher.cards)), *data["prs"].values()]
     if not out and all(view.holding(data, owner["waits"], watcher.cards) == owner["waits"] for owner in owners):
         return lines
+    live = {
+        owner["order"]: out[wait]
+        for owner in owners
+        for wait in owner["waits"]
+        if wait in out and state.open_incidents(data, [owner["order"]])
+    }
     with state.edit(watcher.name) as data:
         for job_id, job in data["jobs"].items():
             if view.open_cards(job, watcher.cards):
@@ -203,6 +209,27 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, pr in data["prs"].items():
             if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
+    return lines + [f"LIVE {order_id}: {shipping}, so its fix is live and the incident order is still open: close it with drive order set {order_id} --state done so the strip shows live incidents only" for order_id, shipping in live.items()]
+
+
+def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Settle in place each open PR card whose every PR merged or closed, its buttons replaced by how each ended so a late tap records nothing; one that fails goes again next read."""
+    if watcher.cards is None:
+        return []
+    prs = {pr["url"]: (key, pr) for key, pr in state.load(watcher.name)["prs"].items()}
+    lines = []
+    for card in watcher.cards["pr_cards"]:
+        ended = [prs[url] for url in card["prs"] if url in prs and prs[url][1]["state"] != "open"]
+        if len(ended) < len(card["prs"]):
+            continue
+        reason = ", ".join(f"{key} {pr['state']}" for key, pr in ended)
+        try:
+            slack.withdraw_pr_card(ended[0][1]["url"], reason)
+        except slack.SlackError as error:
+            lines += failed(watcher, "card settle", "PR card settle", error, moment)
+            continue
+        watcher.failures.pop("card settle", None)
+        lines.append(f"CARD {card['url']} settled in place: {reason}")
     return lines
 
 
@@ -467,6 +494,25 @@ def due_lines(watcher: Watcher, moment: datetime) -> list[tuple[str, str]]:
                     order["kept"] = order["due_said"]
                 why = UNTHREADED if read is None else read[1] or f"no line in its thread since {when(order['promised'])}"
                 lines.append((order_id, f'DUE {order_id} "{cut(order["text"], 80)}" was due {when(state.owed_at(order))}: {why}'))
+    return lines
+
+
+def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each job clock that ran out while its job still runs, said once; a job that returned before it owes none, and either way the clock ends."""
+    data = state.load(watcher.name)
+    ran_out = [job_id for job_id, job in data["jobs"].items() if job["due"] and state.parse_time(job["due"]) <= moment]
+    if not ran_out:
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for job_id in ran_out:
+            job = data["jobs"][job_id]
+            if job["state"] == "running":
+                lines.append(
+                    f'DUE {job_id} {job["order"]} "{cut(job["goal"], 80)}" was due {when(job["due"])} and still runs: read its transcript,'
+                    " and on a miss start a second job on its brief and set its clock (incidents: Clocks)"
+                )
+            job["due"] = None
     return lines
 
 
@@ -866,7 +912,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -874,6 +920,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
+        lines += settle_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
@@ -884,6 +931,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     lines += event_lines(watcher)
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
+    lines += clock_lines(watcher, moment)
     lines += orphan_lines(watcher, moment, {order_id for order_id, _ in due})
     if moment - watcher.ticked_at >= TICK_EVERY:
         watcher.ticked_at = moment

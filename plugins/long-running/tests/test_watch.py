@@ -1295,3 +1295,65 @@ def test_an_answer_leaving_a_card_unmarked_says_so_at_once_every_ten_minutes_unt
     with state.edit(demo) as data:
         data["answers"]["a1"]["cards"]["demo:j1-7-a"] = {"mark": "stands"}
     assert said(40) == []
+
+
+def test_an_open_incident_order_is_told_to_close_once_a_release_ships_its_fix_and_another_order_is_not(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    published = [release(2, "2026-11-09T15:00:00Z", "api")]
+    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    wait = f"release:api:{KEY}"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="ship the dashboard", jobs=["j2"])
+        data["jobs"]["j2"] = job(order="o2", state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["orders"]["o1"]["incident"] = True
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(state="waiting", said="WAITING release of api", waits=[wait], updated=state.stamp(T0 - timedelta(minutes=10)))
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
+    live = f"LIVE o1: {shipped}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only"
+    assert watch.run_pass(watching, T0) == [f"FREE j1 o1: {shipped}, nothing else holds it", f"FREE j2 o2: {shipped}, nothing else holds it", live]
+    assert watch.wakes(live, state.load(demo))
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == []
+
+
+def pr_card(*keys: str) -> dict:
+    return {"url": CARD, "prs": [state.pr_url(key) for key in keys], "card": {"title": "Fix: the watch"}}
+
+
+@pytest.mark.parametrize(("ended", "said"), [("MERGED", "merged"), ("CLOSED", "closed")])
+def test_his_open_pr_card_is_settled_in_place_once_every_pr_it_carries_merged_or_closed(
+    demo: str, monkeypatch: pytest.MonkeyPatch, ended: str, said: str
+) -> None:
+    other = "Forge-AI/monorepo#43"
+    with state.edit(demo) as data:
+        data["prs"][other] = state.new_pr(state.pr_url(other), "j1", "o1") | {"head": "ddddddd444"}
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [], "pr_cards": [pr_card(KEY, other)]})
+    settled = []
+    monkeypatch.setattr(watch.slack, "withdraw_pr_card", lambda url, why: settled.append((url, why)) or [CARD])
+    reads = {KEY: read(state=ended, mergeCommit="ccc333"), other: read(headRefOid="ddddddd444")}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == [f"PR {KEY}: {said} [o1 j1]"]
+    assert settled == []
+    reads[other] = read(state="MERGED", headRefOid="ddddddd444", mergeCommit="eee555")
+    assert watch.run_pass(watching, T0 + timedelta(minutes=1)) == [f"PR {other}: merged [o1 j1]", f"CARD {CARD} settled in place: {KEY} {said}, {other} merged"]
+    assert settled == [(state.pr_url(KEY), f"{KEY} {said}, {other} merged")]
+
+
+def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_ends_unsaid_for_one_that_returned(demo: str) -> None:
+    due = T0 + timedelta(minutes=10)
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["due"] = state.stamp(due)
+        data["jobs"]["j2"] = job(goal="first check", state="done", due=state.stamp(due))
+    watching = watcher(demo)
+    assert watch.clock_lines(watching, due - timedelta(minutes=1)) == []
+    line = (
+        f'DUE j1 o1 "watch" was due {render.when(state.stamp(due))} and still runs: read its transcript, and on a miss start a second job'
+        " on its brief and set its clock (incidents: Clocks)"
+    )
+    assert watch.clock_lines(watching, due) == [line]
+    assert watch.clock_lines(watching, due + timedelta(minutes=10)) == []
+    assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
+    assert watch.wakes(line, state.load(demo))
+    tooling_order(demo, "running")
+    assert watch.tooling(line, state.load(demo))

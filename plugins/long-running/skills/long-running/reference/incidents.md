@@ -225,9 +225,9 @@ check's verdict, or from the order when none ran.
 
 - His next line's clock is the order's due: after each line, `drive order set <o> --due +5m`, and
   the watch says `DUE` when no drive post is in the order's thread by then.
-- A job's clock has no timer in the drive. On each wake during an incident, compare the time with
-  each running job's clock and read the transcript of any job past it, since a stuck job sends no
-  message.
+- A job's clock is its own, set with `drive job set <j> --due <time>`: the watch says `DUE j<n>` once
+  if the job still runs then. Read its transcript, never wait for its message, since a stuck job
+  sends none.
 - A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started beside
   the first in the turn the clock is missed. The first to deliver wins, and both write to the one
   record. The `agent_brief` hook refuses a Fable model for it.
