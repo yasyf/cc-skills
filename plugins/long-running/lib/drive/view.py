@@ -34,7 +34,7 @@ import subprocess
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 
-from drive import artifacts, slack, state
+from drive import artifacts, github, slack, state
 from drive.card import PARENTHETICAL, RECORD_ID, kind_and_title, without_records
 from drive.render import cut
 
@@ -53,6 +53,7 @@ NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
 UNREAD = "not read yet: the drive's watch reads them every minute"
 SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused", "said")
+LINK_LABEL = str.maketrans({"[": "(", "]": ")", "|": "/"})
 
 
 class CardsError(Exception):
@@ -143,6 +144,37 @@ def holds(drive: dict, wait: str, found: dict | None) -> bool:
     if wait in drive["prs"]:
         return drive["prs"][wait]["state"] == "open"
     return bool(state.RELEASE_WAIT.fullmatch(wait)) or card_open(wait, found)
+
+
+def shipped_by(drive: dict, wait: str) -> str | None:
+    """The release that already ships a release wait's merged PR, read from GitHub: the newest release of its service holds the PR's merge commit."""
+    found = state.RELEASE_WAIT.fullmatch(wait)
+    if not (found and (merged := drive["prs"][found["pr"]]["merged_sha"])):
+        return None
+    release = github.release_of(found["pr"], found["service"], merged)
+    return f"release {release} ships {found['pr']} on {found['service']}" if release else None
+
+
+def wait_words(drive: dict, wait: str, found: dict | None) -> str:
+    """What a PR's wait waits for, as his card says it to him: each PR, card or build by its title, linked in the markdown his card draws as a link."""
+    if wait in drive["jobs"]:
+        return f"the build of {cut(drive['jobs'][wait]['goal'], TITLE_CHARS)} finishes"
+    if wait in drive["prs"]:
+        return f"{pr_link(drive['prs'][wait])} lands"
+    if release := state.RELEASE_WAIT.fullmatch(wait):
+        return f"the {release['service']} release carrying {pr_link(drive['prs'][release['pr']])} is out"
+    listed = [*found["questions"], *found["pr_cards"]] if found else []
+    if card := next((card for card in listed if card["card"].get("waits") == wait or message_key(card["url"]) == message_key(wait)), None):
+        return f"you answer {link(card['card']['title'], card['url'])}"
+    return f"you answer {link('your question card', wait)}" if wait.startswith("https://") else "you answer your question card"
+
+
+def pr_link(pr: dict) -> str:
+    return link(pr_title(pr), pr["url"])
+
+
+def link(label: str, url: str) -> str:
+    return f"[{cut(label, TITLE_CHARS).translate(LINK_LABEL)}]({url})"
 
 
 def read(name: str, moment: datetime) -> dict:

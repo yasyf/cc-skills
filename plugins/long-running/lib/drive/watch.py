@@ -183,7 +183,7 @@ def bare(wait: str) -> str:
 
 
 def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. A release that ships an open incident order's PR says once, as the last release its live jobs and open PRs wait on ships, that its fix is live and the order still open."""
+    """Drop each wait of a job or PR that ended, his card answered, the job finished or the release out, and say once, as its last wait ends, that nothing holds it, holding back the job's ORPHAN for 30 minutes; the cards a job asked him on hold it too, so it keeps its waits until he answers them. His open card for a PR whose waits ended is redrawn in place, so it names only the waits that still hold. A release that ships an open incident order's PR says once, as the last release its live jobs and open PRs wait on ships, that its fix is live and the order still open."""
     data = state.load(watcher.name)
     out, lines = shipped(watcher, data, moment)
     owners = [*(job for job in data["jobs"].values() if not view.open_cards(job, watcher.cards)), *data["prs"].values()]
@@ -206,10 +206,19 @@ def waits_lines(watcher: Watcher, moment: datetime) -> list[str]:
                         parts[part]["orphan_said"] = state.stamp(moment)
                 built = f", built on {job['branch']}" if job["state"] == "built" else ""
                 lines.append(f"FREE {job_id} {job['order']}: {ended}, nothing else holds it{built}")
+        redraws = []
         for key, pr in data["prs"].items():
+            waited = pr["waits"]
             if (ended := released(data, pr, watcher.cards, out)) and pr["state"] == "open":
                 lines.append(f"FREE {key} {pr['job']} {pr['order']}: {ended}, nothing else holds it")
+            if pr["waits"] != waited and pr["state"] == "open":
+                redraws.append(pr["url"])
         pending = {owner["order"] for owner in release_owners(data) if any(state.RELEASE_WAIT.fullmatch(wait) for wait in owner["waits"])}
+    for url in redraws:
+        try:
+            slack.redraw_pr_cards(url)
+        except slack.SlackError as error:
+            lines.append(f"WATCH his open card for {url} still names the waits that ended, since its redraw failed: {error}")
     return lines + [
         f"LIVE {order_id}: {', '.join(shipping)}, so its fix is live and the incident order is still open: close it with drive order set {order_id} --state done so the strip shows live incidents only"
         for order_id, shipping in fixes.items()
@@ -277,21 +286,15 @@ def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 def shipped(watcher: Watcher, data: dict, moment: datetime) -> tuple[dict[str, str], list[str]]:
     """Each release wait of a live job or open PR whose release is out, with what shipped it, read from GitHub: the newest release that ships the service holds the PR's merge commit."""
-    waits = {
-        wait
-        for owner in release_owners(data)
-        for wait in owner["waits"]
-        if (found := state.RELEASE_WAIT.fullmatch(wait)) and data["prs"][found["pr"]]["merged_sha"]
-    }
+    waits = {wait for owner in release_owners(data) for wait in owner["waits"] if state.RELEASE_WAIT.fullmatch(wait)}
     out = {}
     for wait in sorted(waits):
-        found = state.RELEASE_WAIT.fullmatch(wait)
         try:
-            release = github.release_of(found["pr"], found["service"], data["prs"][found["pr"]]["merged_sha"])
+            shipping = view.shipped_by(data, wait)
         except github.GithubError as error:
             return {}, read_failed(watcher, "github releases", error, moment)
-        if release:
-            out[wait] = f"release {release} ships {found['pr']} on {found['service']}"
+        if shipping:
+            out[wait] = shipping
     watcher.failures.pop("github releases", None)
     return out, []
 

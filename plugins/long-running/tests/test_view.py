@@ -548,3 +548,24 @@ def test_an_alert_he_shared_is_titled_by_its_source_and_words_not_its_link() -> 
         "fix it (Shared from PlatClaude: mint endpoint failing)",
         "https://x.slack.com/archives/C1/p1794372156644299",
     ]
+
+
+QUESTION = "https://acme.slack.com/archives/D123/p1794200000000100"
+UNLISTED = "https://acme.slack.com/archives/D123/p1794200000000900"
+
+
+@pytest.mark.parametrize(
+    ("wait", "words"),
+    [
+        ("j3", "the build of prove the real run finishes"),
+        ("Forge-AI/monorepo#7", "[retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) lands"),
+        ("release:dashboard:Forge-AI/monorepo#7", "the dashboard release carrying [retry (flaky) uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"),
+        ("demo:j1-7-a", f"you answer [Pick a store?]({QUESTION}?thread_ts=1.2)"),
+        (UNLISTED, f"you answer [your question card]({UNLISTED})"),
+        ("demo:j1-9", "you answer your question card"),
+    ],
+)
+def test_each_wait_reads_on_his_card_as_what_it_waits_for_in_linked_words(wait: str, words: str) -> None:
+    data = {"jobs": {"j3": {"goal": "prove the real run"}}, "prs": {"Forge-AI/monorepo#7": {"title": "Fix: retry [flaky] uploads", "url": "https://github.com/Forge-AI/monorepo/pull/7"}}}
+    listed = {"team_url": "", "pr_cards": [], "questions": [{"question": "Pick a store?", "url": f"{QUESTION}?thread_ts=1.2", "card": {"title": "Pick a store?", "waits": "demo:j1-7-a"}}]}
+    assert view.wait_words(data, wait, listed) == words

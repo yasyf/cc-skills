@@ -154,6 +154,26 @@ def withdrawals(monkeypatch: pytest.MonkeyPatch) -> Withdrawals:
     return withdrawn
 
 
+@dataclass
+class Redraws:
+    asked: list[str] = field(default_factory=list)
+    failure: str | None = None
+
+
+@pytest.fixture(autouse=True)
+def redraws(monkeypatch: pytest.MonkeyPatch) -> Redraws:
+    redrawn = Redraws()
+
+    def redraw(url: str) -> int:
+        redrawn.asked.append(url)
+        if redrawn.failure:
+            raise slack.SlackError(redrawn.failure)
+        return 1
+
+    monkeypatch.setattr(slack, "redraw_pr_cards", redraw)
+    return redrawn
+
+
 @pytest.fixture(autouse=True)
 def agents_at_work(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(watch, "local_gap", lambda job_id, job, data, moment: None)

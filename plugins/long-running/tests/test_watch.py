@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Thread, WatchProcess
+from conftest import Redraws, Thread, WatchProcess, Withdrawals
 from drive import cli, github, reads, render, slack, state, talk, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -893,7 +893,9 @@ def asking(monkeypatch: pytest.MonkeyPatch, name: str, *waits: str) -> None:
     watch.view.refresh_cards(name)
 
 
-def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_he_answers_the_last(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_he_answers_the_last(
+    demo: str, monkeypatch: pytest.MonkeyPatch, redraws: Redraws
+) -> None:
     waiting_job(demo)
     asking(monkeypatch, demo, "demo:j1-7-a", "demo:j1-7-b")
     waits_on(demo, "demo:j1-7-a", "demo:j1-7-b")
@@ -901,11 +903,17 @@ def test_a_pr_waiting_on_his_open_cards_is_owed_no_card_and_is_freed_once_when_h
     watching = watcher(demo)
     watch.run_pass(watching, T0)
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == []
+    assert redraws.asked == []
     asking(monkeypatch, demo, "demo:j1-7-b")
     assert watch.run_pass(watching, T0 + timedelta(minutes=31)) == []
-    assert state.load(demo)["prs"][KEY]["waits"] == ["demo:j1-7-b"]
+    assert (state.load(demo)["prs"][KEY]["waits"], redraws.asked) == (["demo:j1-7-b"], [state.pr_url(KEY)])
     asking(monkeypatch, demo)
-    assert watch.run_pass(watching, T0 + timedelta(minutes=32)) == [f"FREE {KEY} j1 o1: demo:j1-7-b answered or done, nothing else holds it"]
+    redraws.failure = "cc-slack exited 1"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=32)) == [
+        f"FREE {KEY} j1 o1: demo:j1-7-b answered or done, nothing else holds it",
+        f"WATCH his open card for {state.pr_url(KEY)} still names the waits that ended, since its redraw failed: cc-slack exited 1",
+    ]
+    assert redraws.asked == [state.pr_url(KEY)] * 2
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=33)) == []
     pr = f"PR {KEY}: green and approved with no card drawn for"
     assert watch.run_pass(watching, T0 + timedelta(minutes=62)) == [f"{pr} 30 minutes [o1 j1]"]
@@ -1083,17 +1091,34 @@ def test_pr_set_waits_adds_a_job_or_his_open_card_refuses_anything_else_and_no_w
     assert state.load(demo)["prs"][KEY]["waits"] == []
 
 
-def test_a_wait_added_to_a_pr_withdraws_his_open_card_and_a_tap_is_refused_while_it_holds(
-    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_a_wait_added_to_a_pr_redraws_his_open_card_in_place_never_withdraws_it_and_a_fresh_tap_is_refused_while_it_holds(
+    demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], withdrawals: Withdrawals, redraws: Redraws
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
-    withdrawn = []
-    monkeypatch.setattr(cli.slack, "withdraw_pr_card", lambda url, why: withdrawn.append((url, why)) or ["1794200000.000200"])
     assert cli.main(["pr", "set", KEY, "--waits", "demo:j1-7-a", "--drive", demo]) == 0
-    assert withdrawn == [(state.pr_url(KEY), "it waits on demo:j1-7-a before his tap")]
+    assert (withdrawals.asked, redraws.asked) == ([], [])
+    tap_card = pr_card(KEY, url="https://acme.slack.com/archives/D123/p1794200000000200")
+    monkeypatch.setattr(watch.view, "cards", lambda drive: {"team_url": "", "questions": [question("demo:j1-7-a")], "pr_cards": [tap_card]})
+    assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 0
+    assert (withdrawals.asked, redraws.asked) == ([], [state.pr_url(KEY)])
+    assert capsys.readouterr().out.strip().endswith("redrawing in place the 1 open card(s) of his carrying it, Approve and Hold kept, to say what it waits on")
+    redraws.failure = "cc-slack exited 1"
+    assert cli.main(["pr", "set", KEY, "--waits", "j1", "--drive", demo]) == 2
+    assert "redrawing his open card in place failed, so it does not name them yet: cc-slack exited 1; run this again" in capsys.readouterr().err
     assert cli.main(["pr", "set", KEY, "--tap", "--serves", "o1", "--design", "none", "--drive", demo]) == 2
-    assert "it waits on demo:j1-7-a, so it draws no Approve" in capsys.readouterr().err
+    assert "it waits on demo:j1-7-a, j1, so it draws no Approve" in capsys.readouterr().err
     assert state.load(demo)["prs"][KEY]["wants_tap"] is False
+
+
+def test_a_release_wait_whose_release_is_already_out_is_never_stored(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    shipped = "Forge-AI/monorepo#43"
+    with state.edit(demo) as data:
+        data["prs"][shipped] = state.new_pr(state.pr_url(shipped), "j1", "o1") | {"state": "merged", "merged_sha": "abc123"}
+    published = [release(2, "2026-11-09T15:00:00Z", "dashboard")]
+    monkeypatch.setattr(watch.github, "run", lambda cmd: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    assert cli.main(["pr", "set", KEY, "--waits", f"release:dashboard:{shipped}", "--waits", f"release:api:{shipped}", "--drive", demo]) == 0
+    assert f"\nrelease releases/2026-11-09/2 ships {shipped} on dashboard, so it is not a wait" in capsys.readouterr().out
+    assert state.load(demo)["prs"][KEY]["waits"] == [f"release:api:{shipped}"]
 
 
 def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(

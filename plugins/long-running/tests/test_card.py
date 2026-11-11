@@ -5,7 +5,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from drive import card, cli, limits, picture, state
+from drive import card, cli, limits, picture, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -510,6 +510,20 @@ def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monke
         "cards": [],
         "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": reason}],
     }
+
+
+def test_a_pr_whose_wait_holds_redraws_his_open_card_with_its_buttons_saying_what_it_waits_on(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["release:dashboard:Forge-AI/monorepo#7"]
+    tap_card = {"url": "https://acme.slack.com/archives/D123/p1794029589141509", "prs": [URL], "asked": "2026-11-09T08:00:00-08:00", "card": {"title": "Fix: approve retry flaky uploads?"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap_card]})
+    view.refresh_cards(drive)
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert (drawn["card"]["status"], drawn["card"]["options"], drawn["card"]["waits"]) == ("needs_you", ["Approve", "Hold"], "merge:Forge-AI:monorepo:42")
+    release = "the dashboard release carrying [retry flaky uploads](https://github.com/Forge-AI/monorepo/pull/7) is out"
+    assert drawn["card"]["prs"][0]["lands"] == f"you approve, CI passes and {release}"
+    assert card.render(pr_json(rollup=PASSING), entry(tap="Approve"), (), (release,))["prs"][0]["blocks"] == f"Lands once {release}"
 
 
 @pytest.mark.parametrize(
