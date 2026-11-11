@@ -42,6 +42,8 @@ LIVE_FOR = timedelta(days=1)
 SLACK_LINK = re.compile(r"<(?:[^|>]*\|)?([^>]*)>")
 SLACK_TS = re.compile(r"/p(\d+)")
 BOARD_PICK = re.compile(r"^Owner on board \w+, ")
+LEADING_LINK = re.compile(r"^https?://\S+\s+(?=\S)")
+SHARED = re.compile(r"^Shared from (.+?) in #\w+:\s*")
 COMMAS = re.compile(r"\s*,(?:\s*,)*")
 SPACES = re.compile(r"\s+(?=[.;:!?])|(?<=\s)\s+")
 TITLE_CHARS = 100
@@ -144,6 +146,7 @@ def plain(text: str, limit: int) -> str:
     """The first line of his words as a title: Slack links as their labels, with no record ids."""
     first = next((line for line in text.splitlines() if line.strip()), "")
     first = BOARD_PICK.sub("", SLACK_LINK.sub(lambda link: link[1], first))
+    first = SHARED.sub(r"\1: ", LEADING_LINK.sub("", first))
     first = RECORD_ID.sub("", PARENTHETICAL.sub(lambda match: "" if RECORD_ID.search(match[0]) else match[0], first))
     return cut(SPACES.sub("", COMMAS.sub(",", first)).strip(" ,"), limit)
 
