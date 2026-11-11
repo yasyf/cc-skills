@@ -394,7 +394,7 @@ def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures, and give the question kept in that file the card's waits id."""
     name = state.resolve(args.drive)
     path = Path(args.file).expanduser()
-    asked = limits.question(path.read_text())
+    asked = limits.question(path.read_text(), kept=True)
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
     with state.edit(name) as data:
@@ -1134,8 +1134,9 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting",
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
-            " decided, the recommendation, what happens meanwhile), `Show me:` and its worked example (code in ```"
-            " fences, captions of at most 25 words, each picture on a line of its own as ![caption](/absolute/path.png)),"
+            " decided, the recommendation, what happens meanwhile), `Show me:` and at least one visual under it (code in a"
+            " fence naming its language, a mermaid, chart, compare or arch fence whose JSON parses, a picture on a line of its"
+            " own as ![caption](/absolute/path.png), or a table; never words in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words with exactly one ending"
             " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"

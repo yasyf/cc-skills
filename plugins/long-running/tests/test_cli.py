@@ -37,12 +37,12 @@ Recommended: one snapshot file per finished run, so any finished run opens in 3 
 Meanwhile nothing is built on either layout.
 Show me:
 The requests a finished run's page makes today, then with one snapshot file:
-```
+```http
 GET journal/0001.ltx  last 64 KiB, guessing where the map starts
 ... 180 files, one guess each
 ```
 
-```
+```http
 GET snapshot.ltx      map at a fixed place
 GET 2 page ranges
 ```
@@ -476,7 +476,7 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     assert 'plain words only: "/Users/me/repos/sand/reader.go" is a file path' in refusal
     assert 'plain words only: "progress_nodes" is a code name' in refusal
     assert '"#53288" is a number he cannot open; link it by what it is' in refusal
-    assert "no `Show me:` line after the summary with a worked example under it" in refusal
+    assert "no `Show me:` line after the summary with a visual under it" in refusal
     assert "no `Findings:` line with the evidence under it" in refusal
 
 
@@ -531,7 +531,8 @@ TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
 ).replace(
     "Ours waits unlanded meanwhile.\n",
     "Ours waits unlanded meanwhile.\nShow me:\nWhat a locked chat shows mid-download, theirs first, then ours:\n"
-    "```\nSand 0.142 is ready      [ Update sand ]\n```\n\n```\nDownloading Sand 0.142…  (no button yet)\n```\n",
+    "| Version | The card mid-download |\n| --- | --- |\n| Theirs | Sand 0.142 is ready [ Update sand ] |\n"
+    "| Ours | Downloading Sand 0.142…, no button yet |\n",
 )
 
 
@@ -554,7 +555,7 @@ def test_job_ask_refuses_a_fix_named_with_no_link_and_keeps_the_linked_copy(
 def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     block = tmp_path / "ask.md"
     caption = " ".join(["word"] * 26)
-    block.write_text(SHORT_ASK.replace("```\nGET journal", f"{caption}\n```sql\nGET journal", 1).replace("GET 2 page ranges\n```\n", "GET 2 page ranges\n"))
+    block.write_text(SHORT_ASK.replace("```http\nGET journal", f"{caption}\n```sql\nGET journal", 1).replace("GET 2 page ranges\n```\n", "GET 2 page ranges\n"))
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
     assert f'Show me line "{caption}" is 26 words; outside a code fence each is a caption of at most 25' in refusal
@@ -610,7 +611,7 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
 
     monkeypatch.setattr(picture, "visual_png", visual_png)
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("```\nGET", "```http\nGET"))
+    block.write_text(SHORT_ASK)
     code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")
     assert code == 0
     card = json.loads(printed)

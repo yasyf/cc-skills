@@ -58,18 +58,20 @@ itself.
     backfills page, a pass box or a `backfill-runner` account passes. Words that rule a step out pass ("nothing has to run once
     it ships"), and so does a check of what is live: "PROVE: after release, open the run page" names
     nothing to run.
-  - `## Show me`: a concrete example of the change, never a diagram alone: the real SQL, code, CLI call
-    or Sand call it changes, with what happened before and after, in a fenced block tagged with its
-    language (`sql`, `go`, `sh`), which his card draws as a syntax-highlighted picture; for a UI change, a
-    screenshot or gif linked as a markdown image. What a screenshot may show depends on who can read the
+  - `## Show me`: a concrete example of the change in the visual kind that fits, which his card draws
+    as a picture and the dashboard draws live: the real SQL, code, CLI call or Sand call it changes,
+    before and after, in a fence naming its language (`sql`, `go`, `sand`, `console` for a command and
+    its output), never words in a fence; a `mermaid` or `arch` fence for a flow between components, a
+    `chart` (Vega-Lite) for numbers before and after; for a UI change, a screenshot or gif linked as a
+    markdown image. What a screenshot may show depends on who can read the
     PR. On a public repository, such as every `yasyf/*` one, it shows a demo drive or public data only,
     and the file sits under a `demo-` or `public-` name or folder; its body names no private
     repository's PR either. A picture of the live drive, a private repository's code, Slack, or a
     customer's or teammate's data goes only into a private repository's PR or his DM. `drive pr add`
     refuses a public PR whose body breaks either rule, and a body fixed after it opened still needs each
-    earlier revision deleted from its edit history and the branch holding the pictures deleted. Add a
-    before-and-after `arch` (arch/v1 JSON) or `dot` diagram beside the example when a mechanism needs
-    one. At most one short sentence of caption: the card shows the pictures, never prose.
+    earlier revision deleted from its edit history and the branch holding the pictures deleted. A
+    diagram goes beside the example, never in its place. At most one short sentence of caption: the
+    card shows the pictures, never prose.
   - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
   - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to
     run it. A PR with behaviour of its own past that is not a port.

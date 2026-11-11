@@ -60,8 +60,9 @@ you built up.
    knows the codebase but has not read this code lately; `## Biggest surprise`;
    `## What you'll hate most`; `## Releasable alone`, what a release cut at its merge commit
    does with nothing else and, for each order its targets could go out in, what a person sees;
-   `## Show me`, a concrete example (the real SQL, code or call
-   with its before and after, plus a diagram or screenshot when it helps; a public
+   `## Show me`, a concrete example in the visual kind that fits (the real SQL, code or call
+   with its before and after in a fence naming its language, a mermaid, chart, compare or arch
+   fence, or a screenshot for a UI, never words in a fence; a public
    repository's screenshot shows a demo drive or public data only, under a `demo-` or
    `public-` path, and a picture of the live drive, private code, Slack or a customer goes
    only to a private repository's PR or his DM);
@@ -222,10 +223,10 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   <one to three lines: what was found and what is being decided; the recommendation; what happens meanwhile>
   Show me:
   <a caption of at most 25 words>
+  ```<the kind that fits: a language such as sand, sql, go or console, or mermaid, chart, compare or arch>
+  <the real code or call the choice changes, before and after; the flow; the numbers; or the options side by side>
   ```
-  <the real code, call, query or text the choice changes, before and after, or one example per option>
-  ```
-  ![<what the screenshot shows, when one helps>](<its absolute path>)
+  ![<what the screenshot shows, for a UI>](<its absolute path>)
   - <option: what he gets and what it costs, at most 25 words> (recommended)
   - <option>
   Findings:
@@ -237,9 +238,13 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   teammate's fix, is linked in the summary, `<url|the fix that adds the update button>`, since
   the card's title and options draw no links. A PR goes in by what it does, never by number
   alone, and every PR the question turns on is linked, never dropped. The Show me is drawn whole
-  on his card outside the 150 words, each fence naming its language, such as ```sql, ```go or
-  ```text for output, so the card draws its code as a highlighted picture; for an API question it is the
-  calls in code. A markdown table draws as a table, and a picture on a line of its own draws as an
+  on his card outside the 150 words, each fence naming its kind, which the card draws as a picture:
+  code naming its language (```sand, ```sql, ```go, ```console for a command and its output) for
+  an API, call or schema shape, the calls themselves for an API question; ```arch for components and
+  the flow between them; ```mermaid for steps over time; ```chart, a Vega-Lite spec, for numbers;
+  ```compare for the options side by side; a screenshot for a UI. Words never go in a fence:
+  `drive job ask` refuses a fence naming no language or `text`, a chart, compare or arch whose JSON
+  does not parse, and a Show me with no visual. A markdown table draws as a table, and a picture on a line of its own draws as an
   image where it sits; one inside a sentence or table cell stays text. Every row and cell holds
   real contents, measured or worked out from the code and marked as such, never the names of what
   will be measured later. `drive job ask` refuses a table with one value in every cell, by his
