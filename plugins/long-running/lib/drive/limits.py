@@ -112,7 +112,7 @@ MASK = "\x00"
 CLAUSE_BREAK = re.compile(r"[.;:,!?]+(?=\s|$)|\n")
 UNBUILT = re.compile(
     rf"\b(?:no|without(?:\s+an?)?)\s+(?:{COUNT}\s+)?(?:[\w-]+\s+)?(?:{KINDS})(?![-\w])|\bnone\b(?!\s+of)|\bgoes up\b|\b(?:is|comes|goes) next\b"
-    r"|\bwill open\b|\bopens next\b|\bbeing (?:written|built)\b|\bwhen it opens\b|\bnot (?:yet )?(?:open|opened|up)\b|n't (?:yet )?(?:open|opened|up|gone up)\b",
+    r"|\bwill open\b|\bopens next\b|\bbeing (?:written|built)\b|\bwhen it opens\b|\bnot (?:yet )?(?:exist|open|opened|up)\b|n't (?:yet )?(?:exist|open|opened|up|gone up)\b",
     re.IGNORECASE,
 )
 GENERIC = re.compile(r"\b(?:every|each|any|such|all)\s+$", re.IGNORECASE)
@@ -201,6 +201,11 @@ SWEEPER = re.compile(
 RETRY = re.compile(
     r"\b(?:ask|tell|ping|remind|wait\s+for|check\s+with)\s+(?:[\w'’-]+\s+){1,3}?(?:to\s+)?"
     r"(?:re-?try|try\s+(?:it\s+)?again|re-?run|re-?test|reproduce|confirm|verify)\b",
+    re.IGNORECASE,
+)
+RULED_OUT = re.compile(
+    rf"(?:{NEGATION.pattern}|\b(?:remov|delet|retir|replac)(?:e|es|ed|ing)\b|\bdrop(?:s|ped|ping)?\b|\bkill(?:s|ed|ing)?\b"
+    r"|\bget(?:s|ting)?\s+rid\s+of\b|\binstead\s+of\b)\s+(?:[\w'’-]+\s+){0,2}$",
     re.IGNORECASE,
 )
 RECORD_CHARS = 120
@@ -409,12 +414,12 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:
-    """Why an option is no fix he can pick: it asks someone to retry or confirm, or cleans up a bad state with a sweeper, time rule or reclaim loop, which his ruling refuses unless `unsettled` names it and says why."""
+    """Why an option is no fix he can pick: it asks someone to retry or confirm, or cleans up a bad state with a sweeper, time rule or reclaim loop, which his ruling refuses unless `unsettled` names it and says why; an option that rules either out, as "never ask Sam to retry" and "remove the sweeper" do, proposes neither."""
     problems = [
         f'option "{option}" asks someone to retry or confirm "{found[0]}", which fixes nothing: offer the fix itself, the change or'
         " repair that stops the failure, and the drive proves it"
         for option in options
-        if (found := RETRY.search(option))
+        if (found := proposed(RETRY, option))
     ]
     if NO_SWEEPERS in (unsettled or ""):
         return problems
@@ -423,8 +428,13 @@ def option_problems(options: list[str], unsettled: str | None) -> list[str]:
         f' cannot exist, such as one owner holding it until it ends, or keep the option with --unsettled "{NO_SWEEPERS}: <why the'
         f' state cannot be designed out>" (his ruling {NO_SWEEPERS}, "No sweepers")'
         for option in options
-        if (found := SWEEPER.search(option))
+        if (found := proposed(SWEEPER, option))
     ]
+
+
+def proposed(pattern: re.Pattern[str], option: str) -> re.Match[str] | None:
+    """The first of the pattern's matches that the option proposes rather than rules out: one negated or removed by the words just before it, as in "never ask Sam to retry" or "remove the sweeper", or negated within it, as in "ask Sam not to retry", is none."""
+    return next((found for found in pattern.finditer(option) if not RULED_OUT.search(option, 0, found.start()) and not NEGATION.search(found[0])), None)
 
 
 def redrawn(text: str) -> Question:

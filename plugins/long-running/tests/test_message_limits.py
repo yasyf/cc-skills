@@ -803,6 +803,14 @@ def test_an_option_asking_someone_to_retry_or_confirm_is_refused_naming_the_fix_
     assert limits.question(options_ask("restore from the replica (recommended)", "restore from last night's backup")).options
 
 
+def test_an_option_ruling_out_a_retry_or_a_sweeper_is_no_option_proposing_one() -> None:
+    assert limits.question(options_ask("restore from the replica; never ask Sam to retry the restore (recommended)", "restore from last night's backup")).options
+    assert limits.question(options_ask("restore from the replica; ask Sam not to retry (recommended)", "restore from last night's backup")).options
+    assert limits.question(options_ask("one owner holds the lease until it ends; remove the sweeper (recommended)", "the run gives the lease back as it exits")).options
+    with pytest.raises(DriveError, match='cleans up a bad state with "sweep orphaned"'):
+        limits.question(options_ask("remove the sweeper, then sweep orphaned leases hourly (recommended)", "one owner holds the lease until it ends"))
+
+
 def test_an_option_that_cleans_up_a_bad_state_is_refused_unless_unsettled_names_his_ruling() -> None:
     swept = options_ask("sweep orphaned leases every 10 min (recommended)", "one owner holds the lease until it ends")
     with pytest.raises(DriveError) as refused:
@@ -827,6 +835,8 @@ def test_a_post_naming_the_change_links_it_and_a_link_refusal_says_how_to_say_it
     assert posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|The unfurl fix> is live.") is None
     assert posted(transcript, text="<https://github.com/Forge-AI/monorepo/pull/53618|The change that fixes unfurls> is live; the change needs no tap.") is None
     assert posted(transcript, text="The first PR goes up next.") is None
+    assert posted(transcript, text="The first PR does not exist yet.") is None
+    assert posted(transcript, text="The change doesn't exist yet.") is None
 
 
 def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() -> None:
