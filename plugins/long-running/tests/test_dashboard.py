@@ -569,3 +569,57 @@ done({ opened, moved: { title: document.querySelector('#item-title').textContent
         "opened": {"title": "Shard it?", "hash": "#/queue/question/1794382453.859300"},
         "moved": {"title": "Raise the limit?", "hash": "#/queue/question/1794382453.859209"},
     }
+
+
+def test_a_choice_he_only_hovered_lets_go_when_the_pointer_leaves(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const second = document.querySelectorAll('#main .choice')[1];
+second.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+await wait(50);
+const hovered = { on: document.querySelector('#main .choice.on').textContent.trim().split(/\\s+/)[0], rail: document.querySelector('#main [data-means] .eyebrow').textContent };
+document.querySelectorAll('#main .choice')[1].dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body }));
+await wait(50);
+done({ hovered, left: { on: document.querySelectorAll('#main .choice.on').length, rail: document.querySelector('#main [data-means] .eyebrow').textContent } });
+""", board(queue=[QUESTION]))
+    assert seen == {"hovered": {"on": "2", "rail": "Choice 2 of 2"}, "left": {"on": 0, "rail": "Recommended"}}
+
+
+def test_arrow_keys_on_a_pr_cards_tabs_switch_tabs_and_leave_the_queue_where_it_is(tmp_path: Path) -> None:
+    tap = {"kind": "tap", "url": "https://github.com/a/b/pull/7", "title": "fix the lock", "answer": None, "thread": None, "card": None, "since": None, "holds": 0, "blocks": []}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const tab = document.querySelector('#main [data-prtab="show"]');
+tab.focus();
+tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+await wait(100);
+done({ counter: document.querySelector('#main .counter span').textContent, selected: document.querySelector('#main [data-prtab][aria-selected="true"]').dataset.prtab, focused: document.activeElement.dataset.prtab });
+""", board(queue=[tap, QUESTION]))
+    assert seen == {"counter": "1 of 2", "selected": "context", "focused": "context"}
+
+
+def test_escape_closes_the_ask_box_and_gives_focus_back_to_its_button(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+document.querySelector('#main [data-ask]').click();
+await wait(50);
+const typing = document.activeElement.matches('.ask-box textarea');
+document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+await wait(50);
+done({ typing, open: !!document.querySelector('#main .ask-box'), focus: document.activeElement.matches('[data-ask]'), hash: location.hash });
+""", board(queue=[QUESTION]))
+    assert seen == {"typing": True, "open": False, "focus": True, "hash": "#/queue/all/1794382453.859209"}
+
+
+def test_a_long_card_link_in_history_wraps_on_a_phone_instead_of_widening_the_page(tmp_path: Path) -> None:
+    title = "Should the customer and system data servers turn lazy too once the lazy setting goes away for good?"
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": f"Waits on [{title}](#/queue/question/1794382453.859209)", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+done({ wide: document.documentElement.scrollWidth, room: innerWidth });
+""", board(history=[said]), "390,844")
+    assert seen["wide"] <= seen["room"]
