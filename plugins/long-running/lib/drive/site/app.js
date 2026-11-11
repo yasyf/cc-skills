@@ -800,7 +800,10 @@ function strip() {
   const picks = model.queue.filter((item) => item.kind === 'question').length;
   const taps = model.queue.filter((item) => item.kind === 'tap').length;
   return [
-    ...model.incidents.map((incident) => `<a class="al bad" href="#/feature/${esc(incident.id)}">Incident since ${clock(incident.created)}: ${esc(incident.title)}</a>`),
+    ...model.incidents.map((incident) => {
+      const said = `Incident since ${clock(incident.created)}: ${incident.title}`;
+      return `<a class="al bad" href="#/feature/${esc(incident.id)}" title="${esc(said)}">${esc(said)}</a>`;
+    }),
     picks ? `<a class="al warn" href="#/queue/question">${picks} ${picks === 1 ? 'question waits' : 'questions wait'} on your answer</a>` : '',
     taps ? `<a class="al warn" href="#/queue/tap">${taps} ${taps === 1 ? 'change waits' : 'changes wait'} on your tap</a>` : '',
   ].filter(Boolean).join('');
