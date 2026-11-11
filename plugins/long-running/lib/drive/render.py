@@ -134,7 +134,10 @@ COORDINATOR_RULES = (
         " job resume <j> -, from a quoted heredoc; a page of the skill is drive manual <page>; a log is a job's to read."
     ),
     "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
-    "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit.",
+    (
+        "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit,"
+        " except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's AWS sign-in."
+    ),
     (
         "A promise is --due: a time he is promised is recorded with drive order set <id> --due; DUE repeats every"
         " 10 minutes until a drive post is in the order's thread, and done or dropped refuses until then."
