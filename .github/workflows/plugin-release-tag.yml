@@ -27,7 +27,7 @@ jobs:
     if: >-
       (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch) ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') &&
       github.event.workflow_run.head_branch == github.event.repository.default_branch) ||
       (inputs.ci-workflow != '' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'))
     runs-on: ubuntu-latest
@@ -54,7 +54,8 @@ jobs:
             exit 0
           fi
           sha="$(gh run list -R "$GITHUB_REPOSITORY" --workflow "$CI_WORKFLOW" --branch "$DEFAULT_BRANCH" \
-            --event push --status success --limit 1 --json headSha --jq '.[0].headSha')"
+            --status success --json event,headSha \
+            --jq 'map(select(.event == "push" or .event == "schedule"))[0].headSha')"
           test -n "$sha"
           echo "sha=$sha" >> "$GITHUB_OUTPUT"
 
