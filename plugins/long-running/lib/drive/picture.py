@@ -12,8 +12,7 @@ from pathlib import Path
 
 FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \t]*$", re.MULTILINE | re.DOTALL)
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
-BROWSER_KINDS = ("arch", "mermaid", "chart", "compare")
-DIAGRAMS = (*BROWSER_KINDS, "dot")
+DIAGRAMS = ("arch", "mermaid", "chart", "compare", "dot")
 WORDS = ("", "text", "txt", "plain")
 RAW = {
     **dict.fromkeys(("json", "jsonc", "json5", "jsonl", "ndjson"), "JSON"),
@@ -66,7 +65,6 @@ CAPTIONED = re.compile(
 CHROME_APPS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium")
 CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
 CHROME_SECONDS = 60
-DOT_SECONDS = 30
 DOWNLOAD_SECONDS = 20
 
 
@@ -113,22 +111,6 @@ def visual_png(kind: str, source: str, out: Path) -> None:
         raise PictureError("Chrome wrote no screenshot")
 
 
-def dot_png(source: str, out: Path) -> None:
-    try:
-        result = subprocess.run(
-            ["dot", "-Tpng", "-Gdpi=144", "-o", str(out)],
-            input=source,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=DOT_SECONDS,
-        )
-    except (OSError, subprocess.TimeoutExpired) as error:
-        raise PictureError(f"Graphviz dot did not run: {error}") from None
-    if result.returncode:
-        raise PictureError(" ".join(result.stderr.split()) or f"dot exited {result.returncode}")
-
-
 def downloaded(url: str, out: Path) -> None:
     try:
         with urllib.request.urlopen(url, timeout=DOWNLOAD_SECONDS) as reply:
@@ -173,25 +155,22 @@ def raw(language: str, source: str) -> str | None:
 
 
 def draw(kind: str, source: str, out: Path) -> Path:
-    match kind.split(":")[0]:
-        case "dot":
-            dot_png(source, out)
-        case "image":
-            out = out.with_suffix(Path(source.split("?")[0]).suffix or ".png")
-            downloaded(source, out)
-        case _:
-            visual_png(kind, source, out)
+    if kind != "image":
+        visual_png(kind, source, out)
+        return out
+    out = out.with_suffix(Path(source.split("?")[0]).suffix or ".png")
+    downloaded(source, out)
     return out
 
 
 def cached(folder: Path, name: str, kind: str, source: str) -> Path:
     """The picture of one source, drawn once under folder and named name."""
-    renderer = VISUALS.read_text() if kind.split(":")[0] in ("code", *BROWSER_KINDS) else ""
+    renderer = VISUALS.read_text() if kind != "image" else ""
     home = folder / hashlib.sha256(f"{kind}\n{source}{renderer}".encode()).hexdigest()[:16]
-    if found := sorted(home.glob(f"{name}.*")):
-        return found[0]
     home.mkdir(parents=True, exist_ok=True)
     (home / "source.json").write_text(json.dumps({"kind": kind, "source": source}))
+    if found := sorted(home.glob(f"{name}.*")):
+        return found[0]
     return draw(kind, source, home / f"{name}.png")
 
 

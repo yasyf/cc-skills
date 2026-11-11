@@ -180,15 +180,20 @@ worked out from the code and marked as such, never the names of what will be mea
 `drive job ask` refuses a table with one value in every cell, by his 7:35 PM words "this table just
 says `time,bytes,disk` for everything".
 
-Each visual is one fence whose language names its kind, drawn from that one source on both
-surfaces: as a picture on his Slack card and live on the dashboard, by the same module,
-`lib/drive/site/visuals.js`. Pick the kind that shows what the words cannot:
+Each visual is one fence whose language names its kind, and one render layer,
+`lib/drive/site/visuals.js`, draws that one source for each surface, by his Nov 10 11:35 PM words "the
+render layer for slack should make an uimage, for web a nice code embed, and same for all
+components". Slack gets a picture of it, since a Slack message takes no code or diagram blocks. The
+dashboard and every other web page draw it natively from its source, as highlighted code, a live
+diagram or chart, or a compare, and never as a picture of one. A markdown table is native on both: a
+Slack data table and an HTML table. Pick the kind that shows what the words cannot:
 
 | The question turns on | Kind | Fence holds |
 |---|---|---|
 | the shape of an API, call, query or schema the options change | code | the real calls, in a fence naming its language: ```sand, ```sql, ```go |
 | components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
+| a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
 | numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline, drawn in the dataviz palette |
 | a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
 | words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |

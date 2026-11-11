@@ -1,5 +1,6 @@
 import http.client
 import json
+import subprocess
 import threading
 import time
 import urllib.parse
@@ -109,6 +110,46 @@ def test_an_answer_undone_while_held_never_reaches_cc_slack_and_one_already_sent
     assert sent == (200, {"answered": True, "label": "Hold"})
     assert late == (409, {"error": dashboard.SENT})
     assert asked == [(card, "Hold")]
+
+
+WEB_RUNNER = """
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+const quiet = { addEventListener() {} };
+const context = vm.createContext({ document: quiet, window: quiet, components: JSON.parse(readFileSync(0, "utf8")) });
+console.log(vm.runInContext(readFileSync(process.argv[2], "utf8") + "\\n" + process.argv[3], context));
+"""
+WEB_RENDER = r"""
+model = { repo: "", review: [], visuals: Object.fromEntries(components.map(([kind, source]) => ["/drive/pictures/" + kind + "/show-me.png", { kind, source }])) };
+JSON.stringify(components.map(([kind, source, fence]) => {
+  const picture = "/drive/pictures/" + kind + "/show-me.png";
+  return [kind, {
+    fence: prose("```" + fence + "\n" + source + "\n```"),
+    card: prose("Show me\n![Show me](" + picture + ")"),
+    pr: pictures([picture]),
+    said: saidRow({ at: "2026-11-10T23:00:00Z", text: "", visuals: [{ kind, source, caption: "", picture }] }),
+  }];
+}));
+"""
+COMPONENTS = [
+    ("code:go", "x := 1", "go"),
+    ("mermaid", "flowchart LR\n  run --> server", "mermaid"),
+    ("dot", "digraph { run -> server }", "dot"),
+    ("chart", '{"mark": "bar", "data": {"values": [{"x": "a", "y": 1}]}}', "chart"),
+    ("compare", '{"options": [{"name": "Two threads", "points": ["+ least load"]}]}', "compare"),
+    ("arch", '{"nodes": [{"id": "run", "kind": "service", "name": "run"}]}', "arch"),
+]
+
+
+def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_path: Path) -> None:
+    script = tmp_path / "web.mjs"
+    script.write_text(WEB_RUNNER)
+    app = Path(dashboard.__file__).parent / "site" / "app.js"
+    drawn = subprocess.run(["node", str(script), str(app), WEB_RENDER], input=json.dumps(COMPONENTS), capture_output=True, text=True, check=True)
+    for kind, surfaces in json.loads(drawn.stdout):
+        for surface, shown in surfaces.items():
+            assert "<img" not in shown, f"the web drew the {kind} on its {surface} surface as a picture: {shown}"
+            assert f'data-visual="{kind}"' in shown, f"the web drew no native {kind} on its {surface} surface: {shown}"
 
 
 def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:

@@ -243,7 +243,7 @@ class Board:
         drawn = {match[1] for card in cards for match in picture.IMAGE.finditer(card.get("body") or "") if match[1] and Path(match[1]).is_absolute()}
         pictures = drawn | {path for card in cards for path in [*(card.get("pictures") or []), *(path for row in card.get("prs") or [] for path in row.get("pictures") or [])]}
         pictures |= {visual["picture"] for entry in model["history"] for visual in entry.get("visuals") or []}
-        model["visuals"] = {path: json.loads(shown.read_text()) for path in drawn if (shown := Path(path).with_name("source.json")).is_file()}
+        model["visuals"] = {path: json.loads(shown.read_text()) for path in pictures if (shown := Path(path).with_name("source.json")).is_file()}
         body = json.dumps(model).encode()
         with self.changed:
             self.body = body

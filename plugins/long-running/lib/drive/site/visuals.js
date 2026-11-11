@@ -4,6 +4,7 @@ const HLJS = "https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11.12.0";
 const ARCH_MAP = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js";
 const MERMAID = "https://cdn.jsdelivr.net/npm/mermaid@12.3.0/dist/mermaid.esm.min.mjs";
 const VEGA_EMBED = "https://cdn.jsdelivr.net/npm/vega-embed@7.3.0/+esm";
+const VIZ = "https://cdn.jsdelivr.net/npm/@viz-js/viz@3.31.0/dist/viz.js";
 const GUESSED = new Set(["", "text", "txt", "plain", "plaintext"]);
 const RAW = new Set(["json", "jsonc", "json5", "jsonl", "ndjson", "yaml", "yml", "csv", "tsv", "log", "logs", "console", "terminal", "shell-session", "sh-session", "pwsh-session", "output", "stdout", "stderr", "traceback", "pytb", "stacktrace"]);
 const GRAMMAR_FILES = { proto: "protobuf" };
@@ -80,6 +81,7 @@ hljs.registerLanguage("sand", (hljs) => ({
 
 const styled = new WeakMap();
 let mermaidLoaded;
+let vizLoaded;
 let mermaidCount = 0;
 
 function style(document) {
@@ -162,6 +164,14 @@ async function mermaid(host, source) {
   drawn.style.maxWidth = "100%";
 }
 
+async function dot(host, source) {
+  vizLoaded ??= import(VIZ).then(({ instance }) => instance());
+  const drawn = (await vizLoaded).renderSVGElement(source);
+  drawn.style.maxWidth = "100%";
+  drawn.style.height = "auto";
+  host.replaceChildren(drawn);
+}
+
 async function arch(host, source) {
   const { mount } = await import(ARCH_MAP);
   const drawn = mount(host, JSON.parse(source), { key: false });
@@ -186,8 +196,10 @@ export async function draw(host, kind, source) {
       return chart(host, source);
     case "mermaid":
       return mermaid(host, source);
+    case "dot":
+      return dot(host, source);
     case "arch":
       return arch(host, source);
   }
-  throw new Error(`${kind} is no kind of visual: code, arch, mermaid, chart or compare`);
+  throw new Error(`${kind} is no kind of visual: code, arch, mermaid, dot, chart or compare`);
 }
