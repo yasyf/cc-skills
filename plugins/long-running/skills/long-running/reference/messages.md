@@ -63,7 +63,9 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   line in a feature's thread makes no sense to him there.
 - The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
   posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
-  past 60 words, 120 for a summary. The handler writes the post from its facts.
+  past 60 words, 120 for a summary. A turn runs from a wake, whether a cci record, a task
+  notification or his message, to the end of that response. The handler writes the post from its
+  facts.
 - The report's first sentence says what changed for him, and no cut takes it. What does not fit
   waits for the next turn, each item that waits on him kept first with its card's permalink or
   `waits` id, which `record_lines` refuses a report without, so the handler never searches.
