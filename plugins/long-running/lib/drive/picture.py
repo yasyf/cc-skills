@@ -1,9 +1,12 @@
 import hashlib
 import html
 import json
+import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 
@@ -12,9 +15,25 @@ IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"'
 DIAGRAMS = ("arch", "dot")
 UNDRAWN = ("", "mermaid", "text", "txt", "plain")
 FREEZE = ["freeze", "--theme", "github", "--window=false", "--font.family", "Menlo", "--font.size", "14", "--padding", "20", "--margin", "0", "--background", "#ffffff"]
-SHAPES = {"store": "cylinder", "log": "cylinder", "actor": "oval"}
-PATH_COLOR = "#2563eb"
-GRAPH_STYLE = 'rankdir=LR compound=true labelloc=t fontsize=18 fontname="Helvetica" pad=0.3 nodesep=0.4 ranksep=0.6'
+ARCH_LIB = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js"
+ARCH_WIDTH = 1200
+ARCH_SCALE = 2
+ARCH_PAGE = """<!doctype html>
+<html data-print><head><meta charset="utf-8">
+<style>html,body{{margin:0;background:#fff}}.smap.printing>.smap-canvas{{max-height:none!important}}.smap-readout:not(:has(> :not(.smap-hint))){{display:none}}</style></head>
+<body><div id="map"></div><script type="application/json" id="doc">{doc}</script>
+<script type="module">
+const {{ mount }} = await import({lib});
+const map = document.getElementById("map");
+const drawn = mount(map, JSON.parse(document.getElementById("doc").textContent), {{ key: false }});
+await drawn.ready;
+document.documentElement.dataset.drawn = drawn.problems.length ? drawn.problems.join("; ") : Math.ceil(map.getBoundingClientRect().height);
+</script></body></html>
+"""
+DRAWN = re.compile(r'<html[^>]*\bdata-drawn="([^"]*)"')
+CHROME_APPS = ("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", "/Applications/Chromium.app/Contents/MacOS/Chromium")
+CHROME_NAMES = ("google-chrome", "chromium", "chromium-browser", "chrome")
+CHROME_SECONDS = 60
 DOT_SECONDS = 30
 DOWNLOAD_SECONDS = 20
 
@@ -23,66 +42,42 @@ class PictureError(Exception):
     pass
 
 
-def quoted(text: str) -> str:
-    return json.dumps(text)
+def chrome() -> str:
+    if found := os.environ.get("CHROME"):
+        return found
+    if found := next((app for app in CHROME_APPS if Path(app).exists()), None) or next(filter(None, map(shutil.which, CHROME_NAMES)), None):
+        return found
+    raise PictureError("no Chrome or Chromium here; install Google Chrome or set CHROME to one")
 
 
-def html_label(name: str, role: str = "") -> str:
-    lines = [f"<b>{html.escape(name)}</b>"]
-    if role:
-        lines.append(f'<font point-size="10">{html.escape(role)}</font>')
-    return "<" + "<br/>".join(lines) + ">"
+def headless(page: Path, *args: str) -> str:
+    try:
+        result = subprocess.run(
+            [chrome(), "--headless=new", "--disable-gpu", "--no-first-run", "--hide-scrollbars", f"--user-data-dir={page.parent / 'profile'}", "--virtual-time-budget=15000", *args, page.as_uri()],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=CHROME_SECONDS,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise PictureError(f"Chrome did not run: {error}") from None
+    if result.returncode:
+        raise PictureError(" ".join(result.stderr.split()) or f"Chrome exited {result.returncode}")
+    return result.stdout
 
 
-def first_leaf(node: dict) -> str:
-    return first_leaf(node["nodes"][0]) if node.get("nodes") else node["id"]
-
-
-def arch_dot(doc: dict) -> str:
-    """Graphviz source for an arch/v1 diagram: its nodes, nested nodes as boxes, its lines, and its main path in blue."""
-    lines = [
-        "digraph arch {",
-        f"  graph [{GRAPH_STYLE} label={quoted(doc.get('title', ''))}]",
-        '  node [fontname="Helvetica" fontsize=12 shape=box style="rounded,filled" fillcolor="#f4f6f8" color="#55606e"]',
-        '  edge [color="#55606e" fontname="Helvetica" fontsize=10]',
-    ]
-    clusters: dict[str, str] = {}
-
-    def emit(nodes: list[dict], indent: str) -> None:
-        for node in nodes:
-            if node.get("nodes"):
-                clusters[node["id"]] = first_leaf(node)
-                lines.append(f"{indent}subgraph {quoted('cluster_' + node['id'])} {{")
-                lines.append(f'{indent}  label={html_label(node["name"])} style="rounded" color="#9aa5b1"')
-                emit(node["nodes"], indent + "  ")
-                lines.append(f"{indent}}}")
-                continue
-            shape = SHAPES.get(node.get("kind", ""), "box")
-            lines.append(f"{indent}{quoted(node['id'])} [shape={shape} label={html_label(node['name'], node.get('role', ''))}]")
-
-    def line(link: dict, *extra: str) -> str:
-        attrs = list(extra)
-        ends = []
-        for end, side in ((link["from"], "ltail"), (link["to"], "lhead")):
-            if end in clusters:
-                attrs.append(f"{side}={quoted('cluster_' + end)}")
-            ends.append(quoted(clusters.get(end, end)))
-        if link.get("label"):
-            attrs.append(f"label={quoted(link['label'])}")
-        return f"  {ends[0]} -> {ends[1]}" + (f" [{' '.join(attrs)}]" if attrs else "")
-
-    emit(doc["nodes"], "  ")
-    path = [(step["from"], step["to"]) for step in (doc.get("path") or {}).get("steps", [])]
-    drawn = set()
-    for link in doc.get("edges", []):
-        ends = (link["from"], link["to"])
-        drawn.add(ends)
-        lines.append(line(link, f"color={quoted(PATH_COLOR)} penwidth=2") if ends in path else line(link))
-    for start, end in path:
-        if (start, end) not in drawn:
-            lines.append(line({"from": start, "to": end}, f"color={quoted(PATH_COLOR)} penwidth=2"))
-    lines.append("}")
-    return "\n".join(lines)
+def arch_png(source: str, out: Path) -> None:
+    """Draw an arch/v1 diagram with cc-present's arch-map, the component the dashboard draws it with: once to measure its height at ARCH_WIDTH, then a screenshot of exactly that."""
+    with tempfile.TemporaryDirectory(prefix="drive-arch-") as scratch:
+        page = Path(scratch) / "arch.html"
+        page.write_text(ARCH_PAGE.format(doc=json.dumps(json.loads(source)).replace("</", "<\\/"), lib=json.dumps(ARCH_LIB)))
+        if not (drawn := DRAWN.search(headless(page, f"--window-size={ARCH_WIDTH},{ARCH_WIDTH}", "--dump-dom"))):
+            raise PictureError("arch-map did not finish drawing it")
+        if not (height := html.unescape(drawn[1])).isdecimal():
+            raise PictureError(height)
+        headless(page, f"--window-size={ARCH_WIDTH},{height}", f"--force-device-scale-factor={ARCH_SCALE}", f"--screenshot={out}")
+    if not out.is_file():
+        raise PictureError("Chrome wrote no screenshot")
 
 
 def dot_png(source: str, out: Path) -> None:
@@ -140,7 +135,7 @@ def sources(show_me: str) -> list[tuple[str, str]]:
 def draw(kind: str, source: str, out: Path) -> Path:
     match kind:
         case "arch":
-            dot_png(arch_dot(json.loads(source)), out)
+            arch_png(source, out)
         case "dot":
             dot_png(source, out)
         case _ if kind.startswith("code:"):
@@ -162,13 +157,13 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
                 print(f"drive card: {label}: its Show me links {source}, neither a link nor a file here", file=sys.stderr)
             continue
         name = label if index == 1 else f"{label} ({index})"
-        home = folder / hashlib.sha256(f"{kind}\n{source}".encode()).hexdigest()[:16]
+        home = folder / hashlib.sha256(f"{kind}\n{source}{ARCH_LIB if kind == 'arch' else ''}".encode()).hexdigest()[:16]
         if cached := sorted(home.glob(f"{name}.*")):
             drawn.append(str(cached[0]))
             continue
         home.mkdir(parents=True, exist_ok=True)
         try:
             drawn.append(str(draw(kind, source, home / f"{name}.png")))
-        except (PictureError, ValueError, KeyError, TypeError) as error:
+        except (PictureError, ValueError) as error:
             print(f"drive card: {label}: its Show me {kind} does not draw: {error}", file=sys.stderr)
     return drawn

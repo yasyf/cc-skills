@@ -22,16 +22,6 @@ DOC = {
 }
 
 
-def test_an_arch_diagram_becomes_graphviz_with_its_boxes_lines_and_main_path() -> None:
-    source = picture.arch_dot(DOC)
-    assert 'label="A tap card\'s show-me becomes a picture"' in source
-    assert '"body" [shape=cylinder label=<<b>PR body</b><br/><font point-size="10">carries the fence</font>>]' in source
-    assert 'subgraph "cluster_drive" {' in source
-    assert '"him" [shape=oval' in source
-    assert '"body" -> "draw" [color="#2563eb" penwidth=2 lhead="cluster_drive" label="Show me"]' in source
-    assert '"draw" -> "him" [ltail="cluster_drive"]' in source
-
-
 def test_sources_lists_diagrams_and_images_in_the_order_they_appear() -> None:
     show_me = (
         "![before](https://example.com/before.png)\n\n```arch\n"
@@ -39,6 +29,22 @@ def test_sources_lists_diagrams_and_images_in_the_order_they_appear() -> None:
         + "\n```\n\n```mermaid\nflowchart LR\n```\n\n```dot\ndigraph { a -> b }\n```\n"
     )
     assert [kind for kind, _ in picture.sources(show_me)] == ["image", "arch", "dot"]
+
+
+def test_an_arch_picture_is_drawn_once_and_again_when_the_arch_map_version_changes(tmp_path, monkeypatch) -> None:
+    drawn = []
+
+    def draw(source: str, out) -> None:
+        drawn.append(source)
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "arch_png", draw)
+    show_me = "```arch\n" + json.dumps(DOC) + "\n```\n"
+    first = picture.pictures(tmp_path / "pictures", "app PR 7", show_me)
+    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) == first
+    monkeypatch.setattr(picture, "ARCH_LIB", "https://example.com/arch-map@2.js")
+    assert picture.pictures(tmp_path / "pictures", "app PR 7", show_me) != first
+    assert len(drawn) == 2
 
 
 def test_a_local_image_is_used_where_it_is_and_a_missing_one_is_skipped(tmp_path) -> None:

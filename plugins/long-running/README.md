@@ -14,7 +14,8 @@ Prerequisites:
 - `cc-inbox` (`>=0.54.10`), `cc-notes` (`>=0.76.0`) and `orca` (`>=0.1.12`) plugins, installed as dependencies
 - `cc-slack` plugin, for the messages and PR cards in your Slack direct message (DM)
 - The GitHub CLI `gh` and the `claude` CLI on `PATH`
-- Graphviz `dot` on `PATH`, to draw a PR's `arch` or `dot` Show me diagram as the picture on its card
+- Google Chrome or Chromium, to draw a PR's `arch` Show me diagram as the picture on its card with cc-present's arch-map, the component the dashboard draws it with live; set `CHROME` to one outside the usual places
+- Graphviz `dot` on `PATH`, to draw a PR's `dot` Show me diagram
 
 ## Start a drive
 
