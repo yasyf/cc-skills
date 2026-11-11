@@ -296,6 +296,7 @@ def deny_reason(payload: dict) -> str | None:
             long_ack(payload),
             unlinked(payload, drive),
             untapped(payload),
+            claimed_tap(tool_input, drive),
             unpromised(payload),
             raw_visuals(tool_input),
             unswitched(tool_input, drive),
@@ -488,6 +489,16 @@ def untapped(payload: dict) -> str | None:
         return None
     prs = {key: pr for name in state.session_drives(payload["session_id"]) for key, pr in state.load(name)["prs"].items()}
     return limits.tap_refusal("\n".join(tap_prs), prs)
+
+
+def claimed_tap(tool_input: dict, drive: dict) -> str | None:
+    """Why a post's text or card says a PR waits on his tap or Approve with nothing for him to tap; a PR card's own PRs are `untapped`'s to check, since the post draws their tap card."""
+    if tool_input.get("tap_prs"):
+        return None
+    card = tool_input.get("card") or {}
+    words = "\n".join([tool_input.get("text") or "", card.get("title") or "", card.get("body") or "", *(card.get("options") or [])])
+    refusal = view.tap_claim_refusal(drive, tool_input.get("order") or "", words, (view.live_cards(drive["name"]) or view.NO_CARDS)["pr_cards"])
+    return refusal and f"{refusal}. A PR the drive owes his tap on and no open card asks gets its tap card from tap_prs on the post."
 
 
 def unlinked(payload: dict, drive: dict) -> str | None:

@@ -9,7 +9,7 @@ from pathlib import Path
 import message_limits
 import pytest
 from conftest import Checked, Thread
-from drive import limits, refs, slack, state, talk
+from drive import limits, refs, slack, state, talk, view
 from drive.state import DriveError
 
 Run = Callable[..., tuple[int, str]]
@@ -665,6 +665,30 @@ def test_a_pr_card_for_a_pr_he_tapped_is_refused_and_words_naming_it_go_out(talk
     assert "owes no tap on: Forge-AI/monorepo#4242" in posted(transcript, text="Fix: approve the update button?", tap_prs=[url])
     card = {"title": said(10), "body": f"{said(20)}\n*Show me*\n```\nthe programs hold them until <{url}|the update-button fix> lands\n```", "options": [said(5), said(5)], "waits": "demo:j1-7"}
     assert posted(transcript, card=card) is None
+
+
+def test_a_post_saying_a_pr_waits_on_his_tap_is_refused_unless_he_has_its_tap_card_to_tap(
+    talker: str, transcript: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    url, link = "https://github.com/Forge-AI/monorepo/pull/53971", f"https://acme.slack.com/archives/{DM}/p1794300000000400"
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#53971"] = state.new_pr(url, "j1", "o1") | {"head": "abc123", "tap": {"label": "Land it", "at": state.stamp(), "head": "abc123", "source": "slack"}}
+    card = {"title": said(5), "body": "#53971 waits on your tap.", "options": [said(3), said(3)], "waits": "demo:j1-7"}
+    assert "Forge-AI/monorepo#53971: he tapped Land it at" in posted(transcript, card=card)
+    text = f"<{url}|The unfurl fix> waits on <{url}|your Approve>."
+    assert "Forge-AI/monorepo#53971: he tapped Land it at" in say(transcript, text=text)
+    assert posted(transcript, text=f"<{url}|The unfurl fix> needs no tap.") is None
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#53971"]["tap"] = None
+    assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=text)
+    tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "Fix: land it?", "prs": [{"url": url, "head": "abc123"}]}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    view.refresh_cards("demo")
+    assert f"Forge-AI/monorepo#53971: the words do not link its open tap card {link}" in posted(transcript, text=text)
+    assert posted(transcript, text=f"{text} <{link}|Its tap card> is up.") is None
+    with state.edit("demo") as data:
+        data["prs"]["Forge-AI/monorepo#53971"]["head"] = "def456"
+    assert "Forge-AI/monorepo#53971: no open tap card of his stands at its head" in posted(transcript, text=f"{text} <{link}|Its tap card> is up.")
 
 
 def test_a_post_that_is_one_slack_link_or_mention_goes_out(talker: str, transcript: Path) -> None:

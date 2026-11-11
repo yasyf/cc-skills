@@ -1202,6 +1202,9 @@ def question_card(name: str, path: Path, waits: str) -> dict:
             waits = question["waits"]
         if refused := superseded.redraw_refusal(data, job, waits, str(path)):
             raise DriveError(refused)
+    pr_cards = (view.live_cards(name) or view.NO_CARDS)["pr_cards"]
+    if refused := view.tap_claim_refusal(data, job["order"] if job else "", "\n".join([asked.title, *asked.summary, *asked.options]), pr_cards):
+        raise DriveError(f"{path}: {refused}.{limits.FROM_ASK.format(waits=waits)}")
     show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     card = asked.card(name, waits) | {"body": limits.card_body(asked.summary, show_me)}
     if job_id in data["jobs"]:

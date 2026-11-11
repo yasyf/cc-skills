@@ -1348,6 +1348,31 @@ def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(
     assert state.load("demo")["jobs"] == jobs
 
 
+def test_job_card_refuses_an_ask_saying_a_pr_waits_on_his_tap_while_he_has_nothing_to_tap(
+    run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
+    url = "https://github.com/acme/app/pull/42"
+    with state.edit("demo") as data:
+        data["prs"]["acme/app#42"] = state.new_pr(url, "j1", "o1") | {"head": "abc123", "tap": {"label": "Land it", "at": state.stamp(), "head": "abc123", "source": "slack"}}
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile <{url}|the layout change> waits on your tap."))
+    assert cli.main(["job", "card", str(block), "--waits", "demo:j1-7"]) == 2
+    assert "acme/app#42: he tapped Land it at" in capsys.readouterr().err
+    with state.edit("demo") as data:
+        data["prs"]["acme/app#42"]["tap"] = None
+    assert cli.main(["job", "card", str(block), "--waits", "demo:j1-7"]) == 2
+    assert "acme/app#42: no open tap card of his stands at its head" in capsys.readouterr().err
+    link = "https://acme.slack.com/archives/D123/p1794300000000400"
+    tap = {"asked": state.stamp(), "url": link, "prs": [url], "card": {"title": "New: land it?", "prs": [{"url": url, "head": "abc123"}]}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": [tap]})
+    view.refresh_cards("demo")
+    assert cli.main(["job", "card", str(block), "--waits", "demo:j1-7"]) == 2
+    assert f"acme/app#42: the words do not link its open tap card {link}" in capsys.readouterr().err
+    block.write_text(SHORT_ASK.replace("Meanwhile nothing is built on either layout.", f"Meanwhile <{url}|the layout change> waits on your tap: <{link}|its tap card>."))
+    assert run("job", "card", str(block), "--waits", "demo:j1-7")[0] == 0
+
+
 def test_job_card_after_a_job_draws_its_newest_kept_ask_or_the_one_named_under_the_waits_id_its_card_has(
     run: Run, asking: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
