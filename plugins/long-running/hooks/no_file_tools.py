@@ -19,8 +19,10 @@ def deny_reason(payload: dict) -> str | None:
     return (
         f"refused: the {role} opens no file with {payload['tool_name']}, since Claude Code puts each file opened with"
         " Read, Write or Edit back into this session after every compaction. Read a page of the skill with"
-        " `drive manual <page>`, a job's return with `drive job report <job>` and a record with cci; a file to write"
-        " goes to a job, or on stdin to the drive verb that keeps it."
+        " `drive manual <page>`, a job's return with `drive job report <job>`, a record with cci, and a saved tool result"
+        " or background output with a bounded Bash slice such as `tail -c 2000 <file>`. A file to write goes to a job,"
+        " or on stdin to the drive verb that keeps it; a lesson is a cc-notes note (`ccn note add`) or a defect record"
+        " to the communicator, never a memory file."
     )
 
 

@@ -800,3 +800,13 @@ def test_main_prints_a_pretooluse_denial(
     assert decision["hookEventName"] == "PreToolUse"
     assert decision["permissionDecision"] == "deny"
     assert "this post is 900 words" in decision["permissionDecisionReason"]
+
+
+def test_the_coordinator_posts_nothing_to_slack_and_sends_its_words_to_the_communicator(demo: str) -> None:
+    said = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": message_limits.SAY, "tool_input": {"text": "Merged."}}
+    assert message_limits.deny_reason(said).startswith("Refused on purpose: the coordinator posts nothing to Slack")
+    assert "as a `report` record to communicator@demo" in message_limits.deny_reason(said)
+    reply = said | {"tool_name": message_limits.SLACK + "slack_reply", "tool_input": {"channel_id": "C9", "thread_ts": "1.2", "text": "x"}}
+    assert message_limits.deny_reason(reply).startswith("Refused on purpose")
+    assert message_limits.deny_reason(said | {"agent_id": "a-1"}) is None
+    assert message_limits.deny_reason(said | {"session_id": "someone-else"}) is None

@@ -934,6 +934,30 @@ def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(
     assert run("job", "report", "j1") == (0, "READY https://github.com/yasyf/cc-skills/pull/1\nSERVES: his order\nDESIGN: none")
 
 
+def test_a_builders_done_names_its_proof_and_what_he_sees_is_proven_on_that_surface(
+    run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship")
+    fetched = tmp_path / "view.json"
+    fetched.write_text("{}")
+    recording = tmp_path / "queue-click.mov"
+    recording.write_bytes(b"\0")
+    assert keep(monkeypatch, capsys, "j1", "DONE the queue shows one card\nCHECK: it looked right\n")[0] == 2
+    assert keep(monkeypatch, capsys, "j1", "DONE the queue shows one card\nCHECK: /gone/view.json\n")[1].startswith(
+        "drive: j1: refused, nothing kept: a DONE names its proof on a CHECK: line"
+    )
+    seen = "DONE the queue shows one card\nNATIVE: the dashboard's queue view\nCHECK: {}\n"
+    code, refused = keep(monkeypatch, capsys, "j1", seen.format(fetched))
+    assert code == 2
+    assert "this builds something he sees, by its NATIVE: line, so its proof is from that surface" in refused
+    assert keep(monkeypatch, capsys, "j1", seen.format(recording))[0] == 0
+    assert keep(monkeypatch, capsys, "j1", seen.format("https://poetic-technology.slack.com/archives/D1/p1794300000000100"))[0] == 0
+    unseen = "DONE the watch stops on a dead lane\nNATIVE: none: he never sees it\nCHECK: {}\n"
+    assert keep(monkeypatch, capsys, "j1", unseen.format(fetched))[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
+
+
 def test_job_report_refuses_an_empty_stdin(run: Run, demo: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
@@ -1039,7 +1063,7 @@ def test_a_kept_report_sets_a_running_job_from_its_first_line(
     run("job", "add", "builder", "--order", "o1", "--goal", "ship again")
     run("job", "set", "j2", "--state", "stopped")
     for job_id in ("j1", "j2"):
-        monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\nCHECK: build 12\n"))
+        monkeypatch.setattr("sys.stdin", io.StringIO(f"{first}\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n"))
         run("job", "report", job_id, "-")
     jobs = state.load("demo")["jobs"]
     assert (jobs["j1"]["state"], jobs["j1"]["said"]) == ((taken, first) if taken else ("running", None))

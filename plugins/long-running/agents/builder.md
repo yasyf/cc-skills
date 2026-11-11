@@ -256,7 +256,12 @@ calls or extends it, which `drive job report` refuses a `READY` without, `INSTAL
 file's path when you saved one, `UNPROVEN:` what you could not show, `NEXT:` what the next handoff does, plus any exact quote,
 number or path the message needs. An `ASK` keeps no report: `drive job ask` keeps its block.
 
-- `DONE <proof link or one-line proof>`: live and checked.
+- `DONE <proof link or one-line proof>`: live and checked. Its `CHECK:` line names the proof as a
+  link or the absolute path of a file that exists. When he sees what you built (your `NATIVE:` line
+  is not `none: he never sees it`), the proof comes from that surface: a recording of the click
+  through it (agent-browser's recording, or `screencapture -v` of the window), a picture of it, or
+  the live post's link, since data fetched from an API does not show what he sees. `drive job report`
+  refuses a `DONE` without one.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
   bottom first, so it gets one card. A question whose answer only lands PRs, such as an open PR
   below yours that no tap of his covers, is this `READY` naming each of them, never an `ASK`: their
