@@ -678,3 +678,31 @@ await push({ ...MODEL, code: '/plugins/long-running/9.9.9/lib/drive' });
 done({ typing, idle: reloads });
 """, board(queue=[QUESTION], code="/plugins/long-running/1.0.1/lib/drive"))
     assert seen == {"typing": {"reloads": 0, "chip": "The dashboard was updated. Reload", "shown": True, "kept": True}, "idle": 1}
+
+
+def test_only_links_that_leave_the_dashboard_carry_the_leave_arrow(tmp_path: Path) -> None:
+    said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": "the flow", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}
+    seen = browse(tmp_path, """
+const marked = [];
+for (const hash of ['#/queue/all', '#/now/Platform/SandSQL', '#/work', '#/history', '#/history/2026-11-10', '#/feature/o1']) {
+  location.hash = hash;
+  await wait(150);
+  for (const el of document.querySelectorAll('#main a:not([target="_blank"]), #main button')) if (el.textContent.includes('↗')) marked.push(`${hash} ${el.textContent.trim().slice(0, 40)}`);
+}
+location.hash = '#/history/2026-11-10';
+await wait(100);
+done({ marked, lead: document.querySelector('#main .lead').textContent });
+""", board(queue=[QUESTION], history=[said, *board()["history"]], status=[{"state": "running", "features": [FEATURE | {"cards": [{"title": "Raise the limit?", "url": QUESTION["answer"], "asked": "2026-11-10T23:00:00-08:00"}]}]}]))
+    assert seen == {"marked": [], "lead": "Every moment of the day, newest first. Click a moment to follow it back to the work."}
+
+
+def test_pausing_the_work_map_is_remembered_for_the_next_visit(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+localStorage.removeItem('motion');
+location.hash = '#/work';
+await wait(100);
+document.querySelector('#main [data-motion]').click();
+await wait(50);
+done({ kept: localStorage.getItem('motion'), pressed: document.querySelector('#main [data-motion]').getAttribute('aria-pressed') });
+""", board())
+    assert seen == {"kept": "paused", "pressed": "true"}

@@ -348,7 +348,7 @@ function choices(item, keyed = false) {
     return `<button class="choice${recommended ? ' recommended' : ''}${i === shown ? ' on' : ''}" ${attrs} data-preview="${i}">
       <span class="key">${keyed ? i + 1 : ''}</span>
       <span><span class="choice-title">${esc(title)}${recommended ? '<em>Recommended</em>' : ''}</span>${detail ? `<span class="choice-detail">${esc(detail)}</span>` : ''}</span>
-      <span class="arrow" aria-hidden="true">↗</span>
+      <span class="arrow" aria-hidden="true">›</span>
     </button>`;
   });
   return `<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
@@ -783,7 +783,7 @@ function zoomAround(factor, px, py, ms = 0) {
 function askRow(card) {
   const item = model.queue.find((each) => each.answer === card.url);
   const body = `<span class="task-mark ask" aria-hidden="true"></span><span class="task-body"><b>${esc(card.title)}</b><small>Asked ${clock(card.asked)}, waiting ${ago(card.asked)}</small></span>`;
-  return item ? `<button class="task-row" data-queue="${esc(noticeKey(item))}">${body}<span class="task-go">Answer it ↗</span></button>` : `<div class="task-row">${body}</div>`;
+  return item ? `<button class="task-row" data-queue="${esc(noticeKey(item))}">${body}<span class="task-go">Answer it ›</span></button>` : `<div class="task-row">${body}</div>`;
 }
 
 function taskRow(entry, href = `#/feature/${entry.id}`) {
@@ -793,7 +793,7 @@ function taskRow(entry, href = `#/feature/${entry.id}`) {
     <span class="task-mark t-${STOP_TONES[entry.state]}" aria-hidden="true"></span>
     <span class="task-body"><b>${esc(entry.title)}</b>${entry.now ? `<small>${esc(entry.now)}</small>` : ''}</span>
     <span class="task-facts">${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}${facts ? `<small>${esc(facts)}</small>` : ''}</span>
-    <span class="arrow" aria-hidden="true">↗</span>
+    <span class="arrow" aria-hidden="true">›</span>
   </a>`;
 }
 
@@ -1172,7 +1172,7 @@ function topoMap(root, under, nodes) {
     const more = node.lanes.length > SATELLITES ? `<em>+${node.lanes.length - SATELLITES}</em>` : '';
     const tip = `${name}: ${counted(node.lanes.length, 'lane')}, ${working} working${quiet ? `, ${quiet} quiet` : ''}. Click to zoom in.`;
     return `<a class="topo-node${node.key === NONE ? ' unfiled' : ''}" href="${node.href}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--i:${i}" data-tip="${esc(tip)}">
-      <strong>${esc(name)} ↗</strong>
+      <strong>${esc(name)} ›</strong>
       <small class="sub">${esc(node.sub)}</small>
       <small>${counted(node.lanes.length, 'lane')} · ${working} working</small>
       <span class="satellites">${dots}${more}</span>
@@ -1205,7 +1205,7 @@ function laneInspector(job) {
     ${job.said ? `<p class="lane-said">${esc(job.said)}</p>` : '<p class="meta">No progress line yet.</p>'}
     <p class="meta">Last word ${clock(job.updated)}, ${ago(job.updated)} ago · ${esc(facts.join(' · '))}</p>
     ${fileButtons(job)}
-    <a class="btn ghost" href="#/feature/${esc(job.feature)}">See the task ↗</a>
+    <a class="btn ghost" href="#/feature/${esc(job.feature)}">See the task ›</a>
     <p class="rail-note">For: ${esc(entry.title)}</p>
   </aside>`;
 }
@@ -1323,7 +1323,7 @@ function timeline(list, withDays) {
   return list.flatMap((entry, i) => {
     const before = list[i - 1];
     const day = dayOf(entry.at);
-    const head = withDays && (!before || dayOf(before.at) !== day) ? `<li class="day-head"><a href="${historyHref(day)}">${dayName(day, { weekday: 'long', month: 'long', day: 'numeric' })} ↗</a></li>` : '';
+    const head = withDays && (!before || dayOf(before.at) !== day) ? `<li class="day-head"><a href="${historyHref(day)}">${dayName(day, { weekday: 'long', month: 'long', day: 'numeric' })} ›</a></li>` : '';
     const quiet = before && !head ? Math.round((new Date(before.at) - new Date(entry.at)) / 60000) : 0;
     return [head, quiet >= GAP_MINUTES ? `<li class="gap">${quietFor(quiet)} with nothing new</li>` : '', historyRow(entry)];
   }).join('');
@@ -1351,9 +1351,9 @@ function historyScreen() {
   const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [moments.length, 'moments']];
   const filters = HISTORY_FILTERS.map(([id, label]) => `<a href="${historyHref(zoomed?.day, id)}" class="${id === filter ? 'on' : ''}"${id === filter ? ' aria-current="true"' : ''}>${label}</a>`).join('');
   const latest = series.at(-1);
-  const zoom = zoomed ? `<a class="map-btn" href="${historyHref()}">← All days</a>` : latest ? `<a class="map-btn" href="${historyHref(latest.day)}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ↗</a>` : '';
+  const zoom = zoomed ? `<a class="map-btn" href="${historyHref()}">← All days</a>` : latest ? `<a class="map-btn" href="${historyHref(latest.day)}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ›</a>` : '';
   return `<div class="page-head">
-      <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">Click a day to zoom in. Click a moment to follow it back to the work.</p></div>
+      <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">${zoomed ? 'Every moment of the day, newest first.' : 'Click a day to zoom in.'} Click a moment to follow it back to the work.</p></div>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
     </div>
     <div class="history-layout">
@@ -1391,7 +1391,7 @@ function decisionPiece(card) {
     <div class="eyebrow">Decision · needs you</div>
     <h3>${esc(card.title)}</h3>
     <p class="meta">Asked ${clock(card.asked)}, waiting ${ago(card.asked)}</p>
-    ${item ? `<div class="piece-foot"><button class="linkish" data-queue="${esc(noticeKey(item))}">Answer it in your queue ↗</button></div>` : ''}
+    ${item ? `<div class="piece-foot"><button class="linkish" data-queue="${esc(noticeKey(item))}">Answer it in your queue ›</button></div>` : ''}
   </article>`;
 }
 
@@ -1677,6 +1677,7 @@ document.addEventListener('click', (event) => {
   }
   if (event.target.closest('[data-motion]')) {
     paused = paused ? null : Date.now();
+    localStorage.setItem('motion', paused ? 'paused' : 'moving');
     return render();
   }
   const zoomed = event.target.closest('[data-zoom]');
@@ -1892,6 +1893,7 @@ document.addEventListener('keydown', (event) => {
 });
 window.addEventListener('DOMContentLoaded', () => {
   history.scrollRestoration = 'manual';
+  paused = localStorage.getItem('motion') === 'paused' ? Date.now() : null;
   $('#jumpfind').addEventListener('input', () => {
     jumpAt = 0;
     drawJump();
