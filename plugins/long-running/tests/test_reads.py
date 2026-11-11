@@ -71,8 +71,40 @@ def test_excerpt_keeps_the_command_output_without_hooks_or_markup() -> None:
     assert reads.excerpt(LOG, 1000) == "ERROR: raises journal write to 13"
 
 
-def test_excerpt_keeps_the_tail_and_says_how_much_it_cut() -> None:
-    assert reads.excerpt("a" * 10 + "END", 5) == "[last 5 of 13 characters]\naaEND"
+def test_excerpt_with_no_failure_line_keeps_the_tail_and_says_how_much_it_cut() -> None:
+    assert reads.excerpt("a" * 10 + "END", 5) == "[no failure lines matched]\n[last 5 of 13 characters]\naaEND"
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "    chat_test.go:133: list = 400, want 200",
+        "--- FAIL: TestChat (2.89s)",
+        "    --- FAIL: TestChat/one_subagent (0.07s)",
+        "FAIL\texample.com/app/cmd\t12.183s",
+        "        FAIL [   0.070s] core store::tests::a_copy_keeps_every_write",
+        "thread 'store::tests::a_copy_keeps_every_write' (148890) panicked at crates/core/src/store/tests.rs:12508:61:",
+        "src/app.ts(4,7): error TS2322: Type 'string' is not assignable to type 'number'.",
+        "  ✕ renders the composer (12 ms)",
+        "  ● composer › renders",
+    ],
+)
+def test_excerpt_leads_with_a_failure_far_before_the_tail(failure: str) -> None:
+    output = "\n".join(["ok"] * 50 + [failure, "", "the message", "after", "past it"] + ["x" * 99] * 10)
+    block = f"{failure}\nthe message\nafter"
+    rest = 200 - len(block)
+    assert reads.excerpt(output, 200) == (
+        f"[failure lines first, 1 matched, each with the 2 lines after it]\n{block}\n"
+        f"[last {rest} of {len(output)} characters]\n{output[-rest:]}"
+    )
+
+
+def test_excerpt_joins_failures_as_grep_does_and_cuts_their_head_when_they_overflow() -> None:
+    output = "\n".join(["--- FAIL: A", "a1", "--- FAIL: B", "b1", "b2", "skip", "--- FAIL: C", "c1", "c2", "x" * 999])
+    joined = "--- FAIL: A\na1\n--- FAIL: B\nb1\nb2\n--\n--- FAIL: C\nc1\nc2"
+    head = "[failure lines first, 3 matched, each with the 2 lines after it]"
+    assert reads.excerpt(output, 200).startswith(f"{head}\n{joined}\n[last ")
+    assert reads.excerpt(output, 20) == f"[first 20 of {len(joined)} characters of the failure lines, 3 matched]\n{joined[:20]}"
 
 
 def test_a_build_url_reads_every_failed_script_job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
