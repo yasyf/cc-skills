@@ -75,8 +75,9 @@ def scratch(prompt: str) -> Path | None:
 
 
 def start_handler(name: str, handler: str, prompt: str) -> None:
-    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in this session's checkout, its SessionStart hook binding it to the drive by the id in its environment."""
-    settings = HANDLER_SETTINGS | {"env": HANDLER_SETTINGS["env"] | {state.HANDLER_ENV: f"{name}/{handler}"}}
+    """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in this session's checkout, its SessionStart hook binding it to the drive by the id in its environment, and `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes."""
+    env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": state.saved(name)["roles"]["communicator"]["session"]}
+    settings = HANDLER_SETTINGS | {"env": HANDLER_SETTINGS["env"] | env}
     argv = ["claude", "--bg", "--agent", HANDLER, "--permission-mode", "bypassPermissions", "--settings", json.dumps(settings), "-n", f"{name} handler {handler}", prompt]
     reads.run(argv, Path.cwd())
 
