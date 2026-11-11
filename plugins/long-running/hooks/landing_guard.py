@@ -9,7 +9,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, github, public_check, settled, slack, state, view
+from drive import agents, github, limits, public_check, settled, slack, state, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
 from drive.shell import runnable
@@ -520,7 +520,7 @@ def misrouted(posts: list[tuple[str, dict[str, str], list[str]]], drives: dict[s
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers or a communicator's record to a coordinator lane other than the one hearing the order it serves, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
+    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
@@ -530,6 +530,8 @@ def deny_reason(payload: dict) -> str | None:
     asks = [attrs.get("ask") for kind, attrs, _ in posts if kind == "ask"]
     if asks and names and not all(settled.kept(names, ask) for ask in asks):
         return UNKEPT_ASK
+    if names and (misnamed := next(filter(None, (limits.misnamed(kind, attrs) for kind, attrs, _ in posts)), None)):
+        return misnamed
     if posts and (wrong := misrouted(posts, state.communicated(names, session))):
         return wrong
     coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) == "coordinator" for name in names)

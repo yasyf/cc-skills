@@ -59,9 +59,6 @@ LIFTED_LIMIT = (
     "refused: a record carries no `max_words` attr, since nothing reads it and no record lifts his limits: a line in his"
     " thread is at most {line} words and a summary of two or more features at most {summary}; post it again without it"
 )
-REPORT_ATTRS = {"catch_up": "true", "close": "<o …>", "part": "<name>", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<seq>"}
-UNSPELLED = re.compile(r"[^a-z0-9]")
-MISNAMED = "refused: the drive reads no `{key}` attr on a report, so nothing acts on it; it reads `{attr}`, so post it again with `--attr {attr}={value}` in its place"
 TAIL_BYTES = 4 << 20
 
 
@@ -108,32 +105,6 @@ def lifted(record: dict) -> str | None:
     if LIMIT_ATTR not in attrs(record):
         return None
     return LIFTED_LIMIT.format(line=limits.LINE_WORDS, summary=limits.SUMMARY_WORDS)
-
-
-def one_edit(word: str, other: str) -> bool:
-    """Whether word becomes other by at most one insertion, deletion or substitution."""
-    shorter, longer = sorted((word, other), key=len)
-    if len(longer) - len(shorter) > 1:
-        return False
-    for index, (char, against) in enumerate(zip(shorter, longer, strict=False)):
-        if char != against:
-            return shorter[index + (len(shorter) == len(longer)) :] == longer[index + 1 :]
-    return True
-
-
-def squashed(key: str) -> str:
-    return UNSPELLED.sub("", key.lower())
-
-
-def misnamed(record: dict) -> str | None:
-    """Why a report names an attr the drive never reads that a separator, a capital or one letter keeps from one it does, which the drive would treat as missing."""
-    if kind(record) != "report":
-        return None
-    for key in attrs(record):
-        for attr, value in REPORT_ATTRS.items():
-            if key not in REPORT_ATTRS and one_edit(squashed(key), squashed(attr)):
-                return MISNAMED.format(key=key, attr=attr, value=value)
-    return None
 
 
 def misaddressed(payload: dict, record: dict) -> str | None:
@@ -239,7 +210,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
         yield lifted(record)
-        yield misnamed(record)
+        yield limits.misnamed(kind(record), attrs(record))
         yield unkept(record, names)
         yield unkinded(record)
         yield untapped(record, prs)

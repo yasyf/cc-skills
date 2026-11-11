@@ -202,6 +202,9 @@ RULED_OUT = re.compile(
 )
 RECORD_CHARS = 120
 WHOLE_KINDS = {"owner", "answer", "incident"}
+REPORT_ATTRS = {"catch_up": "true", "close": "<o …>", "part": "<name>", "job": "<j>", "thread": "<ts>", "waits": "<drive>:<j>-<seq>"}
+UNSPELLED = re.compile(r"[^a-z0-9]")
+MISNAMED = "refused: the drive reads no `{key}` attr on a report, so nothing acts on it; it reads `{attr}`, so post it again with `--attr {attr}={value}` in its place"
 
 
 @dataclass(frozen=True)
@@ -925,3 +928,29 @@ def shortened(record: dict) -> dict | None:
         return record | {"text": line}
     body = record.get("body")
     return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
+
+
+def one_edit(word: str, other: str) -> bool:
+    """Whether word becomes other by at most one insertion, deletion or substitution."""
+    shorter, longer = sorted((word, other), key=len)
+    if len(longer) - len(shorter) > 1:
+        return False
+    for index, (char, against) in enumerate(zip(shorter, longer, strict=False)):
+        if char != against:
+            return shorter[index + (len(shorter) == len(longer)) :] == longer[index + 1 :]
+    return True
+
+
+def squashed(key: str) -> str:
+    return UNSPELLED.sub("", key.lower())
+
+
+def misnamed(kind: str, attrs: dict) -> str | None:
+    """Why a report names an attr the drive never reads that a separator, a capital or one letter keeps from one it does, which the drive would treat as missing."""
+    if kind != "report":
+        return None
+    for key in attrs:
+        for attr, value in REPORT_ATTRS.items():
+            if key not in REPORT_ATTRS and one_edit(squashed(key), squashed(attr)):
+                return MISNAMED.format(key=key, attr=attr, value=value)
+    return None
