@@ -37,10 +37,12 @@ def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
     assert whole == records[1]
 
 
-def test_a_long_record_that_attaches_a_file_is_refused(demo: str) -> None:
-    made = record_lines.decision(post(kind="report", text=LONG, path="/tmp/facts.md"))
-    assert made["permissionDecision"] == "deny"
-    assert "put the rest of its text in that file" in made["permissionDecisionReason"]
+def test_a_long_record_that_attaches_a_file_is_cut_to_one_line_and_keeps_its_file(demo: str) -> None:
+    asked = f"ASK j12 asks which layout the run page keeps; the whole question and its options are in {'/x' * 40}/j12-ab12cd34.md"
+    made = record_lines.decision(post(records=[post(kind="report", text=LONG)["tool_input"], {"kind": "report", "text": asked, "path": "/tmp/facts.md"}]))
+    cut = made["updatedInput"]["records"][1]
+    assert cut == {"kind": "report", "text": record_lines.first_line(asked), "path": "/tmp/facts.md"}
+    assert len(cut["text"]) <= record_lines.RECORD_CHARS
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"

@@ -113,11 +113,12 @@ def card_thread(url: str) -> str | None:
 
 
 def card_open(url: str, found: dict | None) -> bool:
-    """Whether his card, by its Slack link or waits id, is still open; with his cards unread, every card counts as open."""
+    """Whether his question or PR card, by its Slack link or waits id, is still open; with his cards unread, every card counts as open."""
     if found is None:
         return True
-    shown = {message_key(card["url"]) for card in [*found["questions"], *found["pr_cards"]]}
-    waits = {card["card"].get("waits") for card in found["questions"]}
+    listed = [*found["questions"], *found["pr_cards"]]
+    shown = {message_key(card["url"]) for card in listed}
+    waits = {card["card"].get("waits") for card in listed}
     return message_key(url) in shown or url in waits
 
 

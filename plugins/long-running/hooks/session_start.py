@@ -3,7 +3,8 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+PLUGIN = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PLUGIN / "lib"))
 
 from drive import reads, render, state, watch
 
@@ -22,6 +23,11 @@ def role_context(session: str) -> str | None:
     return render.context(data, role)
 
 
+def skill_body() -> str:
+    """The skill page of the long-running running this hook, the newest installed, its frontmatter cut: a compaction brings back the page the session loaded at its start."""
+    return (PLUGIN / "skills" / "long-running" / "SKILL.md").read_text().split("\n---\n", 1)[1].lstrip("\n")
+
+
 def respond(payload: dict) -> dict | None:
     if payload.get("agent_id"):
         return None
@@ -29,6 +35,8 @@ def respond(payload: dict) -> dict | None:
     text = role_context(session) if session else None
     if text is None:
         return None
+    if payload.get("source") == "compact":
+        text = f"{text}\n\n{skill_body()}"
     return {"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}}
 
 

@@ -4,7 +4,19 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from drive import cli, dashboard, github, orca, page, settled, slack, state, view, watch
+from drive import (
+    agents,
+    cli,
+    dashboard,
+    github,
+    orca,
+    page,
+    settled,
+    slack,
+    state,
+    view,
+    watch,
+)
 
 SESSION = "session-under-test"
 LIVE_WORKER = {
@@ -73,6 +85,13 @@ class Thread:
         ts = f"{moment.timestamp():.6f}"
         self.messages.append({"ts": ts, "thread_ts": "1794200000.000100", **fields})
         return f"https://acme.slack.com/archives/D123/p{ts.replace('.', '')}?thread_ts=1794200000.000100"
+
+
+@pytest.fixture(autouse=True)
+def records(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    shown: dict[str, str] = {}
+    monkeypatch.setattr(agents, "record", lambda seq: shown.get(seq, f"m{seq}"))
+    return shown
 
 
 @pytest.fixture(autouse=True)

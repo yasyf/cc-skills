@@ -2,10 +2,11 @@ import json
 import subprocess
 import threading
 from collections.abc import Callable
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import install, state
+from drive import dashboard, install, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -29,6 +30,8 @@ class FakeGit:
         self.orca_calls: list[list[str]] = []
         self.orca_timeouts: list[float] = []
         self.waits: dict[str, dict] = {}
+        self.dashboards: dict[str, dict] = {}
+        self.installed_sha: str | None = None
         self.together = threading.Barrier(1)
 
     def clock(self) -> float:
@@ -76,7 +79,13 @@ class FakeGit:
             return "0\n" if verb[3].removeprefix("^") in self.holding else "4\n"
         if cmd[:3] == ["claude", "plugin", "update"]:
             plugin = cmd[3].partition("@")[0]
-            entry = {"scope": "user", "version": "1.0.3", "lastUpdated": "2026-11-09T10:00:00.000Z", "installPath": f"/cache/{plugin}/1.0.3"}
+            entry = {
+                "scope": "user",
+                "version": "1.0.3",
+                "lastUpdated": "2026-11-09T10:00:00.000Z",
+                "installPath": f"/cache/{plugin}/1.0.3",
+                "gitCommitSha": self.installed_sha or self.refs[0],
+            }
             stale = {"scope": "project", "version": "0.7.2119", "lastUpdated": "2026-11-01T10:00:00.000Z", "installPath": "/cache/old"}
             installed = {"version": 2, "plugins": {cmd[3]: [stale, entry]}}
             (self.config / "plugins" / "installed_plugins.json").write_text(json.dumps(installed))
@@ -113,6 +122,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install.subprocess, "run", git.run)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
+        monkeypatch.setattr(dashboard, "serving", lambda name, port: git.dashboards.get(name))
         return git
 
     return make
@@ -132,11 +142,27 @@ def test_a_tag_that_already_contains_the_sha_updates_and_prints_the_version(
         SHOW_MARKETPLACE,
         [*install.FETCH, "+refs/tags/long-running--v1.0.3:refs/tags/long-running--v1.0.3"],
         ["rev-list", "--count", SHA, "^long-running--v1.0.3"],
+        [*install.FETCH, "long-running--v1.0.3"],
+        ["rev-list", "--count", SHA, "^long-running--v1.0.3"],
     ]
     assert git.claude_calls() == [
         ["claude", "plugin", "marketplace", "update", "skills"],
         ["claude", "plugin", "update", "long-running@skills"],
     ]
+
+
+def test_an_update_left_at_a_commit_without_the_sha_is_refused_naming_both(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["long-running--v1.0.3"], {"long-running--v1.0.3"})
+    git.installed_sha = "0ldc0mm1t5ha99"
+    assert install.main("long-running@skills", SHA, None, 900) == 1
+    out, err = capsys.readouterr()
+    assert out == ""
+    assert err.strip() == f"drive install: long-running@skills is still at 1.0.3 (0ldc0mm1t5ha) after the update, which does not hold {SHA[:12]}, the sha awaited"
+    assert git.git_calls()[-2:] == [[*install.FETCH, "0ldc0mm1t5ha99"], ["rev-list", "--count", SHA, "^0ldc0mm1t5ha99"]]
+    assert git.orca_calls == []
 
 
 def test_a_github_api_rate_limit_cannot_stall_an_install(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
@@ -370,3 +396,52 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
         "solo communicator: no terminal recorded, skipped",
         "solo coordinator: no terminal recorded, skipped",
     ]
+
+
+def test_an_install_restarts_each_dashboard_serving_other_code_on_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
+    start_drive("demo", communicator=None)
+    start_drive("current", communicator=None)
+    start_drive("quiet", communicator=None)
+    git = fake(["unused"], set())
+    git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}, "current": {"code": str(Path("/cache/long-running/1.0.3/lib/drive").resolve())}}
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.other_calls() == [["/cache/long-running/1.0.3/bin/drive", "dashboard", "--drive", "demo"]]
+    assert "demo dashboard: restarted onto 1.0.3" in capsys.readouterr().out.splitlines()
+
+
+def test_installing_another_plugin_restarts_no_dashboard(fake: Callable[..., FakeGit]) -> None:
+    start_drive("demo", communicator=None)
+    git = fake(["unused"], set())
+    git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}}
+    assert install.main("cc-inbox@skills", None, None, 900) == 0
+    assert git.other_calls() == [["/cache/cc-inbox/1.0.3/bin/cci", "serve"]]
+
+
+def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_twice(
+    fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]
+) -> None:
+    start_drive("demo", communicator="term_comm", coordinator="term_coord")
+    reloads = state.drive_dir("demo") / install.RELOADS
+    stamps = {
+        "communicator": {"at": state.stamp(state.now() + timedelta(minutes=1)), "version": "1.0.3"},
+        "coordinator": {"at": state.stamp(state.now() - timedelta(hours=1)), "version": "1.0.2"},
+    }
+    reloads.write_text(json.dumps(stamps))
+    git = fake(["unused"], set())
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert git.typed_into("term_comm") == []
+    assert git.typed_into("term_coord") == [waited("term_coord", "890000"), sent("term_coord")]
+    assert capsys.readouterr().out.splitlines() == [
+        "installed long-running@skills 1.0.3",
+        "demo communicator: already reloaded onto 1.0.3",
+        "demo coordinator: reloaded in term_coord",
+    ]
+    assert json.loads(reloads.read_text())["coordinator"]["version"] == "1.0.3"
+
+
+def test_a_reload_never_sent_leaves_no_stamp_so_the_next_install_sends_it(fake: Callable[..., FakeGit]) -> None:
+    start_drive("demo", communicator="term_comm")
+    git = fake(["unused"], set())
+    git.waits["term_comm"] = BUSY
+    assert install.main("long-running@skills", None, None, 900) == 0
+    assert "communicator" not in json.loads((state.drive_dir("demo") / install.RELOADS).read_text())

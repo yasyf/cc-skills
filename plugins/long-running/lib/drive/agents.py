@@ -1,8 +1,11 @@
 import json
+import re
 from pathlib import Path
 
-from drive import state
+from drive import reads, state
 from drive.brief import BRIEF_JOB, carried
+
+RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
 
 
 def transcript(payload: dict) -> Path:
@@ -11,12 +14,18 @@ def transcript(payload: dict) -> Path:
 
 
 def brief(payload: dict) -> str:
-    """The prompt the session started the agent whose step fired a hook with, and the brief file it names read in; empty for the session's own steps."""
+    """The prompt the session started the agent whose step fired a hook with, the brief file it names and the cci record its Record: line names read in; empty for the session's own steps."""
     if not payload.get("agent_id") or not (path := transcript(payload)).is_file():
         return ""
     with path.open() as handle:
         content = json.loads(handle.readline())["message"]["content"]
-    return carried(content if isinstance(content, str) else " ".join(part.get("text", "") for part in content))
+    prompt = carried(content if isinstance(content, str) else " ".join(part.get("text", "") for part in content))
+    return f"{prompt}\n{record(named[1])}" if (named := RECORD.search(prompt)) else prompt
+
+
+def record(seq: str) -> str:
+    """A cci record's whole text, its body file read in."""
+    return reads.run(["cci", "show", seq], Path.cwd())
 
 
 def free(data: dict, job_id: str) -> bool:

@@ -482,6 +482,14 @@ def test_his_words_in_the_brief_lift_the_limit_with_no_thread_read(talker: str, 
     assert slack_thread.reads == []
 
 
+def test_his_words_quoted_in_the_record_a_handler_was_started_with_lift_the_limit(
+    talker: str, briefed: Path, slack_thread: Thread, records: dict[str, str]
+) -> None:
+    assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?").startswith("refused: this post is 400 words")
+    records["658738"] = 'POST j1 is installed\nThis answers his "is that live and working yhet?"'
+    assert posted(briefed, text=said(400), thread_ts="1.2", asked="is that live and working yhet?") is None
+
+
 @pytest.mark.parametrize(
     ("asked", "named"),
     [

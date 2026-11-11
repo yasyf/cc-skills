@@ -212,6 +212,7 @@ def load(name: str) -> dict:
         job.setdefault("carries", {})
         job.setdefault("waits", [])
         job.setdefault("route", None)
+        job.setdefault("may_settle", None)
         if (job.get("agent") or "").startswith(DISPATCH_PREFIX):
             job.update(local_lane(job["agent"]), agent=None)
         if "questions" not in job:
@@ -361,6 +362,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "waits": [],
         "state": "running",
         "said": None,
+        "may_settle": None,
         "created": created,
         "updated": created,
     }

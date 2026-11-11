@@ -46,9 +46,9 @@ its root cause the verdict.
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
   cause. The coordinator reads `ccn investigation show <id>` before any line about the cause.
 - **A later alert or question** about a service whose incident is open joins it: `drive order add
-  "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --joins <o>` with `<o>`'s own
-  `--project` and `--workstream` records it
-  with the record of `<o>` and no job of its own, it takes the parts his words ask for with `drive
+  "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --joins <o> --project
+  "<p>" --workstream "<w>"`, filed under `<o>`'s own project and workstream, records it with the
+  record of `<o>` and no job of its own, it takes the parts his words ask for with `drive
   order set <new> --parts "<part>"`, and the owner carries it with `drive job set <owner> --carries
   <new> --part "<part>"`. On Nov 10 three SandSQL alerts on shared prod became three incident
   orders, each diagnosed apart. His four threads got a guess from when the alerts fired, then one

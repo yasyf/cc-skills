@@ -41,10 +41,14 @@ def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
     return json.loads(done.stdout)["id"][:7]
 
 
-def refusal(card: str, whole: str, drives: list[str], cwd: str, why: str | None, override: str, under: list[dict]) -> str | None:
-    """Why a question may not go to him: a recorded answer of his may settle it, each written under a card its job asked on among them, and no reason names that answer and says why it does not."""
+def matching(card: str, whole: str, drives: list[str], cwd: str, under: list[dict]) -> list[dict]:
+    """His recorded answers that may already settle a question: those its words match, and each written under a card its job asked on."""
     found = answers(read(card), read(whole), drives, cwd)
-    found += [answer for answer in under if answer["id"][:7] not in {other["id"][:7] for other in found}]
+    return found + [answer for answer in under if answer["id"][:7] not in {other["id"][:7] for other in found}]
+
+
+def refusal(found: list[dict], why: str | None, override: str) -> str | None:
+    """Why a question may not go to him: one of these recorded answers of his may settle it, and no reason names that answer and says why it does not."""
     ids = [answer["id"][:7] for answer in found]
     if not (unnamed := [short for short in ids if short not in (why or "")]):
         return None

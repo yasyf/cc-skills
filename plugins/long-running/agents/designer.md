@@ -51,8 +51,9 @@ see what gets built. Every line stands alone for a reader with no other context,
 that he could open, such as a PR or a teammate's fix, carries its link.
 
 Keep each fork as its own question block before you return, by piping it with a heredoc into
-`drive job ask <your job> -`. It refuses a block out of shape and names each fix, so fix it and
-keep it again, and it prints the path it kept the block at:
+`drive job ask <your job> -`, after `drive job ask --check -` on the same block, which checks its
+shape alone with no drive or job and prints every fix or `ready`. Keeping refuses a block out of
+shape and names each fix, so fix it and keep it again, and it prints the path it kept the block at:
 
 ````
 ASK <the question, one line>
@@ -93,8 +94,8 @@ on a line of its own for a UI. A mixed visual is split into its parts, the diagr
 and each table as a markdown table, never one picture of both. Words and raw data never go in a
 fence: `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal
 session, command output or a stack trace, whatever language it names; a chart, compare or arch whose
-JSON does not parse; a fence of one or two lines declaring a constant; as many code fences as options, which go in one
-```compare labeled per option; a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence;
+JSON does not parse; a fence of one or two lines declaring a constant; as many code fences as options, which go in one ```compare
+labeled per option; a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence;
 two or more PRs listed by number, which a stack card shows; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
 the code and marked as such, never the names of what will be measured later, and `drive job ask`
 refuses a table with one value in every cell. No option points at another by number or position,

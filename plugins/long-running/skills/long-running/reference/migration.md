@@ -116,7 +116,8 @@ in cc-notes answers.
    <DM> and <channels>."` The old holder keeps answering him until that record arrives.
 3. Each order still open (its deliverable is not live, and he neither dropped nor replaced it), in his
    words verbatim, never a summary:
-   `drive order add "<his words>" --from migrated:<old row> --due <the time he was promised>`.
+   `drive order add "<his words>" --from migrated:<old row> --due <the time he was promised> --project
+   "<p>" --workstream "<w>"`, reusing a pair `drive order unfiled` lists as in use where one fits.
    An open incident without a fix-live record is an order too, run by [incidents.md](incidents.md).
 4. Each open drive PR, as a job with no agent under the order it serves (else the migration order):
    `drive job add builder --order <o> --goal "<PR title>" --repo <owner/name> --branch <branch>`,
@@ -145,5 +146,6 @@ in cc-notes answers.
   registry, so nothing relaunches it. Stop, close, or signal none of them: he closes them.
 - Everything not carried goes in one cc-notes note (`note_add`), titled `Not carried from <old>`, one row
   per old order: its id, his words, and why it stayed (done, replaced by a later order, or stale). He
-  revives one with `drive order add "<his words>" --from migrated:<old row>`.
+  revives one with `drive order add "<his words>" --from migrated:<old row> --project "<p>"
+  --workstream "<w>"`.
 - Tell him in one line: counts carried and left behind, the note's link, and that old sessions are his.

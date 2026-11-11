@@ -91,6 +91,18 @@ def test_session_start_names_the_channels_each_role_holds(run: Run, monkeypatch:
     assert "Hold with slack_watch: his DM D123" in context
 
 
+def test_session_start_after_a_compaction_adds_the_newest_installed_skill_page_without_its_frontmatter(demo: str) -> None:
+    payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}
+    page = (session_start.PLUGIN / "skills" / "long-running" / "SKILL.md").read_text()
+    body = page.split("\n---\n", 1)[1].strip()
+    compacted = session_start.respond(payload | {"source": "compact"})["hookSpecificOutput"]["additionalContext"]
+    resumed = session_start.respond(payload | {"source": "resume"})["hookSpecificOutput"]["additionalContext"]
+    assert compacted.startswith("You are the coordinator of drive demo: ")
+    assert compacted.rstrip().endswith(body)
+    assert "name: long-running" not in compacted
+    assert body not in resumed
+
+
 def test_session_start_gives_a_subagent_of_a_role_no_role_context(demo: str) -> None:
     payload = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "source": "compact"}
     assert session_start.respond(payload) is not None
