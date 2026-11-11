@@ -80,6 +80,16 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     assert not kept.exists()
 
 
+def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once(state_root: Path, backfilled: list[str]) -> None:
+    make("demo")
+    state.load("demo")
+    state.load("demo")
+    assert backfilled == ["/work"]
+    state.create(state.new_drive("talk", "communicator", None, "/talk", None))
+    state.load("talk")
+    assert backfilled == ["/work"]
+
+
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

@@ -841,7 +841,7 @@ def hold_card(job: dict, url: str, shown: dict | None) -> None:
 
 def job_ask(args: argparse.Namespace) -> int:
     """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report."""
-    from drive import superseded
+    from drive import superseded, view
 
     if args.check:
         limits.shape(named_text(args.check, "ASK block file"), "check", "ask", args.unsettled)
@@ -870,6 +870,11 @@ def job_ask(args: argparse.Namespace) -> int:
     if refused := settled.refusal(matched["answers"], args.unsettled, "--unsettled"):
         with state.edit(name) as data:
             data["jobs"][args.id]["may_settle"] = matched
+        raise DriveError(refused)
+    if refused := settled.open_card_refusal(superseded.open_under(data, job, view.live_cards(name)), args.unsettled):
+        raise DriveError(refused)
+    heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
+    if refused := settled.thread_refusal(heard, args.unsettled):
         raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
@@ -1607,9 +1612,11 @@ def answer(args: argparse.Namespace) -> int:
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
-        args.id = settled.recorded(args.title, args.words, ["scope:durable", f"drive:{name}", *args.label], data["roles"]["coordinator"]["cwd"])
+        labels = ["scope:durable", f"drive:{name}", *settled.kind(args.words), *args.label]
+        args.id = settled.recorded(args.title, args.words, labels, data["roles"]["coordinator"]["cwd"])
+    marking = args.stands or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched
     if args.id not in data["answers"]:
-        if args.stands or args.superseded or args.reopened or args.others_stand or args.sent or args.untouched:
+        if marking:
             raise DriveError(
                 f"{args.id} is not recorded yet: run it with --words and --link alone first, which lists each card still asking him"
                 " and each PR not yet live, and mark them once you have read it"
@@ -1619,6 +1626,9 @@ def answer(args: argparse.Namespace) -> int:
         with state.edit(name) as data:
             data["answers"][args.id] = superseded.record(data, args.words, args.link, asked, state.stamp())
     kept = data["answers"][args.id]
+    done = [] if marking else superseded.answer_cards(kept, asked)
+    if done:
+        view.refresh_cards(name)
     open_keys = superseded.unmarked(kept, asked)
     named = [*args.stands, *(key for key, _ in [*args.superseded, *args.reopened])]
     told = [*args.sent, *args.untouched]
@@ -1641,7 +1651,6 @@ def answer(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["answers"][args.id]["cards"].update({key: {"mark": "stands"} for key in args.stands})
         data["answers"][args.id]["jobs"].update({job_id: {"mark": "sent"} for job_id in args.sent} | {job_id: {"mark": "untouched"} for job_id in args.untouched})
-    done = []
     cleared: set[str] = set()
     try:
         for mark, key, job_id in [*(("superseded", *pair) for pair in args.superseded), *(("reopened", *pair) for pair in args.reopened)]:
