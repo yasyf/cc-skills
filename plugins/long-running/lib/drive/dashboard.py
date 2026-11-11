@@ -20,7 +20,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import NamedTuple
 
-from drive import artifacts, github, install, review, slack, state, view
+from drive import artifacts, github, install, picture, review, slack, state, view
+from drive.card import body_of, sections
 from drive.state import DriveError
 
 CODE = str(Path(__file__).resolve().parent)
@@ -129,8 +130,10 @@ def relay(text: str, under: str) -> dict:
 
 
 def pr_read(key: str) -> dict:
+    """The PR as `gh pr view` reads it, with its Show me section cut by the parser its Slack card uses."""
     repo, number = key.split("#")
-    return json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
+    pr = json.loads(github.run(["gh", "pr", "view", number, "-R", repo, "--json", PR_FIELDS]))
+    return pr | {"show_me": sections(body_of(pr)).get("show me", "")}
 
 
 @functools.cache
@@ -235,7 +238,7 @@ class Board:
         reports = {path.stem for path in (state.drive_dir(self.name) / "reports").glob("*.md")}
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
-        model = view.board(drive, found, source, self.events, moment, reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo}
+        model = view.board(drive, found, source, self.events, moment, reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo, "arch_lib": picture.ARCH_LIB}
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         heads = {entry["key"]: entry["head"] for entry in model["review"]}

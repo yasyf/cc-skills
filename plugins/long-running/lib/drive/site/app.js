@@ -105,6 +105,7 @@ function inline(text, cite = model.repo) {
     .replace(/`([^`]+)`/g, (_, code) => keep(`<code>${esc(code)}</code>`))
     .replace(/<(https?:\/\/[^|>\s]+)\|([^>]+)>/g, (_, url, label) => keep(link(label, url)))
     .replace(/<(https?:\/\/[^|>\s]+)>/g, (_, url) => keep(link(url, url)))
+    .replace(/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, (_, alt, url) => keep(`<a class="shot" href="${esc(url)}" target="_blank" rel="noopener"><img src="${esc(url)}" alt="${esc(alt)}" loading="lazy"></a>`))
     .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, (_, label, url) => keep(link(label, url)))
     .replace(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)\S*/g, (url, number) => keep(link(`#${number}`, url)));
   out = esc(out)
@@ -123,10 +124,11 @@ function sourceLink(cite, path, from, to) {
 
 function prose(text, cite) {
   const blocks = [];
-  const parts = String(text ?? '').split(/^```[^\n]*\n([\s\S]*?)^```\s*$/m);
+  const parts = String(text ?? '').split(/^```[ \t]*([\w+-]*)[^\n]*\n([\s\S]*?)^```\s*$/m);
   parts.forEach((part, i) => {
-    if (i % 2) {
-      blocks.push(`<pre><code>${esc(part.replace(/\n$/, ''))}</code></pre>`);
+    if (i % 3 === 1) return;
+    if (i % 3 === 2) {
+      blocks.push(parts[i - 1].toLowerCase() === 'arch' ? `<div class="arch-fig" data-arch="${esc(part)}"></div>` : `<pre><code>${esc(part.replace(/\n$/, ''))}</code></pre>`);
       return;
     }
     for (const para of part.split(/\n\s*\n/)) {
@@ -148,6 +150,20 @@ function prose(text, cite) {
     }
   });
   return blocks.join('');
+}
+
+async function drawFigures(root) {
+  const figures = [...root.querySelectorAll('.arch-fig:not(.drawn)')];
+  if (!figures.length) return;
+  for (const figure of figures) figure.classList.add('drawn');
+  const { mount } = await import(model.arch_lib);
+  for (const figure of figures) {
+    try {
+      mount(figure, JSON.parse(figure.dataset.arch), { key: false });
+    } catch (error) {
+      figure.innerHTML = `<p class="refused">This diagram does not draw: ${esc(error.message)}</p>`;
+    }
+  }
 }
 
 function table(lines, cite) {
@@ -520,11 +536,13 @@ async function openPR(key) {
     return;
   }
   const answerable = entry?.card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : '';
+  const showMe = pr.show_me.trim();
   drawer.innerHTML = `<div class="dr-bar"><b>${esc(bare(pr.title))}</b><span class="acts"><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
     <div class="pr-split">
       <div class="pr-main">
-        <div class="dr-tabs"><button class="on" data-drtab="review">Code and review</button><button data-drtab="body">Description</button></div>
-        <div class="dr-pane review-pane" data-pane="review"><p class="empty small">Opening the review of ${esc(key)}…</p></div>
+        <div class="dr-tabs">${showMe ? '<button class="on" data-drtab="show">Show me</button>' : ''}<button${showMe ? '' : ' class="on"'} data-drtab="review">Code and review</button><button data-drtab="body">Description</button></div>
+        ${showMe ? `<div class="dr-pane body-pane" data-pane="show">${prose(showMe, key)}</div>` : ''}
+        <div class="dr-pane review-pane" data-pane="review"${showMe ? ' hidden' : ''}><p class="empty small">Opening the review of ${esc(key)}…</p></div>
         <div class="dr-pane body-pane" data-pane="body" hidden>${prose(pr.body, key)}</div>
       </div>
       <aside class="pr-side">
@@ -1245,6 +1263,7 @@ window.addEventListener('DOMContentLoaded', () => {
   });
   setInterval(render, 60000);
   window.addEventListener('resize', drawArrows);
+  new MutationObserver(() => drawFigures(document)).observe(document.body, { childList: true, subtree: true });
   setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
   setInterval(async () => {
     const key = reviewing;

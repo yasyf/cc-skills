@@ -200,6 +200,9 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .prlist em { color: var(--ink-3); font-style: normal; font-size: 13px; }
 
 .pics { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.arch-fig { margin: 10px 0; }
+.shot img { display: block; max-width: 100%; margin: 6px 0; border-radius: 6px; border: 1px solid var(--line-2); background: #fff; }
+.arch-fig .smap-canvas { max-height: 60vh; }
 .pics img { display: block; max-width: min(100%, 520px); max-height: 360px; border-radius: 6px; border: 1px solid var(--line-2); background: #fff; }
 .chat-cols { display: grid; grid-template-columns: minmax(0, 1fr) 260px; gap: 28px; }
 .owed { display: inline-block; margin-bottom: 12px; color: var(--bad); font-weight: 600; font-size: 13.5px; }
