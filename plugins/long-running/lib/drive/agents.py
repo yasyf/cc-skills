@@ -13,6 +13,11 @@ def transcript(payload: dict) -> Path:
     return Path(payload["transcript_path"]).with_suffix("") / "subagents" / f"agent-{payload['agent_id']}.jsonl"
 
 
+def ended(row: dict) -> bool:
+    """Whether a transcript row is a response's last: the model stopped on its own rather than for a tool call, so the session's turn is over and its next wake starts another."""
+    return row.get("type") == "assistant" and row["message"].get("stop_reason") == "end_turn"
+
+
 def brief(payload: dict) -> str:
     """The prompt the session started the agent whose step fired a hook with, the brief file it names and the cci record its Record: line names read in; empty for the session's own steps."""
     if not payload.get("agent_id") or not (path := transcript(payload)).is_file():

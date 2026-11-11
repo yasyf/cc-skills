@@ -33,8 +33,9 @@ OFF_THREAD = (
     " or add this one with `drive order set <o> --thread {thread}`"
 )
 SECOND_REPORT = (
-    "refused: the coordinator sends one report per thread per turn, and this turn already sent one for thread {thread};"
-    " put everything for that thread in that one report, and what does not fit waits for the next turn"
+    "refused: the coordinator sends one report per thread per turn, a turn running from a wake to the end of its response,"
+    " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
+    " does not fit waits for the next wake"
 )
 TAP_ASKED = re.compile(r"\btap (?:Approve|Hold)\b|\b(?:needs?|waits? (?:on|for)) (?:your|his|a) tap\b", re.IGNORECASE)
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
@@ -164,26 +165,18 @@ def parts(row: dict) -> list[dict]:
     return content if isinstance(content, list) else []
 
 
-def turn_start(row: dict) -> bool:
-    """A message to the session that starts a turn: his prompt, a record or a notification, never a tool's result."""
-    if row.get("type") != "user" or row.get("isMeta"):
-        return False
-    content = (row.get("message") or {}).get("content")
-    return isinstance(content, str) or any(part.get("type") != "tool_result" for part in content or [])
-
-
 def report_threads(tool_input: dict) -> set[str]:
     return {attrs(record).get("thread") for record in tool_input.get("records") or [tool_input] if kind(record) == "report" and addressed(record, "communicator")} - {None}
 
 
 def second_report(payload: dict, records: list[dict], index: int, thread: str) -> str | None:
-    """Why the coordinator's report for a thread waits for its next turn: the batch or an earlier post of this turn already carried one for that thread."""
+    """Why the coordinator's report for a thread waits for its next turn: the batch, or a post since its last response ended, already carried one for that thread."""
     if thread in report_threads({"records": records[:index]}):
         return SECOND_REPORT.format(thread=thread)
     sent: dict[str, set[str]] = {}
     posted: set[str] = set()
     for row in tail(transcript_of(payload)):
-        if turn_start(row):
+        if agents.ended(row):
             sent, posted = {}, set()
         for part in parts(row):
             if part.get("type") == "tool_use" and part.get("name") == payload["tool_name"] and part.get("id") != payload.get("tool_use_id"):

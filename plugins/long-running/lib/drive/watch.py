@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import dashboard, github, orca, page, reads, slack, state, superseded, view
+from drive import agents, dashboard, github, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
 from drive.render import SUBSCRIBE, cut, when
 
@@ -636,7 +636,7 @@ def compact_due(data: dict, moment: datetime) -> str | None:
     if heard and moment - state.parse_time(heard) < COMPACT_WHEN_QUIET:
         return None
     turn = last_turn(path)
-    if not turn or turn["type"] != "assistant" or turn["message"].get("stop_reason") != "end_turn":
+    if not turn or not agents.ended(turn):
         return None
     tokens = context_tokens(turn)
     return f"at {tokens} tokens of context, quiet 10 minutes" if tokens >= COMPACT_PAST_TOKENS else None
@@ -675,7 +675,7 @@ def local_gap(job_id: str, job: dict, data: dict, moment: datetime) -> str | Non
     if quiet < HANDOFF:
         return None
     turn = last_turn(path)
-    if turn and turn["type"] == "assistant" and turn["message"].get("stop_reason") == "end_turn":
+    if turn and agents.ended(turn):
         line = said_last(turn)
         if state.result_state(job, line):
             return f'{job_id}\'s agent finished and its result is not recorded: "{cut(line, 100)}"'
