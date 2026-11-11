@@ -1723,7 +1723,7 @@ def test_job_ask_refuses_unsettled_naming_his_words_under_its_own_card_until_dri
         "his answer 6251dff recorded: 0 standing, 0 superseded, 0 reopened by it",
         f"demo:j1-7: its card {link} now shows his words and a link to them, so it no longer asks him",
     ]
-    assert answered == [("card-answer", "--card", link, "--label", words, "--settled", "--via", reply)]
+    assert answered == [("card-answer", "--card", link, "--label", words, "--settled", "--other", "--via", reply)]
     monkeypatch.setattr("sys.stdin", io.StringIO(block))
     assert run("job", "ask", asking, "-", "--unsettled", why)[0] == 0
     assert state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"] == why
@@ -4089,7 +4089,7 @@ TAP_CARD = "https://acme.slack.com/archives/D123/p1794300000000200"
 PICK = "https://acme.slack.com/archives/D123/p1794300000000300?thread_ts=1794300000.000100"
 WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
 STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
-ANSWERED = ("card-answer", "--card", DESIGN_CARD, "--label", WORDS, "--settled", "--via", PICK)
+ANSWERED = ("card-answer", "--card", DESIGN_CARD, "--label", WORDS, "--settled", "--other", "--via", PICK)
 MATCHED, BACKFILL = settled.matched, settled.backfill
 
 
