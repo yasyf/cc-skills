@@ -31,6 +31,8 @@ BUILDKITE_BUILD = re.compile(r"buildkite\.com/[^/\s]+/([^/\s]+)/builds/(\d+)")
 BUILDKITE_JOB = re.compile(r"(?:#|jid=|/jobs/)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 ACTIONS_JOB = re.compile(r"github\.com/([^/\s]+/[^/\s]+)/actions/runs/\d+/jobs?/(\d+)")
 MARKUP = re.compile(r"\x1b_[^\x07]*\x07|\x1b\[[0-9;]*[A-Za-z]|\r")
+FAILURE = re.compile(r"^\s*(?:--- FAIL: |FAIL\s|\S+_test\.go:\d+: |[✖✕●] )|panicked at |error TS\d+")
+FAILURE_AFTER = 2
 COMMAND_START = "~~~ Running commands"
 COMMAND_END = "~~~ Running repository post-command hook"
 FAILED = ("failed", "timed_out")
@@ -107,11 +109,32 @@ def buildkite(pipeline: str, number: str, job_id: str | None, checkout: Path) ->
 
 
 def excerpt(log: str, limit: int) -> str:
-    """The job's own command output, without Buildkite's hooks and markup, cut to its last `limit` characters."""
+    """The job's own command output, without Buildkite's hooks and markup, whole when it fits in `limit` characters, else its failure lines first and its last characters in what they leave."""
     output = MARKUP.sub("", log).split(COMMAND_START, 1)[-1].split(COMMAND_END, 1)[0].strip()
     if len(output) <= limit:
         return output
-    return f"[last {limit} of {len(output)} characters]\n{output[-limit:]}"
+    hits, failures = failure_lines(output)
+    if len(failures) >= limit:
+        return f"[first {limit} of {len(failures)} characters of the failure lines, {hits} matched]\n{failures[:limit]}"
+    found = f"[failure lines first, {hits} matched, each with the {FAILURE_AFTER} lines after it]\n{failures}" if hits else "[no failure lines matched]"
+    rest = limit - len(failures)
+    return f"{found}\n[last {rest} of {len(output)} characters]\n{output[-rest:]}"
+
+
+def failure_lines(output: str) -> tuple[int, str]:
+    """How many of the output's non-blank lines match FAILURE, and those lines with the FAILURE_AFTER lines after each, as grep -A joins them."""
+    lines = [line for line in output.splitlines() if line.strip()]
+    spans: list[list[int]] = []
+    hits = 0
+    for at, line in enumerate(lines):
+        if not FAILURE.search(line):
+            continue
+        hits += 1
+        if spans and at <= spans[-1][1] + 1:
+            spans[-1][1] = at + FAILURE_AFTER
+        else:
+            spans.append([at, at + FAILURE_AFTER])
+    return hits, "\n--\n".join("\n".join(lines[start : end + 1]) for start, end in spans)
 
 
 def run(argv: list[str], checkout: Path, env: dict[str, str] | None = None) -> str:

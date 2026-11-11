@@ -98,7 +98,10 @@ question.
   agent lists. `READ: LOG <url>` reads as `LOG <url>`, and text after a `LOG` URL is ignored.
 - The watch answers it itself, with no event: it runs `tools/ci bk`, `ccx vcs job-log`, `cci` or
   `ccn` in the directory the coordinator started the drive from and replies with the output, cut to
-  12,000 characters. A read that fails, such as a command off that list or a tool that exits
+  12,000 characters. A `LOG` answer leads each failed job's share with its failure lines, such as a
+  Go `_test.go:N:` assertion or a Rust `panicked at`, each with the two lines after it, then fills
+  the rest with the output's last characters, since a test's failure often sits far before the end
+  of its log. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer. One nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes,
