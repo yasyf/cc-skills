@@ -6,32 +6,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import limits, settled, state
 
-RECORD_CHARS = 120
-WHOLE_KINDS = {"owner", "answer", "incident"}
 UNKEPT_ASK = (
     "refused: an ask record names the ASK `drive job ask` kept, as the attr `ask` set to the path it printed, and the"
     " communicator draws the card from that file; keep the question with `drive job ask <j> <file>`, then post this"
     " record again with that path"
 )
-
-
-def first_line(text: str) -> str:
-    """A record's line as the other session sees it: its first line, cut at a word to the record limit."""
-    line = text.strip().split("\n", 1)[0].strip()
-    if len(line) <= RECORD_CHARS:
-        return line
-    return line[: RECORD_CHARS - 1].rsplit(" ", 1)[0].rstrip(" ,;:") + "…"
-
-
-def shortened(record: dict) -> dict | None:
-    """The record with its text cut to one line and the whole text at the top of its body, or for a record that attaches a file as its body, which holds the rest, the line alone; his words and incidents stay whole."""
-    text = (record.get("text") or "").strip()
-    if (record.get("kind") or "").lower() in WHOLE_KINDS or (line := first_line(text)) == text:
-        return None
-    if record.get("path"):
-        return record | {"text": line}
-    body = record.get("body")
-    return record | {"text": line, "body": f"{text}\n\n{body}" if body else text}
 
 
 def unkept(record: dict, names: list[str]) -> str | None:
@@ -60,7 +39,7 @@ def decision(payload: dict) -> dict | None:
     checks = (check for record in records for check in (unkept(record, names), untapped(record, prs)))
     if refused := next(filter(None, checks), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
-    cut = [shortened(record) for record in records]
+    cut = [limits.shortened(record) for record in records]
     if not any(cut):
         return None
     if tool_input.get("records"):

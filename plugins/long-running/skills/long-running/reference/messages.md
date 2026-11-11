@@ -126,7 +126,7 @@ summary of one feature is a line of at most 60 words.
   recommendation, and what happens meanwhile. The first line gives him the investigation's results
   before he picks. When the block has a Show me, a `*Show me*` line and the Show me follow as written.
 - One option is always the fix the job's own diagnosis points at, recommended unless the summary says
-  why not. `drive job ask` refuses a block whose findings carry no `Direct fix:` line naming that
+  why not. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Direct fix:` line naming that
   option by its words, or `Direct fix: none: <why>`.
 - Give two to four options, each one line of at most 25 words saying what runs, on what trigger,
   what it reads and what reaches whom, then what he gets and what it costs; `drive job ask` refuses
@@ -250,7 +250,7 @@ When it is answered, replaced or redone:
   meanwhile stands. The redone `ask` comes under the same `waits` id and draws the new words with no
   such line.
 - No option asks a reporter or anyone else to retry, confirm or check, because the drive proves a fix
-  itself.
+  itself, and `drive job ask` refuses an option asking someone to retry or confirm.
 
 **A PR card.**
 
@@ -377,7 +377,9 @@ the dashboard link. When a line says where things stand, link the page instead o
   the message names the same way.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
-  link there, naming the words and the clause they sit in.
+  link there, naming the words and the clause they sit in, and that a thing not open yet is said so
+  in that clause. In a post, "the change" names its PR too and is linked the same way; a question
+  card's "the change" may be the design it asks about, which no PR holds yet.
 - A link whose words name its kind, such as one reading "the update-button PR", covers the message's
   other mentions of that kind, such as "that PR". A mention inside a code fence, a generic one such as
   "every engineer's PR", and one in a clause saying it does not exist yet, such as "its PR goes up

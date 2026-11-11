@@ -1,5 +1,5 @@
 import record_lines
-from drive import state
+from drive import limits, state
 
 SESSION = "session-under-test"
 LONG = (
@@ -15,7 +15,7 @@ def post(session: str = SESSION, **tool_input: object) -> dict:
 def test_a_drive_record_arrives_as_one_line_with_the_rest_at_the_top_of_its_body(demo: str) -> None:
     made = record_lines.decision(post(kind="report", text=LONG, body="facts: drive job report j12"))
     text = made["updatedInput"]["text"]
-    assert len(text) <= record_lines.RECORD_CHARS and text.endswith("…") and "\n" not in text
+    assert len(text) <= limits.RECORD_CHARS and text.endswith("…") and "\n" not in text
     assert made["updatedInput"]["body"] == f"{LONG}\n\nfacts: drive job report j12"
     assert made["updatedInput"]["kind"] == "report"
 
@@ -33,7 +33,7 @@ def test_a_one_line_record_and_another_sessions_record_are_left_alone(demo: str)
 def test_each_record_of_a_batch_is_cut_and_his_stay_whole(demo: str) -> None:
     records = [{"kind": "ask", "text": LONG, "attrs": {"ask": str(state.drive_dir(demo) / "asks" / "j12-6581.md")}}, {"kind": "answer", "text": LONG}]
     shortened, whole = record_lines.decision(post(records=records))["updatedInput"]["records"]
-    assert len(shortened["text"]) <= record_lines.RECORD_CHARS and shortened["body"] == LONG
+    assert len(shortened["text"]) <= limits.RECORD_CHARS and shortened["body"] == LONG
     assert whole == records[1]
 
 
@@ -41,8 +41,8 @@ def test_a_long_record_that_attaches_a_file_is_cut_to_one_line_and_keeps_its_fil
     asked = f"ASK j12 asks which layout the run page keeps; the whole question and its options are in {'/x' * 40}/j12-ab12cd34.md"
     made = record_lines.decision(post(records=[post(kind="report", text=LONG)["tool_input"], {"kind": "report", "text": asked, "path": "/tmp/facts.md"}]))
     cut = made["updatedInput"]["records"][1]
-    assert cut == {"kind": "report", "text": record_lines.first_line(asked), "path": "/tmp/facts.md"}
-    assert len(cut["text"]) <= record_lines.RECORD_CHARS
+    assert cut == {"kind": "report", "text": limits.first_line(asked), "path": "/tmp/facts.md"}
+    assert len(cut["text"]) <= limits.RECORD_CHARS
 
 
 IDLE = "Close these 14 idle sessions and their terminals?"

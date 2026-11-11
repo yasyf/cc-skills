@@ -3,7 +3,7 @@ import subprocess
 from collections.abc import Callable
 
 import pytest
-from drive import cli, reads, state, tools
+from drive import cli, limits, reads, state, tools
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -82,6 +82,18 @@ def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from
         tools.run("record", demo, {"records": []})
     with pytest.raises(DriveError, match="no question card's waits id"):
         tools.run("record", demo, {"records": [{"kind": "answer", "text": "Approve", "waits": "merge:Forge-AI:monorepo:42"}]})
+
+
+def test_a_long_defect_goes_to_the_other_session_as_one_line_with_its_whole_text_atop_its_body(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[list[dict]] = []
+    ok = subprocess.CompletedProcess([], 0, "#43\n", "")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append(json.loads(kwargs["input"])) or ok)
+    defect = "cc-slack delete hides --url: " + "the card stays up after its delete and the dashboard keeps it, " * 6
+    assert len(defect) > 400
+    assert tools.run("record", demo, {"records": [{"kind": "defect", "text": defect, "body": "seen on the run page"}]}) == "1 defect #43"
+    [[sent]] = posted
+    assert len(sent["text"]) <= limits.RECORD_CHARS and sent["text"].startswith("cc-slack delete hides --url:") and sent["text"].endswith("…")
+    assert sent["body"] == f"{defect.strip()}\n\nseen on the run page"
 
 
 def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch) -> None:

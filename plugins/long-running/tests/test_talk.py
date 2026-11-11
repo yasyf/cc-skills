@@ -156,6 +156,26 @@ def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_i
     assert len(posts) == 1
 
 
+def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_it_goes(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100")
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200090.000700", "order": "o1"})
+    assert str(refused.value) == (
+        "nothing posted: refused, thread 1794200090.000700 is none of o1's threads, its own, its cards' or its PRs' cards':"
+        " 1794200000.000100; post it in one of them, or post it with no order and record the part it delivers with drive order"
+        " posted o1 <its permalink> --part <that part>"
+    )
+    with pytest.raises(DriveError, match="nothing posted: refused, his DM root is none of o1's threads"):
+        talk.say(demo, {"text": "The copy stalls on the lock.", "order": "o1"})
+    assert (posts, said(demo)) == ([], [])
+    assert talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
+    slack_thread.messages.append({"ts": "1794300000.000500", "from_claude": True, "text": f"<{PR_URL}|the run page shows its history>"})
+    assert talk.say(demo, {"text": "It is green.", "thread_ts": "1794300000.000500", "order": "o1"}).startswith(f"POSTED {POSTED}")
+    assert len(posts) == 2
+
+
 def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
