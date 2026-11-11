@@ -208,6 +208,7 @@ SUBSCRIBE = {
 OTHER = {"communicator": "coordinator", "coordinator": "communicator"}
 JOB = {"communicator": "you talk to him", "coordinator": "you run his orders, jobs, events, landings and installs"}
 REPROS_SHOWN = 5
+NOT_READY_CHARS = 240
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as heard or job, is one its drive MCP server"
@@ -298,8 +299,15 @@ def agentless_lines(drive: dict) -> list[str]:
     ]
 
 
+def not_ready(pr: dict, name: str = "it") -> str:
+    """A reader's NOT READY on the PR that no later reader's READY answered, as the drive's verbs and refusals name it, or nothing."""
+    found = pr["not_ready"]
+    return f"reader {found['job']} called {name} NOT READY at {when(found['at'])}: {cut(found['why'], NOT_READY_CHARS)}" if found else ""
+
+
 def pr_line(key: str, pr: dict) -> str:
-    tap = pr["tap"]["label"] if pr.get("tap") else ("wants tap" if owed_step(pr) == "card" else "no tap needed")
+    owed = {"card": "wants tap", "recheck": f"no tap until a reader passes it, since {not_ready(pr)}"}
+    tap = pr["tap"]["label"] if pr.get("tap") else owed.get(owed_step(pr), "no tap needed")
     exempt = f", exempt: {pr['exempt']}" if pr.get("exempt") else ""
     port = f" of #{pr['port_of']}" if pr.get("exempt") == "pure port" and pr.get("port_of") else ""
     waits = f", waits on {', '.join(pr['waits'])}" if pr.get("waits") else ""

@@ -13,7 +13,7 @@ from pathlib import Path
 
 from drive import agents, dashboard, github, limits, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
-from drive.render import cut, subscribe, when
+from drive.render import cut, not_ready, subscribe, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -43,7 +43,12 @@ COMPACT_PAST_TOKENS = 120_000
 COMPACT_WHEN_QUIET = timedelta(minutes=10)
 NOT_SLUG = re.compile(r"[^A-Za-z0-9]")
 PR_LINE = re.compile(r"\s*(?:READY|PR:)")
-STUCK_WORDS = {"red": "still red", "card": "green and approved with no card drawn", "landing": "green, approved and exempt, and not landed"}
+STUCK_WORDS = {
+    "red": "still red",
+    "card": "green and approved with no card drawn",
+    "landing": "green, approved and exempt, and not landed",
+    "recheck": "green and approved under a reader's NOT READY that no later reader's READY answered",
+}
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
 
@@ -300,6 +305,32 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.failures.pop("card settle", None)
         done |= {view.message_key(link) for link in withdrawn}
         lines += [f"CARD {link} settled in place: {reason}" for link in withdrawn]
+    return lines
+
+
+def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Redraw in place, once for each verdict, every open card of his still asking his tap on a PR a reader called NOT READY, so it shows the reader's reason with no Approve, since a stale card is edited in place the moment it goes stale; cc-slack tells the drive a redraw it refuses, and his card regains its Approve when a later reader's READY sends the PR's ready record; each PR by the watch hearing its order."""
+    if watcher.cards is None:
+        return []
+    asking = {url for card in watcher.cards["pr_cards"] for url in card["prs"]}
+    data = state.load(watcher.name)
+    owed = [
+        (key, pr)
+        for key, pr in data["prs"].items()
+        if pr["url"] in asking and pr["state"] == "open" and state.owed_step(pr) == "recheck" and not pr["not_ready"]["redrawn"] and hears(watcher, data, pr["order"])
+    ]
+    lines = []
+    for key, pr in owed:
+        try:
+            slack.redraw_pr_cards(pr["url"])
+        except slack.SlackError as error:
+            lines += failed(watcher, "unready redraw", "redraw of a card under a reader's NOT READY", error, moment)
+            continue
+        watcher.failures.pop("unready redraw", None)
+        with state.edit(watcher.name) as data:
+            if verdict := data["prs"][key]["not_ready"]:
+                verdict["redrawn"] = True
+        lines.append(f"CARD his open card for {key} redrawn in place with no Approve: {not_ready(pr)} {ids(pr)}")
     return lines
 
 
@@ -1064,6 +1095,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
         lines += settle_lines(watcher, moment)
+        lines += unready_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)

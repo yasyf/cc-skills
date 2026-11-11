@@ -54,7 +54,11 @@ A finding that leaves him a choice, such as a limit or cost, opens your report
 `(recommended)`, for a design job to turn into his cards. The fix your evidence points at is an
 option, recommended, or a line says why another is, and a `Direct fix:` line names it by its words,
 or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. Start no other line with `- `, since
-`drive job report` counts each as an option. Any other report opens `DONE`.
+`drive job report` counts each as an option. A check of a PR for the coordinator's `READY` row opens
+`READY <pr url>…` when every step it checks matches, or `NOT READY <pr url>…: <what fails>`, several
+verdicts joined by `; `, each naming before its `: ` only the PRs it judges, since the drive keeps each
+NOT READY on the PRs named there and refuses their `ready` records, tap cards and `drive pr set --tap`
+until a later reader's `READY` names them. Any other report opens `DONE`.
 
 Your report feeds another agent, never him, with the inputs the one writing to him needs, one fact
 a line, no polish. The first line answers the question; then each fact with its link, number, path

@@ -5,7 +5,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from drive import picture, slack
-from drive.render import cut, when
+from drive.render import cut, not_ready, when
 from drive.state import PR_KEY, PR_URL, DriveError, root
 
 LINE_WORDS = 60
@@ -828,13 +828,14 @@ def bare_mechanisms(line: str) -> list[str]:
 
 
 def tap_owed_not(pr: dict) -> str:
-    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, or it lands with no tap."""
+    """Why no tap of his is owed on a drive PR, or "" when one is: he tapped it, it merged or closed, it lands with no tap, or a reader's NOT READY on it stands."""
     tap = pr.get("tap")
     reasons = [
         f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
         pr["state"] if pr["state"] in ("merged", "closed") else "",
         f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
         "the drive holds it with the hold label" if pr["hold_label"] else "",
+        f"{not_ready(pr)}; only a later reader's READY naming it answers that, never its builder's word" if pr["not_ready"] else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 

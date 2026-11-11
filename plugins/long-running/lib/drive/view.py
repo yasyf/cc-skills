@@ -214,7 +214,7 @@ def tap_of(pr: dict) -> str | None:
         return None
     if pr["hold_label"]:
         return "labeled"
-    return "wanted" if state.owed_step(pr) == "card" else None
+    return {"card": "wanted", "recheck": "not ready"}.get(state.owed_step(pr))
 
 
 def pr_entry(pr: dict) -> dict:

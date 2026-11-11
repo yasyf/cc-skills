@@ -6,7 +6,7 @@ from typing import TextIO
 
 from drive import github, limits, picture, public_check, state
 from drive.github import GithubError, run
-from drive.render import cut
+from drive.render import NOT_READY_CHARS, cut, not_ready
 
 FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
 TAP_LABELS = ("Approve", "Hold")
@@ -219,6 +219,8 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Held by you"
         case _ if hold_labeled(pr):
             return "Held by the drive with the hold label on GitHub"
+        case _ if state.owed_step(entry) == "recheck":
+            return f"A reader's check found it not ready: {cut(entry['not_ready']['why'], NOT_READY_CHARS)}. It asks for your tap again once a reader's check passes it"
         case _ if pr["isDraft"]:
             return "Still a draft; the agent is finishing it"
         case _, "fail":
@@ -322,7 +324,7 @@ def render_stack(members: list[Member]) -> dict:
     card = {"status": "info", "title": framed(f"{kind}: ", title) if title else framed(f"{kind}: {count} PRs: ", kinds[0][1]), "prs": [one["prs"][0] for one in drawn]}
     if summary:
         card["body"] = summary
-    if any(one["status"] == "needs_you" for one in drawn):
+    if any(one["status"] == "needs_you" for one in drawn) and not any(pr["state"] == "OPEN" and state.owed_step(entry) == "recheck" for pr, entry, *_ in members):
         card |= {
             "status": "needs_you",
             "options": list(TAP_LABELS),
@@ -466,7 +468,7 @@ def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
     unordered = []
     for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
-        if not offers_approval(pr, entry):
+        if card["status"] != "needs_you" or not offers_approval(pr, entry):
             continue
         if not row["hate_most"]:
             needs.setdefault(pr["url"], []).append("a \"What you'll hate most\" section")
@@ -500,11 +502,14 @@ def holding(known: dict[str, tuple[str, dict]], key: str) -> dict[str, str]:
 
 
 def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on."""
+    """Why no fresh Approve is drawn for the members yet: each design card of his still open, job not finished, PR open or release not out, that one of them waits on, and each reader's NOT READY on one of them that no later reader's READY answered."""
     held = [wait for key in members for wait in holding(known, key)]
-    if not held:
-        return ""
-    return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"
+    rejected = [not_ready(entry, key if len(members) > 1 else "it") for key in members if (entry := known[key][1])["state"] == "open" and state.owed_step(entry) == "recheck"]
+    reasons = [
+        *([f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"] if held else []),
+        *([f"{'; '.join(rejected)}, so it draws no Approve until a later reader's READY names it: start a reader on its head"] if rejected else []),
+    ]
+    return "; ".join(reasons)
 
 
 def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> bool:

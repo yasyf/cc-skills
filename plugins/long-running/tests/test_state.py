@@ -370,3 +370,77 @@ def test_the_line_of_a_report_closing_the_order_keeps_the_time_it_told_him_and_a
     assert state.owed(order)
     state.keep_closing(order, [at(16)], at(15))
     assert (order["kept"], order["next_due"], state.owed(order)) == (at(16).isoformat(), None, False)
+
+
+MONOREPO = "Forge-AI/monorepo"
+
+
+def judged(*readers: tuple[str, str]) -> dict:
+    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    for number, order_id in ((4289, "o226"), (4279, "o226"), (4284, "o226"), (4222, "o226"), (4302, "o359")):
+        key = f"{MONOREPO}#{number}"
+        data["prs"][key] = state.new_pr(state.pr_url(key), "j622", order_id) | {"wants_tap": True}
+    data["prs"]["yasyf/cc-skills#4289"] = state.new_pr(state.pr_url("yasyf/cc-skills#4289"), "j9", "o359")
+    for job_id, said in readers:
+        data["jobs"][job_id] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
+        state.take_result(data, job_id, said)
+    return data
+
+
+def test_a_readers_not_ready_stands_on_each_pr_it_names_and_not_on_a_pr_its_reason_cites() -> None:
+    data = judged(("j740", "NOT READY #4289: Releasable alone needs #4279's api live first; the store path is hard-coded"))
+    verdict = data["prs"][f"{MONOREPO}#4289"]["not_ready"]
+    assert (verdict["job"], verdict["why"], verdict["redrawn"]) == ("j740", "Releasable alone needs #4279's api live first", False)
+    assert data["jobs"]["j740"]["state"] == "done"
+    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#4289"]
+    assert state.owed_step(data["prs"][f"{MONOREPO}#4289"]) == "recheck"
+    assert state.owed_step(data["prs"][f"{MONOREPO}#4279"]) == "card"
+
+
+def test_only_a_later_readers_ready_naming_the_pr_clears_its_not_ready() -> None:
+    data = judged(
+        ("j740", "NOT READY #4289: Releasable alone needs #4279's api live first"),
+        ("j771", "NOT READY #4279: moves no files into the store"),
+        ("j805", "READY-OK #4222; NOT READY #4284: a review finding has no answer"),
+    )
+    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#{n}" for n in (4289, 4279, 4284)]
+    data["jobs"]["j798"] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE))
+    state.take_result(data, "j798", "READY-OK #4279 #4289")
+    assert [key for key, pr in data["prs"].items() if pr["not_ready"]] == [f"{MONOREPO}#4284"]
+    assert data["prs"]["yasyf/cc-skills#4289"]["not_ready"] is None
+
+
+def test_a_tap_of_his_owes_no_recheck_while_the_verdict_stays_kept() -> None:
+    data = judged(("j740", "NOT READY #4289: Releasable alone needs #4279's api live first"))
+    pr = data["prs"][f"{MONOREPO}#4289"]
+    pr["tap"] = {"label": "Approve", "at": state.stamp(REFERENCE), "head": "abc", "source": "slack"}
+    assert (state.owed_step(pr), pr["not_ready"]["job"]) == ("card", "j740")
+
+
+def test_a_builders_ready_and_a_readers_other_answers_judge_nothing() -> None:
+    data = judged(("j716", "DONE 0 of 3 pass: #4249 two design decisions unanswered; #4289 quote cut"))
+    data["jobs"]["j9"] = state.new_job("o226", "builder", "fix", [], state.stamp(REFERENCE))
+    state.take_result(data, "j9", f"READY https://github.com/{MONOREPO}/pull/4289")
+    assert not any(pr["not_ready"] for pr in data["prs"].values())
+    assert data["jobs"]["j9"]["state"] == "waiting"
+
+
+def test_a_bare_number_two_repositories_share_judges_the_pr_on_the_readers_order() -> None:
+    assert state.named_prs(judged(), "o226", "#4289") == [f"{MONOREPO}#4289"]
+    assert state.named_prs(judged(), "o359", "#4289 and Forge-AI/monorepo#4302") == ["yasyf/cc-skills#4289", f"{MONOREPO}#4302"]
+
+
+def test_load_gives_prs_kept_before_verdicts_the_verdict_their_readers_answers_leave(state_root: Path) -> None:
+    data = judged()
+    for job_id, said, minutes in (("j740", "NOT READY #4289: needs #4279 live first", 0), ("j798", "READY-OK #4289", 10), ("j803", "NOT READY #4289: a second check is left", 20)):
+        data["jobs"][job_id] = state.new_job("o226", "reader", "READY-row check", [], state.stamp(REFERENCE)) | {
+            "state": "done",
+            "said": said,
+            "updated": state.stamp(REFERENCE + timedelta(minutes=minutes)),
+        }
+    for pr in data["prs"].values():
+        del pr["not_ready"]
+    state.create(data)
+    kept = state.load("demo")["prs"]
+    assert kept[f"{MONOREPO}#4289"]["not_ready"]["why"] == "a second check is left"
+    assert not any(pr["not_ready"] for key, pr in kept.items() if key != f"{MONOREPO}#4289")
