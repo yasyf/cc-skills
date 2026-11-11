@@ -110,7 +110,7 @@ def order_add(args: argparse.Namespace) -> int:
             job_id = state.next_id(data["jobs"], "j")
             data["jobs"][job_id] = state.new_job(order_id, "codex", f"{part}: {state.whole_order(args.words)}", [part], created)
             order["jobs"].append(job_id)
-            started.append(f'{job_id} on "{part}": start its agent now and record it with drive job set {job_id} --agent <id>')
+            started.append(f'{job_id} on "{part}": start its agent now, its brief ending Drive: {name}, order {order_id}, job {job_id}')
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
     return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
@@ -463,7 +463,7 @@ def keep_waits(job: dict, file: str, waits: str) -> None:
 
 
 def job_report(args: argparse.Namespace) -> int:
-    """Keep a job's whole return from stdin in the drive, or print the one kept, or a remote lane's latest report."""
+    """Keep a job's whole return from stdin in the drive, its first line setting a running job's state, or print the one kept, or a remote lane's latest report."""
     name = state.resolve(args.drive)
     job = find(state.load(name)["jobs"], args.id, "job")
     kept = state.drive_dir(name) / "reports" / f"{args.id}.md"
@@ -473,6 +473,8 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(whole)
+        with state.edit(name) as data:
+            state.take_result(data, args.id, whole.strip().splitlines()[0].strip())
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
     text = kept.read_text() if kept.exists() else job.get("report")
     if not text:
@@ -514,7 +516,7 @@ def remote_job(data: dict, job_id: str) -> dict:
         raise DriveError(f"{job_id} runs on this Mac as agent {job['agent']}; resume it with SendMessage")
     raise DriveError(
         f"{job_id} has no agent and no lane yet: start it on a Sprite with drive job launch {job_id} <brief>,"
-        f" or record the agent you started here with drive job set {job_id} --agent <id>"
+        f" or start an Agent here whose brief ends Drive: <drive>, order <order>, job {job_id}"
     )
 
 
@@ -1264,8 +1266,8 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's whole return in the drive, or print it",
         description=(
             "A job returns one line; the rest of its return, the inputs to what he would be told, one fact a line,"
-            " is kept here before it returns, piped in on stdin. With -, keep stdin and print where; with nothing, print"
-            " the kept report, or a remote lane's latest one."
+            " is kept here before it returns, piped in on stdin. With -, keep stdin, set a running job's state and said line"
+            " from its first line, and print where; with nothing, print the kept report, or a remote lane's latest one."
         ),
     )
     verb.add_argument("id")

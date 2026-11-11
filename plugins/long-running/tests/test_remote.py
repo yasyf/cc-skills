@@ -170,7 +170,7 @@ def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     assert cli.main(["job", "resume", "j1", "next"]) == 2
     assert capsys.readouterr().err == (
         "drive: j1 has no agent and no lane yet: start it on a Sprite with drive job launch j1 <brief>,"
-        " or record the agent you started here with drive job set j1 --agent <id>\n"
+        " or start an Agent here whose brief ends Drive: <drive>, order <order>, job j1\n"
     )
     monkeypatch.setattr(orca, "new_run", lambda objective: RUN)
     fields = ("dispatch", "task", "terminal", "workspace", "environment", "lane")
@@ -512,7 +512,8 @@ def test_a_lane_result_opens_with_the_subject_it_was_sent_under(remote: str, mon
     deliver(monkeypatch, [message("worker_done", body, subject="WAITING CI on PR #53447 (build #122630)")])
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert watch.run_pass(watching, T0) == ["JOB j1 o1 WAITING CI on PR #53447 (build #122630)"]
-    assert state.load(remote)["jobs"]["j1"]["report"] == body
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["report"], job["state"], job["said"]) == (body, "waiting", "WAITING CI on PR #53447 (build #122630)")
 
 
 def test_resume_keeps_a_question_the_lane_asked_while_it_was_answered(

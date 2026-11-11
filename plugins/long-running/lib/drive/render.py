@@ -27,8 +27,8 @@ COMMUNICATOR_RULES = (
         " area, `Would he ask:` what he would still ask for if only his words were built, those three from what you"
         " already know and never a read, `Drive: <name>`, `Scratch: <folder>`, then one call:"
         ' drive job add builder --order "$(drive order add "Drive tooling: <what>" --from <its From>)"'
-        ' --goal "<one line>" --agent <id>. A builder of yours that returns WAITING gets drive job set <j> --state'
-        ' waiting --said "<what>"; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a'
+        ' --goal "<one line>" --agent <id>. A builder of yours that returns WAITING needs nothing, since its line set its'
+        ' job waiting; any other result a handler briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a'
         " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
     ),
     (
@@ -84,7 +84,12 @@ COORDINATOR_RULES = (
         "A question of his in an owner record gets a report of what you have inside 5 to 10 seconds; the read,"
         " in a job when it takes more than one call, follows in a second report."
     ),
-    "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too.",
+    (
+        "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too."
+        " Run drive job add <kind> before the Agent call, so the brief's Drive line names the job: drive then records"
+        " the agent that call starts, runs the job again on each SendMessage to it, and sets its state and said line"
+        " from the line it returns, so no drive job set follows a start, a wake or any result but BUILT."
+    ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
         " every flag it takes its row in drive manual verbs: before acting on one these rules do not spell out, read"

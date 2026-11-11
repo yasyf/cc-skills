@@ -193,8 +193,9 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | None:
-    """Record one message from a remote lane on its job; the event line it wakes the coordinator with, if any."""
+def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str | None:
+    """Record one message from a remote lane on its job, a final report setting its state; the event line it wakes the coordinator with, if any."""
+    job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
     job["updated"] = state.stamp(moment)
@@ -208,6 +209,8 @@ def mail_line(job_id: str, job: dict, message: dict, moment: datetime) -> str | 
     if kind == "question":
         job["ask"] = message["id"]
         job["state"] = "waiting"
+    if kind == "worker_done":
+        state.take_result(data, job_id, job["said"])
     return f"JOB {job_id} {job['order']} {job['said']}"
 
 
@@ -243,7 +246,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "question" and (question := reads.request(message["body"] or "")):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
-                lines.append(mail_line(job_id, data["jobs"][job_id], message, moment))
+                lines.append(mail_line(data, job_id, message, moment))
                 track_lane_prs(data, job_id, message["body"] or "")
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 

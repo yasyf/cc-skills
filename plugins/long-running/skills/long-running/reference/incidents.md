@@ -73,9 +73,9 @@ its root cause the verdict.
 3. In the next message, start every job the order printed, and the freeze when a release broke the
    service, by [Freeze the broken service](#freeze-the-broken-service). Each job is a
    `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the answer id from step
-   1, the record's id and the brief template's `Incident:` line written out in full, recorded with
-   `drive job set <j> --agent <id>` as it starts. The watch says a job has no agent recorded on every
-   pass until it does.
+   1, the record's id and the brief template's `Incident:` line written out in full, its `Drive:`
+   line naming the job, which records the agent as it starts. The watch says a job has no agent
+   recorded on every pass until it does.
    - **fix**, with apply authority, from the alert on. It starts at the code path the alert or his
      words name; when a release broke the service or failed partway through its rollout, it starts
      at that release: the step that failed, its log, and the code that step runs. It builds the root
@@ -116,9 +116,9 @@ its root cause the verdict.
      So a first check or cause job that needs Sentry, such as the affected chats or the full error
      an alert links, gets a `long-running:reader` beside it in the same message. Start it with the
      Agent tool on `model` `opus` with `run_in_background: true`; it reads Sentry with this
-     session's Sentry tools and appends what it read to the record. Record it with `drive job add
-     reader --order <o> --goal "Sentry read: <what>" --agent <id> --part "<its part>"`, and send its
-     result to the codex job with `SendMessage`. On Nov 10 two first checks came back blocked at
+     session's Sentry tools and appends what it read to the record. Add it first with `drive job add
+     reader --order <o> --goal "Sentry read: <what>" --part "<its part>"`, so its brief's `Drive:`
+     line records the agent, and send its result to the codex job with `SendMessage`. On Nov 10 two first checks came back blocked at
      "Sign in to Sentry", and a reader with the Sentry tools answered the same question in six minutes.
 4. A `report` to the communicator for his first line: the fix job and where it started, the diagnosis
    job beside it, and the freeze when one went on.
@@ -127,8 +127,8 @@ its root cause the verdict.
 
 When a release breaks a service, that service's other releases freeze the moment it does and stay
 frozen until the fix merges, and the fix's own releases always pass. In the message of step 3, a
-`long-running:builder` on Opus fast mode, recorded with `drive job add builder --order <o> --part fix
---goal "freeze <service> until the fix merges" --agent <id>`, runs `tools/ci release freeze
+`long-running:builder` on Opus fast mode, added first with `drive job add builder --order <o> --part
+fix --goal "freeze <service> until the fix merges"` so its brief's `Drive:` line records the agent, runs `tools/ci release freeze
 <component> --reason "<the incident>: <what fails>, held until its fix merges" --until <RFC 3339 time
 12 hours out>`, the bare component covering every stack it deploys, and returns the freeze's id,
 which goes on the order's note beside the record's.
@@ -163,14 +163,14 @@ next time if thats blkocking an incident fucking tell me".
 - **The default branch's build works:** releasing the default branch is the fix. In that turn, a
   `report` to the communicator saying so with what the test machine showed; the fix job is told
   "the default branch's release is the fix" with `SendMessage` and `drive job set <j> --state
-  stopped --said "the default branch's release is the fix"`; and a `long-running:builder`, recorded
-  with `drive job add builder --order <o> --part fix --goal "release the default branch" --agent
-  <id>`, starts the release of the default branch's head by the cut [Ship it](#ship-it) names. No
+  stopped --said "the default branch's release is the fix"`; and a `long-running:builder`, added
+  first with `drive job add builder --order <o> --part fix --goal "release the default branch"` so
+  its brief's `Drive:` line records the agent, starts the release of the default branch's head by the cut [Ship it](#ship-it) names. No
   hotfix is built on the live build's commit, and no rollback or cause hunt starts.
 - **It fails too:** `drive order set <o> --parts fix "first check" rollback cause`, the first check's
   job resumed as the cause job with `drive job set <j> --part cause`, and a rollback job of step 3
-  in that turn, recorded with `drive job add codex --order <o> --part rollback --goal "rollback:
-  <incident>" --agent <id>`. The fix job keeps going, fed by the cause job.
+  in that turn, added first with `drive job add codex --order <o> --part rollback --goal "rollback:
+  <incident>"` so its brief's `Drive:` line records the agent. The fix job keeps going, fed by the cause job.
 
 ## Clocks
 
