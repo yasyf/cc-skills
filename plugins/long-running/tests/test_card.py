@@ -1,5 +1,6 @@
 import io
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -565,6 +566,27 @@ def test_a_tap_goes_to_the_drive_whose_entry_for_the_pr_was_updated_last(drive: 
     with state.edit("copy") as data:
         data["prs"]["Forge-AI/monorepo#42"]["updated"] = "2026-11-11T00:43:00-08:00"
     assert card.drive_prs()["Forge-AI/monorepo#42"][0] == "copy"
+
+
+def test_a_tap_on_a_question_card_is_posted_as_the_communicators_answer_record(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    posted: list[tuple[list[str], list[dict]]] = []
+    ok = subprocess.CompletedProcess([], 0, "661500\n", "")
+    monkeypatch.setattr(subprocess, "run", lambda argv, **kwargs: posted.append((argv, json.loads(kwargs["input"]))) or ok)
+    url = "https://acme.slack.com/archives/D123/p1794200000000100"
+    tap = {"waits": f"{drive}:j3-661440", "label": "Ring", "url": url, "action_ts": "1794200001.000100", "source": "slack"}
+    assert ask({"answer": tap}) == {"ok": True, "seq": "661500"}
+    ask({"answer": tap | {"label": "neither, keep both", "other": True}})
+    ask({"answer": tap | {"undone": True}})
+    batch = ["cci", "post", "--drive", drive, "--lane", "communicator", "--batch", "-"]
+    answer = {"kind": "answer", "to": [f"root@{drive}"], "url": url, "re": ["661440"]}
+    assert posted == [
+        (batch, [answer | {"text": "Ring", "attr": {"job": "j3"}}]),
+        (batch, [answer | {"text": "neither, keep both", "attr": {"maps": "none", "job": "j3"}}]),
+        (batch, [answer | {"text": "undone: Ring", "attr": {"job": "j3", "undone": "Ring"}}]),
+    ]
+    assert events(drive) == []
+    with pytest.raises(state.DriveError, match="step-3:merge is no drive's question card"):
+        card.respond({"answer": tap | {"waits": "step-3:merge"}})
 
 
 def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:

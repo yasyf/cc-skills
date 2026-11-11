@@ -27,10 +27,14 @@ SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
 WAITS_WITHOUT_CARD = re.compile(r"^\d+:\d+ waits-without-card\b")
 TITLED = " {} of the words counted are the titles its {{card:…}} and {{pr:…}} references draw as their links' words."
 UNREAD = (
-    "refused: your transcript shows no read of his thread {thread} in the last 10 minutes, so this line could miss what he"
-    " said there since. Read it with slack_thread(channel_id={dm}, thread_ts={thread}, limit=1000), then post. When the"
-    " tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
+    "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={dm},"
+    " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
+    " until you open that file and read its newest messages."
 )
+NO_READ = "your transcript shows no read of his thread {thread}, and a read by another agent or session does not count for yours"
+OLD_READ = "your last read of his thread {thread} was {minutes} minutes ago, and a read counts for 10"
+FAILED_READ = "your slack_thread call on his thread {thread} failed"
+UNOPENED_READ = "your read of his thread {thread} was saved to {file}, which you have not opened since"
 WHOLE = (
     " It names no message of his as asked, so it is not an answer and keeps that limit. An answer to a question or"
     " order of his goes out whole, at any length: pass as asked each message of his it answers, word for word, one per line."
@@ -69,23 +73,26 @@ def posts_to(payload: dict, dm: str) -> bool:
     return payload["tool_name"] in CHANNEL_POSTS and channel == dm
 
 
-def last_read(path: Path, dm: str, thread: str) -> datetime | None:
-    """When this handler last read the thread, by its own transcript: a slack_thread call on it that did not fail, and when the tool saved a long thread to a file, only once a later call of this handler opened that file."""
+def last_read(path: Path, dm: str, thread: str) -> tuple[datetime | None, dict[str, datetime], bool]:
+    """When this handler last read the thread, by its own transcript: a slack_thread call on it that did not fail, its channel_id his DM or left out, which cc-slack reads as his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
     calls: dict[str, datetime] = {}
     others: dict[str, str] = {}
     saved: dict[str, datetime] = {}
     read = None
+    failed = False
     with path.open() as transcript:
         for line in transcript:
             row = json.loads(line)
             content = (row.get("message") or {}).get("content")
             for part in content if isinstance(content, list) else []:
-                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id"), part["input"].get("thread_ts")) == (dm, thread):
+                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id") or dm, part["input"].get("thread_ts")) == (dm, thread):
                     calls[part["id"]] = datetime.fromisoformat(row["timestamp"])
                 elif part.get("type") == "tool_use":
                     others[part["id"]] = json.dumps(part.get("input"))
-                elif part.get("type") != "tool_result" or part.get("is_error"):
+                elif part.get("type") != "tool_result":
                     continue
+                elif part.get("is_error"):
+                    failed = failed or part.get("tool_use_id") in calls
                 elif part.get("tool_use_id") in calls:
                     at = calls[part["tool_use_id"]]
                     if file := SAVED.search(result_text(part)):
@@ -94,7 +101,7 @@ def last_read(path: Path, dm: str, thread: str) -> datetime | None:
                         read = max(read or at, at)
                 elif opened := [file for file in saved if file in others.get(part.get("tool_use_id"), "")]:
                     read = max([saved.pop(file) for file in opened] + ([read] if read else []))
-    return read
+    return read, saved, failed
 
 
 def result_text(part: dict) -> str:
@@ -107,9 +114,16 @@ def unread(payload: dict, dm: str) -> str | None:
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
-    if (read := last_read(agents.transcript(payload), dm, thread)) and datetime.now(UTC) - read < READ_WINDOW:
+    read, unopened, failed = last_read(agents.transcript(payload), dm, thread)
+    if read and datetime.now(UTC) - read < READ_WINDOW:
         return None
-    return UNREAD.format(dm=dm, thread=thread)
+    if unopened:
+        why = UNOPENED_READ.format(thread=thread, file=max(unopened, key=unopened.__getitem__))
+    elif read:
+        why = OLD_READ.format(thread=thread, minutes=int((datetime.now(UTC) - read) / timedelta(minutes=1)))
+    else:
+        why = (FAILED_READ if failed else NO_READ).format(thread=thread)
+    return UNREAD.format(why=why, dm=dm, thread=thread)
 
 
 def unchecked(tool_input: dict) -> str | None:
