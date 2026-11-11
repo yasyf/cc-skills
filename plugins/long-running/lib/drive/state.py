@@ -443,6 +443,11 @@ def session_role(data: dict, session: str | None) -> str | None:
     return next((role for role, held in data["roles"].items() if session and held["session"] == session), None)
 
 
+def agent_gone(data: dict, job: dict) -> bool:
+    """Whether the job's agent ended with its session, which no role holds any more."""
+    return session_role(data, job.get("session")) is None
+
+
 def held_elsewhere(data: dict, order_id: str, role: str | None) -> str | None:
     """Why a session's role may not act on an order the drive's other session holds, naming the holder and its session; an order from before owners is held by the first role to add a job to it."""
     holder = data["orders"][order_id]["owner"]

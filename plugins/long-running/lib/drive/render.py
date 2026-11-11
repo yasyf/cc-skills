@@ -3,7 +3,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from drive.state import ROLES, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, promise_thread
+from drive.state import ROLES, agent_gone, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, promise_thread
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 COMMUNICATOR_RULES = (
@@ -288,12 +288,11 @@ def incident_line(order_id: str, order: dict) -> str:
 
 
 def agentless_lines(drive: dict) -> list[str]:
-    """Each running job on this Mac whose session no role holds any more, since its agent ended with that session."""
-    sessions = {held["session"] for held in drive["roles"].values()}
+    """Each running job on this Mac whose session no role holds any more, since its agent ended with that session; a fresh agent on its brief takes it over at its first step."""
     return [
         f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}"
         for job_id, job in drive["jobs"].items()
-        if job["state"] == "running" and job.get("where") != "remote" and job.get("session") not in sessions
+        if job["state"] == "running" and job.get("where") != "remote" and agent_gone(drive, job)
     ]
 
 

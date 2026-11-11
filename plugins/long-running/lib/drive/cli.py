@@ -96,6 +96,11 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     from_thread = source_thread(args.source)
+    if (args.incident or args.joins) and args.options_only:
+        raise DriveError(
+            "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks;"
+            " add it without --incident and --joins when he asked for options only, or without --options-only when it is an incident"
+        )
     tooling = args.words.startswith(state.TOOLING)
     if tooling and args.thread:
         raise DriveError(f'--thread {args.thread}: refused, a "{state.TOOLING}" order\'s posts go at his DM root, in no thread; add it again without --thread')
@@ -332,6 +337,11 @@ def order_set(args: argparse.Namespace) -> int:
         raise DriveError(f'--thread {args.thread}: refused, {args.id} is a "{state.TOOLING}" order, whose posts go at his DM root, in no thread; leave --thread out')
     if args.proof is not None:
         check_proof(args.proof)
+    if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
+        raise DriveError(
+            f"{args.id}: refused, an incident order is never limited to options, since its codex jobs start at the alert, before he picks:"
+            " an incident takes --no-options-only, and an order limited to options --no-incident"
+        )
     destination = order | {"thread": args.thread or order["thread"]}
     if args.thread:
         check_thread(data, destination)

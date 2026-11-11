@@ -294,6 +294,20 @@ def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), (None, "stopped")]
 
 
+def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_session_is_gone(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "after-restart")
+    run("start", "demo", "--role", "coordinator")
+    hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, "Drive: demo, order o1, job j1")))
+    data = state.load("demo")
+    job = data["jobs"]["j1"]
+    assert (job["agent"], job["session"], job["state"]) == ("a-9", "after-restart", "running")
+    assert state.agent_job(data, "a-9") == "j1"
+
+
 def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_job(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

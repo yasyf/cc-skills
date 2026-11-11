@@ -2759,13 +2759,17 @@ def test_the_line_a_closing_report_posts_keeps_the_time_owed_even_when_it_was_th
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
 ) -> None:
     moment = state.now()
-    reports = {"21": ("o1", moment - timedelta(seconds=35)), "22": ("o1", moment + timedelta(minutes=2)), "23": ("o2", moment + timedelta(seconds=30))}
+    fix = "ship the background-thread fix"
+    reports = {
+        "21": ({"close": "o1"}, moment - timedelta(seconds=35)),
+        "22": ({"close": "o1"}, moment + timedelta(minutes=2)),
+        "23": ({"close": "o2", "part": state.whole_order(fix)}, moment + timedelta(seconds=30)),
+    }
     monkeypatch.setattr(
         cli.reads,
         "run",
-        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": {"close": reports[argv[2]][0]}}}),
+        lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": reports[argv[2]][1].isoformat(), "fields": {"attrs": reports[argv[2]][0]}}),
     )
-    fix = "ship the background-thread fix"
     for text in ("unfreeze and release", fix):
         run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", text, "--thread", "1794200000.000100")
     run("start", "demo", "--role", "communicator")
@@ -2927,6 +2931,24 @@ def test_an_order_limited_to_options_starts_no_builder_or_codex_job_until_he_pic
     assert run("job", "add", "designer", "--order", "o1", "--goal", "draw his options")[0] == 0
     run("order", "set", "o1", "--no-options-only")
     assert run("job", "add", "builder", "--order", "o1", "--goal", "build his pick")[0] == 0
+
+
+def test_an_incident_order_is_never_limited_to_options_since_its_codex_jobs_start_at_the_alert(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    for joined in ([], ["--joins", "o1"]):
+        assert cli.main(["order", "add", "--project", "p", "--workstream", "w", "give me options only", "--incident", "--parts", "fix", "--options-only", *joined]) == 2
+        assert "--options-only: refused, an incident order is never limited to options, since its codex jobs start at the alert" in capsys.readouterr().err
+    assert (state.load("demo")["orders"], state.load("demo")["jobs"]) == ({}, {})
+    run("order", "add", "--project", "p", "--workstream", "w", "errors on the api", "--incident", "--parts", "fix")
+    run("order", "add", "--project", "p", "--workstream", "w", "give me options for the api fix", "--parts", "fix", "--options-only")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research the options", "--part", "fix")
+    for changed in (["o1", "--options-only"], ["o2", "--incident"]):
+        assert cli.main(["order", "set", *changed]) == 2
+        assert f"{changed[0]}: refused, an incident order is never limited to options" in capsys.readouterr().err
+    orders = state.load("demo")["orders"]
+    assert [(order["incident"], order["options_only"]) for order in orders.values()] == [(True, False), (False, True)]
+    assert run("order", "set", "o2", "--incident", "--no-options-only")[0] == 0
 
 
 def test_an_order_saved_before_options_only_and_once_loads_as_neither(run: Run, demo: str) -> None:
