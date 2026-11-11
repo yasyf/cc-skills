@@ -103,7 +103,7 @@ COORDINATOR_RULES = (
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
-        " every flag it takes its row in drive manual verbs, which the order, job, pr, heard and status tools run as ops"
+        " every flag it takes its row in drive manual verbs, which the order, job, pr, incident, heard and status tools run as ops"
         " in one call per tool: before acting on one these rules do not spell out, read"
         " that row alone, such as drive manual coordinator TAP or drive manual verbs \"job set\", never the whole page"
         " and never drive … --help."

@@ -56,6 +56,6 @@ resume` or `drive job end`, stays a background Bash call, since a tool call ends
 | `drive watch` | starts the drive's watch as its own process unless one runs, and in the coordinator's session points its cci channel at the watch's records; `--loop` runs the watch in the foreground, as the process it starts does |
 | `drive card` | answers one cc-slack card request, JSON on stdin and stdout; empty or non-JSON stdin exits 2 saying what it held |
 | `drive mcp` | serves `say` and the verb tools to a Claude Code session over stdio, as this plugin's `drive` MCP server, listing the newest install's tools and telling the session when an install changes them; `--list` prints the tools as JSON |
-| `drive tool <name>` | `<name>` say, heard, record, order, job, pr or status; runs that MCP tool on the JSON arguments read from stdin and prints its lines |
+| `drive tool <name>` | `<name>` say, heard, record, order, job, pr, incident or status; runs that MCP tool on the JSON arguments read from stdin and prints its lines |
 | `drive install <plugin>@<marketplace>` | `--sha <merge sha>`; `--repo <owner/name>`; `--timeout <seconds>`, default 900 |
 | `drive setup` | `--bin-dir <dir>` for the `drive` shim |
