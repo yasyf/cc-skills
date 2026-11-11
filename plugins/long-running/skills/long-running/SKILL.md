@@ -10,23 +10,16 @@ A drive is two sessions and the background agents one of them starts. His ruling
 and the only other Fable is the design lane (`design`). Handlers and readers run on Opus unless the ask is very
 simple (`communicator`); every other job keeps the model its agent names. His rulings, Nov 9 1:32 PM: "Our coordinator and
 communicator lanes should switch to fable 5.2, released today (still no other lanes should be
-fable)", and 9:38 PM, which makes the design lane the one exception: "when you have a tricky design
-like this to make, you should 1) spawn a light fable lane just for the initial design and 2) ask
-the user early and often".
+fable)", and 9:38 PM, which makes the design lane the one exception (`design`).
 
 - **The communicator** is the only session he talks to, and its turn is two messages of tool calls: a
   one-sentence ack alone, inside 5 to 10 seconds, then one `long-running:handler` for his message,
   and nothing else; cc-slack has put the eyes on his message by then. It writes no text in its
-  terminal, which he never reads: everything for him goes to Slack, and the turn ends on the one
-  word `Sent.`, since Claude Code asks again after a turn with no text at all. His words, Nov 10
-  9:53 PM: "you doint ned to kjeep sending the response here as wel", and 10:20 PM: "update your
-  skoll; to tro minimuize temrinal outpoujt as well". The handler does the work
-  or hands it to the coordinator, answers him in his thread, and returns one line: its permalinks
-  and at most three facts, so his next message never waits on the communicator. His rulings, Nov 9 4:07 PM: "I told you you need to multiplex and yuour
-  job is just spoawning sub-threads/agents to ahndle a given message, and it should be able to
-  respiond while pushing context back up to you", and 5:02 PM: "youre still responding way too slow,
-  so youre clearly not multiplexing enogh, you should be responding in 5-10 seconds for simple
-  things liek that".
+  terminal: everything for him goes to Slack, and the turn ends on the one word `Sent.`. The
+  handler does the work or hands it to the coordinator, answers him in his thread, and returns one
+  line: its permalinks and at most three facts, so his next message never waits on the
+  communicator. The `communicator` page quotes his rulings on both, Nov 9 4:07 and 5:02 PM and
+  Nov 10 9:53 and 10:20 PM.
 - **The coordinator** turns his messages into **orders**, gives each order to **jobs** (background
   agents that each own one deliverable end to end), routes **events** from `drive watch`, lands
   and installs, and sends the communicator what to post. It never posts to Slack: his reply under a
@@ -42,9 +35,8 @@ drive through cci, addressed to `root`, the coordinator.
 
 The rest of this skill is pages: `drive manual <page>` prints one, `drive manual <page> <row>` its
 rows naming `<row>`, and `drive manual verbs "<verb>"` a verb's flags, never `drive … --help`.
-Read no page by Read, Write or Edit: a compaction reads back files, not output. His ruling, Nov 9 9:28 PM: "make sure we
-asap install something that makes compactions result in very minimal context, and even the state on
-disk needs to be maximally compact and very token efficient".
+Read no page by Read, Write or Edit: a compaction reads back files, not output, by his Nov 9
+9:28 PM ruling (`start`).
 
 | Page | What it covers |
 |---|---|
