@@ -168,11 +168,14 @@ row: "this table just says `time,bytes,disk` for everything". Code goes
 in ``` fences that name their language, such as ```sql, ```go or ```text for a command's output, and
 each caption outside the fences is one line of at most 25 words. A comparison goes in as a markdown
 table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`. `drive job card`
-draws each fenced block but a mermaid one as a picture of the code, highlighted in the language its
-fence names, the way a PR card's Show me is drawn, and puts it on a line of its own where the fence
-was. A `sand` fence is highlighted as V, the closest language freeze knows, since freeze has no Sand;
-a fence naming a language freeze does not know, or naming none it can guess, is drawn as plain text,
-and one that does not draw at all stays on the card as text, so a picture never refuses a card. cc-slack draws
+draws each fenced block but a mermaid one as a picture of the code, the way a PR card's Show me is
+drawn, and puts it on a line of its own where the fence was. The picture is the code alone at a
+12.5 px font, cut to its longest line and its last row, so a one-line call is one short strip, and
+it is highlighted by the same renderer the dashboard uses: Sand by its own grammar, any other fence
+in the language it names, and a fence naming none or `text` in the language highlight.js guesses.
+One that does not draw at all stays on the card as text, so a picture never refuses a card. His
+words, Nov 10 10:10 PM, under a card whose code was a 2460-pixel-wide unhighlighted picture: "look
+at these images rthey are iunsnae, they are so big and not syhntax highlighted at all". cc-slack draws
 each picture line as an image where it sits, uploaded to the drive's private bucket, and the table as
 a table; a picture inside a sentence or a table cell stays text, so `drive job ask` refuses one there.
 His words, Nov 10 8:38 PM, under cards whose code had gone out as raw monospace text: "code used to

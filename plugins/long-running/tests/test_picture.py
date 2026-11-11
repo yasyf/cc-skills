@@ -62,16 +62,16 @@ def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
     assert picture.pictures(tmp_path / "pictures", "monorepo PR 53064", "![the api](~/shots/s106.png)\n") == [str(shot)]
 
 
-def test_a_question_cards_show_me_draws_sand_as_v_plain_text_where_freeze_cannot_highlight_and_keeps_a_fence_that_does_not_draw(tmp_path, monkeypatch) -> None:
+def test_a_question_cards_show_me_draws_each_fence_but_mermaid_in_its_language_and_keeps_a_fence_that_does_not_draw(tmp_path, monkeypatch) -> None:
     tried = []
 
-    def freeze(language: str, source: str, out) -> None:
+    def code_png(language: str, source: str, out) -> None:
         tried.append(language)
-        if source.startswith("broken") or language in ("", "sand", "proto"):
-            raise picture.PictureError("Language Unknown")
+        if source.startswith("broken"):
+            raise picture.PictureError("the code did not finish drawing")
         out.write_bytes(b"\x89PNG\r\n")
 
-    monkeypatch.setattr(picture, "freeze", freeze)
+    monkeypatch.setattr(picture, "code_png", code_png)
     show_me = [
         "Before:",
         "```",
@@ -105,4 +105,4 @@ def test_a_question_cards_show_me_draws_sand_as_v_plain_text_where_freeze_cannot
         "```",
         "After.",
     ]
-    assert tried == ["", "text", "v", "proto", "text", "go", "text"]
+    assert tried == ["", "sand", "proto", "go"]

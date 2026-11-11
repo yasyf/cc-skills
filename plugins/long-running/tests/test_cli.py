@@ -576,11 +576,11 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
 ) -> None:
     drawn = []
 
-    def freeze(language: str, source: str, out: Path) -> None:
+    def code_png(language: str, source: str, out: Path) -> None:
         drawn.append(language)
         out.write_bytes(b"\x89PNG\r\n")
 
-    monkeypatch.setattr(picture, "freeze", freeze)
+    monkeypatch.setattr(picture, "code_png", code_png)
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK.replace("```\nGET journal", "```sql\nGET journal", 1))
     code, printed = run("job", "card", str(block), "--waits", "demo:j1-7")

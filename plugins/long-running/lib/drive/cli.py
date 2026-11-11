@@ -1072,9 +1072,9 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Read a kept ASK block and print its question card as JSON for `slack_dm_status(card=…)`: its question as"
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced block but mermaid drawn"
-            " as a picture on a line of its own, highlighted in the language its fence names or the closest one freeze"
-            " knows, else plain text, and a fence that does not draw left as text; its options, the recommended one,"
-            " the drive, and --waits."
+            " as a picture on a line of its own, cut to the code's size and highlighted in the language its fence names,"
+            " Sand included, or a guessed one, and a fence that does not draw left as text; its options, the recommended"
+            " one, the drive, and --waits."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")
