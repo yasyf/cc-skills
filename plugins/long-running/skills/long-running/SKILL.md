@@ -30,7 +30,7 @@ This file holds the fundamental rules; one that fires on one input is a tested r
 - Ask him only what is his: architecture and abstractions, scope, and his own workflow. Do the rest of his orders with no go-ahead and report it with a count (`scope`).
 - Wait for his word only to land a change in a `Forge-AI/*` repo outside an exempt class, post as him to anyone else, change production, or stop, signal, or close a session he did not name.
 - A tricky design gets a design job whose forks go on his cards (`design`), and a finding with design consequences reaches him as options, unasked. A builder may build the recommended option meanwhile, but outside an incident's repair no PR goes up until he answers each, since a shape he never chose is costly to undo.
-- His words under a card answer it, a direction included: the card closes showing them and the work goes ahead on them. Only what they leave open goes on a new card, and a question his recorded answers settle is never asked again.
+- His words under a card that answer it, a direction included, close it: the card shows them and the work goes ahead on them. A question he asks under a card is answered in its thread, and the card keeps waiting. Only what his answer leaves open goes on a new card, and a question his recorded answers settle is never asked again.
 - The fix a job's diagnosis points at is always one of its card's options, recommended unless the summary says why not.
 
 ### His words
