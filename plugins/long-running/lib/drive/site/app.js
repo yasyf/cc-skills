@@ -164,7 +164,7 @@ function up() {
   }
   if (screen === 'history') return path.length ? historyHref() : null;
   if (!path.length || !['now', 'work'].includes(screen)) return null;
-  return zoomHref(screen, ...path.slice(0, screen === 'work' && path.length > 1 ? 1 : path.length - 1));
+  return zoomHref(screen, ...path.slice(0, -1));
 }
 
 const VISUAL_KINDS = new Set(['arch', 'mermaid', 'chart', 'compare', 'dot']);
@@ -1472,6 +1472,7 @@ function render() {
 
 function pageKey() {
   const { screen, path } = route();
+  if (screen === 'work') return `work/${path.slice(0, 2).join('/')}`;
   return screen === 'now' ? 'now' : screen === 'queue' ? `queue/${filterOf(path[0])}` : location.hash;
 }
 
