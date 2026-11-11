@@ -36,6 +36,8 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "updated": at(-60),
         "last_line": None,
         "milestone": None,
+        "project": None,
+        "workstream": None,
         "parts": {text: state.new_part()},
     }
     return base | overrides
@@ -365,7 +367,10 @@ def test_a_page_slack_calls_full_moves_to_a_new_tab_and_the_watch_says_where(dem
 
 def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
     data = drive_of(
-        {"o1": order("ship the page\nwith its tests", ["j1", "j2"]), "o2": order("old news", ["j3"], state="done", updated=state.stamp(T0 - timedelta(days=2)))},
+        {
+            "o1": order("ship the page\nwith its tests", ["j1", "j2"], project="The drive", workstream="Dashboard"),
+            "o2": order("old news", ["j3"], state="done", updated=state.stamp(T0 - timedelta(days=2))),
+        },
         {"j1": job("o1", "running", "drawing it", updated=-50), "j2": job("o1", "waiting", updated=-5), "j3": job("o2", "running")},
         [pr(1, "o1", checks="fail"), pr(2, "o1", state="merged")],
     )
@@ -373,15 +378,15 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
     assert model["progress"] == {"prs": 2, "merged": 1, "open": 1, "red": 1, "running": 2}
     assert [(entry["id"], entry["state"]) for entry in model["work"]] == [("j1", "running"), ("j2", "waiting")]
     entry = next(entry for group in model["status"] for entry in group["features"])
-    assert (entry["id"], entry["text"]) == ("o1", "ship the page\nwith its tests")
+    assert (entry["id"], entry["text"], entry["project"], entry["workstream"]) == ("o1", "ship the page\nwith its tests", "The drive", "Dashboard")
     assert [job_entry["id"] for job_entry in entry["jobs"]] == ["j1", "j2"]
 
 
-def test_history_lists_the_last_day_newest_first_with_his_taps_by_title() -> None:
+def test_history_lists_every_day_newest_first_with_his_taps_by_title_and_the_swears_in_his_orders() -> None:
     data = drive_of(
         {
             "o1": order("ship the page", ["j1"], created=at(-30), state="done", updated=at(-10), proof="installed 1.0.21"),
-            "o2": order("from yesterday", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting"),
+            "o2": order("WTF, fix the damn thing. Hello, shell", [], created=state.stamp(T0 - timedelta(days=2)), state="waiting"),
         },
         {"j1": job("o1", "failed", "CI red (m12)", updated=-20)},
         [pr(1, "o1", state="merged", updated=at(-15))],
@@ -399,7 +404,9 @@ def test_history_lists_the_last_day_newest_first_with_his_taps_by_title() -> Non
         ("merged", "change 1", ""),
         ("failed", "g", "CI red"),
         ("order", "ship the page", ""),
+        ("order", "WTF, fix the damn thing. Hello, shell", ""),
     ]
+    assert [entry["swears"] for entry in history if entry["kind"] == "order"] == [0, 2]
 
 
 def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -462,21 +469,6 @@ def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_rev
     model = view.board(data, found([asked], [tap]), "live", [], T0, set())
     assert [(item["kind"], item["thread"]) for item in model["queue"]] == [("question", "1794300000.000300"), ("tap", "1794100000.000200")]
     assert model["review"][0]["thread"] == "1794100000.000200"
-
-
-def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
-    data = drive_of(
-        {"o1": order("ship the page", ["j1", "j2", "j3", "j4"])},
-        {
-            "j1": job("o1", "done", updated=-30),
-            "j2": job("o1", "failed", updated=-10),
-            "j3": job("o1", "done", updated=-2000),
-            "j4": job("o1", "running"),
-        },
-        [],
-    )
-    finished = view.board(data, found(), "live", [], T0, set())["finished"]
-    assert [(entry["id"], entry["state"]) for entry in finished] == [("j2", "failed"), ("j1", "done")]
 
 
 def test_incidents_list_his_open_incident_orders_oldest_first() -> None:

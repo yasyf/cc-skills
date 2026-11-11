@@ -171,6 +171,8 @@ def load(name: str) -> dict:
         order.setdefault("next_set", None)
         order.setdefault("incident", False)
         order.setdefault("milestone", None)
+        order.setdefault("project", None)
+        order.setdefault("workstream", None)
     for job in data["jobs"].values():
         job.setdefault("carries", {})
         job.setdefault("waits", [])

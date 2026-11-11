@@ -322,6 +322,28 @@ def test_order_set_updates_given_fields_and_stamps_lined(run: Run, demo: str) ->
     assert order["proof"] == "https://example.com/proof"
 
 
+def test_unfiled_lists_open_orders_missing_a_project_or_workstream_and_the_pairs_in_use(run: Run, demo: str) -> None:
+    run("order", "add", "redo the dashboard", "--project", "The drive", "--workstream", "Dashboard")
+    run("order", "add", "move the tables", "--project", "Platform")
+    run("order", "add", "fix the composer")
+    run("order", "add", "old work")
+    run("order", "set", "o4", "--state", "done")
+    assert run("order", "unfiled") == (
+        0,
+        "o2 needs workstream: move the tables\no3 needs project and workstream: fix the composer\nin use: The drive / Dashboard",
+    )
+    run("order", "set", "o2", "--workstream", "Tables")
+    run("order", "set", "o3", "--project", "Iris", "--workstream", "Chats")
+    run("order", "set", "o1", "--workstream", "")
+    orders = state.load("demo")["orders"]
+    assert [(orders[key]["project"], orders[key]["workstream"]) for key in ("o1", "o2", "o3")] == [
+        ("The drive", None),
+        ("Platform", "Tables"),
+        ("Iris", "Chats"),
+    ]
+    assert run("order", "unfiled")[1].splitlines()[0] == "o1 needs workstream: redo the dashboard"
+
+
 def test_order_set_unknown_order_fails(run: Run, demo: str) -> None:
     assert run("order", "set", "o9", "--state", "done")[0] == 2
 

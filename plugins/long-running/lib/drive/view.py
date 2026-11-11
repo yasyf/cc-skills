@@ -18,13 +18,14 @@
 - `counts`, by queue and state; `read` adds `cards`: `live`, or why his Slack cards could not be read.
 
 `board` adds what only the dashboard draws: `progress` (the drive's PRs by state, red ones and running jobs),
-`work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
-newest first; each job in these and a feature's `jobs` has `files`, the files the drive keeps for it, of `brief`,
-`report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `review` (every open PR, in `you`,
+`work` (each running or waiting job of a shown feature; each job in it and in a feature's `jobs` has `files`, the files
+the drive keeps for it, of `brief`, `report`, `question`, `repro` and `transcript`), `history` (every day of the drive,
+newest first, his orders each with `swears`, the swear words in his words), `review` (every open PR, in `you`,
 `not ready` or `decided`, with its `head`, its Slack card and that card's `thread` when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`), `milestones`, `unplanned` (his orders open or done in
 the last day that name no milestone, drawn as one more milestone named "No milestone", or null when there are none)
-and each feature's `text`, `note`, `created` and `jobs`.
+and each feature's `text`, `note`, `created` and `jobs`. Each feature also has the `project` and `workstream` the
+coordinator filed its order under, each null until filed.
 
 Each of `milestones` is a name the coordinator gave some of his orders, in the order its first order came in, with
 its `state` rolled up from those orders' features, the `features` themselves, its `parts` (each part of those orders,
@@ -57,7 +58,7 @@ NOW_CHARS = 180
 NO_CARDS = {"questions": [], "pr_cards": [], "team_url": ""}
 NO_MILESTONE = "No milestone"
 UNREAD = "not read yet: the drive's watch reads them every minute"
-HISTORY_FOR = timedelta(days=1)
+SWEARS = re.compile(r"\b(?:fuck\w*|shit\w*|bullshit\w*|damn\w*|goddamn\w*|wtf|crap\w*|hell)\b", re.IGNORECASE)
 HISTORY_EVENTS = ("tap", "refused")
 NODE_STATES = ("bad", "you", "doing", "waiting")
 JOB_TONES = {"running": "doing", "waiting": "waiting", "built": "waiting", "failed": "bad"}
@@ -336,6 +337,8 @@ def feature(drive: dict, order_id: str, order: dict, moment: datetime, found: di
         "state": feature_state(order, jobs, prs),
         "now": latest_line(order, jobs),
         "milestone": order["milestone"],
+        "project": order["project"],
+        "workstream": order["workstream"],
         "due": order.get("due"),
         "late": is_late(order, moment),
         "proof": order.get("proof"),
@@ -516,14 +519,14 @@ def progress(drive: dict) -> dict:
     }
 
 
-def history(drive: dict, events: Iterable[dict], moment: datetime, team_url: str) -> list[dict]:
-    """What happened in the last day, newest first: his orders, features gone live, merges, failed jobs, his taps and refused cards."""
-    since = moment - HISTORY_FOR
+def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
+    """What happened on every day of the drive, newest first: his orders, features gone live, merges, failed jobs, his taps and refused cards."""
     prs = drive["prs"]
     happened = []
     for order_id, order in drive["orders"].items():
         url = thread_url(drive, team_url, order.get("thread"))
-        happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id})
+        swears = len(SWEARS.findall(order["text"]))
+        happened.append({"at": order["created"], "kind": "order", "text": plain(order["text"], TITLE_CHARS), "detail": "", "url": url, "feature": order_id, "swears": swears})
         if order["state"] == "done":
             happened.append({"at": order["updated"], "kind": "live", "text": plain(order["text"], TITLE_CHARS), "detail": said(order.get("proof")), "url": url, "feature": order_id})
     for pr in prs.values():
@@ -536,8 +539,7 @@ def history(drive: dict, events: Iterable[dict], moment: datetime, team_url: str
         pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
         detail = event["label"] if event["kind"] == "tap" else said(event["reason"])
         happened.append({"at": event["at"], "kind": event["kind"], "text": pr_title(pr), "detail": detail, "url": pr["url"], "feature": pr["order"]})
-    recent = [entry for entry in happened if state.parse_time(entry["at"]) > since]
-    return sorted(recent, key=lambda entry: state.parse_time(entry["at"]), reverse=True)
+    return sorted(happened, key=lambda entry: state.parse_time(entry["at"]), reverse=True)
 
 
 def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
@@ -591,17 +593,10 @@ def board(drive: dict, found: dict, source: str, events: Iterable[dict], moment:
         }
     active = [job_entry(job_id, job, reports) for job_id, job in drive["jobs"].items() if job["order"] in shown_ids and job["state"] not in state.FINISHED_JOB_STATES]
     active.sort(key=lambda entry: (entry["state"] != "running", state.parse_time(entry["updated"])))
-    finished = [
-        job_entry(job_id, job, reports)
-        for job_id, job in drive["jobs"].items()
-        if job["state"] in state.FINISHED_JOB_STATES and moment - state.parse_time(job["updated"]) <= HISTORY_FOR
-    ]
-    finished.sort(key=lambda entry: state.parse_time(entry["updated"]), reverse=True)
     return model | {
         "progress": progress(drive),
         "work": active,
-        "finished": finished,
-        "history": history(drive, events, moment, found["team_url"]),
+        "history": history(drive, events, found["team_url"]),
         "review": review(drive, found),
         "incidents": incidents(drive),
         "milestones": plan,

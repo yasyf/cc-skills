@@ -85,6 +85,8 @@ def order_add(args: argparse.Namespace) -> int:
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
             "incident": args.incident,
             "milestone": args.milestone or None,
+            "project": args.project or None,
+            "workstream": args.workstream or None,
             "proof": None,
             "note": None,
             "created": created,
@@ -179,12 +181,25 @@ def order_set(args: argparse.Namespace) -> int:
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
         if args.incident is not None:
             order["incident"] = args.incident
-        if args.milestone is not None:
-            order["milestone"] = args.milestone or None
+        for field in ("milestone", "project", "workstream"):
+            if (named := getattr(args, field)) is not None:
+                order[field] = named or None
         order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
     return emit(args, render.order_line(args.id, order) + promised, {"id": args.id, **order})
+
+
+def order_unfiled(args: argparse.Namespace) -> int:
+    data = state.load(state.resolve(args.drive))
+    unfiled = {order_id: order for order_id, order in state.open_orders(data).items() if not (order["project"] and order["workstream"])}
+    named = sorted({(order["project"], order["workstream"]) for order in data["orders"].values() if order["project"] and order["workstream"]})
+    lines = [
+        f"{order_id} needs {' and '.join(field for field in ('project', 'workstream') if not order[field])}: {render.cut(order['text'], 120)}"
+        for order_id, order in unfiled.items()
+    ]
+    names = [f"in use: {project} / {workstream}" for project, workstream in named]
+    return emit(args, "\n".join([*lines, *names]) or "every open order names its project and workstream", {"unfiled": unfiled, "in_use": named})
 
 
 def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
@@ -983,6 +998,8 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
     verb.add_argument("--incident", action="store_true", help="an incident order; the dashboard's top strip shows it until it closes, and each other open incident order prints with its note, so a failing service stays one incident")
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under")
+    verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under")
+    verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under")
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id")
@@ -998,12 +1015,16 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--parts", nargs="+", metavar="PART", help="the order's parts, replacing its list")
     verb.add_argument("--incident", action=argparse.BooleanOptionalAction, help="mark or unmark it as an incident order")
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under; an empty name takes it out")
+    verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under; an empty name takes it out")
+    verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under; an empty name takes it out")
     verb.add_argument(
         "--record",
         metavar="SEQ",
         help="the report record a handler posted; a close from the communicator's session needs it and closes only an order its close attr names",
     )
     verb.set_defaults(run=order_set)
+    verb = order.add_parser("unfiled", parents=both, help="each open order that names no project or workstream yet, then the project and workstream pairs in use")
+    verb.set_defaults(run=order_unfiled)
     verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, or the answer a part owes him; a part delivered elsewhere, as a share in another channel, names --part")
     verb.add_argument("id")
     posted = verb.add_mutually_exclusive_group(required=True)

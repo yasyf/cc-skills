@@ -227,17 +227,15 @@ class Board:
         return tuple(path.stat().st_mtime_ns if path.exists() else 0 for path in paths)
 
     def rebuild(self) -> None:
-        moment = state.now()
         for event, end in state.read_events(self.name, self.offset):
             self.offset = end
             if event["kind"] in view.HISTORY_EVENTS:
                 self.events.append(event)
-        self.events = [event for event in self.events if moment - state.parse_time(event["at"]) <= view.HISTORY_FOR]
         found, source = view.stored_cards(self.name)
         reports = {path.stem for path in (state.drive_dir(self.name) / "reports").glob("*.md")}
         drive = state.load(self.name)
         repo = home_repo(drive["roles"]["coordinator"]["cwd"])
-        model = view.board(drive, found, source, self.events, moment, reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo, "arch_lib": picture.ARCH_LIB}
+        model = view.board(drive, found, source, self.events, state.now(), reports) | {"code": CODE, "pid": os.getpid(), "links": self.links, "undo_seconds": UNDO_SECONDS, "repo": repo, "arch_lib": picture.ARCH_LIB}
         body = json.dumps(model).encode()
         answers = {item["answer"]: item["card"]["options"] for item in [*model["queue"], *model["review"]] if item.get("answer")}
         heads = {entry["key"]: entry["head"] for entry in model["review"]}

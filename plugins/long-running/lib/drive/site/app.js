@@ -17,11 +17,23 @@ const JOB_STATES = { running: 'Running', waiting: 'Waiting', built: 'Built, no P
 const HAPPENED = { order: 'You asked', live: 'Live', merged: 'Merged', failed: 'Failed', refused: 'No card drawn' };
 const FEATURE_KINDS = new Set(['order', 'live', 'failed']);
 const HISTORY_FILTERS = [
-  ['key', 'Key events', (entry) => ['live', 'merged', 'failed', 'tap'].includes(entry.kind)],
-  ['you', 'You', (entry) => ['order', 'tap'].includes(entry.kind)],
-  ['landed', 'Merged and live', (entry) => ['merged', 'live'].includes(entry.kind)],
   ['all', 'Everything', () => true],
+  ['prs', 'PRs merged', (entry) => entry.kind === 'merged'],
+  ['you', 'Your asks and taps', (entry) => ['order', 'tap'].includes(entry.kind)],
 ];
+const NONE = '~';
+const UNFILED = 'Unfiled';
+const RANK = ['blocked', 'built', 'running', 'waiting', 'not started', 'merged', 'live'];
+const STORY_KINDS = new Set(['order', 'live', 'merged', 'tap']);
+const STORY_LINES = 6;
+const PACKET_SECONDS = 9;
+const ORBIT_SECONDS = 100;
+const MAP_ZOOMS = [0.7, 0.85, 1, 1.2, 1.45];
+const SATELLITES = 14;
+const RING_LIMIT = 8;
+const RECENT_MOMENTS = 80;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const SWEAR_WORDS = 'damn, shit and fuck';
 const QUEUE_FILTERS = [
   ['all', 'All', () => true],
   ['tap', 'PRs', (item) => item.kind === 'tap'],
@@ -67,7 +79,10 @@ const ICONS = {
 let model = null;
 let connected = false;
 let lostAt = null;
-let historyFilter = 'key';
+let historyFilter = 'all';
+let paused = null;
+let mapZoom = MAP_ZOOMS.indexOf(1);
+let shownHash = null;
 let queueAt = null;
 let queueSlot = 0;
 let picked = null;
@@ -96,6 +111,23 @@ const link = (text, url) => (url && !SLACK.test(url) ? `<a href="${esc(url)}" ta
 const minutesSince = (iso) => Math.max(0, Math.round((Date.now() - new Date(iso)) / 60000));
 const bare = (title) => String(title ?? '').replace(/^[\w./-]+:\s*\p{Extended_Pictographic}\uFE0F?\s*/u, '');
 const icon = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[name]}</svg>`;
+const counted = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const fileKey = (name) => name ?? NONE;
+const fileName = (key) => (key === NONE ? UNFILED : key);
+const byName = ([a], [b]) => (a === NONE) - (b === NONE) || a.localeCompare(b);
+const zoomHref = (screen, ...keys) => [`#/${screen}`, ...keys.map(encodeURIComponent)].join('/');
+const dayOf = (iso) => new Date(iso).toLocaleDateString('en-CA', { timeZone: ZONE });
+const dayName = (day, options = { month: 'short', day: 'numeric' }) => new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', ...options });
+const timeOf = (iso) => new Date(iso).toLocaleTimeString('en-US', { timeZone: ZONE, hour: 'numeric', minute: '2-digit' });
+
+function perModel(build) {
+  let seen = null;
+  let value = null;
+  return () => {
+    if (seen !== model) [seen, value] = [model, build()];
+    return value;
+  };
+}
 
 function clock(iso) {
   const at = new Date(iso);
@@ -112,8 +144,19 @@ function ago(iso) {
 }
 
 function route() {
-  const [screen, id] = location.hash.replace(/^#\/?/, '').split('/');
-  return { screen: screen || 'queue', id };
+  const [screen, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+  const path = rest.filter(Boolean).map(decodeURIComponent);
+  return { screen: screen || 'queue', id: path[0], path };
+}
+
+function up() {
+  const { screen, path } = route();
+  if (screen === 'feature') {
+    const entry = featureOf(path[0]);
+    return entry ? zoomHref('now', fileKey(entry.project), fileKey(entry.workstream)) : '#/now';
+  }
+  if (!path.length || !['now', 'work', 'history'].includes(screen)) return null;
+  return zoomHref(screen, ...path.slice(0, screen === 'work' && path.length > 1 ? 1 : path.length - 1));
 }
 
 function inline(text, cite = model.repo) {
@@ -197,11 +240,6 @@ function table(lines, cite) {
 function prKey(url) {
   const found = String(url).match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/);
   return found ? `${found[1]}#${found[2]}` : null;
-}
-
-function waited(item) {
-  if (item.kind === 'late') return `promised ${clock(item.due)}, ${ago(item.due)} late`;
-  return item.since ? `waiting ${ago(item.since)}, since ${clock(item.since)}` : '';
 }
 
 function optionParts(option) {
@@ -455,28 +493,110 @@ function queueScreen(id) {
 }
 
 function nowScreen() {
+  const [project, stream] = route().path;
+  const { tree } = index();
+  if (project === undefined) return nowPage('All projects', [], projectsLevel(tree), null);
+  const streams = tree.get(project);
+  if (!streams) return gone('This project');
+  if (stream === undefined) return nowPage(fileName(project), [project], streamsLevel(project, streams), [...streams.values()].flat());
+  const list = streams.get(stream);
+  if (!list) return gone('This workstream');
+  return nowPage(fileName(stream), [project, stream], tasksLevel(list), list);
+}
+
+function gone(what) {
+  return `<p class="empty">${what} has no open work on the dashboard now. <a href="#/now">All projects</a></p>`;
+}
+
+function nowPage(title, keys, body, scope) {
   const counts = model.counts;
   const oldest = model.queue.find((item) => item.since);
-  const headline = `${counts.live} ${counts.live === 1 ? 'feature' : 'features'} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
-  const blocked = (model.status.find((group) => group.state === 'blocked')?.features ?? []).map((entry) => `<a class="hc bad" href="#/feature/${esc(entry.id)}">
-      <span class="bar-label">Blocked</span><b>${esc(entry.title)}</b>${entry.now ? `<span>${esc(entry.now)}</span>` : ''}
-      <em>since ${clock(entry.updated)}${entry.late ? ', late' : ''}</em></a>`).join('');
-  const running = model.work.filter((job) => job.state === 'running').slice(0, 12).map((job) => {
-    const quiet = isStalled(job);
-    return `<a class="hc ${quiet ? 'you' : 'doing'}" href="#/feature/${esc(job.feature)}">
-      <span class="bar-label">${quiet ? `Quiet ${ago(job.updated)}` : 'Running'}</span><b>${esc(job.goal)}</b>${job.said ? `<span>${esc(job.said)}</span>` : ''}
-      <em>last word ${ago(job.updated)} ago</em></a>`;
-  }).join('');
+  const headline = `${counted(counts.live, 'feature')} went live in the last day, ${counts.running} ${counts.running === 1 ? 'is' : 'are'} moving and ${counts.blocked} ${counts.blocked === 1 ? 'is' : 'are'} blocked${counts.queue ? `; ${counts.queue} ${counts.queue === 1 ? 'thing waits' : 'things wait'} on you${oldest ? `, the oldest for ${ago(oldest.since)}` : ''}` : ''}.`;
+  return `<div class="eyebrow">Now</div>
+    <h1 class="h1 zoom-title">${esc(title)}</h1>
+    ${keys.length ? crumbs(keys) : `<p class="lead">${esc(headline)}</p>`}
+    <div class="now-grid"><div class="zoom-body">${body}</div>${story(scope)}</div>`;
+}
+
+function crumbs(keys, last = '') {
+  const steps = [['Projects', '#/now'], ...keys.map((key, i) => [fileName(key), zoomHref('now', ...keys.slice(0, i + 1))])];
+  const here = last ? steps : steps.slice(0, -1);
+  return `<nav class="crumbs" aria-label="Zoom out">${[...here.map(([name, href]) => `<a href="${href}">${esc(name)}</a>`), `<b>${esc(last || steps.at(-1)[0])}</b>`].join('<span aria-hidden="true">/</span>')}</nav>`;
+}
+
+function projectsLevel(tree) {
+  const cards = [...tree].map(([key, streams]) => {
+    const sub = key === NONE ? 'Orders the coordinator has not filed under a project yet' : counted(streams.size, 'workstream');
+    return zoomCard(zoomHref('now', key), fileName(key), sub, [...streams.values()].flat(), key === NONE);
+  });
   const stops = model.milestones;
   const live = stops.filter((stop) => stop.state === 'live').length;
-  const map = stops.length ? `<section class="panel">${journey(currentStop())}<p class="meta">${live} of ${stops.length} milestones are live. <a class="more" href="#/plan">Plan ›</a></p></section>` : '';
-  return `<h1 class="headline">${esc(headline)}</h1>
-    <p class="asof">As of ${clock(model.at)} · ${model.progress.merged} of ${model.progress.prs} pull requests merged since the drive began</p>
-    ${map}
-    <div class="cols">
-      <section><h2 class="sec">What blocks it, nearest first</h2>${blocked || '<p class="empty small">Nothing is blocked.</p>'}</section>
-      <section><h2 class="sec">Work on it</h2>${running || '<p class="empty small">No job is running.</p>'}${model.work.length > 12 ? '<a class="more" href="#/work">All work ›</a>' : ''}</section>
-    </div>`;
+  const strip = stops.length ? `<h2 class="sec">Milestones</h2><section class="panel">${journey(currentStop())}<p class="meta">${live} of ${stops.length} milestones are live. <a class="more" href="#/plan">Plan ›</a></p></section>` : '';
+  return `<h2 class="sec">Projects <span class="count">${tree.size}</span></h2>
+    <div class="zoom-list">${cards.join('') || '<p class="empty small">No open orders.</p>'}</div>
+    ${strip}`;
+}
+
+function streamsLevel(project, streams) {
+  const cards = [...streams].map(([key, list]) => zoomCard(zoomHref('now', project, key), fileName(key), key === NONE ? 'Orders filed under no workstream yet' : counted(list.length, 'task'), list, key === NONE));
+  return `<h2 class="sec">Workstreams <span class="count">${streams.size}</span></h2><div class="zoom-list">${cards.join('')}</div>`;
+}
+
+function zoomCard(href, name, sub, list, unfiled) {
+  const open = list.filter((entry) => entry.state !== 'live').length;
+  const asks = new Set(list.flatMap((entry) => entry.cards.map((card) => card.url))).size;
+  const blocked = list.filter((entry) => entry.state === 'blocked').length;
+  const flags = `${asks ? `<span class="need">${counted(asks, 'question')} for you</span>` : ''}${blocked ? `<span class="need bad">${blocked} blocked</span>` : ''}`;
+  return `<a class="zoom-card${unfiled ? ' unfiled' : ''}" href="${href}">
+    <span class="zoom-mark" aria-hidden="true">${unfiled ? '?' : esc([...name][0].toUpperCase())}</span>
+    <span class="zoom-name"><b>${esc(name)}</b><small>${esc(sub)}</small>${flags ? `<span class="flags">${flags}</span>` : ''}</span>
+    <span class="zoom-stat"><b>${open}</b><small>open of ${list.length}</small>${stateBar(list)}</span>
+    <span class="arrow" aria-hidden="true">↗</span>
+  </a>`;
+}
+
+function stateBar(list) {
+  const counts = RANK.map((state) => [state, list.filter((entry) => entry.state === state).length]).filter(([, n]) => n);
+  return `<span class="statebar" data-tip="${esc(counts.map(([state, n]) => `${n} ${STOP_WORDS[state].toLowerCase()}`).join(', '))}">${counts.map(([state, n]) => `<i class="t-${STOP_TONES[state]}" style="flex:${n}"></i>`).join('')}</span>`;
+}
+
+function tasksLevel(list) {
+  const asks = [...new Map(list.flatMap((entry) => entry.cards.map((card) => [card.url, card]))).values()].sort((a, b) => new Date(a.asked) - new Date(b.asked));
+  const tasks = list.toSorted((a, b) => RANK.indexOf(a.state) - RANK.indexOf(b.state) || new Date(b.updated) - new Date(a.updated));
+  return `${asks.length ? `<h2 class="sec">Your asks <span class="count">${asks.length}</span></h2><div class="task-list">${asks.map(askRow).join('')}</div>` : ''}
+    <h2 class="sec">Tasks <span class="count">${tasks.length}</span></h2><div class="task-list">${tasks.map(taskRow).join('')}</div>`;
+}
+
+function askRow(card) {
+  const item = model.queue.find((each) => each.answer === card.url);
+  const body = `<span class="task-mark ask" aria-hidden="true"></span><span class="task-body"><b>${esc(card.title)}</b><small>Asked ${clock(card.asked)}, waiting ${ago(card.asked)}</small></span>`;
+  return item ? `<button class="task-row" data-queue="${esc(noticeKey(item))}">${body}<span class="task-go">Answer it ↗</span></button>` : `<div class="task-row">${body}</div>`;
+}
+
+function taskRow(entry) {
+  const merged = entry.prs.filter((pr) => pr.state === 'merged').length;
+  const facts = [entry.prs.length ? `${merged} of ${counted(entry.prs.length, 'PR')} merged` : '', entry.cards.length ? `${counted(entry.cards.length, 'decision')} for you` : ''].filter(Boolean).join(' · ');
+  return `<a class="task-row" href="#/feature/${esc(entry.id)}">
+    <span class="task-mark t-${STOP_TONES[entry.state]}" aria-hidden="true"></span>
+    <span class="task-body"><b>${esc(entry.title)}</b>${entry.now ? `<small>${esc(entry.now)}</small>` : ''}</span>
+    <span class="task-facts">${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}${facts ? `<small>${esc(facts)}</small>` : ''}</span>
+    <span class="arrow" aria-hidden="true">↗</span>
+  </a>`;
+}
+
+function momentText(entry) {
+  const text = FEATURE_KINDS.has(entry.kind) ? featureLink(entry.feature, entry.text) : link(entry.text, entry.url);
+  return `<b class="what">${entry.kind === 'tap' ? `You tapped ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}`;
+}
+
+function story(scope) {
+  const ids = scope && new Set(scope.map((entry) => entry.id));
+  const told = model.history.filter((entry) => STORY_KINDS.has(entry.kind) && (!ids || ids.has(entry.feature))).slice(0, STORY_LINES);
+  return `<aside class="story" aria-label="The live story">
+    <div class="eyebrow">The live story</div>
+    ${told.length ? `<ol>${told.map((entry) => `<li><time>${clock(entry.at)}</time><p>${momentText(entry)}</p></li>`).join('')}</ol>` : '<p class="meta">Nothing has happened here yet.</p>'}
+    <a class="more" href="#/history">All of history ›</a>
+  </aside>`;
 }
 
 function currentStop() {
@@ -806,18 +926,24 @@ function message(said, waiting) {
   </div>`;
 }
 
-let indexed = null;
+const index = perModel(() => {
+  const all = [...model.status.flatMap((group) => group.features), ...model.milestones.flatMap((stop) => stop.features)];
+  const list = [...new Map(all.map((entry) => [entry.id, entry])).values()];
+  const projects = [...Map.groupBy(list, (entry) => fileKey(entry.project))].sort(byName);
+  const tree = new Map(projects.map(([project, entries]) => [project, new Map([...Map.groupBy(entries, (entry) => fileKey(entry.workstream))].sort(byName))]));
+  return { list, byId: new Map(list.map((entry) => [entry.id, entry])), tree };
+});
 
 function features() {
-  if (indexed?.model !== model) {
-    const all = [...model.status.flatMap((group) => group.features), ...model.milestones.flatMap((stop) => stop.features)];
-    indexed = { model, list: [...new Map(all.map((entry) => [entry.id, entry])).values()] };
-  }
-  return indexed.list;
+  return index().list;
+}
+
+function featureOf(id) {
+  return index().byId.get(id);
 }
 
 function featureLink(id, text) {
-  return features().some((entry) => entry.id === id) ? `<a href="#/feature/${esc(id)}">${esc(text)}</a>` : esc(text);
+  return featureOf(id) ? `<a href="#/feature/${esc(id)}">${esc(text)}</a>` : esc(text);
 }
 
 function prTone(pr) {
@@ -834,25 +960,21 @@ function builtLine(built) {
   return `<div class="now">Built on <code>${esc(built.branch)}</code>, ${built.waits.length ? 'no PR yet' : 'its PR opens next'}</div>`;
 }
 
-function cardsLine(cards) {
-  if (!cards.length) return '';
-  const asks = cards.map((card) => `<a href="${esc(card.url)}" target="_blank" rel="noopener">${esc(card.title)}</a>, asked ${esc(clock(card.asked))}`);
-  return `<div class="now">Waits on your answer to ${asks.join('; ')}</div>`;
+function fileButtons(job) {
+  return job.files.length ? `<div class="files">${job.files.map((kind) => `<button class="linkish" data-file="${esc(job.id)}/${kind}" data-title="${esc(`${job.id} ${FILE_WORDS[kind].toLowerCase()}: ${job.goal}`)}">${FILE_WORDS[kind]}</button>`).join('')}</div>` : '';
 }
 
-function jobRow(job, withFeature) {
+function jobRow(job) {
   const quiet = minutesSince(job.updated);
   const stall = isStalled(job) ? `<span class="badge red">quiet ${ago(job.updated)}</span>` : '';
-  const owner = withFeature ? features().find((entry) => entry.id === job.feature) : null;
-  const facts = [JOB_STATES[job.state] ?? job.state, job.kind, job.where, `last word ${quiet < 1 ? 'just now' : `${ago(job.updated)} ago`}`, job.state === 'built' ? `built on ${job.branch}` : '', job.waits ? `waits on ${job.waits} ${job.waits === 1 ? 'card or job' : 'cards or jobs'}` : '', job.prs ? `${job.prs} PRs` : ''];
+  const facts = [JOB_STATES[job.state] ?? job.state, job.kind, job.where, `last word ${quiet < 1 ? 'just now' : `${ago(job.updated)} ago`}`, job.state === 'built' ? `built on ${job.branch}` : '', job.waits ? `waits on ${counted(job.waits, 'card or job', 'cards or jobs')}` : '', job.prs ? counted(job.prs, 'PR') : ''];
   return `<li class="job ${esc(job.state)}">
     <span class="dot"></span>
     <div class="body">
       <div class="title">${esc(job.goal)} ${stall}</div>
-      ${owner ? `<div class="meta">for ${featureLink(owner.id, owner.title)}</div>` : ''}
       ${job.said ? `<div class="now">${esc(job.said)}</div>` : ''}
       <div class="meta">${facts.filter(Boolean).map(esc).join(' · ')}</div>
-      ${job.files.length ? `<div class="files">${job.files.map((kind) => `<button class="linkish" data-file="${esc(job.id)}/${kind}" data-title="${esc(`${job.id} ${FILE_WORDS[kind].toLowerCase()}: ${job.goal}`)}">${FILE_WORDS[kind]}</button>`).join('')}</div>` : ''}
+      ${fileButtons(job)}
     </div>
   </li>`;
 }
@@ -922,26 +1044,114 @@ function isStalled(job) {
   return job.state === 'running' && minutesSince(job.updated) >= STALL_MINUTES;
 }
 
+function phase(seconds, offset = 0) {
+  return `${-(((paused ?? Date.now()) / 1000 + offset) % seconds).toFixed(2)}s`;
+}
+
+function laneTone(job) {
+  if (isStalled(job)) return 't-bad';
+  return job.state === 'running' ? 't-doing' : 't-you';
+}
+
+function laneState(job) {
+  return isStalled(job) ? `Quiet ${ago(job.updated)}` : JOB_STATES[job.state];
+}
+
+const laneTree = perModel(() => {
+  const filed = (job, field) => fileKey(featureOf(job.feature)[field]);
+  const projects = [...Map.groupBy(model.work, (job) => filed(job, 'project'))].sort(byName);
+  return new Map(projects.map(([project, lanes]) => [project, new Map([...Map.groupBy(lanes, (job) => filed(job, 'workstream'))].sort(byName))]));
+});
+
 function workScreen() {
-  const running = model.work.filter((job) => job.state === 'running');
-  const stalled = running.filter(isStalled);
-  const head = `<h1 class="h1">Work <span class="count">${running.length} running, ${model.work.length - running.length} waiting</span>${stalled.length ? `<span class="badge red">${stalled.length} quiet ${STALL_MINUTES} minutes or more</span>` : ''}</h1>`;
-  const groups = [
-    ['stalled', `Quiet ${STALL_MINUTES} minutes or more`, stalled, true],
-    ['running', 'Running', running.filter((job) => !isStalled(job)), true],
-    ['built', 'Built, no PR until you answer', model.work.filter((job) => job.state === 'built'), true],
-    ['waiting', 'Waiting', model.work.filter((job) => job.state === 'waiting'), false],
-    ['finished', 'Finished in the last day', model.finished, false],
-  ].filter(([, , jobs]) => jobs.length);
-  if (!groups.length) return `${head}<p class="empty">No job is running, waiting or finished today.</p>`;
-  return head + groups.map(([id, label, jobs, open]) => {
-    const isOpen = opened.get(`work-${id}`) ?? open;
-    const newest = jobs.reduce((a, b) => (new Date(a.updated) > new Date(b.updated) ? a : b));
-    return `<details class="group wk ${id}" data-group="work-${id}"${isOpen ? ' open' : ''}>
-      <summary><span class="dot"></span>${label} <span class="count">${jobs.length}</span><span class="newest">newest: ${esc(newest.goal)}</span></summary>
-      <ul class="jobs">${jobs.map((job) => jobRow(job, true)).join('')}</ul>
-    </details>`;
+  const [project, stream, laneId] = route().path;
+  const streams = laneTree().get(project);
+  const lanes = streams?.get(stream);
+  const running = model.work.filter((job) => job.state === 'running').length;
+  const keys = [project, stream].filter((key) => key !== undefined);
+  const where = [[model.drive, '#/work'], ...keys.map((key, i) => [fileName(key), zoomHref('work', ...keys.slice(0, i + 1))])];
+  const zooms = stream === undefined ? `<button class="map-btn" data-zoom="-1" aria-label="Zoom out"${mapZoom === 0 ? ' disabled' : ''}>−</button><button class="map-btn" data-zoom="1" aria-label="Zoom in"${mapZoom === MAP_ZOOMS.length - 1 ? ' disabled' : ''}>+</button>` : '';
+  const shown = project === undefined ? projectMap()
+    : !streams ? '<p class="empty topo-empty">This project has no lane running or waiting now. <a href="#/work">All projects</a></p>'
+    : stream === undefined ? streamMap(project, streams)
+    : lanes ? laneZoom(zoomHref('work', project, stream), lanes, laneId)
+    : `<p class="empty topo-empty">This workstream has no lane running or waiting now. <a href="${zoomHref('work', project)}">${esc(fileName(project))}</a></p>`;
+  return `<div class="page-head">
+      <div><div class="eyebrow">Work</div><h1 class="h1">Inside the machine.</h1><p class="lead">${counted(model.work.length, 'lane')}, ${running} working. Click a project to zoom into its workstreams, then a workstream to see each lane.</p></div>
+      <button class="secondary" data-motion aria-pressed="${Boolean(paused)}">${paused ? '▷ Resume motion' : 'Ⅱ Pause motion'}</button>
+    </div>
+    <section class="topology${paused ? ' paused' : ''}" style="--zoom:${MAP_ZOOMS[mapZoom]}" aria-label="Agent topology">
+      <div class="topology-bar"><nav class="crumbs" aria-label="Zoom out">${where.map(([name, href], i) => (i === where.length - 1 ? `<b>${esc(name)}</b>` : `<a href="${href}">${esc(name)}</a>`)).join('<span aria-hidden="true">/</span>')}</nav><div>${zooms}</div></div>
+      ${shown}
+      <div class="map-legend"><span class="t-doing">Working</span><span class="t-you">Waiting or built</span><span class="t-bad">Quiet ${STALL_MINUTES} minutes or more</span><span>Moving packets are decoration, not traffic</span></div>
+    </section>`;
+}
+
+function projectMap() {
+  const nodes = [...laneTree()].map(([key, streams]) => ({ key, href: zoomHref('work', key), sub: key === NONE ? 'Orders not filed yet' : counted(streams.size, 'workstream'), lanes: [...streams.values()].flat() }));
+  return topoMap(model.drive, 'Coordinator ↔ communicator', nodes);
+}
+
+function streamMap(project, streams) {
+  const nodes = [...streams].map(([key, lanes]) => ({ key, href: zoomHref('work', project, key), sub: key === NONE ? 'No workstream filed yet' : lanes[0].said || lanes[0].goal, lanes }));
+  return topoMap(fileName(project), counted(nodes.reduce((sum, node) => sum + node.lanes.length, 0), 'lane'), nodes);
+}
+
+function topoMap(root, under, nodes) {
+  if (!nodes.length) return '<p class="empty topo-empty">No lane is running or waiting.</p>';
+  const spots = nodes.map((node, i) => {
+    const angle = -Math.PI / 2 + (2 * Math.PI * i) / nodes.length;
+    const reach = nodes.length > RING_LIMIT && i % 2 ? 0.7 : 1;
+    return { node, i, x: 50 + 37 * reach * Math.cos(angle), y: 50 + 35 * reach * Math.sin(angle) };
+  });
+  const paths = spots.map(({ x, y, i }) => {
+    const d = `M 550 305 C 550 ${(y * 6.1).toFixed(1)} ${(x * 11).toFixed(1)} 305 ${(x * 11).toFixed(1)} ${(y * 6.1).toFixed(1)}`;
+    return `<path class="flow-path" d="${d}"/><path class="flow-packet" d="${d}" style="animation-delay:${phase(PACKET_SECONDS, i * 1.3)}"/>`;
   }).join('');
+  const cards = spots.map(({ node, x, y, i }) => {
+    const name = fileName(node.key);
+    const working = node.lanes.filter((job) => job.state === 'running').length;
+    const quiet = node.lanes.filter(isStalled).length;
+    const dots = node.lanes.slice(0, SATELLITES).map((job) => `<i class="${laneTone(job)}"></i>`).join('');
+    const more = node.lanes.length > SATELLITES ? `<em>+${node.lanes.length - SATELLITES}</em>` : '';
+    const tip = `${name}: ${counted(node.lanes.length, 'lane')}, ${working} working${quiet ? `, ${quiet} quiet` : ''}. Click to zoom in.`;
+    return `<a class="topo-node${node.key === NONE ? ' unfiled' : ''}" href="${node.href}" style="left:${x.toFixed(2)}%;top:${y.toFixed(2)}%;--i:${i}" data-tip="${esc(tip)}">
+      <strong>${esc(name)} ↗</strong>
+      <small class="sub">${esc(node.sub)}</small>
+      <small>${counted(node.lanes.length, 'lane')} · ${working} working</small>
+      <span class="satellites">${dots}${more}</span>
+    </a>`;
+  }).join('');
+  return `<div class="map">
+    <svg class="topo-svg" viewBox="0 0 1100 610" preserveAspectRatio="none" aria-hidden="true"><ellipse class="orbital" cx="550" cy="305" rx="410" ry="220" style="animation-delay:${phase(ORBIT_SECONDS)}"/><ellipse class="orbital" cx="550" cy="305" rx="300" ry="150" style="animation-delay:${phase(ORBIT_SECONDS, 50)}"/>${paths}</svg>
+    <div class="topo-root"><b>${esc(root)}</b><small>${esc(under)}</small></div>
+    ${cards}
+  </div>`;
+}
+
+function laneZoom(href, lanes, laneId) {
+  const chosen = lanes.find((job) => job.id === laneId) ?? lanes[0];
+  const cards = lanes.map((job, i) => `<a class="lane-card${job === chosen ? ' on' : ''}" href="${href}/${encodeURIComponent(job.id)}" style="--i:${i}"${job === chosen ? ' aria-current="true"' : ''}>
+      <small><i class="${laneTone(job)}"></i>${esc(laneState(job))} · ${esc(job.kind)}</small>
+      <strong>${esc(job.goal)}</strong>
+      <span class="lane-id">${esc(job.id)} · ${esc(job.where)} · last word ${ago(job.updated)} ago</span>
+    </a>`).join('');
+  return `<div class="lane-zoom"><div class="lane-cards">${cards}</div>${laneInspector(chosen)}</div>`;
+}
+
+function laneInspector(job) {
+  const entry = featureOf(job.feature);
+  const facts = [job.where, job.branch ? `on ${job.branch}` : '', job.prs ? counted(job.prs, 'PR') : '', job.waits ? `waits on ${counted(job.waits, 'card or job', 'cards or jobs')}` : ''].filter(Boolean);
+  return `<aside class="lane-inspector" aria-label="Inside this lane">
+    <div class="eyebrow">Inside this lane</div>
+    <h3>${esc(job.goal)}</h3>
+    <span class="mono">${esc(job.id)} · ${esc(laneState(job).toLowerCase())} · ${esc(job.kind)}</span>
+    ${job.said ? `<p class="lane-said">${esc(job.said)}</p>` : '<p class="meta">No progress line yet.</p>'}
+    <p class="meta">Last word ${clock(job.updated)}, ${ago(job.updated)} ago · ${esc(facts.join(' · '))}</p>
+    ${fileButtons(job)}
+    <a class="btn ghost" href="#/feature/${esc(job.feature)}">See the task ↗</a>
+    <p class="rail-note">For: ${esc(entry.title)}</p>
+  </aside>`;
 }
 
 function jumpItems() {
@@ -995,55 +1205,142 @@ function strip() {
 }
 
 function historyRow(entry) {
-  const text = FEATURE_KINDS.has(entry.kind) ? featureLink(entry.feature, entry.text) : link(entry.text, entry.url);
   return `<li class="happened ${esc(entry.kind)}">
-    <span class="time">${clock(entry.at)}</span>
+    <span class="time">${timeOf(entry.at)}</span>
     <span class="dot"></span>
     <div class="body">
-      <div><b class="what">${entry.kind === 'tap' ? `You tapped ${esc(entry.detail)} on` : HAPPENED[entry.kind]}</b> ${text}</div>
+      <div>${momentText(entry)}</div>
       ${entry.detail && entry.kind !== 'tap' ? `<div class="meta">${esc(entry.detail)}</div>` : ''}
     </div>
   </li>`;
 }
 
+const days = perModel(() => {
+  if (!model.history.length) return [];
+  const byDay = Map.groupBy(model.history, (entry) => dayOf(entry.at));
+  const series = [];
+  const last = dayOf(model.at);
+  for (let day = dayOf(model.history.at(-1).at); day <= last; day = new Date(Date.parse(`${day}T00:00:00Z`) + DAY_MS).toISOString().slice(0, 10)) {
+    const moments = byDay.get(day) ?? [];
+    const asked = moments.filter((entry) => entry.kind === 'order');
+    series.push({ day, moments, merged: moments.filter((entry) => entry.kind === 'merged').length, swears: asked.reduce((sum, entry) => sum + entry.swears, 0), asked: asked.length });
+  }
+  return series;
+});
+
+function quietFor(minutes) {
+  return minutes < 120 ? `${minutes} min` : `${Math.round(minutes / 60)} hours`;
+}
+
+function timeline(list, withDays) {
+  return list.flatMap((entry, i) => {
+    const before = list[i - 1];
+    const day = dayOf(entry.at);
+    const head = withDays && (!before || dayOf(before.at) !== day) ? `<li class="day-head"><a href="#/history/${day}">${dayName(day, { weekday: 'long', month: 'long', day: 'numeric' })} ↗</a></li>` : '';
+    const quiet = before && !head ? Math.round((new Date(before.at) - new Date(entry.at)) / 60000) : 0;
+    return [head, quiet >= GAP_MINUTES ? `<li class="gap">${quietFor(quiet)} with nothing new</li>` : '', historyRow(entry)];
+  }).join('');
+}
+
+function dayChart(series, field, title, note, unit, zoomed) {
+  const top = Math.max(1, ...series.map((each) => each[field]));
+  const bars = series.map((each) => {
+    const label = dayName(each.day);
+    const tone = zoomed ? (zoomed === each ? ' on' : ' dim') : '';
+    return `<a class="bar${tone}" href="#/history/${each.day}" style="--h:${Math.max(2, (100 * each[field]) / top).toFixed(1)}%" data-tip="${esc(`${label}: ${counted(each[field], unit)}. Click to zoom into the day.`)}" aria-label="${esc(`${label}: ${counted(each[field], unit)}`)}"><span class="col"><i><b>${each[field]}</b></i></span><span class="day">${label}</span></a>`;
+  }).join('');
+  return `<div class="day-chart ${field}"><div class="chart-head"><span>${title}</span><small>${note}</small></div><div class="bars">${bars}</div></div>`;
+}
+
 function historyScreen() {
+  const series = days();
+  const zoomed = series.find((each) => each.day === route().id);
   const [, , keep] = HISTORY_FILTERS.find(([id]) => id === historyFilter);
-  const shown = model.history.filter(keep);
-  const rows = shown.flatMap((entry, i) => {
-    const quiet = i ? Math.round((new Date(shown[i - 1].at) - new Date(entry.at)) / 60000) : 0;
-    return [quiet >= GAP_MINUTES ? `<li class="gap">${quiet} min with nothing new</li>` : '', historyRow(entry)];
-  });
+  const scope = zoomed ? [zoomed] : series;
+  const moments = zoomed ? zoomed.moments : model.history;
+  const listed = moments.filter(keep).slice(0, zoomed ? undefined : RECENT_MOMENTS);
+  const total = (field) => scope.reduce((sum, each) => sum + each[field], 0);
+  const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [moments.length, 'moments']];
   const filters = HISTORY_FILTERS.map(([id, label]) => `<button data-filter="${id}" class="${id === historyFilter ? 'on' : ''}">${label}</button>`).join('');
-  return `<h1 class="h1">History <span class="count">last 24 hours, newest first</span></h1>
-    <div class="subtabs">${filters}</div>
-    <ul class="history card">${rows.join('') || '<li class="empty">Nothing yet.</li>'}</ul>`;
+  const latest = series.at(-1);
+  const zoom = zoomed ? '<a class="map-btn" href="#/history">← All days</a>' : latest ? `<a class="map-btn" href="#/history/${latest.day}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ↗</a>` : '';
+  return `<div class="page-head">
+      <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">Click a day to zoom in. Click a moment to follow it back to the work.</p></div>
+      <div class="subtabs">${filters}</div>
+    </div>
+    <div class="history-layout">
+      <section class="history-stage">
+        <div class="history-stats">${stats.map(([n, label]) => `<div><b>${n}</b><span>${label}</span></div>`).join('')}</div>
+        ${series.length ? dayChart(series, 'merged', 'PRs merged', 'By the Pacific day each merged', 'PR', zoomed) : ''}
+        ${series.length ? dayChart(series, 'swears', 'A vocabulary of urgency', 'Swear words in your orders, by the day you sent each', 'swear word', zoomed) : ''}
+        <div class="history-zoom"><span>${zoomed ? `Every moment of ${dayName(zoomed.day, { month: 'long', day: 'numeric' })}` : `The newest ${counted(listed.length, 'moment')}`}</span>${zoom}</div>
+        <ul class="history">${timeline(listed, !zoomed) || '<li class="empty">Nothing yet.</li>'}</ul>
+      </section>
+      ${series.length ? historySide(series, zoomed) : ''}
+    </div>`;
+}
+
+function historySide(series, zoomed) {
+  const most = (field) => series.reduce((best, each) => (each[field] > best[field] ? each : best));
+  const [busiest, saltiest] = [most('merged'), most('swears')];
+  return `<aside class="history-side">
+    <div class="eyebrow">${zoomed ? 'A day in the drive' : 'The shape of the drive'}</div>
+    <div class="big-date">${zoomed ? Number(zoomed.day.slice(-2)) : series.length}</div>
+    <h3>${zoomed ? esc(dayName(zoomed.day, { weekday: 'long' })) : `${series.length === 1 ? 'day' : 'days'} of the drive`}</h3>
+    <p>Busiest day: <a href="#/history/${busiest.day}">${dayName(busiest.day)}</a>, ${counted(busiest.merged, 'PR')} merged.</p>
+    ${saltiest.swears ? `<p>Saltiest day: <a href="#/history/${saltiest.day}">${dayName(saltiest.day)}</a>, ${counted(saltiest.swears, 'swear word')} in your orders.</p>` : ''}
+    <p class="rail-note">PRs count each change the drive merged, on the Pacific day it merged. Swears count words such as ${SWEAR_WORDS} in your orders' own words, on the day you sent each.</p>
+  </aside>`;
 }
 
 function prItem(pr) {
   return `<li><a href="${esc(pr.url)}" target="_blank" rel="noopener"><i class="sq ${esc(prTone(pr))}"></i>${esc(pr.title)}</a><em>${esc(prSaid(pr))}, ${esc(pr.review === 'none' ? 'no review' : pr.review)}</em></li>`;
 }
 
+function decisionPiece(card) {
+  const item = model.queue.find((each) => each.answer === card.url);
+  return `<article class="piece you">
+    <div class="eyebrow">Decision · needs you</div>
+    <h3>${esc(card.title)}</h3>
+    <p class="meta">Asked ${clock(card.asked)}, waiting ${ago(card.asked)}</p>
+    ${item ? `<div class="piece-foot"><button class="linkish" data-queue="${esc(noticeKey(item))}">Answer it in your queue ↗</button></div>` : ''}
+  </article>`;
+}
+
+function prPiece(pr) {
+  const key = prKey(pr.url);
+  return `<article class="piece">
+    <div class="eyebrow">Pull request ${esc(key)}</div>
+    <h3>${esc(bare(pr.title))}</h3>
+    <p class="meta"><i class="sq ${esc(prTone(pr))}"></i> ${esc(prSaid(pr))}, ${esc(pr.review === 'none' ? 'no review' : pr.review)}</p>
+    <div class="piece-foot">${pr.state === 'open' ? `<button class="linkish" data-pr="${esc(key)}">Read the change</button>` : '<span></span>'}<a href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a></div>
+  </article>`;
+}
+
 function featureScreen(id) {
-  const entry = features().find((candidate) => candidate.id === id);
+  const entry = featureOf(id);
   if (!entry) return '<p class="empty">This feature is no longer on the dashboard. <a href="#/now">Back to Now</a></p>';
   const facts = [
-    ['Where it is', `${GROUPS[entry.state]}${entry.now ? `: ${esc(entry.now)}` : ''}`],
+    entry.now ? ['Where it is', esc(entry.now)] : null,
     ['Asked', clock(entry.created)],
     entry.milestone ? ['Milestone', `<a href="#/plan/${model.milestones.findIndex((stop) => stop.name === entry.milestone)}">${esc(entry.milestone)}</a>`] : null,
     entry.due ? ['Promised', `${clock(entry.due)}${entry.late ? ' <b class="red">late</b>' : ''}`] : null,
     entry.proof ? ['Proof', esc(entry.proof)] : null,
     entry.note ? ['Note', esc(entry.note)] : null,
   ].filter(Boolean);
-  const prs = entry.prs.map(prItem).join('');
-  return `<a class="back" href="#/now">‹ Now</a>
-    <div class="kick"><span class="dot ${entry.state.replace(' ', '-')}"></span>${GROUPS[entry.state]}${entry.prs.length ? ` · ${entry.prs.filter((pr) => pr.state === 'merged').length} of ${entry.prs.length} merged` : ''}</div>
-    <h1 class="h1">${esc(entry.title)}</h1>
-    <blockquote class="said">${esc(entry.text)}</blockquote>
-    <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
-    ${prs ? `<h3 class="sec">Pull requests</h3><ul class="prlist card">${prs}</ul>` : ''}
-    ${entry.built.length ? `<h3 class="sec">Built, waiting on your design answers</h3><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
-    ${entry.cards.length ? `<h3 class="sec">Waiting on your answer</h3><div class="card built">${cardsLine(entry.cards)}</div>` : ''}
-    ${entry.jobs.length ? `<h3 class="sec">Jobs</h3><ul class="jobs card">${entry.jobs.map((job) => jobRow(job, false)).join('')}</ul>` : ''}`;
+  const pieces = [...entry.cards.map(decisionPiece), ...entry.prs.map(prPiece)];
+  return `<div class="eyebrow">Task</div>
+    <h1 class="h1 zoom-title">${esc(entry.title)}</h1>
+    ${crumbs([fileKey(entry.project), fileKey(entry.workstream)], 'This task')}
+    <div class="now-grid"><div class="zoom-body">
+      <div class="kick"><span class="dot ${entry.state.replace(' ', '-')}"></span>${GROUPS[entry.state]}${entry.prs.length ? ` · ${entry.prs.filter((pr) => pr.state === 'merged').length} of ${entry.prs.length} merged` : ''}</div>
+      <blockquote class="said">${esc(entry.text)}</blockquote>
+      <h2 class="sec">PRs and decisions <span class="count">${pieces.length}</span></h2>
+      ${pieces.length ? `<div class="pieces">${pieces.join('')}</div>` : '<p class="empty small">No PR or decision yet.</p>'}
+      ${entry.built.length ? `<h2 class="sec">Built, waiting on your design answers</h2><div class="card built">${entry.built.map(builtLine).join('')}</div>` : ''}
+      <dl class="factlist">${facts.map(([label, value]) => `<dt>${label}</dt><dd>${value}</dd>`).join('')}</dl>
+      ${entry.jobs.length ? `<h2 class="sec">Jobs</h2><ul class="jobs card">${entry.jobs.map(jobRow).join('')}</ul>` : ''}
+    </div>${story([entry])}</div>`;
 }
 
 function measure() {
@@ -1073,6 +1370,8 @@ function render() {
   const y = window.scrollY;
   const typing = document.activeElement?.matches?.('#main textarea[data-draft]') ? document.activeElement : null;
   const caret = typing && [typing.dataset.draft, typing.selectionStart, typing.selectionEnd];
+  $('#main').classList.toggle('arrived', location.hash !== shownHash);
+  shownHash = location.hash;
   $('#main').innerHTML = (screens[screen] ?? queueScreen)();
   const box = caret && document.querySelector(`#main textarea[data-draft="${CSS.escape(caret[0])}"]`);
   if (box && !box.disabled) {
@@ -1242,6 +1541,20 @@ document.addEventListener('click', (event) => {
   if (pick) return answer(pick.dataset.card, pick.dataset.label);
   const pr = event.target.closest('button[data-pr]');
   if (pr) return openPR(pr.dataset.pr);
+  const queued = event.target.closest('[data-queue]');
+  if (queued) {
+    queueAt = queued.dataset.queue;
+    return go('#/queue/all');
+  }
+  if (event.target.closest('[data-motion]')) {
+    paused = paused ? null : Date.now();
+    return render();
+  }
+  const zoomed = event.target.closest('[data-zoom]');
+  if (zoomed) {
+    mapZoom = Math.max(0, Math.min(MAP_ZOOMS.length - 1, mapZoom + Number(zoomed.dataset.zoom)));
+    return render();
+  }
   const file = event.target.closest('button[data-file]');
   if (file) return openFile(file.dataset.file, file.dataset.title);
   if (event.target.closest('#kbtn')) return openJump();
@@ -1328,6 +1641,10 @@ document.addEventListener('keydown', (event) => {
   }
   const free = !event.metaKey && !event.ctrlKey && !event.altKey && !writing && !document.querySelector('dialog[open]');
   const { screen, id } = route();
+  if (free && event.key === 'Escape' && up()) {
+    event.preventDefault();
+    return go(up());
+  }
   if (free && screen === 'queue') {
     const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
     if (step) {
