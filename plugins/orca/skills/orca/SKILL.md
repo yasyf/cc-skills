@@ -88,6 +88,15 @@ whose `worker-start` came back `consumer_fenced` starts again from the same
 attempt with the same brief: it reuses the prepared Sprite and runs only
 `worker-start`.
 
+A Sprite `worker-start` can fail before Orca records it, as when this Mac's
+Orca gives up after 15 seconds waiting for a freshly paired Sprite's runtime:
+`orca orchestration request-show` then reads `absent` for its request ID. The
+launcher runs it once more with `--retry-request` and that ID, which Orca
+replays instead of repeating. When the second try fails the same way, the
+launcher writes the ID to `worker-start.unsent`, says in one line that no
+worker started and its prepared terminal waits idle, and the next launch of
+the same brief reuses that Sprite and retries under the same ID.
+
 Prepare starts the Sprite's Orca runtime through its `orca` CLI, and Orca
 1.4.224 serves it on its managed server, `orcad`. The prepared task records that
 server's build as `managedServer`, read from the ready event `orca serve --json`
@@ -225,10 +234,10 @@ authentication caches to a worker.
 Each brief claims `<brief-stem>.worker` beside the brief. For
 `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. An existing directory,
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
-The one exception is a Sprite attempt whose prepare exited nonzero and that
-never ran `worker-start`: no task reached any worker, so launching the brief
-again moves that attempt to `<brief-stem>.worker.<n>`, keeping its files, and
-prepares afresh. The directory records `request.json` with the requested route, model, effort,
+The exceptions are a fenced or unrecorded `worker-start`, described above, and
+a Sprite attempt whose prepare exited nonzero and that never ran `worker-start`.
+In that last case no task reached any worker, so launching the brief again moves
+the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains the raw `allocation.json`, `prepare.err`, and

@@ -66,6 +66,23 @@ TOOLS_KEPT = sorted([*PREPARE_KEPT, "tools.err", "tools.out"])
 SPRITE_KEPT = sorted([*TOOLS_KEPT, *START_KEPT])
 LOCAL_KEPT = sorted(["request.json", "worktree", *START_KEPT])
 UNREADY = "orca orchestration worker-start exited 0 without a ready receipt for Run {run}; kept terminal {terminal}, worktree {worktree}, and the receipt in {attempt}"
+REQUEST = "3c349608-67b7-49a0-8c8d-1b16b27d0e13"
+UNREACHED = {
+    "rc": 1,
+    "out": {
+        "ok": False,
+        "error": {
+            "code": "runtime_error",
+            "message": f"Timed out waiting for the remote Orca runtime. If the server is on another network, connect both devices to Tailscale and pair using its Tailscale address (100.x or a *.ts.net name). See https://tailscale.com/download. Orchestration mutation request ID: {REQUEST}.",
+            "data": {"orchestrationRequestId": REQUEST},
+        },
+    },
+}
+REQUEST_SHOW = ["orca", "orchestration", "request-show", "--request", REQUEST, "--json"]
+
+
+def request_state(state: str) -> dict:
+    return {"out": {"ok": True, "result": {"requestId": REQUEST, "state": state}}}
 
 FAKE = """#!/usr/bin/env python3
 import json, os, sys
@@ -196,10 +213,11 @@ class Launch:
         words = " ".join(f"{bin} {tag} {download(repo, tag, bin)} {sha} {alias or "''"}" for bin, repo, tag, sha, alias in RELEASES)
         return [*latest, ["ssh", "-F", PREPARED["forward"]["config"], "-o", "BatchMode=yes", "-o", "ConnectTimeout=30", WORKSPACE, f"bash -s -- {words}"]]
 
-    def start(self, prepared: dict = PREPARED) -> list[str]:
+    def start(self, prepared: dict = PREPARED, retry: str | None = None) -> list[str]:
         spec = f"Lane {LANE}: read the whole brief at {prepared['brief']['path']}, verify its SHA-256 is {SHA} and its size is {BYTES} bytes, then follow it exactly."
         placement = ["--on", prepared["environment"], "--worktree", f"id:{prepared['worktreeId']}", "--terminal", prepared["terminal"]]
-        return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, "--timeout-ms", "600000", "--full", "--json"]
+        retried = ["--retry-request", retry] if retry else []
+        return ["orca", "orchestration", "worker-start", "--run", RUN, "--spec", spec, "--task-title", LANE, *placement, *retried, "--timeout-ms", "600000", "--full", "--json"]
 
     def local_calls(self, model: str = "claude-fable-5-2", effort: str = "xhigh", repo: str = REPO, cone: tuple[str, ...] = CONE, lane_env: str = LANE_ENV) -> list[list[str]]:
         claude = f"env {lane_env} claude --allow-dangerously-skip-permissions --permission-mode bypassPermissions --disallowedTools {LANE_DENIED_TOOLS} --strict-mcp-config --no-chrome --model {model} --effort {effort} --settings '{LANE_SETTINGS}'"
@@ -682,6 +700,55 @@ class SpriteTest(LaunchTest):
         self.assert_failed(self.launch, result, f"orca orchestration worker-start exited 1: consumer_fenced: fenced; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {self.launch.attempt}", [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
         self.assertEqual(self.launch.receipt("worker-start.status"), "1\n")
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_worker_start_orca_never_recorded_runs_once_more_under_its_request_id(self):
+        self.launch.sprite()
+        self.launch.reply("orca orchestration worker-start", UNREACHED, {"out": RECEIPT})
+        self.launch.reply("orca orchestration request-show", request_state("absent"))
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["dispatch"], "ctx_a")
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start(), REQUEST_SHOW, self.launch.start(retry=REQUEST)])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_worker_start_orca_recorded_or_could_not_look_up_is_never_run_again(self):
+        message = UNREACHED["out"]["error"]["message"]
+        for shown in (request_state("completed"), request_state("pending"), {"rc": 1}):
+            with self.subTest(shown=shown):
+                launch = self.fresh()
+                launch.sprite(started=UNREACHED)
+                launch.reply("orca orchestration request-show", shown)
+                line = f"orca orchestration worker-start exited 1: runtime_error: {message}; kept terminal {TERMINAL}, worktree {ROOT}, and the receipt in {launch.attempt}"
+                self.assert_failed(launch, launch.run(), line, [VERSION, CURRENT, launch.prepare(), *launch.tools(), launch.start(), REQUEST_SHOW])
+                self.assertEqual(launch.kept(), SPRITE_KEPT)
+
+    def test_a_worker_start_unrecorded_twice_fails_in_one_line_and_a_relaunch_retries_it_on_the_same_sprite(self):
+        self.launch.sprite()
+        self.launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
+        self.launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
+        line = f"no worker started on Sprite {WORKSPACE}: orca orchestration worker-start failed twice before Orca recorded it, with runtime_error: Timed out waiting for the remote Orca runtime; its terminal {TERMINAL} waits idle, and launching this brief again retries worker-start in it"
+        first = [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start(), REQUEST_SHOW, self.launch.start(retry=REQUEST), REQUEST_SHOW]
+        self.assert_failed(self.launch, self.launch.run(), line, first)
+        self.assertEqual(self.launch.kept(), sorted([*SPRITE_KEPT, "worker-start.unsent"]))
+        self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
+        self.launch.sprite()
+        relaunched = self.launch.run()
+        self.assertEqual(relaunched.returncode, 0, relaunched.stderr)
+        self.assertEqual(json.loads(relaunched.stdout)["dispatch"], "ctx_a")
+        self.assertEqual(self.launch.calls(), [*first, VERSION, CURRENT, *self.launch.tools(), self.launch.start(retry=REQUEST)])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_an_unrecorded_worker_start_never_reruns_another_version_of_its_brief(self):
+        self.launch.sprite()
+        self.launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
+        self.launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
+        self.assertEqual(self.launch.run().returncode, 1)
+        self.launch.brief.write_text(BRIEF + "\nA later line.\n")
+        self.launch.sprite()
+        calls = self.launch.calls()
+        result = self.launch.run()
+        self.assert_failed(self.launch, result, f"{self.launch.attempt} prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared", [*calls, VERSION, CURRENT])
+        self.assertEqual(self.launch.receipt("worker-start.unsent"), f"{REQUEST}\n")
 
     def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_unattached(self):
         unreleased = {"out": "v0.95.43\n"}

@@ -127,13 +127,15 @@ if [ "$route" = sprite ] && [ -d "$attempt" ] && [ ! -L "$attempt" ] && [ ! -e "
   mv "$attempt" "$retired"
   echo "$retired keeps the earlier attempt, whose prepare exited $failed before any worker started; preparing again" >&2
 fi
-fenced=
+reused= unsent=
 if [ -e "$attempt" ] || [ -L "$attempt" ]; then
-  [ "$route" = sprite ] && [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ] ||
+  [ "$route" = sprite ] && { [ -f "$attempt/worker-start.unsent" ] ||
+    [ "$(jq -r '.error.code // empty' "$attempt/worker-start.json" 2>/dev/null)" = consumer_fenced ]; } ||
     die "$attempt holds an earlier attempt of this brief, and a brief gets one attempt; inspect it instead"
   [ "$(jq -r .brief.sha256 "$attempt/prepared.json")" = "$sha" ] ||
-    die "$attempt prepared a Sprite for another version of this brief, and its worker-start was fenced; launch the brief it prepared"
-  fenced=1
+    die "$attempt prepared a Sprite for another version of this brief, and its worker-start started no worker; launch the brief it prepared"
+  reused=1
+  [ ! -f "$attempt/worker-start.unsent" ] || read -r unsent <"$attempt/worker-start.unsent"
 else
   mkdir "$attempt"
 fi
@@ -147,13 +149,38 @@ jq -n --arg lane "$lane" --arg run "$run" --arg route "$route" --arg kind "$kind
     ref: ($ref | given), expectBase: ($expect | given),
     brief: {path: $path, sha256: $sha, bytes: $bytes}}' >"$attempt/request.json"
 
-start_worker() {
-  local spec=$1 status=0 error
+worker_start() {
+  local spec=$1
   shift
   ${bind[@]+"${bind[@]}"} orca orchestration worker-start --run "$run" --spec "$spec" --task-title "$lane" "$@" \
-    --timeout-ms 600000 --full --json >"$attempt/worker-start.json" 2>"$attempt/worker-start.err" || status=$?
+    --timeout-ms 600000 --full --json >"$attempt/worker-start.json" 2>"$attempt/worker-start.err"
+}
+
+unrecorded_request() {
+  local request
+  request=$(jq -er '.error.data.orchestrationRequestId | strings' "$attempt/worker-start.json" 2>/dev/null) || return 1
+  ${bind[@]+"${bind[@]}"} orca orchestration request-show --request "$request" --json 2>/dev/null |
+    jq -e '.result.state == "absent"' >/dev/null 2>&1 || return 1
+  echo "$request"
+}
+
+start_worker() {
+  local spec=$1 status=0 error request=
+  shift
+  rm -f "$attempt/worker-start.unsent"
+  worker_start "$spec" "$@" ${unsent:+--retry-request "$unsent"} || status=$?
+  if [ "$status" -ne 0 ] && [ "$route" = sprite ] && request=$(unrecorded_request); then
+    status=0
+    worker_start "$spec" "$@" --retry-request "$request" || status=$?
+    if [ "$status" -ne 0 ]; then request=$(unrecorded_request) || request=; fi
+  fi
   echo "$status" >"$attempt/worker-start.status"
   if [ "$status" -ne 0 ]; then
+    if [ -n "$request" ]; then
+      echo "$request" >"$attempt/worker-start.unsent"
+      error=$(jq -r '"\(.error.code): \(.error.message | split(". ")[0] | rtrimstr("."))"' "$attempt/worker-start.json" 2>/dev/null) || error=
+      die "no worker started on Sprite $workspace: orca orchestration worker-start failed twice before Orca recorded it${error:+, with $error}; its terminal $terminal waits idle, and launching this brief again retries worker-start in it"
+    fi
     error=$(jq -r 'select(.ok == false) | "\(.error.code): \(.error.message)"' "$attempt/worker-start.json" 2>/dev/null) || error=
     die "orca orchestration worker-start exited $status${error:+: $error}; kept terminal $terminal, worktree $wt, and the receipt in $attempt"
   fi
@@ -171,8 +198,8 @@ if [ "$route" = sprite ]; then
   [ -z "${WORKER_MCP_CONFIG:-}" ] || prepare+=(--mcp-config "$WORKER_MCP_CONFIG")
   [ ${#worker_env[@]} -eq 0 ] || for pair in "${worker_env[@]}"; do prepare+=(--env "$pair"); done
   status=0
-  [ -n "$fenced" ] || "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
-  [ -n "$fenced" ] || echo "$status" >"$attempt/prepare.status"
+  [ -n "$reused" ] || "$cc_remote" "${prepare[@]}" >"$attempt/allocation.json" 2>"$attempt/prepare.err" || status=$?
+  [ -n "$reused" ] || echo "$status" >"$attempt/prepare.status"
   [ "$status" -eq 0 ] || die "cc-remote orca prepare exited $status; $attempt keeps its output, nothing was attached, and launching this brief again prepares afresh"
 
   verdict=$(jq -rs --arg lane "$lane" --arg ref "$ref" --arg kind "$kind" --arg model "$model_id" --arg effort "$effort" --arg tier "$tier" \
@@ -203,6 +230,7 @@ if [ "$route" = sprite ]; then
 
   terminal=$(jq -r .terminal "$attempt/prepared.json")
   wt=$(jq -r .projectRoot "$attempt/prepared.json")
+  workspace=$(jq -r .workspace "$attempt/prepared.json")
   start_worker "Lane $lane: read the whole brief at $(jq -r .brief.path "$attempt/prepared.json"), verify its SHA-256 is $sha and its size is $bytes bytes, then follow it exactly." \
     --on "$(jq -r .environment "$attempt/prepared.json")" --worktree "id:$(jq -r .worktreeId "$attempt/prepared.json")" --terminal "$terminal"
   jq -c --arg terminal "$terminal" --arg worktree "$wt" --slurpfile allocation "$attempt/allocation.json" \
