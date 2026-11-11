@@ -1,194 +1,207 @@
 # Land a change
 
-A builder owns its PR from the first push to the proof that the change is live, lands it the way its
-repository says below, and returns `DONE <proof>`. The communicator draws his PR card from the PR
-itself.
+You own your PR from its first push until the proof that the change is live. Land it the way the section
+for its repository says, then return `DONE <proof>`.
+
+- [Every PR](#every-pr)
+- [yasyf/* repositories](#yasyf-repositories)
+- [Forge-AI/monorepo](#forge-aimonorepo)
+- [Read-only repositories](#read-only-repositories)
+- [After merge](#after-merge)
 
 ## Every PR
 
-- One PR is one feature-sized unit; review fixes and follow-ups amend it (`ccx vcs ship --amend`). Open a
-  second PR only when another job waits on part of the work or a review asks for the split.
-- **The default branch stays releasable.** His words, Nov 10 6:44 PM: "why would you merge something
-  that shouydlknt go out dev mustr always be releasable". A change lands only in a shape where a release
-  cut from the default branch at its merge commit is safe by itself, with its targets going out in any
-  order and nothing run after it. That rules out a fill, pass or backfill that must follow the release,
-  a command run by hand, a migration another release applies, and a target that must go out first with
-  only a footer to enforce it. Split such a change until each PR is safe alone: the readers first, the
-  writer once they are live, a backfill the code runs on its own. A design that needs a later step is
-  never offered to him as an option. On Nov 10 a PR landed whose release was safe only after a fill run
-  by hand. Its card never said so, and a later ruling of his made that fill impossible.
-- Nothing lands around his open card. A PR whose change carries a question card of his not yet
-  answered is not landed or enqueued, whatever order to land arrived, and its recommended option never
-  stands in for his answer: return `WAITING` naming the card, and the coordinator puts it in front of
-  him, by [Design first](design.md).
-- A stack is at most four PRs, since his card shows every PR of a stack in its own section with its
-  pictures. A change that needs more is split into stacks that land on their own, or folded into fewer PRs.
-- Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A repository
-  whose title check demands `fix:` or `feat:` keeps it; the card reads either.
-- Body sections, in this order. His card is drawn from them: fix the body, never the card. Each is
-  plain words for him: no record ids (cc-notes, cci, job or order ids) or hashes, while a function,
-  syscall, file or path goes in by its proper term, by his words, Nov 11 12:36 AM: "use the proper fucking terms for things";
-  a sentence carrying a record id is dropped from his card. Each stands alone, since he
-  reads it with no other context: a number, fraction, size or ratio says what it measures, why that
-  value, and gives one example; a mechanism gets one plain sentence before it is used; nothing
-  points at a list, finding, thread or PR the card does not show. Not "reads each journal file's
-  page index sized to the file (a sixteenth of it, at most 64 KiB)", but "to open a run's page the
-  browser first fetches a small index from the end of every journal file. It used to fetch the last
-  64 KiB of every file; now it fetches the last one-sixteenth of each file (about 6 KiB of a 97 KiB
-  file), never more than 64 KiB."
-  - `## The stack`: only on the bottom PR of a stack. Its first line is the stack's title, one readable
-    line saying what the whole stack does; then a short paragraph explaining the whole stack in the
-    Refresher's register. They head his stack card, and `drive card` refuses a stack card waiting on his
-    tap without them.
+- One PR is one feature-sized unit: amend review fixes and follow-ups into it with
+  `ccx vcs ship --amend`. Open a second PR only when another job waits on part of the work or a review
+  asks for the split.
+- The default branch stays releasable, in his words "dev mustr always be releasable": a change lands
+  only when a release cut at its merge commit is safe by itself, its targets going out in any order and
+  nothing run after it. That rules out a fill, pass or backfill that must follow the release, a command
+  run by hand, a migration another release applies, and a target that must go out first with only a
+  footer to enforce it.
+- Split a change that needs a later step until each PR is safe alone: the readers first, the writer once
+  they are live on every client, a backfill the code runs on its own. A PR that changes a format another
+  build reads (a stored file, row, journal, or manifest) links the readers' PR in its body. Offer him no
+  design that lands a part first and leaves a step for later; `drive job ask` refuses one.
+- While a question card of his on the change is unanswered, land and enqueue nothing, whatever order to
+  land arrived. Its recommended option never stands in for his answer: return `WAITING` naming the card,
+  which the coordinator puts in front of him by [Design first](design.md). `drive pr add` refuses a PR
+  whose job waits on his open card. An incident's repair is the exception, since no incident waits on a
+  card: it lands on the recommended option, the card stays open, and a different pick of his starts a
+  follow-up job on the same order.
+- Keep a stack to four PRs at most, because his card shows each PR of a stack in its own section with
+  its pictures; `drive pr set --tap` refuses a longer one and says how to split or fold it.
+- Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
+  repository whose title check demands `fix:` or `feat:` keeps that prefix; the card reads either.
+- Write the body for him in plain words that name each function, syscall, flag, file, path, service or
+  table by its proper term, never a vague stand-in, in his words "use the proper fucking terms for
+  things". Leave out ids he cannot open (cc-notes, cci, job, order, or waits ids) and hashes: a sentence
+  carrying a record id is dropped from his card.
+- Each section stands alone, because he reads it with no other context. A number, fraction, size, or
+  ratio says what it measures, why that value, and gives one example. A mechanism gets one plain
+  sentence before it is used. Nothing points at a list, finding, thread, or PR the card does not show.
+  Not "reads each journal file's page index sized to the file (a sixteenth of it, at most 64 KiB)", but
+  "to open a run's page the browser first fetches a small index from the end of every journal file: once
+  its last 64 KiB, now its last sixteenth (about 6 KiB of a 97 KiB file), never more than 64 KiB."
+- Write these body sections, in this order. Fix the body, never the card: his card is redrawn from it.
+  - `## The stack`: only on a stack's bottom PR. Its first line is the stack's title, one readable line
+    on what the whole stack does, then a short paragraph explains the stack in the Refresher's voice.
+    They head his stack card; `drive card` refuses a stack card waiting on his tap without them.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
-    It leads the PR's section of his card. The card also reads an older `## ELI5`, and a monorepo
-    body's `## Context`, which its `submit-pr` template now writes in this voice.
+    It leads the PR's section of his card. The card also reads `## ELI5`, and a monorepo body's
+    `## Context`, which its `submit-pr` template writes in this voice.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
-  - `## What you'll hate most`: the one thing about this change he is most likely to dislike, said
-    plainly: a cost, a behavior he did not ask for, a shortcut, a risk he would not take. A PR that
-    waits on his tap draws no card without it: `drive pr set --tap` refuses it with the words
-    `drive card` would refuse the card with, before any `ready` record goes out.
-  - `## Releasable alone`: what a release cut at this PR's merge commit does with nothing else, and,
-    for each order its targets could go out in, what a person sees, by the rule above. `drive pr set
-    --tap` and his card refuse a PR without it. They also refuse one whose Releasable alone or risk
-    section, or whose install, risk or prove line, leaves a step for after the release. That step is a
-    verb such as run, fill or backfill that the words schedule after it, as "then run", "after the
-    deploy, run the fill" and "backfill once it ships" do. Naming what the PR builds is no step: a
-    backfills page, a pass box or a `backfill-runner` account passes. Words that rule a step out pass ("nothing has to run once
-    it ships"), and so does a check of what is live: "PROVE: after release, open the run page" names
-    nothing to run.
-  - `## Show me`: a concrete example of the change in the visual kind that fits, which his card draws
-    as a picture and the dashboard draws live: the real SQL, code, CLI call or Sand call it changes,
-    before and after, in a fence naming its language (`sql`, `go`, `sand`), never words, JSON, YAML,
-    logs, terminal output or a stack trace in a fence; an `arch` map of the components a PR adds or
-    rewires, a `mermaid` fence for a flow, a `chart` (Vega-Lite) for numbers before and after; for a UI change, a screenshot or gif linked as a
-    markdown image. What a screenshot may show depends on who can read the
-    PR. On a public repository, such as every `yasyf/*` one, it shows a demo drive or public data only,
-    and the file sits under a `demo-` or `public-` name or folder; its body names no private
-    repository's PR either. A picture of the live drive, a private repository's code, Slack, or a
-    customer's or teammate's data goes only into a private repository's PR or his DM. `drive pr add`
-    refuses a public PR whose body breaks either rule, and a body fixed after it opened still needs each
-    earlier revision deleted from its edit history and the branch holding the pictures deleted. A
-    diagram goes beside the example, never in its place. At most one short sentence of caption: the
-    card shows the pictures, never prose.
-  - `## Against the plan`: only on a departure: what the plan said, what you did, and why.
-  - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to
-    run it. A PR with behaviour of its own past that is not a port.
-  - `## His words, step by step`: each step his words in the brief name, quoted, beside the
-    file and line that does it (`path:line`). The coordinator checks this list against his words
-    before his card is drawn, so a step with no code returns the PR to you. It stays off his card.
-    A PR that is not a port and whose list would be empty or say none is not his order. Drive
-    tooling says none and gets its card from its own order by [Scope](scope.md). Anything else
-    returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its
-    card. Never quote his words for another change, such as the order whose jobs a tool fix
-    unblocks, to fill this list.
+  - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
+    behavior he did not ask for, a shortcut, or a risk he would not take.
+  - `## Releasable alone`: what a release cut at this PR's merge commit does with nothing else, and, for
+    each order its targets could go out in, what a person sees.
+  - Before any `ready` record goes out, `drive pr set --tap` refuses a PR missing either of those two
+    sections, or whose Releasable alone or risk section, or `INSTALL:`, risk, or `PROVE:` line,
+    schedules a step after the release. It refuses "then run the backfill" and passes
+    `PROVE: after release, open the run page`, which checks what is live.
+  - `## Show me`: one concrete example of the change, which his card draws as a picture and the
+    dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
+    fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
+    or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
+    `chart` fence (Vega-Lite); a UI change gets a screenshot or gif as a markdown image. A fence holds
+    code, never prose, JSON, YAML, logs, terminal output, or a stack trace. Add at most one short
+    caption sentence: the card shows pictures, not prose.
+  - On a public repository, such as every `yasyf/*` one, pictures show only a demo drive or public data,
+    under a `demo-` or `public-` file or folder name, and the body names no private repository's PR. The
+    live drive, private code, Slack, or a customer's or teammate's data goes only into a private
+    repository's PR or a direct message to him. `drive pr add` refuses a public PR whose body breaks
+    this; after fixing such a body on an open PR, delete each earlier revision from its edit history and
+    the branch holding the pictures, since both stay readable.
+  - `## Against the plan`: only when you departed from the plan: what it said, what you did, and why.
+  - `## Port`: only on a port: the old PR it ports, linked, and anything the target tree needed to run
+    it. A PR with behavior of its own beyond that is not a port.
+  - `## His words, step by step`: each step his words in your brief name, quoted, beside the `path:line`
+    that does it; it stays off his card. The coordinator checks it against his words before his card is
+    drawn, and a step with no code returns the PR to you. Quote only the order this PR carries out,
+    never one whose jobs it only unblocks.
+  - When the PR is not a port and this list would be empty or say none, no order of his asks for it.
+    Drive tooling says none and gets its card from its own order by [Scope](scope.md); anything else
+    returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its card.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
-  tap. Return `READY <url>` when only his tap is left, or a port only its check against #N, naming
-  every PR of a stack bottom first (`READY <url> <url> …`) so he gets one card for it, with a
-  `SERVES:` line saying what it is: `port of #N`, `Drive tooling: <what it unblocks>`, or the order
-  of his it carries out, quoted. Return
-  `WAITING <what>` while CI or a queue runs.
+  tap.
+- Return `WAITING <what>` while CI, a review, or a queue runs. Return `READY <url>` when only his tap is
+  left, or for a port only the coordinator's check against #N. Name every PR of a stack bottom first
+  (`READY <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
+  `Drive tooling: <what it unblocks>`, or the order of his it carries out, quoted.
 
 ## yasyf/* repositories
 
-No tap: by his standing rule a `yasyf/*` PR merges without asking, green gate off until he lifts it.
+No tap: by his standing rule a `yasyf/*` PR merges without asking, with the green gate off until he
+lifts it.
 
-1. Ship with `ccx vcs ship` (jj in colocated repos); the `open-pr` skill writes the body.
-2. Merge at once: `gh pr merge <n> -R <repo> --squash --admin`. Wait only for a check red on the PR's own
-   change: fix it, push, merge. A mid-stack PR runs no CI; never wait on one.
-3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`). A Claude Code plugin:
-   `drive install <plugin>@<marketplace> --sha <merge sha>` (such as `long-running@skills`) waits for the
-   release that contains the merge, updates the plugin and prints the installed version, or refuses
-   with the installed version, its sha and the merge sha when the update left the plugin at a
-   commit without the merge, as a marketplace clone holding moved tags does. A live
-   session runs the installed version's script for each hook it registered when it started, but
-   registers no hook added since; that, and its skills, agents and any plugin's tools, change only
-   when that session runs `/reload-plugins`. So the install then types `/reload-plugins` through
-   Orca into the coordinator's and the communicator's terminals of every drive on this Mac, each
-   once its session is idle, within the same `--timeout`. It prints a line per session: reloaded;
-   skipped, with no terminal recorded; already reloaded onto a version, when another install sent
-   it one after this install's update, so installs run at once reload a session once; or not
-   reloaded, still busy at the deadline or with Orca's reason, and the `orca terminal send` command
-   that types it. Run that command once the session is idle. Installing long-running also restarts
-   each drive's dashboard still serving other code with the new build's `drive dashboard`, a line
-   each, so the page never serves the old code until someone runs it. No post ever asks him to type `/reload-plugins`. A tool this Mac
-   runs: follow its repository's release flow, install the release that contains the merge, read the
-   installed version back. Never patch an installed copy by hand: the next release overwrites it.
-   A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
-   release. Build the merge sha into your scratch directory with
-   `go build -o ~/.vcache/scratch/<lane>/<binary> <main>`, taking `<main>` from the build its
-   `.goreleaser.yaml` names; cc-transcript builds with `cargo build --release`. Rerun the case against
-   that binary. The release reaches the plugin on its own.
+1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
+2. Merge at once: `gh pr merge <n> -R <repo> --squash --admin`. Wait only for a check that is red on the
+   PR's own change: fix it, push, merge. A mid-stack PR runs no CI, so never wait on one.
+3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`):
+   - A Claude Code plugin: `drive install <plugin>@<marketplace> --sha <merge sha>` (such as
+     `long-running@skills`) waits for the release that contains the merge, updates the plugin, and
+     prints the installed version. It refuses, naming the installed version, its sha and the merge sha,
+     when the update left the plugin at a commit without the merge, as a marketplace clone holding moved
+     tags does. Installing long-running also restarts each drive's dashboard still serving other code, a
+     line each, so no page keeps serving old code until someone restarts it; one it cannot restart names
+     the `drive dashboard --drive <name>` command to run. A live session runs the installed version's
+     script for each hook it registered at start, but loads a hook added since, and its skills, agents,
+     and any plugin's tools, only on `/reload-plugins`. So the install then types that through Orca into
+     every drive's coordinator and communicator terminal on this Mac once each is idle, within
+     `--timeout`. It prints a line per session. A session another install already reloaded after this
+     update is not sent it again, so installs run at once reload a session once. One still busy at the
+     deadline or refused by Orca names the `orca terminal send` command that types it: run that once the
+     session is idle. No post asks him to type `/reload-plugins`.
+   - A tool this Mac runs: follow its repository's release flow, install the release that contains the
+     merge, and read the installed version back. Fix the source and release it; a hand patch to an
+     installed copy is lost at the next release.
+   - A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
+     release: build the merge sha with `go build -o ~/.vcache/scratch/<lane>/<binary> <main>`, taking
+     `<main>` from the build its `.goreleaser.yaml` names (cc-transcript: `cargo build --release`), and
+     rerun the case against that binary.
+   - Ask him on a card before each install that restarts the hook helper every session on this Mac
+     shares, such as capt-hook's: he approved one such restart, not all of them.
 
 ## Forge-AI/monorepo
 
-Ship through the repository's own `submit-pr` skill. Branch off `dev`; never build on, push to, or
+Ship through the repository's own `submit-pr` skill, on a branch off `dev`. Never build on, push to, or
 restack his own in-flight branches. A PR lands only when all of these hold at its current head:
 
 - every required check is green;
 - an approving review from the reviewer bot (`forge-pr-reviewer`) is in force, not dismissed;
-- the latest `ai-review` run passed. When it holds the PR, fix each blocking finding or accept a wrong one
-  with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "<why>"`; one on his design is `ASK`;
+- the latest `ai-review` run passed. When it holds the PR, fix each blocking finding, or accept a wrong
+  one with `.agents/skills/submit-pr/scripts/pr-reviews accept <slug> --why "<why>"`. A finding on his
+  design is an `ASK`;
 - nothing holds it: no Hold tap, no `hold` label, no conflict with `dev`;
-- he tapped Approve on its card, or it is an exempt class.
+- he tapped Approve on its card, or it is an exempt class. His approval in words, or his pick on a card
+  asking whether to land, is his tap too. The coordinator records it for exactly the PRs his words name
+  with `drive pr set <url> --tapped Approve --tap-source slack:<permalink>`, because the `landing_guard`
+  hook reads only a recorded tap and refuses a landing command for a drive PR with neither.
 
-**Exempt classes land with no tap, and he never sees a tap card for one.** Each is marked as its class
-wherever he sees it, lands once green, and he reads one line in its order's thread naming the class and
-the PR, such as "port of #N landed". **Pure port**: a `Port:` PR that does what its old-tree PR #N does,
-line for line, with that PR's tests, and nothing more; the coordinator reads it against #N's diff and
-records it with `drive pr set <url> --port-of <N>`. **Test-only**: only test and fixture files.
-**CI-only**: only CI configuration and CI tooling. **Flake fix**: the whole change fixes one named
-flaking test, in test or fixture code, and adds no timeout. **Incident fix**: the root fix an incident's order
-ships, by [incidents.md](incidents.md), never a revert, which waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it reverts a change. Record any other class with `drive pr set <url> --exempt
-"<class>"` and clear it with `--no-exempt`; the landing guard reads it. Anything else waits for his tap.
+**Exempt classes land with no tap** once green. He never sees a PR card for one: it is marked as its
+class wherever he sees it, and its order's thread gets one line naming the class and the PR, such as
+"port of #N landed."
+
+- `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
+  and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`.
+- `test-only`: only test and fixture files.
+- `ci-only`: only CI configuration and CI tooling.
+- `flake fix`: the whole change fixes one named flaking test, in test or fixture code, and adds no
+  timeout.
+- `incident fix`: the root fix an incident's order ships, by [incidents.md](incidents.md). A revert is
+  not one and waits for his tap: `drive pr set` refuses the class to a PR whose title or body says it
+  reverts a change.
+
+Record any other class by its name with `drive pr set <url> --exempt "<class>"` and clear it with
+`--no-exempt`; the landing guard reads it. Anything else waits for his tap.
 
 **His tap counts once per PR.** It carries across every new head: rebase, restack, review fix, retitle.
-Only a push that changes what he approved ends it: `drive pr set <url> --fundamental "<what changed>"`
-clears the tap and any exemption, and puts the PR back on his card with that line. Two PRs that carry out one decision of
-his get one card: fold one into the other first.
+When a push changes what he approved, run `drive pr set <url> --fundamental "<what changed>"`, which
+clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
+carry out one decision of his into one first, so he gets one card.
 
 **Enqueue** into the Trunk merge queue with the repository's script, naming every PR that may land:
 
     .agents/skills/submit-pr/scripts/stack-enqueue <PR>...
 
-It enqueues the largest green, approved, unheld bottom of the stack in one call, never an unnamed PR, and
-reads the queue back. `--check` previews the gate; `--watch` keeps enqueueing as the stack turns green.
-Enqueue a green stack together, never its first PR alone; once part lands, `ccx vcs stack submit` the rest.
+It enqueues the largest green, approved, unheld bottom of the stack in one call, never an unnamed PR,
+and reads the queue back. `--check` previews the gate; `--watch` keeps enqueueing as the stack turns
+green. Enqueue a green stack together, never its first PR alone; once part lands, run
+`ccx vcs stack submit` for the rest.
 
-**Never** `--admin`, `gh pr merge` around the queue, a hand-added `merge` or `merge-fast` label, or
-`tools/ci trunk submit --direct` (that needs his written ruling naming the PR and its full head sha). An
+**The queue is the only way in**, because every other way skips the checks it runs: never `--admin`,
+`gh pr merge` around the queue, a hand-added `merge` or `merge-fast` label, or
+`tools/ci trunk submit --direct`, which needs his written ruling naming the PR and its full head sha. An
 incident fix lands as [incidents.md](incidents.md) says.
 
-**Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an inherited
-one, restack onto a `dev` that has the fix or fix it forward in its own PR. On a conflict or a queue
-ejection, restack, read the entry's history and verification build, fix the cause, enqueue once more. A
-test that keeps failing is fixed at its root, never retried past with `--flake` or a rerun.
-
-**Readers first.** A PR that changes a format another build reads (a stored file, row, journal, or
-manifest) lands only after the PR teaching its readers is live on every client, so a release at its
-merge commit is safe alone. Its body links that PR.
+**Every red on your PR is yours**, whether your change or `dev` caused it. Fix your own; for an
+inherited one, restack onto a `dev` that has the fix, or fix it forward in its own PR. On a conflict or
+a queue ejection, restack, read the entry's history and verification build, fix the cause, and enqueue
+once more. Fix a test that keeps failing at its root; never retry past it with `--flake` or a rerun.
 
 ## Read-only repositories
 
-Customer and forward-deployed engineers' repositories are read only: clone and read, never push, comment,
-or merge. He merges those himself. A change that belongs there comes back as `ASK` with the patch.
+Customer and forward-deployed engineers' repositories are read only: clone and read, never push,
+comment, or merge, since he merges those himself. A change that belongs there comes back as `ASK` with
+the patch.
 
 ## After merge
 
-Merged is not live. Before `DONE`, prove it. A plugin or tool's installed version contains the merge, or
-a compiled tool's local build of the merge sha reruns the case, as step 3 for yasyf/* repositories says.
-A monorepo change's release is live on the targets it touches, shown by its card in #releases. Start a
-regular release (`tools/ci release start`) only when his order covers releasing; otherwise, it rides the
-next one and the job returns `WAITING release`. His order or his pick on a card to release, or the
-coordinator's record of either, approves that release, its approve gate included, whatever migration,
-delete or replace it holds. Start it with `--order <his answer id>`, or run `tools/ci release approve
-<id> --via <agent>` the moment it holds, with no `ASK`, card or check in between; nobody asks him
-again. A resume or re-plan of a release he ordered keeps his order: pass the same `--order` again. A
-release with no approval of his is never approved by a job, a release he started himself is his and
-never touched, and an incident's own cut is approved by its order's words as [incidents.md](incidents.md)
-says. Then
-rerun the reporter's exact case on the live build.
-
-Return `DONE <proof>`: one line on what changed for him, and the link or version that proves it.
+- Merged is not live: prove it before `DONE`. A plugin or tool's installed version contains the merge,
+  or a compiled tool's local build of the merge sha reruns the case, by step 3 of
+  [yasyf/* repositories](#yasyf-repositories). A monorepo change is live when its release is live on the
+  targets it touches, shown by its card in #releases.
+- Start a regular release (`tools/ci release start`) only when his order covers releasing; otherwise,
+  the change rides the next release and the job returns `WAITING release`.
+- His order or his pick on a card to release, or the coordinator's record of either, approves that
+  release, its approve gate included, whatever migration, delete, or replace it holds. A pick on a card
+  that did not ask whether to release approves nothing in one. Start it with `--order <his answer id>`,
+  or run `tools/ci release approve <id> --via <agent>` the moment it holds, with no `ASK`, card, or
+  check in between: nobody asks him again. A resume or re-plan of a release he ordered passes the same
+  `--order` again.
+- A job never approves a release he has not approved, and never touches one he started himself. An
+  incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
+- Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what
+  changed for him, and the link or version that proves it.

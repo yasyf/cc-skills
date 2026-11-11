@@ -1,207 +1,220 @@
 # Handle an incident
 
-An incident is the drive's in three cases only, and then the coordinator handles it in the turn it
-arrives, before anything else:
+Contents: [One incident, one record](#one-incident-one-record) ·
+[In the same turn](#in-the-same-turn) · [Jobs](#jobs) ·
+[When the first check returns](#when-the-first-check-returns) ·
+[His card on an incident](#his-card-on-an-incident) ·
+[Freeze the broken service](#freeze-the-broken-service) ·
+[His stop in a thread](#his-stop-in-a-thread) · [Clocks](#clocks) ·
+[Ship it](#ship-it) · [What he hears](#what-he-hears)
+
+An incident is the drive's in three cases only. Handle it in the turn it arrives, before anything
+else, because users are blocked while it waits.
 
 - **He orders it:** his words call something an incident, ask for it urgently or with incident
   priority, or tell you to unbreak a live build.
 - **He sends an alert or asks about one:** his link to a Datadog monitor, a Sentry issue, an
-  `#outage` or `#alerts-*` report, or a page, which reaches the coordinator as an `owner` record.
-- **The drive caused it:** a monitor goes bad on a target one of the drive's own releases or changes
-  touched, during that release or after it, or one of the drive's releases fails partway through
-  its rollout.
+  `#outage` or `#alerts-*` report, or a page, which reaches you as an `owner` record.
+- **The drive caused it:** a monitor goes bad on a target one of the drive's own releases or
+  changes touched, during that release or after it, or a drive release fails partway through its
+  rollout.
 
-Every other alert in the channels the drive holds is nobody's here: no line, no order, no job. He ruled
-it ("stop wasting time with random non-issue incidents no one asked you to"), so before starting an
-incident run `answer_search` for his incident rulings and follow them. The coordinator holds the
-alert channels, each a `drive start --watch` named on its `Hold with cc-slack subscribe` line, so the drive
-sees its own releases go bad.
+Every other alert in the channels the drive holds gets no line, no order and no job, because he
+ruled against time spent on incidents nobody asked for. Anything else he asks you to fix is an
+ordinary order, by [coordinator.md](coordinator.md). When his words on an order ask for options or
+a diagnosis, it is no incident even with something down: a reader's diagnosis and option cards
+answer it, and no fix job starts. His words: "no wetf this one bring me options dont just fucking
+try toi fix".
 
-The goal is that users stop being blocked within minutes: by releasing the default branch when the
-first check shows its newest build already works, else by rolling the release back. Then the proper
-root fix of the cause ships. A stopgap never ships. The fix job starts at the alert, in the same
-message as the diagnosis job: diagnosis redirects the fix job and never comes first. Nothing stands
-between the alert and those two jobs: no question to him, no real-or-ours verdict, no plan mode, no
-reproduction, no cause hunt, no mute as a resolution. His ruling, Nov 10 3:46 PM: "sounds good, and
-fix your tooling so you dont do this again; you should have just rolle dback and done the proper
-fix". On Nov 10 SandSQL release 60 failed at about 9:30 PM, a cause hunt ran alone until 10:04 PM,
-and the fix's PR opened at 10:26 PM. His words, 10:38 PM: "ok hurry the fuckl up its an incident",
-and 10:39 PM: "why trhe fuck did you waitg this loing?"
+Before starting an incident, run `answer_search` for his incident rulings and follow them. You
+hold the alert channels, each a `drive start --watch` named on its `Hold with cc-slack subscribe`
+line, so the drive sees its own releases go bad.
+
+The goal: users stop being blocked within minutes, by releasing the default branch when the first
+check shows its newest build already works, else by rolling the release back. Then the root fix
+of the cause ships, the one that stops a repeat, and a stopgap never ships. His words: "you should
+have just rolle dback and done the proper fix".
+
+The fix job starts at the alert, in the same message as the diagnosis job, because diagnosis
+redirects the fix job and never comes first. Nothing stands between the alert and those two jobs:
+no question to him, no real-or-ours verdict, no plan mode, no reproduction, no cause hunt, and no
+mute as a resolution.
 
 ## One incident, one record
 
-A failing service is one incident, however many alerts, threads and questions of his it draws, with
-one evidence record and one job that owns it. The record is a cc-notes investigation: its premise is
-the symptom and when it started, its timeline what changed and when, its findings the suspects, and
-its root cause the verdict.
+A failing service is one incident, however many alerts, threads and questions of his it draws,
+with one evidence record and one job that owns it, so every thread hears one diagnosis. The record
+is a cc-notes investigation: its premise is the symptom and when it started, its timeline what
+changed and when, its findings the suspects, and its root cause the verdict.
 
 - **The owner** is the first check, or the cause job when none runs; when the first check's build
   fails too, the same job is resumed as the cause job. In its first 10 minutes it appends each
   release, merge, flag flip and config change on the failing service since an hour before the
-  start, with its time and link: `ccn investigation append <id> "<time> <change> <link>"`. Each
-  suspect is `ccn investigation finding add <id> "<change, PR>: <how it could fail this way>"`,
+  start, with its time and link: `ccn investigation append <id> "<time> <change> <link>"`.
+- Each suspect is `ccn investigation finding add <id> "<change, PR>: <how it could fail this way>"`,
   settled by `finding confirm` or `finding clear` with `--why "<what was observed, its link>"`.
   The verdict, `ccn investigation root-cause <id> "<change, PR, what in it fails>"`, waits until a
   test machine reproduces the failure and that change explains it.
 - **Every other job**, a reader, the rollback or the fix, appends what it observed and names no
-  cause. The coordinator reads `ccn investigation show <id>` before any line about the cause.
-- **A later alert or question** about a service whose incident is open joins it: `drive order add
-  "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --joins <o> --project
-  "<p>" --workstream "<w>"`, filed under `<o>`'s own project and workstream, records it with the
-  record of `<o>` and no job of its own, it takes the parts his words ask for with `drive
-  order set <new> --parts "<part>"`, and the owner carries it with `drive job set <owner> --carries
-  <new> --part "<part>"`. On Nov 10 three SandSQL alerts on shared prod became three incident
-  orders, each diagnosed apart. His four threads got a guess from when the alerts fired, then one
-  of two changes, then three, a stall story, and a revert with no bug named. His words, 9:19 PM:
-  "but you shoul;d have known this was thed polronlem not freak out and start saying its all
-  sortgs of other things fujcking fix your toolking so theres beter coordinatioin in the gfuture".
+  cause. Read `ccn investigation show <id>` before any line about the cause.
+- **A later alert or question** about a service whose incident is open joins it, with no job of
+  its own: `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread
+  <ts> --joins <o> --project "<o's project>" --workstream "<o's workstream>"`. It takes the parts
+  his words ask for with `drive order set <new> --parts "<part>"`, and the owner carries it with
+  `drive job set <owner> --carries <new> --part "<part>"`. `--joins` refuses an order that is
+  closed or no incident, and `drive order posted` refuses a line in another alert's thread on an
+  open incident, naming the `--joins` command to run.
 
 ## In the same turn
 
-1. `answer_add` his words verbatim, labels `drive:<name>` and `incident`: that answer approves the
-   incident's own release and rollback, so no card goes to him for either.
-2. Read the open incident orders on the dashboard's top strip: one on the same failing service makes
-   this a join, by [One incident, one record](#one-incident-one-record), and nothing below starts.
-   Otherwise open it in one call, filed under the area it hit: `drive incident open "<his words, or
-   the alert text>" --from slack:<channel>/<ts> --thread <ts> --record "<service> on <cluster>:
-   <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`. `--release`,
-   when a release or new build came before the break, gives it the parts `fix` and `first check`;
-   with no flag they are `fix`, `rollback` and `cause`, and with `--no-rollback`, when no build
-   lacks the failing path, `fix`, `stop` and `cause`. It records a codex job on each part, opens the
-   evidence record and names it on the order's note, and prints each job's start line, then each
-   other open incident order with its note. The order sits on the dashboard's top strip until it
-   closes; an order made another way gets `drive order set <o> --incident`, which refuses until a
-   job owns its `fix` part.
-3. In the next message, start every job the verb printed, and no freeze, which waits until users
-   are unblocked by [Freeze the broken service](#freeze-the-broken-service). Each job is a
-   `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the answer id from step
-   1, the record's id and the brief template's `Incident:` line written out in full, its `Drive:`
-   line naming the job, which records the agent as it starts. The watch says a job has no agent
-   recorded on every pass until it does.
-   - **fix**, with apply authority, from the alert on. It starts at the code path the alert or his
-     words name; when a release broke the service or failed partway through its rollout, it starts
-     at that release: the step that failed, its log, and the code that step runs. It builds the root
-     fix of the cause. The repository's own performance and "fix the cause" rules apply (in the
-     monorepo, AGENTS.md's Performance section). When the cause is a design, a design step puts its
-     questions on cards by [Design first](design.md), the fix job builds the recommended option
-     meanwhile, by [His card on an incident](#his-card-on-an-incident), and its PR waits only on his
-     answers. It never ships a pin, a hard-coded flag, a header, a
-     prefix rule, a cap, a retry, a timeout raise, a timer, a wait, a cache or a special case in
-     the cause's place, and never a revert of the change. Its PR is the whole root fix with the
-     tests the repository's rules ask of it; nothing is split off to land faster, since the
-     rollback already stopped the harm. Each finding of the first check or the cause job goes to it
-     by `SendMessage` in the turn it arrives and may redirect it, and none of them holds it back.
-     His rulings, Nov 10 3:44 PM: "this is also a hack stop doing fucking hacks just do proper
-     fundamental fixes", and 10:37 PM: "stop shiping shitty software do dunamental fixes".
-   - After a release or a new build, the **first check** is the diagnosis job, beside the fix job,
-     and no cause hunt or rollback starts before it returns. Within 10 minutes it reads which commit
-     the live build was cut from and how far the default branch is ahead of it on the failing path.
-     Then it installs the newest build of the default branch on a test machine and replays the
-     failing action against state the bad build refused, such as a record it would not open. In
-     the monorepo, `tools/ci release live` names the live build's commit, and the test machine is a
-     test Mac. His ruling, Nov 9 4:55 PM: "so why the fuck did you waste 3 hours when the soluition
-     was just to do a release?"
-   - With no release or new build before the break, two jobs start beside the fix job:
-     - **rollback**, with apply authority. It rolls the release back to the newest build that provably
-       lacks the failing change, however many releases back that is. The proof is that the commit
-       that brought the failing change is not an ancestor of the target build's commit, so
-       `git merge-base --is-ancestor <change> <target>` exits 1. While the change is not yet known,
-       the proof is the failing action, replayed against the target on a test machine, succeeding. It
-       also proves the target can open everything the bad builds wrote since, such as a record in a
-       newer format, by opening one on a test machine. When a build passes both, it starts the
-       rollback inside its clock; when no build passes both, it returns that evidence inside its
-       clock instead, and in that turn `drive incident stop <o>` starts the stop. In the monorepo the
-       rollback is the `release` skill's; for a tool this Mac runs it installs that release.
-     - **stop**, with apply authority, when no build lacks the failing path. Its PR turns the failing
-       automatic path off, and it lands only on his tap, on a card whose body quotes the bug from the
-       record: `drive pr set --exempt "incident fix"` refuses it. Design cards hold only the root
-       fix, never the stop. `drive incident open --no-rollback` starts it at the alert, and
-       `drive incident stop <o>` the turn a rollback finds no build. On Nov 10 table moves ran on plat,
-       SoFi and AIG from 7:26 PM past 10:46 PM with no build to roll back to and nothing that
-       stopped them.
-     - **cause**, the diagnosis job, which owns the record and sends the fix job each suspect it
-       confirms. It never gates the rollback or the fix.
-   - A codex lane cannot read Sentry: it has no Sentry sign-in, and Sentry's site asks for one.
-     So a first check or cause job that needs Sentry, such as the affected chats or the full error
-     an alert links, gets a `long-running:reader` beside it in the same message. Start it with the
-     Agent tool on `model` `opus` with `run_in_background: true`; it reads Sentry with this
-     session's Sentry tools and appends what it read to the record. Add it first with `drive job add
-     reader --order <o> --goal "Sentry read: <what>" --part "<its part>"`, so its brief's `Drive:`
-     line records the agent, and send its result to the codex job with `SendMessage`. On Nov 10 two first checks came back blocked at
-     "Sign in to Sentry", and a reader with the Sentry tools answered the same question in six minutes.
-4. A `report` to the communicator for his first line: the fix job and where it started, and the
-   diagnosis job beside it.
+1. `answer_add` his words verbatim, or the alert's text when the drive caused it, with labels
+   `drive:<name>` and `incident`. That answer approves the incident's own release and rollback, so
+   no card goes to him for either.
+2. Read the open incident orders on the dashboard's top strip. One on the same failing service
+   makes this a join, by [One incident, one record](#one-incident-one-record), and nothing below
+   starts. Otherwise, open it in one call, filed under the area it hit: `drive incident open "<his
+   words, or the alert text>" --from slack:<channel>/<ts> --thread <ts> --record "<service> on
+   <cluster>: <symptom>, since <time>" --release --due +5m --project "<p>" --workstream "<w>"`.
+   - `--release`, when a release or new build came before the break, gives it the parts `fix` and
+     `first check`. With neither flag they are `fix`, `rollback` and `cause`, and with
+     `--no-rollback`, when no build lacks the failing path, `fix`, `stop` and `cause`.
+   - It records a codex job on each part, opens the evidence record and names it on the order's
+     note, and prints each job's start line, then each other open incident order with its note.
+   - The order sits on the dashboard's top strip until it closes. An order made another way gets
+     `drive order set <o> --incident`, which refuses until a job owns its `fix` part.
+3. In the next message, start every job the verb printed, as [Jobs](#jobs) says, and no freeze,
+   which waits until users are unblocked, by [Freeze the broken service](#freeze-the-broken-service).
+   Each job is a `codex:codex-wrapper` running `codex-ask --incident`, never `-m astra`. Its brief
+   carries the answer id from step 1, the record's id, and the brief template's `Incident:` line
+   written out in full. Its `Drive:` line names the job, which records the agent as it starts;
+   until then the watch says on every pass that the job has no agent recorded.
+4. A `report` to the communicator for his first line: the fix job and the code path it started
+   at, and the diagnosis job beside it.
+
+## Jobs
+
+- **fix**, with apply authority, from the alert on. It starts at the code path the alert or his
+  words name. When a release broke the service or failed partway through its rollout, it starts at
+  that release: the step that failed, its log, and the code that step runs.
+  - It builds the root fix of the cause, under the repository's own performance and "fix the
+    cause" rules (in the monorepo, AGENTS.md's Performance section).
+  - In the cause's place it never ships a pin, a hardcoded flag, a header, a prefix rule, a cap,
+    a retry, a timeout raise, a timer, a wait, a cache, a special case or a revert of the change.
+    His words: "this is also a hack stop doing fucking hacks just do proper fundamental fixes".
+  - Its PR is the whole root fix with its regression tests and the tests the repository's rules
+    ask for. Nothing is split off to land faster, because the rollback or release already stopped
+    the harm.
+  - When the cause is a design, a design step puts its questions on cards by
+    [Design first](design.md), and the fix job builds the recommended option meanwhile, by
+    [His card on an incident](#his-card-on-an-incident).
+  - Send it each finding of the first check or the cause job with `SendMessage` in the turn the
+    finding arrives. A finding may redirect it, and none holds it back.
+- **first check**, after a release or a new build, is the diagnosis job beside the fix job. No
+  cause hunt or rollback starts before it returns, because a bug the default branch already fixed
+  needs a release, not a hunt.
+  - Within 10 minutes it reads which commit the live build was cut from and how far the default
+    branch is ahead of it on the failing path. Then it installs the newest build of the default
+    branch on a test machine and replays the failing action against state the bad build refused,
+    such as a record it refused to open.
+  - In the monorepo, `tools/ci release live` names the live build's commit, and the test machine
+    is a test Mac.
+- With no release or new build before the break, two jobs start beside the fix job:
+  - **rollback**, with apply authority. It rolls the release back to the newest build that
+    provably lacks the failing change, however many releases back that is. The proof is that the
+    commit that brought the change is not an ancestor of the target's commit:
+    `git merge-base --is-ancestor <change> <target>` exits 1. While the change is unknown, the
+    proof is the failing action, replayed against the target on a test machine, succeeding. It
+    also proves the target opens everything the bad builds wrote since, such as a record in a
+    newer format, by opening one on a test machine.
+  - When a build passes both, the rollback starts inside its clock. When none does, the job
+    returns that evidence inside its clock, and in that turn `drive incident stop <o>` starts the
+    stop. In the monorepo the rollback is the `release` skill's; for a tool this Mac runs, the job
+    installs that release.
+  - **cause**, the diagnosis job, owns the record and sends the fix job each suspect it confirms.
+    It never gates the rollback or the fix.
+- **stop**, with apply authority, when no build lacks the failing path, because then nothing else
+  halts the harm while the root fix is built. Its PR turns the failing automatic path off and lands
+  only on his tap, on a card whose body quotes the bug from the record: `drive pr set --exempt
+  "incident fix"` refuses it. Design cards hold only the root fix, never the stop.
+  `drive incident open --no-rollback` starts it at the alert, and `drive incident stop <o>` the turn
+  a rollback finds no build, refused while a stop job runs.
+- **A Sentry read:** a codex lane has no Sentry sign-in. A first check or cause job that needs
+  Sentry, such as the affected chats or the full error an alert links, gets a `long-running:reader`
+  beside it in the same message. Add it first with `drive job add reader --order <o> --goal "Sentry
+  read: <what>" --part "<its part>"`, then start it with the Agent tool on `model` `opus` in the
+  background; it reads Sentry with this session's Sentry tools and appends what it read to the
+  record. Send its result to the codex job with `SendMessage`.
+
+## When the first check returns
+
+- **The default branch's build works:** releasing the default branch is the fix. In that turn:
+  - a `report` to the communicator saying so, with what the test machine showed;
+  - a `long-running:builder`, added first with
+    `drive job add builder --order <o> --part fix --goal "release the default branch"`, starting
+    the release of the default branch's head by the cut [Ship it](#ship-it) names;
+  - then a `SendMessage` to the fix job saying "the default branch's release is the fix", and
+    `drive job set <j> --state stopped --said "the default branch's release is the fix"`, which
+    refuses while that job is the last running one on the fix.
+
+  No hotfix is built on the live build's commit, and no rollback or cause hunt starts. The
+  commits the first check found past the live one are the cause, and the record's verdict says so.
+- **It fails too:** `drive order set <o> --parts fix "first check" rollback cause`, the first
+  check's job resumed as the cause job with `drive job set <j> --part cause`, and a rollback job
+  started in that turn, added first with
+  `drive job add codex --order <o> --part rollback --goal "rollback: <incident>"`. The fix job
+  keeps going, fed by the cause job.
+
+## His card on an incident
+
+- When incident work needs a decision of his, the card goes up in that turn. His words: "if its
+  more decisions fucking tell me dont just sit there".
+- When a question card of his blocks incident work, such as a design card on the fix, the
+  incident's thread hears it at once. The line opens with the card linked, names what it blocks
+  by its proper term, and names the recommended option the job builds on meanwhile.
+  `drive job set <j> --card <link>` or `--waits <card>` on a job of an open incident order
+  refuses until `--told <link>` names that post, which links each card.
+- The job keeps building on the recommendation and never waits on the card: its `ASK` resumes it
+  in that turn with "build the recommended option meanwhile", which runs the job again.
+- Its PR opens and lands on that recommendation while the card stays open: `drive pr add` takes
+  it, `drive pr set --waits <card>` refuses on it, and a different pick of his starts a follow-up
+  job on the same order. His pick: "The repair lands on the recommendation, the question stays
+  open, another pick is a follow-up: no incident waits; costs a second PR."
 
 ## Freeze the broken service
 
-Bringing the service back comes first, and nothing slows it: while users are still blocked, no
-freeze goes on, since a freeze can hold the release that brings the service back. Once a rollback,
-a release of the default branch or a first fix unblocks users, the service's other releases freeze
-until its root fix is released. The root fix then goes out alone: freeze, merge the root fix, lift
-the freeze, release. His words, Nov 10: at 10:42 PM "why the fuck didnt youj put a
-ssql freeze until this was merged", at 10:48 PM, with SandSQL still failing, "dont freeze ssql now
-wtf fix it frist", and at 10:52 PM, once it had recovered, "well now its fixed so u can freeze,
-mnerge the fix, unfreeze and release". Together they are the request for a freeze the monorepo
-`release` skill waits for, given once for every release that breaks a service.
+Bringing the service back comes first. While users are still blocked, no freeze goes on, because a
+freeze can hold the release that brings the service back. Once a rollback, a release of the default
+branch or a first fix unblocks users, the service's other releases freeze until its root fix is
+released. The root fix then goes out alone: freeze, merge the root fix, lift the freeze, release.
+His words: "well now its fixed so u can freeze, mnerge the fix, unfreeze and release". They are the
+request for a freeze the monorepo `release` skill waits for, given once for every release that
+breaks a service.
 
-In the turn users are unblocked, the coordinator runs `drive incident freeze <o> <component>`, the
-bare component covering every stack it deploys. It runs `tools/ci release freeze` from the
-coordinator's checkout for 12 hours, the reason naming the order and its root fix, and puts the
-freeze's id on the order's note beside the record's.
-
-- From an agent, only the session that set a freeze releases through it. The coordinator's session
-  sets it, so each builder the coordinator starts, sharing that session, starts the root fix's
-  release through it. He does too, since a person releases through a freeze his own
-  agent session set, and a rollback skips every freeze.
+- In the turn users are unblocked, run `drive incident freeze <o> <component>`, the bare component
+  covering every stack it deploys. It runs `tools/ci release freeze` from your checkout for 12
+  hours, the reason naming the order and its root fix, and puts the freeze's id on the order's
+  note beside the record's.
+- Among agents, only the session that set a freeze releases through it. Your session sets it, so
+  every builder you start shares that session and can start the root fix's release. He can too,
+  and a rollback skips every freeze.
 - The job that merges the root fix lifts the freeze with `tools/ci release unfreeze <id>` in that
   turn, before the fix's build starts.
-- A freeze found on while users are still blocked is lifted in that turn, since it can only slow or
-  block the release that unblocks them.
+- A freeze found on while users are still blocked is lifted in that turn, because it can only slow
+  or block the release that unblocks them.
+- Claim, fence or hold nothing else unless he asks. The broken service's freeze is the one freeze.
 
 ## His stop in a thread
 
 His stop carries the scope his words give it: "leave it alone here" stops the work in that thread
-and nothing else, and nothing stops an open incident's fix. `drive job set <j> --state stopped`
-refuses the last running job on an open incident's `fix` part; a job taking the fix over is added
-first, or the order closes once its fix is live. Only his words saying he writes the fix himself
-close the incident for that reason. On Nov 10 at 9:19 PM his "dont bother I'll fix it in anther
-thread leave it alone here" was recorded as a stop on the table-move fix across the drive.
-
-## His card on an incident
-
-When a question card of his blocks incident work, such as a design card on the fix, the incident's
-thread hears it at once, in a line that opens with the card linked, says what it blocks, and names
-the recommended option the job builds on meanwhile. The job keeps building on that recommendation:
-its `ASK` resumes it in that turn with "build the recommended option meanwhile", which runs the
-job again, and it never waits on the card. Its PR opens and lands on that recommendation while
-the card stays open: `drive pr add` takes it, `drive pr set --waits <card>` refuses on it, and a
-different pick of his starts a follow-up job on the same order. His pick, Nov 10 11:23 PM: "The
-repair lands on the recommendation, the question stays open, another pick is a follow-up: no
-incident waits; costs a second PR." `drive job set <j> --card <link>` or `--waits
-<card>` on a job of an open incident order refuses until `--told <link>` names the drive's post in
-the incident's thread that links the card. His words, Nov 10 10:48 PM: "I selected on that card,
-next time if thats blkocking an incident fucking tell me".
-
-## When the first check returns
-
-- **The default branch's build works:** releasing the default branch is the fix. In that turn, a
-  `report` to the communicator saying so with what the test machine showed; a
-  `long-running:builder`, added first with `drive job add builder --order <o> --part fix --goal
-  "release the default branch"` so its brief's `Drive:` line records the agent, starts the release
-  of the default branch's head by the cut [Ship it](#ship-it) names; and the fix job is told "the
-  default branch's release is the fix" with `SendMessage` and `drive job set <j> --state stopped
-  --said "the default branch's release is the fix"`, which refuses while it is the fix's last
-  running job. No hotfix is built on the live build's commit, and no rollback or cause hunt starts.
-- **It fails too:** `drive order set <o> --parts fix "first check" rollback cause`, the first check's
-  job resumed as the cause job with `drive job set <j> --part cause`, and a rollback job of step 3
-  in that turn, added first with `drive job add codex --order <o> --part rollback --goal "rollback:
-  <incident>"` so its brief's `Drive:` line records the agent. The fix job keeps going, fed by the cause job.
+and nothing else. Nothing stops an open incident's fix, because users stay blocked until it lands.
+`drive job set <j> --state stopped` refuses the last running job on an open incident's `fix` part:
+add the job taking the fix over first, or close the order once its fix is live. Only his words
+saying he writes the fix himself close the incident for that reason.
 
 ## Clocks
 
-Each clock is set with `drive order set <o> --due` and checked at its `DUE` by reading the job's
-transcript, never by waiting for its message. The first check's clock counts from his order or the
-alert; the rollback's from the first check's verdict, or from the order when none ran.
+The first check's clock counts from his order or the alert. The rollback's counts from the first
+check's verdict, or from the order when none ran.
 
 | Clock | Due | Missed |
 |---|---|---|
@@ -210,107 +223,105 @@ alert; the rollback's from the first check's verdict, or from the order when non
 | Every later step, until live | at most 10 minutes out | A second job on that step |
 | His next line, until users are unblocked | 5 minutes after his last | A line of what is running and when the next lands |
 
-A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started in the turn
-the clock is missed, beside the first; the first to deliver wins, and both write to the one record.
-Never fable or astra. A missed clock also sends him a line in that turn, before he asks: what is late
-and the new time.
+- His next line's clock is the order's due: after each line, `drive order set <o> --due +5m`, and
+  the watch says `DUE` when no drive post is in the order's thread by then.
+- A job's clock has no timer in the drive. On each wake during an incident, compare the time with
+  each running job's clock and read the transcript of any job past it, since a stuck job sends no
+  message.
+- A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started beside
+  the first in the turn the clock is missed. The first to deliver wins, and both write to the one
+  record. The `agent_brief` hook refuses a Fable model for it.
+- A missed clock also sends him a line in that turn, before he asks: what is late, and the new
+  time.
 
 ## Ship it
 
-- Codex edits and Claude ships: the turn the fix job has its change, a `long-running:builder` ships it
-  from that worktree, lands it and proves it live.
-- An approved and green incident PR lands in the same turn the watch reports it: on its `checks
-  passed` or `approved` event, resume its job with "land it and start its build now". In the monorepo
-  the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then `gh pr merge <n>
-  -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack, which `gh pr merge` refuses,
-  `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f sha=<head> -f merge_method=squash
-  -f merge_action=direct_merge`; the landing guard holds both to the exemption or his tap. Never `--admin`. Accept a reviewer-bot finding with `submit-pr`'s
-  `pr-reviews accept <slug> --why "incident: <why the fix is right>"` unless it says the fix is wrong.
-- Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers or
-  what caused the break, no comparison of open builds, no question. The job shipping the fix lifts the
-  service's freeze and starts the build at the fix commit, and reports its link. The release's own
-  approve gate is the only check, and every read runs while it builds.
+- Codex edits and Claude ships. In the turn the fix job has its change, a `long-running:builder`
+  ships it from that worktree, lands it and proves it live.
+- An approved and green incident PR lands in the turn the watch reports it: on its
+  `checks passed` or `approved` event, resume its job with "land it and start its build now".
+- In the monorepo the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`,
+  then `gh pr merge <n> -R Forge-AI/monorepo --squash`, or, for a PR in a native GitHub stack,
+  which `gh pr merge` refuses, `gh api -X PUT repos/Forge-AI/monorepo/pulls/<n>/merge-async -f
+  sha=<head> -f merge_method=squash -f merge_action=direct_merge`. The `landing_guard` hook holds
+  both to the exemption or his tap, and refuses `--admin`.
+- Accept a reviewer-bot finding with `submit-pr`'s
+  `pr-reviews accept <slug> --why "incident: <why the fix is right>"`, unless it says the fix is
+  wrong.
+- Nothing stands between the merged fix and its build: no dry run, no read of what the cut covers
+  or what caused the break, no comparison of open builds, no question. The job shipping the fix
+  lifts the service's freeze, starts the build at the fix commit, and reports its link. The
+  release's own approve gate is the only check, and every read runs while it builds.
 - No incident release starts, a rollback included, before a line to him states the bug it ships
   against, quoted from the record: what fails and, once there is a verdict, the change and its PR.
-  The fix's release has it from the line that opened its PR; for a rollback or a release of the
+  The fix's release has that line from its PR-open line. For a rollback or a release of the
   default branch, the `report` saying so goes out before its job is told to start.
 - The cut is named here, never derived mid-incident. An incident fix for sand or sand-next ships
-  alone, never through the normal start, which pulls in the whole platform release and waits on the
-  fix's dev test:
-  - a merged fix, or the default branch's head a first check proved: `tools/ci release start sand
-    --only sand --emergency`;
+  alone, never through the normal start, which pulls in the whole platform release and waits on
+  the fix's dev test:
+  - a merged fix, or the default branch's head a first check proved:
+    `tools/ci release start sand --only sand --emergency`;
   - a fix cherry-picked onto the live commit on a pushed branch, only once a first check found the
-    default branch's newest build fails too, in any incident: `tools/ci release start --manual
-    sand-next --env core-usw2-auto --commit <sha> --emergency`, since Platy refuses a commit off `dev`.
+    default branch's newest build fails too:
+    `tools/ci release start --manual sand-next --env core-usw2-auto --commit <sha> --emergency`,
+    since Platy refuses a commit off `dev`.
 
   Every other form is in the monorepo `release` skill.
-- The incident order's words approve its own release's gate and its rollback: the job that starts
-  the release answers the gate with `--order <the answer id>`, or `tools/ci release approve <id>
-  --via <agent>` where it holds at approve. Any other release he ordered or picked is approved the
-  same way, by his own order, as [landing.md](landing.md) says.
-- A revert is never a rollback, and his standing rule is fix forward. A PR or build that takes a
-  change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
-  revert: "NO i didnt fucking say revert it". No incident order approves it. It lands only on his
-  tap on its card, which states the bug in that change from the record, with its PR and evidence,
-  and any line saying a change was taken out says what is wrong with it. On Nov 10, with no build
-  to roll back to, #53868 reverted #52919 on the incident order alone. His words, 9:18 PM: "we need
-  to fix it, you can just fuckingf revert it and not even tel me qwhat he fucking bug is".
-- A build or release he started is his: never cancel, retry, reorder or approve it, and start no other
-  release while it runs. When its commit carries the fix, its steps are the lines he gets. One of ours
-  that must stop gets a `report` to the communicator first, then its job stops it.
+- The incident order's words approve its own release's gate and its rollback. The job that starts
+  the release answers the gate with `--order <the answer id>`, or
+  `tools/ci release approve <id> --via <agent>` where it holds at approve. His own order approves
+  any other release he ordered, as [landing.md](landing.md) says.
+- A revert is never a rollback, because his standing rule is fix forward. A PR or build that takes
+  a change out, whole or in part, is his to approve, by the monorepo `release` skill's reserved
+  revert, and no incident order approves it. It lands only on his tap on its card, which states the
+  bug in that change from the record, with its PR and evidence. `drive pr set <url> --exempt
+  "incident fix"` refuses a PR that says it reverts a change and names the tap card to draw. Any
+  line saying a change was taken out says what is wrong with it. His words: "you can just
+  fuckingf revert it and not even tel me qwhat he fucking bug is".
+- When a build or release he started carries the fix, its steps are the lines he gets. It stays his,
+  by [SKILL.md](../SKILL.md).
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts.
-- A repair of a team's data is a pass like any other, however urgent: it runs as a service account
-  inside the cluster that serves that team and starts from a pipeline or an in-cluster job, never
-  from break-glass, an admin `kubectl exec` into a pod, or anyone's own sign-in, and never from
-  another cluster with credentials copied in. A repair whose writes use the service account but
-  that a person's admin access started inside the pod breaks this. His ruling, Nov 10 3:38 AM:
-  "And remember any passes MUST be done with a service account in the cluster of the respective
-  team never form a user role".
-- Claim, fence or hold nothing unless he asks. The one freeze is the broken service's, by
-  [Freeze the broken service](#freeze-the-broken-service).
-
-## After users are unblocked
-
-In the turn users are unblocked, the service's other releases freeze until its root fix releases, by
-[Freeze the broken service](#freeze-the-broken-service).
-While the rollback unblocks users, the fix job keeps building the root fix, with a design step first
-by [Design first](design.md) when the cause is a design, and its regression tests ride in that same PR.
-When releasing the default branch was the fix, the commits the first check found past the live one are
-the cause, the record's verdict says so, and no hunt starts.
+- A repair of a team's data runs, however urgent, as a service account inside the cluster that
+  serves that team, by the brief's `Runs as:` line in [jobs.md](jobs.md). It never starts from
+  break-glass, an admin `kubectl exec`, anyone's own sign-in, or another cluster with credentials
+  copied in.
 
 ## What he hears
 
-Each line is a `report` to the communicator, which posts it in his thread or the alert's thread, while
-he is away too. Until users are unblocked he hears a line at least every 5 minutes; after that, each
-step of the root fix reaches him once, as it happens. A link appears once, inline, where the sentence
-names the thing it points at.
+Each line is a `report` to the communicator, which posts it in his thread or the alert's thread,
+while he is away too. These rules bind the communicator, its handlers and any reader that posts for
+it.
 
-- No "not proven" or "unproven" paragraph under any label, as in every line to him by
-  [messages.md](messages.md), and no side facts about a release, such as what else it applies, its
-  counts or its parts. An unknown is a job's: the job returns it to the coordinator as an
-  input, and he gets its result or nothing. This binds the communicator, its handlers and any reader
-  that posts for it. His ruling, Nov 9 4:52 PM: "fuck of with this not prioven bull shit jujst
-  fucking fix the actual isue".
-- Every word about the cause is quoted from the record, read in the turn the line is written. Its
-  verdict goes out once and is never revised. Before one, he hears that there is none yet, and the
-  same line says what the fix job is doing right then, read from its transcript in that turn: the
-  code it is changing, and its PR once open. When he asks what the bug is, he gets each open suspect
-  with its PR and the evidence for and against it. A cause, a count of candidates or a fix reaches
-  him only from the record, never from when alerts fired.
-- A card of his that blocks incident work gets its line at once, by [His card on an
-  incident](#his-card-on-an-incident).
+- Until users are unblocked he hears a line at least every 5 minutes. After that, each step of the
+  root fix reaches him once, as it happens. A link appears once, inline, where the sentence names
+  the thing it points at.
+- Each line names the failing service, function, file or table by its proper term, never a
+  stand-in, and carries no "not proven" paragraph under any label, by [messages.md](messages.md).
+  It gives no side facts about a release, such as what else it applies, its counts or its parts.
+  An unknown is a job's input, and he gets its result or nothing.
+- Every word about the cause is quoted from the record, read in the turn the line is written. A
+  cause, a count of candidates or a fix reaches him only from the record, never from when alerts
+  fired. The verdict goes out once and is never revised. Before one, he hears that there is none
+  yet and what the fix job is doing right then, read from its transcript in
+  that turn: the file and function it is changing, and its PR once open.
+- When he asks what the bug is, he gets each open suspect with its PR and the evidence for and
+  against it.
 
 The steps, in order:
 
-1. **Running:** the fix job and where it started, beside the first check, or beside the rollback and
-   the cause hunt.
+1. **Running:** the fix job and the code path it started at, beside the first check, or beside
+   the rollback and the cause hunt.
 2. **The fix is a release:** after a first check whose build worked, releasing the default branch
    fixes it, as the test machine showed.
 3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
-4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the service's
-   other releases until its root fix releases.
+4. **Users unblocked:** whose runs succeed again, on a real machine, and the freeze on the
+   service's other releases until its root fix releases.
 5. **Root fix PR open:** its title, linked, and the record's verdict it fixes.
 6. **Merged.**
 7. **Release started:** the root fix's release, or the default branch's.
 8. **Live:** what is live, its proof on a real machine, and whose runs succeed. Healthy means the
    affected users' runs succeed, not that a monitor went quiet.
+
+Step 8's `report` carries `--attr close=<o>`, and its handler closes the order once the line is in
+the thread, which takes it off the dashboard's top strip, since the strip shows live incidents
+only.

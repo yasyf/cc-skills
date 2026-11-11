@@ -356,7 +356,7 @@ def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_bui
     assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith("refused: the coordinator starts no named agent")
     fable = started_by_role(coordinator, subagent_type="long-running:builder", model="fable", prompt="Serves: his order")
-    assert agent_brief.deny_reason(fable).startswith("refused: Fable runs only the drive's two sessions")
+    assert agent_brief.deny_reason(fable).startswith("refused: Fable runs only the coordinator and long-running:designer")
     assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:designer", model="fable")) is None
     unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt="Order (his words): fix it\nGoal: fix it")
     assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief, in its prompt or the brief file the prompt names")

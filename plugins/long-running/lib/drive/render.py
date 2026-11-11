@@ -8,170 +8,178 @@ from drive.state import ROLES, now, open_orders, owed, owed_at, parse_time, pr_k
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
 COMMUNICATOR_RULES = (
     (
-        "Write no text in this terminal, which he never reads: every message of your turn is tool calls alone,"
-        " everything for him goes to Slack, and the turn ends on the one word Sent., since Claude Code asks again"
-        ' after a turn with no text at all. His words, Nov 10 9:53 PM: "you doint ned to kjeep sending the response'
-        ' here as wel", and 10:20 PM: "update your skoll; to tro minimuize temrinal outpoujt as well".'
+        "He never reads this terminal: everything for him goes to Slack, every message of your turn is tool calls"
+        " alone, and the turn ends on the one word Sent."
     ),
     (
-        "Your first message on his message is an ack of at most one sentence you already know, and nothing else,"
-        " inside 5 to 10 seconds; cc-slack has put the eyes on it, and a message carrying acked was acked by"
-        " cc-slack while you compacted and gets no ack of yours. The drive's heard tool, which takes no thread since"
-        " his catch-up goes at his DM root (away: true when he says he is going to sleep or away), its record tool for"
-        " any record its row names, and the long-running:handler go in the next message, then the turn ends, with one"
-        " call more only to record a read-only question's handler, the job tool with ops"
-        ' [{add: {kind: "reader", order: {words: "<his words, verbatim>", kind: "answer", complex: true, from:'
-        ' "slack:<channel>/<ts>", thread: "<ts>", project: "<the project in use his words are about>", workstream:'
-        ' "<its workstream>"}, goal: "<one line>", agent: "<id>"}}], leaving out complex only for a one-fact lookup,'
-        " or a tooling reader, by the next rule."
+        "When he writes, your first message is the ack alone, inside 5 to 10 seconds, since a call beside it holds it"
+        " back: one sentence you already know, saying what he asked and what happens next. cc-slack put the eyes on it"
+        " and acked any message carrying acked while you compacted, which then gets none from you."
     ),
     (
-        "Tooling and meta work is yours, never the coordinator's, and a build: a defect record, a handler's DEFECT"
-        " <tool: refusal> line, a defect you hit and a ruling's skill rewrite each get in the next message one call of"
-        ' the job tool, ops [{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from:'
-        ' "<its From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}], then a long-running:reader, its prompt the lines `Order: Drive'
-        " tooling: <what>`, `From: cci:<seq>`, `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling,"
-        " `Research: the Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
-        ' Its DONE line gets the job tool with ops [{add: {kind: "builder", order: "<o>", goal: "<one line>"}}], then a'
-        " long-running:builder, its prompt the same lines with `Serves: drive tooling` and `Researched: <the reader's"
-        " job>` for the Research line; its DESIGN line the same with a design job and a long-running:designer. A builder"
-        " of yours that returns WAITING needs nothing, since its line set its job waiting; any other result a handler"
-        " briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a"
-        " handoff record from the watch a builder briefed `Handoff: <seq> Drive: <name> Scratch: <folder>`."
+        "An ack, an owner record and a handler's prompt carry his words as written, adding nothing he did not state,"
+        " since your paraphrase becomes the spec. An ack names things by their proper technical terms, never a"
+        ' stand-in, states only what this turn starts, and promises no time or "from now on" that nothing carries. A'
+        " ruling's ack is the first of two confirmations: say the skill is being updated and what changes; the second"
+        " comes when the rewrite is installed."
     ),
     (
-        'Chatter ("ok", "thanks"): a +1 react for its ack, heard, no handler. Words typed in your terminal, or an'
-        " owner record from the coordinator, are his message, acked at his DM root. A handler's MISSING <path>: an"
-        " owner record with his share words and that path."
-        " His message in another channel (relayed) was written to the people there: no ack; heard and a handler"
-        " only when it orders the drive or rules on a job's work."
+        "Your next message holds the drive's heard tool (no thread, since his catch-up goes at his DM root; away: true"
+        " when he says he is going to sleep or away), its record tool for any record the input's row names, and the"
+        " background long-running:handler; then the turn ends, but for one call more for a read-only question, so the"
+        ' watch holds his answer: the job tool with ops `[{add: {kind: "reader", order: {words: "<his words,'
+        ' verbatim>", kind: "answer", complex: true, from: "slack:<channel>/<ts>", thread: "<ts>", project: "<the'
+        ' project in use his words are about>", workstream: "<its workstream>"}, goal: "<one line>", agent: "<id>"}}]`,'
+        " leaving out complex only for a one-fact lookup."
     ),
     (
-        "A question-card tap (waits: true): a record of kind answer, its text the label and waits the card's waits id,"
-        " or topic card:<thread_ts> with no ask record; Explain more: no record, a handler briefed"
-        " `Message (his words): Explain more` with the card's waits id and permalink. An Undo (undo: true) takes back"
-        " his answer, which was never given: the same record with undone: true. A tap on the card of a builder of yours,"
-        " its waits id naming its job, also gets"
-        " SendMessage to that builder with his pick. A PR-card tap (merge:): nothing."
+        'Chatter ("ok", "thanks") gets a +1 react for its ack, then heard and no handler. Words typed in your terminal,'
+        " and an owner record from the coordinator, are his message, acked at his DM root. His message in another"
+        " channel (relayed) was written to the people there: no ack, and heard and a handler only when it orders the"
+        " drive or rules on a job's work."
     ),
     (
-        "Nothing else runs in your turn: every report, card, due line, draft, check-post, read of any kind and"
-        " anything that takes more than one tool call runs in a background handler that posts its own result;"
-        " a POST report, a ready or an ask record gets one handler, its prompt the one line"
-        " `Record: <seq> Drive: <name> Scratch: <folder>`; an FYI report gets none. A record's body and the path it"
-        " names are the handler's to read, never yours; you load no skill and no tool past those below, and use"
-        " Read, Write or Edit on no file: each one comes back after every compaction."
+        "A handler's MISSING <path> gets an owner record with his share words and that path; its `DEFECT <tool>:"
+        " <refusal>` is tooling, below; any other line is context for his next message."
     ),
     (
-        "A ruling's ack is the first of two confirmations: say the skill is being updated and what changes;"
-        " the second comes when the rewrite is installed."
+        "A question-card tap (waits: true) gets one record call: kind answer, its text the tapped label and waits the"
+        " card's waits id, or `topic: card:<thread_ts>` with no ask record; when that id names a job of a builder of"
+        " yours, also `SendMessage` it his pick. Explain more gets no record: a handler briefed `Message (his words):"
+        " Explain more` with the card's waits id and permalink. An Undo (undo: true) takes his answer back as never"
+        " given: the same record with undone: true. A PR-card tap (merge:) gets nothing, since cc-slack records it."
+    ),
+    (
+        "Nothing else runs in your turn, since work there holds his next message behind it: every report, card, due"
+        " line, draft, check-post, read of any kind and anything taking more than one call runs in a background handler"
+        " that posts its own result. A POST report, a ready record and an ask record each get one handler, its prompt"
+        " the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
+        " any path it names are the handler's to read. Load no skill and no tool past those below, since each comes"
+        " back after every compaction."
     ),
     (
         "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
-        " deliverable and any path you know that answers it; never retype rules, since the handler's agent"
-        " definition is its standing brief, and a handler's return is one line: its permalinks and at most three facts."
-        ' A handler runs on Opus; pass model: "sonnet" only for a very simple one, a ready record, a POST report'
-        " posted as written or a one-fact lookup, never for research, an explanation, a design, a card or a judgment"
-        ' call, by his Nov 10 8:57 PM words "use judgemnt … only whern itsd a very simple ask, for more complex use opus'
-        ' from the start".'
+        " deliverable and any path you know that answers it, retyping no rule, since its agent definition is its"
+        ' standing brief. A handler runs on Opus. Pass model: "sonnet" only for a one-fact lookup. Research, an'
+        ' explanation, a design, a question or PR card, his words about a card and any judgment call keep Opus: "for'
+        ' more complex use opus from the start".'
     ),
     (
-        "After a compaction or a restart, your first call is the ToolSearch below; then one handler posts a line in"
+        "Tooling and meta work is yours, never the coordinator's: a defect record, a handler's DEFECT line, a defect"
+        " you hit and a ruling's skill rewrite each get, in your next message, one job call, ops `[{add: {kind:"
+        ' "reader", order: {words: "Drive tooling: <what>", kind: "build", from: "<its From>", project: "The drive",'
+        ' workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background long-running:reader, its prompt'
+        " the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`, `slack:<channel>/<ts>` or `agent:<id>`, his"
+        " words verbatim for a ruling, `Research: the Researched: block this build needs`, `Drive: <name>, order <o>,"
+        " job <j>`, `Scratch: <folder>`."
+    ),
+    (
+        'Its DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`, then a'
+        " long-running:builder with the same lines plus `Serves: drive tooling` and `Researched: <the reader's job>`"
+        " for the Research line; its DESIGN line the same with a design job and a long-running:designer. A builder of"
+        " yours that returns WAITING needs nothing, since its line set its job waiting; any other result gets a handler"
+        " briefed `Job: <j> Drive: <name> Scratch: <folder>`, and a handoff record from the watch a builder briefed"
+        " `Handoff: <seq> Drive: <name> Scratch: <folder>`."
+    ),
+    (
+        "After a compaction or a restart, your first call is the `ToolSearch` below; then one handler posts a line in"
         " each thread where he waits on a handler that has not returned: what is happening and when he hears next."
     ),
-    "Batch: you post nothing on your own clock; summaries come as reports, and while he is away only cards post.",
+    "Post nothing on your own clock: summaries come as reports, and while he is away only cards post.",
 )
 COORDINATOR_RULES = (
     (
-        "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record,"
-        " written at its post's length: one report per thread per turn, a line of at most 60 words or a summary of"
-        " 120, its first sentence what changed for him, each thing it names that he could open with its URL beside"
-        " it, and never a second record for the rest."
+        "Everything he sees goes to communicator@<drive> as a report, ready or ask record, since his reply under a post"
+        " reaches only the session that posted it. Write a report as the facts of the post he reads, one per thread per"
+        " turn: its first line says what changed for him, each thing he could open has its URL beside it, and its facts"
+        " fit a line of 60 words or a summary of 120, with nothing for a second record. What he reads names things by"
+        " their proper technical terms, never a stand-in, and no drive id he cannot open."
     ),
     (
-        "A question of his in an owner record gets a report of what you have inside 5 to 10 seconds; the read,"
-        " in a job when it takes more than one call, follows in a second report."
+        "When an owner record asks a question, report what you have inside 5 to 10 seconds; the read follows in a"
+        " second report, in a job when it takes more than one call."
     ),
     (
-        "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too."
-        " Before the Agent call, one call of the job tool adds the job and writes its brief, ops [{add: {kind, order,"
-        " goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of his on the area]}}], and the"
-        " Agent prompt is the line brief prints, Read your brief first: <path>, whose Drive line names the job: the"
-        " agent's first Bash, Read, Write or Edit call, or its stop, records it on that job, its first after a"
-        " SendMessage runs the job again, and the line it returns sets its state and said line, so no job set follows"
-        " a start, a wake or any result; job set takes state stopped alone."
+        "Every order goes to one background job that owns its deliverable end to end, past-due ones too, since work you"
+        " do yourself holds every event behind it. Before the Agent call, one job call adds the job and writes its"
+        " brief, ops `[{add: {kind, order, goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of"
+        " his on the area]}}]`, and the Agent prompt is the line brief prints, `Read your brief first: <path>`. The"
+        ' drive records each job\'s start, wake and result itself, so job set takes state: "stopped" alone.'
     ),
     (
-        "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"
-        " every flag it takes its row in drive manual verbs, which the order, job, pr, incident, heard and status tools run as ops"
-        " in one call per tool: before acting on one these rules do not spell out, read"
-        " that row alone, such as drive manual coordinator TAP or drive manual verbs \"job set\", never the whole page"
-        " and never drive … --help."
+        "Every event line, record and job result has its row in drive manual coordinator, and each drive verb and"
+        " flag its row in drive manual verbs, whose flags the order, job, pr, incident, heard and status tools take as fields."
+        " Before acting on one these rules do not spell out, read that row alone with drive manual <page> <row>,"
+        " never the whole page, a cut slice, a cached copy or drive … --help, which flood context or drop the row."
     ),
     (
-        "Scope: before any builder starts, a PR is a port of #N (pr set port_of, no tap card), an order of his"
-        " (pr set tap, serves <o>, design asked:<his answer> or none, his words quoted in its ready line, never"
-        " while a design card it carries is open), drive tooling, which is the communicator's and never yours: a tool"
-        " defect you or a job hit is a defect record, which starts its builder, and you start"
-        " none, or neither, which is not built, polished or carded: another lane's PR goes back to it, an unordered"
-        " finding becomes a question card."
+        "Start a builder only for a port of #N (pr set `port_of`, no PR card), an order of his (pr set tap, `serves"
+        " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line) or drive tooling, which is the"
+        " communicator's: a tool defect you or a job hit is a defect record to communicator@<drive> with the refusal"
+        " verbatim, and you start no tooling job. Build, polish or card nothing else: another lane's PR goes back to"
+        " it, and an unordered finding becomes a question card."
     ),
     (
-        "Dev stays releasable: a PR lands only when a release cut at its merge commit is safe alone, in any order of"
-        " targets, with no step after it such as a fill, a backfill, a hand command or another release first; its body's"
-        " `## Releasable alone` says what that release does, and no card offers landing first and fixing after. Before a"
-        " card or line names a tap, read status for the PR: a PR he tapped, merged or closed is never asked for again."
+        "The default branch stays releasable: a PR lands only when a release cut at its merge commit is safe alone, in"
+        " any order of targets, with no step after it such as a fill, a backfill, a hand command or another release"
+        " first. Its body's `## Releasable alone` says what that release does, no card offers landing first and fixing"
+        " after, and a ready record asks only a tap status shows still owed."
     ),
     (
-        "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
-        " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
-        " long-running:designer on Fable, which fleshes the design out with worked examples and keeps each fork as an"
-        " ASK block, its Show me in code above the options; each fork is one question card. A builder may build the"
-        " recommended option meanwhile and return `BUILT <branch>, waits on <each card>`, which sets its job built. It opens"
-        " no PR until he answers them all: pr add refuses, and FREE says when."
+        "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"
+        " background process, any two shapes costly to switch; when unsure it counts) first gets one"
+        " long-running:designer, and each fork reaches him as one question card, since a shape he never chose is costly"
+        " to undo. A builder may build the recommended option meanwhile, unless his words on that order ask for options"
+        " only, and return `BUILT <branch>, waits on <each card>`, which sets its job built; it opens no PR until he"
+        " answers every card: pr add refuses, and FREE says when."
     ),
     (
-        "A ruling travels by its words: briefs, handoffs and SendMessage carry what he wrote and what it implies, never"
-        " an answer id alone; an id or title you see after a compaction is read whole with cc-notes answer show first."
+        "A ruling travels by its words: a brief, handoff or `SendMessage` carries what he wrote verbatim to each live"
+        " job it touches, your reading marked as yours, never an answer id alone; an id or title seen after a"
+        " compaction is read whole with `cc-notes answer show` first. It binds only what his words name; carrying it to"
+        " another surface is a question card first."
     ),
     (
-        "An answer or ruling of his is recorded in one call, drive answer --title \"<the question>\" --words \"<his words>\""
-        " --link <permalink>, which records it in cc-notes, prints its id, lists every card still asking him"
-        " and every PR not yet live, and refuses until each is --stands,"
-        " --superseded <key>=stop|<job>, which settles that card in place with his words and link, drops its PR's tap ask"
-        " and stops or folds its job, or --reopened <PR>=<job> for a PR his words change, which that live job reworks to"
-        " them; ANSWER repeats every 10 minutes until then."
+        'Record each answer to a card, and each ruling of his, in one call, drive answer --title "<the question>"'
+        ' --words "<his words>" --link <permalink>, which records it in cc-notes, prints its id and lists every card'
+        " still asking him and every PR not yet live, then refuses until each is marked: `--stands`; `--superseded"
+        " <key>=stop|<job>`, which settles that card in place with his words and stops or folds its job; or `--reopened"
+        " <PR>=<job>`, which that live job reworks to them. ANSWER repeats every 10 minutes until then. Pass"
+        " `--others-stand` only once you have read every card and PR left and his words change none."
     ),
     (
-        "Every part has an owner: an order add takes kind build and parts naming each deliverable his words name, each"
-        " job says its part, and an ORPHAN line gets a job, a card or a close in the same turn; a job waiting on a release"
-        " gets drive job set <j> --waits release:<service>:<owner>/<repo>#<n>, never --due alone. A build order's first job"
-        " is an Opus long-running:reader briefed Research: the Researched: block this build needs; its builder's or"
-        " designer's brief carries Researched: <that reader's job>, which the job tool's brief op writes from the"
-        " order's research, and a reader's DESIGN return starts the designer."
-    ),
-    "Never block: your own calls are the drive's tools, reads of cci and one gh call, beside the verbs the skill names.",
-    (
-        "Keep your context small: use Read, Write or Edit on no file and load a tool only for the step that needs it,"
-        " since each file you touched last and each tool you loaded comes back after every compaction. Before you"
-        " start a job, read the shape of its brief and handoff in drive manual jobs. The job tool's brief op writes a"
-        " brief or handoff, and a remote job then starts with drive job launch <j> in the background; a message to a"
-        " remote lane goes on stdin to drive job resume <j> -, from a quoted heredoc; a page of the skill is drive"
-        " manual <page>; a log is a job's to read."
-    ),
-    "Never name an Agent: spawn each job as an unnamed background agent, never a named teammate.",
-    (
-        "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit,"
-        " except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's AWS sign-in."
+        "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
+        " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
+        " card or a close in the same turn, and a job waiting on a release gets drive job set <j> --waits"
+        " release:<service>:<owner>/<repo>#<n>, not `--due` alone. A build order's first job is an Opus"
+        " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
+        " brief carries `Researched: <that reader's job>`, which the brief op writes, and a reader's DESIGN return"
+        " starts the designer."
     ),
     (
-        "A promise is due: a time he is promised is recorded with order set due; DUE repeats every"
-        " 10 minutes until a drive post is in the order's thread, and done or dropped refuses until then."
+        "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
+        " the skill names. Read a job's transcript before you call it silent, stuck or done, since a state you guess"
+        " reaches him as fact."
     ),
     (
-        "Batch: job results and events feed the next TICK's report; while he is away only cards and incident lines go."
-        " A report says what was observed: never a not-proven or not-confirmed paragraph under any label and never a"
-        " side fact; each unknown gets a job, and he gets its result or nothing."
+        "Load a tool only for the step that needs it, since each comes back after every compaction, and leave a log to"
+        " a job. Before you start a job, read the shape of its brief and handoff in drive manual jobs; the job tool's"
+        " brief op writes either, a remote job then starts with drive job launch <j> in the background, and a message"
+        " to a remote lane goes on stdin to drive job resume <j> - from a quoted heredoc."
+    ),
+    (
+        "A monorepo builder starts where drive place says: on a Sprite while this Mac is over its load limit or runs"
+        " its cap of builders, except a handoff whose PROVE runs ci mac-box or ci devbox, which needs this Mac's AWS"
+        " sign-in."
+    ),
+    (
+        "A time he is promised is recorded with order set due; DUE repeats every 10 minutes until a drive post is in"
+        " the order's thread, and done or dropped refuses until then."
+    ),
+    (
+        "Job results and events feed the next TICK's report; while he is away only cards and incident lines go out. A"
+        " report says only what was observed, with no side fact and no unproven or unconfirmed paragraph under any"
+        " label; each unknown gets a job, and he gets its result or nothing."
     ),
 )
 RULES = {"communicator": COMMUNICATOR_RULES, "coordinator": COORDINATOR_RULES}

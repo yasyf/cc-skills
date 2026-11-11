@@ -123,6 +123,16 @@ MARKED = re.compile(
 PLAIN_TEXT_RULING = 'his Nov 10 11:21 PM words "look at the formatting you have a link in teh titkle that is just raw markfowen"'
 PROPER_TERMS_RULING = 'his Nov 11 12:36 AM words "use the proper fucking terms for things"'
 DRIVE_ID = re.compile(r"\b[jo]\d+\b")
+VAGUE = re.compile(
+    r"\b(?:the|this|that|these|those|your|our)\s+(?:\w+\s+)?(?:change|fix|pick|copy|thing|work|issue|problem|bug|approach|code|path)s?\b"
+    r"|\bthis\b(?=\s*[?:,]|$)",
+    re.IGNORECASE,
+)
+TERM = re.compile(
+    r"\b\w+_\w+\b|\b\w+\(\)|\b[A-Z][A-Z0-9]{2,}\b|\b[A-Z]{2,}[a-z]{2,}\w*\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b"
+    r"|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b"
+)
+RETURN_WORDS = {"ASK", "DONE", "READY", "BUILT", "WAITING", "BLOCKED", "DESIGN", "CHECK", "NATIVE", "URL"}
 PR_NUMBER = re.compile(r"#\d+\b")
 OPTION_POINTER = re.compile(
     r"\b(?:(?:same\s+as|as\s+in|like|unlike|than|plus)\s+[#(]?[1-9]\b|options?\s+[#(]?[1-9]\b"
@@ -360,6 +370,8 @@ def question(text: str, kept: bool = False) -> Question:
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
             f" every PR it lands, bottom first, and the stack card that carries them needs no Show me ({STACK_RULING})"
         )
+    if not kept:
+        problems += vague_problems(title, [*summary, *(findings[:1])])
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
@@ -429,6 +441,20 @@ def direct_fix_problems(findings: str, options: list[str], recommended: str, sum
         " recommend it, or add a summary sentence that names it by those words and says why another option is better"
     )
     return [unexplained]
+
+
+def vague_problems(title: str, evidence: list[str]) -> list[str]:
+    """Whether the question points at its object with a vague noun while its summary or findings name that object's proper terms."""
+    if not (vague := VAGUE.search(title)):
+        return []
+    terms = list(dict.fromkeys(term for term in TERM.findall(URL.sub(" ", "\n".join(evidence))) if term not in RETURN_WORDS))
+    if not terms or TERM.search(title):
+        return []
+    problem = (
+        f'the question names its object only as "{vague[0]}", while its summary and findings name {", ".join(terms[:4])}:'
+        f" name it by its proper term in the question itself ({PROPER_TERMS_RULING})"
+    )
+    return [problem]
 
 
 def option_head(option: str) -> str:
