@@ -58,6 +58,7 @@ const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
+let talk = null;
 
 const $ = (selector) => document.querySelector(selector);
 const esc = (text) => String(text ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -296,13 +297,9 @@ function reviewCard(entry) {
       <div class="meta">${esc(entry.detail)}${entry.since ? ` · waiting ${ago(entry.since)}` : ''}</div>
       ${rows}
       ${card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : ''}
-      ${changeBox(entry)}
+      ${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Tell Claude what to change', entry.answer ? '' : `About ${entry.url}`)}
     </div>
   </article>`;
-}
-
-function changeBox(entry) {
-  return sayBox(`r:${entry.key}`, entry.answer ?? '', 'Tell Claude what to change', entry.answer ? '' : `About ${entry.url}`);
 }
 
 function reviewScreen(tab) {
@@ -357,6 +354,7 @@ function diffHtml(diff) {
 }
 
 async function openPR(key) {
+  talk = null;
   const drawer = $('#drawer');
   const entry = model.review.find((candidate) => candidate.key === key);
   drawer.innerHTML = `<div class="dr-bar"><b>${esc(entry?.title ?? key)}</b><button class="linkish" data-close>Close</button></div><p class="empty small">Reading the change…</p>`;
@@ -374,11 +372,41 @@ async function openPR(key) {
     <div class="dr-body">
       <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
       ${answerable}
-      ${entry ? changeBox(entry) : ''}
+      ${entry ? talkBox(entry) : ''}
       <div class="dr-tabs"><button class="on" data-drtab="body">Description</button><button data-drtab="diff">Changes</button></div>
       <div class="dr-pane" data-pane="body">${prose(pr.body)}</div>
       <div class="dr-pane" data-pane="diff" hidden>${diffHtml(pr.diff)}${more}</div>
     </div>`;
+  if (entry?.thread) drawTalk(entry);
+}
+
+function talkBox(entry) {
+  const said = entry.thread ? '<div class="thread" data-talk><p class="meta">Reading what was said about it…</p></div>' : '<p class="meta">This change has no Slack card yet, so the answer comes back in Chat.</p>';
+  return `<section class="talk"><h4 class="hd">Ask about this change</h4>${said}${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Ask about this change, or tell Claude what to change', entry.answer ? '' : `About ${entry.url}`)}</section>`;
+}
+
+async function drawTalk(entry) {
+  if (talk?.key === entry.key && talk.reading) {
+    talk.again = true;
+    return;
+  }
+  const reading = { key: entry.key, thread: entry.thread, reading: true, again: false };
+  talk = reading;
+  let said;
+  try {
+    said = (await readThread(entry.thread)).map((each) => message(each, waitingCards())).join('') || '<p class="meta">Nothing has been asked about it yet. What you ask, and the answer, show here.</p>';
+  } catch (error) {
+    said = `<p class="refused">${esc(error.message)}</p>`;
+  }
+  if (talk !== reading) return;
+  reading.reading = false;
+  const pane = $('#drawer [data-talk]');
+  if (pane) pane.innerHTML = said;
+  if (reading.again) drawTalk(reading);
+}
+
+function followTalk() {
+  if (talk && $('#drawer').open) drawTalk(talk);
 }
 
 const ASK_TABS = [
@@ -422,6 +450,21 @@ function slackTime(ts) {
   return clock(new Date(parseFloat(ts) * 1000).toISOString());
 }
 
+function cardTs(url) {
+  return url.match(/\/p(\d+)(\d{6})(?:\?|$)/).slice(1).join('.');
+}
+
+function waitingCards() {
+  return new Map(model.queue.filter((item) => item.answer).map((item) => [cardTs(item.answer), item]));
+}
+
+async function readThread(ts) {
+  const reply = await fetch(`/api/thread/${ts}`);
+  const thread = await reply.json();
+  if (!reply.ok) throw new Error(thread.error);
+  return thread.messages.filter((said) => said.ts !== ts);
+}
+
 function message(said, waiting) {
   const item = waiting.get(said.ts);
   const buttons = item ? choices(item) : said.buttons?.length ? `<div class="chips">${said.buttons.map((label) => `<span class="chip settled">${esc(label)}</span>`).join('')}</div>` : '';
@@ -435,6 +478,7 @@ function message(said, waiting) {
 }
 
 async function openAsk(id) {
+  talk = null;
   const ask = model.asks.find((candidate) => candidate.id === id);
   const drawer = $('#drawer');
   const head = `<div class="dr-bar"><b>${esc(ask.title)}</b><button class="linkish" data-close>Close</button></div>`;
@@ -442,14 +486,14 @@ async function openAsk(id) {
   drawer.innerHTML = `${head}<div class="dr-body">${words}${ask.thread ? '<p class="empty small">Reading the thread…</p>' : '<p class="meta">This ask came from the terminal, so it has no thread.</p>'}</div>`;
   if (!drawer.open) drawer.showModal();
   if (!ask.thread) return;
-  const reply = await fetch(`/api/thread/${ask.thread}`);
-  const thread = await reply.json();
-  if (!reply.ok) {
-    drawer.querySelector('.empty').textContent = thread.error;
+  let messages;
+  try {
+    messages = await readThread(ask.thread);
+  } catch (error) {
+    drawer.querySelector('.empty').textContent = error.message;
     return;
   }
-  const waiting = new Map(model.queue.filter((item) => item.answer).map((item) => [item.answer.match(/\/p(\d+)(\d{6})(?:\?|$)/).slice(1).join('.'), item]));
-  const messages = thread.messages.filter((said) => said.ts !== ask.thread);
+  const waiting = waitingCards();
   const open = !['done', 'dropped'].includes(ask.state);
   const gotIt = open && messages.some((said) => said.from_claude) ? `<button class="btn" data-gotit="a:${esc(ask.id)}" data-under="${esc(ask.url)}">Got it</button>` : '';
   drawer.innerHTML = `${head}<div class="dr-body">${words}<div class="thread">${messages.map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has come back in this thread yet.</p>'}</div>${gotIt}${sayBox(`a:${ask.id}`, ask.url, 'Reply')}</div>`;
@@ -775,6 +819,7 @@ async function say(key, under, words, about) {
     if (!reply.ok) throw new Error(said.error);
     drafts.delete(key);
     sent.set(key, { at: new Date().toISOString() });
+    if (talk && key === `r:${talk.key}` && $('#drawer').open) drawTalk(talk);
   } catch (error) {
     sent.set(key, { error: error.message });
   }
@@ -817,6 +862,7 @@ function connect() {
     connected = true;
     render();
     notify();
+    followTalk();
   };
   stream.onerror = () => {
     if (connected) lostAt = new Date().toISOString();

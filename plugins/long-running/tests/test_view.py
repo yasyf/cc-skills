@@ -419,7 +419,7 @@ def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: st
     assert view.stored_cards(demo) == (view.NO_CARDS, "unavailable: not signed in")
 
 
-def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card() -> None:
+def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_card_and_its_thread() -> None:
     data = drive_of(
         {"o1": order("ship the page", ["j1"])},
         {"j1": job("o1", "running")},
@@ -431,15 +431,15 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
         ],
     )
     drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
-    card = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1", "card": drawn}
+    card = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": drawn}
     entries = view.board(data, found(pr_cards=[card]), "live", [], T0)["review"]
     assert [(entry["key"], entry["group"], entry["feature_title"]) for entry in entries] == [
         ("yasyf/cc-skills#1", "you", "ship the page"),
         ("yasyf/cc-skills#2", "not ready", "ship the page"),
         ("yasyf/cc-skills#3", "decided", "ship the page"),
     ]
-    assert (entries[0]["card"], entries[0]["answer"], entries[0]["since"]) == (drawn, card["url"], card["asked"])
-    assert all(entry["card"] is None for entry in entries[1:])
+    assert (entries[0]["card"], entries[0]["answer"], entries[0]["since"], entries[0]["thread"]) == (drawn, card["url"], card["asked"], "1794200000.000100")
+    assert all(entry["card"] is None and entry["thread"] is None for entry in entries[1:])
 
 
 def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
