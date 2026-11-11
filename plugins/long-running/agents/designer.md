@@ -83,6 +83,9 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
   the recommended one unless the summary names it and says why another is better: "so why was that
   not the suggested optin to me, or even any of the options?" `Direct fix:` names it by its words,
   whole or up to the colon that ends its first part.
+- The summary answers his next question: why, did he already decide this, is it a port, what comes
+  after, or why it is held. `drive job ask` refuses one that answers none of them unless `Findings:`
+  carries `Next question: none: <why>`.
 - Each option says what it does: what runs, on what trigger, what it reads or watches and what
   reaches the agent or him, then what he gets and what it costs, such as "the Mac reruns the check
   function every 30 seconds and compares its output; a change sends one inbox message that wakes the

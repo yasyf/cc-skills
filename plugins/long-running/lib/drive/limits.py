@@ -84,8 +84,16 @@ PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 DIRECT_FIX = re.compile(r"^[ \t]*Direct fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 NO_DIRECT_FIX = re.compile(r"none[ \t]*:[ \t]*\S", re.IGNORECASE)
+NEXT_QUESTION = re.compile(
+    r"\b(?:because|since|so|why|decided|already|your\s+(?:\S+\s+){0,3}?(?:answer|pick|ruling|words|approval)|port(?:s|ed)?"
+    r"|next|then|once|meanwhile|held|holds|waits?|waiting|awaits?|awaiting|paused|pending|until|blocked)\b",
+    re.IGNORECASE,
+)
+NO_NEXT_QUESTION = re.compile(r"^[ \t]*Next question:[ \t]*none[ \t]*:[ \t]*\S", re.MULTILINE | re.IGNORECASE)
+NEXT_QUESTIONS = "why, did he already decide this, is it a port, what comes after, or why it is held"
 HEAD_END = re.compile(r"(?<!:):(?!:)(?=\s|$)")
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
+QUOTED_LINE = re.compile(rf"^[ \t]*{QUOTE}.*$", re.MULTILINE)
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?"
 POST_KINDS = rf"{KINDS}|change"
 DRIVE_KINDS = ("PR", "card")
@@ -381,6 +389,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
         )
     if not kept:
         problems += vague_problems(title, [*summary, *(findings[:1])])
+        problems += next_question_problems(summary, "".join(findings[:1]))
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     elif not kept and len(marked) == 1:
@@ -490,6 +499,18 @@ def direct_fix_problems(findings: str, options: list[str], recommended: str, sum
         " recommend it, or add a summary sentence that names it by those words and says why another option is better"
     )
     return [unexplained]
+
+
+def next_question_problems(summary: list[str], findings: str) -> list[str]:
+    """Whether the summary answers the question he would ask next, by words saying why, what he already decided, that it is a port, what comes after or why it is held, or the findings say with `Next question: none: <why>` that none follows."""
+    said = URL.sub(" ", LABELLED.sub(r" \1 ", " ".join(summary)))
+    if NEXT_QUESTION.search(said) or NO_NEXT_QUESTION.search(findings):
+        return []
+    unanswered = (
+        f"the summary answers none of his next questions: {NEXT_QUESTIONS}; add the one he would ask, as"
+        ' "held until you pick, so nothing ships meanwhile" does, or write `Next question: none: <why>` under `Findings:`'
+    )
+    return [unanswered]
 
 
 def vague_problems(title: str, evidence: list[str]) -> list[str]:
@@ -862,6 +883,28 @@ def link_refusal(post: dict, kinds: tuple[str, ...]) -> str | None:
     if not problems:
         return None
     return "refused: " + "; ".join(problems) + "." + (from_ask(card) if card else "")
+
+
+def stand_in_refusal(post: dict, stand_ins: dict[str, str]) -> str | None:
+    """Why a post calls a thing by a word he corrected, which `drive term` keeps beside the proper term his words or the code use, in its text, a visual's caption, a link's words or a card; a quote, a `>` quote line, code and a link's address stay as written, and the proper term holds no stand-in, so "replica" never refuses "S3 replica"."""
+    card = post.get("card") or {}
+    captions = [visual.get("caption") or "" for visual in post.get("visuals") or []]
+    text = LABELLED.sub(r" \1 ", "\n".join([post.get("text") or "", *captions, card.get("title") or "", card.get("body") or "", *(card.get("options") or [])]))
+    for pattern in (FENCED, QUOTED, QUOTED_LINE, URL):
+        text = pattern.sub(" ", text)
+    found = [
+        f'"{match[0]}" becomes "{term}"'
+        for stand_in, term in stand_ins.items()
+        if (match := phrase(stand_in).search(phrase(term).sub(" ", text)))
+    ]
+    if not found:
+        return None
+    return f"this post calls a thing by a word he corrected, so write its proper term in that word's place: {'; '.join(found)} ({PROPER_TERMS_RULING})"
+
+
+def phrase(words: str) -> re.Pattern[str]:
+    """The words as a phrase of whole words, any run of spaces between them and a plural ending allowed."""
+    return re.compile(rf"(?<![\w-]){r'\s+'.join(map(re.escape, words.split()))}(?:e?s)?(?![\w-])", re.IGNORECASE)
 
 
 def first_line(text: str) -> str:

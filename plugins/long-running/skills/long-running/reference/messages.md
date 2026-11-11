@@ -133,7 +133,10 @@ summary of one feature is a line of at most 60 words.
   `drive job ask` refuses it; put the link in the summary.
 - Its body is its summary, one to three lines: what was found and what is being decided, the
   recommendation, and what happens meanwhile. The first line gives him the investigation's results
-  before he picks. When the block has a Show me, a `*Show me*` line and the Show me follow as written.
+  before he picks. It answers his next question: why, did he already decide this, is it a port, what
+  comes after, or why it is held. `drive job ask` refuses a summary that answers none of them unless
+  the findings carry `Next question: none: <why>`. When the block has a Show me, a `*Show me*` line
+  and the Show me follow as written.
 - One option is always the fix the job's own diagnosis points at, recommended unless the summary says
   why not. The recommended option is the block's first, which `drive job ask` refuses otherwise. `drive job ask` refuses a block whose findings carry no `Direct fix:` line naming that
   option by its words, or `Direct fix: none: <why>`.
@@ -362,7 +365,9 @@ the dashboard link. When a line says where things stand, link the page instead o
   messages or the code use, glossed in one line the first time. Never a vague stand-in such as "the
   copy change", nor a coined one such as "backup", "bucket history" or "chat format", since it names
   nothing he can open: "use the proper fucking terms for things". A product or tool he uses keeps its
-  name, in backticks.
+  name, in backticks. When he corrects a word, the handler for his message runs
+  `drive term <the word> "<the proper term>"`, and `say` refuses a post using that word from then on,
+  naming the term.
 - Name only what the message needs, and a mechanism only when he asked about it.
 - Every line stands alone, because he reads it with no other context: "you always have to assume I
   don't have any other context". A number, fraction, size or ratio says what it measures, why it has

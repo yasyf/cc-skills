@@ -1003,6 +1003,37 @@ def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_d
     assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
 
+def test_job_ask_check_refuses_a_summary_answering_none_of_his_next_questions_unless_its_findings_say_none_follows(
+    state_root: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    bare = "ASK Which way should this go?\nTwo ways to copy.\n- server-side copy (recommended)\n- copy in batches\nFindings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    block.write_text(bare)
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert (
+        "the summary answers none of his next questions: why, did he already decide this, is it a port, what comes after, or why"
+        ' it is held; add the one he would ask, as "held until you pick, so nothing ships meanwhile" does, or write'
+        " `Next question: none: <why>` under `Findings:`"
+    ) in capsys.readouterr().err
+    block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; the copy is held until you pick one."))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    block.write_text(bare.replace("Two ways to copy.", "Two ways to copy; copying is paused pending your approval."))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    block.write_text(bare.replace("Findings:\n", "Findings:\nNext question: none: a pick with nothing held on it\n"))
+    assert cli.main(["job", "ask", "--check", str(block)]) == 0
+    assert limits.question(bare, kept=True).summary == ["Two ways to copy."]
+
+
+def test_term_keeps_a_word_he_corrected_beside_its_proper_term_and_a_drive_saved_before_it_loads_with_none(run: Run, demo: str) -> None:
+    assert state.load(demo)["stand_ins"] == {}
+    assert run("term", "backup", "S3 replica") == (0, 'say refuses "backup" from now on, naming "S3 replica"')
+    assert state.load(demo)["stand_ins"] == {"backup": "S3 replica"}
+    saved = json.loads(state.state_path(demo).read_text())
+    del saved["stand_ins"]
+    state.state_path(demo).write_text(json.dumps(saved))
+    assert state.load(demo)["stand_ins"] == {}
+
+
 def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
     run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1020,7 +1051,7 @@ def test_job_ask_keeps_an_option_his_no_sweepers_ruling_refuses_only_when_unsett
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(
-        "ASK How do leases stop leaking?\nA lease outlives the run that took it.\n"
+        "ASK How do leases stop leaking?\nA lease outlives the run that took it, so the next run waits on it.\n"
         "- reclaim orphaned leases every 10 minutes (recommended)\n- one owner holds the lease until it ends\n"
         "Findings:\nDirect fix: none: a design pick\nTwo runs held one lease.\n"
     )

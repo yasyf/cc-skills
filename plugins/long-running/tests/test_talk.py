@@ -343,3 +343,32 @@ def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_hold
     assert said(demo)[0]["text"] == f"[the run page fix]({PR_URL}) and [the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
     with pytest.raises(DriveError, match=r"\{pr:yasyf/cc-skills#4250\} names no PR of the drive's"):
         talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})
+
+
+def test_a_word_he_corrected_is_refused_naming_its_proper_term_and_the_proper_term_or_a_quote_of_him_posts(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["stand_ins"]["backup"] = "S3 replica"
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The backup copy is current."})
+    assert str(refused.value) == (
+        "nothing posted: this post calls a thing by a word he corrected, so write its proper term in that word's place:"
+        ' "backup" becomes "S3 replica" (his Nov 11 12:36 AM words "use the proper fucking terms for things")'
+    )
+    with pytest.raises(DriveError, match='"backups" becomes "S3 replica"'):
+        talk.say(demo, {"card": {"title": "Restore from which backups?", "body": "One line.", "options": ["Yes", "No"]}})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": "The S3 replica is current."})
+    talk.say(demo, {"text": 'You asked "is the backup current"; the S3 replica is.'})
+    assert len(posts) == 2
+
+
+def test_a_word_he_corrected_is_refused_in_a_links_words_or_a_visuals_caption_and_posts_in_a_quote_line_of_his(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with state.edit(demo) as data:
+        data["stand_ins"]["backup"] = "S3 replica"
+    with pytest.raises(DriveError, match='"backup" becomes "S3 replica"'):
+        talk.say(demo, {"text": "The <https://example.com/replica|backup copy> is current."})
+    with pytest.raises(DriveError, match='"backup" becomes "S3 replica"'):
+        talk.say(demo, {"text": "Replica status.", "visuals": [{"kind": "chart", "source": "{}", "caption": "The backup copy."}]})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": "> Is the backup copy current?\nThe S3 replica is current."})
+    assert posts[0][-1] == "> Is the backup copy current?\nThe S3 replica is current."

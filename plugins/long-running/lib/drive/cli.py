@@ -1736,6 +1736,14 @@ def thread_order(data: dict, thread: str) -> tuple[str, dict] | None:
     return (order_id, data["orders"][order_id]) if order_id and data["orders"][order_id]["project"] in data["subcoordinators"] else None
 
 
+def term(args: argparse.Namespace) -> int:
+    name = state.resolve(args.drive)
+    with state.edit(name) as data:
+        data["stand_ins"][args.stand_in] = args.term
+    line = f'say refuses "{args.stand_in}" from now on, naming "{args.term}"'
+    return emit(args, line, {"stand_in": args.stand_in, "term": args.term})
+
+
 def overlay_live(data: dict) -> str:
     """Read the drive's open PRs from GitHub into data, never saved; say whether the PR fields are live or stored."""
     keys = state.open_pr_keys(data)
@@ -2227,7 +2235,9 @@ def parser() -> argparse.ArgumentParser:
         help="keep a job's ASK in the drive beside its other open questions, refused unless it is in the shape he reads, and set the job waiting",
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
-            " decided, the recommendation, what happens meanwhile), `Show me:` and at least one visual under it, or no Show me"
+            " decided, the recommendation, what happens meanwhile, answering his next question: why, did he already decide"
+            " this, is it a port, what comes after, or why it is held, or `Next question: none: <why>` under `Findings:`),"
+            " `Show me:` and at least one visual under it, or no Show me"
             " when nothing shows what the words cannot (a mermaid flow, a compare or a table for options, a chart for numbers,"
             " an arch diagram, whose JSON parses, the real call in a fence naming its language for a code or API shape, or a"
             " picture on a line of its own as ![caption](/absolute/path.png); never words, JSON, YAML, logs, a terminal"
@@ -2487,6 +2497,12 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     verb.set_defaults(run=heard)
+    verb = verbs.add_parser(
+        "term", parents=both, help="he corrected a word: say refuses it from now on, naming the proper term his words or the code use"
+    )
+    verb.add_argument("stand_in", metavar="stand-in", help="the word he corrected, as a post used it")
+    verb.add_argument("term", help="the proper term to use in its place, his word or the code's")
+    verb.set_defaults(run=term)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
     verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order")

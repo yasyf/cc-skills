@@ -800,7 +800,7 @@ def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says
 
 def options_ask(*options: str) -> str:
     listed = "".join(f"- {option}\n" for option in options)
-    return f"ASK Which way should this go?\nThe pick below decides it.\n{listed}Findings:\nDirect fix: none: a design pick\nKept on disk.\n"
+    return f"ASK Which way should this go?\nThe pick below decides it, so the work waits on it.\n{listed}Findings:\nDirect fix: none: a design pick\nKept on disk.\n"
 
 
 def test_the_recommended_option_comes_first_in_a_new_block_and_a_kept_one_still_redraws() -> None:
