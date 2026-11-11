@@ -83,9 +83,10 @@ you built up.
    knows the codebase but has not read this code lately; `## Biggest surprise`;
    `## What you'll hate most`; `## Releasable alone`, what a release cut at its merge commit
    does with nothing else and, for each order its targets could go out in, what a person sees;
-   `## Show me`, a concrete example in the visual kind that fits (a mermaid flow, a compare or
+   `## Show me`, a concrete example in the visual kind that fits: a PR that adds or rewires
+   components shows an ```arch map of them, and any other a mermaid flow, a compare or
    table, a chart, the real SQL, code or call before and after in a fence naming its language,
-   or a screenshot for a UI; never words, JSON, YAML, logs or terminal output in a fence; a public
+   or a screenshot for a UI (never words, JSON, YAML, logs or terminal output in a fence; a public
    repository's screenshot shows a demo drive or public data only, under a `demo-` or
    `public-` path, and a picture of the live drive, private code, Slack or a customer goes
    only to a private repository's PR or his DM);
@@ -314,14 +315,19 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   is none, and a card with nothing that adds clarity has no Show me, by his Nov 10 11:03 PM words "we
   needed an image to show a const? … show a sinippet when it makews sense". It is drawn whole
   on his card outside the 150 words, each fence naming its kind, which the card draws as a picture:
-  ```mermaid for routing, ownership or steps over time; ```compare or a markdown table for the
-  options side by side; ```chart, a Vega-Lite spec, for numbers; ```arch for components; code
+  ```mermaid for routing, ownership or steps over time, top to bottom (`flowchart TD`) once a chain
+  runs past four nodes; ```compare or a markdown table for the options side by side; ```chart, a
+  Vega-Lite spec, for numbers, which Slack draws as its own chart, its title at most 50 characters,
+  each label at most 20, at most 12 series and 20 categories, 2 charts a card; ```arch for components; code
   naming its language (```sand, ```sql, ```go) only for a code or API shape, the real call itself;
-  a screenshot for a UI. A mixed visual is split into its parts, the diagram in its own fence and
+  a screenshot for a UI. Two or more pictures draw side by side as one Slack gallery, so each
+  caption opens with its option's number as the card numbers them, the recommended option 1, and
+  a middle dot: `1 · Feed first`. A mixed visual is split into its parts, the diagram in its own fence and
   each table as a markdown table, never one picture of both. Words and raw data never go in a fence:
   `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal
   session, command output or a stack trace, whatever language it names; a chart, compare or arch
-  whose JSON does not parse; a fence of one or two lines declaring a constant; as many code fences as
+  whose JSON does not parse; a chart past Slack's limits; a gallery caption with no option number;
+  a left-to-right flow past four nodes; a fence of one or two lines declaring a constant; as many code fences as
   options, which go in one ```compare labeled per option; a picture kept in the drive's asks or
   pictures folder, drawn by hand rather than from a fence; two or more PRs listed by number, which a
   stack card shows; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an

@@ -22,7 +22,7 @@ INSTRUCTIONS = (
 TEXT = {"type": "string"}
 VISUAL = {
     "type": "object",
-    "description": "One visual the post carries: drawn as a picture for Slack, drawn live from its source on the dashboard",
+    "description": "One visual the post carries: drawn as a picture for Slack, or a chart as Slack's own chart, and live from its source on the dashboard",
     "properties": {
         "kind": {
             "type": "string",

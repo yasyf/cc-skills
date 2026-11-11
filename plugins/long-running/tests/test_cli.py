@@ -39,15 +39,17 @@ A finished run is about 180 small files, each with its page map at the end, so t
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
 Meanwhile nothing is built on either layout.
 Show me:
-The requests a finished run's page makes today, then with one snapshot file:
-```http
-GET journal/0001.ltx  last 64 KiB, guessing where the map starts
-... 180 files, one guess each
-```
-
+1 · One snapshot file per finished run, the requests its page makes:
 ```http
 GET snapshot.ltx      map at a fixed place
 GET 2 page ranges
+```
+
+2 · A map file beside each journal file, the requests its page makes:
+```http
+GET journal/0001.map  the map, no guessing
+GET journal/0001.ltx  one page range
+... 180 files, two requests each
 ```
 - One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
 - A map file beside each journal file: no guessing, but one request per file and twice the objects
@@ -652,7 +654,7 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     assert shown["recommended"].startswith("One snapshot file per finished run")
     assert len(shown["options"]) == 3
     assert len(shown["summary"]) == 3
-    assert shown["show_me"][0] == "The requests a finished run's page makes today, then with one snapshot file:"
+    assert shown["show_me"][0] == "1 · One snapshot file per finished run, the requests its page makes:"
     assert shown["show_me"][-1] == "```"
 
 
@@ -724,7 +726,7 @@ def test_job_ask_refuses_a_card_cc_slack_would_not_draw_in_its_own_words(
 ) -> None:
     row = "no event and no versions      unknowable     the second option, so a next loss names its actor"
     block = tmp_path / "ask.md"
-    block.write_text(SHORT_ASK.replace("... 180 files, one guess each", row))
+    block.write_text(SHORT_ASK.replace("... 180 files, two requests each", row))
     drawing.refusal = (
         'card body points at an option by number or position with "second option": the card draws the recommended option'
         " first and renumbers the rest, so name the option in its own words"
@@ -742,7 +744,7 @@ def test_job_ask_refuses_a_card_cc_slack_would_not_draw_in_its_own_words(
 def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str, tmp_path: Path) -> None:
     block = tmp_path / "ask.md"
     code = "\n".join(f"GET journal/{index:04}.ltx  last 64 KiB, guessing where the map starts" for index in range(40))
-    block.write_text(SHORT_ASK.replace("... 180 files, one guess each", code))
+    block.write_text(SHORT_ASK.replace("... 180 files, two requests each", code))
     assert run("job", "ask", asking, str(block))[0] == 0
 
 
@@ -802,7 +804,9 @@ def test_job_ask_offers_the_direct_fix_and_recommends_it_unless_the_summary_says
 def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     block = tmp_path / "ask.md"
     caption = " ".join(["word"] * 26)
-    block.write_text(SHORT_ASK.replace("```http\nGET journal", f"{caption}\n```sql\nGET journal", 1).replace("GET 2 page ranges\n```\n", "GET 2 page ranges\n"))
+    block.write_text(
+        SHORT_ASK.replace("```http\nGET snapshot", f"{caption}\n```sql\nGET snapshot", 1).replace("two requests each\n```\n", "two requests each\n")
+    )
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     refusal = capsys.readouterr().err
     assert f'Show me line "{caption}" is 26 words; outside a code fence each is a caption of at most 25' in refusal
@@ -888,7 +892,10 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     card = json.loads(printed)
     shown = card["body"].split("*Show me*\n", 1)[1].splitlines()
     pictures = [line.removeprefix("![").removesuffix(")").split("](") for line in shown if line.startswith("![")]
-    assert [caption for caption, _ in pictures] == ["The requests a finished run's page makes today, then with one snapshot file", "Show me"]
+    assert [caption for caption, _ in pictures] == [
+        "1 · One snapshot file per finished run, the requests its page makes",
+        "2 · A map file beside each journal file, the requests its page makes",
+    ]
     assert all(Path(path).is_file() for _, path in pictures)
     assert "```" not in card["body"]
     assert drawn == ["code:http", "code:http"]
@@ -935,7 +942,7 @@ def test_job_card_redraws_a_kept_text_fence_as_a_code_block_where_it_sat(
         "```",
     ]
     assert len(shown) == 6
-    assert shown[5].startswith("![Show me](")
+    assert shown[5].startswith("![go code](")
 
 
 def test_job_card_draws_a_card_no_job_asked_and_gives_no_job_its_waits(

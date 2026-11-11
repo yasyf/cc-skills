@@ -1,6 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path
 
 from drive import picture
@@ -32,6 +33,8 @@ GALLERY_RULING = 'his Nov 10 10:55 PM words "should be shown gallery style label
 HAND_RULING = 'his Nov 10 10:30 PM words "these images are not useful at all … here we could have done a mermaid chart"'
 NATIVE_RULING = 'his Nov 10 11:01 PM words "the two tables should be rendered in slack natively"'
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
+CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
+PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
 HAND_DRAWN = ("asks", "pictures")
 CONSTANT = re.compile(
     r"^[ \t]*(?:(?:export|pub|public|private|final)[ \t]+)*(?:const|let|var|val|static)[ \t]+\w[^=\n]*=|^[ \t]*[A-Z][A-Z0-9_]+[ \t]*(?::[^=\n]+)?=(?!=)"
@@ -45,6 +48,22 @@ VISUALS = (
 JSON_KINDS = ("arch", "chart", "compare")
 COMPARE_SHAPE = '{"options": [{"name": …, "recommended": true, "language": …, "code": …, "points": ["+ a gain", "- a cost"]}, …]}'
 SEPARATOR_CELL = re.compile(r":?-+:?")
+CHART_MARKS = ("bar", "line", "area", "arc")
+CHART_SHAPE = "a bar, line or area mark plotting one quantitative axis against one of categories, or an arc of a theta field by a color field, its rows inline in data.values"
+CHART_TITLE = 50
+CHART_LABEL = 20
+CHART_SERIES = 12
+CHART_CATEGORIES = 20
+CHARTS = 2
+OPTION_CAPTION = re.compile(r"([1-9]) · \S")
+FLOW_NODES = 4
+WIDE_FLOW = re.compile(r"^[ \t]*((?:flowchart|graph)[ \t]+(?:LR|RL))\b(.*)", re.MULTILINE | re.DOTALL)
+FLOW_STATEMENT = re.compile(r"[;\n]")
+FLOW_SKIP = re.compile(r"[ \t]*(?:%%|(?:subgraph|end|classDef|class|style|linkStyle|click|direction)\b)")
+FLOW_LABEL = re.compile(r'"[^"\n]*"|\|[^|\n]*\||\[[^\]\n]*\]|\([^)\n]*\)|\{[^}\n]*\}')
+FLOW_LINK_TEXT = re.compile(r"(?<![-=.])(?:--|==|-\.)[ \t]+[^-=.>\s][^\n]*?[ \t]+(?=-->|==>|\.->|---|===)")
+FLOW_LINK = re.compile(r"\s*<?(?:-\.+-|-{2,}|={2,})[->ox]?\s*")
+FLOW_NODE = re.compile(r"\s*(\w+)")
 
 WORD = re.compile(r"\S*[^\W_]\S*")
 LABELLED = re.compile(r"<[^<>|]*\|([^<>]*)>")
@@ -411,7 +430,7 @@ def show_me_problems(show_me: list[str], below_options: bool, kept: bool, option
     fences = [line for line in show_me if FENCE.match(line)]
     if len(fences) % 2:
         problems.append("a ``` fence in the Show me is never closed")
-    return problems if kept else problems + visual_problems(show_me, options)
+    return problems if kept else [*problems, *visual_problems(show_me, options), *chart_problems(show_me), *gallery_problems(show_me, options), *flow_problems(show_me)]
 
 
 def visual_problems(show_me: list[str], options: int) -> list[str]:
@@ -465,6 +484,112 @@ def visual_problems(show_me: list[str], options: int) -> list[str]:
             f" the `Show me:` line when nothing does ({LIBRARY_RULING}; {WORDS_RULING})"
         )
     return problems
+
+
+def chart_problems(show_me: list[str]) -> list[str]:
+    """Why Slack's own chart block, which cc-slack draws each ```chart of a card as, cannot hold the Show me's charts: more of them than a card holds, or one whose title, labels, series or categories run past its limits."""
+    charts = [fence[2] for fence in picture.FENCE.finditer("\n".join(show_me)) if fence[1].lower() == "chart"]
+    problems = [
+        f"the Show me ```chart fence {problem}, so Slack cannot draw it as its own chart: fit it to Slack's limits ({CHART_RULING})"
+        for source in charts
+        if json_problem("chart", source) is None
+        for problem in chart_limits(json.loads(source))
+    ]
+    if len(charts) > CHARTS:
+        problems.append(
+            f"the Show me holds {len(charts)} ```chart fences, and Slack draws at most {CHARTS} charts on a card: keep the {CHARTS} the"
+            f" choice turns on, or put the other numbers in a markdown table ({CHART_RULING})"
+        )
+    return problems
+
+
+def chart_limits(spec: dict) -> list[str]:
+    """Each limit of Slack's chart block a Vega-Lite spec runs past, read as cc-slack reads it: titled by its title or "<value field> by <category field>", one label for each category, one series for each color value or else one named for its value axis, and an arc's slices labeled by color."""
+    encoding, rows, mark = spec.get("encoding") or {}, (spec.get("data") or {}).get("values") or [], spec_text(spec.get("mark"), "type")
+    pie = mark == "arc"
+    axes = (encoding.get("theta") or {}, encoding.get("color") or {}) if pie else (encoding.get("x") or {}, encoding.get("y") or {})
+    value, category = axes if pie else sorted(axes, key=lambda axis: axis.get("type") != "quantitative")
+    readable = pie or (value.get("type") == "quantitative" and category.get("type") != "quantitative")
+    if mark not in CHART_MARKS or not rows or not value.get("field") or not category.get("field") or not readable:
+        return [f"is no chart Slack draws; it holds {CHART_SHAPE}"]
+    title = spec_text(spec.get("title"), "text") or f"{value['field']} by {category['field']}"
+    labels = list(dict.fromkeys(chart_label(row.get(category["field"])) for row in rows))
+    if pie:
+        series = labels
+    elif color := (encoding.get("color") or {}).get("field"):
+        series = list(dict.fromkeys(chart_label(row.get(color)) for row in rows))
+    else:
+        series = [spec_text(value.get("title"), "text") or value["field"]]
+    problems = [f'is titled "{title}", {len(title)} characters, and a Slack chart\'s title holds at most {CHART_TITLE}'] if len(title) > CHART_TITLE else []
+    problems += [
+        f'has the label "{label}", {len(label)} characters, and each label holds 1 to {CHART_LABEL}'
+        for label in dict.fromkeys([*labels, *series])
+        if not 0 < len(label) <= CHART_LABEL
+    ]
+    if len(series) > CHART_SERIES:
+        problems.append(f"draws {len(series)} {'slices' if pie else 'series'}, and a Slack chart holds at most {CHART_SERIES}")
+    if not pie and len(labels) > CHART_CATEGORIES:
+        problems.append(f"has {len(labels)} categories, and a Slack chart holds at most {CHART_CATEGORIES}")
+    return problems
+
+
+def spec_text(raw: object, key: str) -> str:
+    if isinstance(raw, dict):
+        return spec_text(raw.get(key), key)
+    return raw if isinstance(raw, str) else ""
+
+
+def chart_label(value: object) -> str:
+    return value if isinstance(value, str) else json.dumps(value)
+
+
+def gallery_problems(show_me: list[str], options: int) -> list[str]:
+    """Why a Show me drawing two or more pictures, which Slack shows side by side as one gallery titled by their captions, does not label each by its option: each caption opens with the number his card gives that option and a middle dot, as `1 · …`."""
+    text = "\n".join(show_me)
+    shown = [fence["caption"] or "" for fence in picture.CAPTIONED.finditer(text) if picture.pictured(fence["language"], fence["source"])]
+    shown += [found[1] for line in captions(show_me) if (found := PICTURE.fullmatch(line))]
+    if len(shown) < 2:
+        return []
+    unlabeled = [f'the caption "{caption}"' if caption else "a picture with no caption line above its fence" for caption in shown if not ((number := OPTION_CAPTION.match(caption)) and int(number[1]) <= options)]
+    return [
+        f"the Show me draws {len(shown)} pictures, which Slack shows side by side as one gallery titled by their captions, and {where}"
+        ' names no option: open each caption with the number his card gives its option and a middle dot, as "1 · ", the'
+        f" recommended option 1 and the rest in their order ({GALLERY_RULING})"
+        for where in unlabeled
+    ]
+
+
+def flow_problems(show_me: list[str]) -> list[str]:
+    """Why a Show me's Mermaid flow drawn across would not read on his phone: one chain of more than four nodes left to right, which shrinks its words to about 5 px there."""
+    return [
+        f"the Show me ```mermaid `{flow[1]}` runs a chain of {chain} nodes across, which shrinks its words to about 5 px on his"
+        f" phone: draw it top to bottom, `flowchart TD`, so it reads there ({PHONE_RULING})"
+        for fence in picture.FENCE.finditer("\n".join(show_me))
+        if fence[1].lower() == "mermaid" and (flow := WIDE_FLOW.search(fence[2])) and (chain := flow_chain(flow[2])) > FLOW_NODES
+    ]
+
+
+def flow_chain(source: str) -> int:
+    """The most nodes one path through a Mermaid flowchart's links runs, a link back to a node already on the path left out."""
+    after: dict[str, set[str]] = {}
+    for statement in FLOW_STATEMENT.split(source):
+        if FLOW_SKIP.match(statement):
+            continue
+        ranks = [
+            [node[1] for part in segment.split("&") if (node := FLOW_NODE.match(part))]
+            for segment in FLOW_LINK.split(FLOW_LINK_TEXT.sub("", FLOW_LABEL.sub("", statement)))
+        ]
+        for left, right in pairwise(ranks):
+            for node in left:
+                after.setdefault(node, set()).update(right)
+    longest: dict[str, int] = {}
+
+    def walk(node: str, path: frozenset[str]) -> int:
+        if node not in longest:
+            longest[node] = 1 + max((walk(each, path | {node}) for each in after.get(node, ()) if each not in path | {node}), default=0)
+        return longest[node]
+
+    return max((walk(node, frozenset()) for node in after), default=0)
 
 
 def constant(source: str) -> bool:

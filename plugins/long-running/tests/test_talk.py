@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from conftest import Thread
-from drive import cli, picture, render, slack, state, talk, view, watch
+from drive import cli, dashboard, picture, render, slack, state, talk, view, watch
 from drive.state import DriveError
 
 WAITS = "demo:j1-7"
@@ -77,6 +77,38 @@ def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_sour
     assert asked == [("one chat", "code:go", "mu.Lock()")]
     assert posts[0][-4:] == ("--file", str(drawn), "--", "The lock")
     assert said(demo)[0]["visuals"] == [{"kind": "code:go", "source": "mu.Lock()", "caption": "one chat", "picture": str(drawn)}]
+
+
+def test_a_chart_goes_to_slack_as_its_fence_for_slack_to_draw_and_the_dashboard_draws_it_from_its_source(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(picture, "cached", lambda *drawn: pytest.fail(f"a chart was drawn as a picture: {drawn}"))
+    encoding = {"y": {"field": "what", "type": "nominal"}, "x": {"field": "count", "type": "quantitative"}}
+    spec = json.dumps({"data": {"values": [{"what": "Slack posts", "count": 384}, {"what": "distinct alerts", "count": 41}]}, "mark": "bar", "encoding": encoding})
+    talk.say(demo, {"text": "Alerts, not posts.", "visuals": [{"kind": "chart", "source": spec, "caption": "in 24 hours"}]})
+    assert posts[0][3:] == ("--", f"Alerts, not posts.\n\nin 24 hours\n```chart\n{spec}\n```")
+    [kept] = said(demo)
+    assert (kept["text"], kept["visuals"]) == ("Alerts, not posts.", [{"kind": "chart", "source": spec, "caption": "in 24 hours"}])
+    monkeypatch.setattr(dashboard, "home_repo", lambda checkout: None)
+    board = dashboard.Board(demo, [])
+    board.rebuild()
+    assert [entry["visuals"] for entry in json.loads(board.body)["history"] if entry["kind"] == "said"] == [kept["visuals"]]
+
+
+def test_a_code_or_diagram_fence_in_the_text_goes_to_slack_as_its_picture_while_words_raw_data_and_a_chart_stay_text(
+    demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    asked: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(picture, "cached", lambda folder, name, kind, source: asked.append((name, kind, source)) or tmp_path / f"{name}.png")
+    stays = 'The reply:\n```json\n{"locked": true}\n```\nThe steps:\n```\nlock, write, unlock\n```\nPer day:\n```chart\n{"mark": "bar"}\n```'
+    text = f"The lock covers each chat:\n```go\nmu.Lock()\ndefer mu.Unlock()\n```\nWho takes it:\n```mermaid\nflowchart TD\n  chat --> lock\n```\n{stays}"
+    talk.say(demo, {"text": text})
+    assert asked == [("go code", "code:go", "mu.Lock()\ndefer mu.Unlock()\n"), ("Diagram", "mermaid", "flowchart TD\n  chat --> lock\n")]
+    sent = f"The lock covers each chat:\n\nWho takes it:\n\n{stays}"
+    assert posts[0][3:] == ("--file", str(tmp_path / "go code.png"), "--file", str(tmp_path / "Diagram.png"), "--", sent)
+    [kept] = said(demo)
+    assert (kept["text"], kept["visuals"]) == (text, [])
+    assert talk.say(demo, {"text": text, "dry_run": True}) == f"DRY his DM root, 2 pictures: {sent}"
 
 
 def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(demo: str, posts: list[tuple[str, ...]]) -> None:

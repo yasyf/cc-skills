@@ -86,15 +86,20 @@ card with nothing that adds clarity has no Show me, by his Nov 10 11:03 PM words
 to show a const? … show a sinippet when it makews sense". It is drawn whole on his card outside
 that count, so it holds the whole example: never cut it to fit. Each
 fence names its kind, and the card draws it as a picture, live on the dashboard by the same
-module: ```mermaid for routing, ownership, steps over time or a state machine; ```compare, or a
-markdown table, for the options side by side, each with its code and its gains and costs; ```chart,
-a Vega-Lite spec, for sizes, counts and timings; ```arch for components; code naming its language
-(```sand, ```sql, ```go) only for an API, call or schema shape, the real call itself; a screenshot
-on a line of its own for a UI. A mixed visual is split into its parts, the diagram in its own fence
+module: ```mermaid for routing, ownership, steps over time or a state machine, top to bottom
+(`flowchart TD`) once a chain runs past four nodes; ```compare, or a markdown table, for the options
+side by side, each with its code and its gains and costs; ```chart, a Vega-Lite spec, for sizes,
+counts and timings, which Slack draws as its own chart, its title at most 50 characters, each label
+at most 20, at most 12 series and 20 categories, 2 charts a card; ```arch for components; code
+naming its language (```sand, ```sql, ```go) only for an API, call or schema shape, the real call
+itself; a screenshot on a line of its own for a UI. Two or more pictures draw side by side as one
+Slack gallery, so each caption opens with its option's number as the card numbers them, the
+recommended option 1, and a middle dot: `1 · Feed first`. A mixed visual is split into its parts, the diagram in its own fence
 and each table as a markdown table, never one picture of both. Words and raw data never go in a
 fence: `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal
 session, command output or a stack trace, whatever language it names; a chart, compare or arch whose
-JSON does not parse; a fence of one or two lines declaring a constant; as many code fences as options, which go in one ```compare
+JSON does not parse; a chart past Slack's limits; a gallery caption with no option number; a
+left-to-right flow past four nodes; a fence of one or two lines declaring a constant; as many code fences as options, which go in one ```compare
 labeled per option; a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence;
 two or more PRs listed by number, which a stack card shows; and a `Show me:` with no visual. A markdown table draws as a native Slack table, and a picture on a line of its own draws as an image where it sits. Every row and cell holds real contents, measured or worked out from
 the code and marked as such, never the names of what will be measured later, and `drive job ask`

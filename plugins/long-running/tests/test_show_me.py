@@ -1,3 +1,4 @@
+import json
 import re
 
 import pytest
@@ -250,7 +251,16 @@ def ask(show_me: str, options: str) -> str:
             ["names no language, so his card would get a mock or words drawn as a picture", "the Show me lists 4 PRs by number, #53615, #53781, #53816, #53838: a stack card"],
             id="10:33 a PR tree in words",
         ),
-        pytest.param(ALERT_FEED_SHOW_ME, ALERT_FEED_OPTIONS, ["is JSON, raw data or tool output", "is a terminal session, raw data or tool output"], id="10:52 json and a terminal"),
+        pytest.param(
+            ALERT_FEED_SHOW_ME,
+            ALERT_FEED_OPTIONS,
+            [
+                "is JSON, raw data or tool output",
+                "is a terminal session, raw data or tool output",
+                'has the label "Slack posts, each a tag today", 29 characters, and each label holds 1 to 20, so Slack cannot draw it as its own chart',
+            ],
+            id="10:52 json, a terminal and a chart Slack cannot hold",
+        ),
         pytest.param(
             ALERT_FEED_REDRAWN_SHOW_ME,
             ALERT_FEED_REDRAWN_OPTIONS,
@@ -274,7 +284,7 @@ def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carr
     ("show_me", "options"),
     [
         pytest.param(RESTORE_PARKED_SHOW_ME, RESTORE_PARKED_OPTIONS, id="a mermaid flow and a table"),
-        pytest.param(INCIDENT_CARD_SHOW_ME, INCIDENT_CARD_OPTIONS, id="a mermaid flow with tonight's times"),
+        pytest.param(INCIDENT_CARD_SHOW_ME.replace("flowchart LR", "flowchart TD"), INCIDENT_CARD_OPTIONS, id="a mermaid flow with tonight's times, top to bottom"),
         pytest.param(EVENTS_SHOW_ME, EVENTS_OPTIONS, id="a mermaid flow of every option"),
         pytest.param(SCRATCH_CALLS_SHOW_ME, SCRATCH_CALLS_OPTIONS, id="a compare labeled per option"),
         pytest.param(AUDIT_LOG_SHOW_ME, AUDIT_LOG_OPTIONS, id="a real multi-line diff"),
@@ -283,6 +293,83 @@ def test_a_show_me_he_called_useless_is_refused_naming_its_rule_and_what_to_carr
 )
 def test_a_show_me_he_let_stand_passes(show_me: str, options: str) -> None:
     assert limits.question(ask(show_me, options)).show_me
+
+
+POSTS = [{"what": "Slack posts", "count": 384}, {"what": "distinct alerts", "count": 41}]
+FLOW_ONE = "```mermaid\nflowchart TD\n  tap[your Approve tap] --> sub[the sub-coordinator merges and installs]\n  sub --> top[the top cuts the release]\n```"
+FLOW_TWO = "```mermaid\nflowchart TD\n  tap[your Approve tap] --> top[the top merges, installs and cuts the release]\n```"
+LABELED = f"1 · The sub-coordinator lands, the top cuts releases\n{FLOW_ONE}\n2 · The top lands everything\n{FLOW_TWO}"
+
+
+def chart(values: list[dict], **spec: object) -> str:
+    encoding = {"x": {"field": "what", "type": "nominal"}, "y": {"field": "count", "type": "quantitative"}}
+    return "```chart\n" + json.dumps({"data": {"values": values}, "mark": "bar", "encoding": encoding} | spec) + "\n```"
+
+
+@pytest.mark.parametrize(
+    ("show_me", "refusal"),
+    [
+        pytest.param(
+            chart(POSTS, title="Posts that reach the coordinator, against distinct alerts, in a day"),
+            'is titled "Posts that reach the coordinator, against distinct alerts, in a day", 67 characters, and a Slack chart\'s title holds at most 50',
+            id="a title past 50 characters",
+        ),
+        pytest.param(
+            chart([{"what": "Slack posts, each a tag today", "count": 384}, *POSTS[1:]]),
+            'has the label "Slack posts, each a tag today", 29 characters, and each label holds 1 to 20',
+            id="a label past 20 characters",
+        ),
+        pytest.param(
+            chart(
+                [{"what": "Nov 10", "count": number, "monitor": f"monitor {number}"} for number in range(13)],
+                encoding={"x": {"field": "what", "type": "nominal"}, "y": {"field": "count", "type": "quantitative"}, "color": {"field": "monitor"}},
+            ),
+            "draws 13 series, and a Slack chart holds at most 12",
+            id="13 series",
+        ),
+        pytest.param(chart([{"what": f"hour {hour}", "count": hour} for hour in range(21)]), "has 21 categories, and a Slack chart holds at most 20", id="21 categories"),
+        pytest.param("\n".join([chart(POSTS)] * 3), "holds 3 ```chart fences, and Slack draws at most 2 charts on a card", id="3 charts on one card"),
+        pytest.param(chart(POSTS, mark="point"), "is no chart Slack draws", id="a mark Slack does not draw"),
+    ],
+)
+def test_a_chart_slacks_own_chart_cannot_hold_is_refused_naming_the_limit_and_its_value(show_me: str, refusal: str) -> None:
+    with pytest.raises(DriveError) as refused:
+        limits.question(ask(show_me, ALERT_FEED_OPTIONS))
+    assert refusal in str(refused.value)
+    assert "his Nov 10 10:53 PM words" in str(refused.value)
+    assert limits.question(ask(show_me, ALERT_FEED_OPTIONS), kept=True).show_me
+
+
+def test_a_chart_slack_can_hold_passes_two_to_a_card() -> None:
+    pie = chart(POSTS, mark="arc", encoding={"theta": {"field": "count", "type": "quantitative"}, "color": {"field": "what", "type": "nominal"}})
+    assert limits.question(ask(f"{chart(POSTS)}\n{pie}", ALERT_FEED_OPTIONS)).show_me
+
+
+def test_two_pictures_pass_as_one_gallery_only_when_each_caption_opens_with_its_options_number() -> None:
+    assert limits.question(ask(LABELED, LANDING_OPTIONS)).show_me
+    for show_me, unlabeled in (
+        (LABELED.replace("2 · ", ""), 'the caption "The top lands everything" names no option'),
+        (LABELED.replace("2 · ", "4 · "), 'the caption "4 · The top lands everything" names no option'),
+        (LABELED.replace("\n2 · The top lands everything\n", "\n\n"), "a picture with no caption line above its fence names no option"),
+        (LABELED.replace(f"2 · The top lands everything\n{FLOW_TWO}", "![The New Chat screen](/Users/me/shots/new-chat.png)"), 'the caption "The New Chat screen" names no option'),
+    ):
+        with pytest.raises(DriveError) as refused:
+            limits.question(ask(show_me, LANDING_OPTIONS))
+        assert f"the Show me draws 2 pictures, which Slack shows side by side as one gallery titled by their captions, and {unlabeled}" in str(refused.value)
+        assert "his Nov 10 10:55 PM words" in str(refused.value)
+
+
+def test_a_left_to_right_flow_past_four_nodes_is_refused_and_the_same_flow_top_to_bottom_passes() -> None:
+    for across in ("flowchart LR", "graph LR"):
+        with pytest.raises(DriveError) as refused:
+            limits.question(ask(INCIDENT_CARD_SHOW_ME.replace("flowchart LR", across), INCIDENT_CARD_OPTIONS))
+        assert (
+            f"the Show me ```mermaid `{across}` runs a chain of 5 nodes across, which shrinks its words to about 5 px on his phone:"
+            " draw it top to bottom, `flowchart TD`, so it reads there (his Nov 11 12:21 AM words"
+        ) in str(refused.value)
+    assert limits.question(ask(INCIDENT_CARD_SHOW_ME, INCIDENT_CARD_OPTIONS), kept=True).show_me
+    assert limits.question(ask(INCIDENT_CARD_SHOW_ME.replace("flowchart LR", "flowchart TD"), INCIDENT_CARD_OPTIONS)).show_me
+    assert limits.question(ask(EVENTS_SHOW_ME, EVENTS_OPTIONS)).show_me
 
 
 def test_a_kept_block_redraws_with_the_markdown_in_its_options_drawn_as_the_words_it_marks() -> None:

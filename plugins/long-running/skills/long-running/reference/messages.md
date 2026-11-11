@@ -186,10 +186,14 @@ says `time,bytes,disk` for everything".
 Each visual is one fence whose language names its kind, and one render layer,
 `lib/drive/site/visuals.js`, draws that one source for each surface, by his Nov 10 11:35 PM words "the
 render layer for slack should make an uimage, for web a nice code embed, and same for all
-components". Slack gets a picture of it, since a Slack message takes no code or diagram blocks. The
-dashboard and every other web page draw it natively from its source, as highlighted code, a live
-diagram or chart, or a compare, and never as a picture of one. A markdown table is native on both: a
-Slack data table and an HTML table. Pick the kind that shows what the words cannot:
+components". Slack gets a picture of it, since a Slack message takes no code or diagram blocks. A
+chart is the exception: Slack draws it as its own
+[chart block](https://docs.slack.dev/reference/block-kit/blocks/data-visualization-block), by his
+Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt
+youi build that for the renderer". The dashboard and every other web page draw each kind natively
+from its source, as highlighted code, a live diagram or chart, or a compare, and never as a picture
+of one. A markdown table is native on both: a Slack data table and an HTML table. Pick the kind that
+shows what the words cannot:
 
 | The question turns on | Kind | Fence holds |
 |---|---|---|
@@ -197,7 +201,7 @@ Slack data table and an HTML table. Pick the kind that shows what the words cann
 | components, data layout or flow between them | arch | an arch/v1 JSON document, the diagram the dashboard and cc-present draw |
 | routing, ownership, steps over time, a state machine, a small graph | mermaid | Mermaid source |
 | a graph whose layout carries the point, such as clusters of what runs where | dot | Graphviz source |
-| numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline, drawn in the dataviz palette |
+| numbers: sizes, counts, timings, before and after | chart | a Vega-Lite JSON spec with its data inline: a bar, line or area mark, or an arc for a pie, which Slack draws as its own chart |
 | a tradeoff between options | compare | `{"options": [{"name", "recommended", "language", "code", "points": ["+ a gain", "- a cost"]}]}`, drawn side by side |
 | words compared across rows | table | a markdown table, which cc-slack draws as a native Slack table |
 | a UI or anything only a picture shows | image | `![what it shows](/absolute/path.png)` on a line of its own, a screenshot or a gen-image or codex imagegen picture |
@@ -205,7 +209,16 @@ Slack data table and an HTML table. Pick the kind that shows what the words cann
 A caption line of at most 25 words sits just above each fence, and `drive job card` makes it the
 picture's title, as `say` does with a post's `visuals` caption: it replaces the fence with
 `![caption](/abs.png)`, which cc-slack posts as a Block Kit image block, so the words stay text and
-the picture holds only the visual. Code is drawn at a 12.5 px font and cut to its longest line,
+the picture holds only the visual. A fence with no caption line is titled by its kind, such as
+"go code" or "Diagram", never a bare "Show me". Two or more pictures draw side by side as one Slack
+gallery, each titled by its caption, so each caption opens with its option's number as the card
+numbers them, the recommended option 1 and the rest in their order, and a middle dot, as
+`1 · Feed first`, by his 10:55 PM words "should be shown gallery style labeled with each option (e.g
+1, 2)". A ```chart stays a fence on the card, which cc-slack draws as Slack's chart: its title is at
+most 50 characters and each label at most 20, it draws at most 12 series or slices and 20
+categories, and a card holds at most 2 charts. A Mermaid flow whose longest chain runs past four
+nodes runs top to bottom, `flowchart TD`, since drawn left to right it shrinks its words to about
+5 px on his phone, by his Nov 11 12:21 AM words "mermaid is but is ugly". Code is drawn at a 12.5 px font and cut to its longest line,
 highlighted in the language its fence names, Sand by its own grammar, by his 10:10 PM words "they
 are so big and not syhntax highlighted at all". A mixed visual is split into its parts: the diagram
 in its own fence, drawn as a picture sized to it, and each table as a markdown table, never one
@@ -213,7 +226,9 @@ picture composited from both, by his 11:01 PM words "this fdiagram should be jsu
 then the two tables should be renderd in slack natively". Words and raw data never go in a fence:
 `drive job ask` refuses a fence naming no language or `text`; JSON, YAML, logs, a terminal session,
 command output or a stack trace, whatever language the fence names; a chart, compare or arch whose
-JSON does not parse; a fence of one or two lines declaring a constant, by his 11:03 PM words "we
+JSON does not parse; a chart past Slack's limits above, or more than 2, naming the limit and the
+value; two or more pictures whose captions do not each open with an option's number; a
+`flowchart LR` or `graph LR` whose longest chain runs past four nodes; a fence of one or two lines declaring a constant, by his 11:03 PM words "we
 needed an image to show a const?"; as many code fences as options, which go in one ```compare
 labeled per option, by his 10:55 PM words "should be shown gallery style labeled with each option";
 a picture kept in the drive's asks or pictures folder, drawn by hand rather than from a fence; two or
