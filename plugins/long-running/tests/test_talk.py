@@ -5,14 +5,13 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Thread
+from conftest import Checked, Thread
 from drive import (
     cli,
     dashboard,
     picture,
     reads,
     refs,
-    render,
     slack,
     state,
     talk,
@@ -228,7 +227,7 @@ def report(monkeypatch: pytest.MonkeyPatch, attrs: dict[str, str]) -> None:
     monkeypatch.setattr(cli.reads, "run", lambda argv, checkout: json.dumps({"seq": argv[2], "lane": "root", "at": "2026-11-11T09:08:16.896Z", "fields": {"attrs": attrs}}))
 
 
-def test_a_post_for_a_report_delivers_the_part_its_job_answered(
+def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_only_a_job_delivers_none(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
     thread = "1794200000.000100"
@@ -242,6 +241,10 @@ def test_a_post_for_a_report_delivers_the_part_its_job_answered(
     answer = slack_thread.post(state.now(), from_claude=True)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"job": "j1", "thread": thread})
+    progress = talk.say(demo, {"text": "Still reading the lock.", "thread_ts": thread, "order": "o1", "record": "661193"})
+    assert progress == f"POSTED {answer}; o1 progress line, no part delivered: {answer}"
+    assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None]
+    report(monkeypatch, {"job": "j1", "thread": thread, "part": "cause"})
     assert talk.say(demo, {"text": "The lock is held across the whole call.", "thread_ts": thread, "order": "o1", "record": "661194"}) == f'POSTED {answer}; o1 "cause": posted {answer}'
     parts = state.load(demo)["orders"]["o1"]["parts"]
     assert (parts["cause"]["posted"], parts["options as a card"]["posted"]) == (answer, None)
@@ -276,7 +279,7 @@ def test_a_catch_up_opens_with_its_title_from_the_time_he_was_last_heard_whateve
     assert posts[-1][-1] == "The run page fix is live."
 
 
-def test_a_post_in_a_thread_or_at_his_dm_root_opens_with_each_card_holding_built_work_there_and_a_card_with_none(
+def test_a_post_goes_out_in_exactly_the_words_it_was_given_while_built_work_waits_on_his_card(
     demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     asked = "2026-11-10T20:59:00-08:00"
@@ -297,20 +300,25 @@ def test_a_post_in_a_thread_or_at_his_dm_root_opens_with_each_card_holding_built
             "parts": {"lock it": state.new_part()},
         }
         data["jobs"]["j1"] = state.new_job("o1", "builder", "lock it", ["lock it"], asked) | {"state": "built", "branch": "lane/lock", "waits": [WAITS]}
-    line = f"WAITING-ON-HIM <{CARD_URL}|{QUESTION}> blocks j1, built on lane/lock, since {render.when(asked)}"
     talk.say(demo, {"text": "Shipped.", "thread_ts": thread})
-    talk.say(demo, {"text": "Elsewhere.", "thread_ts": "1794200000.000555"})
     talk.say(demo, {"text": "Catch-up"})
     report(monkeypatch, {"catch_up": "true"})
     state.append_event(demo, "catch-up", dm="D123", since="5:20 PM", orders="o1")
     talk.say(demo, {"text": "The fix is live.", "record": "660299"})
-    talk.say(demo, {"text": "Pick one", "card": {"title": "Pick one"}})
-    talk.say(demo, {"text": f"WAITING-ON-HIM {{card:{WAITS}}} blocks j1, built on lane/lock, since {render.when(asked)}\nMore.", "thread_ts": thread})
-    assert [argv[-1] for argv in posts] == [
-        f"{line}\nShipped.",
-        "Elsewhere.",
-        f"{line}\nCatch-up",
-        f"*Catch-up since 5:20 PM*\n{line}\nThe fix is live.",
-        "Pick one",
-        f"{line}\nMore.",
-    ]
+    assert [argv[-1] for argv in posts] == ["Shipped.", "Catch-up", "*Catch-up since 5:20 PM*\nThe fix is live."]
+
+
+def test_words_check_post_finds_anything_in_go_nowhere(demo: str, posts: list[tuple[str, ...]], checked: Checked) -> None:
+    checked.findings = ["1:5 drive-term 'fence': say what happens to the reader's work instead"]
+    with pytest.raises(DriveError, match=r"nothing posted: `cc-slack check-post` finds this in the post's words.*\n1:5 drive-term 'fence'"):
+        talk.say(demo, {"text": "{pr:7|a chart fence draws} is live."})
+    assert checked.texts == [f"<{PR_URL}|a chart fence draws> is live."]
+    assert (posts, said(demo)) == ([], [])
+
+
+def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_holds_it_or_not(demo: str, posts: list[tuple[str, ...]]) -> None:
+    talk.say(demo, {"text": "{pr:7|the run page fix} and {pr:yasyf/cc-skills#4250|the card that draws charts} are live."})
+    assert posts[0][-1] == f"<{PR_URL}|the run page fix> and <https://github.com/yasyf/cc-skills/pull/4250|the card that draws charts> are live."
+    assert said(demo)[0]["text"] == f"[the run page fix]({PR_URL}) and [the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
+    with pytest.raises(DriveError, match=r"\{pr:yasyf/cc-skills#4250\} names no PR of the drive's"):
+        talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})

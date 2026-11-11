@@ -246,29 +246,31 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Tell him once, in its order's thread or else at his DM root, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
+    """Tell him once, in one reply in the card's own thread, the minute a card of his starts holding a job built on its recommended option; a post that fails goes again next read."""
     if watcher.cards is None:
         return []
     from drive import talk
 
     data = state.load(watcher.name)
-    places: dict[str | None, list[dict]] = {}
+    cards: dict[str, list[dict]] = {}
     for entry in view.waiting_on_him(data, watcher.cards):
         if entry["wait"] not in data["jobs"][entry["job"]].get("waiting_said", []):
-            places.setdefault(view.dm_thread(data, data["orders"][entry["order"]]), []).append(entry)
+            cards.setdefault(entry["card"]["url"], []).append(entry)
     lines = []
-    for thread, entries in places.items():
-        said = [waiting_line(entry) for entry in entries]
+    for url, entries in cards.items():
         try:
-            reply = talk.posted(watcher.name, {"text": "\n".join(said), "thread_ts": thread})
+            reply = talk.posted(watcher.name, {"text": waiting_line(entries[0]), "thread_ts": view.card_thread(url)})
         except (state.DriveError, slack.SlackError) as error:
-            lines += failed(watcher, "waiting post", "WAITING-ON-HIM post", error, moment)
+            lines += failed(watcher, "waiting post", "built-and-paused reply", error, moment)
             continue
         watcher.failures.pop("waiting post", None)
         with state.edit(watcher.name) as data:
             for entry in entries:
                 data["jobs"][entry["job"]].setdefault("waiting_said", []).append(entry["wait"])
-        lines += [f"{line}, posted {reply['permalink']}" for line in said]
+        lines += [
+            f"WAITING-ON-HIM {entry['wait']} blocks {entry['job']}, built on {entry['branch']}, since {when(entry['card']['asked'])}, posted {reply['permalink']}"
+            for entry in entries
+        ]
     return lines
 
 

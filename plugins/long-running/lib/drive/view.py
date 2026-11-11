@@ -336,12 +336,6 @@ def waiting_on_him(drive: dict, found: dict) -> list[dict]:
     return sorted(held, key=lambda entry: state.parse_time(entry["card"]["asked"]))
 
 
-def dm_thread(drive: dict, order: dict) -> str | None:
-    """The thread of his DM an order's lines go in, when it has one there."""
-    where = state.promise_thread(drive, order)
-    return where[1] if where and where[0] == drive["slack"]["channel"] else None
-
-
 def built_entry(drive: dict, job_id: str, found: dict) -> dict:
     job = drive["jobs"][job_id]
     return {"job": job_id, "branch": job["branch"], "waits": [wait_entry(drive, wait, found) for wait in job["waits"]]}

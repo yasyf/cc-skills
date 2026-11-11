@@ -2489,6 +2489,24 @@ def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_
     assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
 
 
+def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time(
+    run: Run, demo: str, slack_thread: "Thread"
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
+    alert = "SandSQL replica lanes unproven on staging"
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", alert, "--from", "slack:C0ALERTS1/1794300000.000100", "--thread", "1794300000.000100", "--joins", "o1", "--due", "+30m")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
+    assert run("order", "posted", "o2", line)[0] == 2
+    with state.edit("demo") as data:
+        state.carry(data, "j1", "o2", list(data["orders"]["o2"]["parts"]))
+    assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
+    assert state.load("demo")["orders"]["o2"]["kept"] == slack.sent_at(slack_thread.messages[-1]).isoformat()
+
+
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)

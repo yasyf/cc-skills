@@ -273,10 +273,13 @@ def when(iso: str, seconds: bool = False) -> str:
 
 
 def waiting_line(entry: dict) -> str:
-    """The line that tells him a card of his holds a built job, its card a reference the post links."""
+    """The reply under his card that tells him, in plain words, the work behind its recommended answer is built and waits on his pick, the card a reference the post links."""
     card = entry["card"]
-    named = f"{{card:{card['card']['waits']}}}" if card["card"].get("waits") else card["url"]
-    return f"WAITING-ON-HIM {named} blocks {entry['job']}, built on {entry['branch']}, since {when(card['asked'])}"
+    named = f"{{card:{card['card']['waits']}}}" if card["card"].get("waits") else "this question"
+    return (
+        f"Since {when(card['asked'])} the recommended answer to {named} is built and paused on your pick:"
+        " tap it and the work ships; another pick rebuilds it first."
+    )
 
 
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:

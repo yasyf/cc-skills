@@ -85,9 +85,10 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   cannot close before one is.
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr
-  names, or each part its `job` attr's job delivers. A progress line's report names neither: on an
-  order of several parts it keeps the time and delivers nothing, and on an order of one part it
-  delivers that part. `drive order posted <o> <link> --part <name>` records a part delivered anywhere
+  names, or each part of an order its `close` attr names. A progress line's report names neither,
+  whatever job it names: it keeps the time and delivers no part. A post in the thread of the
+  incident an alert's order joined counts in that order's threads too, once the incident's owner
+  job carries it. `drive order posted <o> <link> --part <name>` records a part delivered anywhere
   else. Only the communicator's side records a post; the coordinator is refused.
 
 ## The shapes
@@ -320,7 +321,7 @@ the dashboard link. When a line says where things stand, link the page instead o
   then each step of the root fix once, by [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
   written nothing for an hour. While he is away only cards post: PR cards and question cards that
-  wait on him, the watch's `WAITING-ON-HIM` line, and an incident line [incidents.md](incidents.md)
+  wait on him, the watch's one reply under a card holding built work, and an incident line [incidents.md](incidents.md)
   calls for. Summaries, due-time lines and job results wait.
 - His next message gets one catch-up at his DM root, right after its ack. `drive heard` tells the
   coordinator every order that changed while he was away; it sends one `report` for his DM root
@@ -329,10 +330,11 @@ the dashboard link. When a line says where things stand, link the page instead o
   `*Catch-up since <the time he was last heard>*` whatever the text says. The catch-up never goes in
   the thread of the message that brought him back, because a thread gets only lines about its own
   order.
-- While a job built on a card's recommended option waits on that card, `say` opens each post in that
-  order's thread, and each at his DM root, with a `WAITING-ON-HIM` line. The line links the card and
-  names the job, its branch and since when; it follows a catch-up's title, and `say` adds none when
-  the text already carries it.
+- The minute a job built on a card's recommended option starts waiting on that card, the watch
+  replies once under that card, in plain words: since when its recommended answer is built and
+  paused on his pick, that his tap ships it, and that another pick rebuilds it first. No other post
+  repeats it. His words, Nov 11 1:16 AM, on a post `say` had opened with a raw line naming the job
+  and its branch: "What the hell is this message?"
 - His read-only question gets its answer within minutes from a handler, which reads the source that
   owns the fact through whatever access opens it, a staff route included, and never answers that it
   could not read it. The communicator reads nothing itself.
@@ -372,7 +374,8 @@ the dashboard link. When a line says where things stand, link the page instead o
   or "a cc-slack fix" alone. When a record mentions a change without its PR, the handler finds the PR
   first, with `drive status` or `gh pr list --search`.
 - Name a PR as `{pr:<number>}` and say in the line what it does; `say` links it under the PR's title,
-  never by its number alone. Say what each PR serves: the order of his it carries out, in his words,
+  never by its number alone, or under words of the post's own as `{pr:<number>|<what it does>}`,
+  the one way to link a PR the drive does not hold. Say what each PR serves: the order of his it carries out, in his words,
   "port of #N" with the old PR linked, or "Drive tooling:" and what it unblocks. Link each other PR
   the message names the same way.
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
@@ -489,6 +492,11 @@ GET 2 page ranges
   `cc-slack check-post` and counts them as they go out. A `say` post counts the words of each
   `{card:}`, `{pr:}`, `{order:}` and `{record:}` title it draws, and its length refusal says how many
   of them those titles are.
+- What check-post passed is what he reads: `say` adds no words of its own, and runs check-post again
+  on the words it sends, each reference drawn as its words, refusing the post on any finding.
+  Check-post reads the words under each link, so a card, PR or order title it flags is named in the
+  post's own words, `{pr:<number>|<words>}`; a `{record:}` always draws the record's own words, so a
+  record whose words it flags is not the one to cite.
 - A post that draws a card, or a PR card through `tap_prs`, carries the card its words say waits on
   him, so check-post's `waits-without-card` finding is dropped for it.
 - A handler's new line in his thread comes back until that handler has read the thread in the last
