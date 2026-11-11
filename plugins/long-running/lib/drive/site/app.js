@@ -24,11 +24,16 @@ const HISTORY_FILTERS = [
 ];
 const QUEUE_FILTERS = [
   ['all', 'All', () => true],
-  ['question', 'Your picks', (item) => item.kind === 'question'],
-  ['tap', 'To land', (item) => item.kind === 'tap'],
-  ['late', 'Late', (item) => item.kind === 'late'],
+  ['tap', 'PRs', (item) => item.kind === 'tap'],
+  ['question', 'Decisions', (item) => item.kind === 'question'],
 ];
-const LABEL = { question: 'Your pick', tap: 'Land it', late: 'Late' };
+const NONE_LEFT = { tap: 'No PR waits on your tap.', question: 'No decision waits on you.' };
+const LABEL = { question: 'Decision', tap: 'Pull request', late: 'Late' };
+const PR_TABS = [['show', 'Show me'], ['change', 'The change'], ['context', 'Context']];
+const CHECK_FACTS = { pass: ['Tests pass', 'good'], fail: ['Tests fail', 'bad'], pending: ['Tests running', 'warn'], none: ['No CI', ''] };
+const REVIEW_FACTS = { approved: ['Review approved', 'good'], changes: ['Changes requested', 'bad'] };
+const TALK_FOLLOW_MS = 15 * 60 * 1000;
+const FRAMES_KEPT = 4;
 const STOP_WORDS = { blocked: 'Blocked', running: 'Being built', built: 'Built, waits on your answers', waiting: 'Waiting', merged: 'Merged, not live yet', live: 'Live', 'not started': 'Not started' };
 const STOP_TONES = { blocked: 'bad', running: 'doing', built: 'you', waiting: 'waiting', merged: 'merged', live: 'done', 'not started': 'not-started' };
 const PART_WORDS = { bad: 'Blocked', you: 'Waits on you', doing: 'Being built', waiting: 'Waiting', 'not started': 'Not started', done: 'Done' };
@@ -48,7 +53,6 @@ const SCREENS = [
   ['queue', '#/', 'Your queue'],
   ['now', '#/now', 'Now'],
   ['plan', '#/plan', 'Plan'],
-  ['review', '#/review', 'Review'],
   ['work', '#/work', 'Work'],
   ['history', '#/history', 'History'],
 ];
@@ -56,7 +60,6 @@ const ICONS = {
   queue: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>',
   now: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   plan: '<rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="15" width="6" height="6" rx="1"/><path d="M6 9v3a3 3 0 0 0 3 3h6"/>',
-  review: '<circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><path d="M6 9v12M13 6h3a2 2 0 0 1 2 2v7"/>',
   work: '<path d="m16 18 6-6-6-6M8 6l-6 6 6 6"/>',
   history: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5M12 7v5l4 2"/>',
 };
@@ -65,15 +68,26 @@ let model = null;
 let connected = false;
 let lostAt = null;
 let historyFilter = 'key';
-let queueFilter = 'all';
+let queueAt = null;
+let queueSlot = 0;
+let picked = null;
+let composing = null;
 const opened = new Map();
 const expanded = new Set();
 const answers = new Map();
 const drafts = new Map();
 const sent = new Map();
 const toasts = new Map();
+const prTabs = new Map();
+const prRows = new Map();
+const prReads = new Map();
+const reviews = new Map();
+const talked = new Map();
+const reading = new Set();
+const again = new Set();
+const slotted = new Map();
+const followed = new Map();
 const TYPED_MARK = '_You, on the dashboard:_ ';
-let talk = null;
 let reviewing = null;
 
 const $ = (selector) => document.querySelector(selector);
@@ -190,28 +204,40 @@ function waited(item) {
   return item.since ? `waiting ${ago(item.since)}, since ${clock(item.since)}` : '';
 }
 
-function choices(item) {
+function optionParts(option) {
+  const cut = option.search(/:\s|\.\s/);
+  if (cut < 0) return [option, ''];
+  return [option.slice(0, option[cut] === '.' ? cut + 1 : cut), option.slice(cut + 1).trim()];
+}
+
+function choices(item, keyed = false) {
   const card = item.card;
   const given = answers.get(item.answer);
   if (given?.done) return `<div class="answered">✓ <b>${esc(given.label)}</b> · answered ${clock(given.at)}</div>`;
-  const failed = given?.error ? `<div class="refused">${esc(given.error)}</div>` : '';
-  const buttons = card.options.map((option) => {
+  const held = given && !given.error;
+  const failed = given?.error ? `<p class="refused">${esc(given.error)}</p>` : '';
+  const shown = picked?.card === item.answer ? picked.index : -1;
+  const buttons = card.options.map((option, i) => {
+    const attrs = `data-card="${esc(item.answer)}" data-label="${esc(option)}"${held ? ' disabled' : ''}`;
+    const key = keyed ? `<kbd>${i + 1}</kbd>` : '';
+    if (item.kind === 'tap') return `<button class="${option === 'Approve' ? 'primary' : 'secondary'}" ${attrs}>${key}${esc(option)}</button>`;
+    const [title, detail] = optionParts(option);
     const recommended = option === card.recommended;
-    const tone = item.kind === 'tap' ? (option === 'Approve' ? ' go' : ' hold') : recommended ? ' rec' : '';
-    const busy = given?.label === option && !given.error;
-    return `<button class="pick${tone}${busy ? ' busy' : ''}" data-card="${esc(item.answer)}" data-label="${esc(option)}"${given && !given.error ? ' disabled' : ''}>
-      <span>${esc(option)}</span>${recommended && item.kind === 'question' ? '<em>★ Recommended</em>' : ''}
+    return `<button class="choice${recommended ? ' recommended' : ''}${i === shown ? ' on' : ''}" ${attrs} data-preview="${i}">
+      <span class="key">${keyed ? i + 1 : ''}</span>
+      <span><span class="choice-title">${esc(title)}${recommended ? '<em>Recommended</em>' : ''}</span>${detail ? `<span class="choice-detail">${esc(detail)}</span>` : ''}</span>
+      <span class="arrow" aria-hidden="true">↗</span>
     </button>`;
   });
-  return `<div class="picks${item.kind === 'tap' ? ' row' : ''}">${buttons.join('')}</div>${failed}`;
+  return `<div class="${item.kind === 'tap' ? 'pr-picks' : 'choices'}">${buttons.join('')}</div>${failed}`;
 }
 
-function sayBox(key, under, placeholder, about = '') {
+function sayBox(key, under, placeholder, about = '', thread = '') {
   const was = sent.get(key);
   const note = was?.busy ? '<span class="meta">Sending…</span>'
     : was?.error ? `<span class="refused">Not sent: ${esc(was.error)}</span>`
     : was?.at ? `<span class="meta">✓ Sent ${clock(was.at)}. The drive has it, and your DM shows it.</span>` : '';
-  return `<form class="say" data-say="${esc(key)}" data-under="${esc(under)}" data-about="${esc(about)}" data-placeholder="${esc(placeholder)}">
+  return `<form class="say" data-say="${esc(key)}" data-under="${esc(under)}" data-about="${esc(about)}" data-thread="${esc(thread)}" data-placeholder="${esc(placeholder)}">
     <textarea data-draft="${esc(key)}" rows="1" placeholder="${esc(placeholder)}" aria-label="${esc(placeholder)}"${was?.busy ? ' disabled' : ''}>${esc(drafts.get(key) ?? '')}</textarea>
     <button class="btn"${was?.busy ? ' disabled' : ''}>Send</button>
     ${note}
@@ -222,138 +248,210 @@ function pictures(paths) {
   return paths?.length ? `<div class="pics">${paths.map((path) => `<a href="/api/picture?path=${encodeURIComponent(path)}" target="_blank" rel="noopener"><img loading="lazy" src="/api/picture?path=${encodeURIComponent(path)}" alt=""></a>`).join('')}</div>` : '';
 }
 
-function ranked(item) {
-  return `<span class="label"><b class="rank">${item.rank}</b>${LABEL[item.kind]}</span>`;
-}
-
 function fold(id, html, lines) {
   const open = expanded.has(id);
   return `<div class="fold${open ? ' open' : ''}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div>`;
 }
 
-function questionCard(item) {
+function fact(html, tip = '', tone = '') {
+  return `<span class="fact${tone ? ` ${tone}` : ''}"${tip ? ` tabindex="0" data-tip="${esc(tip)}"` : ''}>${html}</span>`;
+}
+
+function counter(at, total) {
+  return `<div class="counter"><span>${at + 1} of ${total}</span><button data-move="-1" aria-label="Previous"${at === 0 ? ' disabled' : ''}>‹</button><button data-move="1" aria-label="Next"${at === total - 1 ? ' disabled' : ''}>›</button></div>`;
+}
+
+function filterOf(id) {
+  return QUEUE_FILTERS.some(([filter]) => filter === id) ? id : 'all';
+}
+
+function shownQueue(filter) {
+  const [, , keep] = QUEUE_FILTERS.find(([id]) => id === filter);
+  return model.queue.filter((item) => keep(item) && !(answers.has(item.answer) && !answers.get(item.answer).error));
+}
+
+function current(list) {
+  let at = list.findIndex((item) => noticeKey(item) === queueAt);
+  if (at < 0) at = Math.min(queueSlot, list.length - 1);
+  queueSlot = Math.max(at, 0);
+  queueAt = list[at] ? noticeKey(list[at]) : null;
+  return at;
+}
+
+function currentItem() {
+  const { screen, id } = route();
+  if (screen !== 'queue') return null;
+  return shownQueue(filterOf(id)).find((item) => noticeKey(item) === queueAt) ?? null;
+}
+
+function move(delta) {
+  const list = shownQueue(filterOf(route().id));
+  const at = Math.max(0, Math.min(list.length - 1, current(list) + delta));
+  if (!list[at] || noticeKey(list[at]) === queueAt) return;
+  queueAt = noticeKey(list[at]);
+  queueSlot = at;
+  picked = null;
+  composing = null;
+  window.scrollTo(0, 0);
+  render();
+}
+
+function meaning(item, index) {
   const card = item.card;
-  const facts = (card.facts ?? []).map((fact) => `<dt>${esc(fact.label)}</dt><dd>${inline(fact.value)}</dd>`).join('');
+  const option = card.options[index];
+  const [title, detail] = optionParts(option);
+  const label = option === card.recommended ? 'Recommended' : `Choice ${index + 1} of ${card.options.length}`;
+  return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
+}
+
+function featureByTitle(title) {
+  const entry = features().find((each) => each.title === title);
+  return entry ? `<a href="#/feature/${esc(entry.id)}">${esc(title)}</a>` : esc(title);
+}
+
+function decisionRail(item) {
+  const card = item.card;
+  const index = picked?.card === item.answer ? picked.index : Math.max(0, card.options.indexOf(card.recommended));
+  const holds = [
+    item.holds ? `<li>${item.holds} finished ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer</li>` : '',
+    ...item.blocks.map((title) => `<li>${featureByTitle(title)}</li>`),
+  ].join('');
+  const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
+  const read = `${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}`;
+  return `<aside class="context-rail" aria-label="What each choice means">
+    ${meaning(item, index)}
+    ${holds ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="rail-list">${holds}</ul></div>` : ''}
+    ${read ? `<div class="rail-block"><div class="eyebrow">Read first</div>${read}</div>` : ''}
+    <p class="rail-note">Hover or focus a choice to read it here. An answer waits ${model.undo_seconds} seconds before it is sent, so Undo or ⌘Z takes it back.</p>
+  </aside>`;
+}
+
+function decisionCard(item, at, total) {
+  const card = item.card;
+  const key = noticeKey(item);
+  const asking = composing === key;
   const rows = (card.rows ?? []).map((row) => `<li>${inline(row.text)}</li>`).join('');
-  const body = [card.body ? prose(card.body) : '', facts ? `<dl class="facts">${facts}</dl>` : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
-  const figures = pictures(card.pictures);
-  const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => link(each.label, each.url)).join(' · ');
-  return `<article class="item question">
-    ${ranked(item)}
-    <div class="body">
-      <h3>${inline(card.title || item.title)}</h3>
-      <div class="meta">${esc([waited(item), item.holds ? `holds up ${item.holds} finished` : '', item.blocks.length ? `blocks ${item.blocks.join('; ')}` : ''].filter(Boolean).join(' · '))}</div>
-      ${body ? fold(`q:${item.answer}`, body, 4) : ''}
-      ${figures}
-      ${links ? `<div class="links">${links}</div>` : ''}
-      ${choices(item)}
-      ${sayBox(`q:${item.answer}`, item.answer, 'Reply, or tell Claude something else')}
-    </div>
-  </article>`;
+  const body = [card.body ? prose(card.body) : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
+  const facts = [
+    item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
+    item.holds ? fact(esc(`Holds up ${item.holds} finished`), `${item.holds} green, approved ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer`, 'warn') : '',
+    ...(card.facts ?? []).map((each) => fact(`${esc(each.label)}: ${inline(each.value)}`)),
+  ].join('');
+  return `<div class="queue-layout">
+    <article class="focus-card" aria-labelledby="item-title">
+      <div class="card-content">
+        <div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div>
+        <h2 class="card-title" id="item-title">${inline(card.title || item.title)}</h2>
+        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 5)}</div>` : ''}
+        ${facts ? `<div class="facts">${facts}</div>` : ''}
+        ${choices(item, true)}
+      </div>
+      <div class="card-bottom"><button class="ask-open" data-ask="${esc(key)}" aria-expanded="${asking}">${asking ? 'Close' : 'Ask about this, or answer in your own words'}</button></div>
+      ${asking ? `<div class="ask-box">${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}</div>` : ''}
+    </article>
+    ${decisionRail(item)}
+  </div>`;
 }
 
-function prRow(pr, cardId, alone) {
-  const fields = PR_FIELDS.filter(([key]) => pr[key])
-    .map(([key, label]) => `<dt>${label}</dt><dd>${fold(`${cardId}:${pr.url}:${key}`, prose(pr[key], prKey(pr.url)), 2)}</dd>`)
-    .join('');
-  const waits = [pr.blocks, pr.lands ? `Lands once ${pr.lands}` : ''].filter(Boolean).map(esc).join(' · ');
-  return `<section class="pr">
-    <div class="pr-head"><b>${alone ? '' : esc(bare(pr.title))}</b><span class="acts"><button class="linkish" data-pr="${esc(prKey(pr.url))}">View change</button><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a></span></div>
-    ${fields ? `<dl class="fields">${fields}</dl>` : ''}
-    ${pictures(pr.pictures)}
-    ${waits ? `<div class="meta">${waits}</div>` : ''}
-  </section>`;
+function prFacts(item, row, entry, read) {
+  const [checks, checksTone] = CHECK_FACTS[entry?.checks] ?? CHECK_FACTS.none;
+  const [review, reviewTone] = REVIEW_FACTS[entry?.review] ?? ['No review yet', ''];
+  const pr = read?.pr;
+  return [
+    fact(esc(checks), '', checksTone),
+    fact(esc(review), '', reviewTone),
+    pr ? fact(`<span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span> · ${pr.changedFiles} ${pr.changedFiles === 1 ? 'file' : 'files'}`, `${pr.headRefName} into ${pr.baseRefName}`) : '',
+    pr?.isDraft ? fact('Draft', '', 'warn') : '',
+    row.head ? fact(`<code>${esc(row.head.slice(0, 7))}</code>`, `The commit this card was drawn for, ${row.head}`) : '',
+    item.since ? fact(esc(`Asked ${clock(item.since)}`), `Waiting on you for ${ago(item.since)}`) : '',
+    row.lands ? fact(esc(`Lands once ${row.lands}`), '', 'good') : '',
+    row.blocks ? fact(esc(row.blocks), '', 'bad') : '',
+    row.changed ? fact('Changed since your tap', row.changed, 'warn') : '',
+  ].join('');
 }
 
-function tapCard(item) {
-  if (!item.card) {
-    return `<article class="item tap bare">
-      ${ranked(item)}
-      <div class="body"><h3>${link(item.title, item.url)}</h3><div class="meta">${esc(item.detail)}</div>${sayBox(`r:${prKey(item.url)}`, '', 'Tell Claude what to change', `About ${item.url}`)}</div>
-    </article>`;
+function prPane(tab, row, pr, head, read) {
+  if (tab === 'change') {
+    const review = reviews.get(pr);
+    const said = review?.error ? `<p class="refused">cc-review could not open ${esc(pr)}: ${esc(review.error)}</p>` : `<p class="meta">Opening the code review of ${esc(pr)} at ${esc(head.slice(0, 7))}…</p>`;
+    return `<div class="review-slot" data-slot="${esc(pr)}" data-head="${esc(head)}">${said}</div>`;
   }
-  const card = item.card;
-  return `<article class="item tap">
-    ${ranked(item)}
-    <div class="body">
-      <h3>${esc(bare(card.title.replace(/^\w+: approve (.*)\?$/, '$1')))}</h3>
-      <div class="meta">${esc(waited(item))}${item.detail ? ` · ${esc(item.detail)}` : ''}</div>
-      ${card.body ? fold(`b:${item.answer}`, prose(card.body), 3) : ''}
-      ${(card.prs ?? []).map((pr, _, all) => prRow(pr, item.answer, all.length === 1)).join('')}
-      ${choices(item)}
-      ${sayBox(`t:${item.answer}`, item.answer, 'Tell Claude what to change')}
+  if (tab === 'context') {
+    const fields = PR_FIELDS.filter(([key]) => key !== 'refresher' && key !== 'show_me' && row[key]).map(([key, label]) => `<dt>${label}</dt><dd>${prose(row[key], pr)}</dd>`).join('');
+    const whole = read?.pr ? `<details class="whole"><summary>The whole description</summary>${prose(read.pr.body, pr)}</details>` : '';
+    return `${fields ? `<dl class="fields">${fields}</dl>` : '<p class="meta">Its description names no surprise, risk or departure from the plan.</p>'}${whole}`;
+  }
+  const shown = read?.pr?.show_me?.trim();
+  if (shown) return prose(shown, pr);
+  const drawn = `${row.show_me ? prose(row.show_me, pr) : ''}${pictures(row.pictures)}`;
+  if (read?.error) return `${drawn}<p class="refused">${esc(read.error)}</p>`;
+  if (!read?.pr) return drawn || '<p class="meta">Reading its Show me…</p>';
+  return drawn || '<p class="meta">Its description has no Show me section.</p>';
+}
+
+function prCard(item, at, total) {
+  const key = noticeKey(item);
+  const rows = item.card?.prs ?? [{ url: item.url, title: item.title }];
+  const chosen = Math.min(prRows.get(key) ?? 0, rows.length - 1);
+  const row = rows[chosen];
+  const pr = prKey(row.url);
+  const entry = model.review.find((each) => each.key === pr);
+  const head = entry?.head ?? row.head ?? '';
+  const tab = prTabs.get(key) ?? 'show';
+  const title = item.card ? bare(item.card.title.replace(/^\w+: approve (.*)\?$/, '$1')).replace(/^./, (c) => c.toUpperCase()) : item.title;
+  const stack = rows.length > 1 ? `<div class="stack" role="group" aria-label="The PRs on this card">${rows.map((each, i) => `<button class="chip${i === chosen ? ' on' : ''}" data-row="${i}" data-item="${esc(key)}" aria-pressed="${i === chosen}">${esc(`${prKey(each.url)} · ${bare(each.title)}`)}</button>`).join('')}</div>` : '';
+  const tabs = PR_TABS.map(([id, label]) => `<button role="tab" class="${id === tab ? 'on' : ''}" aria-selected="${id === tab}" data-prtab="${id}" data-item="${esc(key)}">${label}</button>`).join('');
+  const thread = item.thread ? talkPane(item.thread, cardTs(item.answer)) : '<p class="rail-note">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
+  return `<div class="pr-layout" data-read="${esc(pr)}" data-head="${esc(head)}">
+    <article class="focus-card pr-card" aria-labelledby="item-title">
+      <div class="card-content">
+        <div class="card-top"><span class="type-label">Pull request <a href="${esc(row.url)}" target="_blank" rel="noopener" data-tip="Open it on GitHub">${esc(pr)}</a></span>${counter(at, total)}</div>
+        <h2 class="card-title" id="item-title">${esc(title)}</h2>
+        ${stack}
+        ${row.refresher ? `<div class="card-summary">${fold(`r:${key}:${pr}`, prose(row.refresher, pr), 3)}</div>` : ''}
+        <div class="facts">${prFacts(item, row, entry, prReads.get(pr))}</div>
+      </div>
+      <div class="pr-tabs" role="tablist" aria-label="About this change">${tabs}</div>
+      <div class="pr-pane ${tab}" role="tabpanel">${prPane(tab, row, pr, head, prReads.get(pr))}</div>
+      <div class="pr-actions">${item.card ? choices(item, true) : '<span class="meta">No Slack card yet, so there is no tap to give here.</span>'}</div>
+    </article>
+    <aside class="context-rail talk-rail" aria-label="Ask about this change">
+      <div class="eyebrow">Ask about this change</div>
+      ${thread}
+      ${sayBox(item.card ? `t:${item.answer}` : `r:${pr}`, item.answer ?? '', 'Ask about this change, or tell Claude what to change', item.card ? '' : `About ${row.url}`, item.thread ?? '')}
+    </aside>
+  </div>`;
+}
+
+function lateCard(item, at, total) {
+  return `<article class="focus-card late" aria-labelledby="item-title">
+    <div class="card-content">
+      <div class="card-top"><span class="type-label">Late</span>${counter(at, total)}</div>
+      <h2 class="card-title" id="item-title">${esc(item.title)}</h2>
+      <div class="facts">${fact(esc(`Promised ${clock(item.due)}`), `${ago(item.due)} late`, 'bad')}${item.since ? fact(esc(`Asked ${clock(item.since)}`)) : ''}</div>
+      ${item.detail ? `<p class="card-summary">${esc(item.detail)}</p>` : ''}
     </div>
+    <div class="ask-box">${sayBox(`l:${noticeKey(item)}`, '', 'Ask where it is, or change it', `About "${item.title}"`)}</div>
   </article>`;
 }
 
-function lateCard(item) {
-  return `<article class="item late">
-    ${ranked(item)}
-    <div class="body"><h3>${esc(item.title)}</h3><div class="meta">${esc(waited(item))}</div>${item.detail ? `<p class="said">${esc(item.detail)}</p>` : ''}${item.url ? sayBox(`l:${item.url}`, item.url, 'Ask where it is, or change it') : ''}</div>
-  </article>`;
-}
-
-function queueScreen(filter) {
-  if (filter) queueFilter = filter;
-  const [, , keep] = QUEUE_FILTERS.find(([id]) => id === queueFilter);
-  const shown = model.queue.map((item, at) => ({ ...item, rank: at + 1 })).filter(keep);
-  const count = model.queue.length;
-  const head = count ? `${count} ${count === 1 ? 'thing waits' : 'things wait'} on you` : 'Nothing waits on you';
-  const filters = QUEUE_FILTERS.map(([id, label, test]) => {
-    const n = model.queue.filter(test).length;
-    return `<button data-queue="${id}" class="${id === queueFilter ? 'on' : ''}">${label}<span class="n">${n}</span></button>`;
-  }).join('');
-  const cards = shown.map((item) => ({ question: questionCard, tap: tapCard, late: lateCard })[item.kind](item)).join('');
+function queueScreen(id) {
+  const filter = filterOf(id);
+  const list = shownQueue(filter);
+  const at = current(list);
+  const item = list[at];
+  const filters = QUEUE_FILTERS.map(([each, label]) => `<a href="#/queue/${each}" class="${each === filter ? 'on' : ''}"${each === filter ? ' aria-current="true"' : ''}>${label}<span class="n">${shownQueue(each).length}</span></a>`).join('');
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
-  return `<h1 class="h1">${head}</h1>
-    ${unread}
-    <div class="subtabs">${filters}</div>
-    <div class="queue">${cards || '<p class="empty">Nothing here.</p>'}</div>`;
-}
-
-const REVIEW_TABS = [
-  ['you', 'Waiting on you'],
-  ['not ready', 'Not ready yet'],
-  ['decided', 'You approved or held'],
-];
-
-function band(entry) {
-  if (entry.tap === 'Approve') return ['ok', 'Approved, landing'];
-  if (entry.tap === 'Hold') return ['held', 'You held it'];
-  if (entry.group === 'you') return ['you', 'Waiting on you'];
-  if (entry.checks === 'fail') return ['bad', 'Tests failing'];
-  if (entry.checks === 'pending') return ['doing', 'Tests running'];
-  if (entry.stuck) return ['bad', `Stuck: ${entry.stuck.as}`];
-  return ['', entry.review === 'approved' ? 'Approved by review, waiting its turn' : 'Waiting on a review'];
-}
-
-function reviewCard(entry) {
-  const [tone, word] = band(entry);
-  const card = entry.card;
-  const rows = card ? (card.prs ?? []).map((pr, _, all) => prRow(pr, entry.answer, all.length === 1)).join('') : '';
-  const acts = `<span class="acts"><button class="linkish" data-pr="${esc(entry.key)}">Details</button><a class="ext" href="${esc(entry.url)}" target="_blank" rel="noopener">GitHub ↗</a></span>`;
-  return `<article class="mr ${tone}">
-    <div class="band">${esc(word)}</div>
-    <div class="mr-body">
-      <div class="pr-head"><h3>${esc(card ? bare(card.title.replace(/^\w+: approve (.*)\?$/, '$1')) : entry.title)}</h3>${card ? '' : acts}</div>
-      <div class="meta">${esc(entry.detail)}${entry.since ? ` · waiting ${ago(entry.since)}` : ''}</div>
-      ${rows}
-      ${card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : ''}
-      ${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Tell Claude what to change', entry.answer ? '' : `About ${entry.url}`)}
+  const rest = shownQueue('all').length;
+  const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
+  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](item, at, list.length) : done;
+  return `<div class="page-head">
+      <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
+      <nav class="subtabs" aria-label="Show">${filters}</nav>
     </div>
-  </article>`;
-}
-
-function reviewScreen(tab) {
-  const current = REVIEW_TABS.some(([id]) => id === tab) ? tab : 'you';
-  const tabs = REVIEW_TABS.map(([id, label]) => `<a class="${id === current ? 'on' : ''}" href="#/review/${encodeURIComponent(id)}">${label}<span class="n">${model.review.filter((entry) => entry.group === id).length}</span></a>`).join('');
-  const seen = new Set();
-  const shown = model.review.filter((entry) => entry.group === current && !(entry.answer && seen.has(entry.answer)) && (seen.add(entry.answer) || true));
-  const byFeature = Map.groupBy(shown, (entry) => entry.feature_title || 'No feature');
-  const groups = [...byFeature].map(([title, entries]) => `<h2 class="lane">${esc(title)}</h2>${entries.map(reviewCard).join('')}`).join('');
-  return `<h1 class="h1">Review <span class="count">every open change of this drive, as of ${clock(model.at)}</span></h1>
-    <div class="subtabs">${tabs}</div>
-    ${groups || '<p class="empty">Nothing here.</p>'}`;
+    ${unread}
+    ${shown}
+    <footer class="qfoot"><span>As of ${clock(model.at)}</span><span><kbd>←</kbd><kbd>→</kbd> move <kbd>1–9</kbd> answer <kbd>⌘Z</kbd> undo</span></footer>`;
 }
 
 function nowScreen() {
@@ -530,8 +628,18 @@ function drawArrows() {
   }
 }
 
+function go(href) {
+  if (location.hash === href) render();
+  else location.hash = href;
+}
+
 async function openPR(key) {
-  talk = null;
+  const item = model.queue.find((each) => each.kind === 'tap' && (each.card?.prs ?? [{ url: each.url }]).some((row) => prKey(row.url) === key));
+  if (item) {
+    queueAt = noticeKey(item);
+    prRows.set(queueAt, Math.max(0, (item.card?.prs ?? []).findIndex((row) => prKey(row.url) === key)));
+    return go('#/queue/all');
+  }
   reviewing = key;
   const drawer = $('#drawer');
   const entry = model.review.find((candidate) => candidate.key === key);
@@ -547,7 +655,6 @@ async function openPR(key) {
     drawer.querySelector('.empty').textContent = pr.error;
     return;
   }
-  const answerable = entry?.card && entry.group === 'you' ? choices({ ...entry, kind: 'tap' }) : '';
   const showMe = pr.show_me.trim();
   drawer.innerHTML = `<div class="dr-bar"><b>${esc(bare(pr.title))}</b><span class="acts"><a class="ext" href="${esc(pr.url)}" target="_blank" rel="noopener">GitHub ↗</a><button class="linkish" data-close>Close</button></span></div>
     <div class="pr-split">
@@ -559,11 +666,10 @@ async function openPR(key) {
       </div>
       <aside class="pr-side">
         <p class="meta">${esc(pr.headRefName)} → ${esc(pr.baseRefName)} · ${pr.changedFiles} files · <span class="add">+${pr.additions}</span> <span class="del">−${pr.deletions}</span>${pr.isDraft ? ' · draft' : ''}</p>
-        ${answerable}
         ${entry ? talkBox(entry) : ''}
       </aside>
     </div>`;
-  if (entry?.thread) drawTalk(entry);
+  fill();
   showReview(key, await review);
 }
 
@@ -584,33 +690,96 @@ function showReview(key, review) {
   pane.innerHTML = `<iframe class="review-frame" title="Code and review of ${esc(key)}" src="${esc(review.url)}" allow="clipboard-write"></iframe>`;
 }
 
-function talkBox(entry) {
-  const said = entry.thread ? '<div class="thread" data-talk><p class="meta">Reading what was said about it…</p></div>' : '<p class="meta">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
-  return `<section class="talk"><h4 class="hd">Ask about this change</h4>${said}${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Ask about this change, or tell Claude what to change', entry.answer ? '' : `About ${entry.url}`)}</section>`;
+async function openReview(key, head) {
+  reviews.set(key, { ...reviews.get(key), head, error: null });
+  const review = await startReview(key);
+  if (!review.ok) {
+    reviews.set(key, { head, error: review.error });
+    return render();
+  }
+  reviews.set(key, { head, url: review.url });
+  let frame = slotted.get(key);
+  slotted.delete(key);
+  if (!frame) {
+    frame = Object.assign(document.createElement('iframe'), { className: 'review-frame', title: `Code and review of ${key}`, allow: 'clipboard-write' });
+    $('#frames').append(frame);
+  }
+  slotted.set(key, frame);
+  if (frame.getAttribute('src') !== review.url) frame.src = review.url;
+  for (const [old, kept] of slotted) {
+    if (slotted.size <= FRAMES_KEPT) break;
+    kept.remove();
+    slotted.delete(old);
+    reviews.delete(old);
+  }
+  place();
 }
 
-async function drawTalk(entry) {
-  if (talk?.key === entry.key && talk.reading) {
-    talk.again = true;
-    return;
+function place() {
+  for (const [key, frame] of slotted) {
+    const slot = document.querySelector(`#main [data-slot="${CSS.escape(key)}"]`);
+    frame.hidden = !slot || Boolean(reviews.get(key)?.error);
+    if (frame.hidden) continue;
+    const box = slot.getBoundingClientRect();
+    Object.assign(frame.style, { top: `${box.top + scrollY}px`, left: `${box.left + scrollX}px`, width: `${box.width}px`, height: `${box.height}px` });
   }
-  const reading = { key: entry.key, thread: entry.thread, reading: true, again: false };
-  talk = reading;
-  let said;
+}
+
+async function readPR(key, head) {
+  prReads.set(key, { head });
+  const [repo, number] = key.split('#');
   try {
-    said = (await readThread(entry.thread)).map((each) => message(each, waitingCards())).join('') || '<p class="meta">Nothing has been asked about it yet. What you ask, and the answer, show here.</p>';
-  } catch (error) {
-    said = `<p class="refused">${esc(error.message)}</p>`;
+    const reply = await fetch(`/api/pr/${repo}/${number}`);
+    const pr = await reply.json();
+    prReads.set(key, reply.ok ? { head, pr } : { head, error: pr.error });
+  } catch (failure) {
+    prReads.set(key, { head, error: `Could not reach the dashboard server (${failure.message}).` });
   }
-  if (talk !== reading) return;
-  reading.reading = false;
-  const pane = $('#drawer [data-talk]');
-  if (pane) pane.innerHTML = said;
-  if (reading.again) drawTalk(reading);
+  render();
+}
+
+function fill() {
+  for (const pane of document.querySelectorAll('[data-talk]')) if (!talked.has(pane.dataset.talk)) readTalk(pane.dataset.talk);
+  for (const card of document.querySelectorAll('#main [data-read]')) if (prReads.get(card.dataset.read)?.head !== card.dataset.head) readPR(card.dataset.read, card.dataset.head);
+  for (const slot of document.querySelectorAll('#main [data-slot]')) if (reviews.get(slot.dataset.slot)?.head !== slot.dataset.head) openReview(slot.dataset.slot, slot.dataset.head);
+  place();
+}
+
+function talkBox(entry) {
+  const said = entry.thread ? talkPane(entry.thread, cardTs(entry.answer)) : '<p class="meta">This change has no Slack card yet, so the answer comes back in your Slack DM.</p>';
+  return `<section class="talk"><h4 class="hd">Ask about this change</h4>${said}${sayBox(`r:${entry.key}`, entry.answer ?? '', 'Ask about this change, or tell Claude what to change', entry.answer ? '' : `About ${entry.url}`, entry.thread ?? '')}</section>`;
+}
+
+function talkPane(thread, after) {
+  return `<div class="thread" data-talk="${esc(thread)}" data-after="${esc(after)}">${talkLines(thread, after)}</div>`;
+}
+
+function talkLines(thread, after) {
+  const read = talked.get(thread);
+  if (!read) return '<p class="meta">Reading what was said about it…</p>';
+  if (read.error) return `<p class="refused">${esc(read.error)}</p>`;
+  const waiting = waitingCards();
+  return read.messages.filter((said) => said.ts > after).map((said) => message(said, waiting)).join('') || '<p class="meta">Nothing has been asked about it yet. What you ask, and the answer, show here.</p>';
+}
+
+async function readTalk(thread) {
+  if (reading.has(thread)) return again.add(thread);
+  reading.add(thread);
+  try {
+    const reply = await fetch(`/api/thread/${thread}`);
+    const read = await reply.json();
+    talked.set(thread, reply.ok ? { messages: read.messages } : { error: read.error });
+  } catch (failure) {
+    talked.set(thread, { error: `Could not reach the dashboard server (${failure.message}).` });
+  }
+  reading.delete(thread);
+  for (const pane of document.querySelectorAll(`[data-talk="${CSS.escape(thread)}"]`)) pane.innerHTML = talkLines(thread, pane.dataset.after);
+  place();
+  if (again.delete(thread)) readTalk(thread);
 }
 
 function followTalk() {
-  if (talk && $('#drawer').open) drawTalk(talk);
+  for (const pane of document.querySelectorAll('[data-talk]')) if (Date.now() - (followed.get(pane.dataset.talk) ?? 0) < TALK_FOLLOW_MS) readTalk(pane.dataset.talk);
 }
 
 function slackTime(ts) {
@@ -623,13 +792,6 @@ function cardTs(url) {
 
 function waitingCards() {
   return new Map(model.queue.filter((item) => item.answer).map((item) => [cardTs(item.answer), item]));
-}
-
-async function readThread(ts) {
-  const reply = await fetch(`/api/thread/${ts}`);
-  const thread = await reply.json();
-  if (!reply.ok) throw new Error(thread.error);
-  return thread.messages.filter((said) => said.ts !== ts);
 }
 
 function message(said, waiting) {
@@ -712,7 +874,29 @@ function sourceRows(a, found) {
 
 function hideSource() {
   const tip = $('#srctip');
+  delete tip.dataset.key;
   if (tip.matches(':popover-open')) tip.hidePopover();
+}
+
+function showTip(el) {
+  const tip = $('#srctip');
+  if (tip.dataset.key === `tip:${el.dataset.tip}` && tip.matches(':popover-open')) return;
+  tip.dataset.key = `tip:${el.dataset.tip}`;
+  tip.innerHTML = `<p>${esc(el.dataset.tip)}</p>`;
+  if (!tip.matches(':popover-open')) tip.showPopover();
+  const box = el.getBoundingClientRect();
+  tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, box.left))}px`;
+  tip.style.top = `${box.bottom + 6 + tip.offsetHeight > innerHeight ? Math.max(8, box.top - tip.offsetHeight - 6) : box.bottom + 6}px`;
+}
+
+function preview(choice) {
+  const index = Number(choice.dataset.preview);
+  if (picked?.card === choice.dataset.card && picked.index === index) return;
+  picked = { card: choice.dataset.card, index };
+  const item = model.queue.find((each) => each.answer === choice.dataset.card);
+  const rail = document.querySelector('#main [data-means]');
+  if (item && rail) rail.outerHTML = meaning(item, index);
+  for (const each of choice.parentElement.querySelectorAll('.choice')) each.classList.toggle('on', each === choice);
 }
 
 function showSource(a) {
@@ -763,7 +947,7 @@ function workScreen() {
 function jumpItems() {
   return [
     ...SCREENS.map(([, href, title]) => ({ kind: 'Screen', title, href })),
-    ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: `#/queue/${item.kind}` })),
+    ...model.queue.map((item) => ({ kind: LABEL[item.kind], title: item.title, href: '#/queue/all', item: noticeKey(item) })),
     ...model.milestones.map((stop, i) => ({ kind: 'Milestone', title: stop.name, href: `#/plan/${i}` })),
     ...features().map((entry) => ({ kind: 'Feature', title: entry.title, href: `#/feature/${entry.id}` })),
     ...model.review.map((entry) => ({ kind: 'Change', title: entry.title, pr: entry.key })),
@@ -777,7 +961,7 @@ function drawJump() {
   const words = $('#jumpfind').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
   const found = jumpItems().filter((item) => words.every((word) => `${item.kind} ${item.title}`.toLowerCase().includes(word))).slice(0, 40);
   jumpAt = Math.min(jumpAt, Math.max(0, found.length - 1));
-  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
+  $('#jumplist').innerHTML = found.map((item, i) => `<li class="${i === jumpAt ? 'on' : ''}" data-jump="${i}" ${item.pr ? `data-pr-jump="${esc(item.pr)}"` : `data-href="${esc(item.href)}"`}${item.item ? ` data-item="${esc(item.item)}"` : ''}><em>${esc(item.kind)}</em>${esc(item.title)}</li>`).join('') || '<li class="none">Nothing matches.</li>';
 }
 
 function openJump() {
@@ -793,7 +977,8 @@ function openJump() {
 function goJump(row) {
   $('#jump').close();
   if (row.dataset.prJump) return openPR(row.dataset.prJump);
-  location.hash = row.dataset.href;
+  if (row.dataset.item) queueAt = row.dataset.item;
+  go(row.dataset.href);
 }
 
 function strip() {
@@ -871,13 +1056,20 @@ function render() {
   document.title = `${model.drive}: ${model.counts.queue} waiting on you`;
   $('#brand').textContent = model.drive;
   const at = screen === 'feature' ? 'now' : SCREENS.some(([name]) => name === screen) ? screen : 'queue';
-  const counts = { queue: model.counts.queue, review: model.review.filter((entry) => entry.group === 'you').length };
+  const counts = { queue: model.counts.queue };
   $('#tabs').innerHTML = SCREENS.map(([name, href, label]) => `<a class="tab${name === at ? ' on' : ''}" href="${href}"${name === at ? ' aria-current="page"' : ''}>${icon(name)}<span>${label}</span>${counts[name] ? `<b class="count" aria-label="${counts[name]} waiting on you">${counts[name]}</b>` : ''}</a>`).join('');
   $('#crumb').textContent = SCREENS.find(([name]) => name === at)[2];
   const raised = strip();
   $('#alerts').innerHTML = raised;
   $('#alerts').hidden = !raised;
-  const screens = { queue: () => queueScreen(id), now: nowScreen, plan: () => (id === undefined ? planScreen() : milestoneScreen(id)), review: () => reviewScreen(decodeURIComponent(id ?? '')), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  const screens = { queue: () => queueScreen(id), now: nowScreen, plan: () => (id === undefined ? planScreen() : milestoneScreen(id)), work: workScreen, history: historyScreen, feature: () => featureScreen(id) };
+  const open = new Set(model.review.map((entry) => entry.key));
+  for (const [key, frame] of slotted) {
+    if (open.has(key)) continue;
+    frame.remove();
+    slotted.delete(key);
+    reviews.delete(key);
+  }
   const y = window.scrollY;
   const typing = document.activeElement?.matches?.('#main textarea[data-draft]') ? document.activeElement : null;
   const caret = typing && [typing.dataset.draft, typing.selectionStart, typing.selectionEnd];
@@ -891,6 +1083,7 @@ function render() {
   window.scrollTo(0, y);
   measure();
   drawArrows();
+  fill();
   fresh();
 }
 
@@ -912,6 +1105,7 @@ async function answer(card, label) {
     if (!reply.ok) throw new Error(said.error);
     if (said.undone) {
       answers.delete(card);
+      queueAt = noticeKey(asked);
       toast(card, { ...toasts.get(card), state: 'undone' });
     } else {
       answers.set(card, { label: said.label || label, at: said.at || new Date().toISOString(), done: true });
@@ -922,7 +1116,7 @@ async function answer(card, label) {
     toast(card, { ...toasts.get(card), state: 'failed', error: error.message });
   }
   render();
-  const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.picks');
+  const shown = $(`#drawer[open] [data-card="${CSS.escape(card)}"]`)?.closest('.choices, .pr-picks');
   shown?.nextElementSibling?.classList.contains('refused') && shown.nextElementSibling.remove();
   if (shown) shown.outerHTML = choices({ ...asked, kind: asked.kind ?? 'tap' });
 }
@@ -961,7 +1155,7 @@ function redrawBoxes(key) {
   for (const box of document.querySelectorAll(`#drawer form[data-say="${CSS.escape(key)}"]`)) box.outerHTML = sayBox(key, box.dataset.under, box.dataset.placeholder, box.dataset.about);
 }
 
-async function say(key, under, words, about) {
+async function say(key, under, words, about, thread) {
   if (!words.trim() || sent.get(key)?.busy) return;
   sent.set(key, { busy: true });
   redrawBoxes(key);
@@ -971,7 +1165,10 @@ async function say(key, under, words, about) {
     if (!reply.ok) throw new Error(said.error);
     drafts.delete(key);
     sent.set(key, { at: new Date().toISOString() });
-    if (talk && key === `r:${talk.key}` && $('#drawer').open) drawTalk(talk);
+    if (thread) {
+      followed.set(thread, Date.now());
+      readTalk(thread);
+    }
   } catch (error) {
     sent.set(key, { error: error.message });
   }
@@ -994,7 +1191,8 @@ function notify() {
   const notice = new Notification(title, { body: fresh.length === 1 ? first.detail : fresh.map((item) => item.title).join('\n'), tag: `drive-${model.drive}`, requireInteraction: fresh.some((item) => item.kind !== 'late') });
   notice.onclick = () => {
     window.focus();
-    location.hash = `#/queue/${first.kind}`;
+    queueAt = noticeKey(first);
+    go('#/queue/all');
     notice.close();
   };
 }
@@ -1035,7 +1233,7 @@ document.addEventListener('submit', (event) => {
   const form = event.target.closest('form[data-say]');
   if (!form) return;
   event.preventDefault();
-  say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about);
+  say(form.dataset.say, form.dataset.under, drafts.get(form.dataset.say) ?? '', form.dataset.about, form.dataset.thread);
 });
 document.addEventListener('click', (event) => {
   const undone = event.target.closest('button[data-undo]');
@@ -1066,10 +1264,24 @@ document.addEventListener('click', (event) => {
     else expanded.add(id);
     return render();
   }
-  const queue = event.target.closest('[data-queue]');
-  if (queue) {
-    queueFilter = queue.dataset.queue;
+  const moved = event.target.closest('[data-move]');
+  if (moved) return move(Number(moved.dataset.move));
+  const prtab = event.target.closest('[data-prtab]');
+  if (prtab) {
+    prTabs.set(prtab.dataset.item, prtab.dataset.prtab);
+    for (const [key, review] of reviews) if (review.error) reviews.delete(key);
     return render();
+  }
+  const row = event.target.closest('[data-row]');
+  if (row) {
+    prRows.set(row.dataset.item, Number(row.dataset.row));
+    return render();
+  }
+  const ask = event.target.closest('[data-ask]');
+  if (ask) {
+    composing = composing === ask.dataset.ask ? null : ask.dataset.ask;
+    render();
+    return composing && $('#main .ask-box textarea')?.focus();
   }
   const filter = event.target.closest('[data-filter]');
   if (!filter) return;
@@ -1077,15 +1289,21 @@ document.addEventListener('click', (event) => {
   render();
 });
 document.addEventListener('mouseover', (event) => {
+  const choice = event.target.closest('#main .choice[data-preview]');
+  if (choice) preview(choice);
   const cited = event.target.closest('a[data-src]');
-  if (cited) showSource(cited);
-  else hideSource();
+  if (cited) return showSource(cited);
+  const tipped = event.target.closest('[data-tip]');
+  if (tipped) return showTip(tipped);
+  hideSource();
 });
 document.addEventListener('focusin', (event) => {
+  if (event.target.matches('#main .choice[data-preview]')) preview(event.target);
   if (event.target.matches('a[data-src]')) showSource(event.target);
+  else if (event.target.matches('[data-tip]')) showTip(event.target);
 });
 document.addEventListener('focusout', (event) => {
-  if (event.target.matches('a[data-src]')) hideSource();
+  if (event.target.matches('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
   window.scrollTo(0, 0);
@@ -1101,9 +1319,29 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     return openJump();
   }
+  const writing = event.target.closest?.('input, textarea');
+  if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z' && !writing) {
+    const held = [...toasts].findLast(([, shown]) => shown.state === 'held');
+    if (!held) return;
+    event.preventDefault();
+    return undo(held[0]);
+  }
+  const free = !event.metaKey && !event.ctrlKey && !event.altKey && !writing && !document.querySelector('dialog[open]');
   const { screen, id } = route();
+  if (free && screen === 'queue') {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (step) {
+      event.preventDefault();
+      return move(step);
+    }
+    const option = currentItem()?.card?.options[Number(event.key) - 1];
+    if (/^[1-9]$/.test(event.key) && option) {
+      event.preventDefault();
+      return answer(currentItem().answer, option);
+    }
+  }
   const stepped = { j: 1, k: -1 }[event.key];
-  if (stepped && screen === 'plan' && id !== undefined && !event.metaKey && !event.ctrlKey && !event.altKey && !event.target.closest?.('input, textarea') && !document.querySelector('dialog[open]')) {
+  if (stepped && screen === 'plan' && id !== undefined && free) {
     const next = Number(id) + stepped;
     if (model.milestones[next]) location.hash = `#/plan/${next}`;
     return;
@@ -1126,12 +1364,19 @@ window.addEventListener('DOMContentLoaded', () => {
     drawJump();
   });
   setInterval(render, 60000);
-  window.addEventListener('resize', drawArrows);
+  window.addEventListener('resize', () => {
+    measure();
+    drawArrows();
+    place();
+  });
+  new ResizeObserver(place).observe($('#main'));
   new MutationObserver(() => drawFigures(document)).observe(document.body, { childList: true, subtree: true });
   setInterval(() => [...toasts.values()].some((shown) => shown.state === 'held') && drawToasts(), 1000);
   setInterval(async () => {
+    if (document.hidden) return;
+    for (const slot of document.querySelectorAll('#main [data-slot]')) openReview(slot.dataset.slot, slot.dataset.head);
     const key = reviewing;
-    if (key && !document.hidden) showReview(key, await startReview(key));
+    if (key) showReview(key, await startReview(key));
   }, REVIEW_KEEP_MS);
   $('#drawer').addEventListener('close', () => {
     hideSource();

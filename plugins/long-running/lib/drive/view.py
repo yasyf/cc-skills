@@ -2,13 +2,13 @@
 
 `build` returns:
 
-- `queue`: what waits on him, highest priority first: his open question cards, those holding up the most finished
-  work first, then PRs ready for his tap, then promised times that passed. Each item has `kind` (`question`,
-  `tap`, `late`), `title`, `detail`,
-  `since` (when it started waiting, when known), `due`, `url` (where he acts), `links`, and for a question or a
-  tap with a Slack card, `card` (the whole card cc-slack draws) and `answer` (the card's permalink, which takes his
-  answer from any surface). A question also has `holds`: how many green approved open PRs and built jobs wait on
-  it, alone or beside other cards of his, and `blocks`: the title of each feature it holds up.
+- `queue`: what waits on him, highest priority first: his open question cards, those holding up the most finished work
+  first, then PRs ready for his tap, one item for each PR card however many PRs it carries, then promised times that
+  passed. Each item has `kind` (`question`, `tap`, `late`), `title`, `detail`, `since` (when it started waiting, when
+  known), `due`, `url` (where he acts), `links`, and for a question or a tap with a Slack card, `card` (the whole card
+  cc-slack draws), `answer` (the card's permalink, which takes his answer from any surface) and `thread` (the Slack
+  thread the card sits in, or starts). A question also has `holds`: how many green approved open PRs and built jobs
+  wait on it, alone or beside other cards of his, and `blocks`: the title of each feature it holds up.
 - `status`: the drive's features (its open orders, and orders done in the last day) in groups by state:
   `blocked`, `running`, `built`, `waiting`, `merged`, `live`, `not started`. Each feature has `title`, `state`,
   `now` (its latest job line), `due`, `late`, `proof`, `updated`, `url`, `prs`, each PR with `title`, `url`,
@@ -21,7 +21,7 @@
 `work` (each running or waiting job of a shown feature), `finished` (jobs done, failed or stopped in the last day,
 newest first; each job in these and a feature's `jobs` has `files`, the files the drive keeps for it, of `brief`,
 `report`, `question`, `repro` and `transcript`), `history` (the last day, newest first), `review` (every open PR, in `you`,
-`not ready` or `decided`, with its `head`, its Slack card and the `thread` under that card when it has one), `incidents` (his
+`not ready` or `decided`, with its `head`, its Slack card and that card's `thread` when it has one), `incidents` (his
 open incident orders, each with `id`, `title` and `created`), `milestones`, `unplanned` (his orders open or done in
 the last day that name no milestone, drawn as one more milestone named "No milestone", or null when there are none)
 and each feature's `text`, `note`, `created` and `jobs`.
@@ -116,9 +116,9 @@ def message_key(url: str) -> str:
     return match[1] if match else url
 
 
-def card_thread(url: str) -> str:
-    key = message_key(url)
-    return f"{key[:-6]}.{key[-6:]}"
+def card_thread(url: str) -> str | None:
+    found = slack.CARD_LINK.search(url)
+    return found and (found[4] or f"{found[2]}.{found[3]}")
 
 
 def card_open(url: str, found: dict | None) -> bool:
@@ -212,6 +212,7 @@ def question_item(drive: dict, card: dict, features: list[dict]) -> dict:
         "links": [],
         "card": card["card"],
         "answer": card["url"],
+        "thread": card_thread(card["url"]),
     }
 
 
@@ -236,6 +237,7 @@ def tap_item(pr: dict, card: dict | None) -> dict:
         "links": [{"label": "Pull request", "url": pr["url"]}],
         "card": card["card"],
         "answer": card["url"],
+        "thread": card_thread(card["url"]),
     }
 
 
@@ -257,6 +259,7 @@ def is_late(order: dict, moment: datetime) -> bool:
 
 def queue(drive: dict, found: dict, moment: datetime, features: list[dict]) -> list[dict]:
     taps = [(pr, card) for pr in drive["prs"].values() if waits_on_tap(pr, card := card_for(found["pr_cards"], pr["url"]))]
+    taps = list({card["url"] if card else pr["url"]: (pr, card) for pr, card in taps}.values())
     taps.sort(key=lambda entry: (entry[1] is None, entry[1] and state.parse_time(entry[1]["asked"])))
     late = sorted((order for order in drive["orders"].values() if is_late(order, moment)), key=lambda order: state.parse_time(state.owed_at(order)))
     return [
@@ -558,7 +561,7 @@ def review_entry(key: str, pr: dict, drive: dict, found: dict) -> dict:
         "updated": pr["updated"],
         "card": card["card"] if card else None,
         "answer": card["url"] if card else None,
-        "thread": card_thread(card["url"]) if card else None,
+        "thread": card and card_thread(card["url"]),
     }
 
 

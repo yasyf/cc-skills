@@ -443,6 +443,27 @@ def test_review_lists_every_open_pr_by_whether_it_waits_on_him_and_carries_its_c
     assert all(entry["card"] is None and entry["thread"] is None for entry in entries[1:])
 
 
+def test_a_pr_card_carrying_a_stack_is_one_queue_item_and_each_card_less_pr_is_its_own() -> None:
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(n, "o1", wants_tap=True) for n in (1, 2, 3)])
+    urls = [f"https://github.com/yasyf/cc-skills/pull/{n}" for n in (1, 2)]
+    card = {"prs": urls, "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100", "card": {"title": "Fix: approve the stack?", "options": ["Approve", "Hold"], "prs": [{"url": url} for url in urls]}}
+    queue = view.build(data, found(pr_cards=[card]), T0)["queue"]
+    assert [(item["kind"], item.get("answer"), item["url"]) for item in queue] == [
+        ("tap", card["url"], card["url"]),
+        ("tap", None, "https://github.com/yasyf/cc-skills/pull/3"),
+    ]
+
+
+def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_review() -> None:
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "running")}, [pr(1, "o1", wants_tap=True)])
+    drawn = {"title": "Fix: approve change 1?", "options": ["Approve", "Hold"], "prs": [{"url": "https://github.com/yasyf/cc-skills/pull/1"}]}
+    tap = {"prs": ["https://github.com/yasyf/cc-skills/pull/1"], "asked": at(-50), "url": f"{TEAM}archives/D123/p1794200000000100?thread_ts=1794100000.000200&cid=D123", "card": drawn}
+    asked = {**question("Release now?", -20), "url": f"{TEAM}archives/D123/p1794300000000300"}
+    model = view.board(data, found([asked], [tap]), "live", [], T0, set())
+    assert [(item["kind"], item["thread"]) for item in model["queue"]] == [("question", "1794300000.000300"), ("tap", "1794100000.000200")]
+    assert model["review"][0]["thread"] == "1794100000.000200"
+
+
 def test_finished_lists_jobs_that_ended_in_the_last_day_newest_first() -> None:
     data = drive_of(
         {"o1": order("ship the page", ["j1", "j2", "j3", "j4"])},
