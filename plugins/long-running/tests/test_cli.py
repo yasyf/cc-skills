@@ -855,13 +855,17 @@ def test_job_ask_refuses_findings_before_the_question(
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
 
 
-def test_job_ask_check_says_ready_or_every_fix_with_no_drive_and_keeps_nothing(
-    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_drive_and_keeps_nothing(
+    state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], drawing: Drawing
 ) -> None:
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     assert cli.main(["job", "ask", "--check", str(block)]) == 0
     assert capsys.readouterr().out == "ready\n"
+    drawing.refusal = 'card body points at an option by number or position with "second option"'
+    assert cli.main(["job", "ask", "--check", str(block)]) == 2
+    assert f"cc-slack would not draw it: {drawing.refusal}" in capsys.readouterr().err
+    assert [card["waits"] for card in drawing.cards] == ["check:ask-0", "check:ask-0"]
     monkeypatch.setattr("sys.stdin", io.StringIO(FINDINGS_FIRST))
     assert cli.main(["job", "ask", "--check", "-"]) == 2
     refusal = capsys.readouterr().err

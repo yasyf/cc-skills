@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
 
-from drive import picture
+from drive import picture, slack
 from drive.render import cut, when
 from drive.state import PR_KEY, PR_URL, DriveError, root
 
@@ -388,6 +388,14 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
     if problems:
         raise DriveError("the ASK is out of shape, " + READING + ":\n- " + "\n- ".join(problems))
     return Question(title, summary, show_me, options, RECOMMENDED.sub("", marked[0]))
+
+
+def shape(text: str, drive: str, job_id: str, unsettled: str | None = None) -> Question:
+    """The question a job's ASK block puts to him once both of its checks pass: its words, then the card it draws, which cc-slack refuses in its own words. `drive job ask <j>`, `drive job ask --check` and the watch on a remote lane's ASK check here alike; only `drive job ask <j>` then checks it against his recorded answers."""
+    asked = question(text, unsettled=unsettled)
+    if refused := slack.draw_refusal(asked.card(drive, f"{drive}:{job_id}-0")):
+        raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
+    return asked
 
 
 def option_problems(options: list[str], unsettled: str | None) -> list[str]:

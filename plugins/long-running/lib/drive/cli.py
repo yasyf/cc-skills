@@ -730,7 +730,7 @@ def job_ask(args: argparse.Namespace) -> int:
     from drive import superseded
 
     if args.check:
-        limits.question(named_text(args.check, "ASK block file"), unsettled=args.unsettled)
+        limits.shape(named_text(args.check, "ASK block file"), "check", "ask", args.unsettled)
         print("ready")
         return 0
     if args.id is None:
@@ -741,10 +741,8 @@ def job_ask(args: argparse.Namespace) -> int:
     text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
-    asked = limits.question(text, unsettled=args.unsettled)
-    if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
-        raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
-    shown = "\n".join([asked.title, *asked.summary, *asked.options])
+    asked = limits.shape(text, name, args.id, args.unsettled)
+    shown ="\n".join([asked.title, *asked.summary, *asked.options])
     matched = job["may_settle"]
     if not matched or matched["title"] != asked.title:
         found = settled.matching(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
@@ -2030,7 +2028,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument(
         "--check",
         metavar="FILE",
-        help="only check the ASK block in this file, or - for stdin, and print every fix it needs or ready; keeps nothing and reads no drive, so a remote lane runs it",
+        help="only check the ASK block in this file, or - for stdin, its words and the card cc-slack draws from it, and print every fix it needs or ready; keeps nothing and reads no drive",
     )
     verb.add_argument(
         "--unsettled",

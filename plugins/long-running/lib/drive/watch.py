@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, dashboard, github, orca, page, reads, slack, state, superseded, view
+from drive import agents, dashboard, github, limits, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
 from drive.render import SUBSCRIBE, cut, when
 
@@ -347,7 +347,7 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
 
 
 def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept."""
+    """Each live remote lane's mail, read from its own Run and kept in its job's history: reports become JOB lines, read questions and refused ASKs queue on their job to be answered here, an open question kept before the watch read it as a read included, and mail from a worker the job has since replaced is only kept."""
     queue_kept_reads(watcher)
     data = state.load(watcher.name)
     lanes: dict[str, dict[str, str]] = {}
@@ -363,6 +363,8 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
+    refusals, said = ask_refusals(watcher, data, messages, moment)
+    lines += said
     if messages:
         with state.edit(watcher.name) as data:
             seen = data.setdefault("lane_mail", {})
@@ -376,12 +378,31 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 state.keep_reply(watcher.name, job_id, message)
                 if message["from_handle"] != f"dispatch:{data['jobs'][job_id]['dispatch']}":
                     continue
-                if message["type"] == "question" and (question := reads.request(message["body"] or "")):
+                if message["type"] == "question" and (question := reads.request(message["body"] or "") or refusals.get(message["id"])):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
                 lines.append(mail_line(data, job_id, message, moment))
                 track_lane_prs(data, job_id, message["body"] or "")
     return [line for line in lines + read_lines(watcher, data, moment) if line]
+
+
+def ask_refusals(watcher: Watcher, data: dict, messages: list[tuple[str, dict[str, str], dict]], moment: datetime) -> tuple[dict[str, str], list[str]]:
+    """The reply sending each new `ASK` a remote lane asked back to it, by its message id, when `drive job ask` would refuse it: its words and its card are checked here as it arrives, so an `ASK` out of shape never wakes the coordinator, who checks one in shape against his recorded answers alone. One cc-slack could not check goes on to the coordinator, whose `drive job ask <j>` checks it again."""
+    seen = data.get("lane_mail", {})
+    refusals, lines = {}, []
+    for run, handles, message in messages:
+        job_id = handles.get(message["from_handle"])
+        if not job_id or message["sequence"] <= seen.get(run, 0) or message["type"] != "question" or not reads.asks(message["body"] or ""):
+            continue
+        try:
+            limits.shape(message["body"], watcher.name, job_id)
+        except state.DriveError as error:
+            refusals[message["id"]] = f"{reads.REFUSED} {error}"
+        except slack.SlackError as error:
+            lines += failed(watcher, "ASK check", "remote ASK check", error, moment)
+            continue
+        watcher.failures.pop("ASK check", None)
+    return refusals, lines
 
 
 def queue_kept_reads(watcher: Watcher) -> None:

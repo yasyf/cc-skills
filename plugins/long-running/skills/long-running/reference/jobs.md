@@ -109,8 +109,14 @@ question.
   rest with the output's last characters. A test's failure often sits far before the end of its
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
-- A question that opens any other way, such as `READ: please send <file>` or `ASK`, is a `JOB` line
-  for you to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
+- A question opening with `ASK `, after the lane's job id when it writes one, is the lane's `ASK`
+  block. The watch checks it the moment it reads it, its words and the card cc-slack draws from it,
+  as `drive job ask` does. One out of shape it answers itself, with no event, by a reply opening
+  `ASK refused, fix each line and ask again:` and every fix, and the lane asks again; one in shape
+  is a `JOB` line. One cc-slack cannot check also goes on as a `JOB` line, which
+  `drive job ask <j>` checks again.
+- A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
+  to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One
   nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
   the job has, since a card drawn before the question asks him something else.

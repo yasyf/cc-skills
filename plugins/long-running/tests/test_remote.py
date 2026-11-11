@@ -7,7 +7,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from drive import cli, github, orca, place, reads, render, state, watch
+from conftest import Drawing
+from drive import cli, github, orca, place, reads, render, slack, state, watch
 
 Run = Callable[..., tuple[int, str]]
 T0 = state.parse_time("2026-11-09T07:30:00-08:00")
@@ -34,6 +35,15 @@ UNSENT = (
     " runtime_error: Timed out waiting for the remote Orca runtime; its terminal term_lane waits idle, and launching this"
     " brief again retries worker-start in it"
 )
+DESIGN_PICK = "Direct fix: none: a design pick, with no defect behind it"
+ASK_IN_SHAPE = f"""ASK Where should the nightly store copy run?
+The nightly store copy reads every store once; it can run on the primary or on its own worker.
+- On the primary, beside the queries it serves (recommended)
+- On a separate worker that reads the bucket
+Findings:
+{DESIGN_PICK}
+One copy took 40 minutes on the primary.
+"""
 
 
 def message(kind: str, text: str, **overrides: str | None) -> dict:
@@ -640,12 +650,12 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
         ("WAITING CI and the reviewer bot on the reworked chat-open tags PR", None, "waiting"),
         ("BUILT lane/built, waits on demo:j1-7-a", None, "built"),
         ("DONE port of #53187 merged", None, "done"),
-        ("ASK Which restore brings an evicted primary database back on its next start?", "msg_question", "waiting"),
+        (ASK_IN_SHAPE, "msg_question", "waiting"),
         ("ANSWER (1): #53302 is not a deletion", "msg_question", "waiting"),
     ],
 )
 def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and_never_unanswered(
-    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch
+    sent: str, asked: str | None, taken: str, remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
 ) -> None:
     deliver(monkeypatch, [message("question", sent)])
     monkeypatch.setattr(github, "fetch", lambda keys: {})
@@ -849,6 +859,71 @@ def test_an_open_question_kept_before_the_watch_read_it_as_a_read_is_answered_an
     assert ("reply", "--id", "relay_kept", "--run", RUN, "--body", "FAIL hold_test.go:41") in replies
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["reads"]) == (None, "running", {})
+
+
+@pytest.mark.parametrize(
+    ("block", "refusal", "said"),
+    [
+        (
+            ASK_IN_SHAPE.replace(DESIGN_PICK, "Direct fix: run it at night"),
+            None,
+            "`Direct fix: run it at night` names no option",
+        ),
+        (f"j1 {ASK_IN_SHAPE}", None, "an ASK block opens with `ASK <the question, one line>`"),
+        (
+            ASK_IN_SHAPE,
+            'card body points at an option by number or position with "second option"',
+            'cc-slack would not draw it: card body points at an option by number or position with "second option"',
+        ),
+    ],
+)
+def test_an_ask_out_of_shape_goes_back_to_its_lane_with_every_fix_and_never_wakes_the_coordinator(
+    block: str, refusal: str | None, said: str, remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing
+) -> None:
+    deliver(monkeypatch, [message("question", block, id="msg_ask")])
+    drawing.refusal = refusal
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    [reply] = [args for args in replies if args[0] == "reply"]
+    assert reply[:5] == ("reply", "--id", "msg_ask", "--run", RUN)
+    assert reply[-1].startswith(reads.REFUSED) and said in reply[-1]
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["said"], job["reads"]) == (None, "running", None, {})
+    assert [kept["id"] for kept in state.replies(remote, "j1")] == ["msg_ask"]
+    assert watch.run_pass(watching, T0 + timedelta(seconds=70)) == []
+    assert len([args for args in replies if args[0] == "reply"]) == 1
+
+
+def test_an_ask_in_shape_wakes_the_coordinator_once_its_card_draws(remote: str, monkeypatch: pytest.MonkeyPatch, drawing: Drawing) -> None:
+    deliver(monkeypatch, [message("question", ASK_IN_SHAPE, id="msg_ask")])
+    replies = []
+    monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == ["JOB j1 o1 ASK Where should the nightly store copy run?"]
+    assert [card["waits"] for card in drawing.cards] == [f"{remote}:j1-0"]
+    assert replies == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["report"]) == ("msg_ask", "waiting", ASK_IN_SHAPE)
+
+
+def test_an_ask_cc_slack_cannot_check_goes_on_to_the_coordinator_and_says_so_from_the_third_failure(
+    remote: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(card: dict) -> str | None:
+        raise slack.SlackError("cc-slack: no such file")
+
+    monkeypatch.setattr(slack, "draw_refusal", broken)
+    monkeypatch.setattr(orca, "call", lambda *args: pytest.fail(f"the watch replied {args}"))
+    deliver(monkeypatch, *([message("question", ASK_IN_SHAPE, id=f"msg_ask{index}")] for index in range(3)))
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    passes = [watch.run_pass(watching, T0 + timedelta(seconds=seconds)) for seconds in (0, 70, 140)]
+    assert passes[:2] == [["JOB j1 o1 ASK Where should the nightly store copy run?"]] * 2
+    assert passes[2] == [
+        "WATCH remote ASK check failed 3 times in a row: cc-slack: no such file",
+        "JOB j1 o1 ASK Where should the nightly store copy run?",
+    ]
 
 
 def test_a_lane_question_nothing_answers_is_an_orphan_every_thirty_minutes_whatever_older_card_its_job_has(
