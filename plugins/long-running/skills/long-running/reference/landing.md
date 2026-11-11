@@ -67,8 +67,8 @@ for its repository says, then return `DONE <proof>`.
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
     or a `mermaid` flow, goes beside the example, never in its place; numbers before and after get a
     `chart` fence (Vega-Lite) or a markdown table. A change to what he or a user sees, a UI, page,
-    card or post, gets a before and an after screenshot of it as two markdown images,
-    `![1 · Before, <the build it shows>](<path>)` then `![2 · After, <the build it shows>](<path>)`,
+    card or post, gets a before and an after screenshot of it as two markdown images, kept anywhere,
+    the drive's pictures folder included, `![1 · Before, <the build it shows>](<path>)` then `![2 · After, <the build it shows>](<path>)`,
     which Slack shows side by side as one gallery, in his words "This is a visual change so it should
     have shown before and after screenshots". A builder's `READY` whose `NATIVE:` line names a surface
     he sees is refused until a Show me on the card carries both. A fence holds code, never prose, JSON,

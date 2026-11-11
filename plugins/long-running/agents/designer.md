@@ -120,7 +120,7 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     past four nodes;
   - a one- or two-line fence declaring a constant;
   - as many code fences as options, which go in one `compare` fence labeled per option;
-  - a hand-drawn picture from the drive's asks or pictures folder;
+  - a hand-drawn picture from the drive's asks or pictures folder, which a before and an after screenshot kept there is not;
   - two or more PRs listed by number, which a stack card shows;
   - a `Show me:` with no visual;
   - a table with one value in every cell;
