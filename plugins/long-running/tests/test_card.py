@@ -1,6 +1,7 @@
 import io
 import json
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -59,6 +60,11 @@ def pr_json(
         "labels": [],
         "url": url,
     }
+
+
+def answering(pr: dict) -> Callable[[list[str]], str]:
+    """A stand-in for gh answering card.read: the PR without its comments for gh pr view, and its comments for the REST read."""
+    return lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else {field: value for field, value in pr.items() if field != "comments"})
 
 
 def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = None, pr_state: str = "open") -> dict:
@@ -309,6 +315,24 @@ def test_the_refresher_comes_from_a_reviewer_comment_when_the_body_has_none() ->
     assert first["refresher"] == "Uploads try again."
 
 
+def test_a_card_read_asks_gh_pr_view_for_no_field_only_his_token_answers_and_takes_comments_over_rest(
+    drive: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[list[str]] = []
+    comments = [{"user": {"login": "forge-pr-reviewer[bot]"}, "body": "### Refresher\n\nUploads try again."}]
+    served = answering(pr_json(body=FIX_BODY.replace("## Refresher\nWhen the network hiccups, we try again.\n\n", ""), comments=comments))
+
+    def gh(cmd: list[str]) -> str:
+        asked.append(cmd)
+        return served(cmd)
+
+    monkeypatch.setattr(card, "run", gh)
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    assert drawn["card"]["prs"][0]["refresher"] == "Uploads try again."
+    viewed = [cmd[-1].split(",") for cmd in asked if cmd[1:3] == ["pr", "view"]]
+    assert viewed and not {"comments", "reactionGroups", "reviewRequests"} & {field for fields in viewed for field in fields}
+
+
 @pytest.mark.parametrize("words", ["None.", "Nothing.", "Nothing differed."])
 def test_a_hate_or_plan_section_saying_nothing_is_omitted(words: str) -> None:
     body = f"## Summary\nAdds a flag.\n\n## What you'll hate most\n{words}\n\n## Against the plan\n{words}\n"
@@ -370,9 +394,9 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
 
     def gh(cmd: list[str]) -> str:
         asked.append(cmd)
-        if cmd[5] == "yasyf/cc-skills":
+        if "yasyf/cc-skills" in cmd:
             raise GithubError("GraphQL: Could not resolve to a PullRequest")
-        return json.dumps(pr_json())
+        return answering(pr_json())(cmd)
 
     monkeypatch.setattr(card, "run", gh)
     reply = ask(
@@ -388,22 +412,25 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
         "cards": [{"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())}],
         "skipped": [{"repo": "yasyf/cc-skills", "number": 42, "reason": "drive card could not read it from GitHub"}],
     }
-    assert asked[0] == ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS]
-    assert len(asked) == 2
+    assert asked == [
+        ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS],
+        ["gh", "api", "--paginate", "repos/Forge-AI/monorepo/issues/42/comments?per_page=100"],
+        ["gh", "pr", "view", "42", "-R", "yasyf/cc-skills", "--json", card.FIELDS],
+    ]
     err = capsys.readouterr().err
     assert "yasyf/cc-skills#42" in err
     assert "Forge-AI/monorepo#99 is in no drive" in err
 
 
 def test_prs_matches_the_lowercase_repo_cc_slack_asks_with(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    monkeypatch.setattr(card, "run", answering(pr_json()))
     reply = ask({"prs": [{"repo": "forge-ai/monorepo", "number": 42}]})
     assert [(drawn["repo"], drawn["number"]) for drawn in reply["cards"]] == [("Forge-AI/monorepo", 42)]
 
 
 def test_a_tap_card_without_what_he_will_hate_most_is_skipped_and_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.replace("## What you'll hate most", "## Biggest worry")
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     reason = f"its tap card needs a \"What you'll hate most\" section in the body of {URL}"
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
         "cards": [],
@@ -450,7 +477,7 @@ def test_a_tap_card_whose_show_me_draws_snippets_that_add_nothing_is_refused_nam
     drive: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(picture, "visual_png", lambda kind, source, out: out.write_bytes(b"\x89PNG\r\n"))
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=FIX_BODY + SNIPPETS_SHOW_ME)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=FIX_BODY + SNIPPETS_SHOW_ME)))
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
     assert skipped["reason"].startswith(
         "its tap card needs a Show me whose every picture shows what its words cannot (the Show me draws 3 code fences as 3 pictures"
@@ -458,13 +485,13 @@ def test_a_tap_card_whose_show_me_draws_snippets_that_add_nothing_is_refused_nam
     assert limits.BIG_RULING in skipped["reason"]
     assert skipped["reason"].endswith(f") in the body of {URL}")
     diagram = FIX_BODY + "\n## Show me\n" + SNIPPETS_SHOW_ME.split("no dialog.\n", 1)[1]
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=diagram)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=diagram)))
     assert [drawn["number"] for drawn in ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]] == [42]
 
 
 def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## What you'll hate most")[0]
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
     assert skipped["reason"].startswith(
         f"its tap card needs a \"What you'll hate most\" section and a \"His words, step by step\" list naming his order"
@@ -475,7 +502,7 @@ def test_a_tap_card_missing_two_sections_names_both_in_one_refusal(drive: str, m
 
 
 def test_a_pr_waiting_on_his_open_design_card_draws_no_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json()))
+    monkeypatch.setattr(card, "run", answering(pr_json()))
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["waits"] = ["demo:j1-7-a"]
     reason = "it waits on demo:j1-7-a, so it draws no Approve until each is answered or done"
@@ -497,7 +524,7 @@ def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
     drive: str, monkeypatch: pytest.MonkeyPatch, words: str
 ) -> None:
     body = FIX_BODY.split("## His words, step by step")[0] + f"## His words, step by step\n{words}\n"
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     [skipped] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["skipped"]
     assert skipped["reason"].startswith(
         f"its tap card needs a \"His words, step by step\" list naming his order in the body of {URL}."
@@ -508,13 +535,13 @@ def test_a_tap_card_whose_his_words_name_no_order_of_his_is_refused(
 
 def test_a_tap_card_with_no_his_words_section_is_refused(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## His words, step by step")[0]
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"] == []
 
 
 def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## His words, step by step")[0] + "## His words, step by step\nNone: drive tooling.\n"
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body)))
     assert cli.main(["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a tooling PR lands on his Approve", "--drive", drive]) == 0
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["serves"] = "o1"
@@ -527,14 +554,14 @@ def test_an_exempt_port_with_no_his_words_still_draws(drive: str, monkeypatch: p
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["exempt"] = "pure port"
     body = FIX_BODY.split("## His words, step by step")[0]
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(title="Port: retry flaky uploads", body=body)))
+    monkeypatch.setattr(card, "run", answering(pr_json(title="Port: retry flaky uploads", body=body)))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["status"] == "info"
 
 
 def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## What you'll hate most")[0]
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr_json(body=body, pr_state="MERGED")))
+    monkeypatch.setattr(card, "run", answering(pr_json(body=body, pr_state="MERGED")))
     [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
     assert drawn["card"]["status"] == "done"
 
@@ -680,6 +707,8 @@ def stacked(state_root: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]
 
     def gh(cmd: list[str]) -> str:
         asked.append(cmd)
+        if cmd[1] == "api":
+            return "[]"
         number = int(cmd[3])
         title, base, branch = STACK.get(number, ("Fix: a later fix on top", "move-3", "move-4"))
         body = STACK_BODY + FIX_BODY if number == 41 else FIX_BODY

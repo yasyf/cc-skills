@@ -1771,6 +1771,8 @@ def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
     branches = {"42": ("main", "land-it"), "43": ("land-it", "land-more")}
 
     def gh(cmd: list[str]) -> str:
+        if cmd[1] == "api":
+            return "[]"
         base, head = branches[cmd[3]]
         return json.dumps(on_github | {"url": PR.removesuffix("42") + cmd[3], "baseRefName": base, "headRefName": head})
 
@@ -1892,7 +1894,7 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
         "labels": [],
         "url": PR,
     }
-    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr))
+    monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr["comments"] if cmd[1] == "api" else pr))
     return pr
 
 
