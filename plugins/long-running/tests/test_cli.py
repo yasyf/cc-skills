@@ -787,6 +787,18 @@ def test_job_ask_check_says_ready_or_every_fix_with_no_drive_and_keeps_nothing(
     assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
 
+def test_job_ask_and_card_refuse_a_file_that_is_not_there_by_its_path(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "ask.md"
+    for argv in (["job", "ask", "--check", str(missing)], ["job", "ask", asking, str(missing)], ["job", "card", str(missing), "--waits", "demo:j1-7"]):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err == f"drive: no ASK block file at {missing}\n"
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"]) == ("running", [])
+    assert not (state_root / "demo" / "asks").exists()
+
+
 def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

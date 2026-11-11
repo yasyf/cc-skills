@@ -181,6 +181,18 @@ def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
     assert "dispatch" not in state.load(demo)["jobs"]["j2"]
 
 
+def test_launch_refuses_a_brief_file_that_is_not_there_and_stamps_nothing(
+    run: Run, demo: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / ".orca.json").write_text("{}")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship it")
+    before = state.load(demo)["jobs"]["j1"]
+    assert cli.main(["job", "launch", "j1", "brief.md"]) == 2
+    assert capsys.readouterr().err == f"drive: no brief file at {Path.cwd() / 'brief.md'}\n"
+    assert state.load(demo)["jobs"]["j1"] == before
+
+
 def test_launch_starts_a_job_added_with_no_agent_as_a_remote_lane(
     run: Run, demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -290,9 +302,9 @@ def test_resume_to_a_dead_worker_relaunches_the_job_with_the_message_in_its_hand
     code, out = run("job", "resume", "j1", "Use @poeticapps/poetic")
     assert (code, sent) == (0, [])
     assert out == (
-        "j1: its lane on Sprite sprite-old was dead (its worker exited), so the message was not sent to it; relaunched the "
-        "job on Sprite workspace-2 as dispatch dispatch-2 with a handoff carrying its brief, its branch, its last line, its "
-        "report, its PRs and the message; work not pushed from sprite-old is not carried over"
+        "j1: the message went to the job's next worker, relaunched on Sprite workspace-2 as dispatch dispatch-2 in a handoff"
+        " carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite sprite-old was dead (its"
+        " worker exited), and work not pushed from sprite-old is not carried over"
     )
     assert (launched["lane"], launched["run"]) == ("demo-j1-2", RUN)
     brief = orca.brief_of(launched["brief"])
@@ -342,9 +354,9 @@ def test_resume_to_a_worker_that_finished_starts_the_next_one_in_its_terminal_wi
     code, out = run("job", "resume", "j1", "The review: one medium finding, fix it")
     assert (code, out) == (
         0,
-        "j1: its lane on Sprite pool-one had finished (its worker succeeded, and Orca sends nothing to a finished worker on "
-        "a Sprite), so the message was not sent to it; started the job's next worker in its terminal on the same Sprite as "
-        "dispatch ctx_lane0002 with a handoff carrying its brief, its branch, its last line, its report, its PRs and the message",
+        "j1: the message went to the job's next worker, started in its terminal on the same Sprite as dispatch ctx_lane0002 in"
+        " a handoff carrying its brief, its branch, its last line, its report and its PRs; its lane on Sprite pool-one had"
+        " finished (its worker succeeded, and Orca sends nothing to a finished worker on a Sprite)",
     )
     argv = started["argv"]
     options = {argv[index]: argv[index + 1] for index in range(3, len(argv) - 2, 2)}
@@ -1029,9 +1041,9 @@ def test_resume_to_a_local_lane_that_finished_starts_the_next_worker_in_its_work
     monkeypatch.setattr(orca, "bound_command", worker_start)
     assert run("job", "resume", "j1", "The review: fix the one finding") == (
         0,
-        "j1: its lane on this Mac had finished (its worker succeeded, and Orca sends nothing to a finished worker on this "
-        "Mac), so the message was not sent to it; started the job's next worker in its terminal on this Mac as dispatch "
-        "ctx_lane0002 with a handoff carrying its brief, its branch, its last line, its report, its PRs and the message",
+        "j1: the message went to the job's next worker, started in its terminal on this Mac as dispatch ctx_lane0002 in a"
+        " handoff carrying its brief, its branch, its last line, its report and its PRs; its lane on this Mac had finished"
+        " (its worker succeeded, and Orca sends nothing to a finished worker on this Mac)",
     )
     argv = started["argv"]
     options = {argv[index]: argv[index + 1] for index in range(3, len(argv) - 2, 2)}
