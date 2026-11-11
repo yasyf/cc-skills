@@ -16,16 +16,19 @@ incident run `answer_search` for his incident rulings and follow them. The coord
 alert channels, each a `drive start --watch` named on its `Hold with slack_watch` line, so the drive
 sees its own releases go bad.
 
-The goal is that users stop being blocked within minutes: by releasing the default branch when it
-already fixes the break, else by a small fix or a rollback. Nothing waits on finding the cause: no
-question to him, no real-or-ours verdict, no plan mode, no reproduction, no mute as a resolution.
+The goal is that users stop being blocked within minutes: by releasing the default branch when the
+first check shows its newest build already works, else by rolling the release back. Then the proper
+root fix of the cause ships. A stopgap never ships. Nothing stands between the alert and the first
+check or the rollback: no question to him, no real-or-ours verdict, no plan mode, no reproduction, no
+mute as a resolution. His ruling, Nov 10 3:46 PM: "sounds good, and fix your tooling so you dont do
+this again; you should have just rolle dback and done the proper fix".
 
 ## In the same turn
 
 1. `answer_add` his words verbatim, labels `drive:<name>` and `incident`: that answer approves the
    incident's own release and rollback, so no card goes to him for either.
 2. `drive order add "<his words, or the alert text>" --from slack:<channel>/<ts> --thread <ts>
-   --parts "first check" --due +5m`, or `--parts "stop the harm" "rollback" "cause"` when no release
+   --parts "first check" --due +5m`, or `--parts "rollback" "fix" "cause"` when no release
    or new build came before the break.
 3. Start its jobs, each a `codex:codex-wrapper` running `codex-ask --incident` whose brief carries the
    answer id from step 1 and the brief template's `Incident:` line written out in full, and record each
@@ -39,14 +42,28 @@ question to him, no real-or-ours verdict, no plan mode, no reproduction, no mute
      fuck did you waste 3 hours when the soluition was just to do a release?"
    - With no release or new build before the break, or once the first check's build fails too, three
      jobs in one message:
-     - **fix**, with apply authority. Its first deliverable is the smallest change that stops users
-       being blocked: degrade, disable, or revert the failing path, starting at the code path the
-       alert or his words name. The real fix comes later.
-     - **rollback**, which proves or disproves that the previous build lacks the failing path, and
-       either starts the rollback or returns the evidence that it cannot work. In the monorepo the
-       rollback is the `release` skill's; for a tool this Mac runs it installs the previous release.
-     - **cause**, which reads Sentry, logs and code and sends what it finds to the other two. It gates
-       neither: diagnosis redirects the fix, never precedes it.
+     - **rollback**, with apply authority. It rolls the release back to the newest build that provably
+       lacks the failing change, however many releases back that is. The proof is that the commit
+       that brought the failing change is not an ancestor of the target build's commit, so
+       `git merge-base --is-ancestor <change> <target>` exits 1. While the change is not yet known,
+       the proof is the failing action, replayed against the target on a test machine, succeeding. It
+       also proves the target can open everything the bad builds wrote since, such as a record in a
+       newer format, by opening one on a test machine. When a build passes both, it starts the
+       rollback inside its clock; when no build passes both, it returns that evidence inside its
+       clock instead, and the root fix is the only way out. In the monorepo the rollback is the
+       `release` skill's; for a tool this Mac runs it installs that release.
+     - **fix**, with apply authority. It builds the root fix of the cause, starting at the code path
+       the alert or his words name. The repository's own performance and "fix the cause" rules apply
+       (in the monorepo, AGENTS.md's Performance section). When the cause is a design, a design step
+       comes first, by [Design first](design.md), with its questions on cards before any PR. It never
+       ships a pin, a hard-coded flag, a header, a prefix rule, a cap, a retry, a timeout raise, a
+       timer, a wait, a cache or a special case in the cause's place. A reverted or degraded path is
+       not its deliverable either. Its PR is the whole root fix with the tests the repository's
+       rules ask of it; nothing is split off to land faster, since the rollback already stopped the
+       harm. His ruling, Nov 10 3:44 PM: "this is also a hack stop doing fucking hacks just do proper
+       fundamental fixes".
+     - **cause**, which reads Sentry, logs and code and sends what it finds to the fix job. It never
+       gates the rollback.
 4. A `report` to the communicator for his first line: what is running.
 
 ## When the first check returns
@@ -56,22 +73,21 @@ question to him, no real-or-ours verdict, no plan mode, no reproduction, no mute
   --parts "first check" "release"`, and a `long-running:builder` that starts the release of the
   default branch's head by the cut [Ship it](#ship-it) names. No hotfix is built on the live build's
   commit, and no rollback or cause hunt starts.
-- **It fails too:** `drive order set <o> --parts "first check" "stop the harm" "rollback" "cause"` and
-  the three jobs of step 3 in that turn; only now does the cause hunt start.
+- **It fails too:** `drive order set <o> --parts "first check" "rollback" "fix" "cause"` and the three
+  jobs of step 3 in that turn; only then does the cause hunt start.
 
 ## Clocks
 
 Each clock is set with `drive order set <o> --due` and checked at its `DUE` by reading the job's
 transcript, never by waiting for its message. The first check's clock counts from his order or the
-alert; the fix's and the rollback's from the first check's verdict, or from the order when none ran.
+alert; the rollback's from the first check's verdict, or from the order when none ran.
 
 | Clock | Due | Missed |
 |---|---|---|
 | First check: the live build's commit, and the default branch's newest build tried on a test machine | 10 minutes | A second job on the first check |
-| Rollback answer: started, or the evidence it cannot work | 10 minutes | A second job on the rollback |
-| Fix PR open, the change that stops the harm | 15 minutes | A second job on the fix |
+| Rollback started on the proven target, or the evidence that no build can serve | 10 minutes | A second job on the rollback |
 | Every later step, until live | at most 10 minutes out | A second job on that step |
-| His next line, until live | 5 minutes after his last | A line of what is running and when the next lands |
+| His next line, until users are unblocked | 5 minutes after his last | A line of what is running and when the next lands |
 
 A second job is an Opus 5.5 fast-mode `long-running:builder` on the same brief, started in the turn
 the clock is missed, beside the first; the first to deliver wins. Never fable or astra. A missed clock
@@ -81,7 +97,8 @@ also sends him a line in that turn, before he asks: what is late and the new tim
 
 - Codex edits and Claude ships: the turn the fix job has its change, a `long-running:builder` ships it
   from that worktree, lands it and proves it live.
-- The fix PR carries the code change alone; its tests follow in a second PR once the fix is live.
+- The fix PR carries the whole root fix and the tests the repository's rules ask of it; nothing is
+  split off to land faster.
 - An approved and green incident PR lands in the same turn the watch reports it: on its `checks
   passed` or `approved` event, resume its job with "land it and start its build now". In the monorepo
   the fix skips the merge queue: `drive pr set <url> --exempt "incident fix"`, then `gh pr merge <n>
@@ -108,8 +125,10 @@ also sends him a line in that turn, before he asks: what is late and the new tim
 - A build or release he started is his: never cancel, retry, reorder or approve it, and start no other
   release while it runs. When its commit carries the fix, its steps are the lines he gets. One of ours
   that must stop gets a `report` to the communicator first, then its job stops it.
-- Roll back only when the previous build provably lacks the failing path; the rollback job proves or
-  disproves that inside its clock.
+- Roll back to the newest build that provably lacks the failing change, however many releases back
+  that is; the nearest earlier build is the target only when it lacks the change. The rollback job
+  proves the target lacks the change and can open everything the bad builds wrote since, and starts
+  the rollback or returns the evidence that no build passes both inside its clock.
 - Break-glass applies are authorized at 0 deletes and 0 replaces; report both counts.
 - A repair of a team's data is a pass like any other, however urgent: it runs as a service account
   inside the cluster that serves that team and starts from a pipeline or an in-cluster job, never
@@ -120,20 +139,19 @@ also sends him a line in that turn, before he asks: what is late and the new tim
   team never form a user role".
 - Claim, fence, hold, or freeze nothing unless he asks.
 
-## After live
+## After users are unblocked
 
-The regression test and any redesign come after the build is live, each a job on the order started on
-the fix's `DONE`, and so does the cause hunt when a first check's build failed or none ran. When
-releasing the default branch was the fix, the commits the first check found past the live one are the
-cause, and no hunt starts.
+While the rollback unblocks users, the fix job keeps building the root fix, with a design step first
+by [Design first](design.md) when the cause is a design, and its regression tests ride in that same PR.
+When releasing the default branch was the fix, the commits the first check found past the live one are
+the cause, and no hunt starts.
 
 ## What he hears
 
 Each line is a `report` to the communicator, which posts it in his thread or the alert's thread, while
-he is away too. Until live he hears something at least every 5 minutes: a step of the fix with its
-time, its proof on a real machine, or one line of what is running and when the next line lands.
-Nothing else reaches him but the one cause line below, and a link appears once, inline, where the
-sentence names the thing it points at.
+he is away too. Until users are unblocked he hears a line at least every 5 minutes; after that, each
+step of the root fix reaches him once, as it happens. Nothing else reaches him but the one cause line
+below, and a link appears once, inline, where the sentence names the thing it points at.
 
 - No "not proven" or "unproven" paragraph under any label, as in every line to him by
   [messages.md](messages.md), and no side facts about a release, such as what else it applies, its
@@ -146,11 +164,13 @@ sentence names the thing it points at.
 
 The steps, in order:
 
-1. **Running:** the first check, or the fix, the rollback check and the cause hunt.
+1. **Running:** the first check, or the rollback, the fix and the cause hunt.
 2. **The fix is a release:** after a first check whose build worked, releasing the default branch
    fixes it, as the test machine showed.
-3. **PR open:** the fix's title, linked, and what it stops.
-4. **Merged.**
-5. **Release started:** the fix's release, the default branch's, or the rollback when it starts first.
-6. **Live:** what is live, its proof on a real machine, and whose runs succeed. Healthy means the
+3. **Rollback started:** the build it rolls back to, and that it lacks the failing change.
+4. **Users unblocked:** whose runs succeed again, on a real machine.
+5. **Root fix PR open:** its title, linked, and the cause it removes.
+6. **Merged.**
+7. **Release started:** the root fix's release, or the default branch's.
+8. **Live:** what is live, its proof on a real machine, and whose runs succeed. Healthy means the
    affected users' runs succeed, not that a monitor went quiet.
