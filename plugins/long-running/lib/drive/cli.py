@@ -1236,7 +1236,7 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
         return
     known[key] = (name, after)
     members = after.get("stack") or [key]
-    if reason := card.waiting(known, members) or card.tap_refusal(known, members):
+    if reason := card.waiting(known, members) or card.tap_refusal(known, members, card.read_all(members)):
         raise DriveError(f"{key}: {reason}")
 
 
@@ -1690,7 +1690,11 @@ def parser() -> argparse.ArgumentParser:
             " Researched: block before any builder or designer starts, and their briefs name it. An incident order is a build"
         ),
     )
-    verb.add_argument("--complex", action="store_true", help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet")
+    verb.add_argument(
+        "--complex",
+        action=argparse.BooleanOptionalAction,
+        help="more than a one-fact lookup: its answer lane runs on Opus, never Sonnet; --no-complex marks a one-fact lookup, and an answer order asking several questions with neither starts no Sonnet lane",
+    )
     verb.add_argument(
         "--owner",
         choices=state.ROLES,

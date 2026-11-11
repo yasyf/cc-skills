@@ -153,6 +153,11 @@ Fork: <the next, the same way, or "none" and why in one line>
 Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
+`drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
+`Settled:`, `Native:`, `Fork:` and `Facts:` lines, naming each one missing. A `HANDOFF <path>`, when
+the session that started you stops you before you are done, or a `BLOCKED`, carries no design and
+skips that check.
+
 Your final message is its first line alone, since it lands whole in the coordinator's context.
 
 ## Limits

@@ -40,7 +40,7 @@ The `agent_brief` hook refuses an Agent call that sets `name`, since agent teams
 agent becomes a teammate that never wakes on events. It also refuses Fable on any agent but
 `long-running:designer`, and a builder whose brief has no `Serves:` or `Handoff:` line. The
 `scratch_folder` hook refuses `sonnet` or `haiku` on any lane of a build order or a complex answer
-order, and a build order's builder or designer whose brief lacks the `Researched:` line the `brief`
+order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's builder or designer whose brief lacks the `Researched:` line the `brief`
 op writes once its reader's research is kept. Each refusal names its fix: do it, never route around
 it.
 
@@ -54,6 +54,7 @@ job's state and its said line:
 | `DONE`, or a reader's answer | done |
 | `READY`, `WAITING`, `DESIGN`, `ASK` | waiting; an `ASK` keeps as its said line the question's title `drive job ask` set |
 | `BLOCKED` | failed |
+| `HANDOFF <path>`, a job its session stopped before done | stopped |
 | `BUILT` | set by hand: `drive job set <j> --state built --branch <branch> --waits <card>` |
 
 The watch reads the agent's transcript, never the stored state. A running job whose agent ended its
@@ -177,7 +178,8 @@ write-up; only the handler that writes to him writes prose.
 - The job pipes its whole return on stdin into `drive job report <j> -`. That is its only report,
   even when a delegation hook appends an output contract naming a file, because Claude Code refuses
   a subagent's Write of a report file.
-- It returns the first line alone, opening with a result word the state table lists. The
+- It returns the first line alone, opening with a result word the state table lists, and
+  `drive job report` refuses a builder's or designer's report that opens with any other word. The
   `one_line_result` hook sends back a final message past one line of 500 characters.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.

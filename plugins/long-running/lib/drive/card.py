@@ -518,15 +518,18 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done"
 
 
-def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
-    shown, tools = [], set()
-    for key in members:
+def read_all(keys: list[str]) -> dict[str, dict]:
+    reads = {}
+    for key in keys:
         if not (pr := read(key)):
             raise state.DriveError(f"{key}: could not read it from GitHub to check its tap card")
-        shown.append((pr, known[key][1], ()))
-        if tooling(*known[key]):
-            tools.add(pr["url"])
-    return refusal(shown, drawn_card(shown), tools)
+        reads[key] = pr
+    return reads
+
+
+def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
+    shown = [(reads[key], known[key][1], ()) for key in members]
+    return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])})
 
 
 def cards(asked: list[dict]) -> dict:

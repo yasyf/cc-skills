@@ -46,17 +46,20 @@ check or drawing code in `lib/drive/card.py`, `picture.py` or `site/visuals.js` 
 the post he faulted, and the class of posts the same fault reaches, since he ruled the fix goes to
 them, never to the one post.
 `open:` gives each question the order implies that he has not answered, with any open card's link.
-Each says `none` when empty.
+Each says `none` when empty. `drive job report` refuses your report without that block filled,
+naming each line missing.
 
 A finding that leaves him a choice, such as a limit or cost, opens your report
 `DESIGN <the choice>` in proper technical terms, then two to four `- ` options, exactly one ending
 `(recommended)`, for a design job to turn into his cards. The fix your evidence points at is an
-option, recommended, or a line says why another is. Start no other line with `- `, since
+option, recommended, or a line says why another is, and a `Direct fix:` line names it by its words,
+or says `Direct fix: none: <why>`; `drive job report` refuses a `DESIGN` without it. Start no other line with `- `, since
 `drive job report` counts each as an option. Any other report opens `DONE`.
 
 Your report feeds another agent, never him, with the inputs the one writing to him needs, one fact
 a line, no polish. The first line answers the question; then each fact with its link, number, path
-or exact quote, `REPRO:` your reproduction file's path, and `UNPROVEN:` what you could not show,
+or exact quote, `REPRO:` your reproduction file's path, which `drive job report` refuses until
+`drive job set <your job> --repro` kept it, and `UNPROVEN:` what you could not show,
 never a guess. Pipe it first from a quoted heredoc into `drive job report <your job> -`, as you
 have no Write tool; others read it with `drive job report <your job>`. Then end with its first
 line alone, at most 500 characters, since it lands whole in the starting session's context. Post

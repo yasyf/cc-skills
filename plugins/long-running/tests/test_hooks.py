@@ -424,7 +424,7 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
         "refused, no agent started: Researched: j2 names no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) == (
-        "refused, no agent started: o1 is a build order: its reader, designer and builder run on Opus; pass no model, or opus"
+        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or opus"
     )
     assert hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", f"Researched: j1\n{bare}"))) == ""
     assert folder.is_dir()
@@ -436,7 +436,18 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt, "sonnet")) == (
-        "refused, no agent started: o1 is a build order: its reader, designer and builder run on Opus; pass no model, or opus"
+        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or opus"
+    )
+
+
+def test_a_build_orders_designer_on_a_light_model_is_told_to_run_on_fable(communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    run("job", "report", "j1", "-")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the copy")
+    assert scratch_folder.deny_reason(drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "sonnet")) == (
+        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or fable"
     )
 
 
@@ -467,6 +478,27 @@ def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_c
     )
     assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus")) is None
     assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")) is None
+
+
+def test_a_light_reader_waits_on_an_answer_order_asking_several_questions_until_it_is_marked(demo: str, run: Run) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell me about the copy", "--kind", "answer")
+    run("job", "add", "reader", "--order", "o1", "--goal", "why the copy stalls, who owns the bucket, when it started")
+    run("job", "add", "reader", "--order", "o1", "--goal", "what is the head sha of the copy fix")
+    assert state.load("demo")["orders"]["o1"]["complex"] is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) == (
+        "refused, no agent started: o1 is an answer order asking 3 questions with no complex mark, and a sonnet lane answers only"
+        " a one-fact lookup: mark it drive order set o1 --complex and pass no model, or drive order set o1 --no-complex when"
+        " one lookup answers them all"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j2", "sonnet")) is None
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1")) is None
+    run("order", "set", "o1", "--no-complex")
+    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) is None
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls\nwho owns the bucket\nwhen it started", "--kind", "answer")
+    run("job", "add", "reader", "--order", "o2", "--goal", "answer him")
+    assert "o2 is an answer order asking 3 questions with no complex mark" in scratch_folder.deny_reason(
+        drive_agent("long-running:reader", "Drive: demo, order o2, job j3", "sonnet")
+    )
 
 
 def test_guard_denies_an_untapped_drive_pr(
