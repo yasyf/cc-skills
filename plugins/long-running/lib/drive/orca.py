@@ -29,6 +29,9 @@ BRIEF_HEADING = "\n# Brief\n\n"
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
+RELOAD = "/reload-plugins"
+SUBMIT_SECONDS = 10
+TIMEOUT = "timeout"
 
 
 class OrcaError(DriveError):
@@ -43,7 +46,7 @@ class LaneEnd(NamedTuple):
     worktree: str | None
 
 
-def request(*args: str) -> dict:
+def request(*args: str, seconds: float = CALL_SECONDS) -> dict:
     """One `orca` call: its result, or OrcaError carrying Orca's own reason."""
     verb = " ".join(args[:2])
     try:
@@ -51,7 +54,7 @@ def request(*args: str) -> dict:
             ["orca", *args, "--json"],
             capture_output=True,
             text=True,
-            timeout=CALL_SECONDS,
+            timeout=seconds,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as error:
@@ -78,6 +81,19 @@ def call(*args: str) -> dict:
 def own_terminal() -> str | None:
     """This session's Orca terminal, or None outside one; tmux inherits the handle of the terminal it started in."""
     return None if "TMUX" in os.environ else os.environ.get("ORCA_TERMINAL_HANDLE")
+
+
+def reload_command(terminal: str) -> str:
+    return f"orca terminal send --terminal {terminal} --text {RELOAD} --enter"
+
+
+def reload_plugins(terminal: str, wait_ms: int) -> None:
+    """Type /reload-plugins into a Claude Code session's terminal once its turn is over; OrcaError coded timeout while it is still busy after wait_ms."""
+    waiting = ("terminal", "wait", "--terminal", terminal, "--for", "tui-idle", "--timeout-ms", str(wait_ms))
+    waited = request(*waiting, seconds=wait_ms / 1000 + CALL_SECONDS)["wait"]
+    if not waited["satisfied"]:
+        raise OrcaError(f"orca terminal wait: it shows {waited['blockedReason']}")
+    request("terminal", "send", "--terminal", terminal, "--text", RELOAD, "--enter", "--wait-submit", str(SUBMIT_SECONDS))
 
 
 def terminal(handle: str) -> dict:

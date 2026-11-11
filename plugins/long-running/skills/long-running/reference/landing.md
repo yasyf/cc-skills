@@ -102,7 +102,12 @@ No tap: by his standing rule a `yasyf/*` PR merges without asking, green gate of
    release that contains the merge, updates the plugin and prints the installed version. A live
    session runs the installed version's script for each hook it registered when it started, but
    registers no hook added since; that, and its skills, agents and any plugin's tools, change only
-   when that session runs `/reload-plugins`. A tool this Mac
+   when that session runs `/reload-plugins`. So the install then types `/reload-plugins` through
+   Orca into the coordinator's and the communicator's terminals of every drive on this Mac, each
+   once its session is idle, within the same `--timeout`. It prints a line per session: reloaded;
+   skipped, with no terminal recorded; or not reloaded, still busy at the deadline or with Orca's
+   reason, and the `orca terminal send` command that types it. Run that command once the session
+   is idle. No post ever asks him to type `/reload-plugins`. A tool this Mac
    runs: follow its repository's release flow, install the release that contains the merge, read the
    installed version back. Never patch an installed copy by hand: the next release overwrites it.
    A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
