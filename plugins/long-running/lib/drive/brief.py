@@ -236,8 +236,8 @@ def design_missing(lines: list[str]) -> list[str]:
 
 
 def left_steps(text: str) -> str | None:
-    """The first NEXT: or UNPROVEN: line that leaves a step for after the release or for another session to run."""
-    return next((line.strip() for line in LEFT.findall(text) if limits.later_steps(line) or left_for(line)), None)
+    """The first NEXT: or UNPROVEN: line that leaves a step for another session to run."""
+    return next((line.strip() for line in LEFT.findall(text) if left_for(line)), None)
 
 
 def left_for(line: str) -> bool:

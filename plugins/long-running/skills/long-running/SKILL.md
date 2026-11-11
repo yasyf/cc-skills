@@ -44,7 +44,6 @@ This file holds the fundamental rules; one that fires on a single input is a tes
 
 - Fix the cause. No stopgap, flag, pin, retry or sweeper stands in for it, and a bad state is designed out under one owner. A revert lands only on his tap (`incidents`).
 - Before a fix, search cc-notes papercuts for the symptom. A third fix for one symptom is a class fix that deletes the earlier patches.
-- The default branch stays releasable: a PR lands only when a release cut at its merge commit is safe alone (`landing`).
 - Hold, freeze or reorder work only on his word, except freezing a service a release broke (`incidents`). A build or release he started is his to cancel, retry, reorder or approve, and no release starts while it runs. One of ours that must stop gets a `report` to the communicator first.
 - Run no tests locally: CI grades.
 

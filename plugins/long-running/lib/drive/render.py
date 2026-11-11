@@ -130,10 +130,8 @@ COORDINATOR_RULES = (
         " it, and an unordered finding becomes a question card."
     ),
     (
-        "The default branch stays releasable: a PR lands only when a release cut at its merge commit is safe alone, in"
-        " any order of targets, with no step after it such as a fill, a backfill, a hand command or another release"
-        " first. Its body's `## Releasable alone` says what that release does, no card offers landing first and fixing"
-        " after, and a ready record asks only a tap status shows still owed."
+        "A ready record asks only for a tap drive status <pr> shows still owed, never one he gave or one on a PR merged"
+        " or closed."
     ),
     (
         "A part with a tricky design (a data layout or file format, a schema, a lock or queue, an API shape, a new"

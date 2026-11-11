@@ -41,11 +41,6 @@ the shape to keep: "don't go based on what's currently there design this cleanly
   picks a fork, and you decide everything else.
 - Where a row, a placement or a status could reach a bad state, shape it so that state cannot exist,
   under one durable owner. His recorded answer rules out a sweeper, time rule or reclaim loop.
-- Make every option releasable alone, by the `Every PR` section of `drive manual landing`: a release
-  cut at each PR's merge commit is safe by itself, its targets going out in any order. Split a shape
-  that needs a later step until each PR is safe alone, such as the readers before the writer, or
-  leave it out. A later step is a fill or backfill, a hand-run command, a migration another release
-  applies, or one target out first.
 - Give each piece a worked example: the real calls of an API, imperative beside declarative; the
   rows a schema holds; the bytes a file format lays down; the steps a process takes. His words:
   "flash this out wayu more and od that for everyhtrfing in the future".
@@ -130,7 +125,6 @@ Direct fix: <the option that is the fix its diagnosis points at, by its words, o
     an event by a bare word, such as "Polls only", "a Poll source" or "the event system", while a Sand
     name such as `event::on` passes;
   - an option pointing at another by number or position;
-  - an option that lands first and leaves a later step;
   - an option that asks a reporter or anyone else to retry or confirm, since the fix itself is the
     option;
   - an option that cleans up a bad state with a sweeper, a time rule such as "a row older than a

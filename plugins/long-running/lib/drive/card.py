@@ -25,12 +25,6 @@ STACK_MOST = 4
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
-RELEASABLE_HEADING = "releasable alone"
-RISK_HEADINGS = ("risk", "risk profile", "risks")
-RELEASABLE_NEED = (
-    'a "Releasable alone" section saying why a release cut at its merge commit is safe by itself, in any target order,'
-    " with nothing run after it"
-)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -50,7 +44,6 @@ REFRESHER_HEADING = re.compile(r"^#{2,3}[ \t]+(?:Refresher|ELI5)[ \t]*$", re.MUL
 NEXT_HEADING = re.compile(r"^#{1,3}[ \t]", re.MULTILINE)
 FENCE_LINE = re.compile(r"[ \t]*```")
 COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
-LABELLED_LINE = re.compile(r"[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?:install|risk|prove)(?:\*\*)?[ \t]*:(?:\*\*)?.*", re.IGNORECASE)
 TRAILER = re.compile(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+:[ \t]+\S.*")
 HTML_TAG = re.compile(r"</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>")
 LIST_ITEM = re.compile(r"(?:[-*+]|\d+[.)])\s")
@@ -305,23 +298,6 @@ def names_his_order(pr: dict) -> bool:
     return bool(words) and not NO_ORDER.match(words.lstrip("-*+ "))
 
 
-def releasable_needs(pr: dict) -> list[str]:
-    """What the PR's body lacks to show a release cut at its merge commit is safe alone: its "Releasable alone" section, and install, risk and prove lines that leave no step for after the release."""
-    body = body_of(pr)
-    found = sections(body)
-    alone = first_paragraph(found.get(RELEASABLE_HEADING, ""))
-    if not alone or NO_ORDER.match(alone.lstrip("-*+ ")):
-        return [RELEASABLE_NEED]
-    fenced, labelled = False, []
-    for line in body.splitlines():
-        if FENCE_LINE.match(line):
-            fenced = not fenced
-        elif not fenced and LABELLED_LINE.fullmatch(line):
-            labelled.append(line)
-    said = "\n".join([found[RELEASABLE_HEADING], *(found.get(heading, "") for heading in RISK_HEADINGS), *labelled])
-    return list(dict.fromkeys(f'no step left for after its release, but it says "{step}" in "{cut(line, 120)}"' for step, line in limits.later_steps(said)))
-
-
 def stack_words(pr: dict) -> tuple[str, str]:
     """The stack's one-line title and its summary, from the `## The stack` section of its bottom PR's body."""
     text = without_records(HTML_TAG.sub("", sections(body_of(pr)).get(STACK_HEADING, ""))).strip()
@@ -475,7 +451,7 @@ def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
     needs: dict[str, list[str]] = {}
     if len(shown) > 1 and card["status"] == "needs_you" and not stack_words(shown[0][0])[0]:
         needs[shown[0][0]["url"]] = ["a \"The stack\" section with the stack's one-line title then its summary"]
-    unordered, unreleasable = [], []
+    unordered = []
     for (pr, entry, *_), row in zip(shown, card["prs"], strict=True):
         if not offers_approval(pr, entry):
             continue
@@ -486,18 +462,9 @@ def refusal(shown: list[Member], card: dict, tools: set[str]) -> str:
         if not names_his_order(pr) and pr["url"] not in tools:
             needs.setdefault(pr["url"], []).append("a \"His words, step by step\" list naming his order")
             unordered.append(pr["url"])
-        if releasable := releasable_needs(pr):
-            needs.setdefault(pr["url"], []).extend(releasable)
-            unreleasable.append(pr["url"])
     if not needs:
         return ""
     wanted = "; ".join(f"{' and '.join(each)} in the body of {url}" for url, each in needs.items())
-    if unreleasable:
-        wanted += (
-            f". Dev must always be releasable ({limits.RELEASABLE_RULING}): a change lands only when a release cut at its"
-            " merge commit is safe by itself, in any target order, with no later step; split it until each PR is, and let a"
-            ' PROVE line say what to open once it is live, as "PROVE: after release, open the run page", never a step to run'
-        )
     if not unordered:
         return f"its tap card needs {wanted}"
     return (

@@ -110,7 +110,7 @@ Then do the row that matches. A row that names a section means every bullet of t
 
 - Draw the stack's card in one call: `say(tap_prs=[<every url, bottom first>], text=<one line quoting the order the stack carries out, from the record: his words, or a drive tooling order's own "Drive tooling: …" words>, thread_ts=<its thread>)`, leaving out `thread_ts` when the record names no thread, as a drive tooling one does. It draws the card at his DM root and, given a thread, posts the card's permalink there under the card's question.
 - In `say`'s result, the `CARD` permalink is the card; the `POSTED` one is only the line. A failure whose error says `posted` sent the line, so never post it again; any other failure sent nothing. One saying the thread is not one in your DM means the order's thread is in another channel: draw it again with no `thread_ts`.
-- A `drive card` refusal, such as a PR with no `## Releasable alone` section, reaches the coordinator from the watch, so post nothing for it. Any other failure is a `DEFECT` line in your return. Draw a PR card only through `tap_prs`.
+- A `drive card` refusal, such as a PR with no `## What you'll hate most` section, reaches the coordinator from the watch, so post nothing for it. Any other failure is a `DEFECT` line in your return. Draw a PR card only through `tap_prs`.
 
 ### A tooling builder's result
 

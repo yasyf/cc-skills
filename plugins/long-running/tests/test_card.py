@@ -21,9 +21,6 @@ Uploads that fail once now retry instead of losing the file.
 ## Refresher
 When the network hiccups, we try again.
 
-## Releasable alone
-A release at its merge commit retries uploads on every target, in any order, and nothing runs after it.
-
 ## What you'll hate most
 Retries could send a file twice. The server drops the copy.
 

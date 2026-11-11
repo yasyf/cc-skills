@@ -145,22 +145,6 @@ OPTION_POINTER = re.compile(
     r"|the\s+(?:first|second|third|fourth|last|other|previous)\s+(?:option|one|pick)\b)",
     re.IGNORECASE,
 )
-RELEASABLE_RULING = (
-    'his Nov 10 6:44 PM words "why would you merge something that shouydlknt go out dev mustr always be releasable"'
-)
-STEP = r"(?:run|re-?run|fill|back-?fill|migrate|apply|execute|trigger|kick\s+off|flip|enable|patch|repair)"
-SHIPPED = (
-    r"(?:the\s+|it\s+|this\s+)?(?:deploy|deployed|release|released|rollout|merge|merged|lands|merges|ships"
-    r"|is\s+(?:live|released|deployed|merged|out))\b"
-)
-LATER_STEP = re.compile(
-    rf"\b(?:then|afterwards|later)\s+(?:we\s+|you\s+|it\s+)?(?:{STEP}|fix)\b"
-    rf"|\b(?:after|once|when)\s+{SHIPPED},?\s+(?:(?:we|you|i|someone|then)\s+(?:must\s+|should\s+|need\s+to\s+|will\s+)?)?{STEP}\b"
-    rf"|\b{STEP}\b(?:\s+[\w'-]+){{0,4}}?\s+(?:(?:after|once|when)\s+{SHIPPED}|(?:later|afterwards)\b)"
-    r"|\bfix(?:ed)?\s+(?:it\s+|them\s+)?(?:up|forward|later|afterwards)\b|\bfollow[- ]?up\s+(?:pr|fix|change|step)\b",
-    re.IGNORECASE,
-)
-LANDS = re.compile(r"\b(?:land|merge|ship|release|deploy)(?:s|ed|ing)?\b", re.IGNORECASE)
 LANDING = re.compile(r"(?:land|merge)\b", re.IGNORECASE)
 STACK_RULING = 'his Nov 10 10:34 PM words "we should be using the "Stack card" which shows seral PRs instasd of this"'
 NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
@@ -381,13 +365,6 @@ def question(text: str, kept: bool = False, unsettled: str | None = None) -> Que
         f" {PROPER_TERMS_RULING})"
         for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
         for found in MARKUP.findall(line)
-    ]
-    problems += [
-        f'option "{option}" lands first and leaves "{step}" for after: dev must always be releasable ({RELEASABLE_RULING}),'
-        " so no option lands a change a release cut at its merge commit cannot carry alone; offer a split whose every part"
-        " is safe to release by itself, or drop the option"
-        for option in options
-        if (step := lands_first(option))
     ]
     if not kept:
         problems += [
@@ -828,24 +805,6 @@ def clause(line: str, bare: str, start: int, end: int) -> tuple[str, str]:
     begin = max((found.end() for found in CLAUSE_BREAK.finditer(bare, 0, start)), default=0)
     stop = next((found.start() for found in CLAUSE_BREAK.finditer(bare, end)), len(bare))
     return bare[begin:stop], " ".join(line[begin:stop].split())
-
-
-def later_steps(text: str) -> list[tuple[str, str]]:
-    """Each step the text schedules for after a release, such as "then run" or "backfill once it ships", beside the line naming it; a feature merely named, such as a backfills page or a pass box, is none, and so is a step the text rules out, as "nothing has to run once it ships" does."""
-    found = []
-    for match in LATER_STEP.finditer(text):
-        if NEGATION.search(CLAUSE_END.split(text[: match.start()])[-1]):
-            continue
-        end = text.find("\n", match.end())
-        found.append((match[0], text[text.rfind("\n", 0, match.start()) + 1 : end if end >= 0 else None].strip()))
-    return found
-
-
-def lands_first(option: str) -> str | None:
-    """The step an option leaves until after it lands, as in "land it now, then backfill", or None when it lands nothing that needs one."""
-    if not (landed := LANDS.search(option)):
-        return None
-    return next((step for step, _ in later_steps(option[landed.end() :])), None)
 
 
 def bare_mechanisms(line: str) -> list[str]:

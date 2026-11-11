@@ -89,9 +89,7 @@ leaves a mechanism such as polling, a push or an event a bare word, as "Polls on
 
 The fix the job's diagnosis points at is always an option, the recommended one unless the summary
 names it and says why another is better. The findings' `Direct fix:` line names it, or reads
-`Direct fix: none: <why>`, and `drive job ask` refuses a block without one. Each option lands
-releasable alone, by [Land a change](landing.md#every-pr), and `drive job ask` refuses one that
-lands a change and leaves a fill, backfill, pass, or command for after its release. No option asks a
+`Direct fix: none: <why>`, and `drive job ask` refuses a block without one. No option asks a
 reporter or anyone else to retry or confirm. The findings stay in the job's file, and Explain more
 on the card posts the one section he asks about, never a findings post of its own.
 
