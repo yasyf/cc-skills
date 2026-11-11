@@ -180,22 +180,15 @@ def test_a_session_holding_a_role_binds_no_sub_coordinator_and_a_sub_coordinator
     assert (list(data["subcoordinators"]), data["roles"]["coordinator"]["session"], "communicator" in data["roles"]) == (["Iris"], "session-under-test", False)
 
 
-def test_heard_names_the_lane_of_the_sub_coordinator_his_threads_order_is_filed_under_and_its_tool_says_the_same(
-    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_heard_returns_one_word_whatever_sub_coordinator_his_thread_is_filed_under(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page")
-    run("order", "add", "--project", "Platform", "--workstream", "Alerts", "fix the alert")
-    iris, platform = "1794200000.000100", "1794200000.000200"
-    with state.edit("demo") as data:
-        data["orders"]["o1"]["thread"], data["orders"]["o2"]["thread"] = iris, platform
-    assert run("heard", "--thread", iris) == (0, "heard")
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "iris-1")
     run("start", "demo", "--role", "coordinator", "--project", "Iris")
-    routed = "heard; o1 in this thread is filed under Iris: his owner record goes --to iris, its sub-coordinator's lane"
-    assert run("heard", "--thread", iris) == (0, routed)
-    assert json.loads(run("heard", "--thread", iris, "--json")[1])["to"] == "iris"
-    assert [run("heard", "--thread", platform), run("heard")] == [(0, "heard")] * 2
-    assert tools.run("heard", "demo", {"thread": iris}) == f"1 heard: {routed}"
+    assert run("heard") == (0, "heard")
+    assert tools.run("heard", "demo", {}) == "heard"
+    assert tools.run("heard", "demo", {"away": True}) == "away"
+    with pytest.raises(state.DriveError, match="drive heard takes no thread"):
+        tools.run("heard", "demo", {"thread": "1794200000.000100"})
 
 
 def test_start_needs_a_role(run: Run) -> None:
@@ -2099,6 +2092,21 @@ def test_a_builders_ready_names_prs_whose_tap_card_draws(
     assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     on_github["body"] = CARD_BODY
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+
+
+def test_a_builders_ready_for_a_change_he_sees_needs_a_before_and_an_after_screenshot_on_its_card(
+    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen = f"READY {PR}\nNATIVE: the Iris app's run page\n"
+    refused = f"its tap card needs {card.SCREENSHOTS} in the body of {PR}"
+    for show_me in ("", "## Show me\n![1 · Before, dev](/x/run-page.png)\n"):
+        on_github["body"] = CARD_BODY + show_me
+        code, err = keep(monkeypatch, capsys, "j1", seen)
+        assert (code, refused in " ".join(err.split())) == (2, True)
+    on_github["body"] = CARD_BODY + "## Show me\n![1 · Before, dev](/x/run-page.png)\n![2 · After, this PR](/x/run-page-new.png)\n"
+    assert keep(monkeypatch, capsys, "j1", seen) == (0, "")
+    on_github["body"] = CARD_BODY
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nNATIVE: none: he never sees it\n") == (0, "")
 
 
 def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(

@@ -40,8 +40,8 @@ COMMUNICATOR_RULES = (
         " comes when the rewrite is installed."
     ),
     (
-        "Your next message holds the drive's heard tool (no thread, since his catch-up goes at his DM root; away: true"
-        " when he says he is going to sleep or away), its record tool for any record the input's row names, and the"
+        "Your next message holds the drive's heard tool (away: true when he says he is going to sleep or away), which"
+        " returns heard or away and nothing to act on, its record tool for any record the input's row names, and the"
         " background long-running:handler; then the turn ends, but for one call more for a read-only question, so the"
         ' watch holds his answer: the job tool with ops `[{add: {kind: "reader", order: {words: "<his words,'
         ' verbatim>", kind: "answer", complex: true, from: "slack:<channel>/<ts>", thread: "<ts>", project: "<the'

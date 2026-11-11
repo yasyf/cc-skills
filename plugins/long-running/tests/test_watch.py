@@ -445,7 +445,7 @@ def test_no_tick_while_he_is_away(demo: str, monkeypatch: pytest.MonkeyPatch, ow
     assert watch.run_pass(watcher(demo), T0 + timedelta(minutes=30)) == []
 
 
-def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
+def test_his_next_message_after_away_prints_heard_and_the_coordinator_hears_the_orders_his_catch_up_covers(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with state.edit(demo) as data:
@@ -457,8 +457,7 @@ def test_his_next_message_after_away_lists_the_orders_his_catch_up_covers(
     watching = watcher(demo)
     monkeypatch.setattr(state, "now", lambda: T0 + timedelta(minutes=95))
     assert cli.main(["heard", "--drive", demo]) == 0
-    said = capsys.readouterr().out.strip()
-    assert said == f"CATCH-UP since {render.when(state.stamp(T0))}: o1"
+    assert capsys.readouterr().out.strip() == "heard"
     assert state.load(demo)["owner"] == {"heard": state.stamp(T0 + timedelta(minutes=95)), "away": False}
     assert watch.run_pass(watching, T0) == [f"EVENT catch-up dm=D123 since={render.when(state.stamp(T0))} orders=o1"]
     assert cli.main(["heard", "--drive", demo]) == 0

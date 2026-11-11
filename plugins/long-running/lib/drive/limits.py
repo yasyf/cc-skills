@@ -1,7 +1,7 @@
 import json
 import re
 from dataclasses import dataclass
-from itertools import pairwise
+from itertools import pairwise, permutations
 from pathlib import Path
 
 from drive import picture, slack
@@ -35,7 +35,10 @@ NATIVE_RULING = 'his Nov 10 11:01 PM words "the two tables should be rendered in
 CONSTANT_RULING = 'his Nov 10 11:03 PM words "we needed an image to show a const? use your brain show a snippet when it makes sense"'
 CHART_RULING = 'his Nov 10 10:53 PM words "for the chart slack ltieraly has the native … vertsion of this why didnt youi build that for the renderer"'
 PHONE_RULING = 'his Nov 11 12:21 AM words "mermaid is but is ugly"'
+SCREENSHOT_RULING = 'his Nov 11 4:04 AM words "This is a visual change so it should have shown before and after screenshots"'
 HAND_DRAWN = ("asks", "pictures")
+BEFORE = re.compile(r"\bbefore\b", re.IGNORECASE)
+AFTER = re.compile(r"\bafter\b", re.IGNORECASE)
 CONSTANT = re.compile(
     r"^[ \t]*(?:(?:export|pub|public|private|final)[ \t]+)*(?:const|let|var|val|static)[ \t]+\w[^=\n]*=|^[ \t]*[A-Z][A-Z0-9_]+[ \t]*(?::[^=\n]+)?=(?!=)"
 )
@@ -779,6 +782,12 @@ def constant(source: str) -> bool:
     """Whether a code fence's code, its comments aside, is one or two lines declaring a value."""
     lines = [line for line in source.splitlines() if line.strip() and not COMMENT.match(line)]
     return 1 <= len(lines) <= 2 and all(CONSTANT.match(line) for line in lines)
+
+
+def before_and_after(show_me: str) -> bool:
+    """Whether a Show me carries a before and an after screenshot: two of its pictures, one whose caption or file name says before and another after."""
+    shots = [image[0] for image in picture.IMAGE.finditer(show_me)]
+    return any(BEFORE.search(one) and AFTER.search(other) for one, other in permutations(shots, 2))
 
 
 def drawn_by_hand(path: str) -> bool:

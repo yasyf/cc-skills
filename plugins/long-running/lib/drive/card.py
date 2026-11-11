@@ -26,6 +26,11 @@ NO_TAP_OWNER = "yasyf"
 HATE_HEADINGS = ("what you'll hate most", "what you will hate most", "what you'll hate the most", "what you will hate the most")
 PLAN_HEADINGS = ("against the plan", "differs from the plan", "plan deviations")
 HIS_WORDS_HEADING = "his words, step by step"
+SCREENSHOTS = (
+    "a before and an after screenshot of what he sees change, two pictures in its Show me, or another PR's on the card,"
+    " captioned `1 · Before, <the build it shows>` and `2 · After, <the build it shows>`, which Slack shows side by side,"
+    f" since the READY's NATIVE: line names a surface he sees ({limits.SCREENSHOT_RULING})"
+)
 CONVENTIONAL_KINDS = {
     "fix": "Fix",
     "feat": "New",
@@ -475,8 +480,8 @@ def merges_untapped(key: str) -> bool:
     return key.split("/")[0] == NO_TAP_OWNER
 
 
-def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False) -> str:
-    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --tap` or a READY report, also needs each body's Summary."""
+def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = False, visual: bool = False) -> str:
+    """Why his card may not draw these PRs: each section a tap card needs that a body lacks, every gap of every body in one message; a card asked for afresh, by `drive pr set --tap` or a READY report, also needs each body's Summary, and one for a change he sees, by the READY's NATIVE: line, a before and an after screenshot in a Show me on it."""
     tapped = [pr for pr, entry, *_ in shown if not (entry.get("exempt") or merges_untapped(state.pr_key(pr["url"])))]
     if len(tapped) > STACK_MOST:
         return (
@@ -502,6 +507,9 @@ def refusal(shown: list[Member], card: dict, tools: set[str], asking: bool = Fal
             unordered.append(pr["url"])
         if ids := record_ids(pr):
             needs.setdefault(pr["url"], []).append(f"plain words for what each of {', '.join(ids)} is, in place of the record id, which says nothing to him")
+    offered = [pr for pr, entry, *_ in shown if card["status"] == "needs_you" and offers_approval(pr, entry)]
+    if visual and offered and not any(limits.before_and_after(sections(body_of(pr)).get("show me", "")) for pr, *_ in shown):
+        needs.setdefault(offered[-1]["url"], []).append(SCREENSHOTS)
     if not needs:
         return ""
     wanted = "; ".join(f"{' and '.join(each)} in the body of {url}" for url, each in needs.items())
@@ -552,9 +560,9 @@ def read_all(keys: list[str]) -> dict[str, dict]:
     return reads
 
 
-def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict]) -> str:
+def tap_refusal(known: dict[str, tuple[str, dict]], members: list[str], reads: dict[str, dict], visual: bool = False) -> str:
     shown = [(reads[key], known[key][1], (), ()) for key in members]
-    return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])}, asking=True)
+    return refusal(shown, drawn_card(shown), {reads[key]["url"] for key in members if tooling(*known[key])}, asking=True, visual=visual)
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:

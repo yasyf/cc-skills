@@ -154,7 +154,7 @@ def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
-    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws and says how it builds on what its research found."""
+    """Why a job's return may not be kept: a builder's or designer's opens with a result word, a REPRO: file is kept on the job first, a report naming a limit as a finding left standing is an ASK or DESIGN, a design lane's is the design in its shape, a research reader's carries its Researched: block, a reader's DESIGN is a choice for him with its options and the fix its evidence points at, a DONE or READY leaves no step for someone else, a builder's DONE names its proof, and a builder's READY names PRs whose tap card draws, with a before and an after screenshot when its NATIVE: line names what he sees, and says how it builds on what its research found."""
     job = data["jobs"][job_id]
     order = data["orders"][job["order"]]
     lines = [line.strip() for line in text.strip().splitlines()]
@@ -189,7 +189,7 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         )
     if job["kind"] == "builder" and opening == "DONE":
         return unproven(text)
-    if job["kind"] == "builder" and opening == "READY" and (sections := untappable(lines[0])):
+    if job["kind"] == "builder" and opening == "READY" and (sections := untappable(lines[0], he_sees(text))):
         return f"the PRs it names would draw no tap card: {sections}"
     if not (job["kind"] == "builder" and opening == "READY" and order["kind"] == "build") or order["incident"]:
         return None
@@ -258,12 +258,18 @@ def left_for(line: str) -> bool:
     return any(not limits.NEGATION.search(limits.CLAUSE_END.split(line[: found.start()])[-1]) for found in LEFT_FOR.finditer(line))
 
 
-def untappable(first: str) -> str:
-    """Why the tap cards of the drive PRs a READY line names, those waiting on his tap, would be refused, each stack they form checked on its own as drive card groups them, or "" when each draws."""
+def untappable(first: str, visual: bool) -> str:
+    """Why the tap cards of the drive PRs a READY line names, those waiting on his tap, would be refused, each stack they form checked on its own as drive card groups them, a change he sees needing a before and an after screenshot on each card, or "" when each draws."""
     known = card.drive_prs()
     keys = [key for key in dict.fromkeys(state.pr_key(found[0]) for found in state.PR_URL.finditer(first)) if key in known and known[key][1]["wants_tap"]]
     reads = card.read_all(keys)
-    return "; ".join(reason for chain in card.chains(keys, reads) if (reason := card.tap_refusal(known, chain, reads)))
+    return "; ".join(reason for chain in card.chains(keys, reads) if (reason := card.tap_refusal(known, chain, reads, visual)))
+
+
+def he_sees(text: str) -> bool:
+    """Whether a builder's report builds something he sees, by its NATIVE: line naming that surface rather than none."""
+    native = NATIVE.search(text)
+    return native is not None and not native[1].casefold().startswith("none")
 
 
 def proofs(text: str) -> list[str]:
@@ -279,8 +285,7 @@ def unproven(text: str) -> str | None:
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists, such as the"
             " live post, the recording of the click, or the saved output of the installed command"
         )
-    native = NATIVE.search(text)
-    if native is None or native[1].casefold().startswith("none") or any(SEEN_PROOF.search(proof) for proof in real):
+    if not he_sees(text) or any(SEEN_PROOF.search(proof) for proof in real):
         return None
     return (
         "this builds something he sees, by its NATIVE: line, so its proof is from that surface: record the click through"
