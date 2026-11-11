@@ -153,8 +153,12 @@ the calls themselves in code, such as an imperative API beside the declarative o
 10 4:38 PM, under a design card that had none: "this would also satidyt the rtequriement you care
 curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs". Code goes
 in ``` fences that name no language, since Slack shows a fence's language as the first line of the
-code, and each caption outside the fences is one line of at most 25 words. cc-slack draws each
-fenced block as a code block of its own, whole, and the Show me counts toward no limit. Two to four
+code, and each caption outside the fences is one line of at most 25 words. A comparison goes in as a
+markdown table and a screenshot as a line of its own, `![what it shows](/absolute/path.png)`.
+cc-slack draws each fenced block as a code block of its own, whole, the table as a table, and each
+picture line as an image where it sits, uploaded to the drive's private bucket; a picture inside a
+sentence or a table cell stays text, so `drive job ask` refuses one there. The Show me counts
+toward no limit. Two to four
 options, each one line of at most 25 words saying what he gets and what it costs, the title,
 summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
 posts the one section its question rests on, in plain words, and that is the only way they reach

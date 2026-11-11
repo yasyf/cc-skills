@@ -27,6 +27,7 @@ FINDINGS = re.compile(r"^[ \t]*Findings:[ \t]*$", re.MULTILINE)
 SHOW_ME = re.compile(r"^[ \t]*Show me:[ \t]*$", re.MULTILINE)
 SHOWN = re.compile(r"^\*Show me\*[ \t]*$", re.MULTILINE)
 FENCE = re.compile(r"^[ \t]*```")
+PICTURE = re.compile(r"!\[([^\]\n]*)\]\(\s*(?:<[^<>\n]+>|[^\s()<>]+)\s*\)")
 RECOMMENDED = re.compile(r"\s*\(recommended\)\s*$", re.IGNORECASE)
 QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|`[^`\n]*`')
 KINDS = r"(?:question|PR|tap|pick|design|status) cards?|pull requests?|PRs?|fix(?:es)?|releases?|builds?|alerts?|threads?|asks?"
@@ -137,21 +138,32 @@ def card_refusal(card: dict, beside: str) -> str | None:
 
 
 def show_me_refusal(kept: str, body: str) -> str | None:
-    """Why a question card's body leaves out the Show me its kept ASK block carries: every code block of it goes under the body's `*Show me*` line as written."""
+    """Why a question card's body leaves out the Show me its kept ASK block carries: every code block and every other line of it, tables and pictures included, goes under the body's `*Show me*` line as written."""
     _, *example = SHOW_ME.split(FINDINGS.split(kept, maxsplit=1)[0], maxsplit=1)
     show_me = shown_and_options(example[0])[0] if example else []
     if not any(line.strip() for line in show_me):
         return None
-    blocks = code_blocks(show_me)
+    blocks, lines = code_blocks(show_me), captions(show_me)
     _, *shown = SHOWN.split(body, maxsplit=1)
     drawn = trimmed(shown[0]) if shown else ""
-    if shown and all(trimmed(block) in drawn for block in blocks):
+    drawn_lines = {line.strip() for line in drawn.splitlines()}
+    left_out = [line for line in lines if line not in drawn_lines]
+    if shown and not left_out and all(trimmed(block) in drawn for block in blocks):
         return None
-    carried = sum(trimmed(block) in drawn for block in blocks)
+    carried = [
+        f"{held} of the {len(kept_parts)} {what}"
+        for held, kept_parts, what in (
+            (sum(trimmed(block) in drawn for block in blocks), blocks, "code blocks"),
+            (len(lines) - len(left_out), lines, "other lines"),
+        )
+        if kept_parts
+    ]
+    missing = f', such as "{left_out[0]}"' if shown and left_out else ""
     return (
         f"refused: the Show me goes in the card body under *Show me*, never only behind Explain more ({SHOW_ME_RULING});"
-        f" this body carries {carried} of the {len(blocks)} code blocks its kept `Show me:` holds"
-        f"{'' if shown else ', and no `*Show me*` line'}: copy every line under `Show me:` there as written, fences kept."
+        f" this body carries {' and '.join(carried)} its kept `Show me:` holds{missing}"
+        f"{'' if shown else ', and no `*Show me*` line'}: copy every line under `Show me:` there as written, fences, tables"
+        " and pictures kept, since cc-slack draws each on the card."
     )
 
 
@@ -257,6 +269,12 @@ def show_me_problems(show_me: list[str], below_options: bool) -> list[str]:
         f'Show me line "{line}" is {words(line)} words; outside a code fence each is a caption of at most {OPTION_WORDS}'
         for line in captions(show_me)
         if words(line) > OPTION_WORDS
+    ]
+    problems += [
+        f'Show me line "{line}" holds a picture inside a sentence or table, which cc-slack draws as text; put each picture'
+        " on a line of its own, `![what it shows](/absolute/path.png)`, and cc-slack draws it on the card there"
+        for line in captions(show_me)
+        if PICTURE.search(line) and not PICTURE.fullmatch(line)
     ]
     fences = [line.strip() for line in show_me if FENCE.match(line)]
     problems += [

@@ -211,6 +211,7 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   ```
   <the real code, call, query or text the choice changes, before and after, or one example per option>
   ```
+  ![<what the screenshot shows, when one helps>](<its absolute path>)
   - <option: what he gets and what it costs, at most 25 words> (recommended)
   - <option>
   Findings:
@@ -223,7 +224,8 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   the card's title and options draw no links. A PR goes in by what it does, never by number
   alone, and every PR the question turns on is linked, never dropped. The Show me is drawn whole
   on his card outside the 150 words, its fences naming no language; for an API question it is the
-  calls in code. Each option stands alone in full words and never points at another by number or
+  calls in code. A markdown table draws as a table, and a picture on a line of its own draws as an
+  image where it sits; one inside a sentence or table cell stays text. Each option stands alone in full words and never points at another by number or
   position. The findings stay on disk: his tap on Explain more posts the one section his question
   rests on.
 - `BLOCKED <what>`, followed by what you tried: only when no route works. A broken tool is
