@@ -163,8 +163,13 @@ def sources(show_me: str) -> list[tuple[str, str, str]]:
         for match in CAPTIONED.finditer(show_me)
         if pictured(match["language"], match["source"])
     ]
-    found += [(match.start(), "image", match[1] or match[2], alt[1] if (alt := ALT.match(match[0])) else "") for match in IMAGE.finditer(show_me)]
+    found += [(match.start(), "image", match[1] or match[2], alt(match)) for match in IMAGE.finditer(show_me)]
     return [(kind, source, caption) for _, kind, source, caption in sorted(found)]
+
+
+def alt(image: re.Match[str]) -> str:
+    """An IMAGE match's alt text, the words he reads for it, or "" for an `<img>` tag."""
+    return found[1] if (found := ALT.match(image[0])) else ""
 
 
 def fence_kind(language: str) -> str:

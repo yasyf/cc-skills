@@ -474,6 +474,12 @@ def test_record_ids_never_reach_a_card_line() -> None:
     assert first["plan"] == "The plan said three retries; this does five."
 
 
+def test_a_record_id_in_an_images_file_path_is_no_word_he_reads_but_one_in_its_alt_text_is() -> None:
+    shots = "## Show me\n![1 · Before, dev](/drive/scratch/j779/before-de31bf9.png)\n<img src=\"/drive/scratch/j779/after-e3aefbd.png\">\n"
+    assert card.record_ids(pr_json(body=shots)) == []
+    assert card.record_ids(pr_json(body=shots.replace("1 · Before, dev", "1 · Before, de31bf9"))) == ["de31bf9"]
+
+
 def test_a_heading_inside_a_code_fence_stays_in_its_section() -> None:
     body = "## Show me\nA shell session.\n\n```sh\n# list the drives\ndrive status\n```\n\n## ELI5\nIt lists drives.\n"
     first = card.render(pr_json(body=body), entry())["prs"][0]
