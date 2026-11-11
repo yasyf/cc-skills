@@ -35,9 +35,9 @@ that host holds neither a login nor a key, and keeps every
 run's state under one fixed per-user base — `${XDG_CACHE_HOME:-~/.cache}/codex-ask/runs/` —
 where any session can rediscover it (see Run Inventory). The plugin also ships
 a guard hook that blocks hand-rolled `codex exec` and backgrounded `codex-ask`
-calls: dispatch is foreground-only, because background Bash completion never
-wakes an in-process subagent (claude-code#78782) and the script already
-survives a killed or timed-out foreground call.
+calls: dispatch is foreground-only, because a backgrounded call lets a subagent
+end its turn before codex answers, and the script already survives a killed or
+timed-out foreground call.
 
 Runs use the standard tier. The fast tier is for incident lanes only: pass
 `--incident` on an active or urgent production alert, never otherwise. On the
@@ -169,8 +169,8 @@ Implementation lanes return prose led by their `REPLY_FILE:` pointer line.
 
 ## Async Dispatch (owner subagents and the steering channel)
 
-Blocking foreground is the default because a backgrounded completion never
-wakes an in-process subagent — the harness gap the guard hook exists for.
+Blocking foreground is the default because a backgrounded call lets a subagent
+end its turn before codex answers — the gap the guard hook exists for.
 `--dispatch` is the sanctioned async path: the call returns as soon as the
 worker detaches, and completion wakes the waiting agent through the codex-ask
 steering channel instead of a Bash return.

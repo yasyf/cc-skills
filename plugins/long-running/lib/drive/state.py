@@ -357,9 +357,11 @@ def agent_job(data: dict, agent: str | None) -> str | None:
 
 
 def result_state(job: dict, line: str) -> str | None:
-    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer, its READY or NOT READY verdict on a PR or its DESIGN to done, since a design lane takes its choice on and a reader's READY is a check that passed, never a PR of its own; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card."""
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer, its READY or NOT READY verdict on a PR or its DESIGN to done, since a design lane takes its choice on and a reader's READY is a check that passed, never a PR of its own; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other, an `ASK` included, since a codex lane keeps no card, is done."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
+    if job["kind"] == "codex":
+        return "failed" if opening == "BLOCKED" else "done"
     if BUILT_LINE.match(line):
         return "built"
     return "done" if reader and opening in ("DESIGN", "READY") else RESULT_STATES.get(opening, "done" if reader else None)
@@ -379,13 +381,13 @@ def kept_return(name: str, job_id: str, job: dict, line: str) -> bool:
 
 
 def take_result(data: dict, job_id: str, line: str) -> None:
-    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, and keep each verdict a reader's answer gives on the PR it names; an ASK keeps the said line drive job ask set, the question's title."""
+    """Move a running job to the state its result line opens with, with that line as its said line, built on its branch and waiting on each card a BUILT line names, and keep each verdict a reader's answer gives on the PR it names; an ASK waiting on his card keeps the said line drive job ask set, the question's title."""
     job = data["jobs"][job_id]
     taken = result_state(job, line)
     if job["state"] != "running" or not taken:
         return
     job.update(state=taken, updated=stamp())
-    if not re.match(r"ASK\b", line):
+    if taken != "waiting" or not re.match(r"ASK\b", line):
         job["said"] = line
     if built := BUILT_LINE.match(line):
         job.update(branch=built["branch"], waits=list(dict.fromkeys([*job["waits"], *BUILT_CARD.findall(built["cards"])])))

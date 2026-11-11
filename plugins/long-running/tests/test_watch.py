@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Redraws, Thread, WatchProcess, Withdrawals
+from conftest import CodexAsk, Redraws, Thread, WatchProcess, Withdrawals
 from drive import cli, github, reads, render, slack, state, talk, watch
 
 KEY = "Forge-AI/monorepo#42"
@@ -900,6 +900,59 @@ def test_a_local_agent_is_judged_by_its_transcript(
     write_transcript(tmp_path / "config", entries, quiet)
     job_of = {"session": "session-under-test", "agent": "a1", "kind": "builder"}
     assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+
+
+def relayed(reply: Path, ended: str) -> list[dict]:
+    """A codex relay's transcript: its codex-ask call, the output codex-ask printed as the run started, and the line it ended its turn on."""
+    printed = {"type": "user", "message": {"content": [{"type": "tool_result", "content": f"REPLY_FILE: {reply}\nLOG_FILE: {reply.parent / 'codex-q-1.log'}"}]}}
+    return [CALLING, printed, ended_on(ended)]
+
+
+@pytest.mark.parametrize(
+    ("ran", "quiet", "gap"),
+    [
+        ("running", timedelta(minutes=45), None),
+        ("pending", timedelta(minutes=10), None),
+        ("completed", timedelta(minutes=10), "j1's codex-ask run completed and its result is not recorded"),
+        ("died", timedelta(minutes=10), "j1's codex-ask run died and its result is not recorded"),
+    ],
+)
+def test_a_codex_relay_that_ended_its_turn_is_judged_by_the_codex_ask_run_it_asked(
+    demo: str, tmp_path: Path, codex_ask: CodexAsk, ran: str, quiet: timedelta, gap: str | None
+) -> None:
+    write_transcript(tmp_path / "config", relayed(codex_ask.run(ran, "DONE reviewed\n"), "Codex is still running. I'll wait for the notification."), quiet)
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == gap
+
+
+def test_a_codex_relay_whose_run_codex_ask_cannot_read_names_its_error(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    reply = codex_ask.run("completed", "DONE reviewed\n")
+    (tmp_path / "codex-plugin" / "bin" / "codex-ask").write_text("#!/bin/sh\necho 'codex-ask: no run at that folder' >&2\nexit 2\n")
+    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == "j1's codex-ask run could not be read: codex-ask: no run at that folder"
+
+
+def test_a_codex_relay_that_asked_codex_nothing_is_parked_like_any_agent(demo: str, tmp_path: Path, codex_ask: CodexAsk) -> None:
+    write_transcript(tmp_path / "config", [CALLING, RESULT, PARKED], timedelta(minutes=45))
+    job_of = {"session": "session-under-test", "agent": "a1", "kind": "codex"}
+    assert REAL_LOCAL_GAP("j1", job_of, state.load(demo), state.now()) == (
+        'j1\'s agent ended its turn 45 minutes ago on "Codex is still running. I\'ll wait for the notification." with no codex-ask run: SendMessage wakes it'
+    )
+
+
+def test_the_watch_takes_a_codex_jobs_result_from_its_completed_run_whatever_its_relay_ended_on(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, codex_ask: CodexAsk
+) -> None:
+    monkeypatch.setattr(watch, "local_gap", REAL_LOCAL_GAP)
+    reply = codex_ask.run("completed", "UNPROVEN two of three findings hold\nFinding 1\n")
+    write_transcript(tmp_path / "config", relayed(reply, f"REPLY_FILE: {reply}"), timedelta(minutes=4))
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["jobs"]["j1"].update(kind="codex", session="session-under-test", agent="a1", updated=state.stamp(state.now() - timedelta(minutes=10)))
+    assert watch.run_pass(watcher(demo, state.now()), state.now()) == []
+    job = state.load(demo)["jobs"]["j1"]
+    assert (job["state"], job["said"], state.report_text(demo, "j1", job)) == ("done", "UNPROVEN two of three findings hold", "UNPROVEN two of three findings hold\nFinding 1\n")
 
 
 def test_a_local_agent_a_sub_coordinator_started_is_judged_by_its_transcript_under_that_session(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
