@@ -258,7 +258,10 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
 
 - `DONE <proof link or one-line proof>`: live and checked.
 - `READY <pr url> [<pr url>…]`: green and waiting only on his tap; a stack names every PR,
-  bottom first, so it gets one card.
+  bottom first, so it gets one card. A question whose answer only lands PRs, such as an open PR
+  below yours that no tap of his covers, is this `READY` naming each of them, never an `ASK`: their
+  stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs, by his
+  Nov 10 10:34 PM words "we should be using the "Stack card" which shows seral PRs instasd of this".
 - `BUILT <branch>, waits on <cards>`: the recommended options built and pushed on `<branch>`, no
   PR open, waiting on his answer to each design card the brief names, by its waits id or Slack
   link. Its lines name the option built for each card and what his other picks would change.

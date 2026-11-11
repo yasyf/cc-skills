@@ -1242,6 +1242,8 @@ function saidRow(entry) {
       <div><b class="what">${HAPPENED.said}</b></div>
       <div class="said-text">${prose(entry.text)}</div>
       ${entry.visuals.map((each) => (each.kind === 'image' ? shot(each.picture, each.caption) : visual(each.kind, each.source, each.caption))).join('')}
+      ${entry.prs.length ? `<ul class="prlist card">${entry.prs.map(prItem).join('')}</ul>` : ''}
+      ${entry.prs.some((pr) => pr.tap === 'wanted') ? '<a class="more" href="#/queue/tap">Tap it in your queue ›</a>' : ''}
     </div>
   </li>`;
 }

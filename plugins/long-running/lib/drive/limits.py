@@ -101,6 +101,8 @@ LATER_STEP = re.compile(
     re.IGNORECASE,
 )
 LANDS = re.compile(r"\b(?:land|merge|ship|release|deploy)(?:s|ed|ing)?\b", re.IGNORECASE)
+LANDING = re.compile(r"(?:land|merge)\b", re.IGNORECASE)
+STACK_RULING = 'his Nov 10 10:34 PM words "we should be using the "Stack card" which shows seral PRs instasd of this"'
 NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
 CLAUSE_END = re.compile(r"[.;:,!?\n]")
 
@@ -237,6 +239,11 @@ def question(text: str, kept: bool = False) -> Question:
         for option in options
         if (step := lands_first(option))
     ]
+    if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
+        problems.append(
+            "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
+            f" every PR it lands, bottom first, and the stack card that carries them needs no Show me ({STACK_RULING})"
+        )
     if not findings or not findings[0].strip():
         problems.append("no `Findings:` line with the evidence under it; it stays on disk, for the record and Explain more")
     if problems:

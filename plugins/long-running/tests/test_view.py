@@ -415,6 +415,17 @@ def test_history_lists_every_day_newest_first_with_his_taps_by_title_each_line_s
     assert [entry["swears"] for entry in history if entry["kind"] == "order"] == [0, 2]
 
 
+def test_a_stack_card_sent_to_him_shows_each_pr_as_it_stands_now() -> None:
+    data = drive_of({"o1": order("ship the page", ["j1"])}, {"j1": job("o1", "waiting", "READY")}, [pr(1, "o1", wants_tap=True), pr(2, "o1", state="merged")])
+    events = [
+        {"kind": "said", "at": at(-2), "text": "land the page", "url": "https://acme.slack.com/archives/D123/p1", "order": "o1", "visuals": [], "prs": ["yasyf/cc-skills#1", "yasyf/cc-skills#2"]},
+        {"kind": "said", "at": at(-1), "text": "an older line", "url": "https://acme.slack.com/archives/D123/p2", "order": None, "visuals": []},
+    ]
+    stacks = [entry["prs"] for entry in view.board(data, found(), "live", events, T0, set())["history"] if entry["kind"] == "said"]
+    assert stacks == [[], [view.pr_entry(data["prs"]["yasyf/cc-skills#1"]), view.pr_entry(data["prs"]["yasyf/cc-skills#2"])]]
+    assert [(each["state"], each["tap"]) for each in stacks[1]] == [("open", "wanted"), ("merged", None)]
+
+
 def test_cards_are_read_from_the_file_the_watch_rewrites_only_on_change(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     assert view.stored_cards(demo) == (view.NO_CARDS, view.UNREAD)
     listed = found([question("Release now?", -20)])
