@@ -8,6 +8,7 @@ import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Self
 
 import pytest
 from drive import dashboard, picture
@@ -64,6 +65,20 @@ def post(port: int, origin: str, path: str, asked: dict) -> tuple[int, dict]:
     connection.close()
     return reply.status, json.loads(said) if said.startswith(b"{") else {}
 
+
+def test_a_dashboard_answer_cut_off_as_it_stops_reads_as_nothing_serving_so_a_restart_waits_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Stopping:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *_: object) -> None:
+            return None
+
+        def read(self, *_: object) -> bytes:
+            raise http.client.IncompleteRead(b"", 1779760)
+
+    monkeypatch.setattr(dashboard.urllib.request, "urlopen", lambda url, timeout: Stopping())
+    assert dashboard.serving("demo", 41330) is None
 
 def test_an_answer_reaches_cc_slack_only_from_the_page_itself_for_a_card_still_waiting_on_that_option(monkeypatch: pytest.MonkeyPatch) -> None:
     card = "https://acme.slack.com/archives/D1/p100"
