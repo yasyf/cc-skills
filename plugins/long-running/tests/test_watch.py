@@ -767,6 +767,46 @@ def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_a
     assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == ['ORPHAN o2 "stack 2": no job']
 
 
+def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_the_change_it_waits_on_is_delivered(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    serve(monkeypatch, {})
+    before = state.stamp(T0 - timedelta(minutes=10))
+    stack = "DESIGN moved-table abstraction\nChange: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n"
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="redesign the moved tables", jobs=["j2", "j3"], options_only=True)
+        data["orders"]["o2"]["parts"] = {"moved-table abstraction": state.new_part()}
+        data["jobs"]["j2"] = job(order="o2", kind="design", parts=["moved-table abstraction"], updated=before)
+        data["jobs"]["j3"] = job(order="o2", parts=["moved-table abstraction", "the moved-table interface"], updated=before)
+        state.add_changes(data, "j2", stack)
+        data["orders"]["o2"]["updated"] = before
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["options_only"] = False
+    unbuilt = "j2's design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [f'ORPHAN o2 "the reads through it": {unbuilt}']
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j4")
+        data["jobs"]["j4"] = job(order="o2", parts=["the reads through it"], state="done", updated=before)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f'ORPHAN o2 "the writes through it": {unbuilt}']
+
+
+def test_his_answer_kept_on_a_job_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["undelivered"] = [{"seq": "#665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None}]
+    watching = watcher(demo)
+    line = (
+        f'ANSWER undelivered j1: his answer #665156 "ship the narrower fix" of {render.when(state.stamp(T0))} has not reached it;'
+        ' drive job resume j1 "<his answer>" carries it [o1 j1]'
+    )
+    assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [line]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
+    assert watch.run_pass(watching, T0 + timedelta(minutes=20)) == [line]
+
+
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     serve(monkeypatch, {})
     with state.edit(demo) as data:
@@ -846,7 +886,7 @@ def test_a_done_builder_delivers_its_part_and_a_done_reader_codex_or_design_job_
     capsys.readouterr()
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
     part = state.load(demo)["orders"]["o2"]["parts"]["why do old runs fail?"]
-    assert part == {"posted": answer, "orphan_said": None}
+    assert part == state.new_part() | {"posted": answer}
 
 
 def test_a_waiting_job_lives_while_its_card_is_open_and_is_an_orphan_once_the_card_is_withdrawn(

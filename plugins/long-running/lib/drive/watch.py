@@ -538,6 +538,7 @@ def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetim
         if job.get("ask"):
             job.update(ask=None, state="running")
         state.take_result(data, job_id, job["said"])
+        state.add_changes(data, job_id, body)
     if kept:
         return f"JOB {job_id} {job['order']} ASK {kept}"
     line = f"JOB {job_id} {job['order']} {job['said']}"
@@ -823,6 +824,31 @@ def clock_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 )
             job["due"] = None
     return lines
+
+
+def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Each answer of his kept on a job not resumed since it came, ten minutes after it came and every ten minutes until drive job resume carries it."""
+    if not any(owed_answers(watcher, state.load(watcher.name), moment)):
+        return []
+    lines = []
+    with state.edit(watcher.name) as data:
+        for job_id, answer in owed_answers(watcher, data, moment):
+            answer["said"] = state.stamp(moment)
+            lines.append(
+                f'ANSWER undelivered {job_id}: his answer {answer["seq"]} "{cut(answer["words"], 80)}" of {when(answer["at"])} has not reached it;'
+                f' drive job resume {job_id} "<his answer>" carries it [{data["jobs"][job_id]["order"]} {job_id}]'
+            )
+    return lines
+
+
+def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
+    return [
+        (job_id, answer)
+        for job_id, job in data["jobs"].items()
+        if heard_job(watcher, data, job)
+        for answer in job["undelivered"]
+        if moment - state.parse_time(answer["said"] or answer["at"]) >= DUE_EVERY
+    ]
 
 
 def answer_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1214,16 +1240,33 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on the earlier change it builds on, and on his pick while the order asks for options only."""
     order = data["orders"][order_id]
-    jobs = [(job_id, data["jobs"][job_id]) for job_id in order["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
+    jobs = part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
     if stuck := [gap for (_, job), gap in zip(jobs, gaps, strict=True) if gap and (job["state"] == "running" or job["state"] == "waiting" and job.get("ask"))]:
         return stuck[-1]
-    if order["parts"][part]["posted"] or any(job["state"] == "done" and job["kind"] == "builder" for _, job in jobs):
+    if delivered(data, order_id, part):
         return None
-    if not jobs:
-        return "no job" if moment - state.parse_time(order["updated"]) >= UNSTAFFED_FOR else None
-    return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
+    if jobs:
+        return None if None in gaps else SETTLING if SETTLING in gaps else gaps[-1]
+    if moment - state.parse_time(order["updated"]) < UNSTAFFED_FOR:
+        return None
+    if not (design := order["parts"][part]["design"]):
+        return "no job"
+    if order["options_only"] or (after := order["parts"][part]["after"]) in order["parts"] and not delivered(data, order_id, after):
+        return None
+    return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
+
+
+def part_jobs(data: dict, order_id: str, part: str) -> list[tuple[str, dict]]:
+    return [(job_id, data["jobs"][job_id]) for job_id in data["orders"][order_id]["jobs"] if part in state.job_parts(data["jobs"][job_id], order_id)]
+
+
+def delivered(data: dict, order_id: str, part: str) -> bool:
+    """Whether a part is posted to him or built by a builder that returned DONE."""
+    done = any(job["state"] == "done" and job["kind"] == "builder" for _, job in part_jobs(data, order_id, part))
+    return bool(data["orders"][order_id]["parts"][part]["posted"]) or done
 
 
 def part_gaps(watcher: Watcher, data: dict, moment: datetime) -> dict[tuple[str, str], str | None]:
@@ -1311,7 +1354,7 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
-    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
+    """One loop of the watch: his cards, GitHub, a lander on each PR his Approve covers that qualifies, his PR cards whose PRs all ended, the waits his answers or a job's end release, his answers that leave cards unmarked, lane mail, agents, the communicator's compaction and the status page every 60 s, GitHub again next poll after a failure, new events, promised times still owed a line, job clocks run out, his answers no resume has carried to their jobs, fixes proven live whose bug report has not heard, parts nothing carries, a tick every 30 minutes while he is here."""
     lines = []
     if watcher.read_at is None or moment - watcher.read_at >= READ_EVERY:
         watcher.read_at = moment
@@ -1334,6 +1377,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
     due = due_lines(watcher, moment)
     lines += [line for _, line in due]
     lines += clock_lines(watcher, moment)
+    lines += undelivered_lines(watcher, moment)
     lines += tell_lines(watcher, moment)
     lines += orphan_lines(watcher, moment, {order_id for order_id, _ in due})
     if moment - watcher.ticked_at >= TICK_EVERY:

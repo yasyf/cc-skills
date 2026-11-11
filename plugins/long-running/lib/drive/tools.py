@@ -378,10 +378,24 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     if dry_run:
         said = [f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1)]
     else:
-        said = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1)]
+        seqs = sent(name, lane, posts)
+        said = [f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, seqs, strict=True), start=1)]
+        keep_undelivered(name, posts, seqs, closes)
     for index, (made, (questions, pr_cards)) in enumerate(zip(posts, closes, strict=True), start=1):
         close(name, said, index, len(posts), made, questions, pr_cards, dry_run)
     return "\n".join(said)
+
+
+def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[tuple[list[dict], list[dict]]]) -> None:
+    """Keep each answer of his on each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile."""
+    answers = [(made, seq, questions) for made, seq, (questions, _) in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer" and "undone" not in (made.get("attr") or {})]
+    if not answers:
+        return
+    with state.edit(name) as data:
+        for made, seq, questions in answers:
+            named = [state.named_job(data, made.get("attr") or {}), *(state.named_job(data, {"waits": card["card"].get("waits")}) for card in questions)]
+            for job_id in dict.fromkeys(filter(None, named)):
+                data["jobs"][job_id]["undelivered"].append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
 
 
 def his_cards(name: str) -> dict:

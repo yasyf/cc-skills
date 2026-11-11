@@ -616,7 +616,11 @@ def report_attrs(seq: str) -> dict:
 
 def order_posted(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
-    order = communicators_order(state.load(name), args.id)
+    data = state.load(name)
+    role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
+    if args.part and not (args.record or args.undo) and role and role == find(data["orders"], args.id, "order")["owner"]:
+        return emit(args, *answered_by(name, args.id, args.part, args.link))
+    order = communicators_order(data, args.id)
     if not args.undo:
         report = report_attrs(args.record) if args.record else {}
         if args.part and report.get("part") != args.part:
@@ -630,6 +634,16 @@ def order_posted(args: argparse.Namespace) -> int:
     with state.edit(name) as data:
         data["orders"][args.id]["parts"][undone]["posted"] = None
     return emit(args, f'{args.id} "{undone}": not delivered', {"id": args.id, "part": undone, "posted": None})
+
+
+def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
+    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing."""
+    data = state.load(name)
+    [part] = pick_parts(order_id, data["orders"][order_id], [part])
+    drive_post_at(link, data, order_id, True)
+    with state.edit(name) as data:
+        data["orders"][order_id]["parts"][part]["posted"] = link
+    return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -1331,6 +1345,7 @@ def job_report(args: argparse.Namespace) -> int:
         kept.write_text(whole)
         with state.edit(name) as data:
             state.take_result(data, args.id, whole.strip().splitlines()[0].strip())
+            state.add_changes(data, args.id, whole)
         return emit(args, str(kept), {"id": args.id, "report": str(kept)})
     text = state.report_text(name, args.id, job)
     if not text and not job["said"]:
@@ -1548,7 +1563,7 @@ def job_resume(args: argparse.Namespace) -> int:
         fresh = data["jobs"][args.id]
         if fresh.get("ask") == job.get("ask"):
             fresh.update(ask=None, state="running")
-        fresh["updated"] = state.stamp()
+        fresh.update(updated=state.stamp(), undelivered=[])
     return emit(args, f"{args.id}: {how}", {"id": args.id, "how": how})
 
 
@@ -1573,7 +1588,7 @@ def restart(args: argparse.Namespace, name: str, dispatch: str, end: orca.LaneEn
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         data["jobs"][args.id].update(
-            started, handoff=str(kept), ask=None, report=None, reads={}, state="running", updated=state.stamp()
+            started, handoff=str(kept), ask=None, report=None, reads={}, undelivered=[], state="running", updated=state.stamp()
         )
     carrying = "in a handoff carrying its brief, its branch, its last line, its report and its PRs"
     local = state.on_mac(job)
@@ -2576,14 +2591,17 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=order_set)
     verb = order.add_parser("unfiled", parents=both, help="each open order that names no project or workstream yet, then the project and workstream pairs in use")
     verb.set_defaults(run=order_unfiled)
-    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel")
+    verb = order.add_parser("posted", parents=both, help="the communicator posted a line in an order's thread, its cards' or its PRs' cards': a progress line, delivering no part, or the answer a part owes him, which the report record it carries delivers, there or in any other channel; or the session holding the order closes a part from the drive's post that already answered it")
     verb.add_argument("id", help="the order")
     posted = verb.add_mutually_exclusive_group(required=True)
     posted.add_argument("link", nargs="?", help="the Slack link of the drive's post; one in the order's threads keeps a promised time and moves the order's last line")
     posted.add_argument("--undo", action="store_true", help="take back the delivered mark of the part --part names, so it counts as undelivered again")
     verb.add_argument(
         "--part",
-        help="with --undo, the part whose mark it takes back; otherwise only the part the --record report's part attr names, since a part is delivered by its report record alone",
+        help=(
+            "with --undo, the part whose mark it takes back; with --record, only the part its part attr names; from the session"
+            " holding the order with no --record, the part the drive's post at the link already answered, posting nothing"
+        ),
     )
     verb.add_argument(
         "--record",

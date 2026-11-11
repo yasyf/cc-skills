@@ -140,5 +140,5 @@ def hold(payload: dict) -> None:
     with state.edit(names[0]) as data:
         if free(data, match[1]):
             data["jobs"][match[1]].update(
-                agent=payload["agent_id"], where="local", session=payload["session_id"], state="running", updated=state.stamp()
+                agent=payload["agent_id"], where="local", session=payload["session_id"], undelivered=[], state="running", updated=state.stamp()
             )

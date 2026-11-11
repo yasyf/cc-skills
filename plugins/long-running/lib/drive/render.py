@@ -186,8 +186,9 @@ COORDINATOR_RULES = (
     (
         "Every part has an owner: an order add names its kind, answer or build, its project and workstream, and for a"
         " build its parts, one per deliverable his words name; each job names its part, an ORPHAN line gets a job, a"
-        " card or a close in the same turn, and a job waiting on a release gets drive job set <j> --waits"
-        " release:<service>:<owner>/<repo>#<n>, not `--due` alone. A build order's first job is an Opus"
+        " card or a close in the same turn, a part a post already answered closes with drive order posted <o> <link>"
+        " --part, and a job waiting on a release gets drive job set <j> --waits release:<service>:<owner>/<repo>#<n>,"
+        " not `--due` alone. A build order's first job is an Opus"
         " long-running:reader briefed `Research: the Researched: block this build needs`; its builder's or designer's"
         " brief carries `Researched: <that reader's job>`, which the brief op writes; each other part's builder or designer"
         " is added beside the reader with `job add --waits <the reader>` and starts on its FREE line; a reader's DESIGN"
