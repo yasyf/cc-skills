@@ -101,7 +101,9 @@ until he lifts it.
 1. Ship with `ccx vcs ship` (jj in colocated repositories); the `open-pr` skill writes the body.
 2. Merge with `gh pr merge <n> -R <repo> --squash --admin`. In cc-skills, merge once every check on
    the PR's head is green, which `ccx vcs ship` waits for and prints; the landing guard refuses the
-   merge while one still runs or is red. On Nov 10 #4153 merged before its check ran and pushed the
+   merge while one still runs or is red. When GitHub does not answer the guard's read, the merge runs
+   and a note beside its output says so: read its checks once GitHub answers and fix a red one
+   forward. On Nov 10 #4153 merged before its check ran and pushed the
    skill body past its 8,000-character cap, and main stayed red until #4154 cut it back. Any other
    `yasyf/*` PR merges at once, waiting only for a check that is red on the PR's own change: fix it,
    push, merge. A mid-stack PR runs no CI, so never wait on one.
