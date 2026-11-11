@@ -119,10 +119,15 @@ def said(link: str, card: str) -> str:
     return "pick on" if view.message_key(link) == view.message_key(card) else "words under"
 
 
+def said_on(data: dict, card: str | None) -> list[dict]:
+    """His answers recorded as his pick on this card or his words under it, oldest first."""
+    return [answer for answer in data["answers"].values() if card and under(answer["link"], card)]
+
+
 def redraw_refusal(data: dict, job: dict, waits: str, file: str) -> str | None:
     """Why this card may not be redrawn with another question: his words under it already answered it."""
     drawn = next((question for question in job["questions"] if question["waits"] == waits and question["card"] and question["file"] != file), None)
-    said = [answer for answer in data["answers"].values() if drawn and under(answer["link"], drawn["card"])]
+    said = said_on(data, drawn and drawn["card"])
     if not said:
         return None
     answer = said[-1]
