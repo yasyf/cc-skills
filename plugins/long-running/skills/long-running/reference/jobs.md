@@ -8,7 +8,9 @@ lane on a Sprite, where its builds and checks are local to that machine; under t
 here. Before starting a monorepo builder, run `drive place`: it answers `remote` when this Mac's CPU
 is at or over its load gate's limit, or when eight builders already run here, and `local`
 otherwise. Readers, codex jobs, builders on any other repository, since a yasyf/* tool installs on
-this Mac, and any job that touches this Mac's processes always run here.
+this Mac, any job that touches this Mac's processes, and a handoff whose `PROVE:` line runs
+`ci mac-box` or `ci devbox` always run here: a Sprite holds no AWS sign-in, and both verbs sign in
+with this Mac's `DEVBOX_AWS_PROFILE`.
 
 **On this Mac.** Start the job with the Agent tool: `subagent_type` `long-running:builder`,
 `long-running:reader` or `codex:codex-wrapper`, `run_in_background: true`, a short
