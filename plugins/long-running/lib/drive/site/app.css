@@ -246,7 +246,34 @@ a.ref { padding: 0 6px; border: 1px solid var(--line); border-radius: 999px; tex
 .visual { margin: 10px 0; overflow-x: auto; }
 .visual figcaption { margin-top: 4px; font-size: 12px; color: var(--muted); }
 .visual .smap-canvas { max-height: 60vh; }
-.shot img { display: block; max-width: 100%; margin: 6px 0; border-radius: 10px; border: 1px solid var(--line); background: #fff; }
+.shot { display: block; max-width: 100%; margin: 6px 0; padding: 0; border: 0; border-radius: 10px; background: none; cursor: zoom-in; }
+.shot img { display: block; max-width: 100%; border-radius: 10px; border: 1px solid var(--line); background: #fff; transition: box-shadow .18s; }
+.shot:hover img { box-shadow: 0 6px 24px #263e2b1c; }
+.visual { position: relative; }
+.enlarge { position: absolute; top: 6px; right: 6px; display: grid; place-items: center; width: 30px; height: 30px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: color-mix(in srgb, var(--paper) 92%, transparent); color: var(--ink-2); cursor: zoom-in; opacity: 0; transition: opacity .15s; }
+.visual:hover .enlarge, .enlarge:focus-visible { opacity: 1; }
+.enlarge svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.visual-host[data-kind="code"] { display: inline-grid; max-width: 100%; }
+.code-bar { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 5px 12px; border: 1px solid #d1d9e0; border-bottom: 0; border-radius: 6px 6px 0 0; background: #eef1f4; color: var(--muted); font: 11px var(--mono); }
+.code-bar + .visual-code { border-radius: 0 0 6px 6px; }
+html:has(dialog[open]) { overflow: hidden; }
+.lightbox { width: 96vw; height: 94vh; max-width: none; max-height: none; padding: 0; border: 0; border-radius: 14px; background: var(--paper); color: var(--ink); box-shadow: 0 25px 120px #00160060; }
+.lightbox[open] { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; }
+.lightbox::backdrop { background: #0f1a15d0; backdrop-filter: blur(4px); }
+.lightbox .enlarge { display: none; }
+.lb-bar { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); }
+.lb-stage { min-height: 0; overflow: auto; display: grid; place-items: center; padding: 24px 72px; }
+.lb-stage.photo img { max-width: 100%; max-height: calc(94vh - 140px); object-fit: contain; border-radius: 8px; cursor: zoom-in; }
+.lb-stage.photo.actual { place-items: start; }
+.lb-stage.photo.actual img { max-width: none; max-height: none; cursor: zoom-out; }
+.lb-stage .visual { margin: 0; overflow: visible; }
+.lb-stage .visual-code { max-width: min(1400px, 86vw); font-size: 14px; }
+.lb-stage .visual-host > svg { width: min(86vw, 1600px) !important; max-width: none !important; max-height: calc(94vh - 160px); }
+.lb-caption { margin: 0; padding: 10px 20px 16px; color: var(--muted); font-size: 13px; text-align: center; }
+.lb-step { position: absolute; top: 50%; left: 16px; translate: 0 -50%; width: 42px; height: 42px; border: 1px solid var(--line); border-radius: 50%; background: var(--paper); box-shadow: var(--shadow); font-size: 22px; line-height: 1; cursor: pointer; }
+.lb-step.next { left: auto; right: 16px; }
+.lb-step[disabled] { opacity: .3; cursor: default; }
+@media (hover: none) { .enlarge { opacity: 1; } }
 .thread { display: grid; gap: 10px; }
 .talk { margin: 0 0 4px; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
 .talk .thread { margin: 6px 0 2px; }
@@ -506,7 +533,9 @@ button.task-row { cursor: pointer; }
   #main { padding: 25px 16px 40px; }
   .h1 { font-size: 28px; }
   .msg { max-width: 100%; }
-  .drawer, .drawer.wide { width: 100vw; max-height: 100vh; height: 100vh; margin: 0; border-radius: 0; }
+  .drawer, .drawer.wide, .lightbox { width: 100vw; max-height: 100vh; height: 100vh; margin: 0; border-radius: 0; }
+  .lb-stage { padding: 16px; }
+  .lb-step { top: auto; bottom: 14px; translate: none; }
   .page-head { flex-direction: column; align-items: flex-start; }
   .pr-layout { grid-template-columns: minmax(0, 1fr); }
   .talk-rail { position: static; max-height: none; }
