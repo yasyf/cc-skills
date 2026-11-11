@@ -111,7 +111,7 @@ def misaddressed(payload: dict, record: dict) -> str | None:
     """Why an agent's record goes to the wrong place: a reader or designer posting to him, or a handler posting a defect its return carries."""
     if (agent := payload.get("agent_type")) in SILENT_LANES and addressed(record, "owner"):
         return TO_OWNER.format(agent=agent.removeprefix("long-running:"))
-    if payload.get("agent_type") == "long-running:handler" and kind(record) == "defect":
+    if payload.get("agent_type") == agents.HANDLER and kind(record) == "defect":
         return AGENT_DEFECT
     return None
 

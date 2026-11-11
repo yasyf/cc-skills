@@ -9,7 +9,6 @@ from drive import agents, state
 
 RESULT_CHARS = 500
 REPORTED_KINDS = ("builder", "design")
-HANDLER = "long-running:handler"
 HANDLER_FACTS = 3
 HANDLER_RESULT = re.compile(r"(POSTED|RECORDED|MISSING|LAND)\b")
 HANDLER_OPENING = re.compile(r"(?:POSTED|RECORDED|MISSING|DEFECT|LAND)\b")
@@ -36,7 +35,7 @@ def block_reason(payload: dict) -> str | None:
     lines = message.splitlines()
     job_id = state.agent_job(data, payload.get("agent_id"))
     if len(lines) <= 1 and len(message) <= RESULT_CHARS:
-        handler = payload.get("agent_type") == HANDLER
+        handler = payload.get("agent_type") == agents.HANDLER
         return (
             unkept(names[0], data, job_id, message)
             or overfull(handler, message)

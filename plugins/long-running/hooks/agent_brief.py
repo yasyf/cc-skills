@@ -10,7 +10,6 @@ from drive.render import cut, when
 
 DESIGNER = "long-running:designer"
 BUILDER = "long-running:builder"
-HANDLER = "long-running:handler"
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
 SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
@@ -141,13 +140,13 @@ def deny_reason(payload: dict) -> str | None:
             f"refused: Fable runs only the coordinator and {DESIGNER}; start {kind or 'this agent'} on its own default"
             " model, or `sonnet` for a one-fact lookup"
         )
-    if kind == HANDLER and (extra := beyond_brief(prompt)):
+    if kind == agents.HANDLER and (extra := beyond_brief(prompt)):
         return (
             f"refused: a handler's prompt is its brief alone, each line opening with one of {', '.join(LABELS)}, his words"
             f" running on below theirs and Context at most three lines; `{extra}` is more. Its rules load with its agent"
             " definition, and a rule typed into a prompt overrides it: drop the line"
         )
-    if kind == HANDLER and any(word in (call.get("model") or "") for word in brief.LIGHT_MODELS) and not light_record(prompt):
+    if kind == agents.HANDLER and any(word in (call.get("model") or "") for word in brief.LIGHT_MODELS) and not light_record(prompt):
         return (
             "refused: a handler runs on Opus for his words, an ask, a card or any judgment, and Sonnet or Haiku only for a `ready`"
             " record or a `POST` report briefed as its one `Record:` line; pass no model"
