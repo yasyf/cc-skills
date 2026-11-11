@@ -344,10 +344,7 @@ def job_card(args: argparse.Namespace) -> int:
     """Print the question card a kept ASK block draws, its Show me code drawn as highlighted pictures."""
     name = state.resolve(args.drive)
     asked = limits.question(Path(args.file).expanduser().read_text())
-    try:
-        show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
-    except (picture.PictureError, ValueError) as error:
-        raise DriveError(f"the Show me of {args.file} does not draw: {error}") from None
+    show_me = picture.drawn(state.drive_dir(name) / "pictures", asked.show_me)
     card = asked.card(name, args.waits) | {"body": limits.card_body(asked.summary, show_me)}
     return emit(args, json.dumps(card), card)
 
@@ -1075,8 +1072,9 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Read a kept ASK block and print its question card as JSON for `slack_dm_status(card=…)`: its question as"
             " the title, its summary, then a `*Show me*` line and its Show me with each fenced block but mermaid drawn"
-            " as a picture on a line of its own, highlighted in the language its fence names, its options, the"
-            " recommended one, the drive, and --waits."
+            " as a picture on a line of its own, highlighted in the language its fence names or the closest one freeze"
+            " knows, else plain text, and a fence that does not draw left as text; its options, the recommended one,"
+            " the drive, and --waits."
         ),
     )
     verb.add_argument("file", help="the kept ASK block, the file an ask record's `ask` attr names")

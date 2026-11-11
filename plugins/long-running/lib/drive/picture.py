@@ -14,7 +14,8 @@ FENCE = re.compile(r"^[ \t]*```[ \t]*([A-Za-z0-9_+-]*)[^\n]*\n(.*?)^[ \t]*```[ \
 IMAGE = re.compile(r"!\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)|<img\b[^>]*\bsrc=[\"']([^\"']+)[\"'][^>]*>", re.IGNORECASE)
 DIAGRAMS = ("arch", "dot")
 UNDRAWN = ("", "mermaid", "text", "txt", "plain")
-FREEZE = ["freeze", "--theme", "github", "--window=false", "--font.family", "Menlo", "--font.size", "14", "--padding", "20", "--margin", "0", "--background", "#ffffff"]
+CLOSEST_LEXER = {"sand": "v"}
+FREEZE =["freeze", "--theme", "github", "--window=false", "--font.family", "Menlo", "--font.size", "14", "--padding", "20", "--margin", "0", "--background", "#ffffff"]
 ARCH_LIB = "https://cdn.jsdelivr.net/gh/yasyf/cc-present@v0.60.2/plugin/.claude/components/display/src/arch-map.min.js"
 ARCH_WIDTH = 1200
 ARCH_SCALE = 2
@@ -97,12 +98,10 @@ def dot_png(source: str, out: Path) -> None:
 
 
 def code_png(language: str, source: str, out: Path) -> None:
-    """Draw code highlighted with freeze; a fence that names no language is drawn as freeze guesses it, or as plain text when it cannot guess."""
+    """Draw code highlighted with freeze in its fence's language, or the closest one freeze knows when it has none for it, as V for Sand; code freeze cannot highlight, such as a language it does not know or a fence naming none it can guess, is drawn as plain text."""
     try:
-        freeze(language, source, out)
+        freeze(CLOSEST_LEXER.get(language, language), source, out)
     except PictureError:
-        if language:
-            raise
         freeze("text", source, out)
 
 
@@ -183,7 +182,7 @@ def pictures(folder: Path, label: str, show_me: str) -> list[str]:
 
 
 def drawn(folder: Path, show_me: list[str]) -> list[str]:
-    """A question card's Show me with each fenced block but mermaid replaced by one line holding its picture, `![Show me](/abs.png)`, which cc-slack draws on the card where the line sits: arch and dot as diagrams, any other fence as highlighted code."""
+    """A question card's Show me with each fenced block but mermaid replaced by one line holding its picture, `![Show me](/abs.png)`, which cc-slack draws on the card where the line sits: arch and dot as diagrams, any other fence as highlighted code; a fence that does not draw stays text, so a picture never refuses a card."""
     count = 0
 
     def picture_line(fence: re.Match[str]) -> str:
@@ -191,8 +190,13 @@ def drawn(folder: Path, show_me: list[str]) -> list[str]:
         language = fence[1].lower()
         if language == "mermaid":
             return fence[0]
-        count += 1
         kind = language if language in DIAGRAMS else f"code:{language}"
-        return f"![Show me{f' ({count})' if count > 1 else ''}]({cached(folder, 'show-me', kind, fence[2])})"
+        try:
+            path = cached(folder, "show-me", kind, fence[2])
+        except (PictureError, ValueError) as error:
+            print(f"drive card: its Show me {kind} does not draw, so it stays text: {error}", file=sys.stderr)
+            return fence[0]
+        count += 1
+        return f"![Show me{f' ({count})' if count > 1 else ''}]({path})"
 
     return FENCE.sub(picture_line, "\n".join(show_me)).split("\n")
