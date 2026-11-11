@@ -93,7 +93,7 @@ def verb_tools() -> list[dict]:
         *(ops_tool(group, {"add": job_add} if group == "job" else {}) for group in OPS),
         {
             "name": "status",
-            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order.",
+            "description": "Read where each order, job and PR stands, as drive status prints it: the ones named, or every open order. A handler or the coordinator reads this, never the communicator.",
             "inputSchema": {"type": "object", "properties": {**schema(leaf("status"))["properties"], "dry_run": DRY_RUN}},
             "annotations": {"readOnlyHint": True},
         },
@@ -160,6 +160,23 @@ def run(tool: str, name: str, arguments: dict) -> str:
             return "\n".join(ran(name, said, 1, 1, READS[tool], arguments, dry_run) or said)
         case group:
             return batch(name, (group,), listing(arguments, "ops", ", ".join(OPS[group])), dry_run)
+
+
+def parsed_arguments(arguments: dict, shapes: dict[str, dict]) -> dict:
+    """The call's arguments with each list or object a client sent as JSON text parsed, the list's items too, as the tool's schema types it."""
+    return {key: parsed(key, value, shapes.get(key, {})) for key, value in arguments.items()}
+
+
+def parsed(key: str, value: object, shape: dict) -> object:
+    kinds = {shape.get("type"), *(choice.get("type") for choice in shape.get("oneOf") or shape.get("anyOf") or ())}
+    if isinstance(value, str) and "string" not in kinds and kinds & {"array", "object"}:
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as error:
+            raise DriveError(f"{key} is a list or object, and its text is not JSON: {error}") from None
+    if isinstance(value, list) and "items" in shape:
+        return [parsed(key, item, shape["items"]) for item in value]
+    return value
 
 
 def listing(arguments: dict, field: str, items: str) -> list[dict]:

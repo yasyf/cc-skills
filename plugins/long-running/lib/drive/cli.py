@@ -159,8 +159,12 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             " add it without --incident and --joins when he asked for options only, or without --options-only when it is an incident"
         )
     tooling = args.words.startswith(state.TOOLING)
-    if tooling and args.thread:
-        raise DriveError(f'--thread {args.thread}: refused, a "{state.TOOLING}" order\'s posts go at his DM root, in no thread; add it again without --thread')
+    noted = [rootless(args.thread)] if tooling and args.thread else []
+    if tooling:
+        args.thread = None
+        held = next((order_id for order_id, order in state.open_orders(state.load(name)).items() if order["text"] == args.words), None)
+        if held:
+            return held, state.load(name)["orders"][held], [*noted, f"{held} already holds these words, so no order was added"], []
     if args.thread:
         check_thread(state.load(name), {"from": args.source, "from_thread": from_thread, "thread": args.thread})
     if tooling and args.owner == "coordinator":
@@ -213,7 +217,11 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
-    return order_id, order, started, incidents
+    return order_id, order, [*noted, *started], incidents
+
+
+def rootless(thread: str) -> str:
+    return f'--thread {thread} left out: a "{state.TOOLING}" order\'s posts go at his DM root, in no thread'
 
 
 def incident_open(args: argparse.Namespace) -> int:
@@ -403,8 +411,9 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    noted = ""
     if args.thread and order["text"].startswith(state.TOOLING):
-        raise DriveError(f'--thread {args.thread}: refused, {args.id} is a "{state.TOOLING}" order, whose posts go at his DM root, in no thread; leave --thread out')
+        noted, args.thread = rootless(args.thread) + "\n", None
     if args.words is not None:
         if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
             raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
@@ -417,7 +426,7 @@ def order_set(args: argparse.Namespace) -> int:
             " an incident takes --no-options-only, and an order limited to options --no-incident"
         )
     proof = args.proof or (order["proof"] if args.state == "done" else None)
-    if proof and (seen := surface(data, order)) and not brief.SEEN_PROOF.search(proof):
+    if proof and (seen := surface(data, order)) and not any(brief.SEEN_PROOF.search(found) for found in brief.proofs(proof)):
         raise DriveError(
             f"{'--proof' if args.proof else 'its proof'} {proof}: refused, {args.id} builds something he uses ({seen}), so it is proven"
             " done on that surface: a recording of each step through it (agent-browser's recording, or screencapture -v of the window)"
@@ -485,13 +494,12 @@ def order_set(args: argparse.Namespace) -> int:
             order["updated"] = state.stamp(moment)
         if args.lined:
             order["last_line"] = order["updated"]
-    return emit(args, render.order_line(args.id, order) + promised, {"id": args.id, **order})
+    return emit(args, noted + render.order_line(args.id, order) + promised, {"id": args.id, **order})
 
 
 def check_proof(proof: str) -> None:
     """Refuse a proof that is a claim: one line naming no link and no file that exists, where a check's link, file or pasted output proves it."""
-    named = [found.rstrip(".") for found in brief.PROOF.findall(proof)]
-    if "\n" in proof.strip() or any(found.startswith("http") or Path(found).expanduser().exists() for found in named):
+    if "\n" in proof.strip() or any(found.startswith("http") or Path(found).expanduser().exists() for found in brief.proofs(proof)):
         return
     raise DriveError(
         f'--proof "{proof}": refused, a proof is the check itself, its link, its saved file or its output, never a claim of what it showed:'
@@ -679,16 +687,19 @@ def job_add(args: argparse.Namespace) -> int:
 def job_set(args: argparse.Namespace) -> int:
     """Change a job; a state it already holds changes nothing, and stopped is the one state set by hand."""
     name = state.resolve(args.drive)
-    held = find(state.load(name)["jobs"], args.id, "job")["state"]
+    known = state.load(name)
+    held = find(known["jobs"], args.id, "job")["state"]
     already = f"{args.id} is already {held}\n" if args.state == held else ""
     if already:
         args.state = None
+    elif args.state == "done" and (builder := state.design_builder(known, args.id)):
+        already = f"{args.id}'s design is carried by builder {builder}\n"
     elif args.state not in (None, "stopped"):
-        returned = ", ".join(f"{word} sets {taken}" for word, taken in state.RESULT_STATES.items())
-        raise DriveError(
-            f"{args.id} is {held}, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line"
-            f" the job returns, which the watch reads or drive job report {args.id} - takes: {returned}, and BUILT <branch>, waits on <cards> sets built"
+        already = (
+            f"{args.id} stays {held}: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder"
+            " carries; every other state comes from the line the job returns\n"
         )
+        args.state = None
     if args.state == "stopped":
         fix_kept(state.load(name), args.id)
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch, "due": job_clock(args.id, args.due)}
@@ -866,9 +877,7 @@ def follow_card(name: str, waits: str, asked: set[str], url: str) -> None:
 
 
 def job_ask(args: argparse.Namespace) -> int:
-    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused."""
-    from drive import superseded, view
-
+    """Keep a job's ASK in the drive once it is in the shape he reads, each block in its own file; from a file, stdin with -, or with neither a remote lane's latest report or a kept DESIGN return. A block asking again what one of the job's questions his answer has not closed asks takes that question's place, its card and waits id kept, and one asking what another job's open question asks is refused."""
     if args.check:
         limits.shape(named_text(args.check, "ASK block file"), "check", "ask", args.unsettled)
         print("ready")
@@ -876,16 +885,31 @@ def job_ask(args: argparse.Namespace) -> int:
     if args.id is None:
         raise DriveError("name the job whose ASK this keeps: drive job ask <j> <file>; drive job ask --check <file> only checks its shape")
     name = state.resolve(args.drive)
-    data = state.load(name)
-    job = find(data["jobs"], args.id, "job")
-    text = named_text(args.file, "ASK block file") if args.file else job.get("report")
+    job = find(state.load(name)["jobs"], args.id, "job")
+    text = named_text(args.file, "ASK block file") if args.file else asked_report(name, args.id, job)
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
-    asked = limits.shape(text, name, args.id, args.unsettled)
+    kept, asked, question = keep_ask(name, args.id, text, args.unsettled)
+    return emit(args, str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], **vars(asked)})
+
+
+def asked_report(name: str, job_id: str, job: dict) -> str | None:
+    """The ASK a job sent when no file names one: a remote lane's latest report, else its kept DESIGN return, a choice for him read as the ASK block it is."""
+    kept = state.report_text(name, job_id, job)
+    return job.get("report") or (f"ASK {kept.removeprefix('DESIGN').lstrip()}" if kept.startswith("DESIGN") else None)
+
+
+def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
+    """Keep the job's ASK block in its own file once it is in the shape he reads and no answer of his settles it, in place of the job's open question asking the same, and set the job waiting on it."""
+    from drive import superseded, view
+
+    data = state.load(name)
+    job = data["jobs"][job_id]
+    asked = limits.shape(text, name, job_id, unsettled)
     said = "\n".join([asked.title, *asked.summary]).casefold()
-    if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == args.id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
+    if unnamed := [pr["port_of"] for pr in data["prs"].values() if pr["job"] == job_id and pr.get("port_of") and f"port of #{pr['port_of']}" not in said]:
         raise DriveError(
-            f'{args.id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
+            f'{job_id}\'s PR is a port of #{unnamed[0]}: its ASK\'s summary says "port of #{unnamed[0]}", as the text of that PR\'s link,'
             f" and what in the target tree forces a choice #{unnamed[0]} did not make, such as what that tree lacks"
         )
     shown = "\n".join([asked.title, *asked.summary, *asked.options])
@@ -893,33 +917,33 @@ def job_ask(args: argparse.Namespace) -> int:
     if not matched or matched["title"] != asked.title:
         found = settled.matching(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job))
         matched = {"title": asked.title, "answers": [{"id": answer["id"], "title": answer["title"]} for answer in found]}
-    if refused := settled.refusal(matched["answers"], args.unsettled, "--unsettled"):
+    if refused := settled.refusal(matched["answers"], unsettled, "--unsettled"):
         with state.edit(name) as data:
-            data["jobs"][args.id]["may_settle"] = matched
+            data["jobs"][job_id]["may_settle"] = matched
         raise DriveError(refused)
     if any(state.same_question(question["title"], asked.title) and (question["card"] or question["waits"]) for other in data["jobs"].values() for question in other["questions"]):
         view.refresh_cards(name)
     cards = view.live_cards(name)
-    if refused := settled.open_card_refusal(superseded.open_under(data, job, cards), args.unsettled):
+    if refused := settled.open_card_refusal(superseded.open_under(data, job, cards), unsettled):
         raise DriveError(refused)
-    if elsewhere := next(((job_id, question) for job_id, question in asking(data, asked.title, cards) if job_id != args.id), None):
-        raise DriveError(asked_elsewhere(args.id, *elsewhere))
+    if elsewhere := next(((other, question) for other, question in asking(data, asked.title, cards) if other != job_id), None):
+        raise DriveError(asked_elsewhere(job_id, *elsewhere))
     heard = settled.thread_words(data, data["orders"][job["order"]], view.stored_cards(name)[0]["team_url"], shown)
-    if refused := settled.thread_refusal(heard, args.unsettled):
+    if refused := settled.thread_refusal(heard, unsettled):
         raise DriveError(refused)
-    kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
+    kept = state.drive_dir(name) / "asks" / f"{job_id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
     with state.edit(name) as data:
-        job = data["jobs"][args.id]
-        twins = [question for job_id, question in asking(data, asked.title, cards) if job_id == args.id]
+        job = data["jobs"][job_id]
+        twins = [question for other, question in asking(data, asked.title, cards) if other == job_id]
         held = next((twin for twin in twins if twin["card"]), None) or next((twin for twin in twins if twin["waits"]), None)
-        question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), args.unsettled)
+        question = state.new_question(str(kept), asked.title, held["asked"] if held else state.stamp(), unsettled)
         if held:
             question.update(waits=held["waits"], card=held["card"])
         job["questions"] = [*(other for other in job["questions"] if not any(other is twin for twin in twins)), question]
         job.update(state="waiting", said=asked.title, updated=state.stamp(), may_settle=None)
-    return emit(args, str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], **vars(asked)})
+    return kept, asked, question
 
 
 def asking(data: dict, title: str, cards: dict | None) -> list[tuple[str, dict]]:
@@ -957,7 +981,7 @@ def job_card(args: argparse.Namespace) -> int:
 
 
 def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
-    """The kept ASK block a card draws and the waits id given for it: after a job, its newest kept block or the one named, under --waits or the waits id its card already has; a file alone, under --waits. `question_card` draws a question already holding a waits id under that one."""
+    """The kept ASK block a card draws and the waits id given for it: after a job, its newest kept block or the one named, or its kept DESIGN return kept as its ASK when it keeps none, under --waits or the waits id its card already has; a file alone, under --waits. `question_card` draws a question already holding a waits id under that one."""
     if not JOB_ID.fullmatch(args.ask):
         if not args.waits:
             raise DriveError(f"{args.ask}: a card drawn from a file needs --waits <drive>:<job>-<the ask record's seq>; drive job card <j> draws a job's newest kept ASK")
@@ -965,6 +989,9 @@ def card_source(name: str, args: argparse.Namespace) -> tuple[Path, str]:
     job = find(state.load(name)["jobs"], args.ask, "job")
     named = Path(args.file).expanduser().resolve() if args.file else None
     kept = [question for question in job["questions"] if question["file"] and named in (None, Path(question["file"]).resolve())]
+    if not kept and not args.file and (designed := asked_report(name, args.ask, job)) and not job.get("report"):
+        path, _, _ = keep_ask(name, args.ask, designed, None)
+        kept = [question for question in find(state.load(name)["jobs"], args.ask, "job")["questions"] if question["file"] == str(path)]
     if not kept:
         raise DriveError(f"{args.ask} keeps no ASK block{f' in {args.file}' if args.file else ''}: keep one with drive job ask {args.ask} <file>")
     question = kept[-1]
@@ -1237,7 +1264,7 @@ def job_launch(args: argparse.Namespace) -> int:
     root = checkout()
     text = named_text(args.brief or job["brief"], "brief file")
     role = state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID"))
-    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text, None):
+    if refused := state.held_elsewhere(data, job["order"], role) or brief.brief_refusal(name, data, args.id, text):
         raise DriveError(f"{args.id}: refused, not launched: {refused}")
     with state.edit(name) as data:
         job = data["jobs"][args.id]
@@ -1798,9 +1825,7 @@ def heard(args: argparse.Namespace) -> int:
     filed = thread_order(data, args.thread) if args.thread else None
     lane = filed and state.project_lane(filed[1]["project"])
     routed = f"; {filed[0]} in this thread is filed under {filed[1]['project']}: his owner record goes --to {lane}, its sub-coordinator's lane" if filed else ""
-    pairs = filing_pairs(data)
-    in_use = f"\nin use as project / workstream: {'; '.join(f'{project} / {workstream}' for project, workstream in pairs)}" if pairs else ""
-    return emit(args, line + routed + in_use, {"away": args.away, "back": back, "since": since, "catch_up": news, "in_use": pairs, "to": lane})
+    return emit(args, line + routed, {"away": args.away, "back": back, "since": since, "catch_up": news, "to": lane})
 
 
 def thread_order(data: dict, thread: str) -> tuple[str, dict] | None:
@@ -2026,8 +2051,9 @@ def tool_command(args: argparse.Namespace) -> int:
     if args.help:
         print(tools.described(next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)))
         return 0
+    shapes = next(tool for tool in mcp.tool_list() if tool["name"] == args.tool)["inputSchema"]["properties"]
     try:
-        print(tools.run(args.tool, state.resolve(), json.load(sys.stdin)))
+        print(tools.run(args.tool, state.resolve(), tools.parsed_arguments(json.load(sys.stdin), shapes)))
     except reads.ReadError as error:
         raise DriveError(str(error)) from None
     return 0

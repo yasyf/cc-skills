@@ -7,22 +7,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import render, state
 
-SLACK = "mcp__plugin_cc-slack_cc-slack__"
-DRIVE = "mcp__plugin_long-running_drive__"
 OWN_TOOLS = {
-    SLACK + "slack_dm_status",
-    SLACK + "slack_reply",
-    SLACK + "slack_react",
-    SLACK + "slack_watch",
-    DRIVE + "heard",
-    DRIVE + "record",
-    DRIVE + "job",
-    "Agent",
-    "SendMessage",
-    "ToolSearch",
+    *(render.SLACK_TOOLS + tool for tool in render.COMMUNICATOR_SLACK),
+    *(render.DRIVE_TOOLS + tool for tool in render.COMMUNICATOR_DRIVE),
+    *render.COMMUNICATOR_AGENTS,
 }
+PICKUP = render.SLACK_TOOLS + "slack_pickup"
 OWN_SKILLS = {"long-running", "long-running:long-running"}
 OWN_COMMAND = re.compile(r"\s*(?:drive|cci|cc-slack)\s")
 RESUME = re.compile(r"\bdrive job resume\b.*?\b(j\d+)\b")
@@ -32,7 +24,7 @@ TAIL_BYTES = 65536
 
 
 def own_call(payload: dict) -> bool:
-    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, Agent, SendMessage, ToolSearch, this skill, the drive's heard, record and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
+    """Whether a call is one the communicator makes itself: the ack, a +1, its DM's watch, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, record, order and job tools, and a `drive`, `cci` or `cc-slack` command in Bash, which starts it and stands in for a drive tool its session does not list."""
     name = payload["tool_name"]
     call = payload["tool_input"]
     if name == "Skill":
@@ -43,10 +35,12 @@ def own_call(payload: dict) -> bool:
 
 
 def communicator_call(payload: dict) -> str:
+    if payload["tool_name"] == PICKUP:
+        return f"Refused on purpose: {render.EYES} Go on with the ack."
     return (
         f"Refused on purpose: the communicator does not run {payload['tool_name']} itself, since work in its turn holds his"
-        " next message behind it. Its own calls are the ack, a +1, Agent, SendMessage to a builder of its own, ToolSearch,"
-        " and the drive's heard, record and job tools. Start a background long-running:handler briefed with this step;"
+        f" next message behind it: a read, draft or post of any kind is a handler's. Its own calls are {render.OWN_CALLS}."
+        f" Start a background long-running:handler briefed with this step in its lines, {', '.join(render.HANDLER_LABELS)};"
         " it does the read, draft or post and returns one line."
     )
 
@@ -90,14 +84,19 @@ def recent_rows(path: Path, since: datetime) -> list[dict]:
             span *= 2
 
 
-def read_job(path: Path, job_id: str, job: dict) -> bool:
-    """Whether the session's own transcript shows, in the last 10 minutes, a Bash call that read the job's transcript and did not fail: `drive job replies` on it, `cc-transcript` on its agent, or `orca orchestration worker-read` on its dispatch."""
+def transcript_read(job_id: str, job: dict) -> re.Pattern[str]:
+    """A command that reads the job's transcript: `drive job replies` on it, `cc-transcript` on its agent, or `orca orchestration worker-read` on its dispatch."""
     reads = [rf"\bdrive job replies\b.*\b{job_id}\b"]
     if job.get("agent"):
         reads.append(rf"\bcc-transcript\b.*{re.escape(job['agent'])}")
     if job.get("dispatch"):
         reads.append(rf"\bworker-read\b.*{re.escape(job['dispatch'])}")
-    pattern = re.compile("|".join(reads), re.DOTALL)
+    return re.compile("|".join(reads), re.DOTALL)
+
+
+def read_job(path: Path, job_id: str, job: dict) -> bool:
+    """Whether the session's own transcript shows, in the last 10 minutes, a Bash call that read the job's transcript and did not fail."""
+    pattern = transcript_read(job_id, job)
     calls: set[str] = set()
     for row in recent_rows(path, datetime.now(UTC) - READ_WINDOW):
         content = (row.get("message") or {}).get("content")
@@ -110,9 +109,14 @@ def read_job(path: Path, job_id: str, job: dict) -> bool:
 
 
 def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
-    """Why a message to a running job waits for a read of its transcript: an absent message is no evidence, and one sent blind can repeat or contradict what the job did."""
+    """Why a message to a running job waits for a read of its transcript, earlier in the same command or in the last 10 minutes, when it tells the job what state it is in: an absent message is no evidence, and a state guessed reaches the job as fact. Jev judges whether the message claims a state, so a ruling, an answer or a refusal relayed goes through."""
     job = data["jobs"][job_id]
-    if job["state"] != "running" or read_job(Path(payload["transcript_path"]), job_id, job):
+    call = payload["tool_input"]
+    text = str(call.get("message") or "") if payload["tool_name"] == "SendMessage" else call.get("command") or ""
+    resumed = RESUME.search(text)
+    if job["state"] != "running" or (resumed and transcript_read(job_id, job).search(text[: resumed.start()])):
+        return None
+    if read_job(Path(payload["transcript_path"]), job_id, job):
         return None
     how = (
         f"`drive job replies {job_id}` or `orca orchestration worker-read --dispatch {job['dispatch']} --limit 50 --full --json`"
@@ -120,8 +124,9 @@ def unread_job(payload: dict, data: dict, job_id: str) -> str | None:
         else f"`cc-transcript` on agent {job['agent']}'s transcript"
     )
     return (
-        f"Refused on purpose: your transcript shows no read of {job_id}'s transcript in the last 10 minutes, and a message sent"
-        f" blind can repeat or contradict what the job did. Read it with {how}, then send."
+        f"A message that tells {job_id} it stopped, stalled, went quiet or is stuck needs a read of its transcript first, and"
+        " your transcript shows none in the last 10 minutes, so that state is a guess that reaches the job as fact. Read it"
+        f" with {how}, in an earlier call or before the resume in this command, then send."
     )
 
 

@@ -94,15 +94,27 @@ def test_an_order_links_its_thread_in_slack_or_else_its_dashboard_page_under_his
         talk.say(demo, {"text": "{order:o9} is next."})
 
 
-def test_a_record_draws_in_its_own_words_linked_to_what_it_links(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
-    oom = "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM"
-    shown = {"661194": {"text": oom, "refs": {"url": "https://app.datadoghq.com/notebook/1"}}, "661195": {"text": "the write lock is held across the whole call", "refs": {}}}
+def test_a_record_links_what_it_links_under_its_first_clause_or_the_words_after_a_bar(demo: str, posts: list[tuple[str, ...]], monkeypatch: pytest.MonkeyPatch) -> None:
+    notebook = "https://app.datadoghq.com/notebook/1"
+    timeouts = (
+        "The 37 API failures at 4:14 AM were registry timeouts while the primary switched builds, per #663477 and"
+        " the replica logs. Retries drained them by 4:16 AM."
+    )
+    shown = {
+        "661194": {"text": "sandsql-server ran out of memory at its 32 GiB limit, 3 times since 9:40 PM", "refs": {"url": notebook}},
+        "661195": {"text": "the write lock is held across the whole call", "refs": {}},
+        "661196": {"text": timeouts, "refs": {"url": notebook}},
+    }
     asked: list[list[str]] = []
     monkeypatch.setattr(reads, "run", lambda argv, checkout: asked.append(argv) or json.dumps(shown[argv[2]]))
-    talk.say(demo, {"text": "The pod restarts because {record:661194}. Stalls: {record:661195}."})
-    assert asked == [["cci", "show", seq, "--json", "--drive", demo] for seq in ("661194", "661195")]
-    assert posts[0][-1] == f"The pod restarts because <https://app.datadoghq.com/notebook/1|{oom}>. Stalls: the write lock is held across the whole call."
-    assert said(demo)[0]["text"] == f"The pod restarts because [{oom}](https://app.datadoghq.com/notebook/1). Stalls: the write lock is held across the whole call."
+    talk.say(demo, {"text": "The pod restarts because {record:661194}. Stalls: {record:661195}. Failures: {record:661196}, {record:661196|the timeouts}."})
+    assert asked == [["cci", "show", seq, "--json", "--drive", demo] for seq in ("661194", "661195", "661196", "661196")]
+    assert posts[0][-1] == (
+        f"The pod restarts because <{notebook}|sandsql-server ran out of memory at its 32 GiB limit>. Stalls: the write lock is"
+        f" held across the whole call. Failures: <{notebook}|The 37 API failures at 4:14 AM were registry timeouts…>,"
+        f" <{notebook}|the timeouts>."
+    )
+    assert said(demo)[0]["text"].startswith(f"The pod restarts because [sandsql-server ran out of memory at its 32 GiB limit]({notebook}).")
 
 
 def test_a_card_asked_again_with_new_words_moves_its_question_and_each_wait_on_it_to_the_new_card(demo: str, posts: list[tuple[str, ...]]) -> None:

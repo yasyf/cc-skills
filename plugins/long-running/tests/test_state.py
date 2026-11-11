@@ -328,6 +328,11 @@ def test_parse_due_clock_already_passed_is_tomorrow() -> None:
     assert state.parse_due("9:15", REFERENCE) == REFERENCE.replace(hour=9, minute=15) + timedelta(days=1)
 
 
+def test_parse_due_reads_the_twelve_hour_clock_the_drive_prints() -> None:
+    assert state.parse_due("4:30 PM", REFERENCE) == REFERENCE.replace(hour=16, minute=30)
+    assert state.parse_due("12:05 am", REFERENCE) == REFERENCE.replace(hour=0, minute=5) + timedelta(days=1)
+
+
 def test_parse_due_offsets() -> None:
     assert state.parse_due("+30m", REFERENCE) == REFERENCE + timedelta(minutes=30)
     assert state.parse_due("+2h", REFERENCE) == REFERENCE + timedelta(hours=2)

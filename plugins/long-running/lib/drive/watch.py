@@ -969,12 +969,12 @@ def death_lines(name: str, deaths: dict[str, tuple[str, str]], moment: datetime)
 
 
 def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: datetime) -> bool:
-    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its, or a time to come."""
+    """Whether something can wake a waiting or built job: its lane's question, his open card, a wait the watch has not freed yet, an open PR of its, or a time to come, its own clock from drive job set --due or its orders' due times."""
     if job.get("ask") or view.open_cards(job, cards) or job["waits"]:
         return True
     if any(pr["job"] == job_id and pr["state"] == "open" for pr in data["prs"].values()):
         return True
-    dues = [data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]]]
+    dues = [job["due"], *(data["orders"][order_id]["due"] for order_id in [job["order"], *job["carries"]])]
     return any(due and state.parse_time(due) > moment for due in dues)
 
 

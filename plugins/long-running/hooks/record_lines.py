@@ -39,8 +39,8 @@ SECOND_REPORT = (
 )
 TAP_ASKED = re.compile(r"\btap (?:Approve|Hold)\b|\b(?:needs?|waits? (?:on|for)) (?:your|his|a) tap\b", re.IGNORECASE)
 WAITS_ON_HIM = re.compile(r"\bwait(?:s|ing)? (?:on|for) (?:him|his|your|you)\b|\bneeds? (?:his|your) (?:tap|pick|answer|approval)\b", re.IGNORECASE)
-CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b")
-UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, or its waits id with `--attr waits=<drive>:<j>-<seq>`, so the handler links the card"
+CARD_NAMED = re.compile(r"slack\.com/archives/|\{card:|\b[\w-]+:j\d+-\d+\b|github\.com/[^/\s]+/[^/\s]+/pull/\d+")
+UNCARDED = "refused: this report says something waits on him and names no card; add its permalink, the PR whose card it is, or its waits id with `--attr waits=<drive>:<j>-<seq>`, so the handler links the card"
 WAITS_ON_OTHER = re.compile(r"\bwait(?:s|ing)? on (?!(?:him|his|your|you|he)\b)\S", re.IGNORECASE)
 WAITED = re.compile(r"\b\d+ ?(?:s|secs?|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?)\b|\bsince \d", re.IGNORECASE)
 RUNNING = re.compile(r"\b(?:running|queued|idle|stopped|started|starting|in progress|not started)\b", re.IGNORECASE)
@@ -98,6 +98,18 @@ def untapped(record: dict, prs: dict[str, dict]) -> str | None:
 def unkinded(record: dict) -> str | None:
     """Why a ready record does not say which kind of work its PRs are, the first thing he asks of a PR card."""
     return UNKINDED if kind(record) == "ready" and not KIND_NAMED.search(record.get("text") or "") else None
+
+
+def completed(names: list[str], drive: dict, record: dict) -> dict:
+    """The record with what the drive already knows filled in: an ask's kept file as its ask attr when it attaches that file as its path, and a ready record's kind, read from the order its order attr names, when its text names none."""
+    named = attrs(record)
+    if kind(record) == "ask" and not named.get("ask") and settled.kept(names, record.get("path")):
+        return record | {"attrs": named | {"ask": record["path"]}}
+    order = drive["orders"].get(named.get("order") or "")
+    if kind(record) != "ready" or order is None or KIND_NAMED.search(record.get("text") or ""):
+        return record
+    words = order["text"] if order["text"].startswith(state.TOOLING) else f'his order {named["order"]} "{order["text"]}"'
+    return record | {"text": f"{record['text']}; {words}"}
 
 
 def lifted(record: dict) -> str | None:
@@ -226,17 +238,19 @@ def readdressed(drives: dict[str, dict], record: dict) -> dict:
 
 
 def decision(payload: dict) -> dict | None:
-    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it one line, the rest in its body for whoever acts on it, and each of the communicator's records for a coordinator sent to the coordinator session hearing the order it serves."""
+    """What a drive session's post becomes: refused with the fix while a record in it breaks a rule its kind keeps, else every record in it completed from what the drive knows and one line, the rest in its body for whoever acts on it, and each of the communicator's records for a coordinator sent to the coordinator session hearing the order it serves."""
     names = state.session_drives(payload.get("session_id") or "")
     if not names:
         return None
     tool_input = payload["tool_input"]
-    records = tool_input.get("records") or [tool_input]
+    given = tool_input.get("records") or [tool_input]
+    drive = state.load(names[0])
+    records = [completed(names, drive, record) for record in given]
     if refused := next(filter(None, refusals(payload, names, records)), None):
         return {"permissionDecision": "deny", "permissionDecisionReason": refused}
     drives = state.communicated(names, payload.get("session_id"))
     made = [limits.shortened(routed) or routed for routed in (readdressed(drives, record) for record in records)]
-    if made == records:
+    if made == given:
         return None
     if tool_input.get("records"):
         return {"updatedInput": tool_input | {"records": made}}

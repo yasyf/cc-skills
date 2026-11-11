@@ -36,20 +36,14 @@ def test_a_handlers_prompt_is_its_brief_alone(communicator: str) -> None:
     )
 
 
-def test_a_handler_on_sonnet_takes_only_a_ready_record_or_a_post_report(communicator: str, records: dict[str, str]) -> None:
-    assert agent_brief.deny_reason(started("long-running:handler", HIS_BRIEF, "sonnet")) == (
-        "refused: a handler runs on Opus for his words, an ask, a card or any judgment, and Sonnet or Haiku only for a `ready`"
-        " record or a `POST` report briefed as its one `Record:` line; pass no model"
-    )
-    assert agent_brief.deny_reason(started("long-running:handler", HIS_BRIEF)) is None
-    records["661300"] = "@Nov 10 11:34 PM\n661300 ready root>communicator [job=j1 order=o1] + j1 READY https://github.com/yasyf/cc-skills/pull/1"
-    records["661301"] = "@Nov 10 11:35 PM\n661301 report root>communicator [thread=1.2] + POST j1 is installed"
-    records["661302"] = "@Nov 10 11:36 PM\n661302 report root>communicator [thread=1.2] + Step 3 of 3: his pick is live"
-    for seq in ("661300", "661301"):
-        assert agent_brief.deny_reason(started("long-running:handler", f"Record: {seq} Drive: demo Scratch: /scratch/h1", "sonnet")) is None
-    assert agent_brief.deny_reason(started("long-running:handler", "Record: 661302 Drive: demo Scratch: /scratch/h1", "haiku")).endswith(
-        "pass no model"
-    )
+def test_a_handler_on_a_light_model_runs_on_opus(communicator: str) -> None:
+    his = started("long-running:handler", HIS_BRIEF, "sonnet")
+    assert agent_brief.deny_reason(his) is None
+    assert agent_brief.heavier(his) == {"subagent_type": "long-running:handler", "prompt": HIS_BRIEF, "description": "d"}
+    assert agent_brief.heavier(started("long-running:handler", HIS_BRIEF)) is None
+    ready = "Record: 663488\nThread: 1.2\nDrive: demo\nScratch: /scratch/h1"
+    assert agent_brief.heavier(started("long-running:handler", ready, "haiku")) == {"subagent_type": "long-running:handler", "prompt": ready, "description": "d"}
+    assert agent_brief.heavier(started("long-running:reader", ready, "sonnet")) is None
 
 
 def test_a_design_job_starts_only_as_the_designer(demo: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:

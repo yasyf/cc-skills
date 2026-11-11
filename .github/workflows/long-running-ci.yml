@@ -35,3 +35,8 @@ jobs:
       - run: pip install pytest
       - name: pytest
         run: python -m pytest plugins/long-running/tests -q
+      - uses: astral-sh/setup-uv@v8.2.0
+      - name: capt-hook pack test
+        env:
+          UV_PYTHON: "3.14"
+        run: uvx --isolated 'capt-hook>=12.121.63' pack test plugins/long-running

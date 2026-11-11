@@ -27,11 +27,10 @@ LIMIT = re.compile(r"\b(?:caps?|capped|quotas?|capacity|ceilings?|throttl\w*|rat
 LEFT_STANDING = re.compile(r"\b(?:left\s+as[\s-]is|unchanged|hit(?:s|ting)?|exceed(?:s|ed|ing)?)\b", re.IGNORECASE)
 STATEMENT_BREAK = re.compile(r"[.;:!?]+(?=\s|$)")
 CHOICE_OPENINGS = ("ASK", "DESIGN")
-QUESTION = re.compile(r"(?:^|[,;?]|\band\b)\s*(?:why|who|whom|whose|when|where|what|which|how|whether)\b", re.IGNORECASE | re.MULTILINE)
 DESIGN_PART = re.compile(r"DESIGN\s+\S")
 KEYS = ("rulings", "exists", "open")
 RESEARCHED_KINDS = ("builder", "design")
-LANE_MODELS = {"reader": "opus", "builder": "opus", "design": "fable"}
+LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
@@ -115,34 +114,20 @@ def job_refusal(name: str, data: dict, order_id: str, kind: str) -> str | None:
     return None
 
 
-def brief_refusal(name: str, data: dict, job_id: str, brief: str, model: str | None) -> str | None:
-    """Why this brief may not start its job's agent: a build order's builder or designer needs the Researched: line naming its reader, an answer order's one lane does its own research, a complex or build order's lane runs on its own model, and a light lane waits on an answer order asking several questions until it is marked complex or not."""
+def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
+    """Why this brief may not start its job's agent: a build order's builder or designer needs the Researched: line naming its reader, and an answer order's one lane does its own research."""
     job = data["jobs"][job_id]
     order_id = job["order"]
     order = data["orders"][order_id]
     if HANDOFF.search(brief) or order["incident"] or not order["kind"]:
         return None
-    light = job["kind"] in LANE_MODELS and any(word in (model or "") for word in LIGHT_MODELS)
     if order["kind"] == "answer":
         if RESEARCHED_LINE.search(brief):
             return (
                 f"{job_id} answers {order_id}, an answer order: its one lane does its own research, reading code,"
                 " transcripts, records and his answers itself, so its brief carries no Researched: line"
             )
-        if light and order["complex"]:
-            return f"{order_id} is a complex answer order: its lane runs on Opus; pass no model, or opus"
-        if light and order["complex"] is None and (asked := max(questions(order["text"]), questions(job["goal"]))) > 1:
-            return (
-                f"{order_id} is an answer order asking {asked} questions with no complex mark, and a {model} lane answers only"
-                f" a one-fact lookup: mark it drive order set {order_id} --complex and pass no model, or drive order set"
-                f" {order_id} --no-complex when one lookup answers them all"
-            )
         return None
-    if light:
-        return (
-            f"{order_id} is a build order: its reader and builder run on Opus and its designer on Fable; pass no model,"
-            f" or {LANE_MODELS[job['kind']]}"
-        )
     if job["kind"] not in RESEARCHED_KINDS:
         return None
     named = RESEARCHED_BY.search(brief)
@@ -157,9 +142,15 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str, model: str | N
     return None
 
 
-def questions(text: str) -> int:
-    """How many questions the words ask, each a clause opening with why, who, when, where, what, which, how or whether."""
-    return len(QUESTION.findall(text))
+def heavier(data: dict, job_id: str, brief: str, model: str | None) -> bool:
+    """Whether a Sonnet or Haiku passed for the job's lane gives way to its agent definition's own model: a build order's reader, builder and designer run on Opus or Fable, and so does an answer order's lane when the communicator marked the order complex."""
+    job = data["jobs"][job_id]
+    order = data["orders"][job["order"]]
+    if HANDOFF.search(brief) or order["incident"] or not order["kind"] or job["kind"] not in LANE_KINDS or not any(word in (model or "") for word in LIGHT_MODELS):
+        return False
+    if order["kind"] != "answer":
+        return True
+    return bool(order["complex"])
 
 
 def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
@@ -275,10 +266,14 @@ def untappable(first: str) -> str:
     return "; ".join(reason for chain in card.chains(keys, reads) if (reason := card.tap_refusal(known, chain, reads)))
 
 
+def proofs(text: str) -> list[str]:
+    """Each link and absolute path the text names, the punctuation that closes its clause cut off, such as the colon after a picture's path."""
+    return [re.sub(r"[^\w/]+$", "", found) for found in PROOF.findall(text)]
+
+
 def unproven(text: str) -> str | None:
     """Why a builder's DONE may not be kept: its CHECK: line names no proof that exists, or, for what he sees, no recording, picture or live post of it."""
-    proofs = [found.rstrip(".") for line in CHECK.findall(text) for found in PROOF.findall(line)]
-    real = [proof for proof in proofs if proof.startswith("http") or Path(proof).expanduser().exists()]
+    real = [proof for line in CHECK.findall(text) for proof in proofs(line) if proof.startswith("http") or Path(proof).expanduser().exists()]
     if not real:
         return (
             "a DONE names its proof on a CHECK: line, a link or the absolute path of a file that exists, such as the"

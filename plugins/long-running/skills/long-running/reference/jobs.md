@@ -44,10 +44,13 @@ other type; a build order's codex lane before its reader's research is kept; and
 brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal's own
 action backfills, bulk-repairs, migrates, converts or repairs, or runs such a pass, with no `Runs as:`
 line; a Goal that only names a PR, stack or check for a pass is not one; and a builder while eight run
-on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook refuses
-`sonnet` or `haiku` on any lane of a build order or a complex answer order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's
-builder or designer whose brief lacks the `Researched:` line the `brief` op writes once its reader's
-research is kept. Each refusal names its fix: do it, never route around it.
+on this Mac, naming the builder jobs waiting, oldest due first. The `scratch_folder` hook drops
+`sonnet` or `haiku` from any lane of a build order or of an answer order you marked `--complex`, so it
+runs on its definition's model, and refuses a build order's builder or designer whose brief lacks the
+`Researched:` line the `brief` op writes once its reader's research is kept. Each refusal names its
+fix: do it, never route around it. These hooks run in the long-running capt-hook pack, which sends
+each refusal to Jev first: one Jev finds the rule never meant lets the call through, and a merge,
+release or public-body refusal of `landing_guard` blocks outright.
 
 The brief's `Drive:` line names the job. The agent's first Bash, Read, Write or Edit call, or its
 stop, records the agent on that job, and its first call after a `SendMessage` marks the job running
@@ -265,7 +268,8 @@ A job's state is its transcript. Before you report on a running job or message i
 transcript: `cc-transcript` on the file its agent id names, or for a remote lane `drive job replies
 <j>` or `orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An
 absent message is never evidence. The `communicator_calls` hook refuses a `SendMessage` or
-`drive job resume` to a running job with no such read in your last 10 minutes.
+`drive job resume` that tells a running job it stopped, stalled or is stuck with no such read in
+your last 10 minutes or earlier in the same command; Jev judges whether the message says so.
 
 A close job closes only what he named: each session or terminal his words or tapped card name, by
 its exact id after a fresh idle check and never a live drive lane, returning the closed count with

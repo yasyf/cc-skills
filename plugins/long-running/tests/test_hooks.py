@@ -294,6 +294,16 @@ def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_afte
     assert no_calls == []
 
 
+def test_a_handlers_steps_never_bind_it_to_the_job_its_brief_names(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
+    handled = stepped(tmp_path, "Record: 661301\nDrive: demo, order o1, job j1\nScratch: /x", agent_type="long-running:handler")
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | handled)) == ""
+    assert state.load("demo")["jobs"]["j1"]["agent"] is None
+
+
 def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -475,9 +485,8 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j2\n{bare}")) == (
         "refused, no agent started: Researched: j2 names no reader of o1 that kept a Researched: line and under it rulings:, exists: and open: lines in its report"
     )
-    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) == (
-        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or opus"
-    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet")) is None
+    assert "model" not in scratch_folder.heavier(drive_agent("long-running:builder", f"Researched: j1\n{bare}", "sonnet"))
     assert hook_output(scratch_folder, monkeypatch, capsys, json.dumps(drive_agent("long-running:builder", f"Researched: j1\n{bare}"))) == ""
     assert folder.is_dir()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", f"Handoff: 812\nDrive: demo, order o1, job j2\nScratch: {folder}")) is None
@@ -487,20 +496,19 @@ def test_a_build_orders_builder_starts_only_on_a_brief_naming_its_readers_resear
     assert code == 0
     assert "\nResearched: j1\n" in Path(prompt.removeprefix("Read your brief first: ")).read_text()
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt)) is None
-    assert scratch_folder.deny_reason(drive_agent("long-running:builder", prompt, "sonnet")) == (
-        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or opus"
-    )
+    assert scratch_folder.heavier(drive_agent("long-running:builder", prompt, "sonnet")) == {"subagent_type": "long-running:builder", "prompt": prompt, "description": "d"}
 
 
-def test_a_build_orders_designer_on_a_light_model_is_told_to_run_on_fable(communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_a_build_orders_designer_on_a_light_model_runs_on_its_own_fable(communicator: str, run: Run, monkeypatch: pytest.MonkeyPatch) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: copy one store", "--kind", "build")
     run("job", "add", "reader", "--order", "o1", "--goal", "research: the copy")
     monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
     run("job", "report", "j1", "-")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the copy")
-    assert scratch_folder.deny_reason(drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "sonnet")) == (
-        "refused, no agent started: o1 is a build order: its reader and builder run on Opus and its designer on Fable; pass no model, or fable"
-    )
+    light = drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "sonnet")
+    assert scratch_folder.deny_reason(light) is None
+    assert scratch_folder.heavier(light) == {key: value for key, value in light["tool_input"].items() if key != "model"}
+    assert scratch_folder.heavier(drive_agent("long-running:designer", "Researched: j1\nDrive: demo, order o1, job j2", "fable")) is None
 
 
 def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str, run: Run, tmp_path: Path) -> None:
@@ -525,32 +533,20 @@ def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_c
         "refused, no agent started: j1 answers o1, an answer order: its one lane does its own research, reading code,"
         " transcripts, records and his answers itself, so its brief carries no Researched: line"
     )
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) == (
-        "refused, no agent started: o1 is a complex answer order: its lane runs on Opus; pass no model, or opus"
-    )
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus")) is None
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")) is None
+    assert "model" not in scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet"))
+    assert scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "opus")) is None
+    assert scratch_folder.heavier(drive_agent("long-running:reader", "Drive: demo, order o2, job j2", "sonnet")) is None
 
 
-def test_a_light_reader_waits_on_an_answer_order_asking_several_questions_until_it_is_marked(demo: str, run: Run) -> None:
+def test_a_light_reader_keeps_its_model_on_an_answer_order_the_communicator_left_unmarked(demo: str, run: Run) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell me about the copy", "--kind", "answer")
     run("job", "add", "reader", "--order", "o1", "--goal", "why the copy stalls, who owns the bucket, when it started")
-    run("job", "add", "reader", "--order", "o1", "--goal", "what is the head sha of the copy fix")
     assert state.load("demo")["orders"]["o1"]["complex"] is None
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) == (
-        "refused, no agent started: o1 is an answer order asking 3 questions with no complex mark, and a sonnet lane answers only"
-        " a one-fact lookup: mark it drive order set o1 --complex and pass no model, or drive order set o1 --no-complex when"
-        " one lookup answers them all"
-    )
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j2", "sonnet")) is None
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1")) is None
-    run("order", "set", "o1", "--no-complex")
-    assert scratch_folder.deny_reason(drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")) is None
-    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls\nwho owns the bucket\nwhen it started", "--kind", "answer")
-    run("job", "add", "reader", "--order", "o2", "--goal", "answer him")
-    assert "o2 is an answer order asking 3 questions with no complex mark" in scratch_folder.deny_reason(
-        drive_agent("long-running:reader", "Drive: demo, order o2, job j3", "sonnet")
-    )
+    light = drive_agent("long-running:reader", "Drive: demo, order o1, job j1", "sonnet")
+    assert scratch_folder.deny_reason(light) is None
+    assert scratch_folder.heavier(light) is None
+    run("order", "set", "o1", "--complex")
+    assert "model" not in scratch_folder.heavier(light)
 
 
 def test_guard_denies_an_untapped_drive_pr(
@@ -887,6 +883,10 @@ def test_guard_reads_gh_repo_from_the_session_environment(
 ) -> None:
     monkeypatch.setenv("GH_REPO", "Forge-AI/monorepo")
     assert landing_guard.deny_reason(bash("gh pr merge 42 --admin")) == landing_guard.ADMIN_REASON
+    assert (landing_guard.judged_reason(bash("gh pr merge 42 --admin")), landing_guard.guarded_reason(bash("gh pr merge 42 --admin"))) == (
+        None,
+        landing_guard.ADMIN_REASON,
+    )
 
 
 def test_gh_repo_does_not_select_the_repo_for_ccx(drive_pr: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -7,6 +7,20 @@ from pathlib import Path
 from drive.state import ROLES, agent_gone, hears, now, open_orders, owed, owed_at, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread
 
 PLUGIN_JSON = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+SLACK_TOOLS = "mcp__plugin_cc-slack_cc-slack__"
+DRIVE_TOOLS = "mcp__plugin_long-running_drive__"
+COMMUNICATOR_SLACK = ("slack_dm_status", "slack_reply", "slack_react", "slack_watch")
+COMMUNICATOR_DRIVE = ("say", "heard", "record", "order", "job")
+COMMUNICATOR_AGENTS = ("Agent", "SendMessage", "ToolSearch")
+OWN_CALLS = (
+    "the ack, a +1, the watch on his DM, Agent, SendMessage, ToolSearch, this skill, the drive's say, heard, record, order"
+    " and job tools, and a drive, cci or cc-slack command in Bash"
+)
+EYES = (
+    "cc-slack puts the eyes and Slack's working line on his message itself the moment it lands, so the communicator"
+    " never calls slack_pickup."
+)
+HANDLER_LABELS = ("Record", "Job", "Message (his words)", "Link", "Thread", "Drive", "Paths", "Scratch", "Deliverable", "Context", "Waits")
 COMMUNICATOR_RULES = (
     (
         "He never reads this terminal: everything for him goes to Slack, every message of your turn is tool calls"
@@ -14,8 +28,9 @@ COMMUNICATOR_RULES = (
     ),
     (
         "When he writes, your first message is the ack alone, inside 5 to 10 seconds, since a call beside it holds it"
-        " back: one sentence you already know, saying what he asked and what happens next. cc-slack put the eyes on it"
-        " and acked any message carrying acked while you compacted, which then gets none from you."
+        " back: one sentence you already know, saying what he asked and what happens next. "
+        + EYES
+        + " It also acks any message carrying acked while you compacted, which then gets none from you."
     ),
     (
         "An ack, an owner record and a handler's prompt carry his words as written, adding nothing he did not state,"
@@ -56,15 +71,18 @@ COMMUNICATOR_RULES = (
         " line, draft, check-post, read of any kind and anything taking more than one call runs in a background handler"
         " that posts its own result. A POST report, a ready record and an ask record each get one handler, its prompt"
         " the one line `Record: <seq> Drive: <name> Scratch: <folder>`; an `FYI` report gets none. A record's body and"
-        " any path it names are the handler's to read. Load no skill and no tool past those below, since each comes"
-        " back after every compaction."
+        " any path it names are the handler's to read. Your own calls are "
+        + OWN_CALLS
+        + ", and a hook refuses any other; load no skill and no tool past those below, since each comes back after"
+        " every compaction."
     ),
     (
-        "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
-        " deliverable and any path you know that answers it, retyping no rule, since its agent definition is its"
-        ' standing brief. A handler runs on Opus. Pass model: "sonnet" only for a ready record or a POST report briefed'
-        " as its one Record: line, which the Agent hook enforces. His words, research, an explanation, a design, a"
-        ' question or PR card and any judgment call keep Opus: "for more complex use opus from the start".'
+        "A handler's prompt is a few lines, each opening with one of "
+        + ", ".join(f"{label}:" for label in HANDLER_LABELS)
+        + ", carrying his words verbatim, the permalink, the thread, its scratch folder, the deliverable and any path you know"
+        " that answers it, retyping no rule, since its agent definition is its standing brief. A handler runs on Opus, and the Agent hook"
+        " drops any model passed for it, since a ready record draws his PR card and his words, research, an explanation,"
+        ' a design, a question card and any judgment call keep Opus: "for more complex use opus from the start".'
     ),
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
@@ -117,7 +135,8 @@ COORDINATOR_RULES = (
         " do yourself holds every event behind it. Before the Agent call, one job call adds the job and writes its"
         " brief, ops `[{add: {kind, order, goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of"
         " his on the area]}}]`, and the Agent prompt is the line brief prints, `Read your brief first: <path>`. The"
-        ' drive records each job\'s start, wake and result itself, so job set takes state: "stopped" alone.'
+        " drive records each job's start, wake and result itself, so job set takes state stopped for a job that ends"
+        " unfinished, and done for a design job its builder carried."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb and"
@@ -128,8 +147,8 @@ COORDINATOR_RULES = (
     (
         "Start a builder only for a port of #N (pr set `port_of`, no PR card), an order of his (pr set tap, `serves"
         " <o>`, design `asked:<his answer>` or none, his words quoted in its ready line) or drive tooling, which is the"
-        " communicator's: a tool defect you or a job hit is a defect record to communicator@<drive> with the refusal"
-        " verbatim, and you start no tooling job. Build, polish or card nothing else: another lane's PR goes back to"
+        " communicator's: his words on drive tooling are its order, never one you add, and a tool defect you or a job"
+        " hit is a defect record to communicator@<drive> with the refusal verbatim, and you start no tooling job. Build, polish or card nothing else: another lane's PR goes back to"
         " it, and an unordered finding becomes a question card."
     ),
     (
@@ -172,7 +191,7 @@ COORDINATOR_RULES = (
     ),
     (
         "Never block: your own calls are the drive's tools, cci reads, a job's transcript, one gh call and the verbs"
-        " the skill names. Read a job's transcript before you call it silent, stuck or done, since a state you guess"
+        " the skill names, never a Slack read, which is a job's. Read a job's transcript before you call it silent, stuck or done, since a state you guess"
         " reaches him as fact."
     ),
     (
@@ -220,7 +239,8 @@ FIRST_CALL = {
         "Your first call now, before anything else, loads the tools your turn needs: ToolSearch"
         " select:mcp__plugin_cc-slack_cc-slack__slack_dm_status,"
         "mcp__plugin_cc-slack_cc-slack__slack_reply,mcp__plugin_cc-slack_cc-slack__slack_react,"
-        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__job"
+        "mcp__plugin_long-running_drive__heard,mcp__plugin_long-running_drive__record,mcp__plugin_long-running_drive__job,"
+        "mcp__plugin_long-running_drive__order"
     ),
     "coordinator": (
         "The watch runs as its own process and posts its lines to you over cci: a line you act on now as a handoff"

@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import shlex
 import sys
 from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
@@ -12,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, github, limits, public_check, settled, slack, state, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
-from drive.shell import runnable
+from drive.shell import runnable, simple_commands
 
 GUARDED_OWNER = "forge-ai"
 MONOREPO = "Forge-AI/monorepo"
@@ -177,18 +176,6 @@ MISROUTED = (
 
 def run(args: list[str], cwd: str) -> str:
     return github.run(args, cwd=cwd, timeout=20).strip()
-
-
-def segments(command: str) -> list[list[str]]:
-    lexer = shlex.shlex(runnable(command).replace("\n", ";"), posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    groups: list[list[str]] = [[]]
-    for token in lexer:
-        if set(token) <= set(lexer.punctuation_chars):
-            groups.append([])
-        else:
-            groups[-1].append(token)
-    return [group for group in groups if group]
 
 
 def moved(cwd: str, target: str) -> str:
@@ -447,7 +434,7 @@ def cut_reason(words: list[str], session: str) -> str | None:
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
     """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, export and nested shell scripts."""
-    for segment in segments(script):
+    for segment in simple_commands(runnable(script)):
         words, run_in = command_words(segment, shell)
         if not words:
             continue
@@ -520,11 +507,21 @@ def misrouted(posts: list[tuple[str, dict[str, str], list[str]]], drives: dict[s
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, posts a drive's ask record past the check against his answers, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, is the coordinator's own order work, or puts up a drive's public PR body showing what only a private place may."""
+    """Why a Bash call must not run: a judged reason, else a guarded one."""
+    return judged_reason(payload) or guarded_reason(payload)
+
+
+def shell_of(payload: dict) -> tuple[list[str], Shell]:
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
-    shell = Shell(payload.get("cwd") or os.getcwd(), env, session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
+    return names, Shell(payload.get("cwd") or os.getcwd(), env, session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
+
+
+def judged_reason(payload: dict) -> str | None:
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers, a report naming an attr a separator, a capital or one letter from one the drive reads, or a communicator's record to a coordinator lane other than the one hearing the order it serves, or is the coordinator's own order work."""
+    names, shell = shell_of(payload)
+    session = shell.session
     command = payload["tool_input"]["command"]
     posts = cci_posts(command, shell)
     asks = [attrs.get("ask") for kind, attrs, _ in posts if kind == "ask"]
@@ -537,6 +534,13 @@ def deny_reason(payload: dict) -> str | None:
     coordinates = not payload.get("agent_id") and any(state.session_role(state.load(name), session) == "coordinator" for name in names)
     if coordinates and (step := own_work(command, shell)):
         return COORDINATOR_STEP.format(step=step)
+    return None
+
+
+def guarded_reason(payload: dict) -> str | None:
+    """Why a Bash call must not run, with no judgment to make: it lands a Forge-AI drive PR without his tap or merges with --admin there, merges a cc-skills PR before its CI is green, starts, approves or rolls back a production cut from a sub-coordinator's session, and in a drive session or agent lands a Forge-AI PR while his card on it is open, around the monorepo's queue or apart from its stack, or puts up a drive's public PR body showing what only a private place may."""
+    _, shell = shell_of(payload)
+    command = payload["tool_input"]["command"]
     if shell.driving and (exposed := body_reason(command, shell)):
         return exposed
     return script_reason(command, shell)
@@ -555,14 +559,15 @@ def denial(reason: str) -> dict:
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
-        reason = deny_reason(payload)
+        judged = judged_reason(payload)
+        reason = judged or guarded_reason(payload)
     except (ValueError, KeyError):
         return
     except github.GithubError as error:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
     if reason:
-        print(json.dumps(denial(reason)))
+        print(json.dumps(denial(reason) | {"judged": bool(judged)}))
         return
     agents.hold(payload)
 

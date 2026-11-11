@@ -410,11 +410,12 @@ the dashboard link. When a line says where things stand, link the page instead o
 - Name an order as `{order:<id>}`, which `say` links to the thread its lines go in under the first
   line of his words.
 - State a cause, a number or a state only through the record that measured it, as `{record:<seq>}`
-  on the same line. `say` draws it in that record's own words, linked to what the record links, so
-  he reads the measuring lane's words, never a paraphrase of them: on Nov 10 a line at 8:46 PM blamed
-  "the change that started the failures" without naming it, and a card he tapped at 9:49 PM carried
-  a false "disk full". `say` posts nothing while a line outside a fence or quote names a cause, such
-  as "because" or "caused", with no `{record:}` on it.
+  on the same line. `say` links what the record links under the first clause of the record's own
+  words, at most ten, or under the words after a |, as `{record:<seq>|the memory graph}`, so the
+  measuring lane's evidence is one tap away and its whole text never joins the post or its length:
+  on Nov 10 a line at 8:46 PM blamed "the change that started the failures" without naming it, and a
+  card he tapped at 9:49 PM carried a false "disk full". `say` posts nothing while a line outside a
+  fence or quote names a cause, such as "because" or "caused", with no `{record:}` on it.
 - A card's title and options draw no links, so link whatever they name in its summary or a Show me
   caption. `drive job ask` and the post hook refuse an `ASK` or a post that names such a thing with no
   link there, naming the words and the clause they sit in, and that a thing not open yet is said so
@@ -523,9 +524,8 @@ GET 2 page ranges
   of them those titles are.
 - What check-post passed is what he reads: `say` adds no words of its own, and runs check-post again
   on the words it sends, each reference drawn as its words, refusing the post on any finding.
-  Check-post reads the words under each link, so a card, PR or order title it flags is named in the
-  post's own words, `{pr:<number>|<words>}`; a `{record:}` always draws the record's own words, so a
-  record whose words it flags is not the one to cite.
+  Check-post reads the words under each link, so a card, PR, order or record title it flags is named in the
+  post's own words, `{pr:<number>|<words>}` or `{record:<seq>|<words>}`.
 - A post that answers him hands check-post each message of his in `asked` as `--asked`, so a drive
   word he used there, such as "the drive" in his question about the drive, passes in the answer.
   The same word in a post that answers nothing he said with it is still flagged.

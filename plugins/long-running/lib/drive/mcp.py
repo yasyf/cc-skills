@@ -51,12 +51,14 @@ SAY = {
         "Post a line, an answer, a PR card (tap_prs) or a question card (card) to his Slack DM, with any visuals, and"
         " show it on the drive's dashboard, in one call. In text, {card:<waits id>}, {pr:<number, owner/repo#number or"
         " URL>} and {order:<id>} link under the words naming the card, PR or order, or the words after a |, as"
-        " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} becomes that record's"
-        " own words, linked to what it links. Returns POSTED <permalink>, CARD <permalink> for a card, the question card's own"
-        " link first, recorded as the card of the question asked under its waits id, and with order"
+        " {pr:298|the fix that draws charts}; Slack draws the card under the link. {record:<seq>} links what that record"
+        " links under the first clause of its own words, at most ten, or under the words after a |. Returns POSTED"
+        " <permalink>, CARD <permalink> for a card, the question card's own link first, recorded as the card of the"
+        " question asked under its waits id, and with order"
         " the line recording the post on it. A refusal posts nothing and names its fix, as for a reference that names"
         " nothing, a line naming a cause (because, caused) with no {record:}, or a word `cc-slack check-post` finds:"
-        " make the fix and call again."
+        " make the fix and call again. The communicator's ack to his message is one sentence: what he asked and what"
+        " happens next."
     ),
     "inputSchema": {
         "type": "object",
