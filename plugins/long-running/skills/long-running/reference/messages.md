@@ -19,7 +19,7 @@ shorter rewrite this for a human", said under a findings post of about 900 words
 | A summary of two or more features, each under its own bold line | 120 words |
 | A question card: question, summary and options together | 150 words |
 | A question card's Show me, the worked example between its summary and options | none: drawn whole as its visuals, outside the 150 |
-| Each option on a card | one line of 25 words, saying what he gets and what it costs |
+| Each option on a card | one line of 25 words, saying what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs |
 | A findings post | none, ever: findings stay on disk |
 | An answer to a question or order of his in that thread, his words quoted as `asked` | no limit: the whole answer goes out |
 | An edit that rewords a line already posted | that line's own length and 10 words more, or the line's limit when that is longer |
@@ -58,7 +58,8 @@ limit".
   words, "your messages need to be way shorter rewrite this for a human": a line in his thread is
   at most 60 words, a summary of two or more features at most 120, a question card's question,
   summary and options at most 150 in all with its Show me drawn whole outside that count, each
-  option one line of at most 25 words saying what he gets and what it costs, and no separate
+  option one line of at most 25 words saying what runs, on what trigger, what it reads and what
+  reaches whom, then what he gets and what it costs, and no separate
   findings post, ever. This plugin's hook refuses a post in his DM over its
   limit, from the communicator or any handler, with the count, the limit and what would pass, and
   `drive job ask` refuses an `ASK` that would draw a card over it. An answer to a question or order
@@ -229,7 +230,16 @@ compatre and contracts, and custom image) and then use the approporiuate one eac
 counts toward no limit.
 
 Two to four options, each one line of at most 25 words saying what he gets and what it costs, the title,
-summary and options 150 words in all. The findings stay in the job's file: Explain more on the card
+summary and options 150 words in all. Every option says concretely what it does first: what runs, on
+what trigger, what it reads or watches, and what reaches the agent or him, such as "the Mac reruns the
+check function every 30 seconds and compares its output; a change sends one inbox message that wakes
+the agent". The summary's first line says the same of what every option shares, and the title asks
+only what the options differ on. A mechanism is never a bare word: "Polls only", "a Poll source" or
+"the event system" leaves him to guess what is polled and what wakes whom, and `drive job ask`
+refuses one on the title or an option. His words, Nov 11 1:14 AM, after a watch card asking a name
+whose buttons said "Polls only" and "pushed sources later", which he read as polling in place of the
+inbox for waking the agent: "That wasn't clear from the card, polling is fine for seeing when the
+function output changed. Get rid of all this and ask me the question again properly". The findings stay in the job's file: Explain more on the card
 posts the one section its question rests on, in plain words, and that is the only way they reach
 him.
 

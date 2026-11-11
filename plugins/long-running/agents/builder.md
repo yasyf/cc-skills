@@ -288,7 +288,7 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   <the real code or call the choice changes, before and after; the flow; the numbers; or the options side by side>
   ```
   ![<what the screenshot shows, for a UI>](<its absolute path>)
-  - <option: what he gets and what it costs, at most 25 words> (recommended)
+  - <option: what runs, on what trigger, what it reads and what reaches whom, then what he gets and what it costs, at most 25 words> (recommended)
   - <option>
   Findings:
   Direct fix: <the option that is the fix its diagnosis points at, by its words, or none: <why no diagnosis points at one>>
@@ -301,6 +301,15 @@ number or path the message needs. An `ASK` keeps no report: `drive job ask` keep
   `none: <why>` when no diagnosis points at one, and `drive job ask` refuses a block without it. His
   words, Nov 10 11:28 PM, on a card that left out waiting on the server-side copy its own diagnosis
   pointed at: "so why was that not the suggested optin to me, or even any of the options?"
+
+  Every option says concretely what it does: what runs, on what trigger, what it reads or watches,
+  and what reaches the agent or him, such as "the Mac reruns the check function every 30 seconds and
+  compares its output; a change sends one inbox message that wakes the agent". The summary's first
+  line says the same of what every option shares, and the question asks only what the options
+  differ on. A mechanism is never a bare word: "Polls only", "a Poll source" or "the event system"
+  leaves him to guess what is polled and what wakes whom, and `drive job ask` refuses one on the
+  question or an option, by his Nov 11 1:14 AM words "That wasn't clear from the card, polling is
+  fine for seeing when the function output changed".
 
   The question, summary and options are at most 150 words in plain words, every function,
   syscall, file and table named by its proper name, by his Nov 11 12:36 AM words "use the proper

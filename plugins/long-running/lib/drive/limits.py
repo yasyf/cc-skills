@@ -130,6 +130,31 @@ LANDING = re.compile(r"(?:land|merge)\b", re.IGNORECASE)
 STACK_RULING = 'his Nov 10 10:34 PM words "we should be using the "Stack card" which shows seral PRs instasd of this"'
 NEGATION = re.compile(r"\b(?:no|not|never|without|nothing|none|neither|nor)\b|n't\b", re.IGNORECASE)
 CLAUSE_END = re.compile(r"[.;:,!?\n]")
+MECHANISM_SHAPE = "what runs, on what trigger, what it reads and what reaches whom"
+OPTION_SHAPE = f"{MECHANISM_SHAPE}, then what he gets and what it costs"
+MECHANISM_RULING = (
+    'his Nov 11 1:14 AM words "That wasn\'t clear from the card, polling is fine for seeing when the function output changed.'
+    ' Get rid of all this and ask me the question again properly"'
+)
+MECHANISM_EXAMPLE = (
+    '"the Mac reruns the check function every 30 seconds and compares its output; a change sends one inbox message that wakes the agent"'
+)
+MECHANISM_WORD = (
+    r"poll(?:s|ed|ing)?|push(?:es|ed|ing)?|subscri(?:be|bes|bed|bing|ptions?)|notif(?:y|ies|ied|ying|ications?)"
+    r"|listen(?:s|ed|ing|ers?)?|events?"
+)
+MECHANISM = re.compile(rf"\b(?:{MECHANISM_WORD})\b", re.IGNORECASE)
+MECHANISM_LABEL = re.compile(
+    rf"\b(?:{MECHANISM_WORD})(?:[ \t]+|-)(?:sources?|systems?|APIs?|based|driven|models?|modes?|layers?|mechanisms?|approach(?:es)?|style)\b",
+    re.IGNORECASE,
+)
+MECHANISM_FILLER = re.compile(
+    r"only|just|now|later|first|then|also|instead|too|again|today|always|ever|no|not|never|without|none|a|an|the|and|or"
+    r"|every|each|once|per|\d+|s|secs?|seconds?|mins?|minutes?|hours?|days?",
+    re.IGNORECASE,
+)
+MECHANISM_TERM = re.compile(rf"[^\W_]+|{MASK}+")
+SAND_NAME = re.compile(r"[\w/]+::\w*")
 
 
 @dataclass(frozen=True)
@@ -226,7 +251,7 @@ def card_refusal(card: dict, beside: str) -> str | None:
             " only the words of the ASK block `drive job ask` kept and counted: post the same card with no text." + from_ask(card)
         )
     count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
-    problems = [f"each option is one line of at most {OPTION_WORDS} words, what he gets and what it costs: {', '.join(long)}"] if long else []
+    problems = [f"each option is one line of at most {OPTION_WORDS} words, {OPTION_SHAPE}: {', '.join(long)}"] if long else []
     if count > QUESTION_WORDS:
         problems.append(
             f"this card is {count} words, and a question with its summary and options is at most {QUESTION_WORDS} words in all;"
@@ -272,7 +297,7 @@ def question(text: str, kept: bool = False) -> Question:
     if len(marked) != 1:
         problems.append(f"{len(marked)} options end with (recommended); exactly one does")
     problems += [
-        f'option "{option}" is {words(option)} words; each is one line of at most {OPTION_WORDS}: what he gets and what it costs'
+        f'option "{option}" is {words(option)} words; each is one line of at most {OPTION_WORDS}: {OPTION_SHAPE}'
         for option in options
         if words(option) > OPTION_WORDS
     ]
@@ -304,6 +329,13 @@ def question(text: str, kept: bool = False) -> Question:
         for option in options
         if (step := lands_first(option))
     ]
+    if not kept:
+        problems += [
+            f'{where} names a mechanism by a bare word in "{found}", which leaves him to guess what runs, what it watches and what'
+            f" reaches whom: say {MECHANISM_SHAPE}, such as {MECHANISM_EXAMPLE} ({MECHANISM_RULING})"
+            for where, line in [("the question", title), *((f'option "{option}"', option) for option in options)]
+            for found in bare_mechanisms(line)
+        ]
     if not kept and marked and LANDING.match(title) and LANDING.match(marked[0]) and PR_URL.search("\n".join(summary)):
         problems.append(
             "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY naming"
@@ -595,6 +627,18 @@ def lands_first(option: str) -> str | None:
     if not (landed := LANDS.search(option)):
         return None
     return next((step for step, _ in later_steps(option[landed.end() :])), None)
+
+
+def bare_mechanisms(line: str) -> list[str]:
+    """Each clause of a card's title or option that names a mechanism, such as polling, a push or an event, as a bare label: a clause of nothing but the mechanism and filler, as "Polls only" is, or the mechanism naming a kind of thing, as "a Poll source" and "the event system" do, so he cannot tell what runs, what it watches or what reaches whom. A Sand name such as `event::on` is its proper term, and a clause that says what the mechanism acts on, as "the Mac polls the check function" does, passes."""
+    bare = SAND_NAME.sub(lambda found: MASK * len(found[0]), masked(line))
+    found = []
+    for match in MECHANISM.finditer(bare):
+        read, written = clause(line, bare, match.start(), match.end())
+        filler = all(MECHANISM.fullmatch(term) or MECHANISM_FILLER.fullmatch(term) for term in MECHANISM_TERM.findall(read))
+        if filler or MECHANISM_LABEL.search(read):
+            found.append(written)
+    return list(dict.fromkeys(found))
 
 
 def tap_owed_not(pr: dict) -> str:

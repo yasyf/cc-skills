@@ -243,6 +243,24 @@ Direct fix: none: a proof before a delete, with no defect behind it
 """
 
 
+WATCH_OPTIONS = [
+    "watch:: with every, list and cancel. Polls only; a pushed event later is another sender of the same inbox mail",
+    "event:: now, taking a Poll source first and pushed sources later. One API for good, named before the event system is designed",
+    "self::alarm gains a check and rings only on a change. Smallest surface; no period under a minute, and alarms move to the central inbox",
+]
+WATCH_QUESTION = "Should a watch be its own watch:: package, or the first source of an event:: subscription API?"
+WATCH_ASK = f"""ASK {WATCH_QUESTION}
+A watch is Sand source with a check function and a period in seconds; its session's host reruns it, and a changed result arrives as one message in that session's inbox.
+I recommend watch::; a builder may start on it meanwhile.
+- {WATCH_OPTIONS[0]} (recommended)
+- {WATCH_OPTIONS[1]}
+- {WATCH_OPTIONS[2]}
+Findings:
+Direct fix: none: this names a new feature's API; no defect is being diagnosed.
+His order settles that a watch reruns code on a period and a change reaches the central inbox.
+"""
+
+
 def said(count: int) -> str:
     return " ".join(["word"] * count)
 
@@ -774,6 +792,45 @@ def test_a_direct_fix_names_an_option_whose_first_part_holds_a_double_colon() ->
     findings = "Old readers still open the legacy field.\nDirect fix: Also write the legacy content field as a blob::Blob\n"
     assert limits.direct_fix_problems(findings, options, options[0], []) == []
     assert limits.option_head("Read https://example.com/a: the page says so") == "Read https://example.com/a"
+
+
+def test_a_question_or_option_naming_a_mechanism_by_a_bare_word_is_refused_until_it_says_what_runs_and_what_reaches_whom() -> None:
+    with pytest.raises(DriveError) as refused:
+        limits.question(WATCH_ASK)
+    for where, found in [
+        ("the question", "or the first source of an event:: subscription API"),
+        (f'option "{WATCH_OPTIONS[0]}"', "Polls only"),
+        (f'option "{WATCH_OPTIONS[1]}"', "taking a Poll source first and pushed sources later"),
+        (f'option "{WATCH_OPTIONS[1]}"', "named before the event system is designed"),
+    ]:
+        assert f'{where} names a mechanism by a bare word in "{found}"' in str(refused.value)
+    assert f'option "{WATCH_OPTIONS[2]}" names a mechanism' not in str(refused.value)
+    assert limits.question(WATCH_ASK, kept=True).recommended == WATCH_OPTIONS[0]
+    concrete = {
+        WATCH_QUESTION: "Should the builtin that reruns a check function and messages the agent on a change be named watch:: or event::?",
+        WATCH_OPTIONS[0]: "watch:: the Mac polls the check function every 30 seconds; a changed output sends one inbox message that wakes the agent",
+        WATCH_OPTIONS[1]: "event:: the same polling of the check function now, and later a run's end pushes one inbox message with no polling",
+    }
+    rewritten = WATCH_ASK
+    for bare, said_plainly in concrete.items():
+        rewritten = rewritten.replace(bare, said_plainly)
+    assert limits.question(rewritten).recommended == concrete[WATCH_OPTIONS[0]]
+
+
+@pytest.mark.parametrize(
+    ("line", "bare"),
+    [
+        ("no polling, it's event based", ["no polling", "it's event based"]),
+        ("push-only, so the agent never waits", ["push-only"]),
+        ("the Mac polls the check function every 30 seconds", []),
+        ("the agent subscribes to run-settled events", []),
+        ("GitHub pushes each merge to the listener", []),
+        (WATCHDOG_OPTIONS[0], []),
+        ("event::on takes a run id; self::alarm keeps its cron", []),
+    ],
+)
+def test_a_mechanism_is_bare_only_when_its_clause_says_nothing_else_or_names_a_kind_of_thing(line: str, bare: list[str]) -> None:
+    assert limits.bare_mechanisms(line) == bare
 
 
 def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carries_no_text_beside_it(talker: str, transcript: Path) -> None:
