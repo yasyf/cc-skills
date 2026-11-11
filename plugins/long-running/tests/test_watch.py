@@ -2162,7 +2162,7 @@ def test_a_fix_proven_live_whose_bug_report_has_not_heard_it_is_fixed_is_said_on
     assert watch.tell_lines(watching, T0 + timedelta(minutes=40)) == []
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
-    assert watch.communicators_line(line, state.load(demo))
+    assert watch.holder_line(line, state.load(demo)) == "communicator"
 
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

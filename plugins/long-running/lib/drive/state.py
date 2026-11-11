@@ -708,16 +708,17 @@ def serving_lane(data: dict, kind: str, attrs: dict) -> str | None:
 
 
 def routed(drives: dict[str, dict], session: str | None, kind: str, attrs: dict, to: list[str]) -> list[str]:
-    """Where a drive session's record goes: a defect to the communicator or the meta session to the one holding drive tooling, and the communicator's owner, answer, posted or refused record for a coordinator lane to the session hearing the order it serves, its owner record carrying a ruling to the meta session as well, which rewrites the skill while the coordinator applies it to the live work."""
+    """Where a drive session's record goes: a defect to the top coordinator, the communicator or the meta session to the one holding drive tooling unless that is the poster, and the communicator's owner, answer, posted or refused record for a coordinator lane to the session hearing the order it serves, its owner record carrying a ruling to the meta session as well, which rewrites the skill while the coordinator applies it to the live work."""
     made = []
     for entry in to:
         lane, _, name = entry.partition("@")
         if not (data := drives.get(name)):
             made.append(entry)
             continue
-        communicates = session_role(data, session) == "communicator"
-        if kind == "defect" and lane in HOLDERS:
-            lane = tooling_holder(data)
+        role = session_role(data, session)
+        communicates = role == "communicator"
+        if kind == "defect" and lane in ("root", *HOLDERS) and (holder := tooling_holder(data)) != role:
+            lane = holder
         elif communicates and lane in ("root", *map(project_lane, data["subcoordinators"])) and (serving := serving_lane(data, kind, attrs)):
             lane = serving
         made.append(f"{lane}@{name}")
