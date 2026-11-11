@@ -252,6 +252,7 @@ def load(name: str) -> dict:
         job.setdefault("route", None)
         job.setdefault("may_settle", None)
         job.setdefault("due", None)
+        job.setdefault("checks", {})
         if job.get("ask") and any(reported(text.lstrip()) for text in (job["said"] or "", job["report"] or "")):
             job["ask"] = None
         if job.get("ask"):
@@ -267,7 +268,9 @@ def load(name: str) -> dict:
         pr.setdefault("conflict", False)
         pr.setdefault("failed_checks", [])
         pr.setdefault("hold_label", False)
-    if any("not_ready" not in pr for pr in data["prs"].values()):
+        pr.setdefault("ready_said", None)
+        pr.setdefault("pulled", None)
+    if any("verdict" not in pr for pr in data["prs"].values()):
         judge_kept(data)
     data.setdefault("answers", {})
     for answer in data["answers"].values():
@@ -435,19 +438,39 @@ def named_prs(data: dict, order_id: str, words: str) -> list[str]:
 
 
 def judge(data: dict, job_id: str, line: str, at: str) -> None:
-    """Keep on each drive PR a reader's line judges its verdict: a NOT READY stands, with its reader, time and reason, until a later reader's READY names the PR, since a builder's word that it fixed the finding is the step that failed."""
+    """Keep each verdict a reader's line gives on the reader job, on the head it was started on for that PR or else the PR's head now, and on the PR as its newest verdict, unsaid until the watch acts on it."""
+    job = data["jobs"][job_id]
     for passed, named, why in verdicts(line):
-        for key in named_prs(data, data["jobs"][job_id]["order"], named):
-            data["prs"][key]["not_ready"] = None if passed else {"job": job_id, "at": at, "why": why, "redrawn": False}
+        for key in named_prs(data, job["order"], named):
+            head = job["checks"].setdefault(key, data["prs"][key]["head"])
+            data["prs"][key]["verdict"] = {"job": job_id, "head": head, "ready": passed, "why": why, "at": at, "said": False}
 
 
 def judge_kept(data: dict) -> None:
-    """Give each PR of a drive kept before readers' verdicts reached its PRs the verdict its readers' kept answers leave standing, each answer in the order it came."""
+    """Give each PR of a drive kept before verdicts carried their head the verdict its readers' kept answers leave standing, each answer in the order it came, on an older head when GitHub reports its head committed after the verdict; a standing NOT READY on an open PR stays unsaid, so the watch names its owner once."""
+    from drive import github
+
+    reads = github.fetch([key for key, pr in data["prs"].items() if pr["state"] == "open"])
     for pr in data["prs"].values():
-        pr["not_ready"] = None
+        pr.pop("not_ready", None)
+        pr.update(verdict=None, check=None)
     answered = [(job_id, job) for job_id, job in data["jobs"].items() if job["kind"] == "reader" and job["state"] == "done" and job["said"]]
     for job_id, job in sorted(answered, key=lambda found: parse_time(found[1]["updated"])):
         judge(data, job_id, job["said"], job["updated"])
+    for key, pr in data["prs"].items():
+        if not (verdict := pr["verdict"]):
+            continue
+        if key in reads and parse_time(reads[key]["committed"]) > parse_time(verdict["at"]):
+            verdict["head"] = data["jobs"][verdict["job"]]["checks"][key] = None
+        verdict["said"] = verdict["ready"] or key not in reads
+
+
+def check_status(pr: dict) -> str:
+    """Where his-words check stands on a PR's head: passed or rework by a verdict on this head, recheck under a NOT READY on an older head, else checking."""
+    verdict = pr["verdict"]
+    if verdict and verdict["head"] == pr["head"]:
+        return "passed" if verdict["ready"] else "rework"
+    return "recheck" if verdict and not verdict["ready"] else "checking"
 
 
 def local_lane(dispatch: str) -> dict:
@@ -493,6 +516,7 @@ def new_job(order_id: str, kind: str, goal: str, parts: list[str], created: str)
         "branch": None,
         "worktree": None,
         "prs": [],
+        "checks": {},
         "waits": [],
         "waiting_said": [],
         "waiting_claims": {},
@@ -856,12 +880,13 @@ def card_wait(data: dict, wait: str) -> bool:
 
 
 def owed_step(pr: dict) -> str | None:
-    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, nothing when its author or its own builder lands it, a reader's check again when it waits on his tap while a reader's NOT READY on it stands and he has not tapped it, and else his card."""
+    """What the drive owes a PR once it is green and approved: its landing when an exempt class lands it with no tap, nothing when its author or its own builder lands it, its builder's rework or a reader's recheck while a NOT READY stands and he has not tapped it, and else his card, drawn while his-words check runs."""
     if pr.get("exempt"):
         return "landing"
     if not pr["wants_tap"]:
         return None
-    return "recheck" if pr["not_ready"] and not pr["tap"] else "card"
+    status = check_status(pr)
+    return status if status in ("rework", "recheck") and not pr["tap"] else "card"
 
 
 def new_pr(url: str, job_id: str, order_id: str) -> dict:
@@ -869,7 +894,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "url": url,
         "job": job_id,
         "order": order_id,
-        "wants_tap": False,
+        "wants_tap": True,
         "tap": None,
         "exempt": None,
         "fundamental": None,
@@ -881,7 +906,10 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "review": "none",
         "conflict": False,
         "hold_label": False,
-        "not_ready": None,
+        "verdict": None,
+        "check": None,
+        "ready_said": None,
+        "pulled": None,
         "draft": False,
         "merged_sha": None,
         "stuck": None,

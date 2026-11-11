@@ -67,7 +67,7 @@ background process. When you cannot tell, it counts, because a wrong shape costs
 4. **Nothing lands around an open card.** When an open PR carries a design card he has not
    answered, run `drive pr set <url> --waits <card>` for each card, which redraws his open PR card for it in
    place, Approve and Hold kept, to say it lands once he approves and answers that card. While a
-   wait holds, `drive pr set --tap` and `drive card` draw no fresh card for it, his Approve lands it
+   wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
    closed for this.
    - Outside an incident, land, enqueue or decide nothing on a recommended option while his card on
@@ -82,5 +82,5 @@ background process. When you cannot tell, it counts, because a wrong shape costs
    each fork as `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim. A builder
    that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork.
 6. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
-   answered goes back as a design question, not onto a PR card. `drive pr set --tap` refuses
+   answered goes back as a design question, not onto a PR card. `drive pr set --serves` refuses
    without `--design asked:<his answer id or card permalink>` or `--design none`.

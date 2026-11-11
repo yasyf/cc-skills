@@ -14,7 +14,7 @@ summary line about it, because work stopped before it starts wastes nothing.
   "port of #N landed", as every exempt class does in [landing.md](landing.md). A port needing his
   pick is not pure: its question card says it ports #N and what in the target tree forces the pick.
 - **His order**: his message or picked card option asking for this build, quoted wherever the PR is
-  named to him. Record it with `drive pr set <url> --tap --serves <o> --design none`, or
+  named to him. Record it with `drive pr set <url> --serves <o> --design none`, or
   `--design asked:<his answer id>` for a settled design; it prints his words back. When an order
   asks for cards or a summary, those cards deliver it, and each fix waits for his pick on its card.
   A PR serves an order only if the order's words ask for it, not because jobs it unblocks serve it.

@@ -143,15 +143,15 @@ def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) 
     assert record_lines.decision(post(kind="report", text=f"FYI the update-button fix merged: {TAPPED}")) is None
 
 
-def test_a_ready_record_for_a_pr_under_a_readers_not_ready_is_refused_until_a_later_readers_ready(demo: str) -> None:
+def test_a_ready_record_for_a_pr_under_a_readers_not_ready_is_refused_until_a_readers_ready_on_its_head(demo: str) -> None:
     with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"wants_tap": True}
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "abc"}
         for reader in ("j2", "j3"):
             data["jobs"][reader] = state.new_job("o1", "reader", "READY-row check of #4242", [], state.stamp())
         state.take_result(data, "j2", "NOT READY #4242: Releasable alone needs #4243 live first")
     reason = refusal(record_lines.decision(post(kind="ready", text="j1 fixed the finding, his order o1", pr=[TAPPED])))
     assert "Forge-AI/monorepo#4242: reader j2 called it NOT READY at " in reason
-    assert ": Releasable alone needs #4243 live first; only a later reader's READY naming it answers that, never its builder's word" in reason
+    assert ": Releasable alone needs #4243 live first; only a reader's READY on its head answers that, never its builder's word" in reason
     with state.edit(demo) as data:
         state.take_result(data, "j3", f"READY {TAPPED}")
     assert record_lines.decision(post(kind="ready", text="j1 fixed the finding, his order o1", pr=[TAPPED])) is None

@@ -17,7 +17,7 @@ from typing import Self
 
 from drive import agents, dashboard, github, limits, orca, page, reads, slack, state, superseded, view
 from drive.install import config_dir
-from drive.render import cut, not_ready, subscribe, when
+from drive.render import NOT_READY_CHARS, cut, subscribe, when
 
 POLL_SECONDS = 5
 READ_EVERY = timedelta(seconds=60)
@@ -26,7 +26,7 @@ FAILURE_EVERY = timedelta(minutes=10)
 TICK_EVERY = timedelta(minutes=30)
 DUE_EVERY = timedelta(minutes=10)
 WAKES = ("TAP ", "DUE ", "LIVE ", "ORPHAN ", "ANSWER ", "JOB ", "LANE ", "FREE ", "EVENT catch-up ", "EVENT unheard ", "EVENT stop ", "WATCH stopped")
-OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red")
+OWNER_MOVES = ("merged", "checks failed", "conflicts with its base", "changes requested", "still red", "NOT READY at")
 PR_EVENT = re.compile(r"PR (?P<key>\S+): (?P<change>.+) \[(?P<order>o\d+) (?P<job>j\d+)\]$")
 LANE = "watch"
 UNTHREADED = "the order has no thread, so its time was the drive's own and is said this once"
@@ -51,7 +51,6 @@ STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
     "landing": "green, approved and exempt, and not landed",
-    "recheck": "green and approved under a reader's NOT READY that no later reader's READY answered",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|JOB j\d+|LANE j\d+) (?P<named>o\d+)\b")
 OWN_MOVES = ("new head", "checks passed", "approved")
@@ -143,9 +142,12 @@ def github_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
+            before = pr["head"]
             changes = pr_changes(pr, read)
             if watcher.cards is not None and not moves_owed(pr, data, watcher.cards):
                 changes = [change for change in changes if not change.startswith(OWN_MOVES)]
+            if before and pr["head"] != before and state.owed_step(pr) == "recheck":
+                changes = [change for change in changes if not change.startswith("new head")] + [recheck_owed(pr)]
             if stuck := stuck_for(pr, data, watcher.cards, moment):
                 changes.append(stuck)
             pr["updated"] = state.stamp(moment)
@@ -169,6 +171,10 @@ def moves_owed(pr: dict, data: dict, cards: dict) -> bool:
     return next_step(pr, data, cards) and not (state.owed_step(pr) == "card" and view.card_for(cards["pr_cards"], pr["url"]))
 
 
+def recheck_owed(pr: dict) -> str:
+    return f"new head {pr['head'][:7]} under NOT READY, check owed"
+
+
 def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
     if pr["state"] != "open" or owned(data["jobs"][pr["job"]], cards):
         return None
@@ -176,7 +182,7 @@ def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
         return "red"
     if cards is None or not moves_owed(pr, data, cards):
         return None
-    return state.owed_step(pr)
+    return step if (step := state.owed_step(pr)) in STUCK_WORDS else None
 
 
 def held(pr: dict) -> bool:
@@ -313,31 +319,104 @@ def settle_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def unready_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Redraw in place, each read, every open card of his still asking his tap on a PR a reader called NOT READY, each PR by the watch hearing its order, and say so once for each verdict. The redraw shows the reader's reason with no Approve, and cc-slack then marks the card as no longer waiting on his tap, which drops it from the cards asking his tap; a redraw cc-slack queued but could not draw, as when GitHub would not answer its read, leaves the card asking, so the next read redraws it again. His card regains its Approve when a later reader's READY sends the PR's ready record."""
+    """Act on each reader's verdict on an open PR the watch hears within one read of its landing, and redraw in place, each read, his card still asking his tap on a PR under a NOT READY he has not tapped, until cc-slack shows the reader's reason with no Approve and stops listing it as asking. A NOT READY on its head names its builder's rework, one on a head since moved the coordinator's recheck, and one after his tap, which stands and lands, its builder's follow-up on the same order. A READY redraws his card, its check row gone, and on a card whose Approve a NOT READY pulled brings Approve back in place and says so once in the card's thread. A redraw or reply that fails goes again next read."""
     if watcher.cards is None:
         return []
-    asking = {url for card in watcher.cards["pr_cards"] for url in card["prs"]}
     data = state.load(watcher.name)
-    owed = [
-        (key, pr)
-        for key, pr in data["prs"].items()
-        if pr["url"] in asking and pr["state"] == "open" and state.owed_step(pr) == "recheck" and hears(watcher, data, pr["order"])
-    ]
+    heard = [(key, pr) for key, pr in data["prs"].items() if pr["state"] == "open" and pr["verdict"] and hears(watcher, data, pr["order"])]
     lines = []
-    for key, pr in owed:
+    for key, pr in heard:
+        asking = view.card_for(watcher.cards["pr_cards"], pr["url"])
+        pulls = asking is not None and state.owed_step(pr) in ("rework", "recheck")
+        if not pulls and pr["verdict"]["said"]:
+            continue
+        before = dict(pr)
         try:
-            slack.redraw_pr_cards(pr["url"])
-        except slack.SlackError as error:
-            lines += failed(watcher, "unready redraw", "redraw of a card under a reader's NOT READY", error, moment)
+            said = verdict_said(watcher.name, key, pr, asking, pulls)
+        except (state.DriveError, slack.SlackError) as error:
+            lines += failed(watcher, "verdict", "redraw or reply for a reader's verdict", error, moment)
             continue
-        watcher.failures.pop("unready redraw", None)
-        if pr["not_ready"]["redrawn"]:
-            continue
+        watcher.failures.pop("verdict", None)
         with state.edit(watcher.name) as data:
-            if verdict := data["prs"][key]["not_ready"]:
-                verdict["redrawn"] = True
-        lines.append(f"CARD his open card for {key} is being redrawn in place with no Approve: {not_ready(pr)} {ids(pr)}")
+            stored = data["prs"][key]
+            if stored["verdict"] == pr["verdict"]:
+                stored["verdict"]["said"] = True
+            stored.update({field: pr[field] for field in ("pulled", "ready_said") if pr[field] != before[field]})
+        lines += said
     return lines
+
+
+def verdict_said(name: str, key: str, pr: dict, asking: dict | None, pulls: bool) -> list[str]:
+    """Redraw his cards for the PR's verdict and say who owes its next step, the PR's pulled card and sent ready record updated in place."""
+    from drive import talk
+
+    verdict = pr["verdict"]
+    if pulls:
+        slack.redraw_pr_cards(pr["url"])
+        pr["pulled"] = pr["pulled"] or asking["url"]
+    if verdict["said"]:
+        return []
+    why = cut(verdict["why"], NOT_READY_CHARS)
+    if not verdict["ready"] and pr.get("tap"):
+        return [f"PR {key}: NOT READY at {verdict['head'][:7]} after his {pr['tap']['label']}, which stands: follow-up owed on its order: {why} {ids(pr)}"]
+    if not verdict["ready"]:
+        return [f"PR {key}: NOT READY at {pr['head'][:7]}, rework owed: {why} {ids(pr)}" if state.check_status(pr) == "rework" else f"PR {key}: {recheck_owed(pr)} {ids(pr)}"]
+    if pulled := pr["pulled"]:
+        pr["pulled"] = None
+        if not slack.redraw_pr_cards(pr["url"]):
+            return []
+        pr["ready_said"] = pr["head"]
+        talk.posted(name, {"text": f"Reworked at {verdict['head'][:7]} and passed the check; Approve is back", "thread_ts": view.card_thread(pulled)})
+        return [f"CARD his card {pulled} for {key} has its Approve back in place: reworked at {verdict['head'][:7]} and passed the check"]
+    if asking:
+        slack.redraw_pr_cards(pr["url"])
+    return []
+
+
+def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Send the communicator one ready record per order for the PRs that wait on his card alone, once a head, so `drive card` draws his card within one GitHub read of a PR going green and approved, with no coordinator turn; a record that fails to post goes again next read."""
+    if watcher.cards is None:
+        return []
+    from drive import tools
+
+    data = state.load(watcher.name)
+    owed: dict[str, dict[str, str]] = {}
+    for key, pr in data["prs"].items():
+        if hears(watcher, data, pr["order"]) and card_owed(pr, data, watcher.cards):
+            owed.setdefault(pr["serves"], {})[key] = pr["head"]
+    lines = []
+    for order_id, heads in owed.items():
+        order = data["orders"][order_id]
+        urls = " ".join(data["prs"][key]["url"] for key in heads)
+        if order["text"].startswith(state.TOOLING):
+            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f"{urls}; {order['text']}"}
+        else:
+            record = {"kind": "ready", "to": [f"communicator@{watcher.name}"], "text": f'{urls}; his order {order_id} "{order["text"]}"'}
+            record |= {"attr": {"thread": order["thread"]}} if order["thread"] else {}
+        try:
+            tools.sent(watcher.name, LANE, [limits.shortened(record) or record])
+        except state.DriveError as error:
+            lines += failed(watcher, "ready post", "ready record post", error, moment)
+            continue
+        watcher.failures.pop("ready post", None)
+        with state.edit(watcher.name) as data:
+            for key, head in heads.items():
+                data["prs"][key]["ready_said"] = head
+        lines.append(f"CARD his card for {', '.join(heads)} is drawing: green and approved, ready record sent to the communicator")
+    return lines
+
+
+def card_owed(pr: dict, data: dict, cards: dict) -> bool:
+    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card while his-words check passed or runs, untapped, its order and design recorded, no card of his asking his tap on it or pulled of its Approve, and none sent for its head."""
+    return (
+        next_step(pr, data, cards)
+        and state.owed_step(pr) == "card"
+        and not pr["tap"]
+        and bool(pr.get("serves") and pr.get("design"))
+        and pr["ready_said"] != pr["head"]
+        and not pr["pulled"]
+        and view.card_for(cards["pr_cards"], pr["url"]) is None
+    )
 
 
 def waiting_lines(watcher: Watcher, moment: datetime) -> list[str]:
@@ -1132,6 +1211,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         lines += settle_lines(watcher, moment)
         lines += unready_lines(watcher, moment)
         lines += waits_lines(watcher, moment)
+        lines += ready_lines(watcher, moment)
         lines += waiting_lines(watcher, moment)
         lines += answer_lines(watcher, moment)
         lines += lane_lines(watcher, moment)
@@ -1156,12 +1236,13 @@ def tooling(line: str, data: dict) -> bool:
 
 
 def needs_step(line: str, data: dict) -> bool:
-    """Whether a line asks for a step now: any line but a PR's, and a PR's when its job is not running to take it, its new head, checks passed or approval only when the drive owes it his card or its exempt landing, never when its author or its own builder lands it."""
+    """Whether a line asks for a step now: any line but a PR's, and a PR's when its job is not running to take it, its new head, checks passed or approval only when the coordinator owes it a step: its exempt landing, a reader on its new head under a NOT READY, or the order and design his card quotes; never his card itself, which the watch draws, nor when its author or its own builder lands it."""
     found = PR_EVENT.match(line)
     if not found:
         return not line.startswith("PR ")
-    authors = found["change"].startswith(OWN_MOVES) and state.owed_step(data["prs"][found["key"]]) is None
-    return data["jobs"][found["job"]]["state"] != "running" and not authors
+    pr = data["prs"][found["key"]]
+    owes = {"landing": True, "recheck": True, "card": not pr.get("serves")}.get(state.owed_step(pr), False)
+    return data["jobs"][found["job"]]["state"] != "running" and (owes or not found["change"].startswith(OWN_MOVES))
 
 
 def lane_move(line: str, data: dict) -> str | None:

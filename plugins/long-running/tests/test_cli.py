@@ -2144,7 +2144,7 @@ def test_a_builders_ready_checks_each_stack_its_prs_form_on_its_own(
     run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     other = PR.removesuffix("42") + "43"
-    run("pr", "add", other, "--job", "j1", "--tap")
+    run("pr", "add", other, "--job", "j1")
     branches = {"42": ("main", "land-it"), "43": ("land-it", "land-more")}
 
     def gh(cmd: list[str]) -> str:
@@ -2272,7 +2272,7 @@ def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> 
 def with_pr(run: Run, demo: str) -> str:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
     run("job", "add", "builder", "--order", "o1", "--goal", "land")
-    run("pr", "add", PR + "/files", "--job", "j1", "--tap")
+    run("pr", "add", PR + "/files", "--job", "j1")
     return "Forge-AI/monorepo#42"
 
 
@@ -2286,6 +2286,49 @@ def test_pr_add_registers_under_the_key(run: Run, with_pr: str) -> None:
     assert pr["tap"] is None
     assert pr["state"] == "open"
     assert data["jobs"]["j1"]["prs"] == [PR]
+
+
+def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_or_untapped_for_a_reason(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    key = "Forge-AI/monorepo#42"
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap"]) == 2
+    assert "--no-tap needs --why <reason>" in capsys.readouterr().err
+    for flags, stored in (
+        (["--no-tap", "--why", "a teammate lands it"], (False, None, None)),
+        (["--exempt", "test-only"], (True, "test-only", "landing")),
+    ):
+        with state.edit("demo") as data:
+            data["prs"].pop(key, None)
+        assert run("pr", "add", PR, "--job", "j1", *flags)[0] == 0
+        pr = state.load("demo")["prs"][key]
+        assert (pr["wants_tap"], pr["exempt"], state.owed_step(pr)) == stored
+    with state.edit("demo") as data:
+        data["prs"].pop(key)
+        data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert state.load("demo")["prs"][key]["wants_tap"] is False
+
+
+def test_pr_add_of_a_port_takes_the_pure_port_exemption_and_no_tap(run: Run, demo: str, on_github: dict) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "land it")
+    run("job", "add", "builder", "--order", "o1", "--goal", "land")
+    on_github["title"] = "Port: land it"
+    assert run("pr", "add", PR, "--job", "j1", "--port-of", "51234")[0] == 0
+    pr = state.load("demo")["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["port_of"], pr["exempt"], pr["wants_tap"], state.owed_step(pr)) == (51234, "pure port", False, "landing")
+
+
+def test_job_add_reader_checks_stamps_the_prs_head_on_the_reader_and_its_card_check(run: Run, with_pr: str, on_github: dict) -> None:
+    on_github["headRefOid"] = "def5678"
+    code, out = run("job", "add", "reader", "--order", "o1", "--goal", "his words", "--checks", PR)
+    job_id = out.splitlines()[0]
+    data = state.load("demo")
+    assert (code, data["jobs"][job_id]["checks"]) == (0, {with_pr: "def5678"})
+    assert data["prs"][with_pr]["check"] == {"job": job_id, "head": "def5678", "at": data["jobs"][job_id]["created"]}
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "land", "--checks", PR)[0] == 2
 
 
 def test_pr_add_on_a_public_repo_refuses_a_live_picture_and_a_private_pr(
@@ -2484,11 +2527,10 @@ def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
 
-def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
+def test_pr_set_serves_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    assert run("pr", "set", PR, "--tap", "--design", "none")[0] == 2
-    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
     assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2
+    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
     code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert code == 0
     assert out.splitlines()[-1] == "serves o1, his words: land it"
@@ -2502,7 +2544,7 @@ def test_pr_set_tap_takes_a_pr_on_an_order_with_merged_prs_on_other_symptoms(run
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
-def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
+def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
@@ -2703,12 +2745,14 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
     on_github.update(title="Fix: the mint endpoint answers again", body="Reverts Forge-AI/monorepo#41")
-    assert cli.main(["pr", "add", PR, "--job", "j1"]) == 2
-    refusal = capsys.readouterr().err
-    assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
-    assert f"Add it waiting on his tap with drive pr add {PR} --job j1 --tap. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
+    for untapped in (["--exempt", "incident fix"], ["--no-tap", "--why", "the incident lands it"]):
+        assert cli.main(["pr", "add", PR, "--job", "j1", *untapped]) == 2
+        refusal = capsys.readouterr().err
+        assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
+        assert f"Add it waiting on his tap with drive pr add {PR} --job j1. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
     assert state.load("demo")["prs"] == {}
-    assert run("pr", "add", PR, "--job", "j1", "--tap")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1")[0] == 0
+    assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is True
     on_github["body"] = CARD_BODY
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
 
@@ -3245,7 +3289,7 @@ def test_a_line_in_the_thread_of_the_card_of_a_pr_on_the_order_is_in_the_orders_
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100", "--due", "+30m")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
-    run("pr", "add", PR, "--job", "j1", "--tap")
+    run("pr", "add", PR, "--job", "j1")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -3266,7 +3310,7 @@ def test_a_bare_link_to_a_line_under_the_card_of_a_pr_on_the_order_reads_the_car
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship web search", "--thread", "1794100000.000100")
     run("job", "add", "builder", "--order", "o1", "--goal", "web search")
-    run("pr", "add", PR, "--job", "j1", "--tap")
+    run("pr", "add", PR, "--job", "j1")
     run("start", "demo", "--role", "communicator")
     with state.edit("demo") as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
@@ -4242,7 +4286,7 @@ def test_superseding_a_card_he_already_answered_refuses_and_stops_no_job(
 def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_marked_and_settles_it_once(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    run("pr", "add", STACKED, "--job", "j1", "--tap")
+    run("pr", "add", STACKED, "--job", "j1")
     settled = cards_asking(monkeypatch, PR, STACKED)
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
     assert run("answer", "a1", "--superseded", f"{designing}=stop")[0] == 2

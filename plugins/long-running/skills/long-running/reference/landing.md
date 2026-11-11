@@ -26,7 +26,7 @@ for its repository says, then return `DONE <proof>`.
   exception: it lands on the recommended option, the card stays open, and a different pick of his
   starts a follow-up job on the same order.
 - Keep a stack to four PRs at most, because his card shows each PR of a stack in its own section with
-  its pictures; `drive pr set --tap` refuses a longer one and says how to split or fold it. Exempt and
+  its pictures; `drive pr set --serves` refuses a longer one and says how to split or fold it. Exempt and
   `yasyf/*` PRs, which land with no tap, are not counted.
 - Title: `Fix:`, `New:`, `Cleanup:` or `Port:`, then what changes for a user, in plain words. A
   repository whose title check demands `fix:` or `feat:` keeps that prefix; the card reads either.
@@ -36,7 +36,7 @@ for its repository says, then return `DONE <proof>`.
 - Write the body for him in plain words that name each function, syscall, flag, file, path, service or
   table by its proper term, never a vague stand-in, in his words "use the proper fucking terms for
   things". Leave out ids he cannot open (cc-notes, cci, job, order, or waits ids) and hashes: a sentence
-  carrying a record id is dropped from his card, and `drive pr set --tap` refuses a body naming one
+  carrying a record id is dropped from his card, and `drive pr set --serves` refuses a body naming one
   outside its code and links, telling you to say what each is in plain words.
 - Each section stands alone, because he reads it with no other context. A number, fraction, size, or
   ratio says what it measures, why that value, and gives one example. A mechanism gets one plain
@@ -51,7 +51,7 @@ for its repository says, then return `DONE <proof>`.
   - `## Summary`: one or two sentences saying what the PR changes, naming each function, table, flag,
     file or service it touches by its proper term, with no background, in his words "a summary of wtf
     the PR is doing, and use exact technical terms rather than being roundabout". It opens the PR's
-    section of his card. `drive pr set --tap` and a builder's `READY` refuse a PR without it; a card
+    section of his card. `drive pr set --serves` and a builder's `READY` refuse a PR without it; a card
     already drawn keeps redrawing without one.
   - `## Refresher`: the change explained to an engineer who knows the codebase but has not read this
     code lately: which part of the system it touches, what that part did before, and what it does now.
@@ -60,8 +60,8 @@ for its repository says, then return `DONE <proof>`.
   - `## Biggest surprise`: the one change a reviewer would not expect from the title, in one or two
     sentences.
   - `## What you'll hate most`: the one thing he is most likely to dislike, said plainly: a cost, a
-    behavior he did not ask for, a shortcut, or a risk he would not take. Before any `ready` record
-    goes out, `drive pr set --tap` refuses a PR without it.
+    behavior he did not ask for, a shortcut, or a risk he would not take. Before the watch sends its
+    `ready` record, `drive pr set --serves` refuses a PR without it.
   - `## Show me`: one concrete example of the change, which his card draws as a picture and the
     dashboard draws live: the real SQL, code, CLI call, or Sand call it changes, before and after, in a
     fence naming its language (`sql`, `go`, `sand`). An `arch` map of the components it adds or rewires,
@@ -100,10 +100,13 @@ for its repository says, then return `DONE <proof>`.
   - When the PR is not a port and this list would be empty or say none, no order of his asks for it.
     Drive tooling says none and gets its card from its own order by [Scope](scope.md); anything else
     returns `BLOCKED no order of his names this` instead of `READY`, and `drive card` refuses its card.
-- Register the PR the moment it opens: `drive pr add <url> --job <j>`, plus `--tap` when it needs his
-  tap.
-- Return `WAITING <what>` while CI, a review, or a queue runs. Return `READY <url>` when only his tap is
-  left, or for a port only the coordinator's check against #N. Name every PR of a stack bottom first
+- Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
+  tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
+  order, or one added with `--no-tap --why "<reason>"` waits on none.
+- Return `READY <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
+  review still running: his-words check starts on that head then, and the watch draws his card the
+  minute GitHub reports the PR green and approved. Return no `WAITING` for CI, a review or a queue. A
+  port's `READY` gets the coordinator's check against #N instead. Name every PR of a stack bottom first
   (`READY <url> <url> …`) so he gets one card. Add a `SERVES:` line: `port of #N`,
   `Drive tooling: <what it unblocks>`, or the order of his it carries out, quoted.
 

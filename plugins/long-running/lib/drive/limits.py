@@ -6,7 +6,7 @@ from pathlib import Path
 
 from drive import picture, slack
 from drive.render import cut, not_ready, when
-from drive.state import PR_KEY, PR_URL, DriveError, root
+from drive.state import PR_KEY, PR_URL, DriveError, check_status, root
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -917,7 +917,7 @@ def tap_owed_not(pr: dict) -> str:
         pr["state"] if pr["state"] in ("merged", "closed") else "",
         f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
         "the drive holds it with the hold label" if pr["hold_label"] else "",
-        f"{not_ready(pr)}; only a later reader's READY naming it answers that, never its builder's word" if pr["not_ready"] else "",
+        f"{not_ready(pr)}; only a reader's READY on its head answers that, never its builder's word" if check_status(pr) in ("rework", "recheck") else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 
