@@ -28,6 +28,7 @@ START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
+ON_MAC = "on this Mac"
 
 
 class OrcaError(DriveError):
@@ -151,11 +152,21 @@ def builder_body() -> str:
     return body.strip()
 
 
-def vm_brief(drive: str, job_id: str, brief: str) -> str:
-    """What a remote builder reads on a Sprite, which has no copy of this plugin: its role, landing rules, brief."""
+def place(job: dict) -> str:
+    """Where the job's lane runs, as a line names it."""
+    return ON_MAC if state.on_mac(job) else f"on Sprite {job['workspace']}"
+
+
+def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
+    """What a builder started as an Orca worker reads, on a Sprite with no copy of this plugin or on this Mac: its role, landing rules, brief."""
+    running = (
+        'on this Mac, so it reports through Orca as its "On a Sprite" section says; the rest of that section is for a Sprite'
+        if route == state.LOCAL_ROUTE
+        else 'on a Sprite, so its "On a Sprite" section applies'
+    )
     return (
         f"Remote lane: drive {drive}, job {job_id}. You are the long-running builder below, running as an Orca "
-        'worker on a Sprite, so its "On a Sprite" section applies.\n\n'
+        f"worker {running}.\n\n"
         f"{builder_body()}\n\n"
         f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
         f"{BRIEF_HEADING}{brief.strip()}\n"
@@ -170,17 +181,18 @@ def brief_of(vm_brief: str) -> str:
 def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd) -> str:
     """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left and the message it never read."""
     prs = ", ".join(job["prs"]) or "none yet"
+    local = state.on_mac(job)
     if end.worktree:
-        how, where = "finished", "You continue the job in its terminal and checkout on the same Sprite, as it left them."
+        how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
     else:
         how, where = "died", (
-            "You take the job over on a fresh Sprite from its pushed branches; work it had not committed and pushed "
-            "is not carried over. Commit and push before any long build."
+            f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
+            "work it had not committed and pushed is not carried over. Commit and push before any long build."
         )
     return (
         f"{brief}\n\n"
         f"## Taking over from a lane that {how}\n\n"
-        f"The lane that held this job {how} on Sprite {ended['workspace']} at {render.when(ended['at'])}: {ended['why']}. "
+        f"The lane that held this job {how} {place(job)} at {render.when(ended['at'])}: {ended['why']}. "
         f"{where}\n\n"
         f"Its branch: {end.branch or job['branch'] or 'none recorded'}\n"
         f"Its last line: {job['said'] or 'nothing yet'}\n"
@@ -200,13 +212,17 @@ def tool(name: str) -> str:
     return str(Path(newest["installPath"]) / "bin" / name)
 
 
-def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str) -> dict:
-    """Start one remote builder through the orca plugin's launcher; its success line, with the prepared server."""
+def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None) -> dict:
+    """Start one builder through the orca plugin's launcher, on a Sprite or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
+    env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
+    local = route == state.LOCAL_ROUTE
+    if local:
+        env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]}
     try:
         done = subprocess.run(
             [tool(LAUNCHER), lane, MODEL, EFFORT, str(brief)],
             cwd=checkout,
-            env={**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"},
+            env=env,
             capture_output=True,
             text=True,
             timeout=LAUNCH_SECONDS,
@@ -229,6 +245,8 @@ def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str) -> dict
             )
         raise OrcaError(f"{LAUNCHER} exited {done.returncode} before a worker started: {reason}; attempt in {attempt}")
     receipt = json.loads(lines[-1])
+    if local:
+        return {**receipt, "lane": lane, "workspace": None, "environment": None}
     prepared = json.loads((brief.with_suffix(".worker") / "prepared.json").read_text())
     return {**receipt, "environment": prepared["environment"]}
 
@@ -263,10 +281,10 @@ def death(worker: dict) -> str | None:
     return "its worker exited" if worker["projection"]["liveness"]["verdict"] == "exited" else None
 
 
-def lane_end(dispatch: str) -> LaneEnd | None:
-    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished on a Sprite still up, the worktree its next worker starts in. OrcaError when Orca cannot tell either way."""
+def lane_end(job: dict) -> LaneEnd | None:
+    """None while the lane's worker takes messages; else why it does not, the branch its terminal was on, and, for a worker that finished while Orca holds its terminal, on its Sprite or on this Mac, the worktree its next worker starts in. OrcaError when Orca cannot tell either way."""
     try:
-        shown = worker(dispatch)
+        shown = worker(job["dispatch"])
     except OrcaError as error:
         if GONE in str(error):
             return LaneEnd("Orca no longer holds its worker", None, None)
@@ -277,21 +295,20 @@ def lane_end(dispatch: str) -> LaneEnd | None:
     if (verdict := shown["projection"]["liveness"]["verdict"]) != "live":
         raise OrcaError(f"orca orchestration worker-show: its worker's liveness is {verdict}")
     if (finished := shown["worker"]["state"]) in FINISHED:
-        why = f"its worker {finished}, and Orca sends nothing to a finished worker on a Sprite"
+        why = f"its worker {finished}, and Orca sends nothing to a finished worker {ON_MAC if state.on_mac(job) else 'on a Sprite'}"
         return LaneEnd(why, branch, shown["worker"]["startOptions"]["worktree"])
     return None
 
 
 def start_after(drive: str, lane: str, brief: Path, job: dict, worktree: str) -> dict:
-    """Start the job's next worker in the terminal and worktree of the one that finished, on its Sprite, with the brief as its Task spec: the start Orca names for a finished worker on a paired server."""
+    """Start the job's next worker in the terminal and worktree of the one that finished, on its Sprite or on this Mac, with the brief as its Task spec: the start Orca names for a finished worker, with `--on` its paired server for a Sprite."""
     argv = [
         "orca",
         "orchestration",
         "worker-start",
         "--run",
         job["run"],
-        "--on",
-        job["environment"],
+        *(() if state.on_mac(job) else ("--on", job["environment"])),
         "--worktree",
         worktree,
         "--terminal",

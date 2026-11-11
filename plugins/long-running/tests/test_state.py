@@ -51,6 +51,25 @@ def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions
     assert jobs["j3"]["questions"] == []
 
 
+def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_through_that_dispatch(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    base = {"order": "o1", "said": None, "updated": "2026-11-11T08:00:00-08:00", "where": "local", "session": "s1"}
+    data["jobs"] = {"j1": base | {"agent": "ctx_ab821100f80b"}, "j2": base | {"agent": "agent-9"}}
+    state.create(data)
+    jobs = state.load("demo")["jobs"]
+    assert {field: jobs["j1"][field] for field in ("agent", "dispatch", "where", "route", "workspace", "environment")} == {
+        "agent": None,
+        "dispatch": "ctx_ab821100f80b",
+        "where": "remote",
+        "route": "local",
+        "workspace": None,
+        "environment": None,
+    }
+    assert "run" not in jobs["j1"]
+    assert (jobs["j2"]["agent"], jobs["j2"]["where"], jobs["j2"]["route"]) == ("agent-9", "local", None)
+
+
 def test_edit_discards_changes_when_the_body_raises(state_root: Path) -> None:
     make("demo")
     with pytest.raises(RuntimeError), state.edit("demo") as data:
