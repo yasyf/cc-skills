@@ -60,7 +60,7 @@ each job that needs one a fresh agent.
 4. Only then start the new terminal, resuming that session:
 
    ```sh
-   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
+   orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model claude-fable-5-2 --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000,\"env\":{\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"}}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
    The command is the session and nothing after it: it never ends in `exec zsh -l` or any other
