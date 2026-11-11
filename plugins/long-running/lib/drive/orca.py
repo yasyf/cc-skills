@@ -26,6 +26,8 @@ GONE = "dispatch_not_found"
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
 BRIEF_HEADING = "\n# Brief\n\n"
+REPORT_LINE = re.compile(r"^(?:Researched|Plan):.*$", re.MULTILINE)
+REPORT_JOB = re.compile(r"\bj\d+\b")
 DRIVE = PLUGIN / "bin" / "drive"
 CALL_SECONDS = 60
 ON_MAC = "on this Mac"
@@ -197,7 +199,17 @@ def vm_brief(drive: str, job_id: str, brief: str, route: str | None) -> str:
         f"worker {running}.\n\n"
         f"{builder_body()}\n\n"
         f"# The landing reference of the long-running skill\n\n{LANDING.read_text().strip()}\n"
+        f"{named_reports(drive, brief)}"
         f"{BRIEF_HEADING}{brief.strip()}\n"
+    )
+
+
+def named_reports(drive: str, brief: str) -> str:
+    """Each kept report the brief's Researched: and Plan: lines name, whole, since a Sprite holds no copy of the drive to read one from."""
+    named = dict.fromkeys(REPORT_JOB.findall("\n".join(REPORT_LINE.findall(brief))))
+    kept = [(job_id, state.report_path(drive, job_id)) for job_id in named]
+    return "".join(
+        f"\n# Report of {job_id}, which your brief names\n\n{path.read_text().strip()}\n" for job_id, path in kept if path.exists()
     )
 
 

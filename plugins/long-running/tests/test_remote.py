@@ -208,6 +208,22 @@ def test_launch_composes_the_vm_brief_and_records_the_lane(
     assert run("job", "launch", "j1", "brief.md")[0] == 2
 
 
+def test_a_sprite_brief_carries_each_report_its_researched_and_plan_lines_name(demo: str) -> None:
+    reports = state.report_path(demo, "j7").parent
+    reports.mkdir(parents=True, exist_ok=True)
+    state.report_path(demo, "j7").write_text("DONE the reader's findings\nexists: lib/thing.py\n")
+    state.report_path(demo, "j8").write_text("DESIGN the whole design\n")
+    state.report_path(demo, "j9").write_text("DONE a job the brief only lists as a transcript\n")
+    text = "Order (his words): ship it\nResearched: j7\nPlan: Design j8, whole: reports/j8.md (drive job report j8)\nPlan: j404 kept none\nTranscripts:\n- j9 reader: x.jsonl"
+    composed = orca.vm_brief(demo, "j1", text, None)
+    assert "# Report of j7, which your brief names\n\nDONE the reader's findings\nexists: lib/thing.py\n" in composed
+    assert "# Report of j8, which your brief names\n\nDESIGN the whole design\n" in composed
+    assert "j404" not in composed.split("# Brief")[0]
+    assert "a job the brief only lists" not in composed
+    assert composed.count("# Report of j8") == 1
+    assert orca.brief_of(composed) == text
+
+
 def test_launch_refuses_a_job_on_this_mac_and_a_checkout_without_orca_values(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:

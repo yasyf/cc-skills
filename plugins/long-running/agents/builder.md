@@ -39,7 +39,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    branch, or check out the branch the brief names to adopt.
 2. Research before you write:
    - A `Researched: <job>` line names a reader's report on the order: read it first with
-     `drive job report <job>` and build on what exists, never a second copy beside it.
+     `drive job report <job>`, or on a Sprite under its `# Report of <job>` heading above your brief,
+     and build on what exists, never a second copy beside it. A `Plan:` line's report comes the same way.
    - Search the code, the brief's plan section, the whole plan (`search_plan`, or
      `drive plan search <words>`) and his recorded answers (`answer_search`, or
      `ccn answer search`) on the whole area the change touches, never only the words of its order.
@@ -209,7 +210,8 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
   `CARGO_LOCAL=1` and `GO_LOCAL=1`, so the remote-builder shims keep them here, after `mise install`
   if the pinned toolchain is missing; a TypeScript check still goes to CI.
 - The Sprite holds no Buildkite or AWS credentials and no copy of the drive's records, so
-  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing. Read through the
+  `tools/ci bk`, `ccx`'s log reads, `cci` and `ccn` refuse or are missing; the reports your brief's
+  `Researched:` and `Plan:` lines name come whole above your brief. Read through the
   coordinator's Mac with one blocking question that prints the answer within about a minute,
   `orca orchestration ask --question "<read>" --wait --timeout-ms 600000`, and keep working: it is a
   read, not a report. Open the question with its read: a `LOG` question reads every `LOG <url>` it
