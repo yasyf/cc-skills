@@ -92,9 +92,10 @@ COORDINATOR_RULES = (
     ),
     (
         "One job per deliverable: every order goes to one background job that owns it end to end, past-due ones too."
-        " Run drive job add <kind> before the Agent call, so the brief's Drive line names the job: drive then records"
-        " the agent that call starts, runs the job again on each SendMessage to it, and sets its state and said line"
-        " from the line it returns, so no drive job set follows a start, a wake or any result but BUILT."
+        " Run drive job add <kind> before the Agent call, so the brief's Drive line names the job: the agent's first"
+        " Bash, Read, Write or Edit call, or its stop, records it on that job, its first after a SendMessage runs the"
+        " job again, and the line it returns sets its state and said line, so no drive job set follows a start, a wake"
+        " or any result but BUILT."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb with"

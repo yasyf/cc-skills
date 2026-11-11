@@ -4,7 +4,6 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
-import bind_agent
 import landing_guard
 import no_file_tools
 import no_slack_reads
@@ -167,6 +166,7 @@ def agent_stop(message: str, session: str | None = None, **fields: object) -> di
     return {
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
         "hook_event_name": "SubagentStop",
+        "transcript_path": "session.jsonl",
         "agent_id": "a-7",
         "stop_hook_active": False,
         "last_assistant_message": message,
@@ -213,33 +213,60 @@ def test_a_drive_jobs_returned_line_sets_its_state_once_the_line_is_let_through(
     assert (job["state"], job["said"]) == ("waiting", "WAITING: CI on #1")
 
 
-def started(prompt: str, session: str | None = None) -> dict:
+def stepped(tmp_path: Path, brief: str, session: str | None = None, **fields: object) -> dict:
+    lane = tmp_path / "session" / "subagents" / "agent-a-9.jsonl"
+    lane.parent.mkdir(parents=True, exist_ok=True)
+    lane.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": brief}}) + "\n")
     return {
         "session_id": session or os.environ["CLAUDE_CODE_SESSION_ID"],
-        "hook_event_name": "PostToolUse",
-        "tool_name": "Agent",
-        "tool_input": {"subagent_type": "long-running:builder", "run_in_background": True, "prompt": prompt},
-        "tool_response": {"isAsync": True, "status": "async_launched", "agentId": "a-9"},
+        "transcript_path": str(tmp_path / "session.jsonl"),
+        "agent_id": "a-9",
+        **fields,
     }
 
 
-def test_an_agent_started_on_its_briefs_job_is_recorded_there_and_a_message_to_it_runs_it_again(
-    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_an_agent_is_recorded_on_its_briefs_job_by_its_own_steps_and_a_step_after_a_wake_runs_it_again(
+    demo: str, run: Run, tmp_path: Path, no_calls: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "ship the fix")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
-    bind_agent.bind(started("Drive: demo, orders o1 and o2, jobs j1 j2"))
-    bind_agent.bind(started("Drive: demo, order o1, job j1", "someone-else"))
+    brief = "Goal: fix it\nDrive: demo, order o1, job j1\nScratch: /x"
+    hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, "Drive: demo, orders o1 and o2, jobs j1 j2")))
+    hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief, "someone-else")))
+    hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"]}))
     assert [job["agent"] for job in state.load("demo")["jobs"].values()] == [None, None]
-    assert hook_output(bind_agent, monkeypatch, capsys, json.dumps(started("Goal: fix it\nDrive: demo, order o1, job j1"))) == ""
+    assert hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, brief))) == ""
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["where"], job["session"], job["state"]) == ("a-9", "local", os.environ["CLAUDE_CODE_SESSION_ID"], "running")
     run("job", "set", "j1", "--state", "waiting")
-    woken = {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "tool_name": "SendMessage", "tool_input": {"to": "a-9", "message": "his answer"}}
-    bind_agent.bind(woken)
-    bind_agent.bind(woken | {"tool_input": {"to": "a-unknown", "message": "x"}})
-    assert [job["state"] for job in state.load("demo")["jobs"].values()] == ["running", "running"]
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Read") | stepped(tmp_path, brief))) == ""
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    assert no_calls == []
+
+
+def test_a_step_leaves_a_stopped_job_and_a_job_another_agent_runs_as_they_are(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read it")
+    run("job", "set", "j2", "--state", "stopped")
+    for job_id in ("j1", "j2"):
+        hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, f"Drive: demo, order o1, job {job_id}")))
+    jobs = state.load("demo")["jobs"]
+    assert [(job["agent"], job["state"]) for job in jobs.values()] == [("a-1", "running"), (None, "stopped")]
+
+
+def test_an_agent_that_stops_before_any_step_is_recorded_and_its_line_sets_its_job(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "ship the fix")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read it")
+    stop = agent_stop("j1 is answered: the hook never ran", **stepped(tmp_path, "Drive: demo, order o1, job j1"))
+    assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(stop)) == ""
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["agent"], job["state"], job["said"]) == ("a-9", "done", "j1 is answered: the hook never ran")
 
 
 def turn_stop(message: str, **fields: object) -> dict:

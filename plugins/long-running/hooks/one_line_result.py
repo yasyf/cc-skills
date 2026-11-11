@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import agents, state
 
 RESULT_CHARS = 500
 
@@ -51,6 +51,7 @@ def take_result(payload: dict) -> None:
 
 def main() -> None:
     payload = json.load(sys.stdin)
+    agents.hold(payload)
     if reason := block_reason(payload):
         print(json.dumps({"decision": "block", "reason": reason}))
         return

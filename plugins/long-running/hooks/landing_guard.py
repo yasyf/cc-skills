@@ -11,7 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import settled, state
+from drive import agents, settled, state
 from drive.cli import tap_verdict
 from drive.github import repo_name
 
@@ -325,12 +325,15 @@ def denial(reason: str) -> dict:
 
 
 def main() -> None:
+    payload = json.load(sys.stdin)
     try:
-        reason = deny_reason(json.load(sys.stdin))
+        reason = deny_reason(payload)
     except Exception:
         return
     if reason:
         print(json.dumps(denial(reason)))
+        return
+    agents.hold(payload)
 
 
 if __name__ == "__main__":

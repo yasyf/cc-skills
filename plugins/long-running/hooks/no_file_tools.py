@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import state
+from drive import agents, state
 
 
 def deny_reason(payload: dict) -> str | None:
@@ -25,18 +25,21 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def main() -> None:
-    if reason := deny_reason(json.load(sys.stdin)):
-        print(
-            json.dumps(
-                {
-                    "hookSpecificOutput": {
-                        "hookEventName": "PreToolUse",
-                        "permissionDecision": "deny",
-                        "permissionDecisionReason": reason,
-                    }
+    payload = json.load(sys.stdin)
+    if not (reason := deny_reason(payload)):
+        agents.hold(payload)
+        return
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
                 }
-            )
+            }
         )
+    )
 
 
 if __name__ == "__main__":

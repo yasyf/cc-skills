@@ -100,8 +100,9 @@ No tap: by his standing rule a `yasyf/*` PR merges without asking, green gate of
 3. Install from the merge sha (`gh pr view <n> -R <repo> --json mergeCommit`). A Claude Code plugin:
    `drive install <plugin>@<marketplace> --sha <merge sha>` (such as `long-running@skills`) waits for the
    release that contains the merge, updates the plugin and prints the installed version. A live
-   session runs long-running's hooks from the version installed now; its skills, agents and any
-   plugin's tools change only when that session runs `/reload-plugins`. A tool this Mac
+   session runs the installed version's script for each hook it registered when it started, but
+   registers no hook added since; that, and its skills, agents and any plugin's tools, change only
+   when that session runs `/reload-plugins`. A tool this Mac
    runs: follow its repository's release flow, install the release that contains the merge, read the
    installed version back. Never patch an installed copy by hand: the next release overwrites it.
    A compiled tool such as cci, ccn, cc-slack, ccx, codex-ask, or cc-transcript need not wait for its
