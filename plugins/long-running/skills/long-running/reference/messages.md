@@ -331,9 +331,10 @@ the dashboard link. When a line says where things stand, link the page instead o
   the thread of the message that brought him back, because a thread gets only lines about its own
   order.
 - The minute a job built on a card's recommended option starts waiting on that card, the watch
-  replies once under that card, in plain words: since when its recommended answer is built and
-  paused on his pick, that his tap ships it, and that another pick rebuilds it first. No other post
-  repeats it. His words, Nov 11 1:16 AM, on a post `say` had opened with a raw line naming the job
+  replies once under that card, in plain words: its recommended answer is built and paused on his
+  pick, his tap ships it, and another pick rebuilds it first. The reply names no card, since it sits
+  under its own, and so passes the post check when he was asked the same question twice. No other
+  post repeats it. His words, Nov 11 1:16 AM, on a post `say` had opened with a raw line naming the job
   and its branch: "What the hell is this message?"
 - His read-only question gets its answer within minutes from a handler, which reads the source that
   owns the fact through whatever access opens it, a staff route included, and never answers that it

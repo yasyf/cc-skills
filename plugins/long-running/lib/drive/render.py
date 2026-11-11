@@ -272,16 +272,6 @@ def when(iso: str, seconds: bool = False) -> str:
     return f"{moment.strftime('%b %-d')} {clock(moment, seconds)}"
 
 
-def waiting_line(entry: dict) -> str:
-    """The reply under his card that tells him, in plain words, the work behind its recommended answer is built and waits on his pick, the card a reference the post links."""
-    card = entry["card"]
-    named = f"{{card:{card['card']['waits']}}}" if card["card"].get("waits") else "this question"
-    return (
-        f"Since {when(card['asked'])} the recommended answer to {named} is built and paused on your pick:"
-        " tap it and the work ships; another pick rebuilds it first."
-    )
-
-
 def job_prs(drive: dict, job_id: str) -> dict[str, dict]:
     return {key: pr for key, pr in drive["prs"].items() if pr["job"] == job_id}
 
