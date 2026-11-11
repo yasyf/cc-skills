@@ -44,10 +44,11 @@ def asking(data: dict, found: dict) -> dict[str, dict]:
 
 
 def record(data: dict, words: str, link: str, asked: dict[str, dict], moment: str) -> dict:
-    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, and those its words name; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
+    """A new answer of his beside the cards asking him and PRs not yet live that it could replace, none marked yet: those of the job and order of the card it answers, the one he tapped or wrote under, still open or not, and those its words name; and beside each job waiting on an order any of those belongs to, none marked heard yet."""
     answered = [entry for entry in asked.values() if entry["card"] and under(link, entry["card"])]
-    jobs = {entry["job"] for entry in answered if entry["job"]}
-    orders = {entry["order"] for entry in answered if entry["order"]}
+    drawn = {job_id: job["order"] for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"] and under(link, question["card"])}
+    jobs = {entry["job"] for entry in answered if entry["job"]} | drawn.keys()
+    orders = {entry["order"] for entry in answered if entry["order"]} | set(drawn.values())
     cards = {
         key: None
         for key, entry in asked.items()

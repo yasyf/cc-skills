@@ -2751,6 +2751,24 @@ def test_an_answer_stays_unfinished_until_each_job_waiting_on_an_order_it_touche
     assert state.load("demo")["answers"]["a1"]["jobs"] == {"j3": {"mark": "sent"}}
 
 
+def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_on_that_cards_order(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [], "pr_cards": []})
+    view.refresh_cards("demo")
+    run("job", "add", "builder", "--order", "o1", "--goal", "build the store")
+    with state.edit("demo") as data:
+        data["jobs"]["j3"]["state"] = "waiting"
+    assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
+    listed = capsys.readouterr().err
+    assert f"  {designing}  open  j1 o1  " in listed
+    assert "  j3 waits on o1 and has not heard a1: SendMessage it his words verbatim, or mark it untouched" in listed
+    assert run("answer", "a1", "--stands", designing, "--sent", "j3") == (
+        0,
+        "his answer a1 recorded: 1 standing, 0 superseded, 0 reopened by it; 1 waiting job sent his words, 0 untouched",
+    )
+
+
 def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_standing_so_each_is_marked_by_its_key(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
