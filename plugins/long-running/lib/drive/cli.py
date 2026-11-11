@@ -13,6 +13,7 @@ from drive import github, limits, orca, picture, place, reads, render, settled, 
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+INCIDENT_FIX = "fix"
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
 HIDDEN = "not visible in Orca, which hides the worktrees it did not make for this repository"
@@ -60,13 +61,22 @@ def start(args: argparse.Namespace) -> int:
 
 
 def order_add(args: argparse.Namespace) -> int:
+    """Record his order; an incident order records a job on each of its parts, its fix among them, unless it joins the open incident on the same failing service."""
     name = state.resolve(args.drive)
     created = state.stamp()
+    if args.incident and not args.joins and INCIDENT_FIX not in (args.parts or []):
+        raise DriveError(
+            f'an incident order starts its fix job at the alert, beside diagnosis: name "{INCIDENT_FIX}" among --parts, such as'
+            f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
+        )
     with state.edit(name) as data:
+        joined = find(data["orders"], args.joins, "order") if args.joins else None
+        if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
+            raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
         incidents = [
             f"{other_id} {other['state']} incident: {other['text'][:80]}; {other['note'] or 'no record'}"
             for other_id, other in state.open_orders(data).items()
-            if args.incident and other["incident"]
+            if args.incident and not joined and other["incident"]
         ]
         order_id = state.next_id(data["orders"], "o")
         order = data["orders"][order_id] = {
@@ -83,19 +93,27 @@ def order_add(args: argparse.Namespace) -> int:
             "withdrawn": None,
             "jobs": [],
             "parts": {part: state.new_part() for part in args.parts or [state.whole_order(args.words)]},
-            "incident": args.incident,
+            "incident": args.incident or joined is not None,
             "milestone": args.milestone or None,
             "project": args.project or None,
             "workstream": args.workstream or None,
             "proof": None,
-            "note": None,
+            "note": joined and joined["note"],
             "created": created,
             "updated": created,
             "last_line": None,
         }
         if args.due:
             need_thread(data, order_id, order)
-    return emit(args, "\n".join([order_id, *incidents]), {"id": order_id, **order, "incidents": incidents})
+        started = []
+        for part in order["parts"] if args.incident and not joined else []:
+            job_id = state.next_id(data["jobs"], "j")
+            data["jobs"][job_id] = state.new_job(order_id, "codex", f"{part}: {state.whole_order(args.words)}", [part], created)
+            order["jobs"].append(job_id)
+            started.append(f'{job_id} on "{part}": start its agent now and record it with drive job set {job_id} --agent <id>')
+    if joined:
+        started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
+    return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
 def need_thread(data: dict, order_id: str, order: dict) -> None:
@@ -179,6 +197,11 @@ def order_set(args: argparse.Namespace) -> int:
             order["state"] = args.state
         if args.parts:
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
+        if args.incident and not order["incident"] and not any(INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
+            raise DriveError(
+                f'{args.id}: refused, an incident order starts its fix job at the alert, beside diagnosis: give it a "{INCIDENT_FIX}"'
+                f" part with --parts and record its job with drive job add codex --order {args.id} --part {INCIDENT_FIX} --agent <id> first"
+            )
         if args.incident is not None:
             order["incident"] = args.incident
         for field in ("milestone", "project", "workstream"):
@@ -283,25 +306,12 @@ def job_add(args: argparse.Namespace) -> int:
             and (shared := [part for part in parts if part in (other["parts"] if other["order"] == args.order else other["carries"][args.order])])
         ]
         job_id = state.next_id(data["jobs"], "j")
-        job = data["jobs"][job_id] = {
-            "order": args.order,
-            "kind": args.kind,
-            "goal": args.goal,
+        job = data["jobs"][job_id] = state.new_job(args.order, args.kind, args.goal, parts, created) | {
             "agent": args.agent,
-            "session": os.environ.get("CLAUDE_CODE_SESSION_ID"),
-            "parts": parts,
-            "carries": {},
-            "questions": [],
             "where": "remote" if args.remote else "local",
             "repo": args.repo,
             "branch": args.branch,
             "worktree": args.worktree,
-            "prs": [],
-            "waits": [],
-            "state": "running",
-            "said": None,
-            "created": created,
-            "updated": created,
         }
         order["jobs"].append(job_id)
         order["updated"] = created
@@ -313,6 +323,7 @@ def job_set(args: argparse.Namespace) -> int:
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     check_waits(name, args.waits)
+    told_him(name, args)
     shown = args.card and shown_card(name, args.card)
     with state.edit(name) as data:
         job = find(data["jobs"], args.id, "job")
@@ -345,6 +356,35 @@ def job_set(args: argparse.Namespace) -> int:
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
     return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+
+
+def told_him(name: str, args: argparse.Namespace) -> None:
+    """An incident's job waits on his card only once the incident's thread says so: the drive's post there linking each card, with what it blocks and the default the job builds on meanwhile."""
+    from drive import view
+
+    data = state.load(name)
+    job = find(data["jobs"], args.id, "job")
+    cards = [card for card in [args.card, *args.waits] if card and card not in data["jobs"]]
+    incidents = [
+        order_id
+        for order_id in [job["order"], *job["carries"]]
+        if data["orders"][order_id]["incident"] and data["orders"][order_id]["state"] not in state.CLOSED_ORDER_STATES
+    ]
+    if not (cards and incidents):
+        return
+    if not args.told:
+        raise DriveError(
+            f"{args.id} works on incident {', '.join(incidents)}: a card that blocks it is said in the incident's thread at once, a line"
+            " linking the card with what it blocks and the recommended option the job builds on meanwhile; post that line, then pass --told <its link>"
+        )
+    posted, _ = slack.message_and_root(args.told)
+    threads = [where[1] for order_id in incidents if (where := state.promise_thread(data, data["orders"][order_id]))]
+    if not (posted.get("from_claude") and posted.get("thread_ts") in threads):
+        raise DriveError(f"--told {args.told}: name the drive's own post in the incident's thread, {' or '.join(threads) or 'which it has none of yet'}")
+    found = view.live_cards(name) or view.NO_CARDS
+    linked = set(view.SLACK_TS.findall(posted.get("text") or ""))
+    if unlinked := [card for card in cards if view.message_key(view.wait_entry(data, card, found)["url"] or card) not in linked]:
+        raise DriveError(f"--told {args.told} does not link {', '.join(unlinked)}: the line links each card that blocks the incident")
 
 
 def shown_card(name: str, url: str) -> dict | None:
@@ -1076,7 +1116,19 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("--thread")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
     verb.add_argument("--parts", nargs="+", metavar="PART", help="each deliverable his words name; default: one, the whole order")
-    verb.add_argument("--incident", action="store_true", help="an incident order; the dashboard's top strip shows it until it closes, and each other open incident order prints with its note, so a failing service stays one incident")
+    verb.add_argument(
+        "--incident",
+        action="store_true",
+        help=(
+            "an incident order: --parts names its fix, and a codex job is recorded on each part for its agent to start at once;"
+            " the dashboard's top strip shows it until it closes, and each other open incident order prints with its note, so a failing service stays one incident"
+        ),
+    )
+    verb.add_argument(
+        "--joins",
+        metavar="ORDER",
+        help="an incident order on the same failing service as this open incident order: it takes that order's record and starts no job, since that incident's owner carries it",
+    )
     verb.add_argument("--milestone", metavar="NAME", help="the milestone the dashboard's Plan screen draws this order under")
     verb.add_argument("--project", metavar="NAME", help="the project the dashboard's Now screen files this order under")
     verb.add_argument("--workstream", metavar="NAME", help="the workstream inside its project the Now screen files this order under")
@@ -1151,6 +1203,14 @@ def parser() -> argparse.ArgumentParser:
         help=(
             "the Slack link of a question card the job asked on, which carries its parts until he answers it; each card"
             " keeps its own question, so a job holds every card it asked on, each closed by his answer to it"
+        ),
+    )
+    verb.add_argument(
+        "--told",
+        metavar="LINK",
+        help=(
+            "the drive's post in an incident's thread linking each card --card or --waits names, what it blocks and the default the job"
+            " builds on meanwhile; a job on an open incident order takes a card only with it"
         ),
     )
     verb.set_defaults(run=job_set)
