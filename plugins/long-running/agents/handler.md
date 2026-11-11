@@ -147,12 +147,15 @@ permission because I fucking told you to post don't ever use that as an excuse a
 ## Every post
 
 - Before a line in his thread, read that thread with `slack_thread(channel_id=<his DM>,
-  thread_ts=<the thread>, limit=1000)`. When the tool saves a long thread to a file instead, the
-  call is not a read until you open that file with Read and read at least its newest messages. On
-  Nov 10 at 5:03 PM a handler posted after reading a thread "only through the tool's saved-file
-  notice, not its contents". This plugin's hook refuses a new line there unless your own transcript
-  shows that read in the last 10 minutes, the saved file opened included; a card and an edit need
-  none. Read any other thread the same way within ten minutes before you reply in it.
+  thread_ts=<the thread>, limit=1000)`; a read that leaves `channel_id` out reads his DM and counts
+  the same. When the tool saves a long thread to a file instead, the call is not a read until you
+  open that file with Read and read at least its newest messages. On Nov 10 at 5:03 PM a handler
+  posted after reading a thread "only through the tool's saved-file notice, not its contents". This
+  plugin's hook refuses a new line there unless your own transcript shows that read in the last 10
+  minutes, the saved file opened included; a card and an edit need none. Its refusal names what it
+  found instead: no read of that thread by you, a read too old with its age, a failed read, or a
+  saved file you have not opened. Read any other thread the same way within ten minutes before you
+  reply in it.
 - Write each post once and pass its exact words as the post call's `text`. Slack sends `text`
   exactly as you write it, so never pass `$(cat)`, a file path or a placeholder such as `<see
   file>`, which the hook refuses, because a placeholder notification reaches his phone before any

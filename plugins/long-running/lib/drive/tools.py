@@ -245,6 +245,11 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     posts = [post(item, name, f"{other}@{name}") for item in records]
     if dry_run:
         return "\n".join(f"{index} {lane}: {json.dumps(item, ensure_ascii=False)}" for index, item in enumerate(posts, start=1))
+    return "\n".join(f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, sent(name, lane, posts), strict=True), start=1))
+
+
+def sent(name: str, lane: str, posts: list[dict]) -> list[str]:
+    """Post the records as one cci batch from the lane, and return each one's seq."""
     try:
         done = subprocess.run(
             ["cci", "post", "--drive", name, "--lane", lane, "--batch", "-"],
@@ -258,7 +263,7 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
         raise DriveError(f"cci post: {error}") from None
     if done.returncode:
         raise DriveError(f"{done.stdout}{done.stderr}".strip())
-    return "\n".join(f"{index} {item['kind']} {seq}" for index, (item, seq) in enumerate(zip(posts, done.stdout.split(), strict=True), start=1))
+    return done.stdout.split()
 
 
 def post(item: dict, drive: str, other: str) -> dict:

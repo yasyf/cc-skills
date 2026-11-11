@@ -599,6 +599,8 @@ def refused(asks: list[dict]) -> dict:
 
 
 def answered(ask: dict) -> dict:
+    if "repo" not in ask:
+        return question_answered(ask)
     known = drive_prs()
     key = keys_of([ask], known)[0]
     if key not in known:
@@ -628,6 +630,19 @@ def answered(ask: dict) -> dict:
                 action_ts=ask["action_ts"],
             )
     return {"ok": True}
+
+
+def question_answered(ask: dict) -> dict:
+    """Post his tap on a question card as the communicator's answer record to the coordinator, the one it would post for that tap."""
+    from drive import tools
+
+    if not (named := tools.WAITS.fullmatch(ask["waits"])):
+        raise state.DriveError(f"{ask['waits']} is no drive's question card, so his tap on it stays with the session it reached")
+    name = named[1]
+    item = {"kind": "answer", "text": ask["label"], "url": ask["url"], "waits": ask["waits"], "undone": ask.get("undone")}
+    item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
+    [seq] = tools.sent(name, "communicator", [tools.post(item, name, f"root@{name}")])
+    return {"ok": True, "seq": seq}
 
 
 def home_drive() -> str:

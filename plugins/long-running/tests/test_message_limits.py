@@ -252,12 +252,13 @@ def handler(lane: Path, opening: str, *read: str) -> None:
     reads(lane, *read)
 
 
-def reads(lane: Path, *threads: str, age: timedelta = timedelta(), failed: bool = False, channel: str = DM) -> None:
+def reads(lane: Path, *threads: str, age: timedelta = timedelta(), failed: bool = False, channel: str | None = DM) -> None:
     at = (datetime.now(UTC) - age).isoformat()
     with lane.open("a") as transcript:
         for thread in threads:
             call_id = f"read-{thread}-{at}"
-            use = {"type": "tool_use", "id": call_id, "name": message_limits.THREAD_READ, "input": {"channel_id": channel, "thread_ts": thread, "limit": 1000}}
+            asked = ({"channel_id": channel} if channel else {}) | {"thread_ts": thread, "limit": 1000}
+            use = {"type": "tool_use", "id": call_id, "name": message_limits.THREAD_READ, "input": asked}
             result = {"type": "tool_result", "tool_use_id": call_id, "content": [{"type": "text", "text": "{}"}]} | ({"is_error": True} if failed else {})
             transcript.write(json.dumps({"type": "assistant", "timestamp": at, "message": {"role": "assistant", "content": [use]}}) + "\n")
             transcript.write(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": [result]}}) + "\n")
@@ -595,22 +596,31 @@ def test_a_session_that_is_no_drives_communicator_is_not_limited(run: Run, demo:
 
 
 def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thread(talker: str, unread: Path) -> None:
-    refusal = (
-        "refused: your transcript shows no read of his thread 1.2 in the last 10 minutes, so this line could miss what he"
-        f" said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2, limit=1000), then post. When the"
-        " tool saves a long thread to a file, the call is not a read until you open that file and read its newest messages."
+    read_it = (
+        f", so this line could miss what he said there since. Read it with slack_thread(channel_id={DM}, thread_ts=1.2,"
+        " limit=1000), then post. When the tool saves a long thread to a file, the call is not a read until you open that"
+        " file and read its newest messages."
     )
-    assert posted(unread, text="Fixed.", thread_ts="1.2") == refusal
+    no_read = "refused: your transcript shows no read of his thread 1.2, and a read by another agent or session does not count for yours"
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == no_read + read_it
     reads(lane_of(unread), "1.3")
     reads(lane_of(unread), "1.2", channel="C0B75AL4XEW")
-    reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == no_read + read_it
     reads(lane_of(unread), "1.2", failed=True)
-    assert posted(unread, text="Fixed.", thread_ts="1.2") == refusal
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == "refused: your slack_thread call on his thread 1.2 failed" + read_it
+    reads(lane_of(unread), "1.2", age=timedelta(minutes=11))
+    assert posted(unread, text="Fixed.", thread_ts="1.2") == "refused: your last read of his thread 1.2 was 11 minutes ago, and a read counts for 10" + read_it
     reads(lane_of(unread), "1.2", age=timedelta(minutes=9))
     assert posted(unread, text="Fixed.", thread_ts="1.2") is None
     assert message_limits.deny_reason(call("slack_reply", unread, channel_id=DM, thread_ts="1.4", text="Fixed.")).startswith(
         "refused: your transcript shows no read of his thread 1.4"
     )
+
+
+def test_a_read_that_leaves_out_channel_id_reads_his_dm_so_the_line_after_it_goes_out(talker: str, unread: Path) -> None:
+    reads(lane_of(unread), "1.2", channel=None)
+    assert say(unread, text="Fixed.", thread_ts="1.2") is None
+    assert posted(unread, text="Fixed.", thread_ts="1.2") is None
 
 
 def test_a_card_an_edit_a_root_line_and_the_communicators_own_line_need_no_thread_read(talker: str, unread: Path) -> None:
@@ -867,7 +877,7 @@ def test_a_saved_thread_is_a_read_only_once_the_handler_opens_its_file(talker: s
     with lane.open("a") as transcript:
         for row in ({"type": "assistant", "message": {"content": [use]}}, {"type": "user", "message": {"content": [result]}}):
             transcript.write(json.dumps(row | {"timestamp": at}) + "\n")
-    assert posted(unread, text="Fixed.", thread_ts="1.2").startswith("refused: your transcript shows no read of his thread 1.2")
+    assert posted(unread, text="Fixed.", thread_ts="1.2").startswith(f"refused: your read of his thread 1.2 was saved to {saved}, which you have not opened since, so")
     with lane.open("a") as transcript:
         for row in ({"type": "assistant", "message": {"content": [opened]}}, {"type": "user", "message": {"content": [printed]}}):
             transcript.write(json.dumps(row | {"timestamp": at}) + "\n")
