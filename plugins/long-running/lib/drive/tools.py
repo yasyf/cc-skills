@@ -110,6 +110,42 @@ def verb_tools() -> list[dict]:
     ]
 
 
+def described(tool: dict) -> str:
+    """A tool's description, then a line per field of its input, a nested one by its path, with its type, whether it is required and its description."""
+    return "\n".join([f"{tool['name']}: {tool['description']}", *field_lines(tool["inputSchema"], "")])
+
+
+def field_lines(shape: dict, path: str, alternative: bool = False) -> list[str]:
+    """A line per field, one naming a oneOf alternative, such as an op's verb, never marked required."""
+    lines = []
+    for field, value in shape.get("properties", {}).items():
+        required = ", required" if field in shape.get("required", []) and not alternative else ""
+        lines.append(f"{path}{field} ({kind(value)}{required})" + (f": {value['description']}" if "description" in value else ""))
+        lines += nested(value, f"{path}{field}")
+    return lines
+
+
+def nested(shape: dict, path: str, alternative: bool = False) -> list[str]:
+    if "properties" in shape:
+        return field_lines(shape, f"{path}.", alternative)
+    if "items" in shape:
+        return nested(shape["items"], f"{path}[]")
+    return [
+        *(line for each in shape.get("oneOf", []) for line in nested(each, path, alternative=True)),
+        *(line for each in shape.get("anyOf", []) for line in nested(each, path)),
+    ]
+
+
+def kind(shape: dict) -> str:
+    if "enum" in shape:
+        return " | ".join(map(str, shape["enum"]))
+    if "items" in shape:
+        return f"list of {kind(shape['items'])}"
+    if alternatives := shape.get("oneOf") or shape.get("anyOf"):
+        return " or ".join(dict.fromkeys(map(kind, alternatives)))
+    return shape["type"]
+
+
 def run(tool: str, name: str, arguments: dict) -> str:
     if tool == "say":
         return talk.say(name, arguments)

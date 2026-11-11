@@ -2285,6 +2285,33 @@ def test_pr_set_tap_names_the_order_it_serves_and_prints_his_words(run: Run, wit
     assert state.load("demo")["prs"][with_pr]["serves"] == "o1"
 
 
+def test_pr_set_tap_refuses_a_third_patch_on_one_order_until_it_names_the_earlier_patches_it_deletes(
+    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    earlier = ["acme/widgets#4153", "acme/widgets#4190"]
+    with state.edit("demo") as data:
+        for key in earlier:
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged", "serves": "o1"}
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
+    refusal = capsys.readouterr().err
+    assert "acme/widgets#4153, acme/widgets#4190 serving o1 merged already, so Forge-AI/monorepo#42 is a third patch on one symptom" in refusal
+    assert f"drive pr set {PR} --deletes <PR>..., or start a design job on o1" in refusal
+    assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none", "--deletes", "acme/widgets#4100"]) == 2
+    assert "Forge-AI/monorepo#42 names acme/widgets#4100 as taken out, which is no merged PR serving o1" in capsys.readouterr().err
+    assert "deletes" not in state.load("demo")["prs"][with_pr]
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none", "--deletes", *map(state.pr_url, earlier))[0] == 0
+    assert state.load("demo")["prs"][with_pr]["deletes"] == earlier
+
+
+def test_pr_set_tap_takes_a_third_patch_on_an_order_that_has_a_design_job(run: Run, with_pr: str) -> None:
+    with state.edit("demo") as data:
+        for key in ("acme/widgets#4153", "acme/widgets#4190"):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"state": "merged"}
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 2
+    run("job", "add", "design", "--order", "o1", "--goal", "end the patches")
+    assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
+
+
 def test_pr_set_tap_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
@@ -3415,6 +3442,95 @@ def test_heard_prints_the_project_and_workstream_pairs_in_use(run: Run, demo: st
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the watch")
     run("order", "add", "--project", "Billing", "--workstream", "Invoices", "why is the invoice late?")
     assert run("heard") == (0, "heard\nin use as project / workstream: Billing / Invoices; The drive / Releases")
+
+
+def test_heard_refuses_his_words_repeating_a_part_no_live_job_carries(run: Run, demo: str, capsys: pytest.CaptureFixture[str]) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
+    assert run("heard")[0] == 0
+    owner = state.load("demo")["owner"]
+    assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
+    refusal = capsys.readouterr().err
+    assert 'his words repeat o1 "ship the unfurl fix and its check", part "fix", and no running, waiting or built job or open card of his carries it' in refusal
+    assert 'start its job with drive job add <kind> --order o1 --part <part> --goal "<its deliverable>", file a defect with this refusal verbatim' in refusal
+    assert state.load("demo")["owner"] == owner
+    assert cli.main(["heard", "--part", "fix"]) == 2
+    assert "pass --repeats <o> with it" in capsys.readouterr().err
+    assert cli.main(["heard", "--repeats", "o1"]) == 2
+    assert 'o1 has parts "fix", "check"; name the one this covers with --part' in capsys.readouterr().err
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix")
+    assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "waiting"
+    assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 0
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+    assert cli.main(["heard", "--repeats", "o1", "--part", "fix"]) == 2
+
+
+def test_heard_takes_a_part_a_done_jobs_card_still_open_waits_on(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "ship the unfurl fix and its check", "--parts", "fix", "check")
+    run("job", "add", "design", "--order", "o1", "--part", "fix", "--goal", "pick how the card unfurls")
+    run("job", "set", "j1", "--card", DESIGN_CARD)
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["state"] = "done"
+    question = {"question": "Which unfurl?", "options": ["Bot", "Link"], "recommended": "Bot", "asked": state.stamp(), "url": DESIGN_CARD, "card": {"title": "Which unfurl?"}}
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [question], "pr_cards": []})
+    view.refresh_cards("demo")
+    assert run("heard", "--repeats", "o1", "--part", "fix")[1].splitlines()[0] == "heard"
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards("demo")
+    assert run("heard", "--repeats", "o1", "--part", "fix")[0] == 2
+
+
+def test_drive_move_takes_his_word_records_it_on_the_role_and_prints_steps_two_to_four(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(orca, "claude_pids", lambda session: [4242])
+    assert cli.main(["move", "coordinator"]) == 2
+    assert "refused, ending a session is his decision: pass --his-word <the permalink of his message naming the move>" in capsys.readouterr().err
+    ours = slack_thread.post(state.now() - timedelta(minutes=2), from_claude=True)
+    assert cli.main(["move", "coordinator", "--his-word", ours]) == 2
+    assert f"{ours} is not his message; only his own words move a session" in capsys.readouterr().err
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    run("order", "add", "--project", "Billing", "--workstream", "Invoices", "the invoice run fails")
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["incident"] = True
+        data["roles"]["coordinator"]["terminal"] = "term_coordinator"
+    assert cli.main(["move", "coordinator", "--his-word", his]) == 2
+    assert "refused, incident o1 is open and a move ends the coordinator's session: move it once the fix is live" in capsys.readouterr().err
+    assert "move_word" not in state.load("demo")["roles"]["coordinator"]
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["incident"] = False
+    code, out = run("move", "coordinator", "--his-word", his)
+    held = state.load("demo")["roles"]["coordinator"]
+    assert (code, held["move_word"]) == (0, his)
+    assert out.splitlines() == [
+        f"1. his word {his} recorded on the coordinator",
+        (
+            '2. cci post --lane communicator --kind ask --to root@demo --text "Moving you into an Orca terminal on his word: run cc-slack'
+            " unfollow for each of your Slack watches, cci unsubscribe, stop your drive watch Monitor if you run one, reply released, and"
+            ' take no more work." and wait for its reply'
+        ),
+        "3. orca terminal send --terminal term_coordinator --text /exit --enter",
+        "4. wait until ps -p 4242 lists nothing",
+        f"then steps 5 to 7 of drive manual migration, Into an Orca terminal: create the terminal resuming {held['session']} in {held['cwd']}",
+    ]
+
+
+def test_drive_move_reads_a_role_recorded_before_roles_kept_a_terminal_as_in_none(
+    run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(orca, "claude_pids", lambda session: [])
+    his = slack_thread.post(state.now() - timedelta(minutes=1), from_user=True)
+    with state.edit("demo") as data:
+        del data["roles"]["coordinator"]["terminal"]
+    code, out = run("move", "coordinator", "--his-word", his)
+    session = state.load("demo")["roles"]["coordinator"]["session"]
+    assert code == 0
+    assert out.splitlines()[2:4] == [
+        f"3. tmux send-keys -t <pane> /exit Enter under tmux, its pane the one tmux list-panes -a lists with its claude line, or claude stop {session} for a claude --bg session",
+        f"4. wait none: no ~/.claude/sessions/<pid>.json names {session}, so its process has exited",
+    ]
 
 
 def test_version_names_the_plugin_version(capsys: pytest.CaptureFixture[str]) -> None:

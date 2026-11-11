@@ -113,13 +113,14 @@ def tool_verb(found: list[list[str]]) -> str | None:
         if tool in ("heard", "status"):
             return (
                 f"refused: `drive {tool}` has a tool on the drive MCP server: call `{tool}` with its flags as fields,"
-                f" dashes as underscores, or pipe that JSON to `drive tool {tool}`; Bash keeps `drive {tool} --json`"
+                f" dashes as underscores, or pipe that JSON to `drive tool {tool}`, whose fields `drive tool {tool} -h` lists;"
+                f" Bash keeps `drive {tool} --json`"
             )
         if tool in tools.OPS and named[2:3] and named[2] in tools.OPS[tool]:
             return (
                 f"refused: `drive {tool} {named[2]}` has a tool on the drive MCP server, which runs every op the turn needs in"
                 f" one call: call `{tool}(ops=[{{{named[2]}: {{<its flags and positionals as fields, dashes as underscores>}}}}])`,"
-                f" or pipe that JSON to `drive tool {tool}`"
+                f" or pipe that JSON to `drive tool {tool}`, whose fields `drive tool {tool} -h` lists"
             )
     return None
 

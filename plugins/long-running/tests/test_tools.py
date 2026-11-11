@@ -99,6 +99,25 @@ def test_search_plan_returns_the_plan_sections_carrying_its_words_under_their_he
     assert (listed["inputSchema"]["required"], listed["annotations"]) == (["words"], {"readOnlyHint": True})
 
 
+def test_tool_help_prints_each_field_of_its_input_with_its_type_whether_it_is_required_and_its_description(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    record = next(tool for tool in tools.verb_tools() if tool["name"] == "record")
+    assert cli.main(["tool", "record", "--help"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[0] == f"record: {record['description']}"
+    assert "records (list of object, required)" in lines
+    assert f"records[].kind (owner | answer | defect, required): {tools.RECORD['properties']['kind']['description']}" in lines
+    assert f"records[].waits (string): {tools.RECORD['properties']['waits']['description']}" in lines
+    assert f"dry_run (boolean): {tools.DRY_RUN['description']}" in lines
+    assert cli.main(["tool", "job", "-h"]) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert "ops[].add (object)" in lines
+    goal, words = tools.schema(tools.leaf("job", "add"))["properties"]["goal"], tools.schema(tools.leaf("order", "add"))["properties"]["words"]
+    assert f"ops[].add.goal (string, required): {goal['description']}" in lines
+    assert f"ops[].add.order.words (string, required): {words['description']}" in lines
+
+
 def test_a_record_goes_to_the_other_session_and_a_tap_takes_its_ask_and_job_from_the_waits_id(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     posted: list[tuple[list[str], list[dict]]] = []
     ok = subprocess.CompletedProcess([], 0, "#41\n#42\n", "")

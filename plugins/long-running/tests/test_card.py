@@ -856,6 +856,22 @@ def test_a_redraw_of_one_pr_in_a_stack_redraws_the_whole_stack(stacked: list[lis
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:41-43"
 
 
+def test_a_stack_of_three_merged_patches_on_one_order_redraws_once_the_last_names_the_two_it_deletes(
+    stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    keys = [f"Forge-AI/monorepo#{n}" for n in (41, 42, 43)]
+    ask(asks(41, 42, 43))
+    with state.edit("demo") as data:
+        for key in keys:
+            data["prs"][key]["state"] = "merged"
+        data["prs"][keys[2]]["deletes"] = keys[:2]
+    stacked_gh = card.run
+    monkeypatch.setattr(card, "run", lambda cmd: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
+    [drawn] = ask(asks(41, 42, 43))["cards"]
+    assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
+    assert drawn["card"]["status"] == "done"
+
+
 def test_a_pr_added_to_the_stack_later_gets_its_own_card(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
     [drawn] = ask(asks(44))["cards"]
