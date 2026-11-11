@@ -1261,12 +1261,22 @@ def job_brief(args: argparse.Namespace) -> int:
         for field, value in fields.items()
         if value
     ]
-    written.write_text("\n".join(lines) + "\n")
+    text = "\n".join(lines) + "\n"
+    written.write_text(text)
+    given = brief.SERVES_TOOLING.search(text) and not state.communicators(order)
     with state.edit(name) as data:
         data["jobs"][args.id].update(brief=str(written), brief_flags=flags)
+        if given:
+            data["orders"][job["order"]]["owner"] = "communicator"
     line = f"Read your brief first: {written}\nhis words from {job['order']}, rulings: {len(rulings)}, earlier jobs: {len(earlier)}"
     if kept:
         line += "\nkept from its earlier brief: " + ", ".join(f"--{flag.replace('_', '-')}" for flag in kept)
+    if given:
+        line += (
+            f"\n{job['order']} is the communicator's order now, since a builder serving drive tooling is its alone: only the communicator"
+            f" starts {args.id} and its agents and posts its reports; from the coordinator, start no agent on it and send"
+            f" communicator@{name} a defect record naming {args.id} and its `Read your brief first:` line"
+        )
     return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
 
 

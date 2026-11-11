@@ -12,7 +12,6 @@ DESIGNER = "long-running:designer"
 BUILDER = "long-running:builder"
 SCOPED = re.compile(r"^(?:Serves|Handoff):", re.MULTILINE)
 SERVES = re.compile(r"^Serves:(.*)$", re.MULTILINE)
-SERVES_TOOLING = re.compile(r"^Serves:[ \t]*drive tooling\b", re.MULTILINE | re.IGNORECASE)
 SERVED = re.compile(r"port of #\d+|drive tooling|his order", re.IGNORECASE)
 ORDER_WORDS = re.compile(r"^Order(?: \(his words\))?:(.*)$", re.MULTILINE)
 GOAL = re.compile(r"^Goal:(.*)$", re.MULTILINE)
@@ -92,6 +91,26 @@ def builder_refusal(text: str) -> str | None:
     )
 
 
+def tooling_refusal(name: str, data: dict, text: str) -> str:
+    """Why the coordinator starts no builder serving drive tooling: the communicator alone starts it, on the job its brief names once that job's order is the communicator's, and on its own order for a brief that names none."""
+    match = brief.BRIEF_JOB.search(text)
+    job = data["jobs"].get(match[1]) if match else None
+    if job is None:
+        return (
+            "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
+            f" communicator@{name} naming the tool and its refusal verbatim, and the communicator's builder takes it over"
+        )
+    order_id = job["order"]
+    session = (data["roles"].get("communicator") or {}).get("session") or "not started"
+    given = state.communicators(data["orders"][order_id])
+    held = f", and {order_id} is the communicator's order, session {session}" if given else ""
+    step = "" if given else f"{brief.gives_tooling(match[1], order_id)}, then "
+    return (
+        f"refused: a builder serving drive tooling is the communicator's, never the coordinator's{held}: {step}send"
+        f" communicator@{name} a defect record naming {match[1]} and its `Read your brief first:` line, and the communicator starts it"
+    )
+
+
 def crowded(data: dict) -> str | None:
     """Why no builder starts on this Mac now: its cap of builders already runs here, naming the builder jobs that wait for one, oldest due first."""
     running = place.local_builders(data, state.now())
@@ -141,11 +160,8 @@ def deny_reason(payload: dict) -> str | None:
             " definition, and a rule typed into a prompt overrides it: drop the line"
         )
     text = brief.carried(prompt)
-    if kind == BUILDER and role == "coordinator" and SERVES_TOOLING.search(text):
-        return (
-            "refused: a builder serving drive tooling is the communicator's, never the coordinator's: send a defect record to"
-            f" communicator@{names[0]} naming the tool and its refusal verbatim, and the communicator's builder takes it over"
-        )
+    if kind == BUILDER and role == "coordinator" and brief.SERVES_TOOLING.search(text):
+        return tooling_refusal(names[0], data, text)
     if refused := job_refusal(names[0], data, kind, text):
         return refused
     return builder_refusal(text) or crowded(data) if kind == BUILDER else None

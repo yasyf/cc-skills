@@ -524,6 +524,50 @@ def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str
     )
 
 
+def test_a_builder_serving_drive_tooling_on_the_coordinators_order_starts_from_the_communicator_alone(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
+    run("order", "add", "--project", "The drive", "--workstream", "Messages", "I told him since you never did, fix that", "--kind", "build")
+    run("job", "add", "reader", "--order", "o1", "--goal", "research: the reporter's thread")
+    monkeypatch.setattr("sys.stdin", io.StringIO(RESEARCH))
+    run("job", "report", "j1", "-")
+    run("job", "add", "builder", "--order", "o1", "--goal", "the reporter hears the fix is live")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", coordinator)
+    typed = f"Order (his words): I told him since you never did, fix that\nServes: drive tooling\nResearched: j1\nDrive: demo, order o1, job j2\nScratch: {tmp_path / 'j2'}"
+    assert agent_brief.deny_reason(drive_agent("long-running:builder", typed)) == (
+        "refused: a builder serving drive tooling is the communicator's, never the coordinator's: `drive job brief j2 --serves"
+        ' "drive tooling"` gives o1 to the communicator, then send communicator@demo a defect record naming j2 and its'
+        " `Read your brief first:` line, and the communicator starts it"
+    )
+    assert scratch_folder.deny_reason(drive_agent("long-running:builder", typed, session="talker")) == (
+        "refused, no agent started: o1 is the coordinator's order, but a builder serving drive tooling is the communicator's alone:"
+        ' `drive job brief j2 --serves "drive tooling"` gives o1 to the communicator, then start it again'
+    )
+    code, out = run("job", "brief", "j2", "--serves", "drive tooling", "--done-when", "merged and installed", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    assert out.splitlines()[-1] == (
+        "o1 is the communicator's order now, since a builder serving drive tooling is its alone: only the communicator starts j2"
+        " and its agents and posts its reports; from the coordinator, start no agent on it and send communicator@demo a defect"
+        " record naming j2 and its `Read your brief first:` line"
+    )
+    assert state.load("demo")["orders"]["o1"]["owner"] == "communicator"
+    prompt = out.splitlines()[0]
+    coordinators = drive_agent("long-running:builder", prompt)
+    assert agent_brief.deny_reason(coordinators) == (
+        "refused: a builder serving drive tooling is the communicator's, never the coordinator's, and o1 is the communicator's"
+        " order, session talker: send communicator@demo a defect record naming j2 and its `Read your brief first:` line, and the"
+        " communicator starts it"
+    )
+    assert scratch_folder.deny_reason(coordinators).startswith("refused, no agent started: o1 is the communicator's order, session talker")
+    communicators = drive_agent("long-running:builder", prompt, session="talker")
+    assert agent_brief.deny_reason(communicators) is None
+    assert scratch_folder.deny_reason(communicators) is None
+    assert run("job", "brief", "j2")[1].splitlines()[-1] == "kept from its earlier brief: --serves, --done-when, --where"
+
+
 def test_an_answer_orders_lane_does_its_own_research_on_opus_when_the_order_is_complex(demo: str, run: Run) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--complex")
     run("job", "add", "reader", "--order", "o1", "--goal", "answer him")

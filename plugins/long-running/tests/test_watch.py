@@ -222,9 +222,9 @@ def test_events_tail_from_the_offset_at_start(demo: str, monkeypatch: pytest.Mon
     assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == []
 
 
-def tooling_order(name: str, job_state: str) -> None:
+def tooling_order(name: str, job_state: str, text: str = "Drive tooling: the watch sends tooling lines to the communicator") -> None:
     with state.edit(name) as data:
-        data["orders"]["o1"]["text"] = "Drive tooling: the watch sends tooling lines to the communicator"
+        data["orders"]["o1"].update(text=text, owner="communicator")
         data["jobs"]["j1"]["state"] = job_state
 
 
@@ -245,8 +245,9 @@ def posted(sent: list[list[str]]) -> list[tuple[str, str, str]]:
     return [(argv[argv.index("--kind") + 1], argv[argv.index("--to") + 1], argv[argv.index("--text") + 1]) for argv in sent]
 
 
-def test_a_drive_tooling_orders_lines_go_to_the_communicator_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    tooling_order(demo, "waiting")
+@pytest.mark.parametrize("text", ["Drive tooling: the watch sends tooling lines to the communicator", "I told him since you never did, fix that"])
+def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch, text: str) -> None:
+    tooling_order(demo, "waiting", text)
     serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=RED)})
     sent = posts(monkeypatch)
     watching = watcher(demo)
@@ -432,6 +433,8 @@ def test_tick_names_only_orders_with_news_since_their_last_line(demo: str, monke
         data["orders"]["o8"] = order(state="done", jobs=[], last_line=None, updated=state.stamp(T0 - timedelta(hours=3)))
         data["orders"]["o9"] = order(text="Drive tooling: the watch sends tooling lines to the communicator", jobs=["j9"])
         data["jobs"]["j9"] = job(order="o9", updated=state.stamp(T0 + timedelta(minutes=3)))
+        data["orders"]["o10"] = order(text="I told him since you never did, fix that", owner="communicator", jobs=["j10"])
+        data["jobs"]["j10"] = job(order="o10", updated=state.stamp(T0 + timedelta(minutes=3)))
     watching = watcher(demo)
     assert watch.run_pass(watching, T0 + timedelta(minutes=29)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == ["TICK o2 o5 o6 o7"]
@@ -1921,7 +1924,7 @@ def test_a_job_clock_is_said_once_when_it_runs_out_while_its_job_still_runs_and_
     assert [job["due"] for job in state.load(demo)["jobs"].values()] == [None, None]
     assert watch.wakes(line, state.load(demo))
     tooling_order(demo, "running")
-    assert watch.tooling(line, state.load(demo))
+    assert watch.communicators_line(line, state.load(demo))
 
 
 def test_a_job_clock_renewed_after_the_watch_read_it_is_kept_and_not_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -77,4 +77,4 @@ Read a page, or its rows naming `<row>`, with `drive manual <page> [<row>]`, nev
 
 ## Tooling
 
-Tooling and meta work is the communicator's: a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, and a ruling's rewrite. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`communicator`). A defect anyone else hits is a `defect` record to `communicator@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him.
+Tooling and meta work is the communicator's, an order whose builder serves drive tooling included (`jobs`): a tool defect, a change to this skill, its agents, the `drive` CLI or dashboard, and a ruling's rewrite. It starts the reader that turn under its own "Drive tooling:" order, and the builder on its research (`communicator`). A defect anyone else hits is a `defect` record to `communicator@<drive>` quoting the refusal, and the blocked work goes ahead another way, with no excuse or question to him.
