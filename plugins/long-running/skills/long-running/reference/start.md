@@ -26,7 +26,7 @@ orca terminal create --worktree path:<worktree> --title <drive>-communicator --c
 1. For a new drive, the coordinator's prompt ends `; his DM is <channel id>`, and its `drive start` passes that id as `--channel`.
 2. Each session's `drive start` records the Orca terminal it runs in and ends with that role's line; `drive status` prints the line for both roles and changes nothing.
 3. The line reads `open it with: orca terminal switch --terminal <handle>` only once Orca reads `"orphaned": false` for the terminal and its process tree holds the Claude Code process whose `~/.claude/sessions/<pid>.json` names the session.
-4. Give him a switch command only from that line, never from a create's output, an environment variable or a record, because only the line is checked against what Orca shows.
+4. Give him a switch command only from that line, never from a create's output, an environment variable or a record, because only the line is checked against what Orca shows; a hook refuses a switch command naming a terminal no session of the drive runs in.
 5. Any other line carries no switch command. Tell him what it says in its own words, and act on it:
    - `not visible in Orca, which hides the worktrees it did not make for this repository`: the repository setting above shows it with no restart; `drive start` runs it for the drive's own repository and says so, and `drive status` prints it.
    - `not visible in Orca until restarted into a terminal` (Orca shows the terminal, but its process tree no longer holds the session) or `in no Orca terminal`, tmux included: move the session into a fresh Orca terminal by [migration.md](migration.md#into-an-orca-terminal), on his word.
@@ -39,7 +39,7 @@ orca terminal create --worktree path:<worktree> --title <drive>-communicator --c
    - the coordinator keeps each operation it owns that the drive file does not record, his words no order or answer holds yet, and the step it was in, in at most 3,000.
 2. The `SessionStart` hook then prints the role's block: its role, channels, `Subscribe:` line, rules, the coordinator's owed promised lines, and where to read the rest, never the orders, jobs or PRs.
 3. Claude Code also brings back the five files last read or written, each loaded skill body cut at about 20,000 characters, and every loaded tool, so load a tool only for the step that needs it.
-4. The `no_file_tools` hook refuses Read, Write and Edit in either session, because each file they open comes back after every compaction. Read a page with `drive manual <page> <row>`, which prints the installed version where a copy in Claude Code's plugin cache can be older, a job's return with `drive job report <j>`, and a record with cci.
+4. The `no_file_tools` hook refuses Read, Write and Edit in either session, because each file they open comes back after every compaction, and a Bash call that reaches a memory file (use `ccn note add`) or `cat`s a whole saved output (use `tail -c 2000 <file>`). A hook refuses a read of a page in Claude Code's plugin cache, which can be older: read a page with `drive manual <page> <row>`, a job's return with `drive job report <j>`, and a record with cci.
 5. A skill body comes back as the session first loaded it until a restart, whatever was installed or loaded since. The role's block names the long-running version installed now, so follow the block where the two disagree.
 
 ## Steps for each role
@@ -56,7 +56,7 @@ Each role runs its steps here in order.
 5. The coordinator resumes its work:
    - Its `drive start`, and the `SessionStart` hook at each coordinator session start, compactions included, start the watch as its own process unless one runs and point the session's cci channel at it. A line it acts on now arrives as a `handoff` record, the rest as `evidence` records together at most every five minutes. Arm no `Monitor` for it; when a `WATCH stopped` line says the process ended, run `drive watch`.
    - Read `drive status`, and take state from it, records and cc-notes, never from memory, because the disk is the record.
-   - After a compaction, read the page of the step your summary names with `drive manual <page> <row>` before acting, because a compaction brings back no page.
+   - After a compaction, run the `drive manual <page> <row>` your summary names for its step before acting, because a compaction brings back no page.
    - A restart ends every background agent. A job whose agent is gone gets a fresh one only when something needs it: a `running` job now, a `waiting` job when its next event arrives.
    - Write its brief with `drive job brief <j>`, passing the earlier brief's `--serves`, `--done-when`, `--where` and each `--ruling <answer id>`, plus `--handoff` with the branch, PR and last `said` line; the verb writes his order's and each ruling's words whole.
    - When a ruling comes back after a compaction as an id or a question title, read it whole with `cc-notes answer show <id>` before anything acts on it: the title is the question, and his answer is in the body.

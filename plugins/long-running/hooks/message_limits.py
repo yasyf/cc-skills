@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
-from drive import agents, limits, refs, slack, state
+from drive import agents, limits, picture, refs, render, slack, state, view
 from drive.state import DriveError
 
 SLACK = "mcp__plugin_cc-slack_cc-slack__"
@@ -24,6 +24,15 @@ QUOTE_MARKS = "\"'“”‘’"
 STRAIGHT = str.maketrans("‘’“”", "''\"\"")
 PLACEHOLDER = re.compile(r"\$\([^()]*\)|\$\{[^{}]*\}|<(?![@#!]|\w+:)[^>|]*>")
 SAVED = re.compile(r"Output has been saved to (/\S+?)\.?(?=\s|$)")
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+|\n+")
+PROMISE = re.compile(r"\b(?:from now on|next you(?:['’]ll| will)? get|I(?:['’]ll| will))\b", re.IGNORECASE)
+CARRIER = re.compile(r"\b[oj]\d+\b|\b\d{1,2}:\d{2}\s*[AP]M\b", re.IGNORECASE)
+PROMISED_TIME = re.compile(
+    r"\b(?:by|before|next (?:line|update|post|summary)(?:\s+(?:by|at))?)\s+(?:about\s+|around\s+)?(\d{1,2}):(\d{2})\s*([AP]M)\b", re.IGNORECASE
+)
+AHEAD = timedelta(hours=12)
+SWITCH = re.compile(r"orca terminal switch --terminal[= ]([^\s`'\"<>|]+)")
+WAITING = "WAITING-ON-HIM"
 TITLED = (
     " {} of the words counted are the titles its {{card:…}}, {{pr:…}}, {{order:…}} and {{record:…}} references draw as their words;"
     " {{pr:<number>|<words>}} names one in fewer words of your own."
@@ -214,11 +223,139 @@ def deny_reason(payload: dict) -> str | None:
         )
     if not posts_to(payload, dm):
         return None
-    if refusal := unread(payload, dm):
+    if refusal := card_edit(payload, drive) or held_while_away(payload, drive) or unread(payload, dm):
         return refusal
     if (long := over_length(payload, dm)) and titled:
         long += TITLED.format(titled)
-    return every([long, unlinked(payload, drive), untapped(payload), unchecked(tool_input)])
+    return every(
+        [
+            long,
+            long_ack(payload),
+            unlinked(payload, drive),
+            untapped(payload),
+            unpromised(payload),
+            undue(payload, drive),
+            raw_visuals(tool_input),
+            unswitched(tool_input, drive),
+            unchecked(tool_input),
+        ]
+    )
+
+
+def card_edit(payload: dict, drive: dict) -> str | None:
+    """Why an edit may not touch his question card: an edit with text alone replaces its layout and buttons with plain text, and drawing it again under its waits id edits it where it sits."""
+    if payload["tool_name"] != EDIT:
+        return None
+    tool_input = payload["tool_input"]
+    key = view.message_key(tool_input["url"]) if tool_input.get("url") else (tool_input.get("ts") or "").replace(".", "")
+    for job_id, job in drive["jobs"].items():
+        for question in job["questions"]:
+            if question["card"] and view.message_key(question["card"]) == key:
+                return (
+                    "Refused on purpose: that message is his question card, and an edit with text alone replaces its layout and buttons"
+                    f" with plain text. Draw it again with `drive job card {question['file'] or job_id} --waits {question['waits']}` and"
+                    " post what it prints through say(card=…), which edits the card where it sits, buttons included."
+                )
+    return None
+
+
+def posted_order(drive: dict, tool_input: dict) -> tuple[str, dict] | None:
+    """The order a post goes to: the one say's order names, else the open order whose thread it goes in."""
+    if (order_id := tool_input.get("order")) in drive["orders"]:
+        return order_id, drive["orders"][order_id]
+    thread = tool_input.get("thread_ts")
+    return next(((order_id, order) for order_id, order in state.open_orders(drive).items() if thread and state.dm_thread(drive, order) == thread), None)
+
+
+def held_while_away(payload: dict, drive: dict) -> str | None:
+    """Why a handler's line waits while he is away: only cards, the WAITING-ON-HIM line, incident lines and answers to his messages go out, and the rest joins his catch-up."""
+    tool_input = payload["tool_input"]
+    if not payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("asked"):
+        return None
+    if WAITING in (tool_input.get("text") or "") or not state.owner_away(drive, state.now()):
+        return None
+    if (found := posted_order(drive, tool_input)) and found[1]["incident"]:
+        return None
+    return (
+        "Refused on purpose: he is away, since he said so or has written nothing for an hour, and while he is away only cards,"
+        " incident lines and answers to his messages go out. Post nothing: this news joins the catch-up the coordinator sends"
+        " when he is back."
+    )
+
+
+def long_ack(payload: dict) -> str | None:
+    """Why the communicator's own ack runs past one sentence: it goes out inside seconds, and the handler answers the rest."""
+    tool_input = payload["tool_input"]
+    if payload.get("agent_id") or payload["tool_name"] == EDIT or tool_input.get("card") or tool_input.get("tap_prs"):
+        return None
+    sentences = [part for part in SENTENCE_BREAK.split(limits.masked(tool_input.get("text") or "").strip()) if part.strip()]
+    if len(sentences) < 2:
+        return None
+    return (
+        f"refused: this ack is {len(sentences)} sentences, and an ack is one: what he asked, in his words, and what happens next."
+        " Post that one sentence and put the rest in the handler's brief; the handler answers him in this thread."
+    )
+
+
+def unpromised(payload: dict) -> str | None:
+    """Why a handler's post promises him something no order, job or due time carries."""
+    tool_input = payload["tool_input"]
+    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or tool_input.get("order"):
+        return None
+    text = limits.masked(tool_input.get("text") or "")
+    if not (promise := PROMISE.search(text)) or CARRIER.search(text):
+        return None
+    return (
+        f'refused: "{promise[0]}" promises him something, and this post names no order, job or due time that does it, so nothing'
+        " holds the drive to it. Pass say's order=<the order that does it>, or name the time it lands, or drop the promise."
+    )
+
+
+def undue(payload: dict, drive: dict) -> str | None:
+    """Why a handler's post promises a clock time on an order the drive holds no due time for."""
+    tool_input = payload["tool_input"]
+    if not payload.get("agent_id") or tool_input.get("card") or tool_input.get("tap_prs") or not (found := posted_order(drive, tool_input)):
+        return None
+    order_id, order = found
+    if state.owed(order) or order["next_due"]:
+        return None
+    moment = state.now()
+    for said in PROMISED_TIME.finditer(limits.masked(tool_input.get("text") or "")):
+        at = moment.replace(hour=int(said[1]) % 12 + (12 if said[3].upper() == "PM" else 0), minute=int(said[2]), second=0, microsecond=0)
+        if (at - moment) % timedelta(days=1) <= AHEAD:
+            return (
+                f'refused: "{said[0]}" promises him a time on {order_id}, which holds no due time, so the watch cannot hold the drive'
+                f" to it. Run `drive order set {order_id} --due {at:%H:%M}` first, then post."
+            )
+    return None
+
+
+def raw_visuals(tool_input: dict) -> str | None:
+    """Why say's code visual is raw data or tool output, of which a picture shows him nothing."""
+    raw = [
+        (visual["source"], what)
+        for visual in tool_input.get("visuals") or []
+        if visual.get("kind") == "code" and (what := picture.raw(visual.get("language") or "", visual["source"]))
+    ]
+    if not raw:
+        return None
+    source, what = raw[0]
+    return (
+        f'refused: the code visual holding "{render.cut(" ".join(source.split()), 60)}" is {what}, raw data or tool output, and a'
+        f" picture of it shows him nothing: say what it means in words, show a short snippet of real code, or {picture.INSTEAD}"
+        f" ({limits.RAW_RULING})"
+    )
+
+
+def unswitched(tool_input: dict, drive: dict) -> str | None:
+    """Why a post gives him a switch command for a terminal no session of the drive runs in."""
+    held = {role.get("terminal") for role in drive["roles"].values()}
+    if not (wrong := [handle for handle in SWITCH.findall(tool_input.get("text") or "") if handle not in held]):
+        return None
+    return (
+        f"refused: `orca terminal switch --terminal {wrong[0]}` names a terminal no session of this drive runs in. Give him a switch"
+        " command only as the role's line `drive status` prints it, word for word, and none when that line carries none."
+    )
 
 
 def every(refusals: list[str | None]) -> str | None:

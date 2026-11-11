@@ -61,13 +61,12 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - Keep every card and line in a feature's thread about that feature. Post drive tooling, such as a
   fix to the launcher its builders start from, at his DM root under its own words, because a tooling
   line in a feature's thread makes no sense to him there.
-- The coordinator sends one `report` record per thread per turn, opening `POST` or `FYI`, because
-  four posts of 60 words are the same wall as one of 240. It sizes the report's facts to the post
-  they become, a line of 60 words or a summary of 120, and the handler writes the post from them.
-- The report's first sentence says what changed for him, and no cut takes it. What does not fit is
-  cut, each item that waits on him kept first, and the rest waits for the next turn, never a second
-  record. Each item that waits on him carries its card's permalink or `waits` id, so the handler
-  never searches for the card.
+- The coordinator sends one `report` per thread per turn, opening `POST` or `FYI`, because four
+  posts of 60 words are the same wall as one of 240; `record_lines` refuses a second, or a `POST`
+  past 60 words, 120 for a summary. The handler writes the post from its facts.
+- The report's first sentence says what changed for him, and no cut takes it. What does not fit
+  waits for the next turn, each item that waits on him kept first with its card's permalink or
+  `waits` id, which `record_lines` refuses a report without, so the handler never searches.
 - When a line names a card or says something waits on him, name the card as `{card:<its waits id>}`
   in `say`'s text, which `say` links under words that name it. Slack then draws the card with its
   buttons under the line, so he answers it where it sits.
@@ -84,11 +83,11 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
   out, so name a PR he has nothing to tap in a line that waits on nothing.
 - Only cards have buttons, so anything that asks for his action or decision is a card: "Anything that
   says waiting on me you always need to embed the card with the buttons".
-- When a message promises him a time, the coordinator sets it with `--due` in the same turn, so the
-  watch holds the drive to it from Slack's own record, not a session's memory. `drive order add --due`
-  counts from when the order is added, and `drive order set --due` from the next line in the order's
-  thread. The watch says `DUE` every 10 minutes until a drive post is in that thread, and the order
-  cannot close before one is.
+- When a message promises him a time, its order gets `--due` first, and a hook refuses a promised
+  clock time on an order with none, so the watch holds the drive to it from Slack's own record, not a
+  session's memory. `drive order add --due` counts from when the order is added, and
+  `drive order set --due` from the next line in the order's thread. The watch says `DUE` every 10
+  minutes until a drive post is in that thread, and the order cannot close before one is.
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr
   names, or each part of an order its `close` attr names. A progress line's report names neither,
@@ -103,8 +102,8 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 
 - Post it in the thread of his message, alone in the communicator's first message, inside 5 to 10
   seconds; cc-slack put the eyes on his message when it landed.
-- Write at most one sentence the communicator already knows: what he asked, in his words, and what
-  happens next. Never read, draft or check for it, because any of those delays it.
+- Write one sentence the communicator already knows: what he asked, in his words, and what happens
+  next; a hook refuses a longer ack. Never read, draft or check for it, because any of those delays it.
 - Restate only what his words carry, adding no reach, condition or outcome he did not say, because
   jobs downstream treat the ack as his words; mark any reading of your own as yours, beside his words.
 - The ack names no time: the coordinator sets the order's due time, and the first summary says it.
@@ -205,7 +204,7 @@ Its Show me:
   and `drive job card` draws a fence holding one the same way, links and all.
 - Keep other words and raw data out of fences. `drive job ask` refuses:
   - a fence naming no language or `text` that holds no message or quote, and one holding JSON, YAML, logs, a terminal session,
-    command output or a stack trace, whatever language it names;
+    command output or a stack trace, whatever language it names, as a hook does `say`'s `code` visuals;
   - a chart, compare or arch whose JSON does not parse;
   - a chart past Slack's limits above, or more than 2, naming the limit and the value;
   - two or more pictures whose captions do not each open with an option's number;
@@ -245,8 +244,8 @@ When it is answered, replaced or redone:
 - To change the words of a card he has not answered, draw it again under its `waits` id. That one
   call edits the card where it sits, its layout, pictures and buttons included, posts nothing, and
   leaves every older copy without buttons, reading one line that links the card. Never `slack_edit` a
-  card: an edit with text alone replaces its layout and buttons with plain text, and cc-slack refuses
-  it.
+  card: an edit with text alone replaces its layout and buttons with plain text, and a hook refuses
+  it, naming the redraw.
 - While a card he has not answered is being redone, it says so where it sits and keeps its buttons,
   because he may still want to tap one. The moment a redo starts, the coordinator sends an `ask`
   record with `--attr ask=<the card's kept file>`, `--attr waits=<its waits id>` and
@@ -326,9 +325,9 @@ the dashboard link. When a line says where things stand, link the page instead o
 - An incident is the exception: until users are unblocked he hears a line at least every 5 minutes,
   then each step of the root fix once, by [incidents.md](incidents.md).
 - He is away when he says he is going to sleep or stepping out (`drive heard --away`), or when he has
-  written nothing for an hour. While he is away only cards post: PR cards and question cards that
-  wait on him, the watch's one reply under a card holding built work, and an incident line [incidents.md](incidents.md)
-  calls for. Summaries, due-time lines and job results wait.
+  written nothing for an hour. While he is away only cards, the watch's one reply under a card
+  holding built work, an incident line [incidents.md](incidents.md) calls for and an answer passing
+  `asked` post; a hook refuses any other handler line. Summaries, due-time lines and job results wait.
 - His next message gets one catch-up at his DM root, right after its ack. `drive heard` tells the
   coordinator every order that changed while he was away; it sends one `report` for his DM root
   covering them, grouped by feature with what waits on him last, then `--lined` each.
@@ -407,9 +406,9 @@ the dashboard link. When a line says where things stand, link the page instead o
 - Numbers over adjectives: "129 of 476 passed, up from 100" beats "much better".
 - Answer his next question in the same message: why, did he already decide this, is it a port, what
   comes after, why it is held.
-- A line that says something waits on X says how long it has waited and whether X is running. Past
-  two hours with nothing running, it reports a failure with its owner, because a wait that long is a
-  failure, never a state.
+- A line that says something waits on X says how long and whether X is running, or `record_lines`
+  refuses the report. Past two hours with nothing running, it reports a failure with its owner,
+  because a wait that long is a failure, never a state.
 - Done means live and checked on the surface he uses: a recording of the click for a page, the live
   post for a card or message, the installed command's output for a tool. Data fetched from an API
   proves no screen. Say how you checked in a few words, with the link.

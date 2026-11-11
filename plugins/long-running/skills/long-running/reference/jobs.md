@@ -33,16 +33,16 @@ Contents:
    `brief` op printed as the whole `prompt`. The agent reads its brief file itself, so the brief
    never passes through your context.
 3. Pass no model, so the agent runs on the Opus its definition sets, or `model: "sonnet"` only for a
-   reader whose question is a one-fact lookup, since a read needing research or judgment runs on
-   Opus from the start. A design job's model is in [Design first](design.md).
+   reader whose question is a one-fact lookup. A design job's model is in [Design first](design.md).
 
-The `agent_brief` hook refuses an Agent call that sets `name`, since agent teams are on and a named
-agent becomes a teammate that never wakes on events. It also refuses Fable on any agent but
-`long-running:designer`, and a builder whose brief has no `Serves:` or `Handoff:` line. The
-`scratch_folder` hook refuses `sonnet` or `haiku` on any lane of a build order or a complex answer
-order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's builder or designer whose brief lacks the `Researched:` line the `brief`
-op writes once its reader's research is kept. Each refusal names its fix: do it, never route around
-it.
+The `agent_brief` hook refuses an Agent call that sets `name`, since a named agent joins the agent
+team and never wakes on events; Fable on any agent but `long-running:designer`; a design job on any
+other type; a build order's codex lane before its reader's research is kept; and a builder whose
+brief lacks `Serves:` or `Handoff:`, whose `Serves:` names none of the three, or whose Goal
+backfills, bulk-repairs or migrates rows with no `Runs as:` line. The `scratch_folder` hook refuses
+`sonnet` or `haiku` on any lane of a build order or a complex answer order, or of an unmarked answer order whose words or job goal ask two or more questions, and a build order's
+builder or designer whose brief lacks the `Researched:` line the `brief` op writes once its reader's
+research is kept. Each refusal names its fix: do it, never route around it.
 
 The brief's `Drive:` line names the job. The agent's first Bash, Read, Write or Edit call, or its
 stop, records the agent on that job, and its first call after a `SendMessage` marks the job running
@@ -175,12 +175,12 @@ live drive in a public repository's PR body, which `drive pr add` refuses.
 A job's result goes to another agent, never to him, so it is the inputs to a write-up, never the
 write-up; only the handler that writes to him writes prose.
 
-- The job pipes its whole return on stdin into `drive job report <j> -`. That is its only report,
-  even when a delegation hook appends an output contract naming a file, because Claude Code refuses
-  a subagent's Write of a report file.
-- It returns the first line alone, opening with a result word the state table lists, and
-  `drive job report` refuses a builder's or designer's report that opens with any other word. The
-  `one_line_result` hook sends back a final message past one line of 500 characters.
+- The job pipes its whole return on stdin into `drive job report <j> -`, its only report even when
+  a delegation hook names a file, because Claude Code refuses a subagent's Write of a report file.
+- It returns the first line alone, opening with a result word the state table lists. The
+  `one_line_result` hook sends back a final message past one line of 500 characters, and a
+  builder's, designer's or build order reader's line until `drive job report <j> -` keeps it first, and
+  `drive job report` refuses a builder's or designer's report that opens with any other word.
 - The rest of the kept report is one fact a line: links, numbers, paths, exact quotes, and what it
   could not prove.
 - Whoever acts on it reads it with `drive job report <j>`, which prints a remote lane's Orca report
@@ -213,11 +213,11 @@ without his approval of that release, and a pick on a card that asked anything e
 release he started himself is his: never cancel, retry, reorder or approve it. An incident's order
 approves its own cut and rollback, by [incidents.md](incidents.md).
 
-Answers resume; PR events start fresh. His answer to a job's `ASK` goes back to that job, by
-`SendMessage` to its agent id here or `drive job resume <j> -` with the answer on stdin to a remote
-lane. A PR event after a builder has returned gets a fresh builder, because a resumed builder
-re-reads everything it ever did on every event. Run `drive job add builder` for the same order and
-parts and `drive pr add <url> --job <new>` for each PR it takes over, write its brief with the
+Answers resume; PR events start fresh. His answer to a job's `ASK` goes back by `SendMessage` to
+its agent, or `drive job resume <j> -` with it on stdin for a remote lane. A PR event after a builder
+returned gets a fresh builder, since a resumed one re-reads all it ever did on every event: the
+`communicator_calls` hook refuses `SendMessage` to a builder that returned `BUILT` or `DONE` outside
+an incident. Run `drive job add builder` for the same order and parts and `drive pr add <url> --job <new>` for each PR it takes over, write its brief with the
 `Handoff:` line and every earlier job's transcript under `Transcripts:`, then run
 `drive job set <old> --state stopped --said "handed to <new>"`.
 
@@ -238,11 +238,11 @@ One deliverable per job, and no job waits on another. When B needs A merged, B s
 A sweep over many units is one job running a Workflow, and you start it: a builder has no Agent
 tool, so the session that owns a job starts every agent its work needs.
 
-A job's state is its transcript. Before you report anything about a running job, or send it a
-`SendMessage` or `drive job resume`, read its transcript: `cc-transcript` on the file its agent id
-names, or for a remote lane
-`orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An absent
-message is never evidence, and a message sent blind can repeat or contradict what the job did.
+A job's state is its transcript. Before you report on a running job or message it, read its
+transcript: `cc-transcript` on the file its agent id names, or for a remote lane `drive job replies
+<j>` or `orca orchestration worker-read --dispatch <its dispatch> --limit 50 --full --json`. An
+absent message is never evidence. The `communicator_calls` hook refuses a `SendMessage` or
+`drive job resume` to a running job with no such read in your last 10 minutes.
 
 A close job closes only what he named: each session or terminal his words or tapped card name, by
 its exact id after a fresh idle check and never a live drive lane, returning the closed count with

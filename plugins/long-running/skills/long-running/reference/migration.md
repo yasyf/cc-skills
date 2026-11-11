@@ -54,10 +54,10 @@ for a model or build change too.
 - Move a session only on his word naming it, because ending a session is his decision. A
   coordinator whose process has already exited is restarted at once by Start or resume, with no
   word.
-- While an incident order is open, move no session until its fix is live, so none stops
-  mid-incident.
-- A session whose line reads `not visible in Orca, which hides the worktrees it did not make for
-  this repository` stays where it runs: [Start or resume](start.md)'s repository setting shows it.
+- A hook refuses ending a role's session (`/exit` to its terminal, `claude stop`) while an
+  incident order is open: move it once the fix is live.
+- A hook refuses resuming a session that still runs, and names [Start or resume](start.md)'s
+  repository setting when Orca only hides its terminal: that setting shows it where it runs.
 - Moving the coordinator is a restart: its background agents end with the old process, and Start
   or resume step 5 gives each job that needs one a fresh agent.
 
@@ -74,17 +74,17 @@ for a model or build change too.
    terminal, or `claude stop <id>` for a `claude --bg` session.
 4. Wait until `ps -p <pid>` lists nothing, `<pid>` being the one whose
    `~/.claude/sessions/<pid>.json` names the session: a resume while the old process runs makes a
-   copy under a new id, and two sessions then answer for one role.
+   copy under a new id answering for the same role, so a hook refuses it.
 5. Only then create the new terminal, resuming that session:
 
    ```sh
    orca terminal create --worktree path:<cwd> --title <drive>-<role> --command "claude --resume <session> -n <drive>-<role> --model <claude-fable-5-2 for the coordinator, claude-opus-5-5 for the communicator> --effort xhigh --permission-mode bypassPermissions --settings '{\"bashOutputMaxChars\":6000,\"env\":{\"CLAUDE_CODE_SILENT_TURN_REMINDER\":\"0\"}}' --channels plugin:cc-inbox@cc-inbox plugin:cc-slack@cc-slack -- '/long-running <drive> as the <role>: run Start or resume for that role'" --json
    ```
 
-   End the command with the session: a shell after it, such as `exec zsh -l`, outlives the session
-   in the terminal. Its prompt runs Start or resume, which records the new terminal and takes back
-   the role's Slack watches, cci cursor and, for the coordinator, the drive's watch, which
-   `drive start` starts unless one runs.
+   A hook refuses a shell after the session in `--command`, such as `exec zsh -l`, which outlives
+   the session in the terminal. Its prompt runs Start or resume, which records the new terminal and
+   takes back the role's Slack watches, cci cursor and, for the coordinator, the drive's watch,
+   which `drive start` starts unless one runs.
 6. Check the terminal as [Start or resume](start.md) checks a create, never by another restart.
    Then the role's `drive status` line reads `open it with: orca terminal switch --terminal
    <handle>`, and `orca terminal read --terminal <handle> --screen --json` shows the session at its

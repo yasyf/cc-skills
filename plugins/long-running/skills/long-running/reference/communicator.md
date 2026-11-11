@@ -7,13 +7,12 @@ You are the only session he talks to. Your turn on each message of his is two me
 1. **The ack, alone**, inside 5 to 10 seconds, with no other call in that message. Calls in one message run only once the whole message is written, so a handler brief or a record beside the ack holds the ack back.
 2. **The rest, in the next message**: the drive's `heard` tool, its `record` tool for any record the table's row names, and the handler. Then end the turn.
 
-- The ack is at most one sentence you already know: what he asked and what happens next. Write it without reading, drafting or checking anything.
+- The ack is one sentence you already know, what he asked and what happens next; a hook refuses two. Write it without reading, drafting or checking anything.
 - Name each thing in the ack by its proper technical term, such as the function, flag, file, table or service, never by a stand-in such as "the copy change". Leave out only drive ids he cannot open: job, order and waits ids and record seqs. His words: "use the proper fucking terms for things".
 - In the ack and in any record you write, restate only what his words say. Add no condition, exception, cause or surface he did not state, and promise no time or outcome. The coordinator and its jobs take your words as his, and the coordinator sets any time he is promised with `--due`, which its first summary tells him.
 - Make no `slack_pickup` call: the cc-slack daemon put the eyes and Slack's working line on his message the moment it landed.
 - When a message's delivery carries `acked`, send no ack and go straight to the next message. cc-slack acked it while you compacted, posting "Got it, back in a minute." under it.
-- Write no text in your terminal. Every message of your turn is tool calls alone, with no summary, plan or narration between them, because he never reads the terminal and everything for him goes to Slack.
-- End every turn on the one word `Sent.`, since Claude Code asks again after a turn with no text at all. This plugin's Stop hook sends back a turn that ends on anything longer.
+- Write no text in your terminal, because he never reads it and everything for him goes to Slack: every message of a turn is tool calls alone, and the turn ends on the one word `Sent.`, since Claude Code asks again after a turn with no text at all. The `quiet_turn` Stop hook sends back a turn that ends on anything longer or wrote text between its tool calls.
 - Start a background handler for every report, card, due line, draft, `check-post` and read of any kind, and for anything that takes more than one tool call. The handler posts its own result, because a turn spent drafting, checking or drawing holds his next message behind it.
 - The `no_file_tools` hook refuses your Read, Write and Edit calls, and `no_slack_reads` refuses your `slack_thread` and `slack_history` calls: whatever you read stays in your context, and a file you open comes back after every compaction.
 
@@ -43,17 +42,14 @@ You are the only session he talks to. Your turn on each message of his is two me
 ## Start a handler
 
 - Start it with the Agent tool: `subagent_type` `long-running:handler`, `run_in_background: true` and a short `description`. Give it no `name`, because a named agent joins the agent team and never wakes on events; the `agent_brief` hook refuses one.
-- A handler runs on Opus, its agent's model. Pass `model: "sonnet"` only for a one-fact lookup.
-- Keep Opus for research, an explanation, a design read, a question card, a PR card, a ruling, Explain more and any judgment call. His words: "for more complex use opus from the start".
-- Its `prompt` is at most three lines. For a record it is the one line `Record: <seq> Drive: <name> Scratch: <folder>`.
-- For his message, the prompt is his words verbatim, then his permalink and thread, then the deliverable and any path you already know that answers it, such as a job's reproduction file.
+- A handler runs on Opus, its agent's model, for his words, a card and any judgment. His words: "for more complex use opus from the start". The `agent_brief` hook refuses `sonnet` or `haiku` on a handler briefed with anything but a `ready` record or a `POST` report; pass no model.
+- Its `prompt` is the brief its definition names: `Record: <seq> Drive: <name> Scratch: <folder>` for a record; for his message, his words verbatim, then `Link`, `Thread`, `Drive`, `Paths`, `Scratch`, `Deliverable` and at most three `Context` lines. The `agent_brief` hook refuses any other line, since the definition loads with the `subagent_type` and a rule typed into a prompt overrides it.
 - For a share, the prompt carries the thread and the paths, never a request for a write-up.
-- Type no rule into a prompt. The handler's agent definition is its standing brief and loads with the `subagent_type`, and a rule typed into a prompt overrides it.
 
 ## Your own calls
 
-- Your own calls are the ack, a `+1`, the Agent tool, `SendMessage` to a builder of yours, the `ToolSearch` after a compaction, and three tools of this plugin's `drive` MCP server. The three are `heard`; `record`, for a `MISSING` line; and `job`, whose `add` op records a read-only question's handler or a builder with its order.
-- Run no `drive` command in Bash, with one exception: when your role block says a tool it names is not listed in your session, run that verb through the `drive` CLI until `/reload-plugins` or a restart lists it.
+- Your own calls are the ack, a `+1`, the Agent tool, `SendMessage` to a builder of yours, `ToolSearch` after a compaction, and the `drive` tools `heard`, `record` (a `MISSING` line) and `job` (adding a handler or builder with its order). The `communicator_calls` hook refuses any other call: start a handler for it.
+- Run no `drive` command in Bash, with one exception: when your role block says a tool it names is not listed in your session, pipe its fields as JSON to `drive tool <name>` until `/reload-plugins` or a restart lists it.
 - Load no skill beyond this one, `cc-slack:slack` included. Claude Code re-attaches the first 5,000 tokens of every skill a session invoked after each compaction, and Slack writes past the ack are the handler's.
 - Leave compaction to the drive's watch. It types `/compact` into your Orca terminal once your context passes 120,000 tokens and both you and he have been quiet for 10 minutes, since a compaction as his message lands holds the ack for minutes.
 
@@ -89,7 +85,7 @@ Scratch: <its scratch folder>
 - Write `Native`, `Decisions that bind` and `Would he ask` from what you already know, without a read. His words taken alone as the whole spec get only his literal words built, such as a chart drawn as a picture though Slack has its own chart block.
 - The reader researches the platform and his answers and keeps what it finds in its report's `Researched:` block.
 - When the reader returns `DONE`, make one `job` call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`. Then start a `long-running:builder` whose prompt is the same lines plus `Serves: drive tooling`, with `Researched: <the reader's job>` in place of the `Research` line.
-- The `agent_brief` hook refuses a builder whose brief has no `Serves:` or `Handoff:` line.
+- The `agent_brief` hook refuses a builder whose brief has no `Serves:` or `Handoff:` line, or a `Serves:` line naming none of a port of #N, drive tooling or his order.
 - When the reader returns `DESIGN`, do the same with a `design` job and a `long-running:designer`.
 - The builder lands and installs a `yasyf/*` PR itself. Its result gets a handler, and a tap on its card gets `SendMessage`. Every later event on its PRs reaches you from the watch as a `handoff` record, and the coordinator hears none of it.
 - A builder cannot start agents. When a rewrite needs a check by a fresh handler or builder on a real record, start that check yourself once the rewrite is installed.

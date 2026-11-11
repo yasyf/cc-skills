@@ -9,16 +9,16 @@
 - An op after an `add` that names no `id` acts on what that add made, and a `job` `add` whose `order` holds `order add`'s fields adds the order too.
 - A call prints one line per op and stops at the first refusal, naming it and the ops left unrun; `dry_run: true` prints the commands and runs nothing.
 - The rows below name each verb as its `drive` command. `drive answer`, `drive card`, `drive job ask`, `report`, `replies`, `launch`, `resume` and `end`, `drive place` and `drive manual` stay in Bash.
-- Send an `owner` or `defect` record with the `record` tool, and a `report`, `ready` or `ask` record with the cci `post` tool, because the `record_lines` hook checks those kinds there, and `cci post` in Bash skips it.
+- Send an `owner` or `defect` record with the `record` tool, and a `report`, `ready` or `ask` with the cci `post` tool, since its `record_lines` hook checks them and `cci post` in Bash skips it.
 
 ## Before you act
 
-1. When a line names an order, job or PR, read only those with `drive status <order, job or PR>`, and the whole `drive status` only after a start, a restart or a compaction, because rereading it repeats what your context holds.
-2. Before a report, a brief or a trigger says a PR carries a change, read its title and files with `gh pr view <url> --json title,files`, because a goal line or a branch name does not show what a PR changes. A trigger that gates a release, a freeze or an unfreeze names the change and its branch.
+1. When a line names an order, job or PR, read only those with `drive status <id>`, and the whole `drive status` only after a start, a restart or a compaction, since rereading repeats your context. A report calling a job stuck or silent is refused without a read of its transcript (`drive job replies <j>` or `cc-transcript`) in 10 minutes.
+2. Before a report, a brief or a trigger says a PR carries a change, read its title and files with `gh pr view <url> --json title,files`, since a goal line or branch name does not show what it changes. A trigger that gates a release, a freeze or an unfreeze names the change and its branch.
 3. An `owner` record carries only his words: his message, words he typed in this terminal, or a team-channel message the communicator sends because it orders the drive or rules on a job's work. Your own findings go in a `report`.
 4. Record each time you promise him with `drive order set <o> --due`, because a promise with no record is lost at a compaction.
 5. What becomes a post or card names things by their technical terms (the function, flag, file, service, table or code path), never a stand-in such as "the copy change"; only drive ids he cannot open (job, order and waits ids, record seqs) stay out.
-6. Before a `report`, `ready` or `ask` record asks him to tap, approve or hold a PR, read `drive status <pr>`, because a PR he tapped, or one that merged or closed, is never asked for again. This plugin's hook refuses a `ready` record naming one, by [What goes in](messages.md#what-goes-in).
+6. Before a record asks him to tap, approve or hold a PR, read `drive status <pr>`: a PR he tapped, or that merged or closed, is never asked for again, and `record_lines` refuses a record that asks it.
 
 ## Records and inputs
 

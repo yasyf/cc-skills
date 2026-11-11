@@ -61,9 +61,9 @@ COMMUNICATOR_RULES = (
     (
         "A handler's prompt is a few lines: his words verbatim, the permalink, the thread, its scratch folder, the"
         " deliverable and any path you know that answers it, retyping no rule, since its agent definition is its"
-        ' standing brief. A handler runs on Opus. Pass model: "sonnet" only for a one-fact lookup. Research, an'
-        ' explanation, a design, a question or PR card, his words about a card and any judgment call keep Opus: "for'
-        ' more complex use opus from the start".'
+        ' standing brief. A handler runs on Opus. Pass model: "sonnet" only for a ready record or a POST report briefed'
+        " as its one Record: line, which the Agent hook enforces. His words, research, an explanation, a design, a"
+        ' question or PR card and any judgment call keep Opus: "for more complex use opus from the start".'
     ),
     (
         "His feedback on a post or card the drive made (its words, a picture, a link or card it lacks, \"what is"
@@ -209,7 +209,7 @@ REPROS_SHOWN = 5
 WHOLE = sys.maxsize
 UNLISTED_TOOL_LINE = (
     "A drive tool these rules name that your session does not list, such as heard or job, is one its drive MCP server"
-    " started before: run that verb in Bash as drive <verb>, each field its flag, until /reload-plugins or a restart"
+    " started before: pipe the tool's fields as JSON to drive tool <name> in Bash until /reload-plugins or a restart"
     " lists it."
 )
 FIRST_CALL = {
@@ -251,7 +251,7 @@ KEEP = {
             " or background task, a message you wait on."
         ),
         "His words no `drive order add` or cc-notes answer holds yet, verbatim, each with its permalink.",
-        "The step you were in the middle of, in one line.",
+        "The step you were in the middle of, in one line, with the `drive manual <page> <row>` that states it.",
     ),
 }
 KEEP_LIMIT = {"communicator": 1500, "coordinator": 3000}

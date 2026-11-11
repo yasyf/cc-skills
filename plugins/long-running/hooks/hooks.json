@@ -31,7 +31,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Read|Write|Edit",
+        "matcher": "Read|Write|Edit|Bash",
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" no_file_tools.py" }
         ]
@@ -45,7 +45,14 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" landing_guard.py" }
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" landing_guard.py" },
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" bash_guard.py" }
+        ]
+      },
+      {
+        "matcher": "Read|Grep",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" bash_guard.py" }
         ]
       },
       {
@@ -65,6 +72,12 @@
         "matcher": "mcp__plugin_cc-inbox_cci__post",
         "hooks": [
           { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" record_lines.py" }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          { "type": "command", "command": "python3 -I \"${CLAUDE_PLUGIN_ROOT}/hooks/installed.py\" communicator_calls.py" }
         ]
       }
     ]

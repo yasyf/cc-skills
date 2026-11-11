@@ -379,7 +379,15 @@ def exposure(key: str) -> str:
         return ""
     if not (pr := read(key)):
         raise state.DriveError(f"{key}: could not read its body from GitHub to check what it shows in public")
-    body = pr["body"] or ""
+    exposed = body_exposure(repo, pr["body"] or "")
+    return exposed and (
+        f"{exposed}. Edit the body, delete each earlier revision that held them from its edit history, delete the branch"
+        " that holds the pictures, then add it again"
+    )
+
+
+def body_exposure(repo: str, body: str) -> str:
+    """What a body shows that only a private place may, when public repository repo carries it: each picture outside a demo or public path, and each private repository's PR it names."""
     pictures = [url for match in picture.IMAGE.finditer(body) if not SHAREABLE_PATH.search(urlsplit(url := match[1] or match[2]).path)]
     named = {f"{owner}/{name}" for owner, name, _ in (*state.PR_URL.findall(body), *state.PR_KEY.findall(body))} - {repo}
     hidden = sorted(other for other in named if github.visibility(other) not in (None, "public"))
@@ -393,8 +401,7 @@ def exposure(key: str) -> str:
     return (
         f"{repo} is public, and its body shows {' and '.join(found)}. A public PR's pictures come from a demo drive or"
         " public data, kept under a demo- or public- path; a picture of the live drive, a private repository, Slack or a"
-        " customer's data goes only to a private repository's PR or his DM. Edit the body, delete each earlier revision"
-        " that held them from its edit history, delete the branch that holds the pictures, then add it again"
+        " customer's data goes only to a private repository's PR or his DM"
     )
 
 
