@@ -13,6 +13,7 @@ from drive.shell import runnable
 
 AGENTS = "long-running:"
 DESIGNER = "long-running:designer"
+BUILDER = "long-running:builder"
 HANDLER = "long-running:handler"
 SHELLS = {"sh", "bash", "zsh", "dash", "fish"}
 WRAPPERS = {"command", "exec", "nohup", "env", "time"}
@@ -79,6 +80,16 @@ def designer_push(found: list[list[str]]) -> str | None:
         f"refused: the designer is read only, so it runs no `{pushed}`: it opens no PR and pushes nothing. Keep the design"
         " in your report, piped with a quoted heredoc into `drive job report <your job> -`, and the coordinator starts"
         " the builder that ships it"
+    )
+
+
+def bare_pr(found: list[list[str]]) -> str | None:
+    if not any(tuple(verb(words)[:3]) == ("gh", "pr", "create") for words in found):
+        return None
+    return (
+        "refused: a builder opens its PR the repository's way, never a bare `gh pr create`: its own submit wrapper, otherwise"
+        " the `open-pr` skill, which ships it with `ccx vcs ship --pr-title-file <title> --pr-body-file <body>` and keeps"
+        " the branch, stack and PR text the repository expects"
     )
 
 
@@ -226,6 +237,7 @@ def deny_reason(payload: dict) -> str | None:
     own_session = bool(drives) and not payload.get("agent_id")
     reasons = (
         lambda: designer_push(found) if kind == DESIGNER else None,
+        lambda: bare_pr(found) if kind == BUILDER else None,
         lambda: cached_page(call["command"]) if drives else None,
         lambda: tool_verb(found) if own_session else None,
         lambda: background_resume(found) if call.get("run_in_background") else None,
