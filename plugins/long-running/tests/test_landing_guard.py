@@ -5,7 +5,7 @@ from pathlib import Path
 import landing_guard
 import pytest
 from conftest import SESSION
-from drive import state, view
+from drive import shell, state, view
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -114,6 +114,69 @@ def test_a_tapped_monorepo_pr_enqueued_or_an_incident_fix_merged_passes(drive_pr
     with state.edit("demo") as data:
         data["prs"][drive_pr]["exempt"] = "incident fix"
     assert landing_guard.deny_reason(bash("gh pr merge 42 -R Forge-AI/monorepo --squash")) is None
+
+
+def test_a_merge_in_a_for_loop_is_checked_in_the_folder_each_value_of_its_cd_target_names(
+    drive_pr: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origins = {"/work/cc-slack/pin": "https://github.com/yasyf/cc-slack.git", "/work/monorepo/pin": "git@github.com:Forge-AI/monorepo.git"}
+    read_in: list[str] = []
+
+    def origin(args: list[str], cwd: str) -> str:
+        assert args == ["git", "remote", "get-url", "origin"]
+        read_in.append(cwd)
+        return origins[cwd]
+
+    monkeypatch.setattr(landing_guard, "run", origin)
+    loop = "for r in cc-slack monorepo; do cd /work/$r/pin && gh pr merge 42 --squash 2>&1 | tail -2; done"
+    assert landing_guard.deny_reason(bash(loop, session_id="ordinary")).startswith(f"{drive_pr}: no tap from him yet")
+    assert read_in == ["/work/cc-slack/pin", "/work/monorepo/pin"]
+    approve(drive_pr)
+    assert landing_guard.deny_reason(bash(loop, session_id="ordinary")) is None
+
+
+def test_a_ship_in_a_for_loop_checks_the_body_file_each_value_names(
+    demo: str, monkeypatch: pytest.MonkeyPatch, visibilities: dict, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(landing_guard, "run", lambda args, cwd: "https://github.com/yasyf/cc-skills.git")
+    visibilities["yasyf/cc-skills"] = "public"
+    for name, picture in (("cc-inbox", DEMO), ("cc-notes", LIVE)):
+        (tmp_path / name).mkdir()
+        (tmp_path / f"{name}-body.md").write_text(f"## Show me\n![Hover]({picture})\n")
+    loop = f"for r in cc-inbox cc-notes; do cd {tmp_path}/$r && ccx vcs ship --no-watch --pr-body-file {tmp_path}/$r-body.md; done"
+    assert landing_guard.deny_reason(bash(loop, agent_id="a1")).startswith(
+        f"Refused on purpose, before it goes up: yasyf/cc-skills is public, and its body shows pictures outside a demo or public path ({LIVE})"
+    )
+    (tmp_path / "cc-notes-body.md").write_text(f"## Show me\n![Hover]({DEMO})\n")
+    assert landing_guard.deny_reason(bash(loop, agent_id="a1")) is None
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "for owner in Forge-AI; do\n  for n in 7 42; do gh pr merge $n -R $owner/monorepo; done\ndone",
+        'pr=42 && gh pr merge "$pr" -R Forge-AI/monorepo',
+        "export REPO=Forge-AI/monorepo; gh pr merge 42 -R ${REPO}",
+        "gh pr merge 42 -R $LANDING_REPO",
+    ],
+)
+def test_a_merge_naming_a_parameter_the_script_or_session_sets_is_checked_with_its_value(
+    drive_pr: str, no_calls: None, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    monkeypatch.setenv("LANDING_REPO", "Forge-AI/monorepo")
+    assert landing_guard.deny_reason(bash(command, session_id="ordinary")).startswith(f"{drive_pr}: no tap from him yet")
+
+
+@pytest.mark.parametrize(
+    ("script", "commands"),
+    [
+        ("""cd /w/$r/x && echo "$r ok" '$r' \\$r ${r}y""", [["cd", "/w/a b/x"], ["echo", "a b ok", "$r", "$r", "a by"]]),
+        ("gh pr create --title=\"New: $r\" -b '' -F \"\\$r.md\"", [["gh", "pr", "create", "--title=New: a b", "-b", "", "-F", "$r.md"]]),
+        ("echo $unset ${r:-x} $(date)", [["echo", "$unset", "${r:-x}", "$"], ["date"]]),
+    ],
+)
+def test_a_word_expands_its_parameters_where_zsh_does_and_keeps_a_quoted_or_unknown_one_as_written(script: str, commands: list[list[str]]) -> None:
+    assert [[shell.expanded(word, {"r": "a b"}) for word in group] for group in shell.templates(script)] == commands
 
 
 @pytest.fixture

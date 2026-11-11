@@ -2,7 +2,7 @@ import json
 import os
 import re
 import sys
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from drive import agents, github, limits, public_check, settled, slack, state, view
 from drive.cli import tap_verdict
 from drive.github import repo_name
-from drive.shell import runnable, simple_commands
+from drive.shell import expanded, runnable, templates
 
 GUARDED_OWNER = "forge-ai"
 MONOREPO = "Forge-AI/monorepo"
@@ -22,6 +22,8 @@ TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemptio
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
 SHELL_SCRIPT_FLAG = re.compile(r"-[A-Za-z]*c[A-Za-z]*")
 KEYWORDS = {"!", "{", "if", "then", "elif", "else", "do", "while", "until"}
+LOOPS = {"for", "while", "until"}
+LEADING = KEYWORDS - LOOPS
 WRAPPERS = {
     "command": frozenset(),
     "exec": frozenset({"-a"}),
@@ -70,7 +72,6 @@ UNREAD = (
     " or `drive status <PR url>`, and fix a red check forward. The read said: {error}"
 )
 AGENTS = "long-running:"
-LOOPS = {"for", "while", "until"}
 COORDINATOR_WORK = (
     ("ccx", "vcs", "ship"),
     ("ccx", "vcs", "stack"),
@@ -433,12 +434,26 @@ def cut_reason(words: list[str], session: str) -> str | None:
 
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
-    """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, export and nested shell scripts."""
-    for segment in simple_commands(runnable(script)):
+    """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, assignments, export, each value of a for loop and nested shell scripts."""
+    yield from run_through(templates(runnable(script)), shell)
+
+
+def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
+    """The commands of groups in order, each word expanded with the variables set before it, then the shell they leave."""
+    index = 0
+    while index < len(groups):
+        segment = [expanded(word, shell.env) for word in groups[index]]
         words, run_in = command_words(segment, shell)
+        index += 1
         if not words:
-            continue
-        if words[0] == "cd":
+            shell = run_in
+        elif words[0] == "for":
+            yield segment, words, run_in
+            end = loop_end(groups, index)
+            for binding in [{words[1]: value} for value in words[3:]] if words[2:3] == ["in"] else [{}]:
+                shell = yield from run_through(groups[index:end], replace(shell, env=shell.env | binding))
+            index = end + 1
+        elif words[0] == "cd":
             shell = replace(shell, cwd=moved(shell.cwd, words[1]) if len(words) > 1 else str(Path.home()))
         elif words[0] == "export":
             shell = assigned(shell, words[1:])
@@ -446,6 +461,18 @@ def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], 
             yield from commands(inner, run_in)
         else:
             yield segment, words, run_in
+    return shell
+
+
+def loop_end(groups: list[list[str]], start: int) -> int:
+    """The index of the `done` closing the loop whose body starts at start, or past the last group when none does."""
+    depth = 1
+    for index in range(start, len(groups)):
+        head = next((word for word in groups[index] if word not in LEADING), "")
+        depth += (head in LOOPS) - (head == "done")
+        if not depth:
+            return index
+    return len(groups)
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
@@ -512,10 +539,9 @@ def deny_reason(payload: dict) -> str | None:
 
 
 def shell_of(payload: dict) -> tuple[list[str], Shell]:
-    env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     session = payload.get("session_id") or ""
     names = state.session_drives(session)
-    return names, Shell(payload.get("cwd") or os.getcwd(), env, session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
+    return names, Shell(payload.get("cwd") or os.getcwd(), dict(os.environ), session, bool(names) or (payload.get("agent_type") or "").startswith(AGENTS))
 
 
 def judged_reason(payload: dict) -> str | None:
