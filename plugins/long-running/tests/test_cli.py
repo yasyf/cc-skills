@@ -1538,6 +1538,27 @@ def test_a_part_delivered_in_another_channel_is_recorded_where_it_was_made_and_k
     assert after == before | {"parts": {parts[0]: state.new_part(), parts[1]: {**state.new_part(), "posted": told}}}
 
 
+def test_a_line_in_the_thread_of_another_alert_on_an_incident_is_refused_naming_the_order_that_joins_it(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "SandSQL errors on plat", "--thread", "1794100000.000100", "--incident", "--parts", "fix", "first check")
+    run("start", "demo", "--role", "communicator")
+    with state.edit("demo") as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    slack_thread.messages.append({"ts": "1794200000.000100", "thread_ts": "1794200000.000100", "from_user": True})
+    line = slack_thread.post(state.now(), from_claude=True)
+    assert cli.main(["order", "posted", "o1", line]) == 2
+    assert (
+        "when his message at the root of that thread is another alert on this incident, that alert is its own order, which the coordinator"
+        ' records with drive order add "<his alert>" --from slack:D123/1794200000.000100 --thread 1794200000.000100 --joins o1,'
+        " and this line goes on that order"
+    ) in capsys.readouterr().err
+    alert = "SandSQL replica lanes unproven on staging"
+    run("order", "add", alert, "--from", "slack:D123/1794200000.000100", "--thread", "1794200000.000100", "--joins", "o1")
+    assert run("order", "posted", "o2", line) == (0, f'o2 "{state.whole_order(alert)}": posted {line}')
+
+
 def test_only_his_own_message_withdraws_a_promised_line(run: Run, demo: str, slack_thread: "Thread") -> None:
     run("order", "add", "send the numbers", "--thread", "1794200000.000100", "--due", "+30m")
     ours = slack_thread.post(state.now() - timedelta(minutes=60), from_claude=True)
