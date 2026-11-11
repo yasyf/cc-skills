@@ -17,6 +17,8 @@ from drive.github import repo_name
 
 GUARDED_OWNER = "forge-ai"
 MONOREPO = "Forge-AI/monorepo"
+WAITS_FOR_CI = frozenset({"yasyf/cc-skills"})
+PASSED = frozenset({"SUCCESS", "NEUTRAL", "SKIPPED"})
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
 ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*")
@@ -262,6 +264,20 @@ def tap_reason(key: str, session: str) -> str | None:
     return None if may_land else f"{key}: {why}. {TAP_HINT}"
 
 
+def checks_reason(key: str, cwd: str) -> str | None:
+    """Why a PR in a repository whose CI runs in about a minute must not merge yet: a check on its head still runs or is red."""
+    repo, number = key.split("#")
+    rollup = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", "statusCheckRollup"], cwd))["statusCheckRollup"]
+    waiting = [
+        check["name"] if check["__typename"] == "CheckRun" else check["context"]
+        for check in rollup
+        if (check["conclusion"] if check["__typename"] == "CheckRun" else check["state"]) not in PASSED
+    ]
+    if not waiting:
+        return None
+    return f"{key}: {', '.join(waiting)} not green on its head yet; its CI takes about a minute, so merge once every check passes, fixing a red one first"
+
+
 def merged_through_api(refs: list[str], options: dict[str, list[str]]) -> list[str] | None:
     """The PR a `gh api` call merges, as its URL, when it PUTs GitHub's merge or merge-async endpoint of a pull request."""
     merged = MERGE_ENDPOINT.fullmatch(next(iter(refs), ""))
@@ -279,13 +295,14 @@ def landing_reason(landing: Landing, refs: list[str], options: dict[str, list[st
         return None
     named = refs if landing.every_pr else refs[:1] or [None]
     repo = target_repo(landing, next(iter(named), None), options, shell)
-    if repo.split("/")[0].lower() != GUARDED_OWNER:
+    guarded = repo.split("/")[0].lower() == GUARDED_OWNER
+    if not guarded and repo.lower() not in WAITS_FOR_CI:
         return None
-    if switched_on(options, "admin"):
+    if guarded and switched_on(options, "admin"):
         return ADMIN_REASON
     selected = selected_repo(landing, options, shell)
     keys = (resolve_key(ref, repo, selected, shell.cwd) for ref in named)
-    return next(filter(None, (tap_reason(key, shell.session) for key in keys)), None)
+    return next(filter(None, (tap_reason(key, shell.session) if guarded else checks_reason(key, shell.cwd) for key in keys)), None)
 
 
 def script_reason(script: str, shell: Shell) -> str | None:
@@ -326,7 +343,7 @@ def asks_posted(script: str, shell: Shell) -> list[str | None]:
 
 
 def deny_reason(payload: dict) -> str | None:
-    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap, merges with --admin, or posts a drive's ask record past the check against his answers."""
+    """Why a Bash call must not run: it lands a Forge-AI drive PR without his tap, merges with --admin there, merges a cc-skills PR before its CI is green, or posts a drive's ask record past the check against his answers."""
     env = {REPO_VARIABLE: os.environ[REPO_VARIABLE]} if REPO_VARIABLE in os.environ else {}
     shell = Shell(payload.get("cwd") or os.getcwd(), env, payload.get("session_id") or "")
     command = payload["tool_input"]["command"]
