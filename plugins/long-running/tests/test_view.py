@@ -34,13 +34,15 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "created": at(-120),
         "updated": at(-60),
         "last_line": None,
+        "milestone": None,
+        "parts": {text: state.new_part()},
     }
     return base | overrides
 
 
 def job(order_id: str, job_state: str, said: str | None = None, updated: int = -30, **overrides: object) -> dict:
     base = {"order": order_id, "kind": "builder", "goal": "g", "prs": [], "state": job_state, "said": said, "updated": at(updated)}
-    return base | {"branch": None, "waits": []} | overrides
+    return base | {"branch": None, "waits": [], "parts": [], "carries": {}} | overrides
 
 
 def pr(number: int, order_id: str, **overrides: object) -> tuple[str, dict]:
@@ -486,3 +488,42 @@ def test_incidents_list_his_open_incident_orders_oldest_first() -> None:
         ("o4", "Sand usage events set aside"),
         ("o1", "runs fail for one team"),
     ]
+
+
+def test_plan_draws_each_milestone_with_its_parts_and_what_stands_before_each() -> None:
+    parts = {"chart": state.new_part(), "toast": state.new_part()}
+    data = drive_of(
+        {
+            "o1": order("ship the plan", ["j1", "j2"], milestone="Plan", parts=parts),
+            "o2": order("old work", [], milestone="Plan", state="done", created=at(-200)),
+            "o3": order("dropped work", [], milestone="Other", state="dropped"),
+            "o4": order("no milestone", []),
+        },
+        {"j1": job("o1", "running", "drawing it", parts=["chart"]), "j2": job("o1", "waiting", parts=["toast"], waits=["demo:j2-7-a"])},
+        [pr(1, "o1", job="j2", wants_tap=True)],
+    )
+    asked = question("Which layout?", -20, "demo:j2-7-a")
+    [plan] = view.board(data, found([asked]), "live", [], T0)["milestones"]
+    assert (plan["name"], [entry["id"] for entry in plan["features"]]) == ("Plan", ["o2", "o1"])
+    assert [(part["title"], part["state"], part["blocks"], part["doing"]) for part in plan["parts"]] == [
+        ("old work", "done", "", ""),
+        ("chart", "doing", "", "drawing it"),
+        ("toast", "you", "Your tap: change 1", ""),
+    ]
+    card = "card:demo:j2-7-a"
+    assert {(node["id"], node["state"]) for node in plan["nodes"]} == {
+        ("part:o1:chart", "doing"),
+        ("part:o1:toast", "you"),
+        ("job:j1", "doing"),
+        ("job:j2", "waiting"),
+        ("pr:yasyf/cc-skills#1", "you"),
+        (card, "you"),
+    }
+    assert {(edge["from"], edge["to"]) for edge in plan["edges"]} == {
+        ("part:o1:chart", "milestone"),
+        ("part:o1:toast", "milestone"),
+        ("job:j1", "part:o1:chart"),
+        ("job:j2", "part:o1:toast"),
+        ("pr:yasyf/cc-skills#1", "part:o1:toast"),
+        (card, "job:j2"),
+    }
