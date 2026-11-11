@@ -588,14 +588,40 @@ def test_a_card_whose_kept_block_has_a_show_me_carries_every_code_block_of_it_un
     card = {"title": WATCHDOG_QUESTION, "body": WATCHDOG_SUMMARY, "options": WATCHDOG_OPTIONS, "waits": "demo:j605-660176"}
     assert posted(transcript, card=card, text="Watchdog: which hybrid") == (
         "refused: the Show me goes in the card body under *Show me*, never only behind Explain more"
-        f" ({limits.SHOW_ME_RULING}); this body carries 0 of the 2 code blocks its kept `Show me:` holds, and no `*Show me*`"
-        " line: copy every line under `Show me:` there as written, fences kept."
+        f" ({limits.SHOW_ME_RULING}); this body carries 0 of the 2 code blocks and 0 of the 2 other lines its kept `Show me:`"
+        " holds, and no `*Show me*` line: copy every line under `Show me:` there as written, fences, tables and pictures kept,"
+        " since cc-slack draws each on the card."
     )
     shown = f"{WATCHDOG_SUMMARY}\n*Show me*\n{WATCHDOG_SHOW_ME}"
     assert posted(transcript, card=card | {"body": shown}) is None
     sketched = shown.split("The listener:")[0] + "```\n# drive listen\n```"
     assert "carries 1 of the 2 code blocks" in posted(transcript, card=card | {"body": sketched})
     assert posted(transcript, card=card | {"body": WATCHDOG_SUMMARY, "waits": "demo:j606-660177"}) is None
+
+
+def test_a_card_that_rewrites_its_kept_show_mes_table_as_bullets_is_refused_naming_a_line_it_left_out(talker: str, transcript: Path) -> None:
+    table = "| Reading | Lands a PR |\n| --- | --- |\n| Listener | a session, after your tap |"
+    picture = "![The listener's one line per push](/Users/me/shots/listen.png)"
+    show_me = WATCHDOG_SHOW_ME.replace("The listener:", f"{table}\n{picture}\nThe listener:")
+    kept = WATCHDOG_ASK.replace(WATCHDOG_SHOW_ME, show_me)
+    limits.question(kept)
+    asks = state.drive_dir("demo") / "asks"
+    asks.mkdir()
+    (asks / "j607-7c32364e.md").write_text(kept)
+    card = {"title": WATCHDOG_QUESTION, "body": f"{WATCHDOG_SUMMARY}\n*Show me*\n{show_me}", "options": WATCHDOG_OPTIONS, "waits": "demo:j607-660178"}
+    assert posted(transcript, card=card) is None
+    bulleted = card["body"].replace(table, "Listener: lands a PR in a session, after your tap.")
+    assert (
+        'carries 2 of the 2 code blocks and 3 of the 6 other lines its kept `Show me:` holds, such as "| Reading | Lands a PR |":'
+        in posted(transcript, card=card | {"body": bulleted})
+    )
+
+
+def test_a_picture_inside_a_show_me_sentence_is_refused_and_one_on_its_own_line_is_kept() -> None:
+    picture = "![The listener's one line per push](/Users/me/shots/listen.png)"
+    limits.question(WATCHDOG_ASK.replace("The listener:", f"{picture}\nThe listener:"))
+    with pytest.raises(DriveError, match="holds a picture inside a sentence or table, which cc-slack draws as text"):
+        limits.question(WATCHDOG_ASK.replace("The listener:", f"It writes {picture} per push.\nThe listener:"))
 
 
 def test_a_cards_show_me_is_drawn_whole_and_counts_against_no_limit(talker: str, transcript: Path) -> None:

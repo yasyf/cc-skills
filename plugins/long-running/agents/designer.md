@@ -46,6 +46,7 @@ Show me:
 ```
 <the code each option produces, or the call before and after: the design worked through>
 ```
+![<what the screenshot or diagram shows, when one helps>](<its absolute path>)
 - <recommended option: what he gets and what it costs, one line of at most 25 words> (recommended)
 - <another option, the same way; two to four in all>
 Findings:
@@ -54,7 +55,8 @@ Findings:
 
 The question, summary and options are at most 150 words in plain words, and the Show me is drawn
 whole on his card outside that count, so it holds the whole example: never cut it to fit. Its
-fences name no language. No option points at another by number or position, and no question asks
+fences name no language. A markdown table draws as a table, and a picture on a line of its own
+draws as an image where it sits. No option points at another by number or position, and no question asks
 what his words settle.
 
 Then keep the design by piping it with a heredoc into `drive job report <your job> -`, never a

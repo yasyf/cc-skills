@@ -979,7 +979,8 @@ def parser() -> argparse.ArgumentParser:
         description=(
             "Check a job's ASK block: `ASK <the question>`, one to three summary lines (what was found and what is being"
             " decided, the recommendation, what happens meanwhile), `Show me:` and its worked example (code in ```"
-            " fences, captions of at most 25 words), two to four `- ` options of at most 25 words with exactly one ending"
+            " fences, captions of at most 25 words, each picture on a line of its own as ![caption](/absolute/path.png)),"
+            " two to four `- ` options of at most 25 words with exactly one ending"
             " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
             " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"
             " its own and print its path, which the ask record carries; refuse it with every way it is out of shape, and"
