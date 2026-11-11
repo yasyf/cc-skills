@@ -15,7 +15,21 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import CARD_BODY, RESEARCH, Answers, Drawing, Thread, WatchProcess, Withdrawals
-from drive import card, cli, github, limits, orca, picture, place, render, slack, state, tools, view
+from drive import (
+    card,
+    cli,
+    github,
+    limits,
+    orca,
+    picture,
+    place,
+    render,
+    settled,
+    slack,
+    state,
+    tools,
+    view,
+)
 
 Run = Callable[..., tuple[int, str]]
 UNLISTED = {"-h", "--help", "--drive", "--json"}
@@ -1538,6 +1552,7 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
     monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": [shown], "pr_cards": []})
     view.refresh_cards("demo")
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: {"answered": True})
     kept = []
     for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
         monkeypatch.setattr("sys.stdin", io.StringIO(text))
@@ -1564,8 +1579,78 @@ def test_his_words_under_a_card_answer_it_so_its_job_never_redraws_it_with_a_new
     refusal = capsys.readouterr().err
     assert f"- a1 his words under this job's card {link}: its one snapshot file, just wait for the copy" in refusal
     assert f"- a2 his pick on this job's card {link}: One snapshot file" in refusal
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards("demo")
     monkeypatch.setattr("sys.stdin", io.StringIO(SHORT_ASK.replace("ASK How should", "ASK When should")))
     assert run("job", "ask", asking, "-", "--unsettled", "a1, a2: he picked the layout, not when it is written")[0] == 0
+
+
+def test_job_ask_refuses_unsettled_naming_his_words_under_its_own_card_until_drive_answer_settles_that_card(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    reply = "https://acme.slack.com/archives/D123/p1794300000000400?thread_ts=1794300000.000100"
+    words = "keep one snapshot file, and copy it once"
+    shown = {"question": "How should?", "options": ["Yes", "No"], "recommended": "Yes", "asked": state.stamp(), "url": link, "card": {"title": "How should?", "waits": "demo:j1-7"}}
+    asking_him = [shown]
+    monkeypatch.setattr(view, "cards", lambda name: {"team_url": "", "questions": list(asking_him), "pr_cards": []})
+    view.refresh_cards("demo")
+    answered: list[tuple[str, ...]] = []
+    monkeypatch.setattr(slack, "cc_slack", lambda *args: answered.append(args) or asking_him.clear() or {"answered": True})
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["questions"].append(state.new_question(None, "How should?", state.stamp(), None, link) | {"waits": "demo:j1-7"})
+        data["answers"]["6251dff"] = {"words": words, "link": reply, "at": state.stamp(), "said": state.stamp(), "cards": {}, "jobs": {}}
+    block = SHORT_ASK.replace("ASK How should", "ASK When should")
+    why = "6251dff: not about copy"
+    monkeypatch.setattr("sys.stdin", io.StringIO(block))
+    assert cli.main(["job", "ask", asking, "-", "--unsettled", why]) == 2
+    refusal = capsys.readouterr().err
+    assert "--unsettled names his words under this job's own card, and that card still asks him" in refusal
+    assert "settle the card with `drive answer 6251dff`, which shows his words on it" in refusal
+    assert f'- 6251dff under {link}: "{words}" ({reply})' in refusal
+    assert run("answer", "6251dff")[1].splitlines() == [
+        "his answer 6251dff recorded: 0 standing, 0 superseded, 0 reopened by it",
+        f"demo:j1-7: its card {link} now shows his words and a link to them, so it no longer asks him",
+    ]
+    assert answered == [("card-answer", "--card", link, "--label", words, "--settled", "--via", reply)]
+    monkeypatch.setattr("sys.stdin", io.StringIO(block))
+    assert run("job", "ask", asking, "-", "--unsettled", why)[0] == 0
+    assert state.load("demo")["jobs"]["j1"]["questions"][-1]["unsettled"] == why
+
+
+def test_the_open_card_refusal_gives_a_drive_answer_command_for_each_answer_of_his_it_names() -> None:
+    link = "https://acme.slack.com/archives/D123/p1794300000000100"
+    said = [
+        {"id": "6251dff", "card": link, "words": "keep one snapshot file", "link": f"{link}?thread_ts=1794300000.000100"},
+        {"id": "729fb9a", "card": link, "words": "and copy it once", "link": f"{link}?thread_ts=1794300000.000100"},
+    ]
+    refusal = settled.open_card_refusal(said, "6251dff, 729fb9a: not about copy")
+    assert "settle the card with `drive answer 6251dff`, then `drive answer 729fb9a`, which shows his words on it" in refusal
+
+
+def test_job_ask_refuses_a_question_his_words_in_its_orders_thread_may_settle_until_unsettled_names_each_by_permalink(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    moment = state.now()
+    settles = slack_thread.post(moment, from_user=True, text="keep one snapshot file per finished run, no guessing")
+    slack_thread.post(moment + timedelta(seconds=1), from_user=True, text="ok go ahead")
+    slack_thread.post(moment + timedelta(seconds=2), from_claude=True, text="building one snapshot file per finished run")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert "his words in this order's thread may already settle this question" in refusal
+    listed = [line for line in refusal.splitlines() if line.startswith("- ")]
+    assert listed == [f'- {settles} "keep one snapshot file per finished run, no guessing" (shares finished, guessing, snapshot)']
+    assert f'such as --unsettled "{settles}: <why it does not settle this>"' in refusal
+    assert ("--channel", "D123", "--thread", "1794200000.000100", "--limit", "1000") in slack_thread.reads
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
+    why = f"{settles}: he picked the file layout, not where its map sits"
+    assert run("job", "ask", "j1", str(block), "--unsettled", why)[0] == 0
 
 
 IDLE_RULING = {
@@ -3666,6 +3751,8 @@ TAP_CARD = "https://acme.slack.com/archives/D123/p1794300000000200"
 PICK = "https://acme.slack.com/archives/D123/p1794300000000300?thread_ts=1794300000.000100"
 WORDS = "Iris proposes with one new tool, guided by each topology's use-when line"
 STACKED = "https://github.com/Forge-AI/monorepo/pull/43"
+ANSWERED = ("card-answer", "--card", DESIGN_CARD, "--label", WORDS, "--settled", "--via", PICK)
+MATCHED, BACKFILL = settled.matched, settled.backfill
 
 
 def cards_asking(monkeypatch: pytest.MonkeyPatch, *prs: str) -> list[tuple[str, ...]]:
@@ -3693,7 +3780,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert "run it with --words and --link alone first" in capsys.readouterr().err
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
-    assert "demo:j2-7" not in listed
+    assert "  demo:j2-7  " not in listed
     assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     refusal = capsys.readouterr().err
@@ -3707,7 +3794,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
         f"{designing} closed on GitHub",
         "j1 stopped: end its agent, or its lane with drive job end j1",
     ]
-    assert (code, settled, closed) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)], [PR])
+    assert (code, settled, closed) == (0, [ANSWERED, ("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)], [PR])
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"], data["jobs"]["j2"]["state"]) == (False, "stopped", "running")
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
@@ -3731,6 +3818,87 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     labels = ["--label=scope:durable", "--label=drive:demo", "--label=header:topology"]
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
+
+
+def test_an_answer_tapped_on_a_pr_card_is_recorded_as_an_approval_and_his_words_are_not(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cards_asking(monkeypatch, PR)
+    added: list[list[str]] = []
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        added.append(argv)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"id": f"{len(added)}eb09e5f00d"}), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    run("answer", "--title", "New: land it?", "--words", "Approve", "--link", TAP_CARD)
+    run("answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK)
+    labels = [[arg for arg in argv if arg.startswith("--label=")] for argv in added]
+    assert labels == [
+        ["--label=scope:durable", "--label=drive:demo", "--label=kind:approval"],
+        ["--label=scope:durable", "--label=drive:demo"],
+    ]
+
+
+def test_the_settled_check_skips_his_taps_approving_a_pr_and_still_lists_three_of_his_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    asked: list[list[str]] = []
+    found = [
+        {"id": "a1" * 20, "title": "Tap: #50203, canary diagnostics on the search", "tags": ["scope:durable", "kind:approval"]},
+        {"id": "b2" * 20, "title": "Which store holds a run's files?", "tags": ["scope:durable"]},
+        {"id": "c3" * 20, "title": "Where does a run's map sit?", "tags": ["scope:durable", "drive:demo"]},
+        {"id": "d4" * 20, "title": "Approve #21378 to land?", "tags": ["scope:durable", "kind:approval"]},
+        {"id": "e5" * 20, "title": "How many files does a run keep?", "tags": ["scope:durable"]},
+        {"id": "f6" * 20, "title": "When is a run's snapshot written?", "tags": ["scope:durable"]},
+    ]
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        asked.append(argv)
+        return subprocess.CompletedProcess(argv, 0, json.dumps(found), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2", "c3", "e5"]
+    assert asked == [["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"]]
+
+
+def test_the_settled_check_finds_his_answer_ranked_past_twenty_of_his_taps_approving_a_pr(monkeypatch: pytest.MonkeyPatch) -> None:
+    taps = [{"id": f"{tap:02}" * 20, "title": f"Tap: #5020{tap}, a run's files move to the store", "tags": ["scope:durable", "kind:approval"]} for tap in range(20)]
+    ruling = {"id": "b2" * 20, "title": "Which store holds a run's files?", "tags": ["scope:durable"]}
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        limit = int(argv[argv.index("--limit") + 1])
+        ranked = [*taps, ruling]
+        return subprocess.CompletedProcess(argv, 0, json.dumps(ranked if limit < 0 else ranked[:limit]), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    assert [answer["id"][:2] for answer in MATCHED("where do a run's files go", "/work")] == ["b2"]
+
+
+def test_backfill_labels_as_approvals_only_his_taps_approving_a_pr_recorded_before_drive_answer_labelled_them(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+    stored = [
+        {"id": "a1" * 20, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314 (1:03 PM)", "tags": ["scope:durable"]},
+        {"id": "b2" * 20, "title": "Approve #21378 to land? https://github.com/acme/app/pull/21378", "body": "Approve, label merge (Recommended)", "tags": ["scope:durable"]},
+        {"id": "c3" * 20, "title": "Tap: #50134, runs resume from their snapshot", "body": "Approve at 704de36", "tags": ["scope:durable", "kind:approval"]},
+        {"id": "d4" * 20, "title": "Tap: #48654. Does a converted chat need its own records?", "body": "Not approved as built. \"convert it like any other\"", "tags": ["scope:durable"]},
+        {"id": "e5" * 20, "title": "Which store holds the blobs?", "body": "Approve the blob store as drawn", "tags": ["scope:durable"]},
+        {"id": "f6" * 20, "title": "For #123, which service owns snapshots?", "body": "Approve the design: snapshot-index owns all snapshots; never store them in the gateway.", "tags": ["scope:durable"]},
+        {"id": "a7" * 20, "title": "PR approvals tapped 10:12 AM Nov 5: #50861, #50795", "body": "Approve on #50861 and #50795.", "tags": ["scope:durable"]},
+    ]
+
+    def ccn(argv: list[str], input: str, cwd: str, **_: object) -> subprocess.CompletedProcess[str]:
+        calls.append([cwd, *argv])
+        return subprocess.CompletedProcess(argv, 0, json.dumps(stored) if argv[2] == "list" else "{}", "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    BACKFILL("/work")
+    assert calls == [
+        ["/work", "ccn", "answer", "list", "--label", "scope:durable", "--limit", "0", "--full", "--json"],
+        ["/work", "ccn", "answer", "edit", "a1" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "b2" * 20, "--add-label", "kind:approval"],
+        ["/work", "ccn", "answer", "edit", "a7" * 20, "--add-label", "kind:approval"],
+    ]
 
 
 def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_whatever_directory_it_runs_in(
@@ -3780,7 +3948,7 @@ def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_g
         f"{designing} reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
         "Forge-AI/monorepo#45 reopened by his answer a1: j1 reworks it to his words, so brief j1 with them",
     ]
-    assert (code, settled) == (0, [("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
+    assert (code, settled) == (0, [ANSWERED, ("card-answer", "--card", TAP_CARD, "--label", WORDS, "--withdrawn", "--via", PICK)])
     data = state.load("demo")
     assert (data["prs"][designing]["wants_tap"], data["jobs"]["j1"]["state"]) == (False, "running")
     assert data["answers"]["a1"]["cards"]["Forge-AI/monorepo#45"] == {"mark": "reopened", "job": "j1", "card": None}
@@ -3920,7 +4088,7 @@ def test_superseding_one_pr_of_a_stack_card_refuses_until_the_whole_stack_is_mar
     settled = cards_asking(monkeypatch, PR, STACKED)
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
     assert run("answer", "a1", "--superseded", f"{designing}=stop")[0] == 2
-    assert settled == []
+    assert settled == [ANSWERED]
     assert run("answer", "a1", "--superseded", f"{designing}=stop", "Forge-AI/monorepo#43=stop", "--others-stand")[0] == 0
-    assert len(settled) == 1
+    assert len(settled) == 2
     assert [pr["wants_tap"] for pr in state.load("demo")["prs"].values()] == [False, False]

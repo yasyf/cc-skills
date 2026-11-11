@@ -70,7 +70,13 @@ ahead on it. One that names what you recommend, such as a service he said to bui
 that thing does, so build it and ask nothing. Only when none does, ask with one `--unsettled`
 string, or the record's `unsettled` attr, naming every id and why it does not settle this question,
 such as `--unsettled "1396ce1: <why>; 729fb9a: <why>"`. His pick or words on this job's own card
-answer that card, by [His answer](#his-answer), and are never a reason for `--unsettled`.
+answer that card, by [His answer](#his-answer): `drive job ask` refuses an `--unsettled` naming them
+while that card still asks him, until `drive answer <id>` settles it with his words, and only once
+it is closed does a follow-up name them with why they leave it open. `drive job ask` also reads the
+order's own thread and lists each message of his there that shares a rare word with the question,
+refusing until `--unsettled` names each by its permalink and why it does not settle this. A tap
+approving a PR settles only that PR's landing, so the check never counts an answer labelled
+`kind:approval`.
 
 A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
 job may build the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless

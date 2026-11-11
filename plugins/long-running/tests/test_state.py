@@ -80,6 +80,29 @@ def test_load_rebuilds_from_his_stored_card_the_ask_file_a_question_never_kept_w
     assert not kept.exists()
 
 
+def test_load_labels_his_old_taps_approving_a_pr_in_the_coordinators_checkout_once(state_root: Path, backfilled: list[str]) -> None:
+    make("demo")
+    state.load("demo")
+    state.load("demo")
+    assert backfilled == ["/work"]
+    state.create(state.new_drive("talk", "communicator", None, "/talk", None))
+    state.load("talk")
+    assert backfilled == ["/work"]
+
+
+def test_load_drops_the_answers_a_refused_ask_kept_before_the_settled_check_skipped_his_taps_approving_a_pr(state_root: Path) -> None:
+    data = state.new_drive("demo", "coordinator", None, "/work", None)
+    tapped = {"title": "Which store holds a run's files?", "answers": [{"id": "a1" * 20, "title": "Tap: #50203, a run's files move to the store"}]}
+    data["jobs"]["j1"] = state.new_job("o1", "design", "run files", [], "2026-11-10T21:00:00-08:00") | {"may_settle": tapped}
+    state.create(data)
+    assert state.load("demo")["jobs"]["j1"]["may_settle"] is None
+    assert state.load("demo")["jobs"]["j1"]["may_settle"] is None
+    kept = {"title": "Which store holds a run's files?", "answers": [{"id": "b2" * 20, "title": "Which store holds the blobs?"}]}
+    with state.edit("demo") as data:
+        data["jobs"]["j1"]["may_settle"] = kept
+    assert state.load("demo")["jobs"]["j1"]["may_settle"] == kept
+
+
 def test_a_job_saved_with_one_question_and_card_reads_as_a_list_of_its_questions_once(state_root: Path) -> None:
     make("demo")
     data = state.load("demo")

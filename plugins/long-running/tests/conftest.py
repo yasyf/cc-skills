@@ -240,6 +240,13 @@ class Answers:
 
 
 @pytest.fixture(autouse=True)
+def backfilled(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    checkouts: list[str] = []
+    monkeypatch.setattr(settled, "backfill", checkouts.append)
+    return checkouts
+
+
+@pytest.fixture(autouse=True)
 def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
 

@@ -92,6 +92,29 @@ def said_under(data: dict, job: dict) -> list[dict]:
     ]
 
 
+def open_under(data: dict, job: dict, found: dict | None) -> list[dict]:
+    """Each answer of his written under a card this job asked on while that card still asks him, with the card it answers."""
+    return [
+        {"id": answer_id, "card": question["card"], "words": answer["words"], "link": answer["link"]}
+        for question in job["questions"]
+        if question["card"] and view.card_open(question["card"], found)
+        for answer_id, answer in data["answers"].items()
+        if under(answer["link"], question["card"])
+    ]
+
+
+def answer_cards(kept: dict, asked: dict[str, dict]) -> list[str]:
+    """Settle each question card still asking him that his answer is on or under, showing his words and a link to them with no buttons; what was settled, a line each."""
+    done = []
+    for key, entry in asked.items():
+        if entry["kind"] != "question" or not under(kept["link"], entry["card"]):
+            continue
+        result = slack.cc_slack("card-answer", "--card", entry["card"], "--label", kept["words"], "--settled", "--via", kept["link"])
+        if not result.get("already_answered"):
+            done.append(f"{key}: its card {entry['card']} now shows his words and a link to them, so it no longer asks him")
+    return done
+
+
 def said(link: str, card: str) -> str:
     return "pick on" if view.message_key(link) == view.message_key(card) else "words under"
 

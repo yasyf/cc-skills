@@ -46,6 +46,7 @@ REBUILT_ASKS = ".rebuilt"
 NOT_LANE = re.compile(r"[^a-z0-9]+")
 WAITS_ID = re.compile(r"([\w.-]+):(j\d+)-(\d+)")
 ROUTED_KINDS = ("owner", "answer", "posted", "refused")
+APPROVALS_LABELLED = ".approvals-labelled"
 
 
 class DriveError(Exception):
@@ -272,6 +273,12 @@ def load(name: str) -> dict:
         picture.fill(pictures, [*map(Path.read_text, sorted((drive_dir(name) / "asks").glob("*.md"))), *pr_bodies(name)])
     if cards_path(name).exists() and not (drive_dir(name) / "asks" / REBUILT_ASKS).exists():
         rebuild_asks(name, data)
+    if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
+        label_approvals(name, data["roles"]["coordinator"]["cwd"])
+    if not data.get("may_settle_skips_approvals"):
+        for job in data["jobs"].values():
+            job["may_settle"] = None
+        data["may_settle_skips_approvals"] = True
     for job in data["jobs"].values():
         for question in job["questions"]:
             if question["waits"] and not question["file"] and (kept := rebuilt_ask(name, question["waits"])).exists():
@@ -281,6 +288,14 @@ def load(name: str) -> dict:
 
 def rebuilt_ask(name: str, waits: str) -> Path:
     return drive_dir(name) / "asks" / f"{waits.partition(':')[2]}.md"
+
+
+def label_approvals(name: str, cwd: str) -> None:
+    """Label as approvals the taps on PR cards his answers in the coordinator's checkout recorded before `drive answer` labelled them, so the settled check never counts one; marked so this runs once."""
+    from drive import settled
+
+    settled.backfill(cwd)
+    (drive_dir(name) / APPROVALS_LABELLED).touch()
 
 
 def rebuild_asks(name: str, data: dict) -> None:
