@@ -56,6 +56,7 @@ def pr_json(
         "headRefName": branch,
         "statusCheckRollup": RUNNING if rollup is None else rollup,
         "reviewDecision": review,
+        "labels": [],
         "url": url,
     }
 
@@ -160,6 +161,15 @@ def test_a_held_pr_keeps_its_buttons_and_says_held() -> None:
         "options": ["Approve", "Hold"],
         "recommended": "Approve",
         "waits": "merge:Forge-AI:monorepo:42",
+    }
+
+
+def test_a_pr_the_drive_holds_with_the_hold_label_asks_him_nothing() -> None:
+    labeled = pr_json(rollup=PASSING) | {"labels": [{"id": "LA_1", "name": "hold", "description": "", "color": "d93f0b"}]}
+    assert card.render(labeled, entry()) == {
+        "status": "info",
+        "title": "Fix: retry flaky uploads",
+        "prs": [row(blocks="Held by the drive with the hold label on GitHub")],
     }
 
 

@@ -59,6 +59,7 @@ def read(**overrides: object) -> dict:
         "reviewDecision": None,
         "mergeable": "MERGEABLE",
         "title": "Fix: the watch",
+        "labels": [],
     }
     return {**base, **overrides}
 

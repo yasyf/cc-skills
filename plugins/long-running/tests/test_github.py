@@ -17,6 +17,7 @@ def node(**overrides: object) -> dict:
         "reviewDecision": None,
         "mergeable": "MERGEABLE",
         "mergeCommit": None,
+        "labels": {"nodes": []},
         "commits": {"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": GREEN}}}}]},
     }
     return {**base, **overrides}
@@ -27,7 +28,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "mergeable": "MERGEABLE", "headRefOid": "abc", "title": "T", "labels": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -45,7 +46,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
 
     def fake(cmd: list[str]) -> str:
         calls.append(cmd)
-        merged = node(state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED")
+        merged = node(state="MERGED", mergeCommit={"oid": "fff000"}, commits={"nodes": []}, reviewDecision="APPROVED", labels={"nodes": [{"name": "hold"}]})
         return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
@@ -62,6 +63,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "reviewDecision": None,
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "labels": [],
         },
         "a/one#2": {
             "state": "MERGED",
@@ -72,6 +74,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "reviewDecision": "APPROVED",
             "mergeable": "MERGEABLE",
             "title": "Fix the thing",
+            "labels": ["hold"],
         },
     }
 
@@ -121,8 +124,14 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
         "review": "changes",
         "head": "abc",
         "title": "T",
+        "hold_label": False,
         "conflict": True,
     }
+
+
+def test_live_reads_the_hold_label_the_drive_holds_its_own_pr_with() -> None:
+    assert github.live(pr_read(GREEN, labels=["bug", "hold"]), stored())["hold_label"] is True
+    assert github.live(pr_read(GREEN, labels=["holdover"]), stored())["hold_label"] is False
 
 
 def test_live_leaves_conflict_out_while_github_has_not_worked_it_out() -> None:

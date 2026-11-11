@@ -133,9 +133,12 @@ His rulings already live in cc-notes answers.
 5. Carry a tap he gave when the old drive's `lr board rows` show it in force, so he is never asked
    again: `drive pr set <url> --tapped Approve --tap-source <the permalink of his message or card>`,
    or `--tapped Hold`. A hold the old drive or a desk made itself is not his, and his PR card would
-   say "Held by you": it carries as a `hold` label or `--waits` on what it waits for. `drive pr set`
+   say "Held by you": it carries as `--waits` on what it waits for, or, when nothing it waits on is a
+   card, job, PR or release, such as a deletion held for the cutover, as a `hold` label on GitHub,
+   which keeps it off his tap queue and card and makes the landing guard refuse it. `drive pr set`
    refuses `--tapped` with no permalink of his, and one already recorded as his tap drops with
-   `drive pr set <url> --no-tapped --why "<what holds it now>"`, in the same call as its `--waits`. On Nov 8 a root's hold on a PR he had just tapped
+   `drive pr set <url> --no-tapped --why "<what holds it now>"`, in the same call as its `--waits`,
+   or once `drive status <url>` shows its label. On Nov 8 a root's hold on a PR he had just tapped
    "Approve both" on carried as his hold for more than a day. A recorded exemption carries the same way:
    `drive pr set <url> --exempt "<class>"`.
 

@@ -867,6 +867,7 @@ def tap_owed_not(pr: dict) -> str:
         f"he tapped {tap['label']} at {when(tap['at'])}" if tap else "",
         pr["state"] if pr["state"] in ("merged", "closed") else "",
         f"it lands with no tap as {pr['exempt']}" if pr.get("exempt") else "",
+        "the drive holds it with the hold label" if pr["hold_label"] else "",
     ]
     return ", ".join(reason for reason in reasons if reason)
 

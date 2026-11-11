@@ -1844,6 +1844,7 @@ def on_github(monkeypatch: pytest.MonkeyPatch) -> dict:
         "headRefName": "land-it",
         "statusCheckRollup": [],
         "reviewDecision": "REVIEW_REQUIRED",
+        "labels": [],
         "url": PR,
     }
     monkeypatch.setattr(card, "run", lambda cmd: json.dumps(pr))
@@ -2004,6 +2005,13 @@ def test_pr_set_no_exempt_clears_the_exemption(run: Run, with_pr: str) -> None:
 def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: test-only")
+
+
+def test_pr_tapped_refuses_a_pr_the_drive_holds_with_the_hold_label_even_when_exempt(run: Run, with_pr: str) -> None:
+    run("pr", "set", PR, "--exempt", "test-only")
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["hold_label"] = True
+    assert run("pr", "tapped", PR) == (1, f"{with_pr}: held by the drive with the hold label")
 
 
 def test_pr_set_refuses_a_revert_the_incident_fix_exemption_and_names_the_tap_card_it_waits_on(
@@ -2226,6 +2234,7 @@ LIVE = {
     "reviewDecision": "APPROVED",
     "mergeable": "MERGEABLE",
     "title": "Fix: the live title",
+    "labels": [],
 }
 
 
