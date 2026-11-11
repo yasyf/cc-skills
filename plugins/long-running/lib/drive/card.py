@@ -8,7 +8,7 @@ from drive import github, limits, picture, public_check, state
 from drive.github import GithubError, run
 from drive.render import cut
 
-FIELDS = "title,body,comments,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
+FIELDS = "title,body,state,isDraft,headRefOid,baseRefName,headRefName,statusCheckRollup,reviewDecision,labels,url"
 TAP_LABELS = ("Approve", "Hold")
 RELEASE_FAILED = (" failed", " went red", " partly released", " stopped")
 TITLE_CHARS = 140
@@ -368,9 +368,12 @@ def skip(key: str, reason: str) -> dict:
 
 
 def read(key: str) -> dict | None:
+    """The PR's card fields, its comments read over REST: gh's comments field also asks for each comment's viewerDidAuthor, so ccx sends that read to his own GraphQL budget instead of the GitHub App's."""
     repo, number = key.split("#")
     try:
-        return json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS]))
+        pr = json.loads(run(["gh", "pr", "view", number, "-R", repo, "--json", FIELDS]))
+        pr["comments"] = json.loads(run(["gh", "api", "--paginate", f"repos/{repo}/issues/{number}/comments?per_page=100"]))
+        return pr
     except (GithubError, json.JSONDecodeError) as error:
         print(f"drive card: {key}: {error}", file=sys.stderr)
         return None
