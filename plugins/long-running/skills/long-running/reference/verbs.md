@@ -40,7 +40,7 @@ resume` or `drive job end`, stays a background Bash call, since a tool call ends
 | `drive pr tapped <url>` | whether his tap lets it land: exit 0 if so, 1 if not |
 | `drive place` | where the next monorepo builder starts |
 | `drive bound <run> <command>...` | runs the command after `--` with a lane's Run bound to this terminal |
-| `drive answer <id>` | `--words "<his words>"` and `--link <permalink>` on the first call, which lists every open card and PR and exits 2; then `--stands <key>...`, `--superseded <key>=stop` or `<key>=<j>`..., `--reopened <key>=<j>`... and `--others-stand` until each is marked |
+| `drive answer [<id>]` | `--title "<the question>"`, `--words "<his words>"` and `--link <permalink>` on the first call, with `--label <label>` for each cc-notes label beyond `scope:durable` and `drive:<drive>`, which records his answer in cc-notes, prints its id, lists every open card and PR and exits 2; an id in place of `--title` names one already recorded; then `--stands <key>...`, `--superseded <key>=stop` or `<key>=<j>`..., `--reopened <key>=<j>`... and `--others-stand` until each is marked |
 | `drive heard` | `--away`, he said he is going to sleep or away |
 | `drive status [<id>...]` | the orders these orders, jobs or PRs belong to, open or closed, each whole: its words, parts, and each job's goal and said line; default every open order, a line each, under the sessions |
 | `drive manual <page> [<row>]` | `<page>` start, records, communicator, coordinator, jobs, scope, design, messages, concepts, landing, incidents, migration or verbs; `<row>` prints the table rows whose first cell names it |

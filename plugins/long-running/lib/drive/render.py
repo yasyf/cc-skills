@@ -134,8 +134,9 @@ COORDINATOR_RULES = (
         " an answer id alone; an id or title you see after a compaction is read whole with cc-notes answer show first."
     ),
     (
-        "An answer or ruling of his is not done at answer_add: drive answer <its id> --words \"<his words>\" --link"
-        " <permalink> lists every card still asking him and every PR not yet live, and refuses until each is --stands,"
+        "An answer or ruling of his is recorded in one call, drive answer --title \"<the question>\" --words \"<his words>\""
+        " --link <permalink>, which records it in cc-notes, prints its id, lists every card still asking him"
+        " and every PR not yet live, and refuses until each is --stands,"
         " --superseded <key>=stop|<job>, which settles that card in place with his words and link, drops its PR's tap ask"
         " and stops or folds its job, or --reopened <PR>=<job> for a PR his words change, which that live job reworks to"
         " them; ANSWER repeats every 10 minutes until then."

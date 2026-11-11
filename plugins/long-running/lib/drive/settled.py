@@ -29,6 +29,18 @@ def matched(text: str, cwd: str, *flags: str) -> list[dict]:
     return json.loads(done.stdout)
 
 
+def recorded(title: str, words: str, labels: list[str], cwd: str) -> str:
+    """Record his answer in cc-notes, the question as its title and his words as its body, and return its short id."""
+    add = ["ccn", "answer", "add", f"--title={title}", "--body-file", "-", *(f"--label={label}" for label in labels), "--json"]
+    try:
+        done = subprocess.run(add, input=words, cwd=cwd, capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise DriveError(f"could not record his answer in cc-notes: {error}") from None
+    if done.returncode:
+        raise DriveError(f"could not record his answer in cc-notes: {' '.join(done.stderr.split())}")
+    return json.loads(done.stdout)["id"][:7]
+
+
 def refusal(card: str, whole: str, drives: list[str], cwd: str, why: str | None, override: str) -> str | None:
     """Why a question may not go to him: a recorded answer of his may settle it, and no reason names that answer and says why it does not."""
     found = answers(read(card), read(whole), drives, cwd)

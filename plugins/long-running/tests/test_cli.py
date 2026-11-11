@@ -1837,6 +1837,26 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert data["jobs"]["j1"]["said"] == "superseded by his answer a1"
 
 
+def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by_its_short_id(
+    run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cards_asking(monkeypatch, PR)
+    added: list[tuple[list[str], str]] = []
+
+    def ccn(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
+        added.append((argv, input))
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    assert cli.main(["answer", "--words", WORDS, "--link", PICK]) == 2
+    assert "--title" in capsys.readouterr().err
+    assert cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK, "--label", "header:topology"]) == 2
+    assert "his answer beb09e5 " in capsys.readouterr().err
+    labels = ["--label=scope:durable", "--label=drive:demo", "--label=header:topology"]
+    assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
+    assert run("answer", "beb09e5", "--others-stand")[0] == 0
+
+
 def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
