@@ -115,6 +115,8 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
             f'--owner coordinator: a "{state.TOOLING}" order is the communicator\'s, by his words of Nov 10 10:08 PM:'
             ' "and remember toolingh/meta improvements dont go to coorfidnatror"; leave --owner out'
         )
+    if tooling:
+        check_tooling_words(args.words)
     with state.edit(name) as data:
         owner = args.owner or ("communicator" if tooling else state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) or "coordinator")
         joined = find(data["orders"], args.joins, "order") if args.joins else None
@@ -264,6 +266,16 @@ def check_thread(data: dict, order: dict) -> None:
         raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
 
 
+def check_tooling_words(words: str) -> None:
+    """Refuse a drive tooling order's words that `cc-slack check-post` finds anything in, since they reach him verbatim: quoted on the line above its PR card, and as the title an {order:} link shows."""
+    if findings := slack.post_findings(words, True):
+        raise DriveError(
+            f'"{words}": refused, a "{state.TOOLING}" order\'s words reach him verbatim, quoted on the line above its PR card and as the title'
+            " an {order:} link shows, and `cc-slack check-post` finds this in them; fix each in words of your own, then pass the fixed words:\n"
+            + "\n".join(findings)
+        )
+
+
 def need_thread(data: dict, order_id: str, order: dict) -> None:
     if not state.promise_thread(data, order):
         raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <ts>")
@@ -339,6 +351,10 @@ def order_set(args: argparse.Namespace) -> int:
     order = find(data["orders"], args.id, "order")
     if args.thread and order["text"].startswith(state.TOOLING):
         raise DriveError(f'--thread {args.thread}: refused, {args.id} is a "{state.TOOLING}" order, whose posts go at his DM root, in no thread; leave --thread out')
+    if args.words is not None:
+        if not (order["text"].startswith(state.TOOLING) and args.words.startswith(state.TOOLING)):
+            raise DriveError(f'--words: refused, only a "{state.TOOLING}" order\'s words change, to words that open "{state.TOOLING}"; an order of his keeps his words verbatim')
+        check_tooling_words(args.words)
     if args.proof is not None:
         check_proof(args.proof)
     if (order["incident"] if args.incident is None else args.incident) and (order["options_only"] if args.options_only is None else args.options_only):
@@ -360,7 +376,7 @@ def order_set(args: argparse.Namespace) -> int:
     report = need_record_close(data, args.id, args.record, args.state == "dropped" and bool(args.note)) if args.state in state.CLOSED_ORDER_STATES else {}
     closing = closing and state.promise_thread(data, destination) is not None
     posts, unread = slack.order_posts(data, destination) if closing and state.owed(order) else ([], None)
-    changes = {"note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn, "options_only": args.options_only, "once": args.once}
+    changes = {"text": args.words, "note": args.note, "proof": args.proof, "thread": args.thread, "withdrawn": withdrawn, "options_only": args.options_only, "once": args.once}
     moment = state.now()
     due = state.parse_due(args.due, moment) if args.due else None
     if due and due <= moment:
@@ -1910,7 +1926,7 @@ def parser() -> argparse.ArgumentParser:
 
     order = verbs.add_parser("order", help="his orders").add_subparsers(dest="action", required=True)
     verb = order.add_parser("add", parents=both)
-    verb.add_argument("words", help="his words, verbatim")
+    verb.add_argument("words", help='his words, verbatim, or a "Drive tooling:" order\'s own, which `cc-slack check-post` must pass, since its PR card quotes them')
     verb.add_argument("--from", dest="source", default="terminal", help="where he wrote it: slack:<channel>/<ts>, or terminal")
     verb.add_argument("--thread", help="the ts of the thread the order's lines go in; default: the thread the --from message is in")
     verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
@@ -1958,6 +1974,10 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=order_add)
     verb = order.add_parser("set", parents=both)
     verb.add_argument("id", help="the order")
+    verb.add_argument(
+        "--words",
+        help='a "Drive tooling:" order\'s new words, which `cc-slack check-post` must pass, since its PR card quotes them; an order of his keeps his words verbatim',
+    )
     verb.add_argument("--state", choices=state.ORDER_STATES, help="done or dropped refuses while a promised line is not posted")
     verb.add_argument(
         "--due", help="when he hears next, owed from the next line in the order's thread; on an order with no thread, the drive's own time, said once"

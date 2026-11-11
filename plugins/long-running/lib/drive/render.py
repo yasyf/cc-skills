@@ -81,7 +81,9 @@ COMMUNICATOR_RULES = (
         ' From>", project: "The drive", workstream: "Drive tooling"}, goal: "research: <what>"}}]`, then a background'
         " long-running:reader, its prompt the lines `Order: Drive tooling: <what>`, `From: cci:<seq>`,"
         " `slack:<channel>/<ts>` or `agent:<id>`, his words verbatim for a ruling or feedback, `Research: the"
-        " Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`."
+        " Researched: block this build needs`, `Drive: <name>, order <o>, job <j>`, `Scratch: <folder>`. The order's"
+        " words reach him verbatim on the line above its PR card, so drive order add refuses words cc-slack check-post"
+        " flags, such as a job, order or record id or a bare PR number; drive order set <o> --words rewords an older one."
     ),
     (
         'Its DONE line gets one job call, ops `[{add: {kind: "builder", order: "<o>", goal: "<one line>"}}]`, then a'

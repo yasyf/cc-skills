@@ -44,14 +44,31 @@ def titled(name: str, text: str) -> str:
 
 
 def dry(name: str, post: dict) -> str:
-    """What say would post, its references resolved and its pictures drawn, with nothing posted."""
-    text = post.get("text") or ""
+    """What say would post, its references resolved and its pictures drawn, with nothing posted, refused as the post itself would be."""
+    found = refs.resolved(name, post.get("text") or "")
+    check(name, post, found)
     visuals, words, lifted = shown(name, post)
     where = f"thread {post['thread_ts']}" if post.get("thread_ts") else "his DM root"
     card = f", card {post['card'].get('title')!r}" if post.get("card") else ""
     prs = f", PR card for {len(post['tap_prs'])} PRs" if post.get("tap_prs") else ""
     pictures = len([visual for visual in visuals if "picture" in visual]) + len(lifted)
-    return f"DRY {where}, {pictures} pictures{card}{prs}: {refs.slack(words, refs.resolved(name, text))}"
+    return f"DRY {where}, {pictures} pictures{card}{prs}: {refs.slack(words, found)}"
+
+
+def check(name: str, post: dict, found: dict[str, dict]) -> None:
+    """Refuse a post whose words `cc-slack check-post` finds anything in, whoever wrote them, each reference as the words it draws; a PR card naming a PR the drive holds none of; and a PR card under a line leaving out the drive tooling order a PR on it serves."""
+    text = post.get("text") or ""
+    if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")))):
+        raise DriveError(
+            "nothing posted: `cc-slack check-post` finds this in the post's words, each {card:}, {pr:}, {order:} and {record:} as the words it draws;"
+            " fix each, naming a card, PR or order in words of your own as {pr:<number>|<words>}, then post the fixed words:\n" + "\n".join(findings)
+        )
+    data = state.load(name)
+    stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
+    if strays := [key for key in stack if key not in data["prs"]]:
+        raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
+    if unquoted := unquoted_tooling(data, stack, text):
+        raise DriveError(unquoted)
 
 
 def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
@@ -77,22 +94,13 @@ def shown(name: str, post: dict) -> tuple[list[dict], str, list[str]]:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now. Words `cc-slack check-post` finds anything in go nothing out, whoever wrote them."""
+    """cc-slack's reply to the post, which went out with its references linked, each visual drawn as a picture but a chart, which Slack draws itself, and each code or diagram fence of its text drawn as a picture too, and is kept as a said event for the dashboard, which draws each visual and fence live from its source and each PR of a stack card with its state now; a post check refuses goes nowhere."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
-    if text and (findings := slack.post_findings(refs.slack(text, found), bool(post.get("card") or post.get("tap_prs")))):
-        raise DriveError(
-            "nothing posted: `cc-slack check-post` finds this in the post's words, each {card:}, {pr:}, {order:} and {record:} as the words it draws;"
-            " fix each, naming a card, PR or order in words of your own as {pr:<number>|<words>}, then post the fixed words:\n" + "\n".join(findings)
-        )
+    check(name, post, found)
     visuals, words, lifted = shown(name, post)
-    data = state.load(name)
-    prs = data["prs"]
+    prs = state.load(name)["prs"]
     stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
-    if strays := [key for key in stack if key not in prs]:
-        raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
-    if unquoted := unquoted_tooling(data, stack, text):
-        raise DriveError(unquoted)
     argv = ["dm-status", "--agent", "claude"]
     if thread := post.get("thread_ts"):
         argv += ["--thread", thread]

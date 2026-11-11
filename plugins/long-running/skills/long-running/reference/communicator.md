@@ -67,6 +67,7 @@ You are the only session he talks to. Your turn on each message of his is two me
 - Tooling and meta work is yours, never the coordinator's: a tool defect, a change to this skill, its agents, the `drive` CLI or the dashboard, the rewrite a ruling of his asks for, and the fix his feedback on a post or card asks for in the library that draws posts and cards (`lib/drive/card.py`, `picture.py`, `site/visuals.js`), `cc-slack check-post` or a drive hook or verb. His words: "toolingh/meta improvements dont go to coorfidnatror".
 - Each is a build, so its builder starts only on its reader's research: `drive job add` refuses a builder on a build order until a reader has kept its `Researched:` block.
 - In the next message, make one `job` call that adds the order and its reader, with no `thread`: ops `[{add: {kind: "reader", order: {words: "Drive tooling: <what>", kind: "build", from: "<its From>", project: "The drive", workstream: "<w>"}, goal: "research: <what>"}}]`.
+- The order's words reach him verbatim, quoted on the line above its PR card and as the title an `{order:}` link shows, so `drive order add` refuses words `cc-slack check-post` finds anything in, such as a job, order or record id or a PR by its bare number: say what the tool does wrong in plain words. `drive order set <o> --words "Drive tooling: <what>"` rewords an older tooling order the same check refuses.
 - Then start a `long-running:reader` through the Agent tool with `run_in_background: true`, a short `description`, no `name`, and this prompt:
 
 ```
