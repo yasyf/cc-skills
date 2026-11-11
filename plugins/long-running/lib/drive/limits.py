@@ -1,12 +1,12 @@
 import json
 import re
 from dataclasses import dataclass
-from itertools import pairwise, permutations
+from itertools import groupby, pairwise, permutations
 from pathlib import Path
 
 from drive import picture, slack
 from drive.render import cut, not_ready, when
-from drive.state import PR_KEY, PR_URL, DriveError, check_status, root
+from drive.state import KEPT_ASK, PR_KEY, PR_URL, DriveError, ask_hash, check_status, root, same_question
 
 LINE_WORDS = 60
 SUMMARY_WORDS = 120
@@ -139,6 +139,25 @@ KIND, POST_KIND = (re.compile(rf"\b(?:{kinds})(?![-\w])", re.IGNORECASE) for kin
 MARKDOWN_LINK = re.compile(r"\[([^\]\n]*)\]\((https?://[^)\s]+)\)")
 FENCED = re.compile(r"^[ \t]*```.*?^[ \t]*```[^\n]*$", re.MULTILINE | re.DOTALL)
 MASK = "\x00"
+NUMBER_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+COUNTED = re.compile(
+    rf"(?<![\w.,:#/$%~+-])(?P<count>[2-9]|1[0-2]|{'|'.join(NUMBER_WORDS)})\s+(?:{FILLER}\s+){{0,2}}?(?P<noun>[a-z][\w-]*[a-z]s)\b(?![-'’])",
+    re.IGNORECASE,
+)
+MEASURES = frozenset(
+    "seconds secs minutes mins hours hrs days weeks months years nights milliseconds times bytes kbs mbs gbs tbs kilobytes megabytes"
+    " gigabytes terabytes characters chars words lines letters digits pages rows columns percents points dollars cents cores requests"
+    " calls queries reads writes trips retries attempts tries hops threads workers processes replicas shards nodes connections slots"
+    " was has does its this thus plus less unless across yes".split()
+)
+BOUND = re.compile(
+    r"(?:\b(?:at most|at least|up to|more than|fewer than|less than|over|under|about|around|roughly|nearly|almost|some|every|per|each|within|than)|[~<>≤≥])\s*$",
+    re.IGNORECASE,
+)
+MEMBERS = re.compile(r"\A[^:(—–.;\n]{0,40}?[:(—–]\s*(?P<members>[^.;)\n]*?\b(?:and|or)\s+[^,.;)\n]+|[^.;)\n]+)", re.IGNORECASE)
+MEMBER_BREAK = re.compile(r"\s*(?:,|\band\b|\bor\b|/)\s*", re.IGNORECASE)
+LIST_LINE = re.compile(r"^[ \t]*(?:[-*•]|\d+[.)]|[A-Za-z][.)])[ \t]+\S")
+COUNTED_RULING = 'his Nov 11 12:31 PM words "This card is not helpful you need to lay out what the 4 strategies are and make the options more clear as well"'
 CLAUSE_BREAK = re.compile(r"[.;:,!?]+(?=\s|$)|\n")
 UNBUILT = re.compile(
     rf"\b(?:no|without(?:\s+an?)?)\s+(?:{COUNT}\s+)?(?:[\w-]+\s+)?(?:{KINDS})(?![-\w])|\bnone\b(?!\s+of)|\bgoes up\b|\b(?:is|comes|goes) next\b"
@@ -276,20 +295,11 @@ def card_body(summary: list[str], show_me: list[str]) -> str:
     return "\n".join([*summary, "*Show me*", *show_me] if any(line.strip() for line in show_me) else summary)
 
 
-def rebuilt(card: dict) -> str:
-    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, and each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept."""
+def rebuilt(card: dict, asks: Path) -> str:
+    """The ASK block a posted question card draws again, rebuilt from the card as the drive stored it for a question whose job kept no file: its question, summary and options in the words he read, the recommended one marked, each Show me picture as the fence its source.json keeps, under its caption, or as the picture's line where none is kept, and the Findings `kept_findings` finds in asks."""
     lines = card["body"].split("\n")
     shown = lines.index("*Show me*") if "*Show me*" in lines else len(lines)
-    show_me = []
-    for line in lines[shown + 1 :]:
-        posted = POSTED_PICTURE.fullmatch(line.strip())
-        kept = posted and Path(posted["path"]).with_name("source.json")
-        if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] != "image"):
-            show_me.append(line)
-            continue
-        if not NAMELESS_CAPTION.fullmatch(posted["caption"]):
-            show_me.append(posted["caption"])
-        show_me += [f"```{source['kind'].removeprefix('code:')}", source["source"].rstrip("\n"), "```"]
+    show_me = unpictured(lines[shown + 1 :])
     return "\n".join(
         [
             f"ASK {card['title']}",
@@ -297,10 +307,36 @@ def rebuilt(card: dict) -> str:
             *(["Show me:", *show_me] if show_me else []),
             *(f"- {option}{' (recommended)' if option == card['recommended'] else ''}" for option in card["options"]),
             "Findings:",
-            REBUILT,
+            kept_findings(asks, card),
             "",
         ]
     )
+
+
+def unpictured(show_me: list[str]) -> list[str]:
+    """A posted card's Show me lines, each picture the drive drew from a fence it keeps the source.json of back as that fence, under its caption."""
+    found = []
+    for line in show_me:
+        posted = POSTED_PICTURE.fullmatch(line.strip())
+        kept = posted and Path(posted["path"]).with_name("source.json")
+        if not (kept and kept.is_file() and (source := json.loads(kept.read_text()))["kind"] != "image"):
+            found.append(line)
+            continue
+        if not NAMELESS_CAPTION.fullmatch(posted["caption"]):
+            found.append(posted["caption"])
+        found += [f"```{source['kind'].removeprefix('code:')}", source["source"].rstrip("\n"), "```"]
+    return found
+
+
+def kept_findings(asks: Path, card: dict) -> str:
+    """The Findings under the newest block `drive job ask` kept for the card's job asking the card's question, its words unchanged since, else the line saying the block was rebuilt from the card."""
+    job_id = card["waits"].partition(":")[2].partition("-")[0]
+    for path in sorted(asks.glob(f"{job_id}-*.md"), key=lambda path: path.stat().st_mtime, reverse=True):
+        text = path.read_text()
+        named = KEPT_ASK.fullmatch(path.stem)
+        if named and named["hash"] == ask_hash(text) and same_question(text.partition("\n")[0].removeprefix("ASK "), card["title"]):
+            return FINDINGS.split(text, maxsplit=1)[1].strip("\n")
+    return REBUILT
 
 
 def card_words(card: dict) -> int:
@@ -324,6 +360,8 @@ def card_refusal(card: dict, beside: str) -> str | None:
         )
     count = card_words(card | {"body": f"{beside}\n{body}"} if drawn else card)
     problems = [f"each option is one line of at most {OPTION_WORDS} words, {OPTION_SHAPE}: {', '.join(long)}"] if long else []
+    summary, *show_me = SHOWN.split(body, maxsplit=1)
+    problems += counted_problems(card.get("title") or "", summary.splitlines(), options, unpictured(show_me[0].splitlines()) if show_me else [])
     if count > QUESTION_WORDS:
         problems.append(
             f"this card is {count} words, and a question with its summary and options is at most {QUESTION_WORDS} words in all;"
@@ -392,6 +430,7 @@ def question(text: str, kept: bool = False, unsettled: str | None = None, hurtin
         for found in OPTION_POINTER.findall(URL.sub(" ", TOKEN.sub(" ", "\n".join([*shown, *captions(show_me)]))))
     ]
     problems += unlinked([*summary, *captions(show_me)], [title, *options], DRIVE_KINDS)
+    problems += counted_problems(title, summary, options, show_me)
     problems += [
         f'{where} holds "{found}", which Slack draws as raw text, since a card\'s title and buttons take no markdown or links;'
         f" write it there without the markup, a term by its proper name, and put any link in the summary ({PLAIN_TEXT_RULING};"
@@ -486,6 +525,41 @@ def options_start(lines: list[str]) -> int:
         if FENCE.match(line):
             fenced = not fenced
     return len(lines)
+
+
+def counted_problems(title: str, summary: list[str], options: list[str], show_me: list[str]) -> list[str]:
+    """Each count of two to twelve things the card's question, summary or options name, as "four strategies" does, that the card never lists: as many options, Show me table rows or columns, list lines, captions, pictures, fenced blocks or compared options, or members named right after a count on the card, as "four strategies: A, B, C and D" names them. A measure such as "30 days" or "3 requests" and a bound such as "at most 3" count no members he must see."""
+    lines = [title, *(line for line in summary if not line.startswith(REDONE)), *options]
+    counted = [(line, bare, match) for line in lines for bare in [masked(line)] for match in COUNTED.finditer(bare)]
+    sizes = listed_sizes(options, show_me) | {named_count(bare[match.end() :]) for _, bare, match in counted}
+    found = []
+    for line, bare, match in counted:
+        noun, before = match["noun"].casefold(), bare[: match.start()]
+        count = NUMBER_WORDS.get(match["count"].casefold()) or int(match["count"])
+        if noun not in MEASURES and not BOUND.search(before) and count not in sizes:
+            found.append(
+                f'"{" ".join(line[match.start() : match.end()].split())}" names {count} {match["noun"]}, and the card lists no {count} of them:'
+                f' name each where the count is, as "four strategies: A, B, C and D", or give each its own option, Show me table row or caption ({COUNTED_RULING})'
+            )
+    return found
+
+
+def named_count(after: str) -> int:
+    """How many members the words right after a count name, as ": A, B, C and D" names four; none when no list follows."""
+    named = MEMBERS.match(after)
+    return len([member for member in MEMBER_BREAK.split(named["members"]) if member.strip()]) if named else 0
+
+
+def listed_sizes(options: list[str], show_me: list[str]) -> set[int]:
+    """How many things each way a card lists things holds: its options, each Show me table's rows and columns, each run of list lines, its numbered captions, pictures and fenced blocks, and each compare's options."""
+    shown = captions(show_me)
+    fences = list(picture.FENCE.finditer("\n".join(show_me)))
+    sizes = {len(options), len(fences), len([line for line in shown if PICTURE.fullmatch(line)]), len([line for line in shown if OPTION_CAPTION.match(line)])}
+    for table in tables(show_me):
+        sizes |= {len([row for row in table[1:] if not all(SEPARATOR_CELL.fullmatch(cell) for cell in row)]), len(table[0]) - 1}
+    sizes |= {len(list(run)) for listed, run in groupby(show_me, key=lambda line: bool(LIST_LINE.match(line))) if listed}
+    sizes |= {len(json.loads(fence[2])["options"]) for fence in fences if fence[1].casefold() == "compare"}
+    return sizes
 
 
 def captions(show_me: list[str]) -> list[str]:

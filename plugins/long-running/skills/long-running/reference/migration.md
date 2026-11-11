@@ -19,8 +19,10 @@ The same first command keeps an ASK file for each of his open question cards who
 kept none, rebuilt from the card the drive stored, at `asks/<j>-<seq>.md` for its waits id, so
 `drive cards redraw` redraws it too. The file holds the card's question, summary and options word for
 word, the recommended one marked, each Show me picture as the fence its `source.json` keeps or as its
-picture line where none is kept, and `Root cause: none: rebuilt from the posted card` under
-`Findings:`. It also runs only once.
+picture line where none is kept, and under `Findings:` the findings of the newest block `drive job
+ask` kept for its job asking the same question, unchanged since, else `Root cause: none: rebuilt from
+the posted card`. It also runs only once, and each file it writes meets every rule a new block meets
+before it draws.
 
 ## From one driver to two sessions
 

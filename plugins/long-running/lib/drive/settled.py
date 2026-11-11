@@ -27,6 +27,8 @@ APPROVAL = "kind:approval"
 APPROVED = re.compile(r"Approve\b")
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
+AMOUNT = re.compile(r"(?<![\w.,:#/$-])(\d+(?:\.\d+)?)[- ]?([a-z]+)\b", re.IGNORECASE)
+UNOFFERED_RULING = 'his Nov 11 1:28 PM words "You didn\'t give me a tap for 30 day bonding how many times do I have to say this"'
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
     "maybe", "might", "never", "other", "ought", "right", "should", "since", "still", "their", "there", "these", "thing", "things",
@@ -185,6 +187,28 @@ def thread_refusal(said: list[dict], why: str | None) -> str | None:
         " never asked, and the work goes ahead on them. Only when none does, ask again with --unsettled naming each permalink"
         f' below and why it does not settle this, such as --unsettled "{example}".\n{listed}'
     )
+
+
+def unoffered_refusal(said: list[dict], offered: str) -> str | None:
+    """Why a question may not go to him: an amount his words in the order's thread name, as "30 day bonding" names 30 days, is in neither its question nor an option, so he has no tap for what he named."""
+    have = amounts(offered)
+    if not (missing := {amount: message for message in said for amount in sorted(amounts(message["text"]) - have)}):
+        return None
+    listed = "\n".join(f'- {amount}: {message["link"]} "{cut(message["text"], 200)}"' for amount, message in missing.items())
+    return (
+        "refused: his words in this order's thread name an amount this question offers no tap for. Give each its own option,"
+        f" in his words, or ask about it in the question ({UNOFFERED_RULING}).\n{listed}"
+    )
+
+
+def amounts(text: str) -> set[str]:
+    """Each amount the words name, as "30 days" and "30-day" both name 30 day."""
+    return {
+        f"{number} {unit.removesuffix('s') if unit in limits.MEASURES else unit}"
+        for number, word in AMOUNT.findall(read(text))
+        for unit in [word.casefold()]
+        if unit in limits.MEASURES or f"{unit}s" in limits.MEASURES
+    }
 
 
 def rare(text: str) -> set[str]:
