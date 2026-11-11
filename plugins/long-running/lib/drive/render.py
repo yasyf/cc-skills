@@ -51,7 +51,8 @@ COORDINATOR_RULES = (
     (
         "Never post to Slack: everything he sees goes to communicator@<drive> as a cci report, ready or ask record,"
         " written at its post's length: one report per thread per turn, a line of at most 60 words or a summary of"
-        " 120, its first sentence what changed for him, and never a second record for the rest."
+        " 120, its first sentence what changed for him, each thing it names that he could open with its URL beside"
+        " it, and never a second record for the rest."
     ),
     (
         "A question of his in an owner record gets a report of what you have inside 5 to 10 seconds; the read,"
@@ -74,7 +75,8 @@ COORDINATOR_RULES = (
     (
         "Design first: a part with a tricky design (a data layout or file format, a schema, a lock or queue, an API"
         " shape, a new background process, any two shapes costly to switch; when unsure it counts) first gets one"
-        " long-running:designer on Fable; each fork it returns is a short question card. A builder may build the"
+        " long-running:designer on Fable, which fleshes the design out with worked examples and keeps each fork as an"
+        " ASK block, its Show me in code above the options; each fork is one question card. A builder may build the"
         " recommended option meanwhile and return BUILT: drive job set <j> --state built --branch <b> --waits <card>"
         " for each card. It opens no PR until he answers them all: drive pr add refuses, and FREE says when."
     ),

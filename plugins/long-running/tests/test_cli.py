@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import os
@@ -25,6 +26,17 @@ SHORT_ASK = """ASK How should a finished run's files be laid out so its page ope
 A finished run is about 180 small files, each with its page map at the end, so the browser guesses where each map starts.
 Recommended: one snapshot file per finished run, so any finished run opens in 3 requests.
 Meanwhile nothing is built on either layout.
+Show me:
+The requests a finished run's page makes today, then with one snapshot file:
+```
+GET journal/0001.ltx  last 64 KiB, guessing where the map starts
+... 180 files, one guess each
+```
+
+```
+GET snapshot.ltx      map at a fixed place
+GET 2 page ranges
+```
 - One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests (recommended)
 - A map file beside each journal file: no guessing, but one request per file and twice the objects
 - Map at the start of each file: changes the shared file format and still needs a length read first
@@ -349,7 +361,7 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     block = tmp_path / "ask.md"
     block.write_text(SHORT_ASK)
     code, out = run("job", "ask", asking, str(block))
-    kept = state_root / "demo" / "asks" / "j1.md"
+    kept = state_root / "demo" / "asks" / f"j1-{hashlib.sha256(SHORT_ASK.encode()).hexdigest()[:8]}.md"
     assert (code, out) == (0, str(kept))
     assert kept.read_text() == SHORT_ASK
     job = state.load("demo")["jobs"]["j1"]
@@ -360,6 +372,8 @@ def test_job_ask_keeps_an_ask_in_the_shape_he_reads_and_sets_the_job_waiting(
     assert shown["recommended"].startswith("One snapshot file per finished run")
     assert len(shown["options"]) == 3
     assert len(shown["summary"]) == 3
+    assert shown["show_me"][0] == "The requests a finished run's page makes today, then with one snapshot file:"
+    assert shown["show_me"][-1] == "```"
 
 
 def test_job_ask_refuses_findings_before_the_question(
@@ -393,7 +407,8 @@ def test_job_ask_names_every_way_an_ask_is_out_of_shape(
     assert "2 options end with (recommended); exactly one does" in refusal
     assert 'plain words only: "/Users/me/repos/sand/reader.go" is a file path' in refusal
     assert 'plain words only: "progress_nodes" is a code name' in refusal
-    assert "it names 2 pull requests; name only the one being decided" in refusal
+    assert '"#53288" is a number he cannot open; link it by what it is' in refusal
+    assert "no `Show me:` line after the summary with a worked example under it" in refusal
     assert "no `Findings:` line with the evidence under it" in refusal
 
 
@@ -405,6 +420,80 @@ def test_job_ask_refuses_a_question_over_150_words(
     block.write_text(f"ASK Which?\n{line}\n{line}\n{line}\n- Yes (recommended)\n- No\nFindings:\nmeasured\n")
     assert cli.main(["job", "ask", asking, str(block)]) == 2
     assert "the question, summary and options are 153 words; at most 150 in all" in capsys.readouterr().err
+
+
+def test_job_ask_counts_the_show_me_outside_its_150_words(run: Run, asking: str, tmp_path: Path) -> None:
+    block = tmp_path / "ask.md"
+    code = "\n".join(f"GET journal/{index:04}.ltx  last 64 KiB, guessing where the map starts" for index in range(40))
+    block.write_text(SHORT_ASK.replace("... 180 files, one guess each", code))
+    assert run("job", "ask", asking, str(block))[0] == 0
+
+
+TEAMMATE_FIX = """ASK A teammate's fix for the missing update button landed first: keep it, add our download status to it, or replace it?
+A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand button that downloads and installs in one click, even mid-download. Ours shows the button once the download finishes and says downloading until then. They conflict. Ours waits unlanded meanwhile.
+- Keep theirs, close ours: the button is always there and nothing needs a terminal, but the card never says it is downloading. (recommended)
+- Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
+- Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed fix.
+Findings:
+- Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
+"""
+TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
+    "A teammate's fix landed at 2:12 PM today:",
+    "<https://github.com/Forge-AI/monorepo/pull/53618|A teammate's fix for the update button> landed at 2:12 PM today:",
+).replace(
+    "Ours waits unlanded meanwhile.\n",
+    "Ours waits unlanded meanwhile.\nShow me:\nWhat a locked chat shows mid-download, theirs first, then ours:\n"
+    "```\nSand 0.142 is ready      [ Update sand ]\n```\n\n```\nDownloading Sand 0.142…  (no button yet)\n```\n",
+)
+
+
+def test_job_ask_refuses_a_fix_named_with_no_link_and_keeps_the_linked_copy(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(TEAMMATE_FIX)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert '"teammate\'s fix" names something he could open with no link there; put those words in its link' in refusal
+    assert '"teammate\'s landed fix" in the question or an option names something he could open, and those draw no links' in refusal
+    block.write_text(TEAMMATE_FIX_SHOWN)
+    assert run("job", "ask", asking, str(block))[0] == 0
+    block.write_text(TEAMMATE_FIX_SHOWN.replace("theirs first, then ours", "with their fix, then ours"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert '"their fix" names something he could open with no link there' in capsys.readouterr().err
+
+
+def test_job_ask_refuses_a_show_me_out_of_shape(run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    block = tmp_path / "ask.md"
+    caption = " ".join(["word"] * 26)
+    block.write_text(SHORT_ASK.replace("```\nGET journal", f"{caption}\n```sql\nGET journal", 1).replace("GET 2 page ranges\n```\n", "GET 2 page ranges\n"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    refusal = capsys.readouterr().err
+    assert f'Show me line "{caption}" is 26 words; outside a code fence each is a caption of at most 25' in refusal
+    assert '"```sql" names a language, which Slack draws as the first line of the code; open the fence with ``` alone' in refusal
+    assert "a ``` fence in the Show me is never closed" in refusal
+    head, shown = SHORT_ASK.split("Show me:\n")
+    example, options = shown.split("- One snapshot", 1)
+    block.write_text(f"{head}- One snapshot{options.split('Findings:')[0]}Show me:\n{example}Findings:\nmeasured\n")
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "the options come after the Show me, never above it" in capsys.readouterr().err
+
+
+def test_job_ask_reads_a_block_from_stdin_and_keeps_each_block_in_its_own_file(
+    run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    kept = []
+    for text in (SHORT_ASK, SHORT_ASK.replace("ASK How should", "ASK Where should")):
+        monkeypatch.setattr("sys.stdin", io.StringIO(text))
+        code, path = run("job", "ask", asking, "-")
+        assert code == 0
+        kept.append(Path(path))
+    assert kept[0] != kept[1]
+    assert [path.read_text().split("\n")[0] for path in kept] == [
+        "ASK How should a finished run's files be laid out so its page opens without guessing?",
+        "ASK Where should a finished run's files be laid out so its page opens without guessing?",
+    ]
+    assert state.load("demo")["jobs"]["j1"]["question"] == str(kept[1])
 
 
 IDLE_RULING = {
@@ -458,7 +547,7 @@ def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking
     assert run("job", "ask", asking)[0] == 2
     with state.edit("demo") as data:
         data["jobs"]["j1"].update(where="remote", report=SHORT_ASK)
-    assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / "j1.md"))
+    assert run("job", "ask", asking) == (0, str(state_root / "demo" / "asks" / f"j1-{hashlib.sha256(SHORT_ASK.encode()).hexdigest()[:8]}.md"))
 
 
 def test_job_report_keeps_a_jobs_whole_return_from_stdin_and_prints_it_back(

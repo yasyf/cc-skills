@@ -10,6 +10,12 @@ And Nov 10 1:26 AM, on whether PRs that wait on a design pick of his get Approve
 proactively build the recommended but can't put up a PR until I answer design Qs, and make that state a
 first class thing in our ledger". And Nov 10 2:53 AM, after finished work sat behind his open cards and
 was then to land on their recommended options: "Did I answer those question cards they were blocked on or did you just skip them? You should surface them to me if I ask and they are blocking, not skip them".
+And Nov 10 4:38 PM, under the design card on how a chat declares its local tables, which had no
+Show me: "1 or 2, but bring me some examples of how iris woujld do this, an imperaitve API
+along witrht he declerative, etc. dontg be lazy flash this out wayu more and od that for
+everyhtrfing in the future, bring me the card while /after flehsing out more of the dfesign and
+then the optins. shoujld not be so high lelkver. this would also satidyt the rtequriement you care
+curently violating by not having a show-me bc then shw show-0me cvould be code snipeptrs".
 
 Before any builder starts on a part, the coordinator decides whether the part carries a tricky
 design: a choice with two reasonable shapes that cost a lot to switch between once built. It
@@ -17,19 +23,24 @@ counts when the part settles a data layout or file format, such as where a journ
 index; a schema or the shape of a migration; a lock, queue, scheduler or other coordination; a
 public or Sand-facing API shape; or a new background process. When unsure, it counts.
 
-1. **One light design lane, first.** The part's first job is the drive's one Fable job: read only,
-   the initial design alone, no code and no PR, back in about 20 minutes with a few hundred words.
+1. **One design lane, first.** The part's first job is the drive's one Fable job: read only, the
+   design alone, no code and no PR, fleshed out with worked examples before any question goes to
+   him.
    Start it with the Agent tool: `subagent_type` `long-running:designer`, `model` `fable`, `effort`
    `medium`, `run_in_background: true`, a short `description`, never a `name`, and the brief as
    `prompt`; record it with `drive job add design --order <o> --part "<part>" --goal "<one line>"
    --agent <id>`. Its brief is the job brief in [Jobs](jobs.md) with no `Serves`, `Done when` or
    `Handoff` line, and a `Plan:` that names what exists: the files, PRs and findings it starts
    from. Its return, by its agent definition, opens `DESIGN <part>` and carries the design in
-   plain words, what his words already settle, and each real fork as a short question with two
-   to four one-line options, recommendation first.
-2. **He is asked before any PR.** Each fork goes to him as its own short question card by the
-   `DESIGN` row of the job results, never a wall of findings, and what his words settle is never
-   asked. Meanwhile a builder may build the recommended option of each fork on a pushed branch.
+   plain words with a worked example of each piece, such as the calls of an API, imperative beside
+   declarative, the rows a schema holds or the bytes a file format lays down. It names what his
+   words already settle, and each real fork as an `ASK` block it kept with `drive job ask`: the
+   design in a line, a Show me of each option in code, then two to four one-line options,
+   recommendation first.
+2. **He is asked before any PR.** Each fork goes to him as its own question card by the `DESIGN`
+   row of the job results, the design and its Show me above the options. It is never a wall of
+   findings nor a high-level line he must ask to have fleshed out, and what his words settle is
+   never asked. Meanwhile a builder may build the recommended option of each fork on a pushed branch.
 3. **Built is a state, not a PR.** That builder returns `BUILT <branch>, waits on <cards>` and
    opens no PR. The coordinator records it with `drive job set <j> --state built --branch <branch>
    --waits <card>`, one `--waits` for each card's waits id or Slack link, and the ledger, `drive

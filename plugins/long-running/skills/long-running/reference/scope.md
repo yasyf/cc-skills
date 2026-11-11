@@ -60,15 +60,17 @@ restarts, backfills, CI fixes, cleanups, tool fixes.
   him to approve it again. A post nobody ordered, such as a reply offered to someone who reported a
   bug or a line for a teammate, is a question card asking whether to tell them, never a card asking
   him to approve a post.
-- A design question goes to him before any PR carries it, by [Design first](design.md): a short
-  card with two to four one-line options, recommendation first, and a picture when the shape
-  matters. A job may build the recommendation meanwhile on a pushed branch, built in the ledger,
-  but puts up no PR and draws no Approve until he has answered every card it waits on.
-- A question card is the job's `ASK` as `drive job ask` kept it: the question; a summary of one to
-  three lines, what was found and what is being decided, the recommendation, and what happens
-  meanwhile; and two to four options, one line each, saying what he gets and what it costs. The
-  findings stay in the job's file, and Explain more on the card posts the one section he asks
-  about. No separate findings post, ever.
+- A design question goes to him before any PR carries it, by [Design first](design.md): a card
+  with the design fleshed out, its Show me in code above two to four one-line options,
+  recommendation first, and a picture when the shape matters. A job may build the recommendation
+  meanwhile on a pushed branch, built in the ledger, but puts up no PR and draws no Approve until
+  he has answered every card it waits on.
+- A question card is the job's `ASK` as `drive job ask` kept it. It holds the question; a summary
+  of one to three lines, what was found and what is being decided, the recommendation, and what
+  happens meanwhile, with each thing it names that he could open linked; a Show me, the worked
+  example drawn whole as code; and two to four options, one line each, saying what he gets and
+  what it costs. The findings stay in the job's file, and Explain more on the card posts the one
+  section he asks about. No separate findings post, ever.
 - His answer is the option he tapped, or his own words when he writes one: a written reply that
   names no single option settles nothing, is never mapped to the closest option, and goes back to
   him under the card. No option asks a reporter or anyone else to retry or confirm.
