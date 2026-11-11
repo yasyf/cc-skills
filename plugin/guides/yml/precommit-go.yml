@@ -3,10 +3,12 @@
   - repo: https://github.com/golangci/golangci-lint
     rev: v2.12.2
     hooks:
-      # prek pins GOTOOLCHAIN=local, so an unpinned hook takes the ambient
-      # `go`. Keep >= the highest go.mod `go` in any consuming repo.
+      # prek forces GOTOOLCHAIN=local; auto lets `go` fetch the patch a consumer's
+      # go.mod asks for. Raise the pin for a go.mod on a newer minor.
       - id: golangci-lint-fmt
         language_version: '1.26.10'
+        env: {GOTOOLCHAIN: auto}
       - id: golangci-lint
         language_version: '1.26.10'
+        env: {GOTOOLCHAIN: auto}
         args: [--allow-serial-runners]
