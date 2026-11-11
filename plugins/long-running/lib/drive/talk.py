@@ -36,13 +36,17 @@ def dry(name: str, post: dict) -> str:
 
 
 def posted(name: str, post: dict) -> dict:
-    """cc-slack's reply to the post, which went out with its references linked and each visual drawn as a picture, and is kept as a said event for the dashboard, which draws each visual live from its source."""
+    """cc-slack's reply to the post, which went out with its references linked and each visual drawn as a picture, and is kept as a said event for the dashboard, which draws each visual live from its source and each PR of a stack card with its state now."""
     text = post.get("text") or ""
     found = refs.resolved(name, text)
     visuals = [
         {"kind": kind(visual), "source": visual["source"], "caption": visual.get("caption") or "", "picture": str(drawn(name, index, visual))}
         for index, visual in enumerate(post.get("visuals") or [], start=1)
     ]
+    prs = state.load(name)["prs"]
+    stack = [state.pr_key(each) for each in post.get("tap_prs") or []]
+    if strays := [key for key in stack if key not in prs]:
+        raise DriveError(f"tap_prs names {', '.join(strays)}, which the drive holds no PR for, so nothing was posted: drive pr add records it")
     argv = ["dm-status", "--agent", "claude"]
     if thread := post.get("thread_ts"):
         argv += ["--thread", thread]
@@ -50,7 +54,7 @@ def posted(name: str, post: dict) -> dict:
         argv += ["--card", json.dumps(card)]
     if about := post.get("about"):
         argv += ["--about", about]
-    argv += [flag for url in post.get("tap_prs") or [] for flag in ("--tap-pr", url)]
+    argv += [flag for key in stack for flag in ("--tap-pr", prs[key]["url"])]
     argv += [flag for visual in visuals for flag in ("--file", visual["picture"])]
     if text:
         argv += ["--", refs.slack(text, found)]
@@ -64,6 +68,7 @@ def posted(name: str, post: dict) -> dict:
         card=reply.get("card_permalink"),
         order=post.get("order"),
         visuals=visuals,
+        prs=stack,
     )
     return reply
 

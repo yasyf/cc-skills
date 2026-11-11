@@ -55,7 +55,7 @@ SAY = {
                 "description": "Each message of his this post answers, word for word, one per entry, so the answer goes out whole",
             },
             "card": {"type": "object", "description": "A question card exactly as drive job card printed it"},
-            "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first"},
+            "tap_prs": {"type": "array", "items": TEXT, "description": "Each PR of a stack waiting on his tap, bottom first, as its URL or owner/repo#number; drawn as one stack card"},
             "about": {"type": "string", "description": "The waits id of the card this reply is about"},
             "visuals": {"type": "array", "items": VISUAL},
             "order": {"type": "string", "description": "The order whose thread this post is in, which records the post on it"},

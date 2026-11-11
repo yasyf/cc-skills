@@ -547,7 +547,10 @@ def history(drive: dict, events: Iterable[dict], team_url: str) -> list[dict]:
             happened.append({"at": job["updated"], "kind": "failed", "text": job["goal"], "detail": said(job["said"]), "url": None, "feature": job["order"]})
     for event in (event for event in events if event["kind"] in HISTORY_EVENTS):
         if event["kind"] == "said":
-            happened.append({"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"]})
+            stack = [pr_entry(prs[key]) for key in event.get("prs", [])]
+            happened.append(
+                {"at": event["at"], "kind": "said", "text": event["text"], "detail": "", "url": event["url"], "feature": event["order"], "visuals": event["visuals"], "prs": stack}
+            )
             continue
         pr = prs.get(f"{event['repo']}#{event['number']}") or {"title": "", "url": state.pr_url(f"{event['repo']}#{event['number']}"), "order": None}
         detail = event["label"] if event["kind"] == "tap" else said(event["reason"])

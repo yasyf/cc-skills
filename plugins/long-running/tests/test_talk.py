@@ -62,6 +62,15 @@ def test_each_visual_goes_to_slack_as_a_picture_and_to_the_dashboard_as_its_sour
     assert said(demo)[0]["visuals"] == [{"kind": "code:go", "source": "mu.Lock()", "caption": "one chat", "picture": str(drawn)}]
 
 
+def test_a_stack_card_names_each_pr_by_its_url_and_the_dashboard_keeps_the_stack(demo: str, posts: list[tuple[str, ...]]) -> None:
+    with pytest.raises(DriveError, match=r"tap_prs names yasyf/cc-skills#8, which the drive holds no PR for"):
+        talk.say(demo, {"text": "land these", "tap_prs": [PR_URL, "https://github.com/yasyf/cc-skills/pull/8"]})
+    assert (posts, said(demo)) == ([], [])
+    talk.say(demo, {"text": "land these", "tap_prs": ["yasyf/cc-skills#7"]})
+    assert posts[0] == ("dm-status", "--agent", "claude", "--tap-pr", PR_URL, "--", "land these")
+    assert said(demo)[0]["prs"] == ["yasyf/cc-skills#7"]
+
+
 def test_a_post_its_order_will_not_take_still_says_it_went_out_so_nobody_sends_it_twice(demo: str, posts: list[tuple[str, ...]]) -> None:
     line = talk.say(demo, {"text": "done", "order": "o1"})
     assert line.startswith(f"POSTED {POSTED}; not recorded on o1: only the communicator records a post")

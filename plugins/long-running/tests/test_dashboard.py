@@ -127,7 +127,7 @@ JSON.stringify(components.map(([kind, source, fence]) => {
     fence: prose("```" + fence + "\n" + source + "\n```"),
     card: prose("Show me\n![Show me](" + picture + ")"),
     pr: pictures([picture]),
-    said: saidRow({ at: "2026-11-10T23:00:00Z", text: "", visuals: [{ kind, source, caption: "", picture }] }),
+    said: saidRow({ at: "2026-11-10T23:00:00Z", text: "", visuals: [{ kind, source, caption: "", picture }], prs: [] }),
   }];
 }));
 """
@@ -150,6 +150,24 @@ def test_the_web_draws_every_component_kind_natively_and_never_as_a_picture(tmp_
         for surface, shown in surfaces.items():
             assert "<img" not in shown, f"the web drew the {kind} on its {surface} surface as a picture: {shown}"
             assert f'data-visual="{kind}"' in shown, f"the web drew no native {kind} on its {surface} surface: {shown}"
+
+
+STACK_RENDER = r"""
+model = { repo: "", review: [] };
+const pr = (number, state, tap) => ({ title: "change " + number, url: "https://github.com/yasyf/cc-skills/pull/" + number, state, checks: "pass", review: "approved", tap });
+const row = (prs) => saidRow({ at: "2026-11-10T23:00:00Z", text: "land these", visuals: [], prs });
+JSON.stringify([row([pr(1, "open", "wanted"), pr(2, "open", "wanted")]), row([pr(1, "merged", "Approve")])]);
+"""
+
+
+def test_a_stack_card_sent_to_him_lists_its_prs_and_links_his_tap_only_while_one_waits(tmp_path: Path) -> None:
+    script = tmp_path / "web.mjs"
+    script.write_text(WEB_RUNNER)
+    app = Path(dashboard.__file__).parent / "site" / "app.js"
+    waiting, landed = json.loads(subprocess.run(["node", str(script), str(app), STACK_RENDER], input="[]", capture_output=True, text=True, check=True).stdout)
+    assert waiting.index("/pull/1") < waiting.index("/pull/2")
+    assert 'href="#/queue/tap"' in waiting
+    assert "/pull/1" in landed and 'href="#/queue/tap"' not in landed
 
 
 def test_a_picture_is_served_only_when_a_shown_card_draws_it(tmp_path: Path) -> None:

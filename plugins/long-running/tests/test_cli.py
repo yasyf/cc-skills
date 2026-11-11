@@ -15,7 +15,7 @@ from pathlib import Path
 import drive
 import pytest
 from conftest import RESEARCH, Answers, Drawing, Thread, Withdrawals
-from drive import card, cli, github, orca, picture, render, slack, state, view
+from drive import card, cli, github, limits, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
 UNLISTED = {"-h", "--help", "--drive", "--json"}
@@ -665,6 +665,29 @@ def test_job_ask_refuses_an_option_that_lands_first_and_fixes_up_after(
     assert f'option "{landing[2:]}" lands first and leaves "then backfill" for after: dev must always be releasable' in capsys.readouterr().err
     block.write_text(SHORT_ASK.replace("- A map file beside each journal file", "- Land the snapshot writer with no backfill: old runs keep guessing"))
     assert run("job", "ask", asking, str(block))[0] == 0
+
+
+LANDING_ASK = """ASK Land your run history change so the run page change you approved can land?
+<https://github.com/acme/app/pull/12|The run page change> is built on <https://github.com/acme/app/pull/11|your run history change>, which is green and approved but has no tap of yours.
+I recommend landing both together, run history first; meanwhile both stay open.
+- Land both now, run history first (recommended)
+- Move the run page change onto dev without run history, and leave that one with you
+
+Findings:
+The run page change's base branch is the run history change's branch, so the merge queue cannot take it alone.
+"""
+
+
+def test_job_ask_sends_an_ask_to_land_prs_to_their_stack_card_and_still_redraws_one_it_kept(
+    asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(LANDING_ASK)
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert "it asks him to land PRs, which is his tap on their stack card and never a question card: return READY" in capsys.readouterr().err
+    assert limits.question(LANDING_ASK, kept=True).recommended == "Land both now, run history first"
+    block.write_text(LANDING_ASK.replace("ASK Land your", "ASK Keep your"))
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
 
 
 def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(

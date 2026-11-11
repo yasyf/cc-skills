@@ -266,9 +266,10 @@ drive tooling fix no exempt class covers, which serves its own order by [Scope](
 above it quotes that order: his words, or the tooling order's "Drive tooling: …" words, at his DM
 root. A port never gets one: he reads "port of #N landed" in its order's thread once it lands, and
 so for every class that lands with no tap.
-`say(tap_prs=[<each url, bottom first>], text=<line>, thread_ts=<his thread>)` makes
+`say(tap_prs=[<each url or owner/repo#number, bottom first>], text=<line>, thread_ts=<his thread>)` makes
 cc-slack draw one card at his DM root for the stack those PRs form (`drive card`), with Approve and
-Hold while it waits on him. His Approve lands exactly those PRs, bottom first. A PR added later
+Hold while it waits on him, and shows the same PRs under the line on the dashboard's history,
+each with where it stands now; a PR the drive does not hold refuses the post. His Approve lands exactly those PRs, bottom first. A PR added later
 gets its own card when posted alone; posted with the rest of its stack, it joins one new card for
 them all, and cc-slack marks each older card of those PRs replaced, with a link to the new one.
 The same call posts the card's permalink under the card's question in his thread, and Slack draws
