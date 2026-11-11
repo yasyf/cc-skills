@@ -15,6 +15,8 @@ from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 INCIDENT_FIX = "fix"
+INCIDENT_EXEMPTION = "incident fix"
+REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 FILING = ("project", "workstream")
 WAITS_CARD = re.compile(r"https://\S+/archives/\S+/p\d+\S*|[\w.-]+:[\w.-]+")
 CLAUDE_BUILDS = Path.home() / ".local" / "share" / "claude" / "versions"
@@ -72,6 +74,8 @@ def order_add(args: argparse.Namespace) -> int:
             f'an incident order starts its fix job at the alert, beside diagnosis: name "{INCIDENT_FIX}" among --parts, such as'
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
+    if args.thread:
+        check_thread(state.load(name), args.source, args.thread)
     with state.edit(name) as data:
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
@@ -120,6 +124,18 @@ def order_add(args: argparse.Namespace) -> int:
     return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
 
 
+def check_thread(data: dict, source: str, thread: str) -> None:
+    """Refuse a thread Slack cannot read where the order's lines go, his DM or the channel of the message the order came from when it is that message's thread, and a reply's ts, naming the thread it is in."""
+    if not (where := state.promise_thread(data, {"from": source, "thread": thread})):
+        raise DriveError(f"--thread {thread}: refused, the drive has no DM to read it in; start it with --channel <his DM>")
+    try:
+        messages = slack.thread("--channel", where[0], "--thread", thread, "--limit", "1")
+    except slack.SlackError as error:
+        raise DriveError(f"--thread {thread}: refused, it is no thread in {where[0]}, where the order's lines go: {error}") from None
+    if root := next((message["thread_ts"] for message in messages if message["ts"] == thread and message.get("thread_ts") not in (None, thread)), None):
+        raise DriveError(f"--thread {thread}: refused, it is a reply in thread {root}; pass --thread {root}")
+
+
 def need_thread(data: dict, order_id: str, order: dict) -> None:
     if not state.promise_thread(data, order):
         raise DriveError(f"{order_id}: refused, no time stored: a promised time needs the thread its line goes in; pass --thread <ts>")
@@ -147,7 +163,7 @@ def drive_post_at(link: str, data: dict, order_id: str, named_part: bool) -> tup
     if not (ours or named_part):
         joins = (
             "; when his message at the root of that thread is another alert on this incident, that alert is its own order, which the"
-            f' coordinator records with drive order add "<his alert>" --from slack:{slack.CARD_LINK.search(link)[1]}/{root["ts"]}'
+            f' coordinator records with drive order add "<his alert>" --from slack:{state.CARD_LINK.search(link)[1]}/{root["ts"]}'
             f" --thread {root['ts']} --joins {order_id} --project \"{data['orders'][order_id]['project']}\" --workstream \"{data['orders'][order_id]['workstream']}\", and this line goes on that order"
             if data["orders"][order_id]["incident"] and root and root.get("from_user")
             else ""
@@ -182,6 +198,8 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    if args.thread:
+        check_thread(data, order["from"], args.thread)
     if args.state in state.CLOSED_ORDER_STATES:
         need_record_close(data, args.id, args.record)
     destination = order | {"thread": args.thread or order["thread"]}
@@ -360,7 +378,18 @@ def job_add(args: argparse.Namespace) -> int:
 
 
 def job_set(args: argparse.Namespace) -> int:
+    """Change a job; a state it already holds changes nothing, and stopped is the one state set by hand."""
     name = state.resolve(args.drive)
+    held = find(state.load(name)["jobs"], args.id, "job")["state"]
+    already = f"{args.id} is already {held}\n" if args.state == held else ""
+    if already:
+        args.state = None
+    elif args.state not in (None, "stopped"):
+        returned = ", ".join(f"{word} sets {taken}" for word, taken in state.RESULT_STATES.items())
+        raise DriveError(
+            f"{args.id} is {held}, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line"
+            f" the job returns, which the watch reads or drive job report {args.id} - takes: {returned}, and BUILT <branch>, waits on <cards> sets built"
+        )
     changes = {"agent": args.agent, "state": args.state, "said": args.said, "branch": args.branch}
     urls = dict.fromkeys(state.pr_url(state.pr_key(url)) for url in args.pr)
     check_waits(name, args.waits)
@@ -391,7 +420,7 @@ def job_set(args: argparse.Namespace) -> int:
             job["repro"] = keep_repro(name, args.id, args.repro)
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
-    return emit(args, render.job_line(args.id, job), {"id": args.id, **job})
+    return emit(args, already + render.job_line(args.id, job), {"id": args.id, **job})
 
 
 def told_him(name: str, args: argparse.Namespace) -> None:
@@ -467,7 +496,7 @@ def job_ask(args: argparse.Namespace) -> int:
     if refused := slack.draw_refusal(asked.card(name, f"{name}:{args.id}-0")):
         raise DriveError(f"the ASK's card is out of shape, so cc-slack would not draw it: {refused}")
     shown = "\n".join([asked.title, *asked.summary, *asked.options])
-    if refused := settled.refusal(shown, text, [name], os.getcwd(), args.unsettled, "--unsettled", superseded.said_under(data, job)):
+    if refused := settled.refusal(shown, text, [name], data["roles"]["coordinator"]["cwd"], args.unsettled, "--unsettled", superseded.said_under(data, job)):
         raise DriveError(refused)
     kept = state.drive_dir(name) / "asks" / f"{args.id}-{hashlib.sha256(text.encode()).hexdigest()[:8]}.md"
     kept.parent.mkdir(exist_ok=True)
@@ -806,6 +835,8 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     check_waits(name, args.waits)
+    if args.exempt == INCIDENT_EXEMPTION:
+        refuse_an_exempt_revert(name, key)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
     served = ""
@@ -893,6 +924,24 @@ def refuse_an_undrawable_tap(key: str, args: argparse.Namespace) -> None:
         raise DriveError(f"{key}: {reason}")
 
 
+def refuse_an_exempt_revert(name: str, key: str) -> None:
+    """A PR whose title or body says it reverts a change takes that change out, which no incident order approves: it lands only on his tap, on a card stating the bug in that change."""
+    from drive import card
+
+    if not (read := card.read(key)):
+        raise DriveError(f"{key}: could not read it from GitHub to check that it reverts nothing")
+    if not REVERT.search(f"{read['title']}\n{read['body']}"):
+        return
+    data = state.load(name)
+    order_id = find(data["prs"], key, "drive PR")["order"]
+    record = data["orders"][order_id]["note"] or "none noted yet"
+    raise DriveError(
+        f'{key}: refused, it reverts a change, and a revert never lands as an "{INCIDENT_EXEMPTION}": no incident order approves it,'
+        f" only his tap does. Draw his tap card with drive pr set {state.pr_url(key)} --tap --serves {order_id} --design none,"
+        f" its body stating the bug in the change it takes out, with that change's PR and evidence, from {order_id}'s record ({record})"
+    )
+
+
 def tap_verdict(pr: dict | None) -> tuple[bool, str]:
     if pr is None:
         return True, "not a drive PR"
@@ -929,7 +978,7 @@ def answer(args: argparse.Namespace) -> int:
     if args.id is None:
         if not (args.title and args.words and args.link):
             raise DriveError('name his answer\'s cc-notes id, or pass --title "<the question, verbatim>" with --words and --link to record it in cc-notes first')
-        args.id = settled.recorded(args.title, args.words, ["scope:durable", f"drive:{name}", *args.label], os.getcwd())
+        args.id = settled.recorded(args.title, args.words, ["scope:durable", f"drive:{name}", *args.label], data["roles"]["coordinator"]["cwd"])
     if args.id not in data["answers"]:
         if args.stands or args.superseded or args.reopened or args.others_stand:
             raise DriveError(
@@ -1335,7 +1384,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("id", help="the job")
     verb.add_argument("--agent", help="the agent id the Agent tool returned")
     verb.add_argument(
-        "--state", choices=("stopped",), help="stopped: it ends unfinished; every other state comes from the line the job returns"
+        "--state", choices=state.JOB_STATES, help="stopped: it ends unfinished; every other state comes from the line the job returns, and one it holds changes nothing"
     )
     verb.add_argument("--branch", help="the pushed branch it works or built on")
     verb.add_argument("--said", help="its latest line")

@@ -283,6 +283,35 @@ def test_order_add_allocates_ids_and_stores_words_verbatim(run: Run, demo: str) 
     assert state.parse_time(orders["o2"]["due"]) > state.now()
 
 
+def test_an_orders_thread_is_refused_unless_slack_reads_it_as_a_thread_where_its_lines_go(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    threads = {
+        "1794200000.000100": [{"ts": "1794200060.000300", "thread_ts": "1794200000.000100", "from_claude": True}],
+        "1794200050.000200": [{"ts": "1794200050.000200", "thread_ts": "1794200000.000100", "from_user": True}],
+    }
+    reads: list[tuple[str, ...]] = []
+
+    def thread(*where: str) -> list[dict]:
+        reads.append(where)
+        if where[3] not in threads:
+            raise slack.SlackError("cc-slack can't read this conversation (thread_not_found)")
+        return threads[where[3]]
+
+    monkeypatch.setattr(slack, "thread", thread)
+    words = ["order", "add", "--project", "The drive", "--workstream", "Drive tooling", "tell the stopped people", "--from", "slack:D123/1794200050.000200"]
+    assert cli.main([*words, "--thread", "1794200090.000700"]) == 2
+    assert "--thread 1794200090.000700: refused, it is no thread in D123, where the order's lines go: cc-slack can't read this conversation (thread_not_found)" in capsys.readouterr().err
+    assert cli.main([*words, "--thread", "1794200050.000200"]) == 2
+    assert "--thread 1794200050.000200: refused, it is a reply in thread 1794200000.000100; pass --thread 1794200000.000100" in capsys.readouterr().err
+    assert state.load("demo")["orders"] == {}
+    assert run(*words, "--thread", "1794200000.000100") == (0, "o1")
+    assert cli.main(["order", "set", "o1", "--thread", "1794200090.000700"]) == 2
+    assert "--thread 1794200090.000700: refused, it is no thread in D123" in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["thread"] == "1794200000.000100"
+    assert reads[0] == ("--channel", "D123", "--thread", "1794200090.000700", "--limit", "1")
+
+
 def test_order_set_due_says_it_stored_the_time_and_what_it_waits_on_or_why_it_stored_none(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -924,6 +953,20 @@ def test_job_ask_checks_a_link_by_its_label_never_the_words_of_its_url(run: Run,
     assert "monorepo" not in recorded.asked[0]
 
 
+def test_job_ask_checks_his_answers_in_the_coordinators_checkout_whatever_directory_it_runs_in(
+    run: Run, asking: str, tmp_path: Path, recorded: Answers, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    assert run("job", "ask", asking, str(block))[0] == 0
+    checkout = state.load("demo")["roles"]["coordinator"]["cwd"]
+    assert checkout != os.getcwd()
+    assert recorded.cwds == [checkout]
+
+
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:
     assert run("job", "ask", asking)[0] == 2
     with state.edit("demo") as data:
@@ -1090,14 +1133,37 @@ def test_a_built_return_sets_its_job_built_on_its_branch_waiting_on_each_card_it
     assert (job["state"], job["branch"], job["waits"]) == ("built", "lr-move", ["demo:j1-3", card])
 
 
-def test_job_set_takes_state_stopped_alone_since_the_line_a_job_returns_sets_every_other(run: Run, demo: str) -> None:
+def test_job_set_takes_state_stopped_alone_and_says_the_line_a_job_returns_sets_every_other(
+    run: Run, demo: str, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
-    for taken in ("running", "waiting", "built", "done", "failed"):
-        with pytest.raises(SystemExit):
-            run("job", "set", "j1", "--state", taken)
+    for taken in ("waiting", "built", "done", "failed"):
+        assert cli.main(["job", "set", "j1", "--state", taken]) == 2
+        refusal = capsys.readouterr().err
+        assert "j1 is running, and --state sets only stopped, for a job that ends unfinished: every other state comes from the line the job returns" in refusal
+        assert (
+            "which the watch reads or drive job report j1 - takes: DONE sets done, READY sets waiting, WAITING sets waiting, DESIGN sets waiting,"
+            " BLOCKED sets failed, and BUILT <branch>, waits on <cards> sets built"
+        ) in refusal
+    assert state.load("demo")["jobs"]["j1"]["state"] == "running"
     assert run("job", "set", "j1", "--state", "stopped")[0] == 0
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
+
+
+def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_so(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
+    run("job", "add", "reader", "--order", "o1", "--goal", "read where it ships")
+    monkeypatch.setattr("sys.stdin", io.StringIO("DONE it ships from the release branch\n"))
+    assert run("job", "report", "j1", "-")[0] == 0
+    code, out = run("job", "set", "j1", "--state", "done", "--said", "read")
+    assert (code, out.splitlines()[0]) == (0, "j1 is already done")
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["said"]) == ("done", "read")
+    run("job", "add", "builder", "--order", "o1", "--goal", "ship the rest")
+    assert run("job", "set", "j2", "--state", "running")[1].splitlines()[0] == "j2 is already running"
 
 
 def test_job_report_prints_a_remote_lanes_latest_report(run: Run, demo: str) -> None:
@@ -1236,6 +1302,29 @@ def test_pr_set_no_exempt_clears_the_exemption(run: Run, with_pr: str) -> None:
 def test_pr_set_exempt_lets_it_land(run: Run, with_pr: str) -> None:
     run("pr", "set", PR, "--exempt", "test-only")
     assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: test-only")
+
+
+def test_pr_set_refuses_a_revert_the_incident_fix_exemption_and_names_the_tap_card_it_waits_on(
+    run: Run, with_pr: str, on_github: dict, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "set", "o1", "--note", "record 3fa2c1")
+    reverts = [
+        ('Revert "Fix: land it"', "Reverts Forge-AI/monorepo#41"),
+        ("store: ⏪️ Fix: no table move starts", CARD_BODY),
+        ("Fix: no table move starts", "## Summary\nThis reverts #41 whole."),
+    ]
+    for title, body in reverts:
+        on_github.update(title=title, body=body)
+        assert cli.main(["pr", "set", PR, "--exempt", "incident fix"]) == 2
+        refusal = capsys.readouterr().err
+        assert f'{with_pr}: refused, it reverts a change, and a revert never lands as an "incident fix": no incident order approves it, only his tap does.' in refusal
+        assert f"Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
+        assert "its body stating the bug in the change it takes out, with that change's PR and evidence, from o1's record (record 3fa2c1)" in refusal
+    assert state.load("demo")["prs"][with_pr]["exempt"] is None
+    assert run("pr", "tapped", PR)[0] == 1
+    on_github.update(title="Fix: the mint endpoint answers again", body=CARD_BODY)
+    assert run("pr", "set", PR, "--exempt", "incident fix")[0] == 0
+    assert run("pr", "tapped", PR) == (0, f"{with_pr}: exempt: incident fix")
 
 
 def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
@@ -1434,7 +1523,7 @@ def test_status_overlays_live_pr_fields_without_saving_them(
     code, out = run("status")
     assert code == 0
     assert out.splitlines()[0] == "demo: 1 open of 1 orders; PR fields live"
-    assert "Forge-AI/monorepo#42 open, checks pass, review approved" in out
+    assert 'Forge-AI/monorepo#42 "Fix: the live title" open, checks pass, review approved' in out
     code, out = run("status", "--json")
     payload = json.loads(out)
     assert payload["pr_fields"] == "live"
@@ -2021,6 +2110,26 @@ def test_an_answer_with_no_id_records_his_words_in_cc_notes_first_and_goes_on_by
     labels = ["--label=scope:durable", "--label=drive:demo", "--label=header:topology"]
     assert added == [(["ccn", "answer", "add", "--title=Which topology?", "--body-file", "-", *labels, "--json"], WORDS)]
     assert run("answer", "beb09e5", "--others-stand")[0] == 0
+
+
+def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_whatever_directory_it_runs_in(
+    designing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cards_asking(monkeypatch, PR)
+    cwds: list[str] = []
+
+    def ccn(argv: list[str], input: str, cwd: str, **_: object) -> subprocess.CompletedProcess[str]:
+        cwds.append(cwd)
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"id": "beb09e5f00d"}), "")
+
+    monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=ccn, TimeoutExpired=subprocess.TimeoutExpired))
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    monkeypatch.chdir(outside)
+    cli.main(["answer", "--title", "Which topology?", "--words", WORDS, "--link", PICK])
+    checkout = state.load("demo")["roles"]["coordinator"]["cwd"]
+    assert checkout != os.getcwd()
+    assert cwds == [checkout]
 
 
 def test_an_answer_lists_every_pr_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it(

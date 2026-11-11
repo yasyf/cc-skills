@@ -53,7 +53,7 @@ def test_each_verb_tool_is_typed_from_the_parser_the_cli_runs() -> None:
     assert ["say", *listed] == list(cli.MCP_TOOLS)
     ops = {next(iter(shape["properties"])): shape["properties"] for shape in listed["job"]["inputSchema"]["properties"]["ops"]["items"]["oneOf"]}
     job_set = ops["set"]["set"]
-    assert job_set["properties"]["state"]["enum"] == ["stopped"]
+    assert job_set["properties"]["state"]["enum"] == list(state.JOB_STATES)
     assert (job_set["properties"]["waits"]["type"], "id" in job_set["required"]) == ("array", False)
     assert ops["add"]["add"]["properties"]["order"]["anyOf"][1]["required"] == ["words", "project", "workstream"]
     assert listed["status"]["annotations"] == {"readOnlyHint": True}

@@ -70,6 +70,28 @@ def test_a_job_whose_agent_is_an_orca_dispatch_reads_as_a_lane_on_this_mac_read_
     assert (jobs["j2"]["agent"], jobs["j2"]["where"], jobs["j2"]["route"]) == ("agent-9", "local", None)
 
 
+def test_an_order_whose_thread_is_its_own_post_outside_his_dm_and_watched_channels_reads_with_its_dm_thread(state_root: Path) -> None:
+    make("demo")
+    data = state.load("demo")
+    data["slack"].update(channel="D123", watch=["C0B75AL4XEW"])
+    in_dm = {"posted": "https://acme.slack.com/archives/D123/p1794200040000500?thread_ts=1794200000.000100&cid=D123", "orphan_said": None}
+    shared = {"posted": "https://acme.slack.com/archives/C0SHARED1/p1794200090000700", "orphan_said": None}
+    watched = {"posted": "https://acme.slack.com/archives/C0B75AL4XEW/p1794200095000800", "orphan_said": None}
+    base = {"text": "tell the stopped people", "from": "slack:D123/1794200030.000400", "jobs": [], "promised": None, "updated": "2026-11-10T18:46:23-08:00"}
+    data["orders"] = {
+        "o1": base | {"thread": "1794200090.000700", "parts": {"answer": in_dm, "tell them": shared}},
+        "o2": base | {"thread": "1794200095.000800", "parts": {"answer": in_dm, "tell them": watched}},
+        "o3": base | {"thread": "1794200000.000100", "parts": {"answer": in_dm, "tell them": shared}},
+    }
+    state.create(data)
+    orders = state.load("demo")["orders"]
+    assert {order_id: order["thread"] for order_id, order in orders.items()} == {
+        "o1": "1794200000.000100",
+        "o2": "1794200095.000800",
+        "o3": "1794200000.000100",
+    }
+
+
 def test_edit_discards_changes_when_the_body_raises(state_root: Path) -> None:
     make("demo")
     with pytest.raises(RuntimeError), state.edit("demo") as data:

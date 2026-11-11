@@ -148,6 +148,7 @@ class Answers:
     nearest: list[dict] = field(default_factory=list)
     asked: list[str] = field(default_factory=list)
     near: list[tuple[str, tuple[str, ...]]] = field(default_factory=list)
+    cwds: list[str] = field(default_factory=list)
 
 
 @pytest.fixture(autouse=True)
@@ -155,6 +156,7 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
     answers = Answers()
 
     def matched(text: str, cwd: str, *flags: str) -> list[dict]:
+        answers.cwds.append(cwd)
         if "--nearest" in flags:
             answers.near.append((text, flags))
             return list(answers.nearest)
