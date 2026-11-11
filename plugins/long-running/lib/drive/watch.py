@@ -39,6 +39,7 @@ LINE_BREAKS = re.compile(r"[\r\n]+")
 HANDOFF = timedelta(minutes=2)
 SETTLING = ""
 UNKEPT_ASK = "keep it with `drive job ask {job}`, which prints the file its ask record names, since no file holds it until then"
+LANE_REPRO = re.compile(r"^REPRO:[ \t]*(?P<path>\S*\w)[^\n]*\n+```[^\n]*\n(?P<text>.*?)^```[ \t]*$", re.MULTILINE | re.DOTALL)
 PAUSED = "The recommended answer to this question is built and paused on your pick: tap it and the work ships; another pick rebuilds it first."
 QUIET_FOR = timedelta(minutes=30)
 STUCK_FOR = timedelta(minutes=30)
@@ -513,8 +514,8 @@ def first_line(text: str) -> str:
     return next((line.strip() for line in text.splitlines() if line.strip()), "")
 
 
-def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str | None:
-    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, and for an `ASK` that `drive job ask` keeps it, since a file of the job's already under `asks/` holds an earlier question."""
+def mail_line(name: str, data: dict, job_id: str, message: dict, moment: datetime, kept: Path | None, unkept: str | None) -> str | None:
+    """Record one message from a remote lane on its job, a final report setting its state and ending any question the lane asked before it, a question opening with a result other than ASK being that result, and the file a `REPRO:` line carries in the fence under it kept as `drive job set --repro` keeps one; the event line it wakes the coordinator with, if any, which for a question naming `LOG <url>`s says drive job resume reads them ahead of the answer, for an `ASK` the watch kept is `ASK <its file>`, as a job's own return is, and for one it could not keep says why, or that `drive job ask` keeps it."""
     job = data["jobs"][job_id]
     kind = message["type"]
     body = message["body"] or ""
@@ -522,21 +523,30 @@ def mail_line(data: dict, job_id: str, message: dict, moment: datetime) -> str |
     if kind == "escalation":
         last = first_line(body.split("Last output:")[-1])
         return f"JOB {job_id} {job['order']} STOPPED without a report, last output: {cut(last, 160)}"
-    job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
+    if not kept:
+        job["said"] = message["subject"] if kind == "worker_done" else first_line(body) or message["subject"]
     if kind == "status":
         return None
     job["report"] = body
-    if kind == "question" and not state.reported(job["said"]):
+    if repro := LANE_REPRO.search(body):
+        (path := state.repro_path(name, job_id, Path(repro["path"]).suffix)).parent.mkdir(exist_ok=True)
+        path.write_text(repro["text"])
+        job["repro"] = str(path)
+    if kind == "question" and (kept or not state.reported(job["said"])):
         job.update(ask=message["id"], ask_at=job["updated"], state="waiting")
     elif kind in ("question", "worker_done"):
         if job.get("ask"):
             job.update(ask=None, state="running")
         state.take_result(data, job_id, job["said"])
+    if kept:
+        return f"JOB {job_id} {job['order']} ASK {kept}"
     line = f"JOB {job_id} {job['order']} {job['said']}"
     if job.get("ask") != message["id"]:
         return line
     if asked := reads.logs(body):
         return f"{line}; drive job resume reads {asked} ahead of your answer"
+    if unkept:
+        return f"{line}; `drive job ask {job_id}` refused to keep it: {unkept}"
     return f"{line}; {UNKEPT_ASK.format(job=job_id)}" if reads.asks(body) else line
 
 
@@ -555,7 +565,7 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
             lines += read_failed(watcher, source, error, moment)
             continue
         watcher.failures.pop(source, None)
-    refusals, said = ask_refusals(watcher, data, lanes, messages, kept, moment)
+    refusals, asks, unkept, said = keep_asks(watcher, data, lanes, messages, kept, moment)
     lines += said
     if messages:
         with state.edit(watcher.name) as data:
@@ -571,16 +581,18 @@ def lane_lines(watcher: Watcher, moment: datetime) -> list[str]:
                 if message["type"] == "question" and (question := reads.request(message["body"] or "") or refusals.get(message["id"])):
                     data["jobs"][job_id].setdefault("reads", {})[message["id"]] = question
                     continue
-                lines.append(mail_line(data, job_id, message, moment))
+                lines.append(mail_line(watcher.name, data, job_id, message, moment, asks.get(message["id"]), unkept.get(message["id"])))
                 track_lane_prs(data, job_id, message["body"] or "")
     return [line for line in lines + read_lines(watcher, data, moment) if line]
 
 
-def ask_refusals(
+def keep_asks(
     watcher: Watcher, data: dict, lanes: dict[str, dict[str | None, str]], messages: list[tuple[str, dict]], kept: Callable[[str], set[str]], moment: datetime
-) -> tuple[dict[str, str], list[str]]:
-    """The reply sending each new `ASK` a remote lane asked back to it, by its message id, when `drive job ask` would refuse it: its words and its card are checked here as it arrives, so an `ASK` out of shape never wakes the coordinator, who checks one in shape against his recorded answers alone. One cc-slack could not check goes on to the coordinator, whose `drive job ask <j>` checks it again."""
-    refusals, lines = {}, []
+) -> tuple[dict[str, str], dict[str, Path], dict[str, str], list[str]]:
+    """Keep each new `ASK` a remote lane asked in the drive as `drive job ask` keeps a job's own, by its message id: the reply sending it back to the lane when its words or its card are out of shape, checked here as it arrives, so it never wakes the coordinator; else the file `drive job ask` kept it in, checked against his recorded answers and open cards, or why it refused to, which the coordinator acts on. One cc-slack could not check goes on to the coordinator unkept, whose `drive job ask <j>` keeps it."""
+    from drive import cli
+
+    refusals, asks, unkept, lines = {}, {}, {}, []
     for run, message in messages:
         job_id = sender(lanes, run, message)
         if not job_id or message["sequence"] <= data["jobs"][job_id]["mail_seen"] or message["type"] != "question" or not reads.asks(message["body"] or "") or message["id"] in kept(job_id):
@@ -593,8 +605,13 @@ def ask_refusals(
         except slack.SlackError as error:
             lines += failed(watcher, "ASK check", "remote ASK check", error, moment)
             continue
+        else:
+            try:
+                asks[message["id"]] = cli.keep_ask(watcher.name, job_id, message["body"], None)[0]
+            except (state.DriveError, slack.SlackError) as error:
+                unkept[message["id"]] = str(error)
         watcher.failures.pop("ASK check", None)
-    return refusals, lines
+    return refusals, asks, unkept, lines
 
 
 def queue_kept_reads(watcher: Watcher) -> None:

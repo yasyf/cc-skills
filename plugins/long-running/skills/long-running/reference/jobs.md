@@ -149,11 +149,15 @@ question.
   log, and a passing Go test's own log lines never come ahead of a failing one's. A read that fails, such as a command off that list or a tool that exits
   non-zero, replies with why and arrives as a `JOB <j> <o> READ unanswered` line.
 - A question opening with `ASK `, after the lane's job id when it writes one, is the lane's `ASK`
-  block. The watch checks it the moment it reads it, its words and the card cc-slack draws from it,
-  as `drive job ask` does. One out of shape it answers itself, with no event, by a reply opening
-  `ASK refused, fix each line and ask again:` and every fix, and the lane asks again; one in shape
-  is a `JOB` line. One cc-slack cannot check also goes on as a `JOB` line, which
-  `drive job ask <j>` checks again.
+  block. The watch keeps it the moment it reads it, as `drive job ask` keeps a job's own: its words
+  and the card cc-slack draws from it checked, then his recorded answers and open cards, and the
+  block kept in its own file under `asks/`. One out of shape it answers itself, with no event, by a
+  reply opening `ASK refused, fix each line and ask again:` and every fix, and the lane asks again;
+  one kept is a `JOB <j> <o> ASK <path>` line, as a job's own return is. One `drive job ask` refused
+  to keep goes on as a `JOB` line naming why, and one cc-slack cannot check as a `JOB` line that
+  `drive job ask <j>` keeps.
+- A report's `REPRO:` line names its reproduction file with the file's whole text in a fence under
+  it, and the watch keeps that text in the drive's `repro/` folder as `drive job set --repro` does.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One

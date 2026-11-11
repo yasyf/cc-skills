@@ -138,6 +138,10 @@ def report_path(name: str, job_id: str) -> Path:
     return drive_dir(name) / "reports" / f"{job_id}.md"
 
 
+def repro_path(name: str, job_id: str, suffix: str) -> Path:
+    return drive_dir(name) / "repro" / f"{job_id}{suffix}"
+
+
 def report_text(name: str, job_id: str, job: dict) -> str:
     """A job's whole return as kept in the drive, or a remote lane's latest report, or nothing."""
     path = report_path(name, job_id)
