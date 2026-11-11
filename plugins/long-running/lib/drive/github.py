@@ -97,9 +97,15 @@ def failed_before(stored: dict, head: str) -> list[str]:
     return stored["failed_checks"] if stored["head"] == head else []
 
 
+def counted(rollup: list[dict]) -> list[dict]:
+    """The check runs and statuses that speak for one head: all but a cancelled run whose check, by name, passed or is still running in another run on that head, as when a newer run of a workflow cancels its duplicate."""
+    again = {check_name(check) for check in rollup if outcome(check) not in FAILED}
+    return [check for check in rollup if outcome(check) != "CANCELLED" or check_name(check) not in again]
+
+
 def checks(rollup: list[dict], failed: list[str]) -> str:
-    """pass, fail, pending or none for one head's check runs and statuses, given the checks that failed on that head before: one queued or running reads pending, and so does one that failed before and is missing now, as a rerun drops it until its new run starts."""
-    outcomes = {outcome(check) for check in rollup}
+    """pass, fail, pending or none for the checks that speak for one head, given the checks that failed on that head before: one queued or running reads pending, and so does one that failed before and is missing now, as a rerun drops it until its new run starts."""
+    outcomes = {outcome(check) for check in counted(rollup)}
     if outcomes & FAILED:
         return "fail"
     if set(failed) - {check_name(check) for check in rollup}:
@@ -111,7 +117,7 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
 
 def live(read: dict, stored: dict) -> dict:
     """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, whether it carries the hold label, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
-    failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in read["checks"] if outcome(check) in FAILED)})
+    failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
         "checks": checks(read["checks"], failed),

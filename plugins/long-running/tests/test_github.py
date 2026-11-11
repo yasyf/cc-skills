@@ -158,6 +158,27 @@ def test_checks_reads_a_queued_running_or_missing_rerun_as_pending(rollup: list[
     assert github.checks(rollup, failed) == verdict
 
 
+@pytest.mark.parametrize(
+    ("again", "verdict"),
+    [("SUCCESS", "pass"), ("SKIPPED", "pass"), (None, "pending"), ("CANCELLED", "fail"), ("FAILURE", "fail")],
+)
+def test_a_cancelled_run_fails_a_head_only_when_no_other_run_of_its_check_passed_or_runs(again: str | None, verdict: str) -> None:
+    rollup = [*GREEN, {"name": "build", "conclusion": "CANCELLED"}, {"name": "build", "conclusion": again}]
+    assert github.checks(rollup, []) == verdict
+
+
+def test_a_duplicate_workflow_run_its_twin_cancelled_reads_pass_and_leaves_no_failed_check() -> None:
+    rollup = [
+        *GREEN,
+        {"name": "build", "conclusion": "CANCELLED"},
+        {"name": "deploy", "conclusion": "CANCELLED"},
+        {"name": "build", "conclusion": "SUCCESS"},
+        {"name": "deploy", "conclusion": "SKIPPED"},
+    ]
+    fresh = github.live(pr_read(rollup), stored())
+    assert (fresh["checks"], fresh["failed_checks"]) == ("pass", [])
+
+
 def test_a_check_that_failed_then_dropped_out_for_its_rerun_reads_pending_until_its_new_run_passes() -> None:
     row = stored()
     said = []
