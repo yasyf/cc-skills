@@ -6,6 +6,7 @@ from drive import reads, state
 from drive.brief import BRIEF_JOB, carried
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
+HANDLER = "long-running:handler"
 
 
 def transcript(payload: dict) -> Path:
@@ -40,7 +41,9 @@ def free(data: dict, job_id: str) -> bool:
 
 
 def hold(payload: dict) -> None:
-    """Record on the job its brief's Drive line names the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake."""
+    """Record on the job its brief's Drive line names the agent whose step fired this hook, and run the job: a session runs the newest copy of each hook it registered at start but no hook registered since, so the drive hears of an agent from the hooks its own steps fire, its first step and its first after each wake. A handler is never held: it works one item for the communicator, and a job its brief names, by a `Job:` line, a brief file or the record it reads in, is that job's own agent's."""
+    if payload.get("agent_type") == HANDLER:
+        return
     match = BRIEF_JOB.search(brief(payload))
     names = state.session_drives(payload["session_id"]) if match else []
     if not names or not free(state.load(names[0]), match[1]):

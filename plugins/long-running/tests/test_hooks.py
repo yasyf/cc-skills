@@ -15,7 +15,7 @@ import quiet_turn
 import scratch_folder
 import session_start
 from conftest import RESEARCH, WatchProcess
-from drive import state
+from drive import agents, state
 
 Run = Callable[..., tuple[int, str]]
 PR = "https://github.com/Forge-AI/monorepo/pull/42"
@@ -342,6 +342,26 @@ def test_an_agent_started_on_a_brief_drive_wrote_is_recorded_on_that_briefs_job(
     hook_output(landing_guard, monkeypatch, capsys, json.dumps(bash("git status") | stepped(tmp_path, out.splitlines()[0])))
     job = state.load("demo")["jobs"]["j1"]
     assert (job["agent"], job["state"], job["brief"]) == ("a-9", "running", str(state.drive_dir("demo") / "jobs" / "j1.brief.md"))
+
+
+def test_a_handler_whose_brief_or_record_names_a_job_never_holds_that_job_and_files_no_return_on_it(
+    demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--remote")
+    run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "Forge-AI/monorepo dev")
+    written = state.load("demo")["jobs"]["j1"]["brief"]
+    launch = f"drive job launch j1 {written}"
+    monkeypatch.setattr(agents, "record", lambda seq: f"{seq} report root>communicator [job=j1 order=o1] POST j1 kept\n{Path(written).read_text()}")
+    for prompt in (f"Job: j1, a remote builder, brief at {written} Drive: demo Deliverable: `{launch}`", "Record: 7"):
+        handler = stepped(tmp_path, prompt, agent_type=agents.HANDLER)
+        assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash(launch) | handler)) == ""
+        assert hook_output(one_line_result, monkeypatch, capsys, json.dumps(agent_stop("RECORDED none; j1 started on a Sprite", **handler))) == ""
+        job = state.load("demo")["jobs"]["j1"]
+        assert (job["agent"], job["where"], job["said"]) == (None, "remote", None)
+    builder = stepped(tmp_path, f"Read your brief first: {written}", agent_type="long-running:builder")
+    assert hook_output(no_file_tools, monkeypatch, capsys, json.dumps(bash("git status") | builder)) == ""
+    assert state.load("demo")["jobs"]["j1"]["agent"] == "a-9"
 
 
 def turn_stop(message: str, **fields: object) -> dict:

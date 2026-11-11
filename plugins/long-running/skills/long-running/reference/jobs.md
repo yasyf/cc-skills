@@ -51,7 +51,10 @@ research is kept. Each refusal names its fix: do it, never route around it.
 
 The brief's `Drive:` line names the job. The agent's first Bash, Read, Write or Edit call, or its
 stop, records the agent on that job, and its first call after a `SendMessage` marks the job running
-again. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
+again. A `long-running:handler` is never recorded this way, even when its brief, the brief file it names or
+the record it is briefed with names a job, so a handler started to run `drive job launch <j>` leaves
+`<j>` to the lane it launches and its return sets nothing on `<j>`. A handler holds a job only when
+the communicator names it with `agent` as it adds a read-only question's reader job. The line the agent returns, or the first line it pipes to `drive job report <j> -`, sets the
 job's state and its said line:
 
 | First line | The job's state |
