@@ -69,6 +69,9 @@ def order_add(args: argparse.Namespace) -> int:
             f' --parts {INCIDENT_FIX} "first check", or pass --joins <o> when an open incident order covers the same failing service'
         )
     with state.edit(name) as data:
+        if args.words.startswith(state.TOOLING):
+            refuse_tooling_thread(args.thread)
+            refuse_coordinator_tooling(name, data)
         joined = find(data["orders"], args.joins, "order") if args.joins else None
         if joined and not (joined["incident"] and joined["state"] not in state.CLOSED_ORDER_STATES):
             raise DriveError(f"--joins {args.joins}: name an open incident order; {args.joins} is {joined['state']}{'' if joined['incident'] else ', not an incident'}")
@@ -113,6 +116,33 @@ def order_add(args: argparse.Namespace) -> int:
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
     return emit(args, "\n".join([order_id, *started, *incidents]), {"id": order_id, **order, "incidents": incidents})
+
+
+def tooling(order: dict) -> bool:
+    return order["text"].startswith(state.TOOLING)
+
+
+def refuse_tooling_thread(thread: str | None) -> None:
+    if thread:
+        raise DriveError(
+            f"a {state.TOOLING} order has no thread: its lines go at his DM root, never in the thread of a feature it unblocks; pass no --thread"
+        )
+
+
+def refuse_coordinator_tooling(name: str, data: dict) -> None:
+    if state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "coordinator":
+        raise DriveError(
+            f"drive tooling is the communicator's, never the coordinator's: post a defect record to communicator@{name}"
+            " quoting this refusal and the tool it is about, and the communicator starts its builder"
+        )
+
+
+def refuse_mixed_tooling(data: dict, flag: str, own: str, other: str) -> None:
+    if tooling(find(data["orders"], own, "order")) != tooling(find(data["orders"], other, "order")):
+        raise DriveError(
+            f"{flag} {other}: one of {own} and {other} is a {state.TOOLING} order and the other is not; a fix to a tool the"
+            " drive runs on stays under its own tooling order, and work for his order never serves or carries a tooling one"
+        )
 
 
 def need_thread(data: dict, order_id: str, order: dict) -> None:
@@ -172,6 +202,8 @@ def order_set(args: argparse.Namespace) -> int:
     data = state.load(name)
     closing = args.state in state.CLOSED_ORDER_STATES and not withdrawn
     order = find(data["orders"], args.id, "order")
+    if tooling(order):
+        refuse_tooling_thread(args.thread)
     if args.state in state.CLOSED_ORDER_STATES:
         need_record_close(data, args.id, args.record)
     destination = order | {"thread": args.thread or order["thread"]}
@@ -304,6 +336,8 @@ def job_add(args: argparse.Namespace) -> int:
     created = state.stamp()
     with state.edit(name) as data:
         order = find(data["orders"], args.order, "order")
+        if tooling(order):
+            refuse_coordinator_tooling(name, data)
         parts = pick_parts(args.order, order, args.part)
         beside = [
             f'{other_id} {other["kind"]} {other["state"]} on {", ".join(json.dumps(part, ensure_ascii=False) for part in shared)}: {other["goal"][:60]}'
@@ -348,6 +382,7 @@ def job_set(args: argparse.Namespace) -> int:
             for order_id in args.carries:
                 if order_id == job["order"]:
                     raise DriveError(f"{args.id} is {order_id}'s own job; add its parts with --part")
+                refuse_mixed_tooling(data, "--carries", job["order"], order_id)
                 state.carry(data, args.id, order_id, pick_parts(order_id, find(data["orders"], order_id, "order"), args.part))
         elif args.part:
             added = pick_parts(job["order"], data["orders"][job["order"]], args.part)
@@ -698,6 +733,9 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.tap is False and not args.why:
         raise DriveError("--no-tap needs --why <reason>: his card for it, if one is open, is withdrawn showing that reason")
     check_waits(name, args.waits)
+    if args.serves:
+        loaded = state.load(name)
+        refuse_mixed_tooling(loaded, "--serves", find(loaded["prs"], key, "drive PR")["order"], args.serves)
     if args.tap or args.serves or args.design:
         refuse_an_undrawable_tap(key, args)
     served = ""
@@ -1236,7 +1274,8 @@ def parser() -> argparse.ArgumentParser:
             " session, command output or a stack trace in a fence), captions of at most 25 words,"
             " two to four `- ` options of at most 25 words with exactly one ending"
             " (recommended), the question, summary and options at most 150 words in all, in plain words, each thing he"
-            " could open linked where it is named, then `Findings:` with the evidence. Keep it in the drive in a file of"
+            " could open linked where it is named, then `Findings:` with the evidence, its `Direct fix:` line naming the"
+            " option that is the fix the job's diagnosis points at, or `none: <why>`. Keep it in the drive in a file of"
             " its own and print its path, which the ask record carries, and add it to the job's open questions, each"
             " open until his answer to its own card. Refuse it with every way it is out of shape, and while a recorded"
             " answer of his may already settle it."

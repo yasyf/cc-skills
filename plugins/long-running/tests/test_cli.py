@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import Answers, Drawing, Thread, Withdrawals
+from conftest import SESSION, Answers, Drawing, Thread, Withdrawals
 from drive import card, cli, github, orca, picture, render, slack, state, view
 
 Run = Callable[..., tuple[int, str]]
@@ -51,6 +51,7 @@ GET 2 page ranges
 - Map at the start of each file: changes the shared file format and still needs a length read first
 
 Findings:
+Direct fix: none: a design choice, with no defect behind it
 (1) What a journal file is: a run's journal is a SQLite database, copied to the team's bucket as LTX files.
 (2) Each LTX file ends with a page map; its length sits in the last 24 bytes.
 """
@@ -587,6 +588,7 @@ A teammate's fix landed at 2:12 PM today: every locked chat shows an Update sand
 - Add our status line beside their always-on button: the card says checking, downloading or downloaded; ours is rebuilt and reviewed again.
 - Replace theirs with ours: the button appears once downloaded, terminal steps when a download fails; it undoes a teammate's landed fix.
 Findings:
+Direct fix: Keep theirs, close ours
 - Theirs merged 2:12 PM Nov 10; ours now conflicts with dev.
 """
 TEAMMATE_FIX_SHOWN = TEAMMATE_FIX.replace(
@@ -1108,16 +1110,53 @@ def test_pr_set_serves_on_a_pr_added_with_tap_refuses_a_body_his_card_would_refu
     assert run("pr", "set", PR, "--serves", "o1")[0] == 0
 
 
-def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his(run: Run, with_pr: str, on_github: dict) -> None:
+def test_pr_set_tap_serving_a_drive_tooling_order_needs_no_words_of_his(
+    run: Run, with_pr: str, on_github: dict, monkeypatch: pytest.MonkeyPatch
+) -> None:
     run("pr", "set", PR, "--no-tap", "--why", "not his order")
     on_github["body"] = CARD_BODY.split("## His words")[0] + "## His words, step by step\nNone: drive tooling.\n"
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 2
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
     assert run("order", "add", "Drive tooling: a tooling PR lands on his Approve") == (0, "o2")
+    run("job", "add", "builder", "--order", "o2", "--goal", "land the tooling PR")
+    run("pr", "add", PR, "--job", "j2")
     code, out = run("pr", "set", PR, "--tap", "--serves", "o2", "--design", "none")
     assert code == 0
     assert out.splitlines()[-1] == "serves o2, his words: Drive tooling: a tooling PR lands on his Approve"
     pr = state.load("demo")["prs"][with_pr]
     assert (pr["wants_tap"], pr["serves"]) == (True, "o2")
+
+
+def test_a_drive_tooling_order_is_the_communicators_and_has_no_thread(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["order", "add", "Drive tooling: the watch pages the communicator"]) == 2
+    assert "post a defect record to communicator@demo" in capsys.readouterr().err
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert cli.main(["order", "add", "Drive tooling: the watch pages the communicator", "--thread", "1794200000.000100"]) == 2
+    assert "its lines go at his DM root" in capsys.readouterr().err
+    assert run("order", "add", "Drive tooling: the watch pages the communicator") == (0, "o1")
+    assert run("order", "set", "o1", "--thread", "1794200000.000100")[0] == 2
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "page the communicator") == (0, "j1")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", SESSION)
+    assert run("job", "add", "builder", "--order", "o1", "--goal", "page the communicator")[0] == 2
+    assert list(state.load("demo")["jobs"]) == ["j1"]
+
+
+def test_serves_and_carries_never_mix_a_tooling_order_with_his(
+    run: Run, with_pr: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    run("order", "add", "Drive tooling: the watch pages the communicator")
+    assert cli.main(["pr", "set", PR, "--serves", "o2"]) == 2
+    assert capsys.readouterr().err.startswith("drive: --serves o2: one of o1 and o2 is a Drive tooling: order and the other is not")
+    assert cli.main(["job", "set", "j1", "--carries", "o2"]) == 2
+    assert capsys.readouterr().err.startswith("drive: --carries o2: one of o1 and o2 is a Drive tooling: order")
+    data = state.load("demo")
+    assert (data["prs"][with_pr].get("serves"), data["jobs"]["j1"]["carries"]) == (None, {})
 
 
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:

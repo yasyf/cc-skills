@@ -176,6 +176,7 @@ Both builds use the same folder, and the old one never sees the new app's server
 - New app refuses chats created without setup and lists unloaded chats as loading; smaller, but the old build still writes strays into the shared folder.
 - Kent first runs a read-only command listing his broken chat files, then we fix what it shows; proves the cause, costs time.
 Findings:
+Direct fix: New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them.
 Kent sees Untitled, unstarted chats marked state_missing that must be forked.
 """
 HIS_PICK = "https://poetic-technology.slack.com/archives/D0C4HQWPLCC/p1794239768768559?thread_ts=1794220171.175389&cid=D0C4HQWPLCC"
@@ -201,7 +202,7 @@ WATCHDOG_OPTIONS = [
 ]
 WATCHDOG_ASK = (
     f"ASK {WATCHDOG_QUESTION}\n{WATCHDOG_SUMMARY}\nShow me:\n{WATCHDOG_SHOW_ME}\n- {WATCHDOG_OPTIONS[0]} (recommended)\n"
-    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nOnly the watcher that saves its place is built today.\n"
+    f"- {WATCHDOG_OPTIONS[1]}\nFindings:\nDirect fix: none: a question about his own pick\nOnly the watcher that saves its place is built today.\n"
 )
 FROZEN_COPIES_ASK = """ASK Before the 30 frozen copies from the Oct 13 fleet move are deleted, what must prove each moved copy is whole?
 Removing a frozen copy deletes its database files and its folder in the team's bucket, at once and for good. These moved on Oct 13 under older code, and one team's moved databases later lost bucket history, so "ready on Oct 13" proves nothing today. Nothing is deleted meanwhile.
@@ -235,6 +236,7 @@ source.remove(db, id)
 - Same proof, and first copy each frozen bucket folder to a backup you delete later by word; adds a copy step and a cleanup.
 - Keep all 30; a read-only pipeline run prints each one's name, size and positions, and you pick from that table.
 Findings:
+Direct fix: none: a proof before a delete, with no defect behind it
 - Removal unlinks the local files, then deletes the bucket folder in the same request, with no waiting period.
 - A bucket that denies deletes keeps its folder; the team's blobs are not removed with the database.
 - Whether the Oct 13 build had the snapshot upload step is unread, which is why the 30 are re-proved.
@@ -633,6 +635,16 @@ def test_a_block_drive_job_ask_keeps_posts_as_written_and_a_word_over_is_refused
         limits.question(KENTS_ASK.replace("costs time.", "costs time and money."))
     longer = [*card["options"][:2], card["options"][2].replace("costs time.", "costs time and money.")]
     assert posted(transcript, card=card | {"options": longer}).startswith("refused: this card is 151 words")
+
+
+def test_a_block_names_the_fix_its_diagnosis_points_at_among_its_options_or_says_none_does() -> None:
+    shown = "New app moves its chats once into a folder of its own and lists unloaded chats as loading; the old build cannot reach them."
+    with pytest.raises(DriveError, match="no `Direct fix:` line under `Findings:`"):
+        limits.question(KENTS_ASK.replace(f"Direct fix: {shown}\n", ""))
+    with pytest.raises(DriveError, match="`Direct fix: Wait for the copy` names no option"):
+        limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"))
+    assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: none: nothing was diagnosed")).recommended
+    assert limits.question(KENTS_ASK.replace(f"Direct fix: {shown}", "Direct fix: Wait for the copy"), kept=True).recommended
 
 
 def test_the_keeper_and_the_hook_count_a_kept_block_alike_and_a_drive_card_carries_no_text_beside_it(talker: str, transcript: Path) -> None:

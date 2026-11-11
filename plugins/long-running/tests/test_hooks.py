@@ -4,6 +4,7 @@ import os
 from collections.abc import Callable
 from pathlib import Path
 
+import agent_brief
 import bind_agent
 import landing_guard
 import no_file_tools
@@ -265,6 +266,34 @@ def test_a_communicator_turn_ends_on_one_word_and_other_sessions_are_left_alone(
 
 def agent_call(subagent_type: str, prompt: str) -> str:
     return json.dumps({"tool_name": "Agent", "tool_input": {"subagent_type": subagent_type, "prompt": prompt, "description": "d"}})
+
+
+def started_by_role(session: str, **call: object) -> dict:
+    return {"session_id": session, "tool_name": "Agent", "tool_input": {"description": "d", "prompt": "Record: 1 Drive: demo", **call}}
+
+
+def test_a_drive_role_starts_no_named_agent_no_fable_but_its_designer_and_no_builder_without_scope(
+    demo: str, run: Run, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    coordinator = os.environ["CLAUDE_CODE_SESSION_ID"]
+    named = started_by_role(coordinator, subagent_type="long-running:handler", name="desk")
+    output = json.loads(hook_output(agent_brief, monkeypatch, capsys, json.dumps(named)))
+    assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert output["hookSpecificOutput"]["permissionDecisionReason"].startswith("refused: the coordinator starts no named agent")
+    fable = started_by_role(coordinator, subagent_type="long-running:builder", model="fable", prompt="Serves: his order")
+    assert agent_brief.deny_reason(fable).startswith("refused: Fable runs only the drive's two sessions")
+    assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:designer", model="fable")) is None
+    unscoped = started_by_role(coordinator, subagent_type="long-running:builder", prompt="Order (his words): fix it\nGoal: fix it")
+    assert agent_brief.deny_reason(unscoped).startswith("refused: a builder's brief carries a `Serves:` line")
+    for brief in ("Order: Drive tooling: x\nServes: drive tooling", "Handoff: 661200 Drive: demo Scratch: /s"):
+        assert agent_brief.deny_reason(started_by_role(coordinator, subagent_type="long-running:builder", prompt=brief)) is None
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "talker")
+    run("start", "demo", "--role", "communicator")
+    assert agent_brief.deny_reason(started_by_role("talker", subagent_type="long-running:handler", name="desk")).startswith(
+        "refused: the communicator starts no named agent"
+    )
+    assert agent_brief.deny_reason({**named, "agent_id": "a-1"}) is None
+    assert hook_output(agent_brief, monkeypatch, capsys, json.dumps(started_by_role("someone-else", name="desk"))) == ""
 
 
 def test_scratch_folder_exists_before_a_drive_agent_starts(
