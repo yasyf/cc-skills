@@ -19,7 +19,7 @@ and `--json`, which prints JSON. `[ ]` marks what may be left out, and `...` wha
 | `drive job card <file>` | the card a kept ASK block draws, as JSON, and gives the question kept in that file its waits id; `--waits <drive>:<j>-<seq>`, required |
 | `drive job report <j> [-]` | `-` keeps the return piped on stdin, its first line setting a running job's state and said line; with nothing, prints the kept one |
 | `drive job launch <j> <brief>` | starts a remote job's lane on a Sprite; `-` reads the brief from stdin |
-| `drive job resume <j> "<text>"` | answers a remote lane or sends its next event; `-` reads the text from stdin |
+| `drive job resume <j> "<text>"` | answers a remote lane or sends its next event; `-` reads the text from stdin; run it with the Bash timeout at 20 seconds (`timeout: 20000`), never `run_in_background`, since a send returns in about 5 seconds and a relaunch moves itself to the background at 20 |
 | `drive job replies <j>` | each result and question a remote lane sent, oldest first |
 | `drive job end <j>` | ends a done remote lane and frees its Sprite |
 | `drive pr add <url>` | `--job <j>`, required; `--tap`, waits on his tap |

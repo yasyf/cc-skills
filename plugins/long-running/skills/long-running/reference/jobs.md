@@ -73,7 +73,9 @@ fresh Sprite on the same Run. Either new worker gets a handoff carrying the job'
 its branch, its last line, its report, its PRs and the message, and the output says which ran.
 Work the dead lane had not pushed is not carried over. When Orca cannot reach the lane's Sprite,
 or refuses the send or the start, nothing is delivered and it exits 2 with Orca's refusal; resume
-it again once the watch reads the lane. Run it in the background, since a relaunch takes minutes. An `EXEMPT:` line still gets
+it again once the watch reads the lane. Run it with the Bash timeout at 20 seconds (`timeout: 20000`), never
+`run_in_background`: a message to a live lane returns its line in about 5 seconds, and a relaunch, which takes
+minutes, moves itself to the background at 20 seconds and notifies you when it ends. An `EXEMPT:` line still gets
 `drive pr set <url> --exempt <class>`, and a `SERVES: port of #N` line the `READY` row's check
 against #N.
 
