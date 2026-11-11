@@ -58,6 +58,11 @@ ul { margin: 4px 0 6px; padding-left: 20px; }
 .topbar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; justify-content: space-between; gap: 20px; height: 69px; padding: 0 52px; background: color-mix(in srgb, var(--bg) 92%, transparent); border-bottom: 1px solid var(--line); backdrop-filter: blur(8px); }
 .crumb { flex: none; display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; white-space: nowrap; }
 .crumb strong { color: var(--ink); font-weight: 500; }
+.stale { flex: none; padding: 5px 11px; border-radius: 20px; background: #f8ece2; color: #9a5a2c; font-size: 11px; font-weight: 600; }
+.boot { padding: 80px 0; color: var(--muted); font-size: 15px; text-align: center; }
+.boot::before { content: ""; display: block; width: 22px; height: 22px; margin: 0 auto 16px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+.boot.refused::before { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .alerts { display: flex; justify-content: safe flex-end; gap: 8px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .al { flex: none; max-width: 300px; overflow: hidden; text-overflow: ellipsis; padding: 6px 12px; border-radius: 20px; background: var(--soft); color: var(--accent); font-size: 11px; font-weight: 550; white-space: nowrap; }
 .al.bad { background: #f8e7e3; color: #8f3428; }

@@ -75,7 +75,6 @@ const ICONS = {
 let model = null;
 let connected = false;
 let lostAt = null;
-let historyFilter = 'all';
 let paused = null;
 let mapZoom = MAP_ZOOMS.indexOf(1);
 let shownHash = null;
@@ -139,9 +138,19 @@ function ago(iso) {
 }
 
 function route() {
-  const [screen, ...rest] = location.hash.replace(/^#\/?/, '').split('/');
+  const [where, query = ''] = location.hash.replace(/^#\/?/, '').split('?');
+  const [screen, ...rest] = where.split('/');
   const path = rest.filter(Boolean).map(decodeURIComponent);
-  return { screen: screen || 'queue', id: path[0], path };
+  return { screen: screen || 'queue', id: path[0], path, query: new URLSearchParams(query) };
+}
+
+function shownFilter() {
+  const asked = route().query.get('show');
+  return HISTORY_FILTERS.some(([id]) => id === asked) ? asked : 'all';
+}
+
+function historyHref(day, filter = shownFilter()) {
+  return `#/history${day ? `/${day}` : ''}${filter === 'all' ? '' : `?show=${filter}`}`;
 }
 
 function up() {
@@ -150,7 +159,8 @@ function up() {
     const entry = featureOf(path[0]);
     return entry ? zoomHref('now', fileKey(entry.project), fileKey(entry.workstream)) : '#/now';
   }
-  if (!path.length || !['now', 'work', 'history'].includes(screen)) return null;
+  if (screen === 'history') return path.length ? historyHref() : null;
+  if (!path.length || !['now', 'work'].includes(screen)) return null;
   return zoomHref(screen, ...path.slice(0, screen === 'work' && path.length > 1 ? 1 : path.length - 1));
 }
 
@@ -242,13 +252,22 @@ async function drawFigures(root) {
   const hosts = [...root.querySelectorAll('.visual-host:not(.drawn)')];
   if (!hosts.length) return;
   for (const host of hosts) host.classList.add('drawn');
-  const { draw } = await import('/visuals.js');
+  const loaded = import('/visuals.js');
   for (const host of hosts) {
     try {
-      await draw(host, host.dataset.visual, host.dataset.source);
-    } catch {
-      host.outerHTML = `<pre><code>${esc(host.dataset.source)}</code></pre>`;
+      await (await loaded).draw(host, host.dataset.visual, host.dataset.source);
+    } catch (failure) {
+      host.innerHTML = `<p class="refused">This ${esc(host.dataset.visual.split(':')[0])} did not draw (${esc(failure.message)}), so here is what it is drawn from.</p><pre><code>${esc(host.dataset.source)}</code></pre>`;
     }
+  }
+}
+
+async function ask(url, options) {
+  try {
+    const reply = await fetch(url, options);
+    return { ok: reply.ok, ...(await reply.json()) };
+  } catch (failure) {
+    return { ok: false, error: `Could not reach the dashboard server (${failure.message}).` };
   }
 }
 
@@ -624,6 +643,7 @@ function pill(word, tone) {
 }
 
 function go(href) {
+  keepPlace();
   if (location.hash === href) render();
   else location.hash = href;
 }
@@ -643,11 +663,10 @@ async function openPR(key) {
   if (!drawer.open) drawer.showModal();
   const [repo, number] = key.split('#');
   const review = startReview(key);
-  const reply = await fetch(`/api/pr/${repo}/${number}`);
-  const pr = await reply.json();
+  const pr = await ask(`/api/pr/${repo}/${number}`);
   if (reviewing !== key) return;
-  if (!reply.ok) {
-    drawer.querySelector('.empty').textContent = pr.error;
+  if (!pr.ok) {
+    drawer.querySelector('.empty').outerHTML = `<p class="refused">${esc(pr.error)}</p>`;
     return;
   }
   const showMe = pr.show_me.trim();
@@ -670,8 +689,7 @@ async function openPR(key) {
 
 async function startReview(key) {
   const [repo, number] = key.split('#');
-  const reply = await fetch(`/api/review/${repo}/${number}`, { method: 'POST' });
-  return { ok: reply.ok, ...(await reply.json()) };
+  return ask(`/api/review/${repo}/${number}`, { method: 'POST' });
 }
 
 function showReview(key, review) {
@@ -723,13 +741,8 @@ function place() {
 async function readPR(key, head) {
   prReads.set(key, { head });
   const [repo, number] = key.split('#');
-  try {
-    const reply = await fetch(`/api/pr/${repo}/${number}`);
-    const pr = await reply.json();
-    prReads.set(key, reply.ok ? { head, pr } : { head, error: pr.error });
-  } catch (failure) {
-    prReads.set(key, { head, error: `Could not reach the dashboard server (${failure.message}).` });
-  }
+  const { ok, error, ...pr } = await ask(`/api/pr/${repo}/${number}`);
+  prReads.set(key, ok ? { head, pr } : { head, error });
   render();
 }
 
@@ -760,13 +773,8 @@ function talkLines(thread, after) {
 async function readTalk(thread) {
   if (reading.has(thread)) return again.add(thread);
   reading.add(thread);
-  try {
-    const reply = await fetch(`/api/thread/${thread}`);
-    const read = await reply.json();
-    talked.set(thread, reply.ok ? { messages: read.messages } : { error: read.error });
-  } catch (failure) {
-    talked.set(thread, { error: `Could not reach the dashboard server (${failure.message}).` });
-  }
+  const read = await ask(`/api/thread/${thread}`);
+  talked.set(thread, read.ok ? { messages: read.messages } : { error: read.error });
   reading.delete(thread);
   for (const pane of document.querySelectorAll(`[data-talk="${CSS.escape(thread)}"]`)) pane.innerHTML = talkLines(thread, pane.dataset.after);
   place();
@@ -1124,7 +1132,7 @@ function timeline(list, withDays) {
   return list.flatMap((entry, i) => {
     const before = list[i - 1];
     const day = dayOf(entry.at);
-    const head = withDays && (!before || dayOf(before.at) !== day) ? `<li class="day-head"><a href="#/history/${day}">${dayName(day, { weekday: 'long', month: 'long', day: 'numeric' })} ↗</a></li>` : '';
+    const head = withDays && (!before || dayOf(before.at) !== day) ? `<li class="day-head"><a href="${historyHref(day)}">${dayName(day, { weekday: 'long', month: 'long', day: 'numeric' })} ↗</a></li>` : '';
     const quiet = before && !head ? Math.round((new Date(before.at) - new Date(entry.at)) / 60000) : 0;
     return [head, quiet >= GAP_MINUTES ? `<li class="gap">${quietFor(quiet)} with nothing new</li>` : '', historyRow(entry)];
   }).join('');
@@ -1135,7 +1143,7 @@ function dayChart(series, field, title, note, unit, zoomed) {
   const bars = series.map((each) => {
     const label = dayName(each.day);
     const tone = zoomed ? (zoomed === each ? ' on' : ' dim') : '';
-    return `<a class="bar${tone}" href="#/history/${each.day}" style="--h:${Math.max(2, (100 * each[field]) / top).toFixed(1)}%" data-tip="${esc(`${label}: ${counted(each[field], unit)}. Click to zoom into the day.`)}" aria-label="${esc(`${label}: ${counted(each[field], unit)}`)}"><span class="col"><i><b>${each[field]}</b></i></span><span class="day">${label}</span></a>`;
+    return `<a class="bar${tone}" href="${historyHref(each.day)}" style="--h:${Math.max(2, (100 * each[field]) / top).toFixed(1)}%" data-tip="${esc(`${label}: ${counted(each[field], unit)}. Click to zoom into the day.`)}" aria-label="${esc(`${label}: ${counted(each[field], unit)}`)}"><span class="col"><i><b>${each[field]}</b></i></span><span class="day">${label}</span></a>`;
   }).join('');
   return `<div class="day-chart ${field}"><div class="chart-head"><span>${title}</span><small>${note}</small></div><div class="bars">${bars}</div></div>`;
 }
@@ -1143,18 +1151,19 @@ function dayChart(series, field, title, note, unit, zoomed) {
 function historyScreen() {
   const series = days();
   const zoomed = series.find((each) => each.day === route().id);
-  const [, , keep] = HISTORY_FILTERS.find(([id]) => id === historyFilter);
+  const filter = shownFilter();
+  const [, , keep] = HISTORY_FILTERS.find(([id]) => id === filter);
   const scope = zoomed ? [zoomed] : series;
   const moments = zoomed ? zoomed.moments : model.history;
   const listed = moments.filter(keep).slice(0, zoomed ? undefined : RECENT_MOMENTS);
   const total = (field) => scope.reduce((sum, each) => sum + each[field], 0);
   const stats = [[total('merged'), 'PRs merged'], [total('swears'), 'swear words in your orders'], [total('asked'), 'orders from you'], [moments.length, 'moments']];
-  const filters = HISTORY_FILTERS.map(([id, label]) => `<button data-filter="${id}" class="${id === historyFilter ? 'on' : ''}">${label}</button>`).join('');
+  const filters = HISTORY_FILTERS.map(([id, label]) => `<a href="${historyHref(zoomed?.day, id)}" class="${id === filter ? 'on' : ''}"${id === filter ? ' aria-current="true"' : ''}>${label}</a>`).join('');
   const latest = series.at(-1);
-  const zoom = zoomed ? '<a class="map-btn" href="#/history">← All days</a>' : latest ? `<a class="map-btn" href="#/history/${latest.day}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ↗</a>` : '';
+  const zoom = zoomed ? `<a class="map-btn" href="${historyHref()}">← All days</a>` : latest ? `<a class="map-btn" href="${historyHref(latest.day)}">Zoom to ${dayName(latest.day, { month: 'long', day: 'numeric' })} ↗</a>` : '';
   return `<div class="page-head">
       <div><div class="eyebrow">History</div><h1 class="h1">${zoomed ? esc(dayName(zoomed.day, { weekday: 'long', month: 'long', day: 'numeric' })) : 'A little momentum. A little profanity.'}</h1><p class="lead">Click a day to zoom in. Click a moment to follow it back to the work.</p></div>
-      <div class="subtabs">${filters}</div>
+      <nav class="subtabs" aria-label="Show">${filters}</nav>
     </div>
     <div class="history-layout">
       <section class="history-stage">
@@ -1175,8 +1184,8 @@ function historySide(series, zoomed) {
     <div class="eyebrow">${zoomed ? 'A day in the drive' : 'The shape of the drive'}</div>
     <div class="big-date">${zoomed ? Number(zoomed.day.slice(-2)) : series.length}</div>
     <h3>${zoomed ? esc(dayName(zoomed.day, { weekday: 'long' })) : `${series.length === 1 ? 'day' : 'days'} of the drive`}</h3>
-    <p>Busiest day: <a href="#/history/${busiest.day}">${dayName(busiest.day)}</a>, ${counted(busiest.merged, 'PR')} merged.</p>
-    ${saltiest.swears ? `<p>Saltiest day: <a href="#/history/${saltiest.day}">${dayName(saltiest.day)}</a>, ${counted(saltiest.swears, 'swear word')} in your orders.</p>` : ''}
+    <p>Busiest day: <a href="${historyHref(busiest.day)}">${dayName(busiest.day)}</a>, ${counted(busiest.merged, 'PR')} merged.</p>
+    ${saltiest.swears ? `<p>Saltiest day: <a href="${historyHref(saltiest.day)}">${dayName(saltiest.day)}</a>, ${counted(saltiest.swears, 'swear word')} in your orders.</p>` : ''}
     <p class="rail-note">PRs count each change the drive merged, on the Pacific day it merged. Swears count words such as ${SWEAR_WORDS} in your orders' own words, on the day you sent each.</p>
   </aside>`;
 }
@@ -1254,22 +1263,42 @@ function render() {
     slotted.delete(key);
     reviews.delete(key);
   }
-  const y = window.scrollY;
-  const typing = document.activeElement?.matches?.('#main textarea[data-draft]') ? document.activeElement : null;
-  const caret = typing && [typing.dataset.draft, typing.selectionStart, typing.selectionEnd];
-  $('#main').classList.toggle('arrived', location.hash !== shownHash);
+  const html = (screens[screen] ?? queueScreen)();
+  const arrived = location.hash !== shownHash;
   shownHash = location.hash;
-  $('#main').innerHTML = (screens[screen] ?? queueScreen)();
-  const box = caret && document.querySelector(`#main textarea[data-draft="${CSS.escape(caret[0])}"]`);
-  if (box && !box.disabled) {
-    box.focus({ preventScroll: true });
-    box.setSelectionRange(caret[1], caret[2]);
-  }
+  $('#main').classList.toggle('arrived', arrived);
+  if (arrived) $('#main').innerHTML = html;
+  else morphChildren($('#main'), Object.assign(document.createElement('main'), { innerHTML: html }));
   if ($('#jump').open) drawJump();
-  window.scrollTo(0, y);
   measure();
   fill();
   fresh();
+}
+
+function morph(old, made) {
+  if (old.nodeType !== made.nodeType || old.nodeName !== made.nodeName) return old.replaceWith(made);
+  if (old.nodeType !== Node.ELEMENT_NODE) {
+    if (old.nodeValue !== made.nodeValue) old.nodeValue = made.nodeValue;
+    return;
+  }
+  if (old.matches('.visual-host.drawn') && old.dataset.visual === made.dataset.visual && old.dataset.source === made.dataset.source) return;
+  for (const { name } of [...old.attributes]) if (!made.hasAttribute(name) && !(name === 'open' && old.matches('details'))) old.removeAttribute(name);
+  for (const { name, value } of made.attributes) if (old.getAttribute(name) !== value) old.setAttribute(name, value);
+  if (old.matches('textarea')) {
+    if (old !== document.activeElement && old.value !== made.value) old.value = made.value;
+    return;
+  }
+  morphChildren(old, made);
+}
+
+function morphChildren(old, made) {
+  const kids = [...made.childNodes];
+  kids.forEach((kid, i) => (old.childNodes[i] ? morph(old.childNodes[i], kid) : old.append(kid)));
+  while (old.childNodes.length > kids.length) old.lastChild.remove();
+}
+
+function keepPlace() {
+  history.replaceState({ ...history.state, y: scrollY }, '');
 }
 
 function fresh() {
@@ -1277,6 +1306,8 @@ function fresh() {
   el.classList.toggle('late', !connected);
   el.textContent = connected ? 'Live' : model ? 'Stale' : 'Connecting';
   el.title = !model ? '' : connected ? `Live, updated ${clock(model.at)} Pacific` : `Not updated since ${clock(lostAt)}, showing ${clock(model.at)} Pacific`;
+  $('#stale').hidden = connected || !model;
+  $('#stale').textContent = model && !connected ? `Not live: this is the drive as of ${clock(model.at)}. Reconnecting…` : '';
 }
 
 async function answer(card, label) {
@@ -1308,8 +1339,8 @@ async function answer(card, label) {
 
 async function undo(card) {
   toast(card, { ...toasts.get(card), state: 'undoing' });
-  const reply = await fetch('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
-  if (!reply.ok) toast(card, { ...toasts.get(card), state: 'late', error: (await reply.json()).error });
+  const said = await ask('/api/undo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ card }) });
+  if (!said.ok) toast(card, { ...toasts.get(card), state: 'late', error: said.error });
 }
 
 const TOAST_SAID = {
@@ -1402,6 +1433,7 @@ function connect() {
   stream.onerror = () => {
     if (connected) lostAt = new Date().toISOString();
     connected = false;
+    if (!model) $('#main').innerHTML = '<p class="boot refused" role="status">The dashboard server is not answering. The page keeps trying and fills in as soon as it answers.</p>';
     fresh();
   };
 }
@@ -1478,10 +1510,6 @@ document.addEventListener('click', (event) => {
     render();
     return composing && $('#main .ask-box textarea')?.focus();
   }
-  const filter = event.target.closest('[data-filter]');
-  if (!filter) return;
-  historyFilter = filter.dataset.filter;
-  render();
 });
 document.addEventListener('mouseover', (event) => {
   const choice = event.target.closest('#main .choice[data-preview]');
@@ -1501,9 +1529,14 @@ document.addEventListener('focusout', (event) => {
   if (event.target.matches('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
-  window.scrollTo(0, 0);
   render();
+  window.scrollTo(0, history.state?.y ?? 0);
 });
+window.addEventListener('scroll', () => {
+  clearTimeout(keepPlace.timer);
+  keepPlace.timer = setTimeout(keepPlace, 120);
+}, { passive: true });
+document.addEventListener('click', keepPlace, true);
 document.addEventListener('keydown', (event) => {
   const box = event.target.closest?.('textarea[data-draft]');
   if (box && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
@@ -1552,6 +1585,7 @@ document.addEventListener('keydown', (event) => {
   }
 });
 window.addEventListener('DOMContentLoaded', () => {
+  history.scrollRestoration = 'manual';
   $('#jumpfind').addEventListener('input', () => {
     jumpAt = 0;
     drawJump();
