@@ -2,6 +2,7 @@ import contextlib
 import html
 import http.client
 import json
+import math
 import os
 import re
 import socket
@@ -13,6 +14,7 @@ import types
 import urllib.parse
 import urllib.request
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Self
@@ -536,7 +538,7 @@ QUESTION = {
 
 def board(**changed: object) -> dict:
     lanes = [
-        {"id": f"j{n}", "feature": "o1", "kind": "builder", "goal": f"lane {n}", "state": "running", "where": "local", "said": "", "updated": "2026-11-11T00:00:00-08:00", "prs": 0, "branch": None, "waits": 0, "files": []}
+        {"id": f"j{n}", "feature": "o1", "kind": "builder", "goal": f"lane {n}", "state": "running", "where": "local", "said": "", "updated": "2026-11-11T00:00:00-08:00", "prs": 0, "branch": None, "waits": 0, "files": [], "agent": f"a{n}"}
         for n in range(40)
     ]
     moments = [
@@ -548,6 +550,10 @@ def board(**changed: object) -> dict:
         "drive": "demo", "at": "2026-11-11T00:00:00-08:00", "counts": counts, "queue": [], "status": [{"state": "running", "features": [FEATURE]}], "cards": "live",
         "review": [], "work": lanes, "history": moments, "incidents": [], "repo": "", "undo_seconds": 10, "links": [], "channel": "D1",
     } | changed
+
+
+def fresh(minutes: int) -> str:
+    return state.stamp(datetime.now(UTC) - timedelta(minutes=minutes))
 
 
 def browse(tmp_path: Path, steps: str, model: dict, size: str = "1200,600", *flags: str, before: str = "") -> object:
@@ -596,13 +602,16 @@ const done = (result) => {{ document.documentElement.dataset.result = JSON.strin
 def test_a_live_update_keeps_the_page_he_is_on_in_place(tmp_path: Path) -> None:
     kept = browse(tmp_path, """
 location.hash = '#/work/Platform/SandSQL';
+await wait(200);
+const canvas = document.querySelector('#main .canvas');
+canvas.querySelector('[data-cam="in"]').click();
 await wait(100);
-const cards = document.querySelector('#main .lane-cards');
-cards.scrollTop = 300;
-await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', work: MODEL.work.map((lane) => ({ ...lane, said: 'moved on' })) });
-done({ same: document.querySelector('#main .lane-cards') === cards, scrolled: cards.scrollTop, said: document.querySelector('.lane-said').textContent });
-""", board())
-    assert kept == {"same": True, "scrolled": 300, "said": "moved on"}
+const aimed = JSON.stringify(camera);
+await push({ ...MODEL, at: '2026-11-11T00:05:00-08:00', work: MODEL.work.map((lane) => ({ ...lane, goal: 'moved on' })) });
+await wait(200);
+done({ same: document.querySelector('#main .canvas') === canvas, aimed: JSON.stringify(camera) === aimed, goal: canvas.querySelector('.topo-node.lane b').textContent });
+""", board(), "1200,600", "--force-prefers-reduced-motion")
+    assert kept == {"same": True, "aimed": True, "goal": "moved on"}
 
 
 def test_back_returns_to_where_he_was_and_the_history_filter_lives_in_the_link(tmp_path: Path) -> None:
@@ -1510,13 +1519,13 @@ def test_a_lane_file_reads_in_the_pages_own_prose_under_one_title_and_hands_focu
     brief = tmp_path / "j0-brief.md"
     brief.write_text("Order: keep <b>rows</b> in place\n\n## Plan\n\n- Patch the rows\n- Measure the scroll\n\n| Step | File |\n| --- | --- |\n| Patch | `list.js` |\n")
     goal = "<img src=x onerror=alert(1)> the lock"
-    job = {"goal": goal, "where": "remote", "agent": None, "session": None, "questions": [], "brief": str(brief), "report": None, "repro": None}
+    job = {"goal": goal, "state": "waiting", "said": None, "updated": "2026-11-11T00:00:00-08:00", "where": "remote", "agent": None, "session": None, "questions": [], "brief": str(brief), "report": None, "repro": None}
     monkeypatch.setattr(dashboard.state, "load", lambda name: {"jobs": {"j0": job}})
     lane = board()["work"][0] | {"goal": goal, "files": ["brief"]}
     seen = browse(tmp_path, """
 location.hash = '#/work/Platform/SandSQL/j0';
 await wait(150);
-const button = document.querySelector('#main .lane-inspector [data-file="j0/brief"]');
+const button = document.querySelector('#main .lane-sheet [data-file="j0/brief"]');
 button.focus();
 button.click();
 await wait(150);
@@ -1549,23 +1558,224 @@ done({ wide: document.documentElement.scrollWidth, room: innerWidth });
     assert seen["wide"] <= seen["room"]
 
 
-def test_choosing_a_lane_keeps_the_lane_grid_where_he_scrolled_it_and_esc_steps_back_one_level(tmp_path: Path) -> None:
+def test_work_flies_from_the_drive_to_a_lane_inside_one_canvas_and_esc_steps_back_one_level(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": {}})
+    iris = FEATURE | {"id": "o2", "title": "chats open on the Mac", "project": "Iris", "workstream": "Desktop app"}
+    seen = browse(tmp_path, """
+location.hash = '#/work';
+await wait(200);
+const canvas = document.querySelector('#main .canvas');
+const look = () => ({ hash: location.hash, level: canvas.dataset.level, same: document.querySelector('#main .canvas') === canvas, replayed: document.querySelector('#main').classList.contains('arrived'), scale: camera.k });
+const overview = look();
+canvas.querySelector('.face[href="#/work/Platform"]').click();
+await wait(300);
+const project = look();
+canvas.querySelector('.face[href="#/work/Platform/SandSQL"]').click();
+await wait(300);
+const stream = look();
+canvas.querySelector('.topo-node.lane[data-lane="j7"]').click();
+await wait(300);
+const lane = { ...look(), on: canvas.querySelector('.topo-node.lane.on').dataset.lane, sheet: canvas.querySelector('.lane-sheet h2').textContent };
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+await wait(300);
+done({ overview, project, stream, lane, closed: { ...look(), sheet: !!canvas.querySelector('.lane-sheet') } });
+""", board(status=[{"state": "running", "features": [FEATURE, iris]}]), "1200,600", "--force-prefers-reduced-motion")
+    assert {name: {key: value for key, value in view.items() if key != "scale"} for name, view in seen.items()} == {
+        "overview": {"hash": "#/work", "level": "all", "same": True, "replayed": False},
+        "project": {"hash": "#/work/Platform", "level": "project", "same": True, "replayed": False},
+        "stream": {"hash": "#/work/Platform/SandSQL", "level": "stream", "same": True, "replayed": False},
+        "lane": {"hash": "#/work/Platform/SandSQL/j7", "level": "stream", "same": True, "replayed": False, "on": "j7", "sheet": "lane 7"},
+        "closed": {"hash": "#/work/Platform/SandSQL", "level": "stream", "same": True, "replayed": False, "sheet": False},
+    }
+    assert seen["overview"]["scale"] < seen["project"]["scale"] < seen["stream"]["scale"]
+
+
+def test_work_pans_on_a_drag_and_zooms_on_a_ctrl_wheel_or_a_pinch_and_a_key_still_opens_a_node_after_a_pinch(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+location.hash = '#/work/Platform';
+await wait(200);
+const viewport = document.querySelector('#main .viewport');
+const { left, top } = viewport.getBoundingClientRect();
+const [x, y] = [left + 40, top + 40];
+const point = (type, id, px, kind = 'mouse') => viewport.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: id, pointerType: kind, isPrimary: id < 3, button: type === 'pointermove' ? -1 : 0, clientX: px[0], clientY: px[1] }));
+const start = { ...camera };
+point('pointerdown', 1, [x, y]);
+point('pointermove', 1, [x + 60, y + 30]);
+point('pointerup', 1, [x + 60, y + 30]);
+const dragged = { ...camera };
+viewport.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY: -50, clientX: x, clientY: y }));
+const wheeled = { ...camera };
+point('pointerdown', 2, [x, y], 'touch');
+point('pointerdown', 3, [x + 100, y], 'touch');
+point('pointermove', 3, [x + 150, y], 'touch');
+point('pointerup', 3, [x + 150, y], 'touch');
+point('pointerup', 2, [x, y], 'touch');
+const pinched = camera.k / wheeled.k;
+const pinchedAt = location.hash;
+document.querySelector('#main .face[href="#/work/Platform/SandSQL"]').click();
+await wait(100);
+done({ pinchedAt, keyed: location.hash, panned: [(start.x - dragged.x) * start.k, (start.y - dragged.y) * start.k, dragged.k / start.k], wheeled: wheeled.k / dragged.k, pinched });
+""", board(), "1200,600", "--force-prefers-reduced-motion")
+    assert (seen["pinchedAt"], seen["keyed"]) == ("#/work/Platform", "#/work/Platform/SandSQL")
+    assert seen["panned"] == pytest.approx([60, 30, 1])
+    assert seen["wheeled"] == pytest.approx(math.exp(0.5))
+    assert seen["pinched"] == pytest.approx(1.5)
+
+
+def test_a_workstream_node_says_what_its_lanes_do_in_plain_words_with_one_tone_per_state_and_one_node_per_name_however_spelled(tmp_path: Path) -> None:
+    orders = {
+        "o1": order("draw the canvas", ["j1", "j2", "j3"], project="Drive tooling", workstream="jobs", updated="2026-11-11T09:00:00-08:00"),
+        "o2": order("fold the names", ["j4"], project="Drive tooling", workstream="Jobs", updated="2026-11-11T08:00:00-08:00"),
+    }
+    jobs = {
+        "j1": job("o1", "running", "DONE ccx v0.95.56 installed (Homebrew) and its long return goes on past any node") | {"updated": fresh(1)},
+        "j2": job("o1", "running") | {"updated": fresh(120)},
+        "j3": job("o1", "built", "BUILT demo-branch") | {"updated": fresh(5)},
+        "j4": job("o2", "waiting", kind="reader") | {"updated": fresh(5)},
+    }
+    shown = view.board(drive_of(orders, jobs, []), found(), "live", [], state.parse_time("2026-11-11T10:00:00-08:00"), set())
+    seen = browse(tmp_path, """
+location.hash = '#/work/Drive%20tooling';
+await wait(200);
+const nodes = [...document.querySelectorAll('#main .stage.here > .topo-node')];
+const tones = (selector) => [...new Set(nodes.flatMap((node) => [...node.querySelectorAll(selector)].map((each) => each.className)))].sort();
+done({ names: nodes.map((node) => node.querySelector('.face b').textContent), doing: nodes.map((node) => [...node.querySelectorAll('.doing span')].map((part) => part.textContent)), words: tones('.doing span'), dashes: tones('.satellites i'), raw: nodes.some((node) => /DONE|BUILT/.test(node.textContent)) });
+""", shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""})
+    assert seen == {
+        "names": ["jobs ›"],
+        "doing": [["1 working", "1 quiet", "1 waiting", "1 built"]],
+        "words": ["t-bad", "t-doing", "t-waiting", "t-you"],
+        "dashes": ["t-bad", "t-doing", "t-waiting", "t-you"],
+        "raw": False,
+    }
+
+
+def test_a_workstreams_lanes_are_nodes_on_the_map_and_the_filter_keeps_those_that_match_and_grows_them(tmp_path: Path) -> None:
     seen = browse(tmp_path, """
 location.hash = '#/work/Platform/SandSQL';
-await wait(100);
-const cards = document.querySelector('#main .lane-cards');
-cards.scrollTop = 400;
-const lane = [...cards.querySelectorAll('.lane-card')].find((card) => card.offsetTop > 400);
-lane.click();
-await wait(100);
-const chosen = { hash: location.hash, same: document.querySelector('#main .lane-cards') === cards, top: cards.scrollTop, on: cards.querySelector('.lane-card.on') === lane };
-document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-await wait(100);
-done({ chosen, up: location.hash });
+await wait(200);
+const canvas = document.querySelector('#main .canvas');
+const room = canvas.querySelector('.viewport').getBoundingClientRect();
+const look = () => {
+  const lanes = [...canvas.querySelectorAll('.topo-node.lane')];
+  const boxes = lanes.map((lane) => lane.getBoundingClientRect());
+  return { lanes: lanes.map((lane) => lane.dataset.lane), inside: boxes.every((box) => box.left >= room.left - 1 && box.right <= room.right + 1 && box.top >= room.top - 1 && box.bottom <= room.bottom + 1), width: boxes[0].width };
+};
+const all = { ...look(), scrollers: canvas.querySelectorAll('.lane-cards, .lane-zoom').length };
+const box = canvas.querySelector('[data-lane-filter]');
+box.focus();
+box.value = 'j3';
+box.dispatchEvent(new Event('input', { bubbles: true }));
+await wait(200);
+done({ all, kept: { ...look(), hub: canvas.querySelector('.stage.lanes .hub small').textContent, typing: document.activeElement === canvas.querySelector('[data-lane-filter]') } });
+""", board(), "1200,600", "--force-prefers-reduced-motion")
+    assert (len(seen["all"]["lanes"]), seen["all"]["inside"], seen["all"]["scrollers"]) == (40, True, 0)
+    assert seen["kept"]["lanes"] == ["j3", *(f"j{n}" for n in range(30, 40))]
+    assert (seen["kept"]["inside"], seen["kept"]["hub"], seen["kept"]["typing"]) == (True, "11 of 40 lanes match", True)
+    assert seen["kept"]["width"] > seen["all"]["width"]
+
+
+def test_a_lanes_inspector_shows_its_newest_progress_line_and_every_file_the_drive_keeps_for_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
+    held = {
+        "j1": {"state": "built", "said": "PUSHED https://github.com/a/b/pull/7", "where": "remote", "report": None, "updated": "2026-11-11T00:00:00-08:00"},
+        "j2": {"state": "waiting", "said": None, "where": "remote", "report": None, "updated": "2026-11-11T00:00:00-08:00"},
+    }
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": held})
+    shown = board()
+    shown["work"][1] |= {"state": "built", "where": "remote", "files": ["brief", "report"]}
+    shown["work"][2] |= {"state": "waiting", "where": "remote"}
+    seen = browse(tmp_path, """
+const sheet = async (id) => {
+  location.hash = `#/work/Platform/SandSQL/${id}`;
+  await wait(300);
+  const at = document.querySelector('#main .lane-sheet');
+  return { said: at.querySelector('.lane-said')?.textContent ?? null, notes: [...at.querySelectorAll('p.meta')].map((note) => note.textContent), files: [...at.querySelectorAll('[data-file]')].map((file) => file.textContent) };
+};
+done({ sent: await sheet('j1'), silent: await sheet('j2') });
+""", shown)
+    assert seen["sent"]["said"] == "PUSHED https://github.com/a/b/pull/7"
+    assert any(note.startswith("The line it last sent, ") for note in seen["sent"]["notes"])
+    assert seen["sent"]["files"] == ["Brief", "Report"]
+    assert seen["silent"]["said"] is None
+    assert "j2 has said nothing yet: it sent no line, kept no report, and this Mac holds no transcript of it." in seen["silent"]["notes"]
+
+
+def test_a_packet_runs_only_on_the_wires_of_a_lane_whose_record_changed_and_never_while_paused(tmp_path: Path) -> None:
+    seen = browse(tmp_path, """
+localStorage.removeItem('motion');
+location.hash = '#/work/Platform/SandSQL';
+await wait(200);
+const packets = () => [...document.querySelectorAll('#main .packets .packet')].map((packet) => packet.dataset.wire).sort();
+const moved = (id, at) => ({ ...MODEL, at, work: MODEL.work.map((lane) => (lane.id === id ? { ...lane, updated: at } : lane)) });
+const first = packets();
+await push(moved('j5', '2026-11-11T00:01:00-08:00'));
+await wait(150);
+const sent = packets();
+await wait(1600);
+document.querySelector('#main [data-motion]').click();
+await push(moved('j6', '2026-11-11T00:02:00-08:00'));
+await wait(150);
+done({ first, sent, paused: packets(), legend: document.querySelector('#main .map-legend').textContent });
 """, board())
-    assert seen["chosen"]["hash"].startswith("#/work/Platform/SandSQL/j")
-    assert {key: value for key, value in seen["chosen"].items() if key != "hash"} == {"same": True, "top": 400, "on": True}
-    assert seen["up"] == "#/work/Platform/SandSQL"
+    assert seen["first"] == []
+    assert seen["sent"] == ["Platform", "Platform/SandSQL", "Platform/SandSQL/j5"]
+    assert seen["paused"] == []
+    assert "decoration" not in seen["legend"]
+    assert "A packet is a lane's record reaching the coordinator, or the coordinator starting a lane" in seen["legend"]
+
+
+def test_work_fits_a_phone_with_no_node_clipped_or_overlapping_at_any_level(tmp_path: Path) -> None:
+    names = ["Memory", "Search", "Dashboard", "Drive tooling", "Billing", "Docs", "Onboarding", "Alerts", "Auth", "Imports", "Mobile", "Reports", "Storage", "Sync"]
+    features = [FEATURE, *(FEATURE | {"id": f"o{i + 2}", "project": name, "workstream": "Main"} for i, name in enumerate(names))]
+    shown = board(status=[{"state": "running", "features": features}])
+    for i, lane in enumerate(shown["work"]):
+        lane["feature"] = features[i % 8]["id"]
+    seen = browse(tmp_path, """
+const check = async (hash) => {
+  location.hash = hash;
+  await wait(300);
+  const room = document.querySelector('#main .viewport').getBoundingClientRect();
+  const boxes = [...document.querySelectorAll('#main .stage.here > .topo-node, #main .stage.here > .hub')].map((el) => el.getBoundingClientRect());
+  const over = (el) => el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1;
+  return {
+    overlaps: boxes.flatMap((a, i) => boxes.slice(i + 1).filter((b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1)).length,
+    outside: boxes.filter((box) => box.left < room.left - 1 || box.right > room.right + 1).length,
+    clipped: [...document.querySelectorAll('#main .stage.here > .topo-node > .face, #main .stage.here > .topo-node.lane')].filter(over).length,
+    wider: document.documentElement.scrollWidth > innerWidth,
+  };
+};
+done({ all: await check('#/work'), project: await check('#/work/Platform'), lanes: await check('#/work/Platform/SandSQL') });
+""", shown, "390,844", "--force-prefers-reduced-motion")
+    assert seen == {level: {"overlaps": 0, "outside": 0, "clipped": 0, "wider": False} for level in ("all", "project", "lanes")}
+
+
+def test_map_context_explains_the_map_and_the_footer_counts_its_job_records_and_registered_agents(tmp_path: Path) -> None:
+    shown = board()
+    shown["work"][1]["agent"] = shown["work"][0]["agent"]
+    seen = browse(tmp_path, """
+location.hash = '#/work';
+await wait(200);
+const foot = document.querySelector('#main .topo-label').textContent;
+document.querySelector('#main [data-map-context]').click();
+await wait(50);
+const drawer = document.querySelector('#drawer');
+done({ foot, open: drawer.open, title: drawer.querySelector('.dr-bar b').textContent, lanes: drawer.querySelector('.map-context').textContent.includes('40 lanes running, waiting or built') });
+""", shown)
+    assert seen == {"foot": "40 active job records · 39 registered agents", "open": True, "title": "A map of the registered work", "lanes": True}
+
+
+def test_work_and_now_list_the_same_projects(tmp_path: Path) -> None:
+    iris = FEATURE | {"id": "o2", "title": "chats open on the Mac", "project": "Iris", "workstream": "Desktop app"}
+    loose = FEATURE | {"id": "o3", "title": "a loose end", "project": None, "workstream": None}
+    seen = browse(tmp_path, """
+location.hash = '#/now';
+await wait(200);
+const now = [...document.querySelectorAll('#main .region-name b')].map((name) => name.textContent).sort();
+location.hash = '#/work';
+await wait(200);
+done({ now, work: [...document.querySelectorAll('#main .stage.here > .topo-node .face b')].map((name) => name.textContent.replace(' ›', '')).sort() });
+""", board(status=[{"state": "running", "features": [FEATURE, iris, loose]}]))
+    assert seen == {"now": ["Iris", "Platform", "Unfiled"], "work": ["Iris", "Platform", "Unfiled"]}
 
 
 def test_a_code_embed_wider_than_its_card_scrolls_inside_its_box_and_keeps_copy_and_enlarge_in_reach(tmp_path: Path) -> None:
@@ -1859,7 +2069,7 @@ done({ sent, restored, history: { ...last(), hash: location.hash } });
     assert [(event["kind"], event["undo_until"]) for event, _ in state.read_events("demo")] == [("answered", "2099-01-01T08:00:00Z")]
 
 
-VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/history", "#/history/2026-11-09"]
+VISITS = ["#/queue/all", "#/now", "#/now/Platform/SandSQL/o1", "#/feature/o1", "#/work", "#/work/Platform/SandSQL", "#/work/Platform/SandSQL/j1", "#/history", "#/history/2026-11-09"]
 VISITED = f"""
 const seen = [];
 const fetched = window.fetch;
@@ -1902,7 +2112,8 @@ def aged(n: int) -> dict:
     return shown | {"code": "", "pid": 1, "links": [], "undo_seconds": 10, "repo": ""}
 
 
-def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_drive(tmp_path: Path) -> None:
+def test_each_screen_reads_the_same_requests_of_the_same_size_however_old_the_drive(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, state_root: Path) -> None:
+    monkeypatch.setattr(state, "load", lambda name: {"jobs": {"j1": job("o1", "running", "drawing it")}})
     seen = {n: browse(tmp_path / str(n), VISITED, aged(n)) for n in (1, 100, 1000)}
     assert {screen for screen, _, _ in seen[1]} == {"summary", *VISITS}
     assert seen[1] == seen[100] == seen[1000]

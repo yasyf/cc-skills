@@ -470,6 +470,21 @@ def test_board_adds_progress_work_and_each_features_order_and_jobs() -> None:
     assert [job_entry["id"] for job_entry in entry["jobs"]] == ["j1", "j2"]
 
 
+def test_a_project_or_workstream_named_in_two_cases_is_one_under_the_newest_orders_spelling() -> None:
+    data = drive_of(
+        {
+            "o1": order("draw the canvas", [], project="Drive tooling", workstream="jobs", updated=at(-10)),
+            "o2": order("fold the names", [], project="drive tooling", workstream="Jobs", updated=at(-90)),
+            "o3": order("watch the lanes", [], project="Drive tooling", workstream="Watch", updated=at(-50)),
+        },
+        {},
+        [],
+    )
+    model = view.board(data, found(), "live", [], T0, set())
+    filed = {entry["id"]: (entry["project"], entry["workstream"]) for group in model["status"] for entry in group["features"]}
+    assert filed == {"o1": ("Drive tooling", "jobs"), "o2": ("Drive tooling", "jobs"), "o3": ("Drive tooling", "Watch")}
+
+
 def test_history_lists_every_day_newest_first_with_his_taps_answers_and_undos_each_line_sent_him_and_the_swears_in_his_own_words() -> None:
     card = "https://acme.slack.com/archives/D123/p1794200000000300"
     data = drive_of(

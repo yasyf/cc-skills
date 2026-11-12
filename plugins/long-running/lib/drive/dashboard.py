@@ -342,6 +342,8 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answered(200, view.history_page(board.model, asked.get("day"), asked.get("show", "all"), int(asked.get("page", 1))))
             elif self.path == "/api/lanes":
                 self.answered(200, {"lanes": board.model["work"]})
+            elif where.path == "/api/lane":
+                self.lane(asked["id"])
             elif found := PR_PATH.fullmatch(self.path):
                 self.pull_request(f"{found[1]}#{found[2]}")
             elif found := THREAD_PATH.fullmatch(self.path):
@@ -428,6 +430,15 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                     self.answered(200, {"error": f"{repo} has no {path} {where}, or GitHub could not be reached."})
                     return
                 self.answered(200, {"lines": artifacts.source_window(text.split("\n"), int(line), int(to))})
+
+        def lane(self, job_id: str) -> None:
+            if not owner_calling(self.client_address[0], net):
+                self.answered(403, {"error": NOT_OWNER})
+            elif not (job := state.load(board.name)["jobs"].get(job_id)):
+                self.answered(404, {"error": f"{job_id} is no longer a job of this drive"})
+            else:
+                newest = artifacts.newest_line(board.name, job_id, job)
+                self.answered(200, {"newest": newest and newest | {"line": card.without_records(newest["line"])}})
 
         def file(self, job_id: str, kind: str) -> None:
             if not owner_calling(self.client_address[0], net):
