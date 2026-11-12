@@ -1254,11 +1254,11 @@ def test_a_communicators_bash_cci_post_naming_a_lane_other_than_the_session_hear
         "cci post --kind posted --lane communicator --to iris@demo --attr waits=demo:j1-8 'card up demo:j1-8'",
         "cci post --kind owner --lane communicator --to root@demo --attr 'about=his work' 'a new order'",
         "cci post --kind report --lane communicator --attr close=o1 'FYI j1 merged'",
-        "cci post --kind owner --lane communicator --to meta@demo --attr about=drive 'the dashboard drops my cards'",
     )
-    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None, None]
+    assert [landing_guard.deny_reason(bash(command) | handler) for command in sent] == [None, None, None]
     unsaid = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo 'a new order'") | handler)
     assert unsaid.startswith('refused, nothing posted: an owner record names what his words are about, about "drive" for drive tooling')
-    misrouted = landing_guard.deny_reason(bash("cci post --kind owner --lane communicator --to root@demo --attr about=drive 'the dashboard drops my cards'") | handler)
-    assert misrouted.startswith("This owner record goes to meta@demo:")
+    for to in ("meta@demo", "root@demo"):
+        unordered = landing_guard.deny_reason(bash(f"cci post --kind owner --lane communicator --to {to} --attr about=drive 'the dashboard drops my cards'") | handler)
+        assert unordered.startswith("refused, nothing posted: his words about the drive go out on the drive's `record` tool")
     assert landing_guard.deny_reason(bash(posted) | {"session_id": "iris-1"}) is None
