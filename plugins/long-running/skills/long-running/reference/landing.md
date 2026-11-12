@@ -99,7 +99,9 @@ for its repository says, then return `DONE <proof>`.
 - Register the PR the moment it opens: `drive pr add <url> --job <j>`, which records it waiting on his
   tap. Only a port (`--port-of <N>`), an exempt class (`--exempt <class>`), a PR of a `Drive tooling:`
   order outside `Forge-AI`, or one added with `--no-tap --why "<reason>"` waits on none; a `Forge-AI`
-  PR waits on his tap whoever opened it and whatever order it serves.
+  PR waits on his tap whoever opened it and whatever order it serves, unless an exempt class covers
+  it, and `drive pr add` and `drive pr set` refuse `--no-tap` on one, since only his tap or an exempt
+  class lands it.
 - Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
   review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
   waking nobody, until its minute read finds every check the base branch requires green, then takes
@@ -194,9 +196,15 @@ by [Neither](scope.md#the-four-kinds-of-pr). A PR lands only when all of these h
   with `drive pr set <url> --tapped Approve --tap-source <his message's permalink>`, because
   `landing_guard` refuses landing a drive PR with no recorded tap.
 
-**Exempt classes land with no tap** once green. He never sees a PR card for one: it is marked as its
-class wherever he sees it, and its order's thread gets one line naming the class and the PR, such as
-"port of #N landed."
+**Exempt classes land with no tap** once green. He never sees a PR card for one: `drive card` draws a
+fresh card only for a PR that asks his tap, by the same check that gives a card its Approve, so a post
+linking an exempt PR keeps its plain link. It is marked as its class wherever he sees it, and its
+order's thread gets one line naming the class and the PR, such as "port of #N landed." The drive's
+lander queues an exempt `Forge-AI/monorepo` PR once it is green, after checking it really is in its
+class from its changed files, title and body at its head, by his ruling that the landing tool checks
+the class before it lands: no file that changes how data is stored for a `pure port`, only test and
+fixture files for `test-only` and `flake fix`, only CI files for `ci-only`, and no revert for an
+`incident fix`. One outside its class comes back as `PR … not landed: <why>`.
 
 - `pure port`: a `Port:` PR that does what its old-tree PR #N does, line for line, with that PR's tests,
   and nothing more. The coordinator records it with `drive pr set <url> --port-of <N>`. A port that
@@ -221,8 +229,9 @@ When a push changes what he approved, run `drive pr set <url> --fundamental "<wh
 clears the tap and any exemption and puts the PR back on his card with that line. Fold two PRs that
 carry out one decision of his into one first, so he gets one card.
 
-**His Approve lands a `Forge-AI/monorepo` PR with no session turn.** The drive's lander, a process of
-its own, enqueues it into the Trunk merge queue with the coordinator checkout's script:
+**His Approve or an exempt class lands a `Forge-AI/monorepo` PR with no session turn.** The drive's
+lander, a process of its own, enqueues it into the Trunk merge queue with the coordinator checkout's
+script:
 
     .agents/skills/submit-pr/scripts/stack-enqueue --check <PR>...
     .agents/skills/submit-pr/scripts/stack-enqueue --watch <PR>...
@@ -236,13 +245,14 @@ lander posts `@forge-pr-reviewer review` on that PR, once a head, and `--watch` 
 approvals and queues it. His card tap starts it when the PR is already green, approved by the
 reviewer bot, on its head or an older one, and free of conflicts, and the watch starts it within
 one GitHub read, 60 seconds, of the PR getting there. It
-names the PRs of his card's stack bottom first, up to the first he has not approved, and starts on
+names the PRs of his card's stack bottom first, up to the first neither his Approve nor an exempt
+class clears, and starts on
 none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
 conflict. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
 holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
-His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. An exempt
-class, and a PR of another `Forge-AI` repository, is enqueued by its handoff builder:
+His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of
+another `Forge-AI` repository is enqueued by its handoff builder:
 
     .agents/skills/submit-pr/scripts/stack-enqueue <PR>...
 

@@ -227,12 +227,17 @@ def hold_labeled(pr: dict) -> bool:
     return github.HOLD_LABEL in [label["name"] for label in pr["labels"]]
 
 
-def offers_approval(pr: dict, entry: dict) -> bool:
-    return pr["state"] == "OPEN" and state.owed_step(entry) == "card" and tap_label(entry) != "Approve" and not hold_labeled(pr)
+def tap_refused(pr: dict, entry: dict) -> str | None:
+    """Why his card on the PR offers no Approve, by GitHub's read of it now and by state.asks_tap; None when it does."""
+    if pr["state"] != "OPEN":
+        return f"GitHub reads it {pr['state'].lower()}"
+    if hold_labeled(pr):
+        return "it carries the hold label"
+    return state.tap_refused(entry)
 
 
 def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
-    approved = tap_label(entry) == "Approve"
+    approved, key = tap_label(entry) == "Approve", state.pr_key(pr["url"])
     match pr["state"], checks(pr, entry):
         case "MERGED", _:
             return "Merged"
@@ -254,8 +259,10 @@ def waits_on(pr: dict, entry: dict, held: tuple[str, ...]) -> str:
             return "Waits on a code review"
         case _, verdict if verdict == "pending" or held:
             return "Lands once " + in_turn([*(["CI passes"] if verdict == "pending" else []), *held])
-        case _ if state.queued_on_tap(state.pr_key(pr["url"])):
+        case _ if state.queued_by_lander(key) and state.cleared(entry):
             return "CI passed; the drive queues it for merge"
+        case _ if state.guarded(key):
+            return "CI passed; nothing lands it until you approve it"
         case _:
             return "CI passed; the agent is landing it"
 
@@ -308,7 +315,7 @@ def render(pr: dict, entry: dict, shown: tuple[str, ...] = (), held: tuple[str, 
         "description": description(body),
     }
     card = {"status": "info", "title": framed(f"{kind}: ", plain), "prs": [row]}
-    if offers_approval(pr, entry):
+    if tap_refused(pr, entry) is None:
         row["blocks"] = "Held by you" if tap_label(entry) == "Hold" else ""
         row["lands"] = lands_after_tap(pr, entry, held)
         card |= {
@@ -537,6 +544,14 @@ def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     )
 
 
+def untapped(known: dict[str, tuple[str, dict]], reads: dict[str, dict], members: list[str]) -> str:
+    """Why no fresh card is drawn for the members: none of them asks his tap, so the card would offer him no Approve, and the post linking them keeps its plain link, as an exempt PR gets no PR card."""
+    refusals = {key: tap_refused(reads[key], known[key][1]) for key in members}
+    if None in refusals.values():
+        return ""
+    return "; ".join(f"{key}: {why}" if len(members) > 1 else why for key, why in refusals.items()) + ", so no PR card draws, since it would offer him no Approve"
+
+
 def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no card is drawn for the members, a redraw of one cc-slack posted included: one of them is being reworked to his words, so its card stays down until its builder's READY says how they are met."""
     return "; ".join(
@@ -560,7 +575,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those, and a fresh one only when tap_refused finds one of them asking his Approve, the same check that puts Approve on a card. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -579,8 +594,12 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         members = [key for key in group if key in reads]
         if not members:
             continue
-        held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members) or unchecked(known, members)
-        reason = foreign(known, members) or reworked(known, members) or held or oversized(known, members)
+        fresh = not redraw and not on_his_card(known, reads, members)
+        reason = foreign(known, members) or reworked(known, members)
+        if fresh and not reason and (off := untapped(known, reads, members)):
+            skipped += [skip(key, off) for key in members]
+            continue
+        reason = reason or (fresh and (waiting(known, members) or unchecked(known, members))) or oversized(known, members)
         if not reason:
             taken: set[str] = set()
             try:

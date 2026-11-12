@@ -158,6 +158,7 @@ def test_a_closed_pr_says_it_closed_without_merging() -> None:
 def test_checks_the_watch_read_on_another_head_read_as_still_running_and_an_approved_green_monorepo_pr_reads_as_queued_by_the_drive() -> None:
     passed = entry(tap="Approve", checks="pass")
     assert card.render(pr_json(), passed)["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
+    assert card.render(pr_json(review="APPROVED"), entry(exempt="test-only", checks="pass"))["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
     assert card.render(pr_json(), {**passed, "head": "f" * 40})["prs"][0]["blocks"] == "Lands once CI passes"
 
 
@@ -482,13 +483,10 @@ def test_prs_draws_each_known_pr_and_omits_the_rest(
             ]
         }
     )
-    watched = {**entry(wants_tap=False), "url": "https://github.com/yasyf/cc-skills/pull/42"}
+    untapped = "its author or its own builder lands it with no tap, so no PR card draws, since it would offer him no Approve"
     assert reply == {
-        "cards": [
-            {"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())},
-            {"repo": "yasyf/cc-skills", "number": 42, "card": card.render(card.watched(watched), watched)},
-        ],
-        "skipped": [],
+        "cards": [{"repo": "Forge-AI/monorepo", "number": 42, "card": card.render(pr_json(), entry())}],
+        "skipped": [{"repo": "yasyf/cc-skills", "number": 42, "reason": untapped}],
     }
     assert asked == [
         ["gh", "pr", "view", "42", "-R", "Forge-AI/monorepo", "--json", card.FIELDS],
@@ -510,7 +508,7 @@ def test_a_card_github_refuses_draws_from_its_last_read_with_the_state_the_drive
     monkeypatch.setattr(card, "run", refused)
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["state"] = "merged"
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
     assert (drawn["card"]["status"], drawn["card"]["prs"][0]["blocks"], drawn["card"]["prs"][0]["summary"]) == ("done", "Merged", SUMMARY)
 
 
@@ -589,19 +587,34 @@ def test_a_drive_tooling_pr_whose_his_words_say_none_draws_its_card_with_approve
     assert "refused" not in [event["kind"] for event in events(drive)]
 
 
-def test_an_exempt_port_with_no_his_words_still_draws(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("held", "labels", "pr_state", "why"),
+    [
+        ({"exempt": "pure port"}, [], "OPEN", 'its exempt class "pure port" lands it with no tap'),
+        ({"tap": {"label": "Approve", "at": "2026-11-09T08:00:00-08:00", "head": HEAD, "source": "slack"}}, [], "OPEN", "he approved it already"),
+        ({}, [{"name": github.HOLD_LABEL}], "OPEN", "it carries the hold label"),
+        ({}, [], "MERGED", "GitHub reads it merged"),
+    ],
+)
+def test_a_pr_his_card_would_offer_no_approve_draws_no_fresh_card_and_wakes_no_one_yet_its_posted_card_redraws(
+    drive: str, monkeypatch: pytest.MonkeyPatch, held: dict, labels: list[dict], pr_state: str, why: str
+) -> None:
     with state.edit(drive) as data:
-        data["prs"]["Forge-AI/monorepo#42"]["exempt"] = "pure port"
-    body = FIX_BODY.split("## His words, step by step")[0]
-    monkeypatch.setattr(card, "run", answering(pr_json(title="Port: retry flaky uploads", body=body)))
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
-    assert drawn["card"]["status"] == "info"
+        data["prs"]["Forge-AI/monorepo#42"] |= held
+    monkeypatch.setattr(card, "run", answering(pr_json(pr_state=pr_state) | {"labels": labels}))
+    assert ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}) == {
+        "cards": [],
+        "skipped": [{"repo": "Forge-AI/monorepo", "number": 42, "reason": f"{why}, so no PR card draws, since it would offer him no Approve"}],
+    }
+    assert "refused" not in [event["kind"] for event in events(drive)]
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
+    assert "options" not in drawn["card"]
 
 
 def test_a_card_that_waits_on_no_tap_draws_without_what_he_will_hate_most(drive: str, monkeypatch: pytest.MonkeyPatch) -> None:
     body = FIX_BODY.split("## What you'll hate most")[0]
     monkeypatch.setattr(card, "run", answering(pr_json(body=body, pr_state="MERGED")))
-    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]})["cards"]
+    [drawn] = ask({"prs": [{"repo": "Forge-AI/monorepo", "number": 42}], "redraw": True})["cards"]
     assert drawn["card"]["status"] == "done"
 
 
@@ -891,7 +904,7 @@ def test_a_stack_longer_than_a_card_holds_is_refused_whole(stacked: list[list[st
 def test_exempt_and_yasyf_prs_are_not_counted_toward_a_stacks_cap(stacked: list[list[str]], monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(card, "STACK_MOST", 2)
     with state.edit("demo") as data:
-        for number in (41, 42, 43):
+        for number in (41, 43):
             data["prs"][f"Forge-AI/monorepo#{number}"]["exempt"] = "test-only"
     [drawn] = ask(asks(41, 42, 43))["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
@@ -939,7 +952,7 @@ def test_a_stack_of_three_merged_prs_on_one_order_redraws_as_done(
             data["prs"][key]["state"] = "merged"
     stacked_gh = card.run
     monkeypatch.setattr(card, "run", lambda cmd, **_: stacked_gh(cmd) if cmd[1] == "api" else json.dumps(json.loads(stacked_gh(cmd)) | {"state": "MERGED"}))
-    [drawn] = ask(asks(41, 42, 43))["cards"]
+    [drawn] = ask(asks(41, 42, 43) | {"redraw": True})["cards"]
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(41), stack_url(42), stack_url(43)]
     assert drawn["card"]["status"] == "done"
 

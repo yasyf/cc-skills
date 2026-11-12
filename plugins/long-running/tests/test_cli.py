@@ -2973,15 +2973,14 @@ def test_pr_add_waits_on_his_tap_unless_it_is_a_port_exempt_drive_tooling_outsid
     key = "Forge-AI/monorepo#42"
     assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap"]) == 2
     assert "--no-tap needs --why <reason>" in capsys.readouterr().err
-    for flags, stored in (
-        (["--no-tap", "--why", "a teammate lands it"], (False, None, None)),
-        (["--exempt", "test-only"], (True, "test-only", "landing")),
-    ):
-        with state.edit("demo") as data:
-            data["prs"].pop(key, None)
-        assert run("pr", "add", PR, "--job", "j1", *flags)[0] == 0
-        pr = state.load("demo")["prs"][key]
-        assert (pr["wants_tap"], pr["exempt"], state.owed_step(pr)) == stored
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--no-tap", "--why", "a teammate lands it"]) == 2
+    assert "only his tap or an exempt class lands a Forge-AI PR" in capsys.readouterr().err
+    assert key not in state.load("demo")["prs"]
+    assert run("pr", "add", "https://github.com/yasyf/cc-skills/pull/8", "--job", "j1", "--no-tap", "--why", "a teammate lands it")[0] == 0
+    assert run("pr", "add", PR, "--job", "j1", "--exempt", "test-only")[0] == 0
+    prs = state.load("demo")["prs"]
+    assert (prs["yasyf/cc-skills#8"]["wants_tap"], state.owed_step(prs["yasyf/cc-skills#8"])) == (False, None)
+    assert (prs[key]["wants_tap"], prs[key]["exempt"], state.owed_step(prs[key])) == (True, "test-only", "landing")
     with state.edit("demo") as data:
         data["prs"].pop(key)
         data["orders"]["o1"]["text"] = "Drive tooling: the watch draws his card"
@@ -3207,11 +3206,19 @@ def test_an_incidents_stop_is_its_immediate_fix_and_lands_at_once_as_an_incident
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["exempt"] == "incident fix"
 
 
-def test_pr_set_toggles_wants_tap(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
-    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
-    run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
+def test_pr_set_never_leaves_a_forge_ai_pr_with_neither_his_tap_nor_an_exempt_class(
+    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["pr", "set", PR, "--no-tap", "--why", "not his order"]) == 2
+    assert "only his tap or an exempt class lands a Forge-AI PR" in capsys.readouterr().err
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
+    run("pr", "set", PR, "--exempt", "test-only")
+    assert run("pr", "set", PR, "--no-tap", "--why", "its class lands it")[0] == 0
+    assert cli.main(["pr", "set", PR, "--no-exempt"]) == 2
+    assert state.load("demo")["prs"][with_pr]["exempt"] == "test-only"
+    run("pr", "set", PR, "--fundamental", "now drops the old column")
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["wants_tap"], pr["exempt"]) == (True, None)
 
 
 def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_chain_it_was_drawn_on(
@@ -3224,7 +3231,6 @@ def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_c
         data["prs"]["Forge-AI/monorepo#43"]["state"] = "closed"
         for key in chain:
             data["prs"][key]["stack"] = chain
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert cli.main(["pr", "set", PR, "--tap", "--serves", "o1", "--design", "none"]) == 2
     assert capsys.readouterr().err.startswith(f"drive: {with_pr}: its stack holds 6 PRs and a stack is at most 4,")
     native_stacks[with_pr] = [("Forge-AI/monorepo#41", "open"), (with_pr, "open"), (chain[2], "open"), (chain[3], "open")]
@@ -3232,9 +3238,8 @@ def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_c
 
 
 def test_pr_set_serves_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2
-    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
     code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")
     assert code == 0
     assert out.splitlines()[-1] == "serves o1, his words: land it"
@@ -3249,9 +3254,8 @@ def test_pr_set_tap_takes_a_pr_on_an_order_with_merged_prs_on_other_symptoms(run
 
 
 def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1")[0] == 2
-    assert state.load("demo")["prs"][with_pr]["wants_tap"] is False
+    assert state.load("demo")["prs"][with_pr].get("serves") is None
     for unsaid in ("maybe", "asked:", "asked: "):
         with pytest.raises(SystemExit):
             run("pr", "set", PR, "--tap", "--serves", "o1", "--design", unsaid)
@@ -3265,7 +3269,6 @@ def test_pr_set_serves_needs_the_design_answer_he_gave_or_none(run: Run, with_pr
 def test_pr_set_tap_draws_a_body_with_no_releasable_section_and_a_step_after_the_release(
     run: Run, with_pr: str, on_github: dict
 ) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     on_github["body"] = CARD_BODY + "## Risk\nThen run the fill from a pass box once it ships.\n"
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
@@ -3305,7 +3308,7 @@ def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_no
     crossed = "o1 is a drive tooling order and o3 is an order of his feature work, and one job or PR never carries both: start a job on o3 with drive job add <kind> --order o3"
     assert cli.main(["job", "set", "j1", "--carries", "o3"]) == 2
     assert capsys.readouterr().err.strip() == f"drive: j1 --carries o3: refused, {crossed}"
-    assert cli.main(["pr", "set", PR, "--serves", "o3", "--no-tap", "--why", "drive tooling"]) == 2
+    assert cli.main(["pr", "set", PR, "--serves", "o3"]) == 2
     assert capsys.readouterr().err.strip() == f"drive: Forge-AI/monorepo#42 --serves o3: refused, {crossed}"
     assert state.load("demo")["jobs"]["j1"]["carries"] == {}
     assert run("job", "set", "j1", "--carries", "o2")[0] == 0
@@ -3318,7 +3321,6 @@ def test_a_tooling_orders_job_or_pr_never_carries_or_serves_his_feature_order_no
 
 
 def test_pr_set_tap_accepts_a_body_with_every_section_his_card_needs(run: Run, with_pr: str) -> None:
-    run("pr", "set", PR, "--no-tap", "--why", "not his order")
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
     assert state.load("demo")["prs"][with_pr]["wants_tap"] is True
 
@@ -3380,6 +3382,7 @@ def test_pr_set_no_tap_withdraws_his_open_card_showing_why(
     run: Run, with_pr: str, withdrawals: "Withdrawals", monkeypatch: pytest.MonkeyPatch
 ) -> None:
     card = "https://acme.slack.com/archives/D123/p1794286637698859"
+    run("pr", "set", PR, "--exempt", "test-only")
     assert run("pr", "set", PR, "--no-tap")[0] == 2
     assert (state.load("demo")["prs"][with_pr]["wants_tap"], withdrawals.asked) == (True, [])
     withdrawals.cards = [card]
@@ -3435,11 +3438,10 @@ def test_pr_add_on_an_incident_order_refuses_a_revert_unless_it_waits_on_his_tap
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Releases", "the mint endpoint fails", "--incident", "--parts", "fix", "first check")
     on_github.update(title="Fix: the mint endpoint answers again", body="Reverts Forge-AI/monorepo#41")
-    for untapped in (["--exempt", "incident fix"], ["--no-tap", "--why", "the incident lands it"]):
-        assert cli.main(["pr", "add", PR, "--job", "j1", *untapped]) == 2
-        refusal = capsys.readouterr().err
-        assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
-        assert f"Add it waiting on his tap with drive pr add {PR} --job j1. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
+    assert cli.main(["pr", "add", PR, "--job", "j1", "--exempt", "incident fix"]) == 2
+    refusal = capsys.readouterr().err
+    assert 'refused, it reverts a change, and a revert never lands as an "incident fix"' in refusal
+    assert f"Add it waiting on his tap with drive pr add {PR} --job j1. Draw his tap card with drive pr set {PR} --tap --serves o1 --design none" in refusal
     assert state.load("demo")["prs"] == {}
     assert run("pr", "add", PR, "--job", "j1")[0] == 0
     assert state.load("demo")["prs"]["Forge-AI/monorepo#42"]["wants_tap"] is True

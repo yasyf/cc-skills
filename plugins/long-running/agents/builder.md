@@ -107,7 +107,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
 6. Open the PR the repository's way (its own submit wrapper, otherwise the `open-pr` skill; a hook refuses a bare `gh pr create`), with the
    title and body below, and register it: `drive pr add <url> --job <your job id>`, which records it
    waiting on his tap. Add `--port-of <N>` for a port, `--exempt <class>` for an exempt class, or
-   `--no-tap --why "<reason>"` for a PR its author lands.
+   `--no-tap --why "<reason>"` for a PR its author lands outside `Forge-AI`, where only his tap or an
+   exempt class lands one.
 7. Return `PUSHED` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
    first. `READY` counts only on a green required check, so `PUSHED` waits, waking nobody, until the

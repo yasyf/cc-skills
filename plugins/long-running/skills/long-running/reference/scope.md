@@ -15,7 +15,8 @@ summary line about it, because work stopped before it starts wastes nothing.
   calls it "port of #N". The coordinator reads it against #N's diff and records it with
   `drive pr set <url> --port-of <N>`, which sets the `pure port` exemption, withdraws its open card,
   and refuses `--tap`, and refuses a PR changing a migration, schema or `.proto` file, whose data model
-  is that design part. A handoff builder lands it; he reads one line in its order's thread,
+  is that design part. The drive's lander queues it once green, after checking it changes no stored
+  data; he reads one line in its order's thread,
   "port of #N landed", as every exempt class does in [landing.md](landing.md). A port needing his
   pick is not pure: its question card says it ports #N and what in the target tree forces the pick.
 - **His order**: his message or picked card option asking for this build, quoted wherever the PR is

@@ -2037,12 +2037,13 @@ def test_a_pr_reworked_to_his_words_gets_no_ready_and_loses_a_card_left_up_until
 
 
 @pytest.mark.parametrize("wants_tap", [False, True])
-def test_a_green_approved_exempt_pr_not_landed_for_thirty_minutes_is_said_and_wakes_the_coordinator(
-    demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool
+def test_a_green_approved_exempt_pr_its_lander_could_not_land_for_thirty_minutes_is_said_and_wakes_the_coordinator(
+    demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool, landers: list[tuple[str, ...]]
 ) -> None:
     waiting_job(demo)
+    tried = {"head": "aaaaaaa111", "pid": 1, "at": state.stamp(T0), "outcome": "not landed: stack-enqueue --watch exited 1: checks failed", "below": []}
     with state.edit(demo) as data:
-        data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": "incident fix"}
+        data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": "incident fix", "lander": tried}
     serve(monkeypatch, {KEY: read(checks=GREEN, reviewDecision="APPROVED")})
     watching = watcher(demo)
     watch.run_pass(watching, T0)
@@ -2050,6 +2051,7 @@ def test_a_green_approved_exempt_pr_not_landed_for_thirty_minutes_is_said_and_wa
     assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [line]
     assert watch.wakes(line, state.load(demo))
     assert render.pr_line(KEY, state.load(demo)["prs"][KEY]).endswith("checks pass, review approved, no tap needed, exempt: incident fix")
+    assert landers == []
 
 
 def test_a_pr_waiting_on_another_prs_merge_is_freed_when_it_merges_while_that_prs_job_runs_on(
@@ -2202,12 +2204,9 @@ def test_a_prs_merge_or_red_wakes_the_coordinator_only_when_no_running_job_takes
     assert posted(sent) == [(kind, f"root@{demo}", line) for line in moves]
 
 
-@pytest.mark.parametrize(
-    ("wants_tap", "exempt", "kind"),
-    [(True, "incident fix", "handoff"), (False, "incident fix", "handoff"), (True, None, "evidence"), (False, None, "evidence")],
-)
-def test_a_pr_going_green_and_approved_wakes_the_coordinator_only_for_its_exempt_landing_while_the_watch_draws_his_card(
-    demo: str, monkeypatch: pytest.MonkeyPatch, wants_tap: bool, exempt: str | None, kind: str
+@pytest.mark.parametrize(("wants_tap", "exempt"), [(True, "incident fix"), (False, "incident fix"), (True, None), (False, None)])
+def test_a_monorepo_pr_going_green_and_approved_wakes_no_one_since_the_lander_queues_its_exempt_landing_and_the_watch_draws_his_card(
+    demo: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], wants_tap: bool, exempt: str | None
 ) -> None:
     with state.edit(demo) as data:
         data["prs"][KEY] |= {"wants_tap": wants_tap, "exempt": exempt, "review": "approved"}
@@ -2217,7 +2216,8 @@ def test_a_pr_going_green_and_approved_wakes_the_coordinator_only_for_its_exempt
     watching = watcher(demo)
     assert watch.sent(watching, "root", watch.run_pass(watching, T0), T0) == []
     drawn = [("evidence", f"root@{demo}", DRAWING)] * (wants_tap and not exempt)
-    assert posted(sent) == [(kind, f"root@{demo}", f"PR {KEY}: checks passed [o1 j1]"), *drawn]
+    assert posted(sent) == [("evidence", f"root@{demo}", f"PR {KEY}: checks passed [o1 j1]"), *drawn]
+    assert landers == [(KEY,)] * bool(exempt)
 
 
 NO_CARDS = {"team_url": "", "questions": [], "pr_cards": []}
@@ -2392,8 +2392,8 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
     enqueue_exiting(tmp_path, demo, 0)
     monkeypatch.setattr(land.github, "below", lambda key: ["Forge-AI/monorepo#41", KEY] if key == OTHER else [])
     held = (
-        f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack without his Approve, and stack-enqueue queues a stack from its bottom, "
-        "so his Approve on a PR above would land it too; it lands once he approves each of them or they merge"
+        f"not landed: Forge-AI/monorepo#41, {KEY} sits below {OTHER} in its stack with neither his Approve nor an exempt class, and stack-enqueue queues a stack"
+        " from its bottom, so landing a PR above would land it too; it lands once he approves each of them or they merge"
     )
     assert land.run(demo, [OTHER], dry_run=True) == held
     assert state.load(demo)["prs"][OTHER]["lander"] is None
@@ -2410,12 +2410,29 @@ def test_a_lander_queues_nothing_while_a_pr_below_it_in_its_native_stack_lacks_h
         data["prs"]["Forge-AI/monorepo#41"]["state"] = "open"
     assert land.run(demo, [KEY, OTHER], dry_run=True).startswith("not landed: Forge-AI/monorepo#41 sits below")
     monkeypatch.setattr(land.github, "below", lambda key: [KEY] if key == OTHER else [])
-    assert land.run(demo, [KEY, OTHER], dry_run=True) == f"would queue {KEY}, {OTHER} through stack-enqueue --watch: every PR below it is merged or approved by him"
+    assert land.run(demo, [KEY, OTHER], dry_run=True) == f"would queue {KEY}, {OTHER} through stack-enqueue --watch: every PR below it is merged, approved by him or exempt"
 
 
 def test_a_lander_refuses_a_pr_his_approve_does_not_cover(demo: str) -> None:
-    with pytest.raises(state.DriveError, match="a Forge-AI/monorepo PR he approved"):
+    with pytest.raises(state.DriveError, match="a Forge-AI/monorepo PR he approved or an exempt class lands"):
         land.run(demo, [KEY])
+
+
+def test_an_exempt_monorepo_pr_is_queued_once_green_with_no_tap_unless_its_files_put_it_outside_its_class(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"exempt": "test-only", "checks": "pass", "review": "approved"}
+    assert land.start(demo, [KEY], NO_CARDS) == [(KEY,)]
+    enqueue_exiting(tmp_path, demo, 0)
+    diff = "diff --git a/{0} b/{0}\n--- a/{0}\n+++ b/{0}\n@@ -1 +1 @@\n-a\n+b\n"
+    outside = (
+        f'not landed: {KEY} is no "test-only": it changes api/src/upload.ts, outside test and fixture code; it lands on his Approve'
+        f" once drive pr set {state.pr_url(KEY)} --no-exempt --tap puts it on his card"
+    )
+    for path, outcome in (("api/src/upload.ts", outside), ("api/src/upload.test.ts", land.QUEUED)):
+        monkeypatch.setattr(land.served, "change", lambda key, path=path: {"title": "Fix: retry uploads", "body": "", "head": "aaaaaaa111", "diff": diff.format(path).encode()})
+        assert land.run(demo, [KEY]) == outcome
 
 
 @pytest.mark.parametrize(("checks", "conflict", "kind"), [("pass", False, "evidence"), ("pending", False, "evidence"), ("fail", False, "handoff"), ("pass", True, "handoff")])

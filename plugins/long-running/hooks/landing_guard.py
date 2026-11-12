@@ -372,7 +372,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     may_land, why = tap_verdict(pr)
     if not may_land:
         return f"{key}: {why}. {TAP_HINT}"
-    if shell.driving and not landing.repo and state.queued_on_tap(key) and pr.get("exempt") != INCIDENT_FIX:
+    if shell.driving and not landing.repo and state.queued_by_lander(key) and pr.get("exempt") != INCIDENT_FIX:
         return QUEUE_REASON.format(key=key)
     return None
 
