@@ -319,7 +319,7 @@ check's verdict, or from the order when none ran.
 ## What he hears
 
 Each line is a `report` to the communicator, which posts it in his thread or the alert's thread,
-while he is away too. These rules bind the communicator, its handlers and any reader that posts for
+the alert's with `say(channel_id=<the alert's channel>, thread_ts=<its ts>)`, while he is away too. These rules bind the communicator, its handlers and any reader that posts for
 it.
 
 - Until users are unblocked he hears a line at least every 5 minutes. After that, each step of the

@@ -40,7 +40,7 @@ TITLED = (
     " {{pr:<number>|<words>}} or {{record:<seq>|<words>}} names one in fewer words of your own."
 )
 UNREAD = (
-    "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={dm},"
+    "refused: {why}, so this line could miss what he said there since. Read it with slack_thread(channel_id={channel},"
     " thread_ts={thread}, limit=1000), then post. When the tool saves a long thread to a file, the call is not a read"
     " until you open that file and read its newest messages."
 )
@@ -91,8 +91,8 @@ def posts_to(payload: dict, dm: str) -> bool:
     return payload["tool_name"] in CHANNEL_POSTS and channel == dm
 
 
-def last_read(path: Path, dm: str, thread: str) -> tuple[datetime | None, dict[str, datetime], bool]:
-    """When this handler last read the thread, by its own transcript's timestamped turns, never a row such as an API request's copy that carries none: a slack_thread call on it that did not fail, its channel_id his DM or left out, which cc-slack reads as his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
+def last_read(path: Path, dm: str, where: tuple[str, str]) -> tuple[datetime | None, dict[str, datetime], bool]:
+    """When this handler last read the thread, by its own transcript's timestamped turns, never a row such as an API request's copy that carries none: a slack_thread call on its channel and thread that did not fail, a call leaving channel_id out reading his DM; when the tool saved a long thread to a file, only once a later call of this handler opened that file. Also the saved files it never opened, and whether a call on it failed."""
     calls: dict[str, datetime] = {}
     others: dict[str, str] = {}
     saved: dict[str, datetime] = {}
@@ -105,7 +105,7 @@ def last_read(path: Path, dm: str, thread: str) -> tuple[datetime | None, dict[s
                 continue
             content = (row.get("message") or {}).get("content")
             for part in content if isinstance(content, list) else []:
-                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id") or dm, part["input"].get("thread_ts")) == (dm, thread):
+                if part.get("type") == "tool_use" and part.get("name") == THREAD_READ and (part["input"].get("channel_id") or dm, part["input"].get("thread_ts")) == where:
                     calls[part["id"]] = datetime.fromisoformat(row["timestamp"])
                 elif part.get("type") == "tool_use":
                     others[part["id"]] = json.dumps(part.get("input"))
@@ -134,7 +134,8 @@ def unread(payload: dict, dm: str) -> str | None:
     tool_input = payload["tool_input"]
     if not payload.get("agent_id") or edited(payload) or tool_input.get("card") or not (thread := tool_input.get("thread_ts")):
         return None
-    read, unopened, failed = last_read(agents.transcript(payload), dm, thread)
+    channel = tool_input.get("channel_id") or dm
+    read, unopened, failed = last_read(agents.transcript(payload), dm, (channel, thread))
     if read and datetime.now(UTC) - read < READ_WINDOW:
         return None
     if unopened:
@@ -143,7 +144,7 @@ def unread(payload: dict, dm: str) -> str | None:
         why = OLD_READ.format(thread=thread, minutes=int((datetime.now(UTC) - read) / timedelta(minutes=1)))
     else:
         why = (FAILED_READ if failed else NO_READ).format(thread=thread)
-    return UNREAD.format(why=why, dm=dm, thread=thread)
+    return UNREAD.format(why=why, channel=channel, thread=thread)
 
 
 def unchecked(tool_input: dict) -> str | None:
@@ -160,8 +161,10 @@ def unchecked(tool_input: dict) -> str | None:
 
 
 def thread_words(payload: dict, dm: str) -> list[dict]:
-    """His words in the thread the post goes to, read from Slack, each as the evidence Jev cites: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line."""
+    """His words in the thread the post goes to, read from Slack, each as the evidence Jev cites: in his DM with the app every message not the bot's is his, and each card the bot drew or shared there shows his answer on its ✓ line; a thread outside his DM, such as an alert's, holds others' words, never his."""
     tool_input = payload["tool_input"]
+    if (tool_input.get("channel_id") or dm) != dm:
+        return []
     if tool_input.get("thread_ts"):
         where = ("--channel", dm, "--thread", tool_input["thread_ts"])
     elif url := tool_input.get("url") or tool_input.get("edit"):
@@ -314,9 +317,9 @@ def deny_reason(payload: dict) -> str | None:
 
 def reporter_post(payload: dict, drive: dict) -> str | None:
     """Why a post may not go in the thread a bug an order fixes was reported in: that thread gets one fix-live note, only once the fix is proven live."""
-    if payload["tool_name"] not in CHANNEL_POSTS - {EDIT}:
-        return None
     tool_input = payload["tool_input"]
+    if payload["tool_name"] not in CHANNEL_POSTS - {EDIT} and not (payload["tool_name"] == SAY and tool_input.get("channel_id")):
+        return None
     link = state.CARD_LINK.search(tool_input.get("url") or "")
     where = (tool_input.get("channel_id") or (link and link[1]), tool_input.get("thread_ts") or (link and (link[4] or f"{link[2]}.{link[3]}")))
     reported = [order for order in drive["orders"].values() if order["reporter"] and (order["reporter"]["channel"], order["reporter"]["thread"]) == where]

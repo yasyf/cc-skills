@@ -450,3 +450,71 @@ def test_a_pr_is_linked_under_the_words_the_post_gives_it_whether_the_drive_hold
     assert said(demo)[0]["text"] == f"[the run page fix]({PR_URL}) and [the card that draws charts](https://github.com/yasyf/cc-skills/pull/4250) are live."
     with pytest.raises(DriveError, match=r"\{pr:yasyf/cc-skills#4250\} names no PR of the drive's"):
         talk.say(demo, {"text": "{pr:yasyf/cc-skills#4250} is live."})
+
+
+ALERT = "1794436805.002349"
+TICKET = {"ticket_id": "t1", "ticket_tree": "tree1", "ticket_agent": "agent1", "ticket_call": "call1", "ticket_fingerprint": "print1"}
+
+
+def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> None:
+    slack_thread.messages.append({"ts": ALERT, "from_user": False})
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the release failed", "--from", f"slack:C0ALERT1/{ALERT}", "--incident", "--parts", "fix", "first check")
+
+
+def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
+) -> None:
+    alert_order(run, slack_thread)
+    line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"}
+    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {ALERT} of channel C0ALERT1, 0 pictures: The release failed on the migration."
+    assert talk.say(demo, line | TICKET).startswith(f"POSTED {POSTED}")
+    assert posts == [
+        (
+            "reply", "--agent", "claude", "--channel", "C0ALERT1", "--thread", ALERT, "--text", "The release failed on the migration.",
+            "--ticket", "t1", "--ticket-tree", "tree1", "--ticket-agent", "agent1", "--ticket-call", "call1", "--ticket-fingerprint", "print1",
+        )
+    ]
+    assert said(demo)[0]["channel"] == "C0ALERT1"
+    with pytest.raises(DriveError, match=f"^nothing posted: refused, o1's thread {ALERT} is in channel C0ALERT1, so pass channel_id C0ALERT1$"):
+        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "order": "o1"})
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": "1794200090.000700", "order": "o1"})
+    assert str(refused.value).startswith(
+        "nothing posted: refused, thread 1794200090.000700 is none of o1's threads, its own, its cards' or its PRs' cards':"
+        f" {ALERT} with channel_id C0ALERT1; post it in one of them"
+    )
+    assert len(posts) == 1
+
+
+@pytest.mark.parametrize(
+    ("post", "why"),
+    [
+        ({"channel_id": "D123", "thread_ts": ALERT}, "channel_id D123 is his DM; leave channel_id out"),
+        ({"channel_id": "C0ALERT1"}, "channel_id C0ALERT1 names the channel of a thread outside his DM, so it takes that thread's thread_ts"),
+        ({"channel_id": "C0ALERT1", "thread_ts": ALERT, "tap_prs": [PR_URL]}, "tap_prs draws only in his DM"),
+    ],
+)
+def test_a_post_outside_his_dm_takes_a_thread_and_nothing_only_his_dm_draws(demo: str, posts: list[tuple[str, ...]], post: dict, why: str) -> None:
+    with pytest.raises(DriveError, match=f"nothing posted: {re.escape(why)}"):
+        talk.say(demo, {"text": "The release failed on the migration."} | post)
+    assert (posts, said(demo)) == ([], [])
+
+
+def test_a_post_whose_report_is_about_its_order_in_another_orders_thread_is_told_to_post_in_its_own_never_with_the_other(
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the copy stalls", "--thread", "1794200000.000100", "--parts", "cause")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the run page", "--thread", "1794400000.000100")
+    listed = "nothing posted: refused, thread 1794400000.000100 is o2's thread and none of o1's threads, its own, its cards' or its PRs' cards': 1794200000.000100;"
+    report(monkeypatch, {"close": "o1"})
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794400000.000100", "order": "o1", "record": "666938"})
+    assert str(refused.value) == f"{listed} its report is about o1, so post it in one of them"
+    report(monkeypatch, {"order": "o1", "part": "cause"})
+    with pytest.raises(DriveError) as refused:
+        talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794400000.000100", "order": "o1", "record": "666939"})
+    assert str(refused.value) == (
+        f'{listed} its report is about o1, so post it in one of them, or post it with no order and record "cause" with drive order posted o1'
+        " <its permalink> --record <the report's seq>"
+    )
+    assert posts == []

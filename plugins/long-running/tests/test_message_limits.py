@@ -723,6 +723,15 @@ def test_a_handlers_line_in_his_thread_waits_for_its_own_fresh_read_of_that_thre
     )
 
 
+def test_a_handlers_say_in_an_alerts_thread_waits_for_its_own_read_of_that_thread_in_the_alerts_channel(talker: str, unread: Path) -> None:
+    line = {"text": "Fixed.", "channel_id": "C0B75AL4XEW", "thread_ts": "1.2"}
+    read_it = "Read it with slack_thread(channel_id=C0B75AL4XEW, thread_ts=1.2, limit=1000), then post."
+    assert read_it in say(unread, **line)
+    reads(lane_of(unread), "1.2")
+    assert read_it in say(unread, **line)
+    reads(lane_of(unread), "1.2", channel="C0B75AL4XEW")
+    assert say(unread, **line) is None
+
 def test_a_transcript_row_with_no_timestamp_is_no_read_and_breaks_none(talker: str, unread: Path) -> None:
     use = {"type": "tool_use", "id": "read-blob", "name": message_limits.THREAD_READ, "input": {"channel_id": DM, "thread_ts": "1.2"}}
     with lane_of(unread).open("a") as transcript:

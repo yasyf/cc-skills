@@ -521,7 +521,7 @@ def test_an_order_from_his_reply_goes_in_the_thread_his_reply_is_in_in_the_chann
         "o2": (bug_root, bug_root, ("C0BUGS1", bug_root)),
         "o3": (bug_root, bug_root, ("C0BUGS1", bug_root)),
     }
-    assert cli.thread_refusal(data, "o1", root) is None
+    assert cli.thread_refusal(data, "o1", ("D123", root), {}) is None
     assert cli.main([*filed, "look at this", "--from", "slack:C0GONE1/1794341700.000300"]) == 2
     assert (
         "--from slack:C0GONE1/1794341700.000300: refused, Slack cannot read the message it names: cc-slack can't read this conversation (channel_not_found)"

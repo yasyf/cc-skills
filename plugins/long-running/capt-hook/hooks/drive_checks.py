@@ -122,7 +122,9 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
 def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence]) -> HookResult | None:
     """Jev's verdict on a post the drive's checks found something in, judged as the Slack permission hook judges a write without a ticket: the post goes out when his words, in this thread, on a card, in the brief or in the transcripts, show the findings do not hold against it, and stays back with Jev's reason when a rule of his does; a judge that gives no verdict lets it out with the findings noted, as a check that could not finish does."""
     post = dict(evt.input.raw)
-    ctx = Context.of(evt, DRIVE_POST, Proposal({"thread": str(post.get("thread_ts") or "")}, {"post": post, "findings": reason, "rule": rule}, "post this line to him in his DM"))
+    place = {"thread": str(post.get("thread_ts") or "")} | ({"channel": post["channel_id"]} if post.get("channel_id") else {})
+    where = f"in thread {place['thread']} of channel {post['channel_id']}" if post.get("channel_id") else "to him in his DM"
+    ctx = Context.of(evt, DRIVE_POST, Proposal(place, {"post": post, "findings": reason, "rule": rule}, f"post this line {where}"))
     if not (items := [*JUDGE.items(ctx), *words]):
         return evt.block(f"Jev found no words of his to weigh this post against, so what the drive's checks found stands: fix each finding below, then call say again.\n```\n{reason}\n```")
     try:

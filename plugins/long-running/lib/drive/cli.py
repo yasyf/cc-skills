@@ -753,19 +753,27 @@ def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
     return f"refused, the report is the {state.title(writer)}'s and {order_id} is the {state.title(holder)}'s order, so it delivers nothing there: {carried}, or post with no record, a progress line"
 
 
-def thread_refusal(data: dict, order_id: str, thread: str | None) -> str | None:
-    """Why a post to his DM may not go out on an order: it goes in none of the order's threads, its own, on an incident each other order's of it, its cards' or the thread under a card of a PR it holds, naming the order whose thread it is, if any."""
+def thread_refusal(data: dict, order_id: str, where: tuple[str, str | None], report: dict) -> str | None:
+    """Why a post may not go out on an order: its channel and thread are none of the order's, its own, on an incident each other order's of it, its cards' or the thread under a card of a PR it holds, naming the channel to pass when the thread is the order's in another channel, else the order whose thread it is, if any; a post carrying a report about the order goes in the order's own threads, since posted with the other order it delivers nothing on this one."""
     if order_id not in data["orders"] or not (threads := slack.order_threads(data, order_id, data["orders"][order_id])):
         return None
-    if thread in {ts for _, ts in threads} or (thread and slack.names_order_pr(data, order_id, slack.root(data["slack"]["channel"], thread))):
+    channel, thread = where
+    if where in threads or (thread and slack.names_order_pr(data, order_id, slack.root(channel, thread))):
         return None
-    where = f"thread {thread}" if thread else "his DM root"
+    dm = data["slack"]["channel"]
+    if place := next((place for place, ts in threads if ts == thread), None):
+        return f"refused, {order_id}'s thread {thread} is in his DM, so leave channel_id out" if place == dm else f"refused, {order_id}'s thread {thread} is in channel {place}, so pass channel_id {place}"
+    named = ", ".join(ts if place == dm else f"{ts} with channel_id {place}" for place, ts in threads)
+    at = "his DM root" if not thread else f"thread {thread}" if channel == dm else f"thread {thread} of channel {channel}"
     held = state.thread_order(data, thread)
-    whose, on_held = (f"{held}'s thread and ", f", post it with order {held} when the line is about {held}") if held else ("", "")
-    return (
-        f"refused, {where} is {whose}none of {order_id}'s threads, its own, its cards' or its PRs' cards': {', '.join(ts for _, ts in threads)};"
-        f" post it in one of them{on_held}, or post it with no order and record the part it delivers with drive order posted {order_id} <its permalink> --record <the report's seq>"
-    )
+    whose = f"{held}'s thread and " if held else ""
+    listed = f"refused, {at} is {whose}none of {order_id}'s threads, its own, its cards' or its PRs' cards': {named};"
+    record = f"drive order posted {order_id} <its permalink> --record <the report's seq>"
+    if report and state.report_order(data, report) == order_id:
+        part = f', or post it with no order and record "{report["part"]}" with {record}' if report.get("part") else ""
+        return f"{listed} its report is about {order_id}, so post it in one of them{part}"
+    on_held = f", post it with order {held} when the line is about {held}" if held else ""
+    return f"{listed} post it in one of them{on_held}, or post it with no order and record the part it delivers with {record}"
 
 
 def reported_parts(order_id: str, order: dict, report: dict) -> list[str]:
