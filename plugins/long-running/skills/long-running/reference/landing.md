@@ -136,7 +136,7 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
    or `BLOCKED` otherwise, and on a `DONE` that finishes the order sends the communicator its close
    report. The lander writes its output to the drive's `landings.log`, ending in one line of the PR's
    key and its outcome, such as `yasyf/cc-skills#7: merged at <sha>; …`. Its outcome reaches the
-   job's holder as `PR … merged at <sha>; <each install's version line>` or `PR … not landed: <why>`,
+   job's holder as `PR … merged at <sha>; <each install's version line or no release: line>` or `PR … not landed: <why>`,
    which comes only when `gh pr update-branch` cannot bring `main` in either, on a conflict git
    cannot merge, and the proof's as `PR … proven live by drive install …` or
    `PR … drive install's proof failed: …`. The report's output, or `drive pr add` again, prints why
@@ -159,7 +159,17 @@ No tap and no green gate: by his standing rule a `yasyf/*` PR merges without ask
      in the tag of each binary the plugin pins from that repo through a `*.binrun` file, since a
      binary is built at its tag, which can predate the version sync that names it (cc-inbox 0.54.27's
      sync merged after a fix its `cci` was built without). While it waits it prints a line naming
-     the newest release and what of it lacks the merge. A plugin whose binary also has a Homebrew
+     the newest release and what of it lacks the merge. It waits only for a release that is coming:
+     when the newest release lacks the merge, it reads the repo's workflows at the merge, and a job
+     calling `plugin-release-tag.yml` releases the plugin when the plugin is its marketplace's only
+     one or the job names a path in the plugin's folder. Such a job tags on any merge when its
+     `paths` input is empty; otherwise it tags only when a commit on the merge's first-parent line
+     since the newest `v*` tag changes one of its paths, the plan `release_tag.py` makes, so a merge
+     after an unreleased source change still waits for the release that carries both. When that job
+     would tag none (cc-notes#276 changed only `release-tag.yml`, `AGENTS.md` and its fragment), the
+     install prints `no release: <why>`, updates and proves nothing and exits 0, and the lander's outcome reads
+     `merged at <sha>; no release: …` instead of a 900-second wait ending in failure. A plugin no
+     such job releases, as Autobump releases `long-running`, waits as before. A plugin whose binary also has a Homebrew
      copy from `yasyf/tap` (cc-context's `ccx`, cc-inbox's `cci`, `cc-notes`, `cc-present`,
      `cc-review` and `cc-slack`) then gets that copy upgraded. Claude Code appends plugin bin
      directories after `/opt/homebrew/bin` on PATH, so a session's bare `ccx` runs Homebrew's copy.

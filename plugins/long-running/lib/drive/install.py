@@ -20,6 +20,9 @@ AFTER_UPDATE = {"cc-inbox": ("bin/cci", "serve")}
 HOMEBREW = {"cc-context": "ccx", "cc-inbox": "cci", "cc-notes": "cc-notes", "cc-present": "cc-present", "cc-review": "cc-review", "cc-slack": "cc-slack"}
 TAP = "yasyf/tap"
 RELEASE_VERSION = re.compile(r"\d+\.\d+\.\d+")
+VERSION_TAG = re.compile(r"refs/tags/(v(\d+)\.(\d+)\.(\d+))")
+WORKFLOWS = ".github/workflows/"
+RELEASE_TAG_JOB = re.compile(r" *uses: *\S*/plugin-release-tag\.yml(?:@\S+)?\s*")
 RELOADS = "reloads.json"
 UPDATE_LOCK = ".update.lock"
 RELOAD_WAIT_SECONDS = 30
@@ -43,6 +46,10 @@ class InstallError(Exception):
 
 
 class UnknownPlugin(InstallError):
+    pass
+
+
+class NoRelease(Exception):
     pass
 
 
@@ -114,22 +121,31 @@ def git(clone: str, *args: str, deadline: float) -> str:
     return run(["git", "-C", clone, *args], deadline)
 
 
-def newest_release(clone: str, plugin: str, deadline: float) -> tuple[str, str] | None:
-    """The release the marketplace's default branch names for the plugin and the plugin's folder in it, read over git, which the GitHub API's rate limit does not reach."""
+def listed(clone: str, plugin: str, deadline: float) -> tuple[dict, bool]:
+    """The plugin's entry in the marketplace on the default branch, read over git, which the GitHub API's rate limit does not reach, and whether it is the marketplace's only plugin."""
     git(clone, *FETCH, f"+HEAD:{DEFAULT_BRANCH}", deadline=deadline)
     marketplace = json.loads(git(clone, "show", f"{DEFAULT_BRANCH}:.claude-plugin/marketplace.json", deadline=deadline))
     entry = next((entry for entry in marketplace["plugins"] if entry["name"] == plugin), None)
     if entry is None:
         raise UnknownPlugin(f"the {marketplace['name']} marketplace names no plugin {plugin}")
+    return entry, len(marketplace["plugins"]) == 1
+
+
+def folder_of(entry: dict) -> str:
+    source = entry["source"]
+    return str(PurePosixPath(source.get("path", ".") if isinstance(source, dict) else source))
+
+
+def newest_release(clone: str, entry: dict, deadline: float) -> tuple[str, str] | None:
+    """The release the marketplace names for the plugin, its tag or the newest commit of the default branch changing its manifest, and the plugin's folder in it."""
     source = entry["source"]
     if isinstance(source, dict):
         if not (tag := source.get("ref")):
             return None
         fetch_tag(clone, tag, deadline)
-        return tag, str(PurePosixPath(source.get("path", ".")))
+        return tag, folder_of(entry)
     manifest = PurePosixPath(source) / ".claude-plugin" / "plugin.json"
-    ref = git(clone, "log", "-1", "--first-parent", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip()
-    return ref, str(PurePosixPath(source))
+    return git(clone, "log", "-1", "--first-parent", "--format=%H", DEFAULT_BRANCH, "--", str(manifest), deadline=deadline).strip(), folder_of(entry)
 
 
 def fetch_tag(clone: str, tag: str, deadline: float) -> None:
@@ -167,23 +183,102 @@ def release_lacking(clone: str, repo: str, named: tuple[str, str] | None, sha: s
     return None
 
 
+def indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def yaml_content(line: str) -> bool:
+    return bool(line.strip()) and not line.lstrip().startswith("#")
+
+
+def nested(lines: list[str], at: int) -> range:
+    """The indexes of the YAML lines nested under lines[at]: those after it indented deeper, blank and comment lines among them."""
+    end = next((i for i in range(at + 1, len(lines)) if yaml_content(lines[i]) and indent(lines[i]) <= indent(lines[at])), len(lines))
+    return range(at + 1, end)
+
+
+def child(lines: list[str], at: int, key: str) -> int | None:
+    """The index of the line holding key directly under lines[at], at the depth of its first nested key."""
+    keys = [i for i in nested(lines, at) if yaml_content(lines[i])]
+    return next((i for i in keys if indent(lines[i]) == indent(lines[keys[0]]) and lines[i].strip().startswith(f"{key}:")), None)
+
+
+def release_tag_paths(workflow: str) -> list[list[str]]:
+    """The pathspecs each job of a workflow calling plugin-release-tag.yml passes as its paths input, split on whitespace as release_tag.py splits them; an empty list for a job naming none, which releases on any change."""
+    lines = workflow.splitlines()
+    jobs = []
+    for at, line in enumerate(lines):
+        if not RELEASE_TAG_JOB.fullmatch(line):
+            continue
+        job = next(i for i in range(at - 1, -1, -1) if yaml_content(lines[i]) and indent(lines[i]) < indent(line))
+        given = child(lines, job, "with")
+        paths = None if given is None else child(lines, given, "paths")
+        if paths is None:
+            jobs.append([])
+            continue
+        value = lines[paths].split(":", 1)[1].strip()
+        jobs.append(("\n".join(lines[i] for i in nested(lines, paths)) if value[:1] in ("|", ">") else value.strip("\"'")).split())
+    return jobs
+
+
+def release_tag_jobs(clone: str, sha: str, deadline: float) -> list[tuple[str, list[str]]]:
+    """Each job of the repo's workflows at sha calling plugin-release-tag.yml, as its workflow's path and its pathspecs, the workflows' blobs fetched in one read since the clone holds none."""
+    files = [(meta.split()[2], path) for meta, path in (line.split("\t", 1) for line in git(clone, "ls-tree", sha, "--", WORKFLOWS, deadline=deadline).splitlines()) if meta.split()[1] == "blob"]
+    if not files:
+        return []
+    git(clone, *FETCH, *(blob for blob, _ in files), deadline=deadline)
+    return [(path, paths) for blob, path in files for paths in release_tag_paths(git(clone, "cat-file", "blob", blob, deadline=deadline))]
+
+
+def newest_tag(clone: str, deadline: float) -> str | None:
+    """The highest v* release tag on the remote, as release_tag.py versions from it, fetched; none when the repo has none, which release_tag.py waits on a hand tag for."""
+    tags = [(int(major), int(minor), int(patch), tag) for tag, major, minor, patch in VERSION_TAG.findall(git(clone, "ls-remote", "--tags", "--refs", "origin", "refs/tags/v*", deadline=deadline))]
+    if not tags:
+        return None
+    tag = max(tags)[3]
+    fetch_tag(clone, tag, deadline)
+    return tag
+
+
+def unreleased(clone: str, plugin: str, entry: dict, alone: bool, sha: str, deadline: float) -> str | None:
+    """Why no release of the plugin will hold sha, or None when one will, as release_tag.py plans at sha for each plugin-release-tag.yml job of the repo at sha that releases it, one that names a path in its folder or the marketplace's only plugin: a job naming no paths tags on any change; else it tags when a commit on sha's first-parent line since the newest v* tag changes one of its paths, unless that tag already holds sha. A plugin no such job releases, such as one Autobump bumps, is owed its release as before."""
+    folder = PurePosixPath(folder_of(entry))
+    jobs = [(workflow, paths) for workflow, paths in release_tag_jobs(clone, sha, deadline) if alone or any(PurePosixPath(path).is_relative_to(folder) for path in paths)]
+    if not jobs or any(not paths for _, paths in jobs):
+        return None
+    workflows = ", ".join(sorted({workflow for workflow, _ in jobs}))
+    if (tag := newest_tag(clone, deadline)) is None:
+        return f"no release: the repo has no v* tag for {workflows} to version a {plugin} release from, so its first release is tagged by hand"
+    if holds(clone, tag, sha, deadline):
+        return None
+    if any(git(clone, "log", "--first-parent", "--format=%H", f"{tag}..{sha}", "--", *paths, deadline=deadline).strip() for _, paths in jobs):
+        return None
+    return f"no release: no commit from {tag} to {sha[:12]} changes a path {workflows} tags a {plugin} release from, so the next release that does carries it"
+
+
 def bare_clone(clone: str, repo: str, deadline: float) -> None:
     run(["git", "init", "--bare", "--quiet", clone], deadline)
     git(clone, "remote", "add", "origin", f"https://github.com/{repo}", deadline=deadline)
 
 
 def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float, timeout: int) -> tuple[str, str]:
-    """The newest release the marketplace names for the plugin once it holds sha, its ref and the plugin's folder in it."""
+    """The newest release the marketplace names for the plugin once it holds sha, its ref and the plugin's folder in it; NoRelease at the first read where it lacks sha and the repo's release-tag workflow cuts no release holding it."""
     last = "no release read"
     failure = ""
+    owed = False
     bare_clone(clone, repo, deadline)
     while True:
         try:
-            named = newest_release(clone, plugin, deadline)
+            entry, alone = listed(clone, plugin, deadline)
+            named = newest_release(clone, entry, deadline)
             lacking = release_lacking(clone, repo, named, sha, deadline)
             failure = ""
             if named and lacking is None:
                 return named
+            if not owed:
+                if reason := unreleased(clone, plugin, entry, alone, sha, deadline):
+                    raise NoRelease(reason)
+                owed = True
             if lacking != last:
                 print(f"drive install: waiting for a {plugin} release holding {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
             last = lacking
@@ -367,7 +462,7 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             named = await_release(clone, repo, plugin, sha, deadline, timeout)
         else:
             bare_clone(clone, repo, deadline)
-            named = newest_release(clone, plugin, deadline)
+            named = newest_release(clone, listed(clone, plugin, deadline)[0], deadline)
         if named is None:
             raise InstallError(f"the {marketplace} marketplace names no release of {plugin}, so what it needs of its siblings does not read")
         manifest = json.loads(git(clone, "show", f"{named[0]}:{PurePosixPath(named[1]) / MANIFEST}", deadline=deadline))
@@ -557,10 +652,13 @@ def reload_main() -> int:
 
 
 def main(plugin_at_marketplace: str, sha: str | None, repo: str | None, timeout: int, drive: str | None) -> int:
-    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard and watch reopen on a newer long-running themselves, whose first save of a drive waits for this verb's install's lock, so the proof never meets a drive.json the newer install saved."""
+    """Wait for a release holding sha, its commit and each binary it pins, bring each sibling its manifest there needs up to that release first, Captain Hook.app only once he tapped Install now on the drive's card for it, update the plugin and its Homebrew twin until the bare binary holds sha, print the installed version, prove each fix the install made live, then reload every drive session on this Mac; each drive's dashboard and watch reopen on a newer long-running themselves, whose first save of a drive waits for this verb's install's lock, so the proof never meets a drive.json the newer install saved. A sha no release will hold prints why and installs nothing."""
     deadline = clock() + timeout
     try:
         version = install(plugin_at_marketplace, sha, repo, deadline, timeout, drive)
+    except NoRelease as reason:
+        print(reason)
+        return 0
     except InstallError as error:
         print(f"drive install: {error}", file=sys.stderr)
         return 1

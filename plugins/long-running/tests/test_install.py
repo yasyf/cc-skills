@@ -19,6 +19,43 @@ FOLDER = "plugins/long-running"
 INBOX = "yasyf/cc-inbox"
 INBOX_MANIFEST = "plugin/.claude-plugin/plugin.json"
 CCI_BINRUN = "plugin/bin/cci.binrun"
+RELEASE_TAG_WORKFLOW = ".github/workflows/release-tag.yml"
+RELEASE_TAG = """name: Release tag
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  release:
+    uses: yasyf/cc-skills/.github/workflows/plugin-release-tag.yml@64dfeead8756405a13ecb86fb51fd0b3bb5d83b4
+    with:
+      release-workflow: release.yml
+      paths: |
+        internal
+        go.mod
+        :(exclude,glob)**/*_test.go
+"""
+CC_SLACK_AUTOBUMP = """name: Autobump
+jobs:
+  autobump:
+    uses: yasyf/cc-skills/.github/workflows/plugin-autobump.yml@plugin-v1
+    with:
+      guard-plugins: "cc-slack"
+  release:
+    needs: autobump
+    uses: yasyf/cc-skills/.github/workflows/plugin-release-tag.yml@plugin-v1
+    with:
+      release-workflow: release.yml
+      dry-run: false
+"""
+CODEX_RELEASE_TAG = """jobs:
+  release:
+    uses: ./.github/workflows/plugin-release-tag.yml
+    with:
+      release-workflow: codex-release.yml
+      paths: "plugins/codex/*.go :(exclude)plugins/codex/*_test.go"
+"""
 IDLE = {"ok": True, "result": {"wait": {"condition": "tui-idle", "satisfied": True, "status": "running", "exitCode": None}}}
 BUSY = {"ok": False, "error": {"code": "timeout", "message": "timeout"}}
 SENT = {"ok": True, "result": {"send": {"accepted": True}}}
@@ -357,8 +394,8 @@ def test_slow_reads_count_against_the_timeout(fake: Callable[..., FakeGit], caps
     git = fake(["long-running--v1.0.2"], set(), call_seconds=8)
     assert install.main("long-running@skills", SHA, None, 60, None) == 1
     assert git.now == 1060
-    assert git.timeouts == [60, 52, 44, 36, 28, 20]
-    assert git.sleeps == [12]
+    assert git.timeouts == [60, 52, 44, 36, 28, 20, 12]
+    assert git.sleeps == [4]
     assert "timed out after 60s" in capsys.readouterr().err
     assert git.claude_calls() == []
 
@@ -492,6 +529,65 @@ def test_a_release_sync_merged_straight_back_holds_its_own_merge_commit(
     monkeypatch.setattr(install, "sleep", lambda seconds: pytest.fail("waited for a release that already holds its own sync merge"))
     install.await_release(str(tmp_path / "clone"), INBOX, "cc-inbox", synced, install.clock() + 120, 120)
     assert capsys.readouterr().err == ""
+
+
+@pytest.mark.parametrize(
+    ("workflow", "jobs"),
+    [
+        (RELEASE_TAG, [["internal", "go.mod", ":(exclude,glob)**/*_test.go"]]),
+        (CC_SLACK_AUTOBUMP, [[]]),
+        (CODEX_RELEASE_TAG, [["plugins/codex/*.go", ":(exclude)plugins/codex/*_test.go"]]),
+        ("jobs:\n  autobump:\n    uses: yasyf/cc-skills/.github/workflows/plugin-autobump.yml@plugin-v1\n", []),
+    ],
+    ids=["a paths block", "no paths", "inline paths", "no release-tag job"],
+)
+def test_each_release_tag_job_reads_as_the_pathspecs_release_tag_py_splits_from_its_paths_input(workflow: str, jobs: list[list[str]]) -> None:
+    assert install.release_tag_paths(workflow) == jobs
+
+
+def released_workflow(origin: Path) -> None:
+    commit_files(origin, "Ship the release tag workflow", {RELEASE_TAG_WORKFLOW: RELEASE_TAG})
+    tag_release(origin, "0.54.27")
+    merge_release(origin, "0.54.27")
+
+
+def test_a_merge_changing_no_path_its_release_tag_workflow_releases_from_owes_no_install(
+    inbox: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    released_workflow(inbox)
+    changed = {RELEASE_TAG_WORKFLOW: RELEASE_TAG + "\n", "AGENTS.md": "Each merge releases at once.", "internal/grep_test.go": "package grep"}
+    merge = commit_files(inbox, "Fix: each merge to main that changes cci's sources tags and releases cci (#566)", changed)
+    git_run = install.subprocess.run
+
+    def git_only(cmd: list[str], **options: object) -> subprocess.CompletedProcess:
+        assert cmd[0] == "git", f"ran {cmd} for a merge no release holds"
+        return git_run(cmd, **options)
+
+    monkeypatch.setattr(install.subprocess, "run", git_only)
+    monkeypatch.setattr(install, "sleep", lambda seconds: pytest.fail("waited for a release no workflow cuts"))
+    assert install.main("cc-inbox@cc-inbox", merge, INBOX, 120, None) == 0
+    assert capsys.readouterr().out.splitlines() == [
+        f"no release: no commit from v0.54.27 to {merge[:12]} changes a path {RELEASE_TAG_WORKFLOW} tags a cc-inbox release from, so the next release that does carries it"
+    ]
+
+
+@pytest.mark.parametrize("workflow_only_after", [False, True], ids=["the source merge", "a workflow-only merge after it"])
+def test_a_merge_on_a_line_that_changed_a_release_path_since_the_newest_tag_waits_for_the_release_that_carries_it(
+    inbox: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow_only_after: bool
+) -> None:
+    released_workflow(inbox)
+    merge = commit_files(inbox, "Fix: cci grep prints its cut line once (#565)", {"internal/grep.go": "package grep\n\nfunc cut() {}"})
+    if workflow_only_after:
+        merge = commit_files(inbox, "Fix: each merge to main that changes cci's sources tags and releases cci (#566)", {RELEASE_TAG_WORKFLOW: RELEASE_TAG + "\n"})
+    released: list[str] = []
+
+    def release_next(seconds: float) -> None:
+        tag_release(inbox, "0.54.28")
+        released.append(merge_release(inbox, "0.54.28"))
+
+    monkeypatch.setattr(install, "sleep", release_next)
+    install.await_release(str(tmp_path / "clone"), INBOX, "cc-inbox", merge, install.clock() + 120, 120)
+    assert len(released) == 1
 
 
 def test_installing_cc_inbox_moves_the_cci_daemon_onto_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
