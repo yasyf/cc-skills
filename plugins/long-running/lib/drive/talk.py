@@ -1,4 +1,5 @@
 import json
+import os
 import re
 from pathlib import Path
 
@@ -15,7 +16,7 @@ DM_ONLY = ("card", "tap_prs", "about")
 
 
 def say(name: str, post: dict) -> str:
-    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names and making the clock time its words promise his next line by the order's due, and one on an order in none of its threads posts nothing. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
+    """Post one message to his DM through cc-slack, or in a thread outside it named by channel_id, such as an alert's, or with a person's user id as channel_id and no thread in the group DM of that person, him and the bot, or reword one it made in any of those, and keep the same item on the drive's dashboard, in the words it was given, a catch-up's title and the open cards it closes with its only additions; a post in an order's thread is recorded on that order too, delivering the parts its report record names and making the clock time its words promise his next line by the order's due, and one on an order in none of its threads posts nothing. A report's post names each correction cci holds re it, which the post may lack, and a correction of a report held for his catch-up or carried by it posts nothing, naming where that report's copy is. A handler's result line is kept on its entry, for its done record to carry whole. What the drive's checks find in its words, the say hook hands Jev to judge against his words before this runs."""
     report = cli.report_attrs(post["record"]) if post.get("record") else {}
     if order := post.get("order"):
         data = state.load(name)
@@ -35,6 +36,9 @@ def say(name: str, post: dict) -> str:
     line = f"{'EDITED' if post.get('edit') else 'POSTED'} {reply['permalink']}"
     if card := reply.get("card_permalink"):
         line += f" CARD {card}"
+    if handler := state.handler_id(known, os.environ.get("CLAUDE_CODE_SESSION_ID")):
+        with state.edit(name) as data:
+            data["handlers"][handler]["posted"].append(line)
     if warning := reply.get("warning"):
         line += f" WARNING {warning}"
     if found := corrected.get(post.get("record")):

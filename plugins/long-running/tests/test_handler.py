@@ -9,7 +9,7 @@ import agent_brief
 import one_line_result
 import pytest
 import session_start
-from drive import agents, reads, state, tools
+from drive import agents, reads, slack, state, talk, tools
 
 Run = Callable[..., tuple[int, str]]
 HIS_BRIEF = "Message (his words): why is this card asking again?\nThread: D123 1794380463.481959\nDrive: demo\nScratch: {scratch}\nDeliverable: his answer, in his thread"
@@ -97,7 +97,7 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     bind(monkeypatch, handler, "h-session", transcript)
     data = state.load("demo")
     holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None}
-    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "held_back": []}
+    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "held_back": [], "posted": []}
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
@@ -149,6 +149,23 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
     assert state.own_transcript(data, data["jobs"]["j1"]) == str(transcript)
+
+
+def test_a_handlers_done_record_carries_each_post_as_say_returned_it_whatever_the_handler_retyped(
+    communicator: str, run: Run, tmp_path: Path, started: list[list[str]], monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    handler = start(run, tmp_path)
+    transcript = tmp_path / "h-session.jsonl"
+    bind(monkeypatch, handler, "h-session", transcript)
+    reply = "https://acme.slack.com/archives/D123/p1794479609881679?thread_ts=1794478810.620779&cid=D123"
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": reply, "thread_ts": "1794478810.620779"})
+    with monkeypatch.context() as scoped:
+        scoped.setenv("CLAUDE_CODE_SESSION_ID", "h-session")
+        assert talk.say("demo", {"text": "It copies on the new tree only.", "thread_ts": "1794478810.620779"}) == f"POSTED {reply}"
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}]) if argv[1] == "agents" else ""))
+    assert stop(monkeypatch, capsys, "h-session", transcript, "POSTED https://acme.slack.com/archives/D123/p1794479609881679; waits id demo:j1-7") == ""
+    assert started[-2][-1] == f"POSTED {reply}; waits id demo:j1-7"
 
 
 HIS_LINK = "https://acme.slack.com/archives/D123/p1794446196220659?thread_ts=1794440505.483109&cid=D123"
