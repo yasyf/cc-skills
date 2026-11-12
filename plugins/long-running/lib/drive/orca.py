@@ -27,6 +27,7 @@ FENCED = "consumer_fenced"
 GONE = {
     "dispatch_not_found": "Orca no longer holds its worker",
     "Unknown environment": "Orca no longer holds its Sprite's environment",
+    "selector_not_found": "Orca no longer holds its worker's terminal or worktree",
 }
 FINISHED = ("succeeded", "failed", "stopped", "abandoned")
 START_TIMEOUT_MS = "600000"
@@ -296,11 +297,13 @@ def brief_of(vm_brief: str) -> str:
     return vm_brief.rsplit(BRIEF_HEADING, 1)[-1].strip()
 
 
-def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd) -> str:
-    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left and the message it never read."""
+def handoff(brief: str, ended: dict, job: dict, text: str, end: LaneEnd, left: str | None) -> str:
+    """The brief of a lane taking over from one that died or finished: the job's brief, then what that lane left, what its Sprite holds that the new lane continues on, and the message it never read."""
     local = state.on_mac(job)
     if end.worktree:
         how, where = "finished", f"You continue the job in its terminal and checkout {ON_MAC if local else 'on the same Sprite'}, as it left them."
+    elif left:
+        how, where = "died", f"You continue the job on the same Sprite, in the checkout it left as it was, since what it holds on no remote could not be saved to GitHub: {left}. Read its git status and log before anything else."
     else:
         how, where = "died", (
             f"You take the job over {'in a fresh worktree ' + ON_MAC if local else 'on a fresh Sprite'} from its pushed branches; "
@@ -340,9 +343,11 @@ def tool(name: str) -> str:
     return str(Path(newest["installPath"]) / "bin" / name)
 
 
-def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None) -> dict:
-    """Start one builder through the orca plugin's launcher, on a Sprite or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
+def launch(drive: str, lane: str, brief: Path, checkout: Path, run: str, route: str | None, workspace: str | None) -> dict:
+    """Start one builder through the orca plugin's launcher, on a fresh Sprite, on the workspace's own Sprite in the checkout it holds, or, on the local route, in a fresh worktree of the checkout's Orca repository on this Mac; its success line, with the Sprite's prepared server."""
     env = {**os.environ, "WORKER_RUN": run, "WORKER_ENV": LANE_ENV, "WORKER_BIND": f"{DRIVE} bound --drive {drive} {run} --"}
+    if workspace:
+        env["WORKER_WORKSPACE"] = workspace
     local = route == state.LOCAL_ROUTE
     if local:
         env |= {"WORKER_LOCAL": "1", "WORKER_REPO": request("repo", "show", "--repo", f"path:{main_checkout(str(checkout))}")["repo"]["id"]}

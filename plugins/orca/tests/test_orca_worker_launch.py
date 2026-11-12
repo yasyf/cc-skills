@@ -220,8 +220,9 @@ class Launch:
     def cc_remote(self) -> set[tuple[str, str]]:
         return {(record["real"], record["env"]["CC_REMOTE_CONFIG"]) for record in self.records() if record["argv"][0] == "cc-remote"}
 
-    def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE) -> list[str]:
-        return ["cc-remote", "orca", "prepare", lane, "--warm", "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
+    def prepare(self, *extra: str, model: str = "claude-opus-5-5", kind: str = "claude", effort: str = "xhigh", lane: str = LANE, continued: str | None = None) -> list[str]:
+        opening = [continued, "--existing"] if continued else [lane, "--warm"]
+        return ["cc-remote", "orca", "prepare", *opening, "--provider", "sprites", "--profile", "agents", "--agent", kind, "--model", model, "--effort", effort, "--brief-file", str(self.brief), *extra]
 
     def tools(self) -> list[list[str]]:
         latest = [["gh", "api", f"repos/{repo}/releases/latest", "--jq", f'[.tag_name, (.assets[] | select(.name == "{bin}_linux_amd64") | .browser_download_url, .digest)] | @tsv'] for bin, repo, *_ in RELEASES]
@@ -412,7 +413,7 @@ class PreAllocationTest(LaunchTest):
 
 class AttemptTest(LaunchTest):
     def test_an_earlier_attempt_refuses_replay_before_prepare(self):
-        for shape in ("empty", "prepared", "started", "link"):
+        for shape in ("prepared", "started", "link"):
             with self.subTest(shape=shape):
                 launch = self.fresh()
                 launch.sprite()
@@ -463,6 +464,19 @@ class AttemptTest(LaunchTest):
         self.assertIn(f"{retired[1]} keeps the earlier attempt, whose prepare exited 1 before any worker started; preparing again", third.stderr)
         self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare()] * 3 + [*self.launch.tools(), self.launch.start()])
         self.assertEqual([sorted(path.name for path in attempt.iterdir()) for attempt in retired], [ALLOCATION_KEPT, ALLOCATION_KEPT])
+        self.assertEqual(self.launch.kept(), SPRITE_KEPT)
+
+    def test_a_launch_after_a_prepare_that_never_finished_keeps_it_and_prepares_again(self):
+        self.launch.attempt.mkdir()
+        (self.launch.attempt / "prepare.err").write_text("claiming pool-spare\n")
+        (self.launch.attempt / "allocation.json").write_text("")
+        self.launch.sprite()
+        result = self.launch.run()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
+        self.assertIn(f"{retired} keeps the earlier attempt, whose prepare never finished before any worker started; preparing again", result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(sorted(path.name for path in retired.iterdir()), ["allocation.json", "prepare.err"])
         self.assertEqual(self.launch.kept(), SPRITE_KEPT)
 
     def test_an_earlier_local_attempt_refuses_instead_of_retrying(self):
@@ -826,6 +840,39 @@ class SpriteTest(LaunchTest):
         self.assert_failed(self.launch, self.launch.run(), line, [*first, VERSION, CURRENT, self.launch.copy()])
         self.assertEqual(self.launch.kept(), TOOLS_KEPT)
 
+    def test_a_continued_workspace_prepares_its_own_sprite_with_existing_and_starts_there(self):
+        self.launch.sprite(allocated=PREPARED)
+        result = self.launch.run(WORKER_WORKSPACE=WORKSPACE)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.launch.calls(), [VERSION, CURRENT, self.launch.prepare(continued=WORKSPACE), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(json.loads(result.stdout), {"state": "ready", "task": "task_a", "dispatch": "ctx_a", "terminal": TERMINAL, "worktree": ROOT, "lane": LANE, "workspace": WORKSPACE, "allocation": "existing"})
+        self.assertEqual(json.loads(self.launch.receipt("prepared.json")), PREPARED)
+
+    def test_a_continued_workspace_takes_no_ref(self):
+        self.launch.sprite(allocated=PREPARED)
+        self.assert_refused(self.launch, self.launch.run(WORKER_WORKSPACE=WORKSPACE, WORKER_REF="dev"), "WORKER_WORKSPACE continues that Sprite's checkout as it is, so it takes no WORKER_REF; nothing was prepared", [])
+
+    def test_a_prepare_that_continued_another_workspace_attaches_nothing(self):
+        self.launch.sprite(allocated={**PREPARED, "workspace": "pool-other"})
+        result = self.launch.run(WORKER_WORKSPACE=WORKSPACE)
+        self.assert_failed(self.launch, result, f"{self.launch.attempt}/allocation.json holds an allocation kind inconsistent with its workspace, so the prepared worker stays idle and unattached", [VERSION, CURRENT, self.launch.prepare(continued=WORKSPACE)])
+
+    def test_continuing_a_workspace_keeps_an_unstarted_attempt_on_another_sprite_and_prepares_its_own(self):
+        self.launch.sprite()
+        self.launch.reply("orca orchestration worker-start", UNREACHED, UNREACHED)
+        self.launch.reply("orca orchestration request-show", request_state("absent"), request_state("absent"))
+        self.assertEqual(self.launch.run().returncode, 1)
+        held = {**PREPARED, "workspace": "pool-held"}
+        self.launch.sprite(allocated=held)
+        calls = self.launch.calls()
+        result = self.launch.run(WORKER_WORKSPACE="pool-held")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        retired = self.launch.attempt.with_name(f"{self.launch.attempt.name}.1")
+        self.assertEqual(result.stderr, f"{retired} keeps the earlier attempt, which prepared Sprite {WORKSPACE}, left claimed with an idle terminal, while this launch continues on Sprite pool-held; preparing again\n")
+        self.assertEqual(self.launch.calls(), [*calls, VERSION, CURRENT, self.launch.prepare(continued="pool-held"), *self.launch.tools(), self.launch.start()])
+        self.assertEqual(json.loads(result.stdout)["workspace"], "pool-held")
+        self.assertTrue((retired / "worker-start.unsent").is_file())
+
     def test_a_sprite_that_cannot_take_the_released_tools_stays_idle_and_a_relaunch_reruns_them_on_it(self):
         unreleased = {"out": "v0.95.43\n"}
         refused = {"rc": 1, "err": "a login shell runs ccx from /usr/local/bin/ccx, printing 'v0.89.18', not v0.95.43 from /home/sprite/.local/bin/ccx\n"}
@@ -951,11 +998,11 @@ class LocalTest(LaunchTest):
         self.assert_refused(self.launch, self.launch.run(model="gpt-6.1-sol", WORKER_LOCAL="1"), "the local route starts only claude, and codex runs gpt-6.1-sol; nothing launched", [])
 
     def test_the_local_route_refuses_sprite_checkout_settings(self):
-        for env in ({"WORKER_REF": "dev"}, {"WORKER_EXPECT_BASE": BASE}):
+        for env in ({"WORKER_REF": "dev"}, {"WORKER_EXPECT_BASE": BASE}, {"WORKER_WORKSPACE": WORKSPACE}):
             with self.subTest(env=env):
                 launch = self.fresh()
                 launch.local()
-                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), "WORKER_REF and WORKER_EXPECT_BASE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched", [])
+                self.assert_refused(launch, launch.run(model="fable", WORKER_LOCAL="1", **env), "WORKER_REF, WORKER_EXPECT_BASE and WORKER_WORKSPACE pick a Sprite's checkout; the local route takes WORKER_BASE_BRANCH; nothing launched", [])
 
     def test_the_local_worktree_takes_a_name_scoped_to_the_run(self):
         self.launch.local()

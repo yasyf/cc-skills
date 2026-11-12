@@ -181,8 +181,15 @@ omitted, the config supplies its ref. `WORKER_BASE_BRANCH` belongs to the
 explicit local worktree route. Do not pass it as the remote branch, strip
 arbitrary prefixes, or replace the requested ref with a commit ID from a local
 prelookup. The prepared record's `baseCommit` is the actual VM base. Setting
-`WORKER_BASE_BRANCH` on the remote route refuses; `WORKER_REF` and
-`WORKER_EXPECT_BASE` refuse on the local route.
+`WORKER_BASE_BRANCH` on the remote route refuses; `WORKER_REF`,
+`WORKER_EXPECT_BASE` and `WORKER_WORKSPACE` refuse on the local route.
+
+`WORKER_WORKSPACE` names a recorded cc-remote workspace to continue, such as the
+Sprite of a lane that died holding work on no remote. The launcher then calls
+`cc-remote orca prepare "<workspace>" --existing` in place of `--warm`, so the
+worker starts in that Sprite's checkout as it was left, and it takes no
+`WORKER_REF`. An unstarted attempt of the same brief on another Sprite moves to
+`<brief-stem>.worker.<n>`, leaving that Sprite claimed with its idle terminal.
 
 Ordinary branch movement is valid. Set `WORKER_EXPECT_BASE` only when the task
 requires an exact base. Supply a full 40- or 64-character lowercase commit ID. The
@@ -257,14 +264,15 @@ Each brief claims `<brief-stem>.worker` beside the brief. For
 `/briefs/lane-a.md`, that is `/briefs/lane-a.worker`. An existing directory,
 link, failed attempt, or legacy `<brief-stem>.dispatch.json` refuses replay.
 The exceptions are a fenced or unrecorded `worker-start`, described above, and
-a Sprite attempt whose prepare exited nonzero and that never ran `worker-start`.
+a Sprite attempt whose prepare exited nonzero or never finished, and that never
+ran `worker-start`.
 In that last case no task reached any worker, so launching the brief again moves
 the attempt to `<brief-stem>.worker.<n>`, keeping its files, and prepares afresh. The directory records `request.json` with the requested route, model, effort,
 tier, ref, optional expected base, and local brief hash/bytes.
 
 The remote route retains `allocation.json`, raw but for the brief a relaunch
 copied, `prepare.err`, and `prepare.status`. It validates the requested lane, actual workspace, requested
-ref, allocation kind, task HEAD, agent, brief, environment, terminal, and
+ref (none when it continues a workspace), allocation kind, task HEAD, agent, brief, environment, terminal, and
 `<repoId>::<projectRoot>` worktree before extracting the task into
 `prepared.json`. It then runs `worker-start` with `--on` the prepared
 environment, `--worktree id:<worktreeId>`, and `--terminal` the prepared
@@ -329,10 +337,10 @@ Retain receipts on every outcome. A fresh-create failure can run the normal
 CLI rollback; report the actual remaining resources and never replay an
 ambiguous attempt.
 
-### First worker on a recorded workspace
+### Worker on a recorded workspace
 
-Version `0.15.0` adds prepare-only `--existing` for a first worker on the exact
-recorded workspace and retained checkout:
+`--existing` prepares a worker on the exact recorded workspace and retained
+checkout:
 
 ```sh
 "<selected-cc-remote>" orca prepare "<recorded-workspace>" --existing \
@@ -342,10 +350,11 @@ recorded workspace and retained checkout:
 ```
 
 Do not pass `--ref`; this mode preserves the checkout and reports its actual
-base. It requires the recorded provider/profile/machine, an absent task, and no
-prior Orca runtime. A busy or previously claimed task refuses before another
-first launch. A completed worker is retained and reused through a new native
-Dispatch under the version-matched reuse contract.
+base. It requires the recorded provider/profile/machine. With no task recorded
+it also requires no prior Orca runtime. A recorded task is continued: prepare
+closes its forward, removes its Orca environment, restarts the Sprite's Orca
+runtime service, which ends the earlier worker, and replaces the task record and
+brief. A busy task refuses.
 
 Normal resume preparation still runs and may repair changed tools or configure
 services. Verify those effects before calling a measurement preinstalled. Report
