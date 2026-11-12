@@ -80,7 +80,6 @@ let shownHash = null;
 let queueAt = null;
 let queueSlot = 0;
 let picked = null;
-let composing = null;
 const expanded = new Set();
 const answers = new Map();
 const drafts = new Map();
@@ -419,7 +418,7 @@ function pictures(paths) {
 
 function fold(id, html, lines) {
   const open = expanded.has(id);
-  return `<div class="fold${open ? ' open' : ''}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div>`;
+  return `<div class="fold${open ? ' open' : ''}" id="fold:${esc(id)}" data-fold="${esc(id)}" style="--lines:${lines}">${html}</div><button type="button" class="linkish fold-more" data-more="${esc(id)}" aria-controls="fold:${esc(id)}" aria-expanded="${open}">${open ? 'Show less' : 'Explain more'}</button>`;
 }
 
 function fact(html, tip = '', tone = '') {
@@ -467,7 +466,6 @@ function move(delta) {
   queueSlot = at;
   history.replaceState(history.state, '', queueHref(filterOf(route().id), list[at]));
   picked = null;
-  composing = null;
   window.scrollTo(0, 0);
   render();
 }
@@ -480,32 +478,49 @@ function meaning(item, index) {
   return `<div class="rail-block" data-means><div class="eyebrow">${label}</div><div class="consequence-title">${esc(title)}</div>${detail ? `<p>${esc(detail)}</p>` : ''}</div>`;
 }
 
-function featureByTitle(title) {
-  const entry = features().find((each) => each.title === title);
-  return entry ? `<a href="#/feature/${esc(entry.id)}">${esc(title)}</a>` : esc(title);
+function heldRow(item, entry, held) {
+  const project = fileKey(entry.project);
+  const stream = fileKey(entry.workstream);
+  const finished = held.filter((each) => each.feature === entry.id).map((each) => (each.kind === 'pr' ? `${prKey(each.url)} green and approved` : `built on ${each.branch}`));
+  const others = entry.cards.filter((each) => each.url !== item.answer).map((each) => `“${each.title}”`);
+  const tip = [`${entry.title}.`, `${STOP_WORDS[entry.state]}.`, finished.length ? `Finished and held: ${finished.join(', ')}.` : '', `Waits on this answer${others.length ? ` and on ${others.join(', ')}` : ''}.`].filter(Boolean).join(' ');
+  return `<li class="held" data-tip="${esc(tip)}">
+    <nav class="crumbs" aria-label="Where it sits"><a href="${zoomHref('now', project)}">${esc(fileName(project))}</a><span aria-hidden="true">/</span><a href="${zoomHref('now', project, stream)}">${esc(fileName(stream))}</a></nav>
+    <a class="held-title" href="#/feature/${esc(entry.id)}">${esc(entry.title)}</a>
+    ${pill(STOP_WORDS[entry.state], STOP_TONES[entry.state])}
+    ${finished.length ? `<small>${esc(finished.join(' · '))}</small>` : ''}
+  </li>`;
+}
+
+function earlierWords(answer) {
+  const read = answer.mark === 'stands' ? 'The drive read these words against this question and found it still open.' : 'The drive has not read these words against this question yet.';
+  return `<li tabindex="0" data-tip="${esc(`“${answer.words}” ${read}`)}"><q>${esc(answer.words)}</q><span class="meta">${clock(answer.at)}</span></li>`;
 }
 
 function decisionRail(item) {
   const card = item.card;
+  const rail = item.rail ?? { held: [], asker: null, answers: [] };
   const index = picked?.card === item.answer ? picked.index : Math.max(0, card.options.indexOf(card.recommended));
-  const holds = [
-    item.holds ? `<li>${item.holds} finished ${item.holds === 1 ? 'change or built job waits' : 'changes or built jobs wait'} on this answer</li>` : '',
-    ...item.blocks.map((title) => `<li>${featureByTitle(title)}</li>`),
-  ].join('');
+  const tasks = item.blocks.map(({ id }) => featureOf(id)).sort((a, b) => (b.id === rail.asker?.feature) - (a.id === rail.asker?.feature));
   const links = [...(card.links ?? []), ...(card.refs ?? [])].filter((each) => !SLACK.test(each.url)).map((each) => `<li>${link(each.label, each.url)}</li>`).join('');
   const read = `${links ? `<ul class="rail-list">${links}</ul>` : ''}${pictures(card.pictures)}`;
-  return `<aside class="context-rail" aria-label="What each choice means">
+  return `<aside class="context-rail" aria-label="About this decision">
     ${meaning(item, index)}
-    ${holds ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="rail-list">${holds}</ul></div>` : ''}
+    <p class="rail-note"><span class="pointer">Hover or focus a choice to read it here.</span><span class="touch">Tap a choice to answer it.</span> An answer waits ${model.undo_seconds} seconds before it is sent, so Undo<span class="pointer"> or ⌘Z</span> takes it back.</p>
+    ${tasks.length ? `<div class="rail-block"><div class="eyebrow">What it holds up</div><ul class="held-list">${tasks.map((entry) => heldRow(item, entry, rail.held)).join('')}</ul></div>` : ''}
+    ${rail.asker ? `<div class="rail-block"><div class="eyebrow">Asked by</div><ul class="jobs">${jobRow(rail.asker)}</ul></div>` : ''}
+    ${rail.answers.length ? `<div class="rail-block"><div class="eyebrow">Your earlier words on it</div><ul class="said-list">${rail.answers.map(earlierWords).join('')}</ul></div>` : ''}
     ${read ? `<div class="rail-block"><div class="eyebrow">Read first</div>${read}</div>` : ''}
-    <p class="rail-note">Hover or focus a choice to read it here. An answer waits ${model.undo_seconds} seconds before it is sent, so Undo or ⌘Z takes it back.</p>
+    <div class="rail-block talk-block">
+      <div class="eyebrow">Ask about this, or answer in your own words</div>
+      ${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}
+      ${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}
+    </div>
   </aside>`;
 }
 
 function decisionCard(item, at, total) {
   const card = item.card;
-  const key = noticeKey(item);
-  const asking = composing === key;
   const rows = (card.rows ?? []).map((row) => `<li>${inline(row.text)}</li>`).join('');
   const body = [card.body ? prose(card.body) : '', rows ? `<ul class="rows">${rows}</ul>` : ''].join('');
   const facts = [
@@ -518,12 +533,10 @@ function decisionCard(item, at, total) {
       <div class="card-content">
         <div class="card-top"><span class="type-label">Decision</span>${counter(at, total)}</div>
         <h2 class="card-title" id="item-title">${inline(card.title || item.title)}</h2>
-        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 5)}</div>` : ''}
+        ${body ? `<div class="card-summary">${fold(`q:${item.answer}`, body, 8)}</div>` : ''}
         ${facts ? `<div class="facts">${facts}</div>` : ''}
         ${choices(item, true)}
       </div>
-      <div class="card-bottom"><button class="ask-open" data-ask="${esc(key)}" aria-expanded="${asking}">${asking ? 'Close' : 'Ask about this, or answer in your own words'}</button></div>
-      ${asking ? `<div class="ask-box">${item.thread ? talkPane(item.thread, cardTs(item.answer)) : ''}${sayBox(`q:${item.answer}`, item.answer, 'Ask a question, or answer in your own words', '', item.thread ?? '')}</div>` : ''}
     </article>
     ${decisionRail(item)}
   </div>`;
@@ -623,7 +636,7 @@ function queueScreen(id) {
   const unread = model.cards === 'live' ? '' : `<p class="refused">Your questions are not listed here: cc-slack ${esc(model.cards)}</p>`;
   const rest = shownQueue('all').length;
   const done = `<div class="focus-card done"><span class="bigcheck" aria-hidden="true">✓</span><h2>${filter === 'all' ? 'Nothing waits on you.' : NONE_LEFT[filter]}</h2>${filter !== 'all' && rest ? `<p><a href="#/queue/all">${rest} other ${rest === 1 ? 'thing waits' : 'things wait'} in All ›</a></p>` : ''}</div>`;
-  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](read?.ok ? { ...item, card: read.card } : item, at, list.length) : done;
+  const shown = item ? { question: decisionCard, tap: prCard, late: lateCard }[item.kind](read?.ok ? { ...item, card: read.card, rail: read.rail } : item, at, list.length) : done;
   return `<div class="page-head">
       <h1 class="h1">${list.length ? `${list.length} ${list.length === 1 ? 'thing waits' : 'things wait'} on you` : 'Your queue'}</h1>
       <nav class="subtabs" aria-label="Show">${filters}</nav>
@@ -1478,7 +1491,18 @@ function taskBody({ id }) {
 }
 
 function measure() {
-  for (const el of document.querySelectorAll('.fold')) el.classList.toggle('long', el.scrollHeight > el.clientHeight + 2 || el.classList.contains('open'));
+  for (const el of document.querySelectorAll('.fold')) {
+    el.style.removeProperty('--cut');
+    el.classList.toggle('long', el.scrollHeight > el.clientHeight + 2 || el.classList.contains('open'));
+    if (!el.matches('.long:not(.open)')) continue;
+    const top = el.getBoundingClientRect().top;
+    const lines = document.createRange();
+    lines.selectNodeContents(el);
+    const rows = [...el.querySelectorAll('tr')].map((row) => row.getBoundingClientRect()).map((box) => [box.top - top, box.bottom - top]);
+    const ends = [...[...lines.getClientRects()].map((box) => box.bottom - top), ...rows.map(([, bottom]) => bottom)];
+    const whole = ends.filter((end) => end <= el.clientHeight && !rows.some(([above, below]) => above < end && end < below));
+    if (whole.length) el.style.setProperty('--cut', `${Math.ceil(Math.max(...whole))}px`);
+  }
 }
 
 function render() {
@@ -1772,11 +1796,9 @@ document.addEventListener('click', (event) => {
     for (const pane of document.querySelectorAll('[data-pane]')) pane.hidden = pane.dataset.pane !== drtab.dataset.drtab;
     return;
   }
-  const folded = event.target.closest('.fold.long');
-  if (folded && !event.target.closest('a, button') && !getSelection().toString()) {
-    const id = folded.dataset.fold;
-    if (expanded.has(id)) expanded.delete(id);
-    else expanded.add(id);
+  const more = event.target.closest('[data-more]');
+  if (more) {
+    if (!expanded.delete(more.dataset.more)) expanded.add(more.dataset.more);
     return render();
   }
   const moved = event.target.closest('[data-move]');
@@ -1791,12 +1813,6 @@ document.addEventListener('click', (event) => {
   if (row) {
     prRows.set(row.dataset.item, Number(row.dataset.row));
     return render();
-  }
-  const ask = event.target.closest('[data-ask]');
-  if (ask) {
-    composing = composing === ask.dataset.ask ? null : ask.dataset.ask;
-    render();
-    return composing ? $('#main .ask-box textarea').focus() : $('#main [data-ask]').focus();
   }
 });
 document.addEventListener('mouseout', (event) => {
@@ -1822,10 +1838,10 @@ document.addEventListener('focusin', (event) => {
   }
   if (event.target.matches('#main .choice[data-preview]')) preview(event.target);
   if (event.target.matches('a[data-src]')) showSource(event.target);
-  else if (event.target.matches('[data-tip]')) showTip(event.target);
+  else if (event.target.closest('[data-tip]')) showTip(event.target.closest('[data-tip]'));
 });
 document.addEventListener('focusout', (event) => {
-  if (event.target.matches('a[data-src], [data-tip]')) hideSource();
+  if (event.target.closest('a[data-src], [data-tip]')) hideSource();
 });
 window.addEventListener('hashchange', () => {
   if (render() || history.state?.y !== undefined) window.scrollTo(0, history.state?.y ?? 0);
@@ -1889,12 +1905,6 @@ document.addEventListener('keydown', (event) => {
     event.preventDefault();
     next.click();
     return next.focus();
-  }
-  if (event.key === 'Escape' && composing && event.target.closest?.('#main') && !document.querySelector('dialog[open]')) {
-    event.preventDefault();
-    composing = null;
-    render();
-    return $('#main [data-ask]').focus();
   }
   const writing = event.target.closest?.('input, textarea');
   if ((event.metaKey || event.ctrlKey) && !event.shiftKey && event.key.toLowerCase() === 'z' && !writing) {

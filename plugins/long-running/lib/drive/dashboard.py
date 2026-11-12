@@ -368,12 +368,12 @@ def handler(port: int, net: Tailnet | None, board: Board) -> type[BaseHTTPReques
                 self.answer(json.loads(self.rfile.read(int(self.headers["Content-Length"]))), f"{page}/")
 
         def card(self, answer: str) -> None:
-            found = next((item["card"] for item in board.model["queue"] if item.get("answer") == answer), None)
+            found = next((item for item in board.model["queue"] if item.get("answer") == answer), None)
             if not found:
                 self.answered(404, {"error": GONE})
                 return
-            drawn = {path: json.loads(source.read_text()) for path in card_pictures(found) if (source := Path(path).with_name("source.json")).is_file()}
-            self.answered(200, {"card": found, "visuals": drawn})
+            drawn = {path: json.loads(source.read_text()) for path in card_pictures(found["card"]) if (source := Path(path).with_name("source.json")).is_file()}
+            self.answered(200, {"card": found["card"], "rail": found.get("rail"), "visuals": drawn})
 
         def task(self, order_id: str) -> None:
             found = next((entry for group in board.model["status"] for entry in group["features"] if entry["id"] == order_id), None)

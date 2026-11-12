@@ -12,13 +12,11 @@ SUBJECT_TERMS = 3
 
 def asking(data: dict, found: dict) -> dict[str, dict]:
     """Every card asking him and every PR not yet live, by the key a mark names it with: each open question card by its waits id, each PR waiting on his tap, then each other open PR and each merged one whose job is still at work, by its PR key."""
-    drawn = {view.message_key(question["card"]): job_id for job_id, job in data["jobs"].items() for question in job["questions"] if question["card"]}
+    asker = view.asked_by(data, found)
     asked = {}
     for card in found["questions"]:
-        key = card["card"].get("waits") or view.message_key(card["url"])
-        named = key.partition(":")[2].partition("-")[0]
-        job_id = drawn.get(view.message_key(card["url"])) or (named if named in data["jobs"] else None)
-        asked[key] = {
+        job_id = asker[card["url"]]
+        asked[card["card"].get("waits") or view.message_key(card["url"])] = {
             "kind": "question",
             "title": card["question"],
             "job": job_id,
