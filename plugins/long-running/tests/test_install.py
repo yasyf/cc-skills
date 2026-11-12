@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 
 import pytest
 from conftest import commit_files, git_in
-from drive import github, install, settled, state
+from drive import card, cli, dashboard, github, install, settled, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -237,6 +237,7 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install, "APP_PLIST", git.app)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
+        monkeypatch.setattr(dashboard, "serving", lambda name, port: None)
         return git
 
     return make
@@ -1005,6 +1006,63 @@ def test_a_proof_file_that_fails_takes_blocked_and_closes_nothing(config: Path, 
     assert state.load("demo")["orders"]["o1"]["proof"] is None
     assert not [call for call in git.other_calls() if call[0] == "cci"]
     assert proof_events() == [("yasyf/cc-skills#7", f"{install.PROOF_FAILED}: {blocked.removeprefix('BLOCKED ')}")]
+
+
+def test_a_pr_merged_and_proved_before_the_watch_reads_it_names_its_close_report_by_the_title_drive_pr_add_read(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], on_github: dict
+) -> None:
+    proving(config, tmp_path, fake([BUILD], {BUILD}), 0)
+    title = "Fix: an owner record about the drive adds its Drive tooling: order in the same record call"
+    on_github["title"] = title
+    with state.edit("demo") as data:
+        data["prs"].clear()
+        data["jobs"]["j1"]["prs"] = []
+    cli.add_pr("demo", "yasyf/cc-skills#7", "j1", card.read("yasyf/cc-skills#7"))
+    with state.edit("demo") as data:
+        data["prs"]["yasyf/cc-skills#7"].update(state="merged", merged_sha=SHA)
+    install.prove("demo", "j1", 900)
+    report = state.load("demo")["orders"]["o1"]["close_report"]
+    assert (report["text"], report["body"].splitlines()[0]) == (f"POST {title} is live in long-running@skills 1.0.3", f"Fixed: {title}, {URL}")
+
+
+def newest_in_the_user_scope(config: Path, git: FakeGit) -> None:
+    plugins = json.loads((config / "plugins" / "installed_plugins.json").read_text())["plugins"]
+    git.write_installed(plugins | {"long-running@skills": [entry for entry in plugins["long-running@skills"] if entry["scope"] == "user"]})
+
+
+def test_a_proof_file_runs_once_the_drives_dashboard_runs_the_long_running_just_installed_and_not_before(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    newest_in_the_user_scope(config, git)
+    shown = tmp_path / "dashboard-code"
+    script.write_text(f"#!/bin/sh\ngrep -qx /cache/long-running/1.0.3/lib/drive {shown} || {{ echo 'the dashboard does not run the installed long-running'; exit 1; }}\n")
+    answers = iter([{"code": "/cache/1.0.2/lib/drive"}, {"code": "/cache/1.0.2/lib/drive"}, {"code": "/cache/long-running/1.0.3/lib/drive"}])
+
+    def serving(name: str, port: int) -> dict:
+        drawn = next(answers)
+        shown.write_text(drawn["code"] + "\n")
+        return drawn
+
+    monkeypatch.setattr(dashboard, "serving", serving)
+    install.prove("demo", "j1", 900)
+    assert git.sleeps == [dashboard.HANDOVER_POLL_SECONDS, dashboard.HANDOVER_POLL_SECONDS]
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"DONE {URL} live: {script} exits 0 on long-running@skills 1.0.3"
+
+
+def test_a_dashboard_still_on_an_older_install_at_the_deadline_takes_blocked_naming_it_and_runs_no_proof_file(
+    config: Path, tmp_path: Path, fake: Callable[..., FakeGit], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    git = fake([BUILD], {BUILD})
+    script = proving(config, tmp_path, git, 0)
+    newest_in_the_user_scope(config, git)
+    monkeypatch.setattr(dashboard, "serving", lambda name, port: {"code": "/cache/1.0.2/lib/drive"})
+    install.prove("demo", "j1", 60)
+    stale = f"the dashboard on port {dashboard.port_of('demo')} still runs /cache/1.0.2, not the newest long-running installed, /cache/long-running/1.0.3"
+    assert state.load("demo")["jobs"]["j1"]["said"] == f"BLOCKED {URL}: {script} exits unrun on long-running@skills 1.0.3: {stale}"
+    assert state.report_path("demo", "j1").with_suffix(".proof.txt").read_text() == stale
+    assert state.load("demo")["orders"]["o1"]["proof"] is None
 
 
 def test_a_merge_no_release_will_carry_takes_blocked_naming_it_and_runs_no_proof_file(

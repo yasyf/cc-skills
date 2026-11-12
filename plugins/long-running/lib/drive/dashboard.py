@@ -46,6 +46,7 @@ LOCAL_CALLERS = {LOOPBACK, "::1", "::ffff:127.0.0.1"}
 PORT_BASE = 41000
 PORT_SPAN = 1000
 START_SECONDS = 10
+HANDOVER_POLL_SECONDS = 1
 ANSWER_SECONDS = 60
 CERT_SECONDS = 120
 CERT_REFRESH_SECONDS = 24 * 60 * 60
@@ -165,11 +166,11 @@ def card_pictures(card: dict) -> set[str]:
 
 
 def changes(name: str) -> Iterator[None]:
-    """Yield at once, then after each write kqueue reports to the drive's state directory or its events log."""
+    """Yield at once, then after each write kqueue reports to the drive's state directory, its events log or Claude Code's plugins folder, where each install replaces installed_plugins.json, so an install wakes the dashboard as a change to the drive does."""
     queue = select.kqueue()
     watched: dict[Path, int] = {}
     while True:
-        for path in (state.drive_dir(name), state.events_path(name)):
+        for path in (state.drive_dir(name), state.events_path(name), install.config_dir() / "plugins"):
             if path not in watched and path.exists():
                 watched[path] = os.open(path, os.O_RDONLY)
                 flags = select.KQ_NOTE_WRITE | select.KQ_NOTE_EXTEND
@@ -611,6 +612,15 @@ def serving(name: str, port: int) -> dict | None:
     if drawn.get("drive") != name:
         raise DriveError(f"port {port} serves something else; pass --port")
     return drawn
+
+
+def await_newest(name: str, deadline: float) -> None:
+    """Wait until the drive's dashboard runs the newest long-running installed, whose drive takes the dashboard's place on its port once the install wakes it; nothing to wait for while nothing serves the port, since its launch agent starts it on the newest. Refused at the deadline, naming the install it still runs."""
+    port = port_of(name)
+    while (drawn := serving(name, port)) and (runs := Path(drawn["code"]).parents[1]) != (newest := install.newest_drive().resolve().parents[1]):
+        if install.clock() >= deadline:
+            raise DriveError(f"the dashboard on port {port} still runs {runs}, not the newest long-running installed, {newest}")
+        install.sleep(HANDOVER_POLL_SECONDS)
 
 
 def wait_until(ready: Callable[[], bool], log: Path) -> None:

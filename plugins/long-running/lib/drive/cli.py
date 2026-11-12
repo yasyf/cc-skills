@@ -2098,7 +2098,7 @@ def pr_add(args: argparse.Namespace) -> int:
 
 
 def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = None, exempt: str | None = None, no_tap: bool = False) -> dict:
-    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
+    """Register a PR on its job from its GitHub read, refused as `drive pr add` refuses, keeping the title it read, so a PR merged and proved before the watch's next read is named by it; the PR as registered, the job's first in place of each wait on its change. `drive pr add` runs it for a builder on this Mac, and the watch for each PR a remote lane's mail names, so a PR built on a Sprite lands as one built here does."""
     from drive import view
 
     url = state.pr_url(key)
@@ -2125,7 +2125,7 @@ def add_pr(name: str, key: str, job_id: str, read: dict, port_of: int | None = N
             )
         wants_tap = state.guarded(key) or not tooling(data["orders"][job["order"]])
         pr = data["prs"].setdefault(key, state.new_pr(url, job_id, job["order"]) | {"wants_tap": wants_tap})
-        pr.update(job=job_id, order=job["order"], author=author)
+        pr.update(job=job_id, order=job["order"], author=author, title=read["title"])
         if port_of:
             pr.update(port_of=port_of, exempt="pure port", wants_tap=False)
         if exempt:
@@ -3585,9 +3585,10 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, all of them yasyf/* ones, and it keeps an"
-            " executable proof file: install each plugin a merge changes whose newest install lacks it, run the proof file with those"
-            " plugins' bin folders first on PATH, keep its output beside the job's report, take DONE on exit 0 and BLOCKED otherwise or"
-            " when an install fails or no release will carry a merge, and keep the close report of an order the DONE finishes for the"
+            " executable proof file: install each plugin a merge changes whose newest install lacks it, wait until the drive's dashboard"
+            " runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH, keep its output"
+            " beside the job's report, take DONE on exit 0 and BLOCKED otherwise or when an install fails, no release will carry a merge"
+            " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"
             " watch to post; refused, naming who proves it instead, for a merge outside yasyf/* or a job keeping no proof file"
         ),
     )
