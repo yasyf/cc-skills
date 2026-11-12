@@ -304,7 +304,7 @@ When it is answered, replaced or redone:
 **A PR card.**
 
 - Nobody writes it: a handler draws one card per stack from the `ready` record the watch sends once
-  its PRs are green and approved. It is only for a PR that
+  its PRs are green, approved and checked against his words at their heads. It is only for a PR that
   carries out an order of his whose words ask for it, or a `Forge-AI/*` drive tooling fix no exempt
   class covers, which serves its own order by [Scope](scope.md).
 - The line above it quotes that order: his words, or the tooling order's

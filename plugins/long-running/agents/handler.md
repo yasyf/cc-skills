@@ -29,6 +29,7 @@ Record: <the cci seq the coordinator or the meta session sent> Drive: <name> Scr
 - Read the record with the cci `read` tool, `seqs: [<seq>]`, for its kind, body and attrs. The attrs sit in brackets on its line, such as `[job=j502 order=o202 thread=1794341624.882209]`, and you derive everything else from them: `thread` and `job` first, and `drive status <o>` only for a record that carries none.
 - A line cut to fit ends in `…`, and the record's whole text opens its body: read that, because the cut drops its middle. When a body names `drive job report <j>`, run it for the job's kept return.
 - A drive tooling builder's result is briefed as `Job: <j> Drive: <name> Scratch: <your scratch folder>`.
+- `drive handler` starts one handler per message of his at a time, so a record that carries, answers or shares a thread with a message another handler was at work on waits until that handler's `done` record names it. Read his thread before you post, and post only what that handler's posts left out, or nothing when they already said it.
 
 A message of his is briefed as:
 

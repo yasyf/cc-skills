@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Self
 
-from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, slack, state, superseded, view
+from drive import agents, codex, dashboard, github, land, limits, orca, page, reads, served, slack, state, superseded, view
 from drive.install import config_dir
 from drive.render import cut, subscribe, when
 
@@ -57,6 +57,7 @@ READY_LINE = re.compile(r"READY\b")
 STUCK_WORDS = {
     "red": "still red",
     "card": "green and approved with no card drawn",
+    "unchecked": "green and approved, its change at this head not checked against his words by drive pr set --serves, with no card drawn",
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
@@ -197,7 +198,9 @@ def stuck_as(pr: dict, data: dict, cards: dict | None) -> str | None:
         return "red"
     if cards is None or land.landing(pr) or not moves_owed(pr, data, cards):
         return None
-    return step if (step := state.owed_step(pr)) in STUCK_WORDS else None
+    if (step := state.owed_step(pr)) == "card" and not state.checked(data, pr):
+        return "unchecked"
+    return step if step in STUCK_WORDS else None
 
 
 def stuck_for(pr: dict, data: dict, cards: dict | None, moment: datetime) -> str | None:
@@ -394,10 +397,11 @@ def order_words(data: dict, order_id: str) -> str:
 
 
 def card_owed(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card, untapped, no card of his asking his tap on it, and none sent for its head; the order it serves is its job's until `drive pr set --serves` names another."""
+    """Whether the watch owes a PR his card's ready record: it waits on its next step alone, that step his card, its change at its head checked against the words of every order it serves, untapped, no card of his asking his tap on it, and none sent for its head; the order it serves is its job's until `drive pr set --serves` names another."""
     return (
         view.next_step(pr, data, cards)
         and state.owed_step(pr) == "card"
+        and state.checked(data, pr)
         and not pr["tap"]
         and pr["ready_said"] != pr["head"]
         and view.card_for(cards["pr_cards"], pr["url"]) is None
@@ -426,10 +430,11 @@ def unchecked_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def returned_at(key: str, pr: dict, data: dict, cards: dict) -> str | None:
-    """When the PR's builder returned READY naming it, while the PR waits on the coordinator's check alone: open, his card owed and untapped, no design recorded, no wait and no card of his drawn."""
+    """When the PR's builder returned READY naming it, while the PR waits on the coordinator's check alone: open, his card owed and untapped, no design recorded or its change at its head not checked against his words, no wait and no card of his drawn."""
     builder = data["jobs"][pr["job"]]
     returned = builder["state"] == "waiting" and READY_LINE.match(builder["said"] or "") and key in state.named_prs(data, builder["order"], builder["said"])
-    if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"] or pr.get("design") or pr["waits"] or view.card_for(cards["pr_cards"], pr["url"]):
+    settled = pr.get("design") and state.checked(data, pr)
+    if not returned or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"] or settled or pr["waits"] or view.card_for(cards["pr_cards"], pr["url"]):
         return None
     return builder["updated"]
 
@@ -1398,6 +1403,7 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         found, source = view.stored_cards(watcher.name)
         watcher.cards = found if source == "live" else None
         lines += github_lines(watcher, moment)
+        lines += carried_lines(watcher, moment)
         landed(watcher)
         lines += settle_lines(watcher, moment)
         lines += rework_lines(watcher, moment)
@@ -1421,6 +1427,17 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
         watcher.ticked_at = moment
         lines += tick_lines(watcher, moment)
     return handed(watcher, [LINE_BREAKS.sub(" ", line) for line in lines], moment)
+
+
+def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so its card draws with no second judge; a diff read that fails is retried and said as any GitHub read is."""
+    data = state.load(watcher.name)
+    try:
+        served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
+    except state.DriveError as error:
+        return read_failed(watcher, "moved heads' diffs", error, moment)
+    watcher.failures.pop("moved heads' diffs", None)
+    return []
 
 
 def landed(watcher: Watcher) -> None:

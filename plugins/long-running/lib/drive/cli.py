@@ -11,7 +11,7 @@ from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from drive import agents, artifacts, brief, github, land, limits, orca, picture, place, reads, render, settled, slack, state, watch
+from drive import agents, artifacts, brief, github, land, limits, orca, picture, place, reads, render, served, settled, slack, state, watch
 from drive.state import DriveError
 
 DRIVE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
@@ -1413,6 +1413,11 @@ def job_report(args: argparse.Namespace) -> int:
             raise DriveError(f"stdin held no report for {args.id}; pipe its whole return in: printf '%s\\n' '<line>' ... | drive job report {args.id} -")
         if refused := brief.report_refusal(name, data, args.id, whole):
             raise DriveError(f"{args.id}: refused, nothing kept: {refused}")
+        if job["kind"] == "builder" and re.match(r"READY\b", whole.strip()):
+            try:
+                served.check(name, args.id, [], [])
+            except DriveError as error:
+                raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         kept.parent.mkdir(exist_ok=True)
         kept.write_text(whole)
         with state.edit(name) as data:
@@ -1807,6 +1812,7 @@ def pr_set(args: argparse.Namespace) -> int:
     if args.serves:
         refuse_a_crossed_order(name, known, order, args.serves, f"{key} --serves")
         refuse_an_unwritten_rule(known, key)
+        refuse_a_change_against_his_words(name, known, key, args.serves, args.tap)
     if args.serves and not args.design and (known["prs"][key]["wants_tap"] if args.tap is None else args.tap):
         raise DriveError(
             "--serves on a PR waiting on his tap needs --design asked:<his answer id or card permalink> for each design decision"
@@ -1860,6 +1866,16 @@ def pr_set(args: argparse.Namespace) -> int:
     out = "".join(f"\n{shipping}, so it is not a wait" for shipping in shipped.values())
     line = render.pr_line(key, pr) + served + untapped + out + "".join(f"\nwithdrew his card {card}: {why}" for card in withdrawn) + corrected
     return emit(args, line, {"key": key, "withdrawn": withdrawn, **pr})
+
+
+def refuse_a_change_against_his_words(name: str, data: dict, key: str, serves: str, tap: bool | None) -> None:
+    """Refuse a PR serving an order while its change at its head, judged with its job's other PRs his card waits on, goes against the words of that order, its job's or any its job carries, a PR this --tap sets waiting on his tap judged too, as a remote lane's READY reaches the drive with no drive job report to judge it; one its builder's READY passed at this head is not judged again."""
+    job_id = data["prs"][key]["job"]
+    try:
+        served.check(name, job_id, [serves], [key] if tap else [])
+    except served.Against as error:
+        resume = f"drive job resume {job_id} with this refusal" if data["jobs"][job_id]["where"] == "remote" else f"a fresh builder on {job_id} briefed with this refusal"
+        raise DriveError(f"{key}: refused, nothing set: {error}. Send it back by {resume}") from None
 
 
 def refuse_an_unwritten_rule(data: dict, key: str) -> None:
@@ -2216,11 +2232,26 @@ def handler(args: argparse.Namespace) -> int:
         )
     if re.search(rf"^{re.escape(agents.HIS_WORDS)}:", args.brief, re.MULTILINE):
         watch.hear(name, state.now(), args.away)
-    if folder := agents.scratch(args.brief):
-        folder.mkdir(parents=True, exist_ok=True)
+    holds = agents.holds(args.brief)
+    data = state.load(name)
+    if (held := agents.holder(data, holds)) and agents.gone(data["handlers"][held]["session"]):
+        with state.edit(name) as data:
+            data["handlers"].pop(held, None)
     handler_id = uuid.uuid4().hex[:8]
     with state.edit(name) as data:
-        data["handlers"][handler_id] = {"session": None, "started": state.stamp()}
+        if held := agents.holder(data, holds):
+            entry = data["handlers"][held]
+            his = entry["holds"]["link"] or f"record {entry['holds']['record']}"
+            kept = holds["record"] and holds["record"] != entry["holds"]["record"]
+            if kept and args.brief.strip() not in entry["held_back"]:
+                entry["held_back"].append(args.brief.strip())
+        else:
+            data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": holds, "held_back": []}
+    if held:
+        then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
+        raise DriveError(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
+    if folder := agents.scratch(args.brief):
+        folder.mkdir(parents=True, exist_ok=True)
     try:
         agents.start_handler(name, handler_id, args.brief)
     except reads.ReadError as error:

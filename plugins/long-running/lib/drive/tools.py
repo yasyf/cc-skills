@@ -106,7 +106,9 @@ def verb_tools() -> list[dict]:
                 "Start a long-running:handler on its brief as its own claude --bg session, recording that he wrote when the"
                 " brief carries his words, so his message takes the ack and this one call. Returns started <its id>; the"
                 " line it ends on comes back as one cci done record from lane handler when it ends, and its session ends"
-                " with it."
+                " with it. One message of his has one handler at a time: it refuses a brief while a live handler holds the"
+                " same record, the same message of his, or his message in the thread of a record that reaches none, and"
+                " keeps a refused record's brief for that handler's done record to name."
             ),
             "inputSchema": {"type": "object", "properties": {**schema(leaf("handler"))["properties"], "drive": DRIVE, "dry_run": DRY_RUN}, "required": ["brief"]},
         },

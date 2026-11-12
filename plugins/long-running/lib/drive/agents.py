@@ -8,6 +8,10 @@ from drive import reads, render, state
 from drive.brief import BRIEF_JOB, carried
 
 RECORD = re.compile(r"^Record: (\d+)\b", re.MULTILINE)
+LINK = re.compile(r"^Link:\s*(\S+)", re.MULTILINE)
+THREAD = re.compile(r"^Thread:\s*\S+\s+(\d+\.\d+)", re.MULTILINE)
+HIS_KINDS = ("owner", "answer")
+RE_HOPS = 8
 HANDLER = "long-running:handler"
 HIS_WORDS = "Message (his words)"
 SCRATCH = re.compile(r"Scratch:\s*(\S+)")
@@ -74,6 +78,57 @@ def scratch(prompt: str) -> Path | None:
     return Path(match[1].rstrip(".,;")).expanduser() if match else None
 
 
+def holds(prompt: str) -> dict:
+    """What of his a handler's brief works on: the message of his it names, by the Link of his words or for a record by the message it carries or answers, the thread that message is in, and the record it reads in."""
+    if re.search(rf"^{re.escape(HIS_WORDS)}:", prompt, re.MULTILINE):
+        link = linked[1] if (linked := LINK.search(prompt)) else None
+        found = state.CARD_LINK.search(link or "")
+        message = f"{found[2]}.{found[3]}" if found else None
+        thread = (found and found[4]) or (named[1] if (named := THREAD.search(prompt)) else message)
+        return {"message": message, "link": link, "thread": thread, "record": None}
+    if named := RECORD.search(prompt):
+        return answered(named[1]) | {"record": named[1]}
+    return {"message": None, "link": None, "thread": None, "record": None}
+
+
+def answered(seq: str) -> dict:
+    """The message of his a record carries or answers: an owner or answer record's own permalink, else that of the record its re names, followed up the chain; the record's thread either way."""
+    record = shown(seq)
+    thread = record["fields"].get("attrs", {}).get("thread")
+    for _ in range(RE_HOPS):
+        if record["kind"] in HIS_KINDS and (found := state.CARD_LINK.search((record.get("refs") or {}).get("url") or "")):
+            return {"message": f"{found[2]}.{found[3]}", "link": record["refs"]["url"], "thread": thread or found[4] or f"{found[2]}.{found[3]}"}
+        if not record.get("re"):
+            break
+        record = shown(str(record["re"]))
+    return {"message": None, "link": None, "thread": thread}
+
+
+def shown(seq: str) -> dict:
+    try:
+        return json.loads(reads.run(["cci", "show", seq, "--json"], Path.cwd()).splitlines()[0])
+    except reads.ReadError as error:
+        raise state.DriveError(f"record {seq} could not be read: {error}") from None
+
+
+def holder(data: dict, held: dict) -> str | None:
+    """The handler already at work on what a new brief holds: the same record, the same message of his, or, for a record naming no message of his, one at work on his message in the record's thread, so one message of his has one handler at a time whichever record names it."""
+    for handler_id, entry in data["handlers"].items():
+        other = entry["holds"] or {}
+        if held["record"] and held["record"] == other.get("record"):
+            return handler_id
+        if held["message"] and held["message"] == other.get("message"):
+            return handler_id
+        if held["record"] and not held["message"] and held["thread"] and other.get("message") and other.get("thread") == held["thread"]:
+            return handler_id
+    return None
+
+
+def gone(session: str | None) -> bool:
+    """Whether a bound handler's session is no longer one `claude agents` lists, as when it died before its Stop hook ended it."""
+    return bool(session) and session not in {row.get("sessionId") for row in json.loads(reads.run(["claude", "agents", "--json"], Path.cwd()))}
+
+
 def start_handler(name: str, handler: str, prompt: str) -> None:
     """Start a handler as its own `claude --bg` session on its agent definition, which sets its model, in this session's checkout, its SessionStart hook binding it to the drive by the id in its environment, and `CCI_PARENT_SESSION` naming the communicator's session, so cci binds the handler's session to no lane and it posts as the communicator's lanes."""
     env = {state.HANDLER_ENV: f"{name}/{handler}", "CCI_PARENT_SESSION": state.saved(name)["roles"]["communicator"]["session"]}
@@ -90,13 +145,15 @@ def bind_handler(payload: dict, handler: str) -> None:
 
 
 def end_handler(payload: dict) -> None:
-    """Hand the line a handler ended on to the communicator as one cci record and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
+    """Hand the line a handler ended on to the communicator as one cci record, naming each brief drive handler held back while it worked on his message, and remove its session, which would otherwise sit idle holding its memory: `claude rm` takes the short id `claude agents` lists for it. A job the handler held keeps its transcript's path, since the drive forgets the handler."""
     name = state.session_drives(payload["session_id"])[0]
     with state.edit(name) as data:
-        del data["handlers"][payload["agent_id"]]
+        ended_handler = data["handlers"].pop(payload["agent_id"])
         if job_id := state.agent_job(data, payload["agent_id"]):
             data["jobs"][job_id]["transcript"] = payload["agent_transcript_path"]
     line = (payload.get("last_assistant_message") or "").strip()
+    if held_back := ended_handler["held_back"]:
+        line += f" | held back for this handler, start each now: {' | '.join(held_back)}"
     cwd = Path(payload["cwd"])
     reads.run(["cci", "post", "--drive", name, "--lane", "handler", "--kind", "done", "--to", f"communicator@{name}", "--id", f"handler-{payload['agent_id']}", "--text", line], cwd)
     listed = json.loads(reads.run(["claude", "agents", "--json"], cwd))

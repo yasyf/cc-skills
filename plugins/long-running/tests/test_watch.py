@@ -20,6 +20,7 @@ ASKED = "Should Iris, desktop and the sand CLI show sign-in when an api session 
 REPORTED = "https://acme.slack.com/archives/C0REPORTS01/p1794400100000200"
 UNRECORDED = 'ORPHAN o1 "ship the watch": j1\'s agent finished and its result is not recorded: "'
 DRAWING = f"CARD his card for {KEY} is drawing: green and approved, ready record sent to the communicator"
+CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
 
 
 def order(**overrides: object) -> dict:
@@ -50,7 +51,7 @@ def demo(state_root: Path) -> str:
     data = state.new_drive("demo", "coordinator", "session-under-test", "/work", "D123")
     data["orders"]["o1"] = order()
     data["jobs"]["j1"] = job(prs=[state.pr_url(KEY)])
-    data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title", "wants_tap": False}
+    data["prs"][KEY] = state.new_pr(state.pr_url(KEY), "j1", "o1") | {"head": "aaaaaaa111", "title": "Old title", "wants_tap": False, "checked": CHECKED}
     state.create(data)
     return "demo"
 
@@ -1728,6 +1729,31 @@ def test_job_set_never_waits_on_a_job_and_the_refusal_names_the_card_or_pr_to_wa
     assert state.load(demo)["jobs"]["j2"]["waits"] == [KEY, "demo:j1-7-a"]
 
 
+def test_a_pr_whose_head_moved_to_a_change_nobody_judged_draws_no_card_and_is_said_stuck_on_its_check_against_his_words(
+    demo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from drive import tools
+
+    waiting_job(demo)
+    with state.edit(demo) as data:
+        data["prs"][KEY] |= {"wants_tap": True, "checked": CHECKED | {"patch": "a change judged before"}}
+    serve(monkeypatch, {KEY: read(headRefOid="bbbbbbb222", checks=GREEN, reviewDecision="APPROVED")})
+    sent: list[list[dict]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append(records) or ["#9"])
+    watching = watcher(demo)
+    assert DRAWING not in watch.run_pass(watching, T0)
+    stuck = f"PR {KEY}: {watch.STUCK_WORDS['unchecked']} for 30 minutes [o1 j1]"
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [stuck]
+    assert state.load(demo)["prs"][KEY]["checked"] is None
+    with state.edit(demo) as data:
+        data["prs"][KEY]["checked"] = CHECKED | {"head": "bbbbbbb222"}
+    assert DRAWING in watch.run_pass(watching, T0 + timedelta(minutes=31))
+    assert len(sent) == 1
+    with state.edit(demo) as data:
+        data["jobs"]["j1"]["carries"]["o2"] = ["no staff flag"]
+    assert not state.checked(state.load(demo), state.load(demo)["prs"][KEY])
+
+
 def test_a_green_approved_pr_that_wants_a_tap_with_no_card_for_thirty_minutes_is_said(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     waiting_job(demo)
     with state.edit(demo) as data:
@@ -1791,8 +1817,8 @@ def three_stacked(demo: str, monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]
         data["orders"]["o2"] = order(text="split the stack", jobs=["j2"])
         data["jobs"]["j2"] = job(order="o2", prs=[state.pr_url(OTHER), state.pr_url(THIRD)], state="waiting")
         data["prs"][KEY]["wants_tap"] = True
-        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2")
-        data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2")
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o2") | {"checked": CHECKED | {"head": "bbbbbbb222", "orders": ["o2"]}}
+        data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j2", "o2") | {"checked": CHECKED | {"head": "ccccccc333", "orders": ["o2"]}}
     monkeypatch.setattr(watch.view, "cards", lambda drive: watch.view.NO_CARDS)
     reads = {key: stacked_read(head) for key, head in zip(STACKED, ("aaaaaaa111", "bbbbbbb222", "ccccccc333"))}
     serve(monkeypatch, reads)

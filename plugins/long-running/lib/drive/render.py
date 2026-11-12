@@ -58,8 +58,9 @@ COMMUNICATOR_RULES = (
     ),
     (
         "A handler's line comes back as one cci done record from lane handler when its session ends: MISSING <path>"
-        " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; any"
-        " other line is context for his next message."
+        " gets an owner record with his share words and that path; `DEFECT <tool>: <refusal>` is tooling, below; a line"
+        " ending `held back for this handler, start each now: <briefs>` gets one handler call per brief, each a record"
+        " on the message of his that handler was at work on; any other line is context for his next message."
     ),
     (
         "A question-card answer (slack.action with waits: true), whatever its waits id, one naming no job included,"
