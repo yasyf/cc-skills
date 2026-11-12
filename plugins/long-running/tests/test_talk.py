@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
-from conftest import Checked, Thread
+from conftest import Checked, Jev, Thread
 from drive import (
     agents,
     cli,
@@ -442,6 +442,42 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
     assert gaps == {("o1", "cause"): None, ("o1", "options as a card"): "no job"}
 
 
+INCIDENT_REPORT = (
+    "Executor Destroy Run Crash Count, 4:09 AM: the first check is back. The monitor counts 5 crashed runs, all on one cluster from"
+    " 3:55 AM, none on the others, and it still alerts. No release is shown to have caused it and dev holds no fix, so nothing shipped"
+    " and nothing was rolled back; the cause is not confirmed. A second cause read is on the journal layer now; next line by 4:20 AM."
+)
+
+
+def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_names_the_rest(
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread, jev: Jev
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Incidents", "Executor Destroy Run Crash Count", "--thread", thread, "--incident", "--parts", "first check", "fix", "cause")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
+    monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
+    report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})
+    jev.unsaid = {"fix", "cause"}
+    unsaid = '"fix", "cause": not delivered, Jev reads its words as not saying they are done'
+    dry = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826", "dry_run": True})
+    assert dry.endswith(f'; o1 "first check": would be delivered; {unsaid}')
+    assert [part["posted"] for part in state.load(demo)["orders"]["o1"]["parts"].values()] == [None, None, None]
+    line = talk.say(demo, {"text": INCIDENT_REPORT, "thread_ts": thread, "order": "o1", "record": "672826"})
+    assert line.startswith(f'POSTED {answer}; o1 "first check": posted {answer}') and line.endswith(f"; {unsaid}")
+    assert {part: kept["posted"] for part, kept in state.load(demo)["orders"]["o1"]["parts"].items()} == {"first check": answer, "fix": None, "cause": None}
+    asked = jev.asked[-1]
+    assert asked["state"] == {"order": "Executor Destroy Run Crash Count", "post": INCIDENT_REPORT}
+    assert [question["binary"]["instructions"].split('"')[1] for question in asked["questions"].values()] == ["first check", "fix", "cause"]
+    jev.answer = None
+    code, unheard = run("order", "posted", "o1", answer, "--record", "672826")
+    assert code == 0 and unheard.startswith(f'o1 "first check", "fix", "cause": posted {answer}')
+    assert unheard.endswith('; Jev did not say whether its words carry "first check", "fix", "cause" (Command \'spawnllm decide\' timed out after 60 seconds), so each is delivered as named')
+
+
 @pytest.mark.parametrize(
     ("text", "due"),
     [
@@ -757,7 +793,7 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
 ) -> None:
     alert_order(run, slack_thread)
     line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"}
-    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {ALERT} of channel C0ALERT1, 0 pictures: The release failed on the migration."
+    assert talk.say(demo, line | {"dry_run": True}) == f"DRY thread {ALERT} of channel C0ALERT1, 0 pictures: The release failed on the migration.; o1 progress line, no part delivered"
     assert talk.say(demo, line | TICKET).startswith(f"POSTED {POSTED}")
     assert posts == [
         (

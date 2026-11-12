@@ -749,15 +749,18 @@ def order_posted(args: argparse.Namespace) -> int:
 
 
 def answered_by(name: str, order_id: str, part: str, link: str) -> tuple[str, dict]:
-    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; an open incident's fix the watch has not recorded live is refused, since no post delivers it."""
+    """Deliver a part of the order its holder's session holds by the drive's post that already answered it, wherever it was made, posting nothing; refused for an open incident's fix the watch has not recorded live, since no post delivers it, and when Jev reads that post's words as not saying the part is done."""
     data = state.load(name)
     [part] = pick_parts(order_id, data["orders"][order_id], [part])
     if state.unlive_fix(data, order_id, part):
         raise DriveError(f'--part "{part}": refused, ' + state.UNLIVE_FIX.format(order=order_id, part=part))
-    drive_post_at(link, data, order_id, True)
+    posted, _ = drive_post_at(link, data, order_id, True)
+    delivered, unsaid = carried(order_id, data["orders"][order_id], [part], [(order_id, part)], posted.get("text") or "")
+    if not delivered:
+        raise DriveError(f'--part "{part}": refused, Jev reads the words of {link} as not saying "{part}" is done, so it delivers nothing; mark it by the drive\'s post whose words do')
     with state.edit(name) as data:
         data["orders"][order_id]["parts"][part]["posted"] = link
-    return f'{order_id} "{part}": posted {link}, the post that answered it', {"id": order_id, "parts": [part], "posted": link}
+    return f'{order_id} "{part}": posted {link}, the post that answered it{unsaid}', {"id": order_id, "parts": [part], "posted": link}
 
 
 def order_told(args: argparse.Namespace) -> int:
@@ -856,6 +859,33 @@ def reported_parts(data: dict, order_id: str, order: dict, report: dict, items: 
     return list(order["parts"]) if closing else []
 
 
+def carried(order_id: str, order: dict, parts: list[str], items: list[tuple[str | None, str]], text: str) -> tuple[list[str], str]:
+    """The parts a post delivers on the order once Jev has read its words, each one its report's part attr names only when they carry it, and what its line adds of each they leave undelivered; a part a close delivers is not asked, and when Jev gives no answer each goes as named, which the line says."""
+    named = [part for part in parts if (order_id, part) in items]
+    try:
+        left = settled.uncarried(text, order, named)
+    except settled.Unheard as failure:
+        asked = ", ".join(f'"{part}"' for part in named)
+        return parts, f"; Jev did not say whether its words carry {asked} ({failure}), so each is delivered as named"
+    if not left:
+        return parts, ""
+    quoted = ", ".join(f'"{part}"' for part in left)
+    return [part for part in parts if part not in left], f"; {quoted}: not delivered, Jev reads its words as not saying {'it is' if len(left) == 1 else 'they are'} done"
+
+
+def delivering(name: str, order_id: str, report: dict, text: str) -> str:
+    """What a post of these words would deliver on the order and on each other order an item of its report's part attr names, as record_post marks it once the post is out."""
+    data = state.load(name)
+    items = state.part_items(report, order_id)
+    lines = []
+    for each in dict.fromkeys([order_id, *(on for on, _ in items)]):
+        order = find(data["orders"], each, "order")
+        parts, unsaid = carried(each, order, reported_parts(each, order, report, items), items, text)
+        quoted = ", ".join(f'"{part}"' for part in parts)
+        lines.append(f"{each} {quoted}: would be delivered{unsaid}" if parts else f"{each} progress line, no part delivered{unsaid}")
+    return "; ".join(lines)
+
+
 def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str, dict]:
     """Record the drive's post on the order it went out on and on each other order an item of its report's part attr names, so one post in a thread two orders share delivers on both; an item naming no order is a part of the order the post went out on, on every order it is recorded on."""
     items = state.part_items(report, order_id)
@@ -865,7 +895,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there that its words carry, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
@@ -874,6 +904,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     asked = report.get("asked") if order_id in state.report_orders(data, report) else None
     posted, ours = drive_post_at(link, data, order_id, any(on == order_id for on, _ in items), asked)
     gained = asked if (state.CARD_LINK.search(link)[1], posted.get("thread_ts")) == asked and asked not in slack.order_threads(data, order_id, order) else None
+    delivered, unsaid = carried(order_id, order, delivered, items, posted.get("text") or "")
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
@@ -899,7 +930,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     said = f"{quoted}: posted" if delivered else "progress line, no part delivered:"
     away = "" if ours else ", outside his threads, so it is no line to him and keeps no promised time"
     joined = f", in thread {gained[1]}, where he asked about it, now one of its threads" if gained else ""
-    return f"{order_id} {said} {link}{away}{joined}{kept}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
+    return f"{order_id} {said} {link}{away}{joined}{kept}{unsaid}", {"id": order_id, "parts": delivered, "posted": link, "due": order["due"]}
 
 
 def promised_due(text: str, at: datetime) -> datetime | None:
