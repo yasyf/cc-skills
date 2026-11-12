@@ -8,7 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import pytest
-from drive import dashboard, install, state
+from drive import install, state
 
 SHA = "abc123def4567890"
 REPO = "yasyf/cc-skills"
@@ -45,7 +45,6 @@ class FakeGit:
         self.orca_calls: list[list[str]] = []
         self.orca_timeouts: list[float] = []
         self.waits: dict[str, dict] = {}
-        self.dashboards: dict[str, dict] = {}
         self.installed_sha: str | None = None
         self.bare: list[str] = []
         self.install_root = Path("/cache")
@@ -163,7 +162,6 @@ def fake(config: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[..., FakeGit
         monkeypatch.setattr(install.subprocess, "run", git.run)
         monkeypatch.setattr(install, "clock", git.clock)
         monkeypatch.setattr(install, "sleep", git.sleep)
-        monkeypatch.setattr(dashboard, "serving", lambda name, port: git.dashboards.get(name))
         return git
 
     return make
@@ -664,25 +662,6 @@ def test_a_drive_session_with_no_terminal_recorded_is_skipped_with_a_line(
         "installed long-running@skills 1.0.3",
         "solo coordinator: no terminal recorded, skipped",
     ]
-
-
-def test_an_install_restarts_each_dashboard_serving_other_code_on_the_new_build(fake: Callable[..., FakeGit], capsys: pytest.CaptureFixture[str]) -> None:
-    start_drive("demo", communicator=None)
-    start_drive("current", communicator=None)
-    start_drive("quiet", communicator=None)
-    git = fake(["unused"], set())
-    git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}, "current": {"code": str(Path("/cache/long-running/1.0.3/lib/drive").resolve())}}
-    assert install.main("long-running@skills", None, None, 900) == 0
-    assert git.other_calls() == [["/cache/long-running/1.0.3/bin/drive", "dashboard", "--drive", "demo"]]
-    assert "demo dashboard: restarted onto 1.0.3" in capsys.readouterr().out.splitlines()
-
-
-def test_installing_another_plugin_restarts_no_dashboard(fake: Callable[..., FakeGit]) -> None:
-    start_drive("demo", communicator=None)
-    git = fake(["unused"], set())
-    git.dashboards = {"demo": {"code": "/cache/long-running/1.0.2/lib/drive"}}
-    assert install.main("cc-inbox@skills", None, None, 900) == 0
-    assert git.other_calls()[0] == ["/cache/cc-inbox/1.0.3/bin/cci", "serve"]
 
 
 def test_a_session_another_install_reloaded_after_this_update_is_not_reloaded_twice(

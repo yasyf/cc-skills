@@ -2626,7 +2626,7 @@ def dashboard_command(args: argparse.Namespace) -> int:
     name = state.resolve(args.drive)
     port = args.port or dashboard.port_of(name)
     if args.serve:
-        dashboard.serve(name, port)
+        dashboard.serve(name, port, args.listening)
         return 0
     view.refresh_cards(name)
     print("\n".join(dashboard.start(name, port)))
@@ -3522,6 +3522,10 @@ def parser() -> argparse.ArgumentParser:
     verb = verbs.add_parser("dashboard", parents=[drive_opt], help="start the drive's dashboard and print its link")
     verb.add_argument("--port", type=int, help="serve on this port instead of the drive's own")
     verb.add_argument("--serve", action="store_true", help="serve in the foreground")
+    verb.add_argument(
+        "--listening", type=int, action="append", default=[], metavar="FD",
+        help="with --serve, serve on this inherited listening socket instead of binding the port: an older install's dashboard hands its sockets to the newest this way",
+    )
     verb.set_defaults(run=dashboard_command)
     verb = verbs.add_parser("watch", parents=[drive_opt], help="start the drive's watch as its own process unless one runs")
     verb.add_argument("--loop", action="store_true", help="run the watch in the foreground: the process drive watch starts")
