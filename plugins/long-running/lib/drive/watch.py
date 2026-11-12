@@ -1031,12 +1031,12 @@ def quiet_since(data: dict, head: str) -> datetime:
 
 
 def quiet_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Owe him a line on each open incident the watch hears that had none in five minutes, whatever its last line said and while he is away too, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": a report naming the incident's orders and jobs, written once, and a handler the watch starts on it, which reads the jobs and posts where the incident stands in its thread. A handler already at work in that thread takes the report when it ends. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
+    """Owe him a line on each open incident the watch hears whose fix is not live yet and that had none in five minutes, whatever its last line said and while he is away too, since he is in incident until it is fixed, by his pick "Watch-owned clock: no 10-minute silence again, a line every five quiet minutes from a handler reading the jobs; costs one handler session each": a report naming the incident's orders and jobs, written once, and a handler the watch starts on it, which reads the jobs and posts where the incident stands in its thread. A handler already at work in that thread takes the report when it ends. The clock restarts once a handler has the report, so one that cannot post owes him the next five minutes on; a failed write or start is said as a failed read is and tried again next pass with the same report."""
     data = state.load(watcher.name)
     owing = [
         head
         for head, order in heard_orders(watcher, data).items()
-        if order["incident"] and not order["joins"] and moment - quiet_since(data, head) >= QUIET_INCIDENT
+        if order["incident"] and not order["joins"] and not order["fixed"] and moment - quiet_since(data, head) >= QUIET_INCIDENT
     ]
     lines = []
     for head in owing:
@@ -1073,14 +1073,17 @@ def quiet_report(watcher: Watcher, data: dict, head: str, moment: datetime) -> s
         f"Jobs: {len(jobs)}",
         *jobs,
     ]
-    text = f"POST incident {head} has had no line to him in {int((moment - since).total_seconds() // 60)} minutes: post where it stands now in its thread"
-    with tempfile.NamedTemporaryFile("w", suffix=".md") as body:
-        body.write("\n".join(facts) + "\n")
-        body.flush()
-        argv = ["cci", "post", "--drive", watcher.name, "--lane", LANE, "--kind", "report", "--topic", f"watch-quiet-{head}"]
-        argv += ["--attr", f"order={head}", "--attr", "progress=true", "--attr", "quiet=true", *(["--attr", f"thread={incident['thread']}"] if incident["thread"] else [])]
-        argv += ["--body-file", body.name, "--json", "--text", text]
-        return str(json.loads(reads.run(argv, Path(data["roles"]["coordinator"]["cwd"])))["seq"])
+    record = {
+        "kind": "report",
+        "topic": f"watch-quiet-{head}",
+        "attr": {"order": head, "progress": "true", "quiet": "true"} | ({"thread": incident["thread"][1]} if incident["thread"] else {}),
+        "text": f"POST incident {head} has had no line to him in {int((moment - since).total_seconds() // 60)} minutes: post where it stands now in its thread",
+        "body": "\n".join(facts) + "\n",
+    }
+    from drive import tools
+
+    [seq] = tools.sent(watcher.name, LANE, [record])
+    return seq
 
 
 def owes_tell(order: dict, moment: datetime) -> bool:

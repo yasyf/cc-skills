@@ -1381,10 +1381,11 @@ def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -
     job = data["jobs"][job_id]
     lane = state.holder_lane(data["orders"][job["order"]]) or state.heard_lane(data, job["order"])
     text = f'{job_id} builds on his answer {answer["id"]}, which already decides its question "{render.cut(title, 120)}", so no card draws for it'
-    argv = ["cci", "post", "--drive", name, "--lane", "builder", "--kind", "evidence", "--to", f"{lane}@{name}", "--attr", f"job={job_id}", "--attr", f"answer={answer['id']}", "--text", text]
+    from drive import tools
+
     try:
-        reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]))
-    except reads.ReadError as error:
+        tools.sent(name, "builder", [{"kind": "evidence", "to": [f"{lane}@{name}"], "attr": {"job": job_id, "answer": answer["id"]}, "text": text}])
+    except DriveError as error:
         raise DriveError(f"nothing kept: his answer {answer['id']} decides {job_id}'s question, and the record telling {lane}@{name} so did not post: {error}") from None
 
 

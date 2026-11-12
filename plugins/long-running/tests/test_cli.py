@@ -2220,15 +2220,21 @@ def test_job_ask_settles_a_question_jev_reads_his_recorded_answer_as_deciding_so
 def test_a_settled_question_tells_the_session_holding_its_order_in_one_record_that_wakes_nobody(
     run: Run, asking: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    calls: list[list[str]] = []
-    monkeypatch.setattr(cli.reads, "run", recorded(calls))
+    sent: list[tuple[str, list[dict]]] = []
+    monkeypatch.setattr(tools, "sent", lambda name, lane, records: sent.append((lane, records)) or ["#9"])
     SETTLED_NOTE("demo", state.load("demo"), asking, "How should a finished run's files be laid out?", {"id": "ac61348"})
-    assert calls == [
-        [
-            *("cci", "post", "--drive", "demo", "--lane", "builder", "--kind", "evidence", "--to", "root@demo", "--attr", "job=j1", "--attr", "answer=ac61348"),
-            "--text",
-            'j1 builds on his answer ac61348, which already decides its question "How should a finished run\'s files be laid out?", so no card draws for it',
-        ]
+    assert sent == [
+        (
+            "builder",
+            [
+                {
+                    "kind": "evidence",
+                    "to": ["root@demo"],
+                    "attr": {"job": "j1", "answer": "ac61348"},
+                    "text": 'j1 builds on his answer ac61348, which already decides its question "How should a finished run\'s files be laid out?", so no card draws for it',
+                }
+            ],
+        )
     ]
 
 

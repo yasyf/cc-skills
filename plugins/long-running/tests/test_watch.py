@@ -603,7 +603,7 @@ def test_moved_due_fires_again(demo: str, monkeypatch: pytest.MonkeyPatch) -> No
 def quiet_incident(demo: str) -> None:
     with state.edit(demo) as data:
         data["owner"] = {"heard": state.stamp(T0), "away": True}
-        data["orders"]["o1"].update(incident=True, joins=None, thread=INCIDENT_THREAD, note="674295", due=state.stamp(T0 + timedelta(minutes=10)), promised=state.stamp(T0))
+        data["orders"]["o1"].update(incident=True, joins=None, thread=["D123", INCIDENT_THREAD], note="674295", due=state.stamp(T0 + timedelta(minutes=10)), promised=state.stamp(T0))
         data["orders"]["o2"] = order(text="the same alert again", incident=True, joins="o1", jobs=["j2"], last_line=state.stamp(T0 + timedelta(minutes=2)))
         data["jobs"]["j2"] = job(order="o2", kind="codex")
 
@@ -618,9 +618,8 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     assert calls == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
     [(report, body), (start, _)] = calls
-    assert report[report.index("--text") + 1] == "POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread"
-    assert "--to" not in report
-    assert [report[at + 1] for at, flag in enumerate(report) if flag == "--attr"] == ["order=o1", "progress=true", "quiet=true", f"thread={INCIDENT_THREAD}"]
+    assert (report["text"], report["topic"], "to" in report) == ("POST incident o1 has had no line to him in 5 minutes: post where it stands now in its thread", "watch-quiet-o1", False)
+    assert report["attr"] == {"order": "o1", "progress": "true", "quiet": "true", "thread": INCIDENT_THREAD}
     assert f"- {render.job_line('j2', state.load(demo)['jobs']['j2'])}" in body.splitlines()
     assert "Evidence record: 674295" in body.splitlines()
     assert start[-1] == f"Record: 901 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-901'}"
@@ -634,7 +633,7 @@ def test_an_open_incident_with_no_line_for_five_minutes_owes_him_one_through_a_r
     assert (len(calls), calls[3][0][-1]) == (4, f"Record: 903 Drive: {demo} Scratch: {state.drive_dir(demo) / 'scratch' / 'quiet-903'}")
 
 
-def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_no_second_handler_and_its_promised_time_says_no_due(
+def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_no_second_handler_its_promised_time_says_no_due_and_its_live_fix_ends_it(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quiet_incident(demo)
@@ -647,11 +646,14 @@ def test_a_quiet_incident_whose_thread_a_handler_holds_restarts_its_clock_with_n
     watching = watcher(demo)
     assert watch.due_lines(watching, T0 + timedelta(minutes=30)) == []
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=7)) == []
-    assert [argv[:2] for argv, _ in calls] == [["cci", "post"]]
+    assert [call["topic"] for call, _ in calls] == ["watch-quiet-o1"]
     assert state.load(demo)["orders"]["o1"]["quiet"] == {"record": "901", "at": state.stamp(T0 + timedelta(minutes=7)), "handler": None}
     with state.edit(demo) as data:
         data["orders"]["o2"]["last_line"] = state.stamp(T0 + timedelta(minutes=9))
     assert watch.quiet_lines(watching, T0 + timedelta(minutes=13, seconds=59)) == []
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["fixed"] = "j3 proved it live: turns run again"
+    assert watch.quiet_lines(watching, T0 + timedelta(minutes=30)) == []
     assert len(calls) == 1
 
 
