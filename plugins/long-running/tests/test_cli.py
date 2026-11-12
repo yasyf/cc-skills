@@ -1333,7 +1333,7 @@ def test_job_ask_refuses_a_compare_fence_holding_a_markdown_table_by_the_fence_i
     assert not (state_root / "demo" / "asks").exists()
 
 
-def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_drive_and_keeps_nothing(
+def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_drive_and_keeps_only_its_picture_verdicts(
     state_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], drawing: Drawing
 ) -> None:
     block = tmp_path / "ask.md"
@@ -1349,7 +1349,7 @@ def test_job_ask_check_says_ready_or_every_fix_its_words_and_card_need_with_no_d
     refusal = capsys.readouterr().err
     assert "the summary is 0 lines" in refusal
     assert "0 options; an ASK has 2 to 4" in refusal
-    assert not state_root.exists()
+    assert [path.name for path in state_root.iterdir()] == [picture.JUDGED]
     assert cli.main(["job", "ask"]) == 2
     assert "drive job ask <j> <file>; drive job ask --check <file> only checks its shape" in capsys.readouterr().err
 
