@@ -1093,18 +1093,20 @@ def undelivered_lines(watcher: Watcher, moment: datetime) -> list[str]:
     with state.edit(watcher.name) as data:
         for job_id, answer in owed_answers(watcher, data, moment):
             answer["said"] = state.stamp(moment)
-            lines.append(
-                f'ANSWER undelivered {job_id}: his answer {answer["seq"]} "{cut(answer["words"], 80)}" of {when(answer["at"])} has not reached it;'
-                f' drive job resume {job_id} "<his answer>" carries it [{data["jobs"][job_id]["order"]} {job_id}]'
-            )
+            lines.append(f'ANSWER undelivered {job_id}: {unreached(job_id, answer)} [{data["jobs"][job_id]["order"]} {job_id}]')
     return lines
 
 
+def unreached(job_id: str, answer: dict) -> str:
+    return f'his answer {answer["seq"]} "{cut(answer["words"], 80)}" of {when(answer["at"])} has not reached {job_id}; drive job resume {job_id} "<his answer>" carries it'
+
+
 def owed_answers(watcher: Watcher, data: dict, moment: datetime) -> list[tuple[str, dict]]:
+    """Each answer of his a live job holds that was last said ten minutes ago or more; a finished job's answer is its ORPHAN's, since no resume carries it."""
     return [
         (job_id, answer)
         for job_id, job in data["jobs"].items()
-        if heard_job(watcher, data, job)
+        if job["state"] not in state.FINISHED_JOB_STATES and heard_job(watcher, data, job)
         for answer in job["undelivered"]
         if moment - state.parse_time(answer["said"] or answer["at"]) >= DUE_EVERY
     ]
@@ -1487,14 +1489,17 @@ def can_wake(job_id: str, job: dict, data: dict, cards: dict | None, moment: dat
 
 
 def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> str | None:
-    """A lane's question nothing has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else."""
+    """A lane's question no resume has answered for 30 minutes, whatever card or PR it has: only his card drawn for it since it came answers it, since an older card asks him something else; his answer since it came that no resume carried leads the line."""
     if not job.get("ask"):
         return None
     asked = state.parse_time(job["ask_at"])
     drawn = (question for question in view.open_questions(job, cards) if question["card"] or question["waits"])
     if moment - asked < QUIET_FOR or any(state.parse_time(question["asked"]) >= asked for question in drawn):
         return None
-    return f'{job_id}\'s lane asked "{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
+    question = f'"{cut(job["said"] or "", 80)}" {minutes(moment - asked)} minutes ago'
+    if answers := [answer for answer in job["undelivered"] if state.parse_time(answer["at"]) >= asked]:
+        return f"{unreached(job_id, answers[-1])}, answering its lane's question {question}"
+    return f'{job_id}\'s lane asked {question} and nothing answered it: drive job resume {job_id} "<the answer>" answers it'
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
@@ -1691,6 +1696,7 @@ def owes_line(order: dict, jobs: dict, moment: datetime) -> bool:
 
 
 def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
+    """The orders owed a line, then each answer of his a live job of theirs holds that no resume carried, so a report on them never says they wait on him."""
     data = state.load(watcher.name)
     if state.owner_away(data, moment):
         return []
@@ -1699,7 +1705,15 @@ def tick_lines(watcher: Watcher, moment: datetime) -> list[str]:
         for key, order in data["orders"].items()
         if hears(watcher, data, key) and not state.holder_lane(order) and owes_line(order, data["jobs"], moment)
     ]
-    return [f"TICK {' '.join(owing)}"] if owing else []
+    if not owing:
+        return []
+    answers = [
+        unreached(job_id, answer)
+        for job_id, job in data["jobs"].items()
+        if job["state"] not in state.FINISHED_JOB_STATES and {job["order"], *job["carries"]} & set(owing)
+        for answer in job["undelivered"]
+    ]
+    return [", and ".join([f"TICK {' '.join(owing)}", *answers])]
 
 
 def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
