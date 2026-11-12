@@ -483,6 +483,19 @@ def apart_from_filing(order: dict) -> str:
     return json.dumps({field: value for field, value in order.items() if field not in FILING}, sort_keys=True)
 
 
+def refuse_a_renamed_change(data: dict, order_id: str, parts: list[str]) -> None:
+    """A --parts list that adds a name refuses to leave out a change a design listed and no builder delivered, since the part under the new name would lose the design and the waits that tie it to its builder; a list that only drops parts, delivered or withdrawn by him, passes."""
+    held = data["orders"][order_id]["parts"]
+    added = [part for part in parts if part not in held]
+    left = [f'"{part}" of {kept["design"]}\'s design' for part, kept in held.items() if part not in parts and kept["design"] and not watch.delivered(data, order_id, part)]
+    if added and left:
+        raise DriveError(
+            f"{order_id}: refused, its parts stay as they are: --parts adds {', '.join(json.dumps(part, ensure_ascii=False) for part in added)}"
+            f" and leaves out {', '.join(left)}, which no builder delivered; name each change by its part, as drive job add builder"
+            ' --part "<the part>" takes it, and leave a change out only once it is delivered or he withdrew it'
+        )
+
+
 def order_set(args: argparse.Namespace) -> int:
     """Change an order, reworking only the PRs --rework names and naming each open PR card of his in a thread it moves into or is sorted again in, which it leaves up; closing one that owes him a promised line reads its thread and refuses until the line is there or he withdrew the time, and closing one done refuses while the bug report it fixes has not heard it is fixed."""
     name = state.resolve(args.drive)
@@ -560,6 +573,7 @@ def order_set(args: argparse.Namespace) -> int:
         if args.state:
             order["state"] = args.state
         if args.parts:
+            refuse_a_renamed_change(data, args.id, args.parts)
             order["parts"] = {part: order["parts"].get(part, state.new_part()) for part in args.parts}
         if args.incident and not order["incident"] and not any(INCIDENT_FIX in state.job_parts(data["jobs"][job_id], args.id) for job_id in order["jobs"]):
             raise DriveError(
@@ -858,6 +872,7 @@ def job_add(args: argparse.Namespace) -> int:
             job.update(state="waiting", waits=args.waits, said=f"waits on reader {', '.join(args.waits)}")
         order["jobs"].append(job_id)
         order["updated"] = created
+        state.end_carried_designs(data, args.order, created)
     waiting = [f"{job_id} waits on {', '.join(args.waits)}: start no agent for it until the watch's FREE line says the reader returned"] if args.waits else []
     return emit(args, "\n".join([job_id, *waiting, *beside]), {"id": job_id, **job, "beside": beside})
 
@@ -899,7 +914,8 @@ def job_set(args: argparse.Namespace) -> int:
     elif args.state not in (None, "stopped"):
         already = (
             f"{args.id} stays {held}: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder"
-            " carries; every other state comes from the line the job returns\n"
+            " carries, which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a"
+            " change its DESIGN listed; every other state comes from the line the job returns\n"
         )
         args.state = None
     if args.state == "stopped":
@@ -956,6 +972,7 @@ def job_set(args: argparse.Namespace) -> int:
             job["repro"] = keep_repro(name, args.id, args.repro)
         job["prs"].extend(url for url in urls if url not in job["prs"])
         job["updated"] = state.stamp()
+        state.end_carried_designs(data, job["order"], job["updated"])
     owned = {pr["url"] for pr in data["prs"].values() if pr["job"] == args.id}
     cards = [card for card in fresh_pr_cards(name) if owned & set(card["prs"])] if args.carries else []
     reworked = [

@@ -770,12 +770,15 @@ def test_a_part_no_job_carries_is_an_orphan_five_minutes_after_its_order_moved_a
     assert watch.run_pass(watching, T0 + timedelta(minutes=35)) == ['ORPHAN o2 "stack 2": no job']
 
 
-def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_the_change_it_waits_on_is_delivered(
+def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_each_change_it_waits_on_is_delivered(
     demo: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     serve(monkeypatch, {})
     before = state.stamp(T0 - timedelta(minutes=10))
-    stack = "DESIGN moved-table abstraction\nChange: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n"
+    stack = (
+        "DESIGN moved-table abstraction\nChange: the moved-table interface\nChange: the reads through it\nChange: the writes through it (waits on change 2)\n"
+        "Change: the old tables dropped (waits on change 2 and change 3 live on every cluster)\n"
+    )
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="redesign the moved tables", jobs=["j2", "j3"], options_only=True)
         data["orders"]["o2"]["parts"] = {"moved-table abstraction": state.new_part()}
@@ -793,6 +796,28 @@ def test_each_change_a_design_lists_is_an_orphan_with_no_builder_once_the_change
         data["orders"]["o2"]["jobs"].append("j4")
         data["jobs"]["j4"] = job(order="o2", parts=["the reads through it"], state="done", updated=before)
     assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == [f'ORPHAN o2 "the writes through it": {unbuilt}']
+    with state.edit(demo) as data:
+        data["orders"]["o2"]["jobs"].append("j5")
+        data["jobs"]["j5"] = job(order="o2", parts=["the writes through it"], state="done", updated=before)
+    assert watch.run_pass(watching, T0 + timedelta(seconds=15)) == [f'ORPHAN o2 "the old tables dropped": {unbuilt}']
+
+
+def test_a_done_design_leaves_its_own_part_with_the_builder_carrying_one_of_its_changes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    before = state.stamp(T0 - timedelta(minutes=10))
+    with state.edit(demo) as data:
+        data["orders"]["o2"] = order(text="redesign the moved tables", jobs=["j2", "j3"], updated=before)
+        data["orders"]["o2"]["parts"] = {"redesign the moved tables": state.new_part(), "the moved-table interface": state.new_part() | {"design": "j2"}}
+        data["jobs"]["j2"] = job(order="o2", kind="design", state="done", said="carried by builder j3", parts=["redesign the moved tables"], updated=before)
+        data["jobs"]["j3"] = job(order="o2", parts=["the moved-table interface"], updated=before)
+    watching = watcher(demo)
+    assert watch.run_pass(watching, T0) == []
+    with state.edit(demo) as data:
+        data["jobs"]["j3"].update(state="stopped")
+    assert watch.run_pass(watching, T0 + timedelta(seconds=5)) == [
+        'ORPHAN o2 "redesign the moved tables": j2 answered and the answer is not posted to him',
+        'ORPHAN o2 "the moved-table interface": j3 stopped',
+    ]
 
 
 def test_his_answer_kept_on_a_job_is_said_undelivered_ten_minutes_on_and_every_ten_minutes_after(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

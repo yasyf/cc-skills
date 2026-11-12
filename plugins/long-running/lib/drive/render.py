@@ -136,7 +136,7 @@ COORDINATOR_RULES = (
         " brief, ops `[{add: {kind, order, goal, part}}, {brief: {serves, done_when, where, ruling: [each answer id of"
         " his on the area]}}]`, and the Agent prompt is the line brief prints, `Read your brief first: <path>`. The"
         " drive records each job's start, wake and result itself, so job set takes state stopped for a job that ends"
-        " unfinished, and done for a design job its builder carried."
+        " unfinished, and a design job ends once a builder takes its part or one of its changes."
     ),
     (
         "Every event line, record and job result has its row in drive manual coordinator, and each drive verb and"

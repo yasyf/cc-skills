@@ -161,16 +161,18 @@ DESIGN <the part, in a few words>
 Design: <the design, fleshed out with its worked examples, in plain words>
 Settled: <each thing his words already decide, one line each, quoting him>
 Native: <what the platform he sees it on already does for this part, with links, and which pieces the design builds on it, or "none: he never sees it">
-Change: <what one PR of the design changes, in a few words>
-Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list>
+Change: <what one PR of the design changes, in at most 80 characters with no backtick, double quote, $ or backslash>
+Change: <the next, the same way, ending (waits on change <N>) when it builds on change N of this list, or (waits on change <N> and change <M>) on several>
 Fork: <the path drive job ask printed for one fork>
 Fork: <the next, the same way, or "none" and why in one line>
 Facts: <the path:line evidence for each load-bearing fact, for the builder>
 ```
 
 `drive job report` refuses a report without the `DESIGN <the part>` first line or any of its
-`Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing. Each
-`Change:` line of a design of several becomes a part of the order, so each gets its own builder. A `HANDOFF <path>`, when
+`Settled:`, `Native:`, `Change:`, `Fork:` and `Facts:` lines, naming each one missing, and a
+`Change:` line past 80 characters or holding a backtick, double quote, `$` or backslash. Each
+`Change:` line of a design of several becomes a part of the order under its words before
+`(waits on …)`, which the coordinator types as `--part "<the change>"`, so each gets its own builder. A `HANDOFF <path>`, when
 the session that started you stops you before you are done, or a `BLOCKED`, carries no design and
 skips that check.
 

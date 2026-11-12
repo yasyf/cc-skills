@@ -478,3 +478,17 @@ def test_two_questions_are_the_same_whatever_their_case_and_spacing_and_an_untit
     assert state.same_question("What runs a watch's  Sand function?", "what runs a watch's Sand function?")
     assert not state.same_question("What runs a watch's Sand function?", "What runs a watch's Sand function each interval?")
     assert not state.same_question(None, None)
+
+
+def test_a_drive_saved_with_one_change_a_part_waited_on_loads_it_as_the_list_of_changes_it_waits_on(state_root: Path) -> None:
+    make("demo")
+    saved = json.loads(state.state_path("demo").read_text())
+    parts = {
+        "the interface": {"posted": None, "design": "j2", "after": None},
+        "the reads": {"posted": None, "design": "j2", "after": "the interface"},
+        "the order": {"posted": None},
+    }
+    saved["orders"] = {"o1": {"text": "move the tables", "jobs": [], "parts": parts, "promised": None}}
+    state.state_path("demo").write_text(json.dumps(saved))
+    loaded = state.load("demo")["orders"]["o1"]["parts"]
+    assert {part: held["after"] for part, held in loaded.items()} == {"the interface": [], "the reads": ["the interface"], "the order": []}
