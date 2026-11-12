@@ -246,7 +246,7 @@ if [ "$route" = sprite ]; then
     else .[0]
       | if .schemaVersion != 1 or .lane != $lane then "an allocation other than schema 1 for lane \($lane)"
         elif (.workspace | type) != "string" or (.workspace | test("\\A[a-z0-9][a-z0-9-]{0,54}\\z") | not) then "an invalid allocated workspace"
-        elif (.allocation | IN("warm", "created", "existing") | not) or (.allocation == "created" and .workspace != $lane) or (.allocation == "warm" and .workspace == $lane) or ($continued != "" and .workspace != $continued) then "an allocation kind inconsistent with its workspace"
+        elif (.allocation | IN("warm", "created", "existing") | not) or (.allocation == "created" and .workspace != $lane) or (.allocation == "warm" and .workspace == $lane) or (.allocation == "existing" and $continued == "") or ($continued != "" and .workspace != $continued) then "an allocation kind inconsistent with its workspace"
         elif .allocation != "existing" and ((.ref | type) != "string" or .ref == "" or ($ref != "" and .ref != $ref)) then "a ref other than the requested branch or tag"
         elif (.task | type) != "object" or .task.workspace != .workspace or .task.provider != "sprites" or .task.profile != "agents" then "a task other than the allocated Sprite agents workspace"
         elif .task.prepared != true then "prepared is not true"
