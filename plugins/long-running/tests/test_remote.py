@@ -1204,10 +1204,10 @@ def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_fin
     assert watch.run_pass(watching, T0) == []
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["said"], job["prs"]) == (None, "waiting", f"PUSHED {url}", [url])
-    required = {"context": "buildkite/test", "state": "SUCCESS", "isRequired": True, "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
+    required = {"context": "buildkite/test", "state": "SUCCESS", "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
     pr_reads["Forge-AI/monorepo#7"] = {
         "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "baseRefName": "dev", "headRefName": "fix-x", "mergeCommit": None, "checks": [required], "reviewDecision": None,
-        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [],
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [], "required_checks": ["buildkite/test"],
     }
     assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
 

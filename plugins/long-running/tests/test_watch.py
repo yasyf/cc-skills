@@ -27,7 +27,7 @@ REPORT_IT = "; only drive job report j1 - sets it, or names why it refuses, so S
 DRAWING = f"CARD his card for {KEY} is drawing: green and approved, ready record sent to the communicator"
 CHECKED = {"head": "aaaaaaa111", "orders": ["o1"], "patch": ""}
 BUILD = "https://buildkite.com/forge/monorepo/builds/7"
-REQUIRED = {"context": "buildkite/test", "isRequired": True, "targetUrl": BUILD}
+REQUIRED = {"context": "buildkite/test", "targetUrl": BUILD}
 
 
 def order(**overrides: object) -> dict:
@@ -79,6 +79,7 @@ def read(**overrides: object) -> dict:
         "author": "yasyf",
         "labels": [],
         "native": [],
+        "required_checks": ["buildkite/test"],
     }
     return {**base, **overrides}
 
@@ -172,6 +173,31 @@ def test_a_builders_pushed_wakes_no_one_until_the_first_read_after_it_finds_the_
     assert said == [[], [], [ready]]
     data = state.load(demo)
     assert (watch.wakes(ready, data), data["jobs"]["j1"]["state"], data["jobs"]["j1"]["said"]) == (True, "waiting", f"READY {state.pr_url(KEY)}")
+
+
+def test_a_pushed_waits_while_the_check_its_rules_require_has_not_posted_on_its_head_and_settles_once_it_passes(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    with state.edit(demo) as data:
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {state.pr_url(KEY)}")
+    reads = {KEY: read(checks=RUNNING)}
+    serve(monkeypatch, reads)
+    watching = watcher(demo)
+    said = [watch.run_pass(watching, T0 + timedelta(minutes=1))]
+    reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "PENDING"}])
+    said.append(watch.run_pass(watching, T0 + timedelta(minutes=2)))
+    reads[KEY] = read(checks=[*RUNNING, {**REQUIRED, "state": "SUCCESS"}])
+    said.append(watch.run_pass(watching, T0 + timedelta(minutes=3)))
+    assert said == [[], [], [f"JOB j1 o1 READY {state.pr_url(KEY)}"]]
+
+
+def test_a_pushed_on_a_repository_whose_rules_require_no_check_settles_at_its_first_read_beside_its_own_red_check(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    url = state.pr_url(YASYF)
+    with state.edit(demo) as data:
+        data["prs"][YASYF] = state.new_pr(url, "j1", "o1") | {"head": "aaaaaaa111", "wants_tap": False, "checked": CHECKED}
+        data["jobs"]["j1"].update(state="waiting", said=f"PUSHED {url}", prs=[url])
+    serve(monkeypatch, {YASYF: read(checks=RED, required_checks=[])})
+    said = watch.run_pass(watcher(demo), T0 + timedelta(minutes=1))
+    assert {f"PR {YASYF}: checks failed [o1 j1]", f"JOB j1 o1 READY {url}"} <= set(said)
+    assert state.load(demo)["jobs"]["j1"]["said"] == f"READY {url}"
 
 
 def test_a_red_required_check_ends_a_pushed_with_its_build_and_goes_back_to_a_lane_waiting_on_it(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

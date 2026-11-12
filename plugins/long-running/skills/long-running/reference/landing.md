@@ -104,8 +104,9 @@ for its repository says, then return `DONE <proof>`.
   class lands it.
 - Return `PUSHED <url>` once, the moment the head you mean to ship is pushed and registered, with CI and
   review still running. `READY` counts only on a green required check: the watch holds a `PUSHED`,
-  waking nobody, until its minute read finds every check the base branch requires green, then takes
-  it as the `READY`, or sends a red one back to the builder. The watch then draws his card the
+  waking nobody, until its minute read finds green every check the rules of its repository's default
+  branch name, one not yet posted holding it too, or at that read when they name none, then takes it
+  as the `READY`, or sends a red one back to the builder. The watch then draws his card the
   minute GitHub reports the PR green and approved,
   once `drive job report`, the watch's `drive pr check` on a PR no check passed, or `drive pr set --serves`
   checked its change at that head against his words,

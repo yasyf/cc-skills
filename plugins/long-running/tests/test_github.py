@@ -9,6 +9,17 @@ OPEN_ON = github.open_on
 VISIBILITY = github.visibility
 FETCH = github.fetch
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
+RULED = {
+    "rules": {
+        "nodes": [
+            {"type": "PULL_REQUEST", "parameters": {}},
+            {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}, {"context": GATE}]}},
+            {"type": "REQUIRED_STATUS_CHECKS", "parameters": {"requiredStatusChecks": [{"context": "buildkite/test"}]}},
+            {"type": "NON_FAST_FORWARD", "parameters": None},
+        ]
+    }
+}
+UNRULED = {"rules": {"nodes": []}}
 
 
 def node(**overrides: object) -> dict:
@@ -36,7 +47,7 @@ def stored(head: str = "abc", failed: list[str] | None = None) -> dict:
 
 
 def pr_read(rollup: list[dict], **overrides: object) -> dict:
-    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], **overrides}
+    return {"state": "OPEN", "checks": rollup, "reviewDecision": None, "approvals": [], "mergeable": "MERGEABLE", "headRefOid": "abc", "baseRefName": "main", "headRefName": "lane", "title": "T", "author": "yasyf", "labels": [], "native": [], "required_checks": [], **overrides}
 
 
 def test_query_aliases_one_repository_per_repo_and_one_pull_per_number() -> None:
@@ -56,6 +67,14 @@ def test_query_asks_each_pull_which_of_its_checks_its_base_branch_requires_and_a
     assert "isRequired" not in github.heads_query([("a/one", "lane")], ["a/one"])
 
 
+def test_fetch_asks_each_repositorys_default_branch_rules_once_in_the_same_query_as_its_prs(monkeypatch: pytest.MonkeyPatch) -> None:
+    sent = []
+    monkeypatch.setattr(github, "run", lambda cmd, **_: sent.append(cmd[4]) or json.dumps({"data": {}}))
+    FETCH(["b/two#7", "a/one#1", "a/one#2"])
+    assert (len(sent), sent[0].count(github.RULES), sent[0].count("defaultBranchRef")) == (1, 2, 2)
+    assert 'r0: repository(owner: "a", name: "one") { defaultBranchRef { rules(first: 50)' in sent[0]
+
+
 def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = []
 
@@ -72,7 +91,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             author=None,
             stack={"entries": {"nodes": [{"position": 2, "pullRequest": {"number": 2, "state": "MERGED"}}, {"position": 1, "pullRequest": {"number": 1, "state": "OPEN"}}]}},
         )
-        return json.dumps({"data": {"r0": {"p1": node(), "p2": merged}, "r1": {"p7": None}}})
+        return json.dumps({"data": {"r0": {"defaultBranchRef": RULED, "p1": node(), "p2": merged}, "r1": {"defaultBranchRef": UNRULED, "p7": None}}})
 
     monkeypatch.setattr(github, "run", fake)
     reads, refused = FETCH(["a/one#1", "a/one#2", "b/two#7"])
@@ -95,6 +114,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "yasyf",
             "labels": [],
             "native": [],
+            "required_checks": [GATE, "buildkite/test"],
         },
         "a/one#2": {
             "state": "MERGED",
@@ -111,6 +131,7 @@ def test_fetch_runs_gh_graphql_and_flattens_each_pr(monkeypatch: pytest.MonkeyPa
             "author": "ghost",
             "labels": ["hold"],
             "native": [("a/one#1", "open"), ("a/one#2", "merged")],
+            "required_checks": [GATE, "buildkite/test"],
         },
     }
 
@@ -145,7 +166,7 @@ def test_a_refused_query_loses_only_its_own_prs_and_names_them(monkeypatch: pyte
     def second_refused(cmd: list[str], **_: object) -> str:
         if "p26: pullRequest" in cmd[4]:
             raise github.GithubError("gh: HTTP 502 ccx: gh failed after 4 tries")
-        return json.dumps({"data": {"r0": {f"p{number}": node() for number in range(1, 61)}}})
+        return json.dumps({"data": {"r0": {"defaultBranchRef": RULED} | {f"p{number}": node() for number in range(1, 61)}}})
 
     monkeypatch.setattr(github, "run", second_refused)
     reads, refused = FETCH([f"a/one#{number}" for number in range(1, 61)])
@@ -231,14 +252,31 @@ def test_live_maps_a_read_onto_the_stored_vocabulary() -> None:
     }
 
 
-def test_the_required_verdict_reads_only_the_checks_the_base_branch_requires_with_the_build_of_each_that_failed() -> None:
-    build = "https://buildkite.com/forge/monorepo/builds/7"
-    lint = {"name": "Lint", "conclusion": "FAILURE", "isRequired": False, "detailsUrl": "https://github.com/a/one/actions/runs/1"}
-    test = {"context": "buildkite/test", "isRequired": True, "targetUrl": build}
-    assert github.required(pr_read([lint, {**test, "state": "PENDING"}])) == {"checks": "pending", "failed": {}}
-    assert github.required(pr_read([lint, {**test, "state": "SUCCESS"}])) == {"checks": "pass", "failed": {}}
-    assert github.required(pr_read([lint, {**test, "state": "FAILURE"}])) == {"checks": "fail", "failed": {"buildkite/test": build}}
-    assert github.required(pr_read([lint])) == {"checks": "none", "failed": {}}
+BUILD = "https://buildkite.com/forge/monorepo/builds/7"
+TEST = {"context": "buildkite/test", "targetUrl": BUILD}
+LINT = {"name": "Lint", "conclusion": "FAILURE", "isRequired": False, "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "CI"}
+UNIT = {"name": "test", "detailsUrl": "https://github.com/yasyf/cc-skills/actions/runs/2/job/20", "workflowName": "long-running CI"}
+
+
+@pytest.mark.parametrize(
+    ("rollup", "names", "verdict"),
+    [
+        ([LINT, {**TEST, "state": "PENDING"}], ["buildkite/test"], {"checks": "pending", "failed": {}}),
+        ([LINT, {**TEST, "state": "SUCCESS"}], ["buildkite/test"], {"checks": "pass", "failed": {}}),
+        ([LINT, {**TEST, "state": "FAILURE"}], ["buildkite/test"], {"checks": "fail", "failed": {"buildkite/test": BUILD}}),
+        ([LINT], ["buildkite/test"], {"checks": "pending", "failed": {}}),
+        ([], ["buildkite/test"], {"checks": "pending", "failed": {}}),
+        ([LINT, {**TEST, "state": "PENDING", "isRequired": True}], [], {"checks": "pending", "failed": {}}),
+        ([LINT, {**TEST, "state": "FAILURE", "isRequired": True}], [], {"checks": "fail", "failed": {"buildkite/test": BUILD}}),
+        ([{**UNIT, "conclusion": "FAILURE"}], [], {"checks": "none", "failed": {}}),
+        ([{**UNIT, "conclusion": None}], [], {"checks": "none", "failed": {}}),
+        ([], [], {"checks": "none", "failed": {}}),
+    ],
+)
+def test_the_required_verdict_reads_the_checks_the_default_branchs_rules_name_a_missing_one_pending_and_none_when_they_name_none(
+    rollup: list[dict], names: list[str], verdict: dict
+) -> None:
+    assert github.required(pr_read(rollup, required_checks=names)) == verdict
 
 
 def test_live_reads_the_hold_label_the_drive_holds_its_own_pr_with() -> None:
@@ -308,7 +346,7 @@ def test_fetch_names_each_check_runs_workflow_as_gh_pr_view_does(monkeypatch: py
         {"context": "buildkite/test", "state": "SUCCESS"},
     ]
     pr = node(commits={"nodes": [{"commit": {"statusCheckRollup": {"contexts": {"nodes": contexts}}}}]})
-    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"p1": pr}}}))
+    monkeypatch.setattr(github, "run", lambda cmd, **_: json.dumps({"data": {"r0": {"defaultBranchRef": UNRULED, "p1": pr}}}))
     assert FETCH(["a/one#1"])[0]["a/one#1"]["checks"] == [
         {"name": "build", "conclusion": "CANCELLED", "detailsUrl": "https://github.com/a/one/actions/runs/1/job/10", "workflowName": "FDE Docs"},
         {"name": "Socket", "conclusion": "SUCCESS", "detailsUrl": "https://socket.dev/x", "workflowName": ""},
