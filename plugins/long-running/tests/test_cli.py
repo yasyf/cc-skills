@@ -4666,7 +4666,7 @@ def test_jev_decides_a_question_only_by_the_one_answer_it_picks_at_eight_in_ten_
     assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", *(answer["id"] for answer in found)]
 
 
-def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_is_said_on_stderr_and_decides_nothing(
+def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_question_is_said_on_stderr_and_decides_nothing(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     calls: list[tuple[list[str], dict]] = []
@@ -4675,6 +4675,7 @@ def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_is_said_on_stder
         subprocess.CompletedProcess([], 0, json.dumps({"model": "jev-1.13.0", "answers": {"decides": answer}}), ""),
         subprocess.CompletedProcess([], 1, "", "Installed 15 packages in 5ms\nError: No such command 'decide'.\n"),
         subprocess.TimeoutExpired(settled.DECIDE, 60),
+        subprocess.CompletedProcess([], 0, json.dumps({"model": "jev-1.13.0", "answers": {"decides": {"type": "refused"}}}), ""),
     ]
 
     def spawnllm(argv: list[str], input: str, **_: object) -> subprocess.CompletedProcess[str]:
@@ -4685,11 +4686,12 @@ def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_is_said_on_stder
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=spawnllm, TimeoutExpired=subprocess.TimeoutExpired))
     request = {"state": {"question": "Which store?"}, "questions": {"decides": {"label": {"instructions": "Which?", "options": {"none": "No"}}}}}
-    assert [ASK_JEV(request) for _ in range(3)] == [answer, None, None]
-    assert calls == [(settled.DECIDE, request)] * 3
+    assert [ASK_JEV(request) for _ in range(4)] == [answer, None, None, None]
+    assert calls == [(settled.DECIDE, request)] * 4
     assert capsys.readouterr().err.splitlines() == [
         "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Error: No such command 'decide'.",
         f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Command '{settled.DECIDE}' timed out after 60 seconds",
+        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Jev declined the question",
     ]
 
 
