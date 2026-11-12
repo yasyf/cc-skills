@@ -4518,6 +4518,21 @@ def test_the_session_holding_an_order_closes_a_part_by_the_drives_post_that_alre
     assert state.load("demo")["orders"]["o1"]["parts"]["fix"]["posted"] == answered
 
 
+def test_the_holder_marks_no_part_by_a_post_whose_words_say_it_is_not_done(
+    run: Run, demo: str, slack_thread: "Thread", capsys: pytest.CaptureFixture[str], jev: Jev
+) -> None:
+    run("order", "add", "--title", "Short title", "--project", "p", "--workstream", "w", "why does the search worker OOM?", "--thread", "1794200000.000100", "--parts", "cause", "fix")
+    unconfirmed = slack_thread.post(state.now(), from_claude=True, text="Entries past 1024 tokens OOM the worker; the cause is not confirmed and no fix shipped.")
+    jev.unsaid = {"cause"}
+    assert cli.main(["order", "posted", "o1", unconfirmed, "--part", "cause"]) == 2
+    assert (
+        f'--part "cause": refused, Jev reads the words of {unconfirmed} as not saying "cause" is done, so it delivers nothing;'
+        " mark it by the drive's post whose words do"
+    ) in capsys.readouterr().err
+    assert state.load("demo")["orders"]["o1"]["parts"]["cause"]["posted"] is None
+    assert jev.asked[-1]["state"]["post"] == "Entries past 1024 tokens OOM the worker; the cause is not confirmed and no fix shipped."
+
+
 def test_one_post_delivers_each_part_its_report_names_on_every_order_an_item_names(
     run: Run, demo: str, slack_thread: "Thread", monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5257,7 +5272,7 @@ def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_qu
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=spawnllm, TimeoutExpired=subprocess.TimeoutExpired))
     request = {"state": {"question": "Which store?"}, "questions": {"decides": {"label": {"instructions": "Which?", "options": {"none": "No"}}}}}
-    assert ASK_JEV(request) == answer
+    assert ASK_JEV(request) == {"decides": answer}
     failures = []
     for _ in range(3):
         with pytest.raises(settled.Unheard) as unheard:

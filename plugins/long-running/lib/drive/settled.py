@@ -49,6 +49,11 @@ APPROVES_QUESTION = (
     " on a card that asked anything else, such as whether to land a pull request, which design to build or whether a check"
     " holds, or when unsure."
 )
+CARRIES_QUESTION = (
+    'Do the post\'s own words deliver the part "{part}" of the order: say it is done, such as what a check found, a fix that'
+    " shipped or the cause that was found, or answer the question the part asks, whatever the answer? Answer no when they say it"
+    " is not done or not known yet, such as no fix shipped or the cause not confirmed, or when they do not speak to it."
+)
 APPROVAL = "kind:approval"
 INCIDENT = "incident"
 TAP_HEADER = "header:Tap"
@@ -194,10 +199,19 @@ def picked(instructions: str, unpicked: str, asked: dict, found: list[dict]) -> 
         return None
     answers = [{key: answer[key] for key in ("id", "asked", "said")} for answer in found]
     label = {"instructions": instructions, "options": {UNDECIDED: unpicked, **dict.fromkeys(answer["id"] for answer in found)}}
-    pick = jev({"state": asked | {"answers": answers}, "questions": {"decides": {"label": label}}})
+    pick = jev({"state": asked | {"answers": answers}, "questions": {"decides": {"label": label}}})["decides"]
     if pick["choice"] == UNDECIDED or pick["probabilities"][pick["choice"]] < DECIDES:
         return None
     return next(answer for answer in found if answer["id"] == pick["choice"])
+
+
+def uncarried(text: str, order: dict, parts: list[str]) -> list[str]:
+    """The parts of the order a post's own words do not deliver, as Jev reads them, all asked in one call and each delivered only at the 0.8 bar, since a part marked delivered that its post says is not done never reaches him; Unheard when Jev gave no answer."""
+    if not parts:
+        return []
+    questions = {f"part{index}": {"binary": {"instructions": CARRIES_QUESTION.format(part=part)}} for index, part in enumerate(parts)}
+    answers = jev({"state": {"order": order["text"], "post": text}, "questions": questions})
+    return [part for index, part in enumerate(parts) if answers[f"part{index}"]["p_yes"] < DECIDES]
 
 
 class Unheard(Exception):
@@ -205,23 +219,24 @@ class Unheard(Exception):
 
 
 def jev(request: dict) -> dict:
-    """Jev's answer to the label question `spawnllm decide` asks it; Unheard when none came, Jev declining the question included, which `spawnllm decide` prints as an answer of type refused with no choice."""
+    """Jev's answers to the questions `spawnllm decide` asks it, by question id; Unheard when none came, Jev declining any of them included, which `spawnllm decide` prints as an answer of type refused with no choice."""
     try:
         done = subprocess.run(DECIDE, input=json.dumps(request), capture_output=True, text=True, timeout=60, check=False)
     except (OSError, subprocess.TimeoutExpired) as error:
         raise Unheard(str(error)) from None
     if done.returncode:
         raise Unheard(done.stderr.strip().rpartition("\n")[2])
-    if (answer := json.loads(done.stdout)["answers"]["decides"])["type"] == "refused":
+    answers = json.loads(done.stdout)["answers"]
+    if any(answer["type"] == "refused" for answer in answers.values()):
         raise Unheard("Jev declined the question")
-    return answer
+    return answers
 
 
 def reading(asked: dict, answer: dict) -> dict | Unheard:
     """Jev's reading of what this one answer of his settles about the question: none, picks or orders; the Unheard when Jev gave none."""
     label = {"instructions": DECIDES_QUESTION, "options": SETTLES}
     try:
-        return jev({"state": asked | {"answers": [{key: answer[key] for key in ("id", "asked", "said")}]}, "questions": {"decides": {"label": label}}})
+        return jev({"state": asked | {"answers": [{key: answer[key] for key in ("id", "asked", "said")}]}, "questions": {"decides": {"label": label}}})["decides"]
     except Unheard as failure:
         return failure
 

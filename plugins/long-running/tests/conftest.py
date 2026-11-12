@@ -478,12 +478,17 @@ class Jev:
     asked: list[dict] = field(default_factory=list)
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
     reads: dict[str, dict[str, float]] = field(default_factory=dict)
+    unsaid: set[str] = field(default_factory=set)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
         self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
 
     def settles(self, answer_id: str, how: str = "picks", probability: float = 0.9) -> None:
         self.reads[answer_id] = {"none": round(1 - probability, 2), how: probability}
+
+    def carries(self, question: dict) -> dict:
+        p_yes = 0.05 if any(f'"{part}"' in question["instructions"] for part in self.unsaid) else 0.95
+        return {"type": "binary", "p_yes": p_yes, "confidence": round(abs(2 * p_yes - 1), 2)}
 
 
 def label(choice: str, probabilities: dict[str, float]) -> dict:
@@ -498,9 +503,10 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         judged.asked.append(request)
         if judged.answer is None:
             raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
-        if read := judged.reads.get(request["state"]["answers"][0]["id"]):
-            return label(max(read, key=read.__getitem__), read)
-        return judged.answer
+        answers = request["state"].get("answers")
+        if answers and (read := judged.reads.get(answers[0]["id"])):
+            return {"decides": label(max(read, key=read.__getitem__), read)}
+        return {key: judged.carries(question["binary"]) if "binary" in question else judged.answer for key, question in request["questions"].items()}
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged
