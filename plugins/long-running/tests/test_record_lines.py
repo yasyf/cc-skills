@@ -144,6 +144,7 @@ def test_a_ready_record_for_a_pr_the_drive_owes_no_tap_on_is_refused(demo: str) 
 
 
 TO = ["communicator@demo"]
+META = ["meta@demo"]
 PROGRESS = {"progress": "true"}
 THREAD = "1794378983.440769"
 OTHER = "1794379098.881109"
@@ -175,19 +176,20 @@ def called(path: Path, call: str, tool: str, tool_input: dict, failed: bool = Fa
         transcript.write(json.dumps({"type": "user", "timestamp": at, "message": {"role": "user", "content": [result]}}) + "\n")
 
 
-def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_to_the_communicator_goes_out(demo: str) -> None:
+def test_a_reader_or_designer_posting_to_him_is_refused_and_its_defect_goes_out_to_the_meta_session(demo: str) -> None:
     for agent in ("long-running:reader", "long-running:designer"):
         reason = refusal(record_lines.decision(by(agent, kind="report", text="j12 found the leak", to=["owner@demo"])))
         assert "drive job report <j>" in reason and "meta@<drive>" in reason
-    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO, lane="reader")) is None
+    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=META, lane="reader")) is None
+    assert record_lines.decision(by("long-running:reader", kind="defect", text="drive job report fails", to=TO, lane="reader"))["updatedInput"]["to"] == META
     assert record_lines.decision(by("long-running:handler", kind="note", text="j12 found the leak", to=["owner@demo"])) is None
 
 
 def test_a_handler_returns_a_defect_line_instead_of_posting_one(communicator: str) -> None:
     reason = refusal(record_lines.decision(by("long-running:handler", kind="defect", text="cc-slack say fails", to=["root@demo"])))
     assert "DEFECT <tool>" in reason
-    assert record_lines.decision(post(kind="defect", text="cc-slack say fails", to=["root@demo"])) is None
-    assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=TO, lane="designer")) is None
+    assert record_lines.decision(post(kind="defect", text="cc-slack say fails", to=META)) is None
+    assert record_lines.decision(by("long-running:designer", kind="defect", text="drive job ask fails", to=META, lane="designer")) is None
     assert record_lines.decision(by("long-running:handler", kind="report", text="POST j12 merged", to=TO, lane="handler", attrs=PROGRESS)) is None
 
 

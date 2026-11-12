@@ -413,8 +413,8 @@ def test_a_fresh_agent_on_a_running_jobs_brief_takes_it_over_once_its_old_sessio
 def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_to_that_sessions_fresh_agent(
     demo: str, run: Run, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "communicator-session")
-    run("start", "demo", "--role", "communicator")
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "meta-before-restart")
+    run("start", "demo", "--role", "meta")
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "Drive tooling: a verb for owners")
     run("job", "add", "builder", "--order", "o1", "--goal", "fix it", "--agent", "a-1")
     run("job", "brief", "j1", "--serves", "drive tooling", "--done-when", "merged", "--where", "yasyf/cc-skills main")
@@ -426,7 +426,7 @@ def test_resume_from_a_session_that_did_not_start_the_jobs_agent_hands_the_job_t
     code, out = run("job", "resume", "j1", "-")
     handoff = state.drive_dir("demo") / "jobs" / "j1.handoff.md"
     assert (code, out.splitlines()[0]) == (0, f"Read your brief first: {handoff}")
-    assert "## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session communicator-session," in handoff.read_text()
+    assert "## Taking over from an agent of another session\n\nThe agent that held this job, a-1 of session meta-before-restart," in handoff.read_text()
     assert handoff.read_text().endswith("The message it never read, which you act on now:\n\nTAP Approve\n")
     assert state.load("demo")["jobs"]["j1"]["agent"] == "a-1"
     hook_output(no_file_tools, monkeypatch, capsys, json.dumps(file_call("Edit") | stepped(tmp_path, out.splitlines()[0], session="meta-session")))
