@@ -76,7 +76,8 @@ brief leaves the job to that lane. No agent is recorded over a remote job's disp
 Orca lane holds it, and `drive job resume` restarts that lane once it dies. A handler holds a job
 only when the communicator names it with `agent`, the id the `handler` tool returned, as it adds a
 read-only question's reader job. `drive job set <j> --agent <the dispatch the job records>` puts a
-remote job an agent took back on its own lane, its Sprite kept, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
+remote job an agent took back on its own lane, recording the Run, Task, terminal, lane and Sprite
+Orca shows for that dispatch, so `drive job resume` reaches it. The first line the agent pipes to `drive job report <j> -` sets the state and said line of every job
 but a codex job, and nothing else does: the stop sends back a line not kept, `drive job set` refuses
 every state but `stopped`, and `drive job report` refuses, naming the fix, a stopped job, a line
 opening with no result, a `WAITING` naming nothing the watch frees it on, a design lane's `DESIGN`

@@ -259,13 +259,16 @@ def test_an_agent_id_moves_a_remote_job_to_this_mac_and_off_its_mail(
 
 
 def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on_its_sprite(
-    run: Run, remote: str, capsys: pytest.CaptureFixture[str]
+    run: Run, remote: str, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     with state.edit(remote) as data:
-        data["jobs"]["j1"].update(workspace="pool-one", environment="env-one", terminal="term_lane", agent="a-doctor", where="local")
+        data["jobs"]["j1"].update(workspace="pool-one", environment="pool-one", terminal="term_lane", agent="a-doctor", where="local")
     assert cli.main(["job", "resume", "j1", "go"]) == 2
     assert capsys.readouterr().err == (
         f"drive: j1 runs on this Mac as agent a-doctor; resume it with SendMessage, or put it back on its lane with drive job set j1 --agent {DISPATCH}, then resume it\n"
+    )
+    monkeypatch.setattr(
+        orca, "worker", lambda dispatch: SPRITE_WORKER | {"server": {"name": "pool-one"}, "terminal": {"handle": "term_lane"}, "dispatch": {"runId": RUN, "taskId": "task_1"}}
     )
     run("job", "set", "j1", "--agent", DISPATCH)
     data = state.load(remote)
@@ -276,11 +279,35 @@ def test_job_set_agent_with_the_jobs_own_dispatch_puts_an_agent_held_job_back_on
         "route": None,
         "dispatch": DISPATCH,
         "workspace": "pool-one",
-        "environment": "env-one",
+        "environment": "pool-one",
         "run": RUN,
         "terminal": "term_lane",
     }
     assert cli.remote_job(data, "j1") is job
+
+
+@pytest.mark.parametrize("recorded", [SPRITE_DISPATCH, DISPATCH], ids=["the job's own dispatch", "another dispatch"])
+def test_job_set_agent_records_the_run_task_terminal_and_lane_orca_shows_for_the_dispatch_so_resume_sends_on_its_run(
+    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch, recorded: str
+) -> None:
+    with state.edit(remote) as data:
+        data["jobs"]["j1"].update(dispatch=recorded, task="task_old", terminal="term_old", lane="demo-j1-2", workspace="pool-old", environment="pool-old")
+    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER | {"dispatch": {"runId": FRESH_RUN, "taskId": "task_sprite"}})
+    monkeypatch.setattr(orca, "task_title", lambda run_id, task: {(FRESH_RUN, "task_sprite"): "demo-j1-3"}[run_id, task])
+    run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
+    job = state.load(remote)["jobs"]["j1"]
+    assert {field: job[field] for field in ("agent", "run", "task", "terminal", "lane", *SPRITE_LANE)} == {
+        "agent": None,
+        "run": FRESH_RUN,
+        "task": "task_sprite",
+        "terminal": "term_sprite",
+        "lane": "demo-j1-3",
+        **SPRITE_LANE,
+    }
+    sent = []
+    monkeypatch.setattr(orca, "call", lambda *args: sent.append(args) or {})
+    assert run("job", "resume", "j1", "PR checks failed") == (0, f"j1: sent to dispatch {SPRITE_DISPATCH}")
+    assert sent == [("send", "--to", f"dispatch:{SPRITE_DISPATCH}", "--run", FRESH_RUN, "--subject", "From the coordinator", "--body", "PR checks failed")]
 
 
 def test_launch_composes_the_vm_brief_and_records_the_lane(
@@ -2022,23 +2049,6 @@ def test_an_orca_dispatch_on_a_sprite_set_as_a_jobs_agent_records_its_sprite_and
     assert place.local_builders(data, state.now()) == {}
 
 
-def test_job_set_agent_records_the_run_task_and_terminal_of_the_dispatch_it_names_never_the_jobs_old_run(
-    run: Run, remote: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    with state.edit(remote) as data:
-        data["jobs"]["j1"].update(task="task_old", terminal="term_old", workspace="pool-old", environment="pool-old")
-    monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER | {"dispatch": {"runId": FRESH_RUN, "taskId": "task_sprite"}})
-    run("job", "set", "j1", "--agent", SPRITE_DISPATCH)
-    job = state.load(remote)["jobs"]["j1"]
-    assert {field: job[field] for field in ("agent", "run", "task", "terminal", *SPRITE_LANE)} == {
-        "agent": None,
-        "run": FRESH_RUN,
-        "task": "task_sprite",
-        "terminal": "term_sprite",
-        **SPRITE_LANE,
-    }
-
-
 def kept_attempt(drive: str, attempt: str, dispatch: str) -> None:
     """The attempt the launcher keeps for a brief whose worker started: worker-start exited 0 with a ready receipt."""
     kept = state.drive_dir(drive) / "jobs" / f"{attempt}.worker"
@@ -2054,6 +2064,7 @@ def test_a_launch_whose_worker_started_unrecorded_is_recorded_from_its_kept_rece
     run("job", "add", "builder", "--order", "o1", "--goal", "ship it", "--remote")
     kept_attempt(demo, "j1", SPRITE_DISPATCH)
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER)
+    monkeypatch.setattr(orca, "task_title", lambda run_id, task: {(RUN, "task_sprite"): "demo-j1"}[run_id, task])
     monkeypatch.setattr(orca, "new_run", lambda objective: pytest.fail("a worker already started gets no second Run"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a worker already started is not launched again"))
     assert run("job", "launch", "j1") == (0, f"j1 started on Sprite pool-sprite-one as dispatch {SPRITE_DISPATCH}")
@@ -2080,6 +2091,7 @@ def test_a_relaunch_whose_worker_started_unrecorded_is_recorded_from_its_kept_re
         state.lane_died(data["jobs"]["j1"], DISPATCH, "its worker exited", T0)
     kept_attempt(remote, "j1-2", SPRITE_DISPATCH)
     monkeypatch.setattr(orca, "worker", lambda dispatch: SPRITE_WORKER if dispatch == SPRITE_DISPATCH else dead())
+    monkeypatch.setattr(orca, "task_title", lambda run_id, task: {(RUN, "task_sprite"): "demo-j1-2"}[run_id, task])
     monkeypatch.setattr(orca, "save", lambda drive, job_id, job, root: None)
     monkeypatch.setattr(orca, "new_run", lambda objective: pytest.fail("a worker already started gets no second Run"))
     monkeypatch.setattr(orca, "launch", lambda *args: pytest.fail("a worker already started is not launched again"))

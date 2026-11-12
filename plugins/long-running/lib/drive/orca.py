@@ -453,14 +453,20 @@ def run_of(worker: dict) -> dict:
     return {"run": worker["dispatch"]["runId"], "task": worker["dispatch"]["taskId"], "terminal": worker["terminal"]["handle"]}
 
 
+def task_title(run: str, task: str) -> str:
+    """The title of a Task on a Run, which a launch names after the lane it starts."""
+    return next(found["title"] for found in request("orchestration", "task-list", "--run", run)["tasks"] if found["id"] == task)
+
+
 def receipt(dispatch: str) -> dict:
-    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, and where it runs."""
+    """What a job records of the worker on a dispatch, as Orca shows it: the dispatch, its Run, task and terminal, the lane its task is titled after, and where it runs."""
     shown = worker(dispatch)
-    return {"dispatch": dispatch, **run_of(shown), **placement(shown)}
+    held = run_of(shown)
+    return {"dispatch": dispatch, **held, "lane": task_title(held["run"], held["task"]), **placement(shown)}
 
 
-def adopted(drive: str, brief: Path) -> dict | None:
-    """The worker an earlier launch of this brief started and the drive never recorded, as a job records it with its lane, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None."""
+def adopted(brief: Path) -> dict | None:
+    """The worker an earlier launch of this brief started and the drive never recorded, as a job records it, when the attempt the launcher keeps for the brief holds a ready worker-start receipt, which the launcher refuses to launch the brief again past; else None."""
     attempt = brief.with_suffix(".worker")
     status = attempt / "worker-start.status"
     if not status.is_file() or status.read_text().strip() != "0":
@@ -468,7 +474,7 @@ def adopted(drive: str, brief: Path) -> dict | None:
     started = json.loads((attempt / "worker-start.json").read_text()).get("result") or {}
     if started.get("state") != "ready":
         return None
-    return {**receipt(started["dispatchId"]), "lane": lane_name(drive, brief.stem)}
+    return receipt(started["dispatchId"])
 
 
 def death(worker: dict) -> str | None:
