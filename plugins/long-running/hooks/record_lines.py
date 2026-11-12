@@ -22,6 +22,15 @@ OPENING = re.compile(r"(?:POST|FYI)\b")
 UNOPENED = "refused: a report's text opens `POST`, for a handler to post, or `FYI`, kept as context; add the one it is"
 CATCH_UP = re.compile(r"Catch-up since\b", re.IGNORECASE)
 THREADED_CATCH_UP = "refused: a catch-up goes at his DM root, never in a thread, since it covers many orders; post it again without `--attr thread`"
+UNFINISHED = (
+    "refused: this POST report names nothing its post finishes, so its handler cannot tell which order to close; add"
+    " `--attr close=<o,…>` naming each order it finishes{about}, `--attr part=<name>` naming the part it delivers{parts},"
+    " or `--attr progress=true` on a progress line that finishes nothing"
+)
+LAST_PART = (
+    'refused: this report delivers "{part}", the last part of {order} not yet delivered, so its post finishes the order; add'
+    " `--attr close={order}`, so its handler closes {order} once the line is posted"
+)
 OFF_THREAD = (
     "refused: this report finishes {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
     " or add this one with `drive order set <o> --thread {thread}`"
@@ -123,6 +132,7 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
     thread = attrs(record).get("thread")
     yield None if OPENING.match(text) else UNOPENED
     yield THREADED_CATCH_UP if thread and (attrs(record).get("catch_up") or CATCH_UP.search(text)) else None
+    yield unfinished(drive, record) if text.startswith("POST") else None
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
@@ -130,6 +140,20 @@ def report_refusals(payload: dict, drive: dict, role: str | None, records: list[
         yield second_report(payload, records, index, thread)
     if STUCK.search(text):
         yield unread_job(payload, text)
+
+
+def unfinished(drive: dict, record: dict) -> str | None:
+    """Why a report to post leaves its handler guessing what it finishes: it names no close, part or progress attr, or its part is the last one undelivered of the open order it is about and no close names that order, which would leave the order open once its last answer is posted. An incident's last part is exempt, since its order closes when its fix ships."""
+    named = attrs(record)
+    if named.get("catch_up") or named.get("progress") or named.get("close"):
+        return None
+    order_id = state.report_order(drive, named)
+    order = state.open_orders(drive).get(order_id or "")
+    left = [part for part, kept in order["parts"].items() if not kept["posted"]] if order else []
+    if not (part := named.get("part")):
+        quoted = ", ".join(f'"{name}"' for name in left)
+        return UNFINISHED.format(about=f", here {order_id}, the open order it is about" if order else "", parts=f", one of {quoted}" if left else "")
+    return LAST_PART.format(part=part, order=order_id) if order and left == [part] and not order["incident"] else None
 
 
 def off_thread(drive: dict, record: dict) -> str | None:

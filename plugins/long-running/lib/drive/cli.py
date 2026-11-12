@@ -657,7 +657,7 @@ def promise_said(due: str, held: str | None, where: tuple[str, str]) -> str:
 
 
 def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_note: bool) -> dict:
-    """The report that closes the order, read from cci, or none when the order closes without one."""
+    """The report that closes the order, read from cci, or none when the order closes without one; refused, as say and order posted refuse it, when the session that wrote it does not hold the order."""
     if seq is None:
         if not dropped_with_note and state.session_role(data, os.environ.get("CLAUDE_CODE_SESSION_ID")) == "communicator":
             raise DriveError(
@@ -666,6 +666,8 @@ def need_record_close(data: dict, order_id: str, seq: str | None, dropped_with_n
             )
         return {}
     report = report_attrs(seq)
+    if refused := report_refusal(data, order_id, report):
+        raise DriveError(f"{order_id}: {refused}")
     closes = state.closed_orders(report)
     if not closes:
         raise DriveError(f"record {seq} has no close attr, so it closes no order: a report names each order its post finishes in its close attr")
@@ -760,7 +762,7 @@ def communicators_order(data: dict, order_id: str) -> dict:
 
 
 def report_refusal(data: dict, order_id: str, report: dict) -> str | None:
-    """Why a report may not go with a post on an order: the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane."""
+    """Why a report may deliver or close nothing on an order, the one check say, order posted and order set --state done share: the drive's session that wrote it does not hold the order. Only the communicator's side posts, so the refusal names the report its handler passes instead: the holder's, which on the communicator's own order the handler writes itself from the communicator's lane."""
     writer = state.LANE_ROLES.get(report.get("writer") or "")
     holder = data["orders"][order_id]["owner"] if order_id in data["orders"] else None
     if writer is None or holder in (None, writer):

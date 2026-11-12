@@ -94,7 +94,8 @@ reading of his words "your messages need to be way shorter rewrite this for a hu
 - The handler records each post in an order's thread through the post itself,
   `say(order=<o>, record=<the report's seq>)`, which delivers the part the report's `part` attr
   names, or each part of an order its `close` attr names. A progress line's report names neither,
-  whatever job it names: it keeps the time and delivers no part, on an order of one part as on one
+  whatever job it names, and carries `progress=true`, since `record_lines` refuses a `POST` naming
+  none of the three: it keeps the time and delivers no part, on an order of one part as on one
   of several. An incident and every alert's order joined to it with `--joins` share their threads both
   ways, so a post on any of them in any of their threads counts, whichever job carries the alert.
   `drive order posted <o> <link> --record <the report's seq>` records a part delivered anywhere
