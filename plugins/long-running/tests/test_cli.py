@@ -3149,7 +3149,8 @@ def test_job_add_refuses_a_local_builder_past_the_macs_cap_or_a_monorepo_one_whi
     with state.edit("demo") as data:
         data["jobs"]["j9"].update(state.local_lane("dispatch-9"))
     assert cli.main(["job", "add", "builder", "--order", "o1", "--goal", "land", "--repo", "yasyf/cc-skills"]) == 2
-    assert "refused, no job added: 8 builders already run on this Mac, its cap of 8, so this builder starts remote" in capsys.readouterr().err
+    assert "its cap of 8 (j2 on o1, its agent a last wrote at " in (refused := capsys.readouterr().err)
+    assert "; j9 on o1, its Orca lane dispatch-9, not ended), so this builder starts remote: add --remote" in refused
     assert run("job", "add", "reader", "--order", "o1", "--goal", "read")[0] == 0
     with state.edit("demo") as data:
         state.lane_died(data["jobs"]["j9"], "dispatch-9", "its worker finished", state.now())

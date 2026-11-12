@@ -101,13 +101,13 @@ def tooling_refusal(name: str, data: dict, text: str, role: str) -> str:
 
 
 def crowded(data: dict) -> str | None:
-    """Why no builder starts on this Mac now: its cap of builders already runs here, naming the builder jobs that wait for one, oldest due first."""
-    running = place.local_builders(data, state.now())
-    if running < place.LOCAL_BUILDERS:
+    """Why no builder starts on this Mac now: its cap of builders already runs here, naming each builder it counted and the builder jobs that wait for one, oldest due first."""
+    builders = place.local_builders(data, state.now())
+    if len(builders) < place.LOCAL_BUILDERS:
         return None
     waiting = "; ".join(in_line(data, job_id) for job_id in place.waiting_builders(data))
     return (
-        f"refused: {running} builders already run on this Mac, its cap of {place.LOCAL_BUILDERS}, so this one waits: start no"
+        f"refused: {place.at_cap(builders)}, so this one waits: start no"
         f" builder here until one finishes, then start the first job waiting, oldest due first: {waiting or 'none is added yet'}."
         " A Forge-AI/monorepo builder need not wait: start it on a Sprite with drive job launch <j> <brief>"
     )

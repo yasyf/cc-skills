@@ -21,14 +21,17 @@ Contents:
   coordinator starts no agent on it and sends `meta@<drive>` a `defect` record naming the job and its
   `Read your brief first:` line. A drive with no meta session bound gives all of this to the
   communicator, as before the meta session existed.
-- At most eight builders run on this Mac at once, counting Orca workers started here with
-  `drive job launch --local`; lanes on a Sprite do not count, and `drive job add builder` refuses a
-  ninth without `--remote`. Before you start a Forge-AI/monorepo builder, run `drive place` and start
-  it where it says. It answers `remote` when this Mac's CPU is at or over its load gate's limit or
-  eight builders run here, and `local` otherwise; a remote builder runs its builds and checks on its
-  own Sprite. Past eight, the `agent_brief` hook refuses a ninth builder here and names the builder
-  jobs waiting for one, oldest due first: the earliest time promised him on an order each serves,
-  then the oldest added. When a builder here finishes, start the first of them.
+- At most eight builders run on this Mac at once: each agent here still in its turn, and each Orca
+  worker started here with `drive job launch --local` while it launches or runs. An agent that ended
+  its turn, on a result line or a question, does not count, nor does a launch that started no worker
+  or a lane on a Sprite. `drive job add builder` refuses a ninth without `--remote`, naming each
+  builder it counted with its order and when its agent last wrote. Before you start a
+  Forge-AI/monorepo builder, run `drive place` and start it where it says. It answers `remote` when
+  this Mac's CPU is at or over its load gate's limit or eight builders run here, and `local`
+  otherwise; a remote builder runs its builds and checks on its own Sprite. Past eight, the
+  `agent_brief` hook refuses a ninth builder here, names each builder it counted the same way, and
+  names the builder jobs waiting for one, oldest due first: the earliest time promised him on an
+  order each serves, then the oldest added. When a builder here finishes, start the first of them.
 - Readers, codex jobs, builders on any other repository (a yasyf/* tool installs on this Mac), any
   job that touches this Mac's processes, and a handoff whose `PROVE:` line runs `ci mac-box` or
   `ci devbox` always run here. A Sprite holds no AWS sign-in, and both verbs sign in with this Mac's

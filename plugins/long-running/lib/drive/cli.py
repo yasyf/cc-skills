@@ -1494,7 +1494,7 @@ def place_job(args: argparse.Namespace) -> int:
     builders = place.local_builders(state.load(state.resolve(args.drive)), state.now())
     share, ceiling = place.busy(), place.limit()
     where, why = place.verdict(share, ceiling, builders)
-    payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": builders}
+    payload = {"where": where, "why": why, "busy": round(share, 3), "limit": ceiling, "local_builders": len(builders)}
     return emit(args, f"{where}: {why}", payload)
 
 
@@ -1653,7 +1653,12 @@ def job_launch(args: argparse.Namespace) -> int:
     kept = state.drive_dir(name) / "jobs" / f"{args.id}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(orca.vm_brief(name, args.id, text, job["route"]))
-    receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run, job["route"])
+    try:
+        receipt = orca.launch(name, orca.lane_name(name, args.id), kept, root, run, job["route"])
+    except orca.Unstarted:
+        with state.edit(name) as data:
+            data["jobs"][args.id]["launching"] = None
+        raise
     started = {field: receipt[field] for field in LAUNCHED}
     with state.edit(name) as data:
         job = data["jobs"][args.id]
