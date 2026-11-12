@@ -44,6 +44,10 @@ scripts. Your brief's `Drive:` line names `<your job>` and `Scratch:` your one f
   return, which a design job turns into his cards.
 - Stop once the answer is proven, each fact citing a read you made at its `path:line` or command;
   note any further question as one report line.
+- An `Answer:` line means your order only asks him a question, so his answer goes to his thread the
+  moment it is proven, sent as that line says before any reproduction file or full report, by his
+  pick "answer-only jobs also post their answer once found"; your full report and return follow as
+  below, and the coordinator answers him whole from them.
 - Give each number as itself, marked measured or worked out from code, in rows a chart can draw
   with real contents in every cell, since a question card's Show me is drawn from your facts.
 
@@ -101,7 +105,8 @@ never a guess. Pipe it from a quoted heredoc into `drive job report <your job> -
 have no Write tool and only it sets your job's state, so your line is sent back until it is kept. It keeps a
 `DESIGN` as his card's ASK in the same call, refusing one `drive job ask` would refuse. Then end with its first
 line alone, at most 500 characters, since it lands whole in the starting session. Post
-nothing to him, which the `post` tool refuses; the handler relays it.
+nothing to him yourself, which the `post` tool refuses: a handler posts your `Answer:` record and
+relays your report.
 
 Route around a tool that breaks on you, and send a `defect` on the cci `post` tool with
 `to: [meta@<drive>]` quoting its refusal, with `lane: reader` when

@@ -3973,6 +3973,24 @@ def test_job_brief_writes_native_interactions_would_he_ask_and_a_readers_researc
     assert "Plan: the steps section\n" in written.read_text()
 
 
+def test_an_answer_orders_reader_brief_sends_his_answer_to_his_thread_before_its_full_report(run: Run, demo: str) -> None:
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer", "--from", "slack:D123/1794300000.000500/1794300000.000600")
+    run("job", "add", "reader", "--order", "o1", "--goal", "why the copy stalled")
+    code, out = run("job", "brief", "j1", "--serves", "his order", "--done-when", "answered", "--where", "yasyf/cc-skills main")
+    assert code == 0
+    brief = Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+    thread = state.load(demo)["orders"]["o1"]["thread"][1]
+    assert (
+        "\nAnswer: his answer goes to his thread the moment you have it proven, before any reproduction file or full report: one"
+        " `report` record on the cci `post` tool, `to: [communicator@demo]`, `text: POST <the answer>`,"
+        f' `attrs: {{"thread": "{thread}", "order": "o1", "job": "j1", "progress": "true"}}`; then keep your full report and return as usual\n'
+    ) in brief
+    run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Releases", "show the run page", "--kind", "build")
+    run("job", "add", "reader", "--order", "o2", "--goal", "research: the run page")
+    code, out = run("job", "brief", "j2", "--serves", "his order", "--done-when", "researched", "--where", "yasyf/cc-skills main")
+    assert "\nAnswer:" not in Path(out.splitlines()[0].removeprefix("Read your brief first: ")).read_text()
+
+
 def test_order_set_proves_done_on_his_surface_with_a_recording_or_the_live_post(
     run: Run, demo: str, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ) -> None:

@@ -272,6 +272,24 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
 
 @on(
     Event.PreToolUse,
+    only_if=[Tool("AskUserQuestion")],
+    tests={
+        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=NO_DRIVE): Allow(),
+        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=COORDINATOR): Block(pattern="no drive session asks in its terminal"),
+        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=COMMUNICATOR, agent_id="a1", agent_type=BUILDER): Block(
+            pattern="return it as your `ASK` or `DESIGN`"
+        ),
+        Input(tool="AskUserQuestion", tool_input={"questions": [{"question": "Ship it?"}]}, session_id=HANDLER_SESSION, agent_type=HANDLER): Block(
+            pattern="communicator@fixture as an `ask` record"
+        ),
+    },
+)
+def no_terminal_questions(evt: BaseHookEvent) -> HookResult | None:
+    return checked(evt, "no_terminal_questions.py")
+
+
+@on(
+    Event.PreToolUse,
     only_if=[Tool("Bash")],
     tests={
         Input(command="ls", session_id=NO_DRIVE): Allow(),
