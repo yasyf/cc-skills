@@ -428,9 +428,17 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
 class Jev:
     asked: list[dict] = field(default_factory=list)
     answer: dict | None = field(default_factory=lambda: {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9})
+    reads: dict[str, dict[str, float]] = field(default_factory=dict)
 
     def picks(self, choice: str, probability: float = 0.9) -> None:
-        self.answer = {"type": "label", "choice": choice, "probabilities": {"none": round(1 - probability, 2), choice: probability}, "confidence": probability}
+        self.answer = label(choice, {"none": round(1 - probability, 2), choice: probability})
+
+    def settles(self, answer_id: str, how: str = "picks", probability: float = 0.9) -> None:
+        self.reads[answer_id] = {"none": round(1 - probability, 2), how: probability}
+
+
+def label(choice: str, probabilities: dict[str, float]) -> dict:
+    return {"type": "label", "choice": choice, "probabilities": probabilities, "confidence": probabilities[choice]}
 
 
 @pytest.fixture(autouse=True)
@@ -441,6 +449,8 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
         judged.asked.append(request)
         if judged.answer is None:
             raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
+        if read := judged.reads.get(request["state"]["answers"][0]["id"]):
+            return label(max(read, key=read.__getitem__), read)
         return judged.answer
 
     monkeypatch.setattr(settled, "jev", answered)

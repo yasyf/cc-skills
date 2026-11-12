@@ -2,6 +2,7 @@ import json
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from drive import limits, slack, state, superseded, view
@@ -31,8 +32,16 @@ UNDECIDED = "none"
 DECIDES = 0.8
 DECIDE = ["uvx", "--from", "spawnllm>=0.17.7", "spawnllm", "decide", "--provider", "jev", "--timeout", "20"]
 DECIDES_QUESTION = (
-    "Which one answer, in his own words, already decides which of these options to build? Pick none when no single answer"
-    " does, when an answer is about the same subject but another choice, when it only approves a pull request, or when unsure."
+    "What does this one answer, in his own words, settle about the question? An answer he gave to another question settles"
+    " this one when its words choose what an option says or order what this question asks about. Pick picks when it chooses"
+    " one of the options; pick orders when it orders the outcome the question asks about, or who does it, so the options it"
+    " rules out are out and the drive builds the rest without asking him; pick none when it settles nothing the question asks."
+    " A bare option number answers the card it was typed on, so it settles nothing here."
+)
+SETTLES = {UNDECIDED: "It settles nothing this question asks.", "picks": "Its own words pick one option.", "orders": "Its own words order the outcome or who does it."}
+ORDERED = (
+    " He ordered what this question asks about, so build the option his words leave that removes the root cause, the recommended"
+    " one, and say in one line that his answer {id} settled it."
 )
 APPROVES_QUESTION = (
     "Does this answer, in his own words, approve the action? Pick the answer when it is his order to ship, release or approve"
@@ -157,12 +166,21 @@ def refusals(answer: dict | None, under: list[dict], heard: list[dict], offered:
 
 
 def decided(question: str, options: list[str], found: list[dict]) -> dict | None:
-    """The one of these answers Jev reads as already deciding which option to build; none, a lower probability or no answer from Jev, said on stderr, sends the question to him."""
-    try:
-        return picked(DECIDES_QUESTION, "No single answer decides it.", {"question": question, "options": options}, found)
-    except Unheard as failure:
-        print(f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: {failure}", file=sys.stderr)
-        return None
+    """Of his answers, the one Jev, reading each alone in its own call so none splits another's probability, is surest picks an option or orders what the question asks about, with which it does, once at least 0.8 sure; below that for every answer the question goes to him, each answer Jev gave no reading of said on stderr."""
+    with ThreadPoolExecutor(max(len(found), 1)) as pool:
+        readings = list(zip(found, pool.map(lambda answer: reading({"question": question, "options": options}, answer), found), strict=True))
+    judged = [
+        (sum(probability for label, probability in read["probabilities"].items() if label != UNDECIDED), answer, read["choice"])
+        for answer, read in readings
+        if not isinstance(read, Unheard)
+    ]
+    sure, answer, settles = max(judged, key=lambda judged: judged[0], default=(0, None, None))
+    if sure >= DECIDES:
+        return answer | {"settles": settles}
+    for answer, read in readings:
+        if isinstance(read, Unheard):
+            print(f"drive job ask: Jev did not say whether his answer {answer['id']} decides this question, so it goes to him: {read}", file=sys.stderr)
+    return None
 
 
 def approving(action: str, answer: dict) -> bool:
@@ -199,6 +217,15 @@ def jev(request: dict) -> dict:
     return answer
 
 
+def reading(asked: dict, answer: dict) -> dict | Unheard:
+    """Jev's reading of what this one answer of his settles about the question: none, picks or orders; the Unheard when Jev gave none."""
+    label = {"instructions": DECIDES_QUESTION, "options": SETTLES}
+    try:
+        return jev({"state": asked | {"answers": [{key: answer[key] for key in ("id", "asked", "said")}]}, "questions": {"decides": {"label": label}}})
+    except Unheard as failure:
+        return failure
+
+
 def decided_refusal(answer: dict | None, why: str | None) -> str | None:
     """Why a question may not go to him: Jev reads this answer of his as already deciding it, and no reason names it and says why it does not."""
     if not answer or answer["id"] in (why or ""):
@@ -206,7 +233,8 @@ def decided_refusal(answer: dict | None, why: str | None) -> str | None:
     where = f"his message in this order's thread {answer['link']}" if "link" in answer else f"his recorded answer {answer['id']}"
     return (
         f'refused: {where} already decides this question. Asked "{cut(answer["asked"], 200)}", he said "{cut(answer["said"], QUOTED_CHARS)}".'
-        f' Go ahead on it. If his words decide something else, ask again with --unsettled "{answer["id"]}: <why>".'
+        + (ORDERED.format(id=answer["id"]) if answer["settles"] == "orders" else " Go ahead on it.")
+        + f' If his words decide something else, ask again with --unsettled "{answer["id"]}: <why>".'
     )
 
 

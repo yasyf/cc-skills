@@ -413,12 +413,12 @@ def load(name: str) -> dict:
         rebuild_asks(name, data)
     if "coordinator" in data["roles"] and not (drive_dir(name) / APPROVALS_LABELLED).exists():
         label_approvals(name, data["roles"]["coordinator"]["cwd"])
-    if not data.get("may_settle_by_jev"):
+    if not data.get("may_settle_per_answer"):
         for job in data["jobs"].values():
             job["may_settle"] = None
-        data.pop("may_settle_skips_approvals", None)
-        data.pop("may_settle_by_subject", None)
-        data["may_settle_by_jev"] = True
+        for flag in ("may_settle_skips_approvals", "may_settle_by_subject", "may_settle_by_jev"):
+            data.pop(flag, None)
+        data["may_settle_per_answer"] = True
     for job in data["jobs"].values():
         for question in job["questions"]:
             question.setdefault("refused", None)
