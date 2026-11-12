@@ -43,8 +43,8 @@ RECORD = {
             "type": "string",
             "description": (
                 "his message's or the card's permalink; an owner or answer record whose message is in an open question card's"
-                " thread settles or withdraws that card in the same call, and one under a PR card leaves it up: only his order"
-                " filed on its thread, or a job carrying one, withdraws a PR card"
+                " thread settles or withdraws that card in the same call, and one under a PR card leaves it up: only the"
+                " coordinator's --rework naming its PR, on his order or the job carrying it, withdraws a PR card"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -119,7 +119,7 @@ def verb_tools() -> list[dict]:
                 " the coordinator. A question card he answered takes waits, which fills re with the ask's seq and attr job; an"
                 " Undo tap sets undone. Once the records go out, each open card his words close is closed: a question card his"
                 " answer answers settles showing his words, and one his owner words under it change is withdrawn showing them;"
-                " a PR card stays up, since only his order filed on its thread, or a job carrying one, withdraws it; an answer"
+                " a PR card stays up, since only the coordinator's --rework naming its PR withdraws it; an answer"
                 " whose waits names a card no longer waiting on him is refused, since his answer there is"
                 " recorded already. A defect's text past one 120-character line goes as that line cut at a word, the whole"
                 " text atop its body. Returns each record's seq, then each card closed."

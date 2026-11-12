@@ -332,9 +332,11 @@ When it is answered, replaced or redone:
   its pictures inline. The card's title and opening summary come from `## The stack` in its bottom PR.
 - Once he answers, the card folds to its title, his pick and one line per PR. When an answer or ruling
   of his replaces the work it carries, `drive answer` settles it as it does a question card.
-- His words that rework a PR on it take the card down in the same call: his order filed on the
-  card's thread with `drive order add`, the job owning the PR carrying his order with `drive job set
-  --carries`, or `drive answer --reopened`, each withdrawing it with his words as the reason. No
+- His words that rework a PR on it take the card down in the same call once the coordinator, having
+  read the stack's `## His words, step by step` against them, names the PR: `--rework <PR>` on
+  `drive order add`, `drive order set` or `drive job set --carries`, or `drive answer --reopened`, each
+  withdrawing it with his words as the reason. His order filed on its thread, or a job carrying one,
+  with no `--rework` names the card and leaves it up, since a stack can meet his words already. No
   watch ready, redraw or new head brings it back; a fresh card goes up on its own, with a row saying
   what changed, only once the builder's `READY` says in its `CHANGE:` line how his words are met. A
   question or any other words of his under it leave it up. His words: "So why isn't this card withdrawn then? And why do I have to keep asking that?"
