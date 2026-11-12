@@ -3350,6 +3350,19 @@ def test_pr_set_tap_sizes_his_card_by_the_prs_native_github_stack_not_a_longer_c
     assert run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "none")[0] == 0
 
 
+def test_pr_set_serves_or_design_from_a_session_not_holding_the_prs_order_is_refused_naming_its_holder(
+    run: Run, with_pr: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["owner"] = "communicator"
+    for flags in (["--serves", "o1", "--design", "none"], ["--design", "none"]):
+        assert cli.main(["pr", "set", PR, *flags]) == 2
+        assert "o1 is the communicator's order, session not started: only the communicator adds its jobs, starts its agents, checks its PRs and posts its reports" in capsys.readouterr().err
+    assert (state.load("demo")["prs"][with_pr].get("serves"), state.load("demo")["prs"][with_pr].get("design")) == (None, None)
+    with state.edit("demo") as data:
+        data["orders"]["o1"]["owner"] = "coordinator"
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+
 def test_pr_set_serves_names_the_order_it_serves_and_prints_his_words(run: Run, with_pr: str) -> None:
     assert run("pr", "set", PR, "--tap", "--serves", "o9", "--design", "none")[0] == 2
     assert state.load("demo")["prs"][with_pr].get("serves") is None

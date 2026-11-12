@@ -54,7 +54,14 @@ An empty `against` says the change meets his words."""
 
 
 class Against(DriveError):
-    """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again."""
+    """A change judged to go against his words, which its builder fixes, as against a read or judge that failed, which runs again; named holds each of his words it goes against and what in the change does."""
+
+    def __init__(self, keys: list[str], named: str):
+        self.named = named
+        super().__init__(
+            f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
+            " push, and return READY again; a reading his words leave open goes to him as an ASK"
+        )
 
 
 def check(name: str, keys: list[str], also: list[str], cited: list[str], setting: dict[str, dict]) -> None:
@@ -71,26 +78,22 @@ def check(name: str, keys: list[str], also: list[str], cited: list[str], setting
     carried = (state.pr_key(url) for job in data["jobs"].values() if urls & set(job["prs"]) for url in job["prs"])
     others = [key for key in dict.fromkeys(carried) if key not in keys and data["prs"][key]["state"] != "closed"]
     if found := judged(name, words(data, data["jobs"][prs[0]["job"]], orders, parts, answered, others), changes):
-        named = "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found)
-        raise Against(
-            f"{', '.join(keys)} go against his words, judged from each PR's title and diff: {named}. Change the PRs to his words,"
-            " push, and return READY again; a reading his words leave open goes to him as an ASK"
-        )
+        raise Against(keys, "; ".join(f'{item["order"]} "{cut(item["words"], 160)}": {cut(item["change"], 240)}' for item in found))
     with state.edit(name) as data:
         for key, read in changes.items():
             data["prs"][key]["checked"] = {"head": read["head"], "orders": orders, "patch": patch(read["diff"])}
 
 
 def verdict(name: str, key: str) -> str:
-    """Judge one PR his card waits on at its head against his words, as drive job report judges a READY made on this Mac, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn and a refusal goes to its builder; a judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
+    """Judge one PR his card waits on at its head against his words, as drive job report judges a READY made on this Mac, with the answers its builder's DESIGN: line cites, and keep the outcome on the PR: CHECKED and NOT READY also as a check event, which the watch says on the PR's line, so his card draws on a pass with no coordinator turn, his Approve lands the head that passed, and a refusal goes to its builder and sends his Approve of that head back to him; then redraw his open card in place, so it drops the check it waited on, or offers no Approve and says why. A judge or GitHub read that failed is kept alone, and the watch tries it again RETRY on."""
     data = state.load(name)
     pr = data["prs"][key]
-    head, at = pr["head"], state.stamp()
+    head, at, named = pr["head"], state.stamp(), ""
     cited = [line for line in state.report_text(name, pr["job"], data["jobs"][pr["job"]]).splitlines() if line.startswith("DESIGN:")]
     try:
         check(name, [key], [], cited, {})
     except Against as error:
-        outcome = f"{NOT_READY}: {error}"
+        outcome, named = f"{NOT_READY}: {error}", error.named
     except DriveError as error:
         outcome = f"{FAILED}: {error}"
     else:
@@ -98,10 +101,17 @@ def verdict(name: str, key: str) -> str:
         outcome = f"{CHECKED} against the words of {', '.join(stamp['orders'])} at {stamp['head'][:10]}, so his card draws once it is green and approved"
     with state.edit(name) as data:
         pr = data["prs"][key]
-        pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome}
+        pr["checker"] = {"head": head, "pid": os.getpid(), "at": at, "outcome": outcome, "against": named}
+        state.send_back(pr)
         if not outcome.startswith(FAILED):
             repo, number = key.split("#")
             state.append_event(name, "check", repo=repo, number=int(number), change=outcome, lane=state.heard_lane(data, pr["order"]))
+    if outcome.startswith(FAILED):
+        return outcome
+    try:
+        slack.redraw_pr_cards(pr["url"])
+    except slack.SlackError as error:
+        return f"{outcome}; his open card for {key} still shows it as drawn before this check, since its redraw failed: {error}"
     return outcome
 
 
@@ -130,7 +140,7 @@ def start(name: str, keys: list[str]) -> None:
         for key in keys:
             pr = data["prs"][key]
             if not (pr["checker"] and pr["checker"]["outcome"] is None and state.alive(pr["checker"]["pid"])):
-                pr["checker"] = {"head": pr["head"], "pid": spawn(name, key), "at": state.stamp(), "outcome": None}
+                pr["checker"] = {"head": pr["head"], "pid": spawn(name, key), "at": state.stamp(), "outcome": None, "against": ""}
 
 
 def spawn(name: str, key: str) -> int:
@@ -138,18 +148,25 @@ def spawn(name: str, key: str) -> int:
     return state.detach(name, ["pr", "check", state.pr_url(key)], LOG)
 
 
-def carry(name: str, keys: list[str]) -> None:
-    """Carry each PR's check to a head that moved while its change stayed the one judged, as a restack moves it, and drop the check of one whose change moved with it, so his card draws on a restacked PR with no second judge and never on a change nobody judged."""
+def carry(name: str, keys: list[str]) -> list[str]:
+    """Carry each PR's check to a head that moved while its change stayed the one judged, as a restack moves it, and drop the check of one whose change moved with it, so his card draws and his Approve lands on a restacked PR with no second judge and never on a change nobody judged; the PRs whose check it carried."""
     data = state.load(name)
     moved = [key for key in keys if (stamp := data["prs"][key]["checked"]) and stamp["head"] != data["prs"][key]["head"]]
     if not moved:
-        return
+        return []
     reads = {key: change(key) for key in moved}
+    carried = []
     with state.edit(name) as data:
         for key, read in reads.items():
             pr = data["prs"][key]
-            if pr["checked"] and read["head"] == pr["head"]:
-                pr["checked"] = pr["checked"] | {"head": read["head"]} if patch(read["diff"]) == pr["checked"]["patch"] else None
+            if not pr["checked"] or read["head"] != pr["head"]:
+                continue
+            if patch(read["diff"]) != pr["checked"]["patch"]:
+                pr["checked"] = None
+                continue
+            pr["checked"] |= {"head": read["head"]}
+            carried.append(key)
+    return carried
 
 
 def patch(diff: bytes) -> str:

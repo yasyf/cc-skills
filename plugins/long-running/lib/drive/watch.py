@@ -67,7 +67,7 @@ STUCK_WORDS = {
     "landing": "green, approved and exempt, and not landed",
 }
 ABOUT = re.compile(r"\[(?P<order>o\d+) (?P<job>j\d+)\]$|^(?:FREE (?:\S+ )?j\d+|ORPHAN|DUE(?: j\d+)?|LIVE|TELL|JOB j\d+|LANE j\d+|STUCK j\d+) (?P<named>o\d+)\b")
-OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, served.CHECKED, PROVEN)
+OWN_MOVES = ("new head", "checks passed", "approved", land.QUEUED, land.UPDATED, land.WAITS_CHECK, served.CHECKED, PROVEN)
 
 
 @dataclass
@@ -528,8 +528,8 @@ def ready_lines(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def stack_ready(pr: dict, data: dict, cards: dict) -> bool:
-    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, and if it asks his tap, its change at its head is checked against his words."""
-    return view.next_step(pr, data, cards) and not pr["rework"] and (state.checked(data, pr) or not state.asks_tap(pr))
+    """Whether a PR lets its stack's ready record go: it waits on its next step alone with no rework owed, its change at its head not judged against his words, and if it asks his tap, that change is checked against them."""
+    return view.next_step(pr, data, cards) and not pr["rework"] and not state.against(pr) and (state.checked(data, pr) or not state.asks_tap(pr))
 
 
 def order_words(data: dict, order_id: str) -> str:
@@ -590,11 +590,11 @@ def checks(watcher: Watcher, moment: datetime) -> None:
 
 
 def check_owed(name: str, key: str, pr: dict, data: dict, cards: dict, moment: datetime) -> bool:
-    """Whether a PR owes the check of its change against his words: open with his card owed and untapped, its change at its head not checked, its builder not running, since a running builder owns its pushes and its own READY's check, nothing it waits on holding it and no card of his drawn, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. A remote lane's READY or PUSHED is checked the minute it returns, while its CI runs, so his card draws the minute it is green and approved, and so is a PR whose builder waits on something else or ended."""
+    """Whether a PR owes the check of its change against his words: open with his card owed, its change at its head not checked, its builder not running, since a running builder owns its pushes and its own READY's check, nothing it waits on holding it, its builder's report no port of an old-tree PR, which the coordinator checks against that PR, and no check of it running or done at this head since its builder last returned. A remote lane's READY or PUSHED is checked the minute it returns, while its CI runs, so his card draws the minute it is green and approved, and so is a PR whose builder waits on something else or ended, and a head that moved under his card or his Approve, which keeps Approve showing and lands only once this check passes."""
     job = data["jobs"][pr["job"]]
-    if job["state"] == "running" or pr["state"] != "open" or state.owed_step(pr) != "card" or pr["tap"]:
+    if job["state"] == "running" or pr["state"] != "open" or state.owed_step(pr) != "card":
         return False
-    if state.checked(data, pr) or view.holding(data, pr["waits"], cards) or view.card_for(cards["pr_cards"], pr["url"]):
+    if state.checked(data, pr) or view.holding(data, pr["waits"], cards):
         return False
     return not served.ported(state.report_text(name, pr["job"], job)) and not served.tried(pr, job["returned"], moment)
 
@@ -1749,14 +1749,22 @@ def run_pass(watcher: Watcher, moment: datetime) -> list[str]:
 
 
 def carried_lines(watcher: Watcher, moment: datetime) -> list[str]:
-    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so its card draws with no second judge; a diff read that fails is retried and said as any GitHub read is."""
+    """Carry each heard PR's check against his words to a head a restack moved, its change the one judged, so its card draws and his Approve lands with no second judge, then redraw in place his open card carrying it, which drops the check it waited on; a diff read that fails is retried and said as any GitHub read is."""
     data = state.load(watcher.name)
     try:
-        served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
+        carried = served.carry(watcher.name, [key for key in state.open_pr_keys(data) if hears(watcher, data, data["prs"][key]["order"])])
     except state.DriveError as error:
         return read_failed(watcher, "moved heads' diffs", error, moment)
     watcher.failures.pop("moved heads' diffs", None)
-    return []
+    lines = []
+    for key in carried:
+        if state.owed_step(state.load(watcher.name)["prs"][key]) != "card":
+            continue
+        try:
+            slack.redraw_pr_cards(state.pr_url(key))
+        except slack.SlackError as error:
+            lines.append(f"WATCH his open card for {key} still says it lands once its check against his words passes, since its redraw failed: {error}")
+    return lines
 
 
 def landed(watcher: Watcher) -> None:

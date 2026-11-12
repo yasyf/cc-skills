@@ -693,7 +693,7 @@ def test_a_session_starts_no_agent_on_an_order_the_other_session_holds(demo: str
         data["orders"]["o1"]["owner"] = "communicator"
     assert scratch_folder.deny_reason(drive_agent("long-running:builder", brief)) == (
         "refused, no agent started: o1 is the communicator's order, session not started: only the communicator adds its jobs,"
-        " starts its agents and posts its reports; send the communicator the step as a handoff record on the drive's record"
+        " starts its agents, checks its PRs and posts its reports; send the communicator the step as a handoff record on the drive's record"
         ' tool instead, to "communicator" and attrs {"order": "o1"}'
     )
 

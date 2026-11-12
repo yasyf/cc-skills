@@ -129,10 +129,12 @@ TAPPED = "https://github.com/Forge-AI/monorepo/pull/4242"
 
 
 def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is_refused_and_a_line_saying_he_tapped_it_goes_out(
-    demo: str,
+    run: Callable[..., tuple[int, str]], demo: str
 ) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the update button")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
     with state.edit(demo) as data:
-        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1")
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "4a4d1f0aa1", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
     assert record_lines.decision(post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)) is None
     with state.edit(demo) as data:
         data["prs"]["Forge-AI/monorepo#4242"] |= {"tap": {"label": "Approve", "at": "2026-11-10T18:40:00-08:00", "head": "abc", "source": "slack"}}
@@ -144,6 +146,25 @@ def test_a_ready_record_to_the_communicator_for_a_pr_the_drive_owes_no_tap_on_is
         assert record_lines.decision(post(kind="handoff", text=f"land {TAPPED}: {said}", to=["root@demo"])) is None
     for said in ("no longer waits on his tap", "he did tap Approve", "he tapped Approve"):
         assert record_lines.decision(post(kind="report", text=f"FYI {TAPPED} {said}", to=["root@demo"])) is None
+
+
+def test_a_ready_record_for_a_pr_whose_change_at_its_head_nobody_checked_against_his_words_is_refused_naming_its_orders_holder(
+    run: Callable[..., tuple[int, str]], demo: str
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Releases", "fix the update button")
+    run("job", "add", "builder", "--order", "o1", "--goal", "fix it")
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#4242"] = state.new_pr(TAPPED, "j1", "o1") | {"head": "ebc103801ea6", "checked": {"head": "4a4d1f0aa1", "orders": ["o1"], "patch": ""}}
+        data["orders"]["o1"]["owner"] = "communicator"
+    ready = post(kind="ready", text="j1 green, his order o1", pr=[TAPPED], to=TO)
+    reason = refusal(record_lines.decision(ready))
+    assert reason.startswith(
+        "refused: this ready record asks his tap on Forge-AI/monorepo#4242 at ebc1038 (order o1, held by the communicator), whose change at that head is not checked against his words"
+    )
+    assert "its order's holder runs drive pr set <url> --serves <o> --design <asked:<his answer> or none>" in reason
+    with state.edit(demo) as data:
+        data["prs"]["Forge-AI/monorepo#4242"]["checked"]["head"] = "ebc103801ea6"
+    assert record_lines.decision(ready) is None
 
 
 TO = ["communicator@demo"]

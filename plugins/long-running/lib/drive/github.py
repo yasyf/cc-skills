@@ -302,6 +302,13 @@ def fetch(keys: list[str]) -> tuple[dict[str, dict], GithubError | None]:
     return found, GithubError("; ".join(refused)) if refused else None
 
 
+def heads(keys: list[str]) -> dict[str, str]:
+    """Each PR's head on GitHub now, by one GraphQL read of that field alone."""
+    found = nodes(graphql(query(keys, "headRefOid"), f"the heads of {', '.join(keys)}"), keys)
+    if missing := [key for key in keys if key not in found]:
+        raise GithubError(f"GitHub answered no head for {', '.join(missing)}")
+    return {key: node["headRefOid"] for key, node in found.items()}
+
 def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
     """One GraphQL query for the open PRs of every (owner/name, branch) head, aliased r<i> per repo and h<j> per head."""
     blocks = []

@@ -5,12 +5,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
-from conftest import Chrome
-from drive import card, cli, github, picture, state, view
+from conftest import Chrome, Judge, Redraws
+from drive import card, cli, github, land, picture, state, view
 from drive.github import GithubError
 
 URL = "https://github.com/Forge-AI/monorepo/pull/42"
 HEAD = "0123456789abcdef0123456789abcdef01234567"
+MOVED = "fedcba9876543210fedcba9876543210fedcba98"
 SUMMARY = "`upload.Retry` retries a failed upload up to five times instead of dropping the file."
 FIX_BODY = f"""## Summary
 {SUMMARY}
@@ -80,6 +81,7 @@ def entry(wants_tap: bool = True, tap: str | None = None, exempt: str | None = N
         "hold_label": False,
         "merged_sha": None,
         "checked": {"head": HEAD, "orders": ["o1"], "patch": ""},
+        "checker": None,
         "updated": "2026-11-09T08:00:00-08:00",
     }
 
@@ -651,7 +653,7 @@ def test_a_refusal_and_a_tap_are_written_with_the_lane_hearing_their_order_then(
     with state.edit(drive) as data:
         data["prs"]["Forge-AI/monorepo#42"]["order"] = "o1"
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp()})
-    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "label": "Approve", "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert [(event["kind"], event["lane"]) for event in events(drive)] == [("refused", "root"), ("tap", "iris")]
 
@@ -704,6 +706,7 @@ def test_answer_stores_his_tap_and_appends_a_tap_event(drive: str) -> None:
         "number": 42,
         "waits": "merge:Forge-AI:monorepo:42",
         "label": "Approve",
+        "heads": {},
         "action_ts": "1762700000.000100",
         "source": "slack",
     }
@@ -731,7 +734,7 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
     with state.edit(drive) as data:
         data["jobs"]["j1"] = state.new_job("o1", "builder", "the run page", [], state.stamp())
         data["prs"]["Forge-AI/monorepo#42"] |= {"order": "o1", "checks": "fail", "review": "approved"}
-    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert landers == []
     with state.edit(drive) as data:
@@ -740,21 +743,88 @@ def test_his_approve_starts_the_lander_on_a_green_monorepo_pr_at_once_and_leaves
     assert landers == [("Forge-AI/monorepo#42",)]
 
 
+def moved_under_his_card(drive: str, monkeypatch: pytest.MonkeyPatch) -> dict:
+    """His card drawn at HEAD, then a push of a new change to MOVED, which the watch read and no check judged yet; the card request that redraws it."""
+    asked = {"prs": [{"repo": "Forge-AI/monorepo", "number": 42}]}
+    assert cli.main(["order", "add", "--project", "Iris", "--workstream", "Run page", "ship the run page", "--drive", drive]) == 0
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS)
+    view.refresh_cards(drive)
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"] |= {"checks": "pass", "review": "approved"}
+    monkeypatch.setattr(card, "run", answering(pr_json()))
+    assert ask(asked)["cards"][0]["card"]["options"] == ["Approve", "Hold"]
+    monkeypatch.setattr(card, "run", answering(pr_json() | {"headRefOid": MOVED}))
+    with state.edit(drive) as data:
+        data["prs"]["Forge-AI/monorepo#42"] |= {"head": MOVED, "checked": None}
+    return asked | {"redraw": True}
+
+
+def tap_approve(shown: str) -> None:
+    answer = {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {"Forge-AI/monorepo#42": shown}, "action_ts": "", "source": "pressed the button"}
+    assert ask({"answer": answer}) == {"ok": True}
+
+
+def test_a_head_that_moved_under_his_card_keeps_approve_and_his_approve_of_the_head_he_saw_lands_only_once_the_check_passes_at_the_new_head(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], redraws: Redraws
+) -> None:
+    key, judging = "Forge-AI/monorepo#42", "commit fedcba9 passes the check against your words"
+    redraw = moved_under_his_card(drive, monkeypatch)
+    [shown] = ask(redraw)["cards"]
+    assert (shown["card"]["status"], shown["card"]["options"], shown["card"]["prs"][0]["lands"]) == ("needs_you", ["Approve", "Hold"], f"you approve and {judging}")
+    tap_approve(HEAD)
+    [tapped] = [event for event in events(drive) if event["kind"] == "tap"]
+    assert (state.load(drive)["prs"][key]["tap"]["head"], tapped["head"], landers) == (HEAD, HEAD, [])
+    [held] = ask(redraw)["cards"]
+    assert ("options" in held["card"], held["card"]["prs"][0]["blocks"]) == (False, f"Lands once {judging}")
+    assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
+    assert (state.load(drive)["prs"][key]["checked"]["head"], state.load(drive)["prs"][key]["tap"]["label"], redraws.asked) == (MOVED, "Approve", [URL])
+    assert ask(redraw)["cards"][0]["card"]["prs"][0]["blocks"] == "CI passed; the drive queues it for merge"
+    assert land.start(drive, [key], view.live_cards(drive)) == [(key,)]
+    assert landers == [(key,)]
+
+
+def test_a_change_against_his_words_at_the_head_he_approved_sends_his_approve_back_saying_why_and_his_card_offers_none_until_a_commit_passes(
+    drive: str, monkeypatch: pytest.MonkeyPatch, landers: list[tuple[str, ...]], redraws: Redraws, judge: Judge
+) -> None:
+    key, named = "Forge-AI/monorepo#42", 'o1 "ship the run page": run.ts drops the run page'
+    redraw = moved_under_his_card(drive, monkeypatch)
+    tap_approve(HEAD)
+    judge.against = [{"order": "o1", "words": "ship the run page", "change": "run.ts drops the run page"}]
+    assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
+    why = f"Commit fedcba9 goes against your words, so your Approve of commit 0123456 went back: {named}"
+    pr = state.load(drive)["prs"][key]
+    assert (pr["tap"], pr["fundamental"], redraws.asked, land.start(drive, [key], view.live_cards(drive)), landers) == (None, why, [URL], [], [])
+    assert state.tap_refused(pr) == f"its change at its head goes against his words: {named}"
+    [refused] = ask(redraw)["cards"]
+    row = refused["card"]["prs"][0]
+    assert ("options" in refused["card"], row["blocks"], row["changed"]) == (
+        False,
+        f"Commit fedcba9 goes against your words: {named}. Its agent is changing it; Approve returns once a commit passes the check",
+        why,
+    )
+    [checked] = [event for event in events(drive) if event["kind"] == "check"]
+    assert checked["change"].startswith(f"NOT READY: {key} go against his words")
+    judge.against = []
+    assert cli.main(["pr", "check", URL, "--drive", drive]) == 0
+    [asking] = ask(redraw)["cards"]
+    assert (asking["card"]["options"], asking["card"]["prs"][0]["changed"]) == (["Approve", "Hold"], why)
+
+
 def test_answer_matches_the_lowercase_repo_cc_slack_sends(drive: str) -> None:
-    answer = {"repo": "forge-ai/monorepo", "number": 42, "waits": "", "label": "Hold", "action_ts": "", "source": "s"}
+    answer = {"repo": "forge-ai/monorepo", "number": 42, "waits": "", "label": "Hold", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert state.load(drive)["prs"]["Forge-AI/monorepo#42"]["tap"]["label"] == "Hold"
 
 
 def test_answer_on_a_merged_pr_stores_nothing(drive: str) -> None:
-    answer = {"repo": "Forge-AI/monorepo", "number": 7, "waits": "", "label": "Approve", "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 7, "waits": "", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     assert ask({"answer": answer}) == {"ok": True}
     assert state.load(drive)["prs"]["Forge-AI/monorepo#7"]["tap"] is None
     assert events(drive) == []
 
 
 def test_answer_on_an_unknown_pr_fails(drive: str) -> None:
-    answer = {"repo": "o/n", "number": 1, "waits": "", "label": "Approve", "action_ts": "", "source": "s"}
+    answer = {"repo": "o/n", "number": 1, "waits": "", "label": "Approve", "heads": {}, "action_ts": "", "source": "s"}
     with pytest.raises(state.DriveError, match="not a drive PR"):
         ask({"answer": answer})
 
@@ -788,7 +858,7 @@ def test_unheard_appends_an_event(drive: str) -> None:
 @pytest.mark.parametrize(
     "tap",
     [
-        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "action_ts": "", "source": "slack"}},
+        {"answer": {"repo": "Forge-AI/monorepo", "number": 42, "waits": "merge:Forge-AI:monorepo:42", "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}},
         {"answer": {"waits": "demo:j3-661440", "label": "Ring", "url": "https://acme.slack.com/archives/D123/p1794200000000100", "action_ts": "", "source": "slack"}},
         {"unheard": {"card": "1762700000.000200", "label": "Other", "question": "Which drive first?", "other": True, "permalink": "", "key": "q1"}},
     ],
@@ -1015,7 +1085,7 @@ def test_prs_of_one_order_in_no_native_stack_asked_together_draw_one_card_whose_
     assert [row["url"] for row in drawn["card"]["prs"]] == [stack_url(n) for n in (54591, 54602, 54608)]
     assert drawn["card"]["waits"] == "merge:Forge-AI:monorepo:54591-54608"
     assert all(state.load("demo")["prs"][key]["stack"] == keys for key in keys)
-    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 54591, "waits": drawn["card"]["waits"], "label": "Approve", "action_ts": "", "source": "slack"}})
+    ask({"answer": {"repo": "Forge-AI/monorepo", "number": 54591, "waits": drawn["card"]["waits"], "label": "Approve", "heads": {}, "action_ts": "", "source": "slack"}})
     assert [state.load("demo")["prs"][key]["tap"]["label"] for key in keys] == ["Approve"] * 3
 
 
@@ -1072,6 +1142,7 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
         "number": 41,
         "waits": "merge:Forge-AI:monorepo:41-43",
         "label": "Approve",
+        "heads": {},
         "action_ts": "1762700000.000100",
         "source": "slack",
     }
@@ -1086,7 +1157,7 @@ def test_approve_on_a_stack_card_taps_each_open_pr_bottom_first(stacked: list[li
 
 def test_a_tap_on_a_single_pr_card_taps_only_that_pr(stacked: list[list[str]]) -> None:
     ask(asks(41, 42, 43))
-    answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41", "label": "Hold", "action_ts": "", "source": "s"}
+    answer = {"repo": "Forge-AI/monorepo", "number": 41, "waits": "merge:Forge-AI:monorepo:41", "label": "Hold", "heads": {}, "action_ts": "", "source": "s"}
     ask({"answer": answer})
     assert [event["number"] for event in events("demo")] == [41]
 

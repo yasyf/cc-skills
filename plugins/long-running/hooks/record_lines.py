@@ -29,8 +29,30 @@ def untapped(record: dict, prs: dict[str, dict]) -> str | None:
     """Why a ready record to the communicator, which draws his card asking him to tap each PR it names, names a PR the drive owes no tap on."""
     if kind(record) != "ready" or not addressed(record, "communicator"):
         return None
-    named = [record.get("text") or "", record.get("body") or "", record.get("url") or "", *map(str, record.get("pr") or [])]
-    return limits.tap_refusal("\n".join(named), prs)
+    return limits.tap_refusal(naming(record), prs)
+
+
+def unchecked(record: dict, drives: list[dict]) -> str | None:
+    """Why a ready record to the communicator asks his tap on a drive PR whose change at its head nobody checked against his words, so its line would call ready a change nobody judged, naming who checks it: its order's holder."""
+    if kind(record) != "ready" or not addressed(record, "communicator"):
+        return None
+    found = [
+        f"{key} at {pr['head'][:7]} (order {pr['order']}, held by the {state.title(data['orders'][pr['order']]['owner'] or 'coordinator')})"
+        for data in drives
+        for key in state.named_prs(data, "", naming(record))
+        if state.asks_tap(pr := data["prs"][key]) and not state.checked(data, pr)
+    ]
+    if not found:
+        return None
+    return (
+        f"refused: this ready record asks his tap on {'; '.join(found)}, whose change at that head is not checked against his words."
+        " Its builder's READY checks it through drive job report, or its order's holder runs"
+        " drive pr set <url> --serves <o> --design <asked:<his answer> or none>; the watch sends the ready record itself once each PR is checked"
+    )
+
+
+def naming(record: dict) -> str:
+    return "\n".join([record.get("text") or "", record.get("body") or "", record.get("url") or "", *map(str, record.get("pr") or [])])
 
 
 def unkinded(record: dict) -> str | None:
@@ -71,8 +93,9 @@ def misaddressed(payload: dict, record: dict) -> str | None:
 
 def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[str | None]:
     """Each check of each record in turn, so a refusal stops the rest from running."""
-    drive = state.load(names[0])
-    prs = {key: pr for name in names for key, pr in state.load(name)["prs"].items()}
+    drives = [state.load(name) for name in names]
+    drive = drives[0]
+    prs = {key: pr for data in drives for key, pr in data["prs"].items()}
     for index, record in enumerate(records):
         yield misaddressed(payload, record)
         yield limits.misnamed(kind(record), attrs(record))
@@ -81,6 +104,7 @@ def refusals(payload: dict, names: list[str], records: list[dict]) -> Iterator[s
         yield state.unabout(kind(record), attrs(record))
         yield unkinded(record)
         yield untapped(record, prs)
+        yield unchecked(record, drives)
         yield from report_refusals(payload, drive, records, index)
 
 

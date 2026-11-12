@@ -272,7 +272,14 @@ each on the one below's head branch, up to the first neither his Approve nor an 
 and each other PR of his card in a call of its own, since `stack-enqueue` refuses PRs named together
 that no stack links, such as one order's sibling PRs on `dev`. It starts on
 none while a card of his that the PR or its job waits on is open, or the PR is a draft, held or in
-conflict. Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
+conflict. His Approve lands only a change checked against his words at its head, whatever head he
+tapped it on: a head that moved under his card keeps Approve showing, the card saying it lands once
+that commit passes the check, the watch's `drive pr check` judges it, and the lander starts once it
+passes and reads GitHub's head again before it queues, saying `PR … waits on its check against his words`
+and waking no one when GitHub holds a head the check has not passed. A `NOT READY` at the PR's head
+sends his Approve back: the tap is cleared, a card of his he has not answered redraws with no Approve
+saying why, and the card that asks his Approve again, which replaces one he answered, says why under
+"Changed since your answer", by his words "Keep Approve showing: keeps Approve on a commit nobody judged; your tap lands after the judge passes, and a failed judge sends it back". Each head gets one try. Its outcome comes back as the PR's line: `PR … queued for merge`
 wakes no one, while `PR … not landed: <why>` and `PR … ejected from the merge queue` wake the job's
 holder for a builder that fixes the cause and pushes, and the lander tries the new head on its own.
 His `TAP Approve` line itself wakes the coordinator only when the PR is red or conflicts. A PR of

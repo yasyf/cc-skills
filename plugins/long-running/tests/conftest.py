@@ -147,6 +147,7 @@ def landers(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
     monkeypatch.setattr(land, "spawn", lambda name, keys: started.append(keys) or os.getpid())
     monkeypatch.setattr(github, "default_branch", lambda repo: "main")
     monkeypatch.setattr(github, "below", lambda key: [])
+    monkeypatch.setattr(github, "heads", lambda keys: {key: card.drive_prs()[key][1]["head"] for key in keys})
     return started
 
 
