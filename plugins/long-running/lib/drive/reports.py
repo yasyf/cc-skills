@@ -35,9 +35,9 @@ NOT_THREAD = "refused: thread {thread} is no Slack thread, which is named by its
 SECOND_REPORT = (
     "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
     " and this turn already sent one for thread {thread}; put everything for that thread in that one report, and what"
-    " does not fit waits for the next wake"
+    " does not fit waits for the next wake. A report on an open incident is never held so"
 )
-SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since."
+SECOND_REPORT_RULE = "A second report for a thread in one turn of the coordinator's or the meta session's that repeats what its first report there already sent, rather than news that came in since; a report on an open incident order always goes."
 UNPREVENTED = (
     "record_lines: this report goes out as written, but these POST lines may tell him the drive failed with no word on how that"
     " is prevented. If one does, start its fix and send that line again naming the tool change and the order or PR URL"
@@ -73,7 +73,7 @@ def addressed(record: dict, lane: str) -> bool:
 
 
 def report_refusals(payload: dict, drive: dict, records: list[dict], index: int) -> Iterator[str | None]:
-    """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass."""
+    """Why a report to the communicator does not go out as written, whether the cci `post` tool or `cci post` in Bash sends it, each check run only once the ones before it pass; a report on an open incident order is never held to one a thread a turn, by his words "this is incident so uyou should be faster and communicating more with me"."""
     record = records[index]
     if kind(record) != "report" or not addressed(record, "communicator"):
         return
@@ -88,7 +88,7 @@ def report_refusals(payload: dict, drive: dict, records: list[dict], index: int)
     yield off_thread(drive, record)
     yield UNCARDED if WAITS_ON_HIM.search(text) and not attrs(record).get("waits") and not CARD_NAMED.search(f"{text}\n{record.get('body') or ''}") else None
     yield VAGUE_WAIT if WAITS_ON_OTHER.search(text) and not (WAITED.search(text) and RUNNING.search(text)) else None
-    if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id"):
+    if thread and state.session_role(drive, payload.get("session_id")) in ("coordinator", "meta") and not payload.get("agent_id") and not state.open_incidents(drive, state.report_orders(drive, attrs(record))):
         yield second_report(payload, records, index, thread)
     yield agents.unread_job(payload, text)
 

@@ -292,9 +292,14 @@ def decided_refusal(answer: dict | None, why: str | None) -> str | None:
     """Why a question may not go to him: Jev reads this answer of his as already deciding it, and no reason names it and says why it does not."""
     if not answer or answer["id"] in (why or ""):
         return None
+    return f"refused: {decided_line(answer)}"
+
+
+def decided_line(answer: dict) -> str:
+    """What a question his answer already decides tells whoever asked it: his words, and to build on them now."""
     where = f"his message in this order's thread {answer['link']}" if "link" in answer else f"his recorded answer {answer['id']}"
     return (
-        f'refused: {where} already decides this question. Asked "{cut(answer["asked"], 200)}", he said "{cut(answer["said"], QUOTED_CHARS)}".'
+        f'{where} already decides this question. Asked "{cut(answer["asked"], 200)}", he said "{cut(answer["said"], QUOTED_CHARS)}".'
         + (ORDERED.format(id=answer["id"]) if answer["settles"] == "orders" else " Go ahead on it.")
         + f' If his words decide something else, ask again with --unsettled "{answer["id"]}: <why>".'
     )

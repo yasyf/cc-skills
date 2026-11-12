@@ -310,6 +310,7 @@ def added_order(args: argparse.Namespace) -> tuple[str, dict, list[str], list[st
         if args.due:
             need_thread(order_id, order)
         started = [state.incident_job(data, name, order_id, part, created) for part in (order["parts"] if args.incident and not joined else [])]
+        started += [state.INCIDENT_BRIEF] if started else []
     if joined:
         started.append(f"joins {args.joins}: {joined['note'] or 'no record'}; its owner job carries this order with --carries {order_id}")
     return order_id, order, started, incidents
@@ -358,7 +359,7 @@ def incident_stop(args: argparse.Namespace) -> int:
         order["parts"][state.INCIDENT_STOP] = state.new_part()
         started = state.incident_job(data, name, args.id, state.INCIDENT_STOP, created)
         order["updated"] = created
-    return emit(args, started, {"id": args.id, "job": started.split()[0]})
+    return emit(args, f"{started}\n{state.INCIDENT_BRIEF}", {"id": args.id, "job": started.split()[0]})
 
 
 def incident_freeze(args: argparse.Namespace) -> int:
@@ -933,7 +934,7 @@ def record_post(name: str, order_id: str, link: str, report: dict) -> tuple[str,
 
 
 def record_on(name: str, order_id: str, link: str, report: dict, items: list[tuple[str | None, str]]) -> tuple[str, dict]:
-    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by, the order's last line, the parts its report's items deliver there that its words carry, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
+    """Record the drive's post on one order: the promised time it keeps, the time its words promise his next line by but on an incident, whose next line the watch owes five quiet minutes after its last, the order's last line, the parts its report's items deliver there that its words carry, and, when it is in the thread of the message of his that its report, about this order, answers, that thread among the order's, with when it joined."""
     data = state.load(name)
     order = communicators_order(data, order_id)
     if refused := report_refusal(data, order_id, report):
@@ -946,7 +947,7 @@ def record_on(name: str, order_id: str, link: str, report: dict, items: list[tup
     at = slack.sent_at(posted)
     line = state.stamp(at)
     closing = order_id in state.closed_orders(report)
-    promised = promised_due(posted.get("text") or "", at) if ours else None
+    promised = promised_due(posted.get("text") or "", at) if ours and not order["incident"] else None
     kept = ""
     with state.edit(name) as data:
         order = data["orders"][order_id]
@@ -1284,8 +1285,8 @@ def job_ask(args: argparse.Namespace) -> int:
     text = named_text(args.file, "ASK block file") if args.file else job.get("report")
     if not text:
         raise DriveError(f"{args.id} sent no report to read an ASK from; pass the file its ASK block is in, or - and the block on stdin")
-    kept, asked, question = keep_ask(name, args.id, text, args.unsettled)
-    return emit(args, str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], **vars(asked)})
+    kept, asked, question, decided = keep_ask(name, args.id, text, args.unsettled)
+    return emit(args, decided or str(kept), {"id": args.id, "question": str(kept), "waits": question["waits"], "settled": question["settled"], **vars(asked)})
 
 
 def drop_ask(name: str, job_id: str, file: Path) -> dict:
@@ -1308,8 +1309,8 @@ def drop_ask(name: str, job_id: str, file: Path) -> dict:
     return question
 
 
-def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict]:
-    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card; one Jev reads an answer of his as already deciding stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
+def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[Path, limits.Question, dict, str | None]:
+    """Keep the job's ASK block, or the ASK a DESIGN return puts to him, in its own file once it is in the shape he reads, in place of the job's open question asking the same, and set the job waiting on it; a question any job asked on a card since withdrawn keeps that card's waits id, so asking it again redraws that card. One Jev reads an answer of his as already deciding, asked with no --unsettled and refused for nothing else, is kept settled by that answer, draws no card and leaves the job as it was, so it goes straight to building on his words, and the session holding its order hears so in one record; one refused for anything else stays kept as the job's pending question with its refusal, which draws no card, so the watch says the job waits on a card never posted until it asks again or drops it."""
     from drive import superseded, view
 
     text = limits.ask_block(text)
@@ -1337,16 +1338,23 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     refused = settled.refusals(
         decided["answer"], superseded.open_under(data, job, cards), [*settled.own_words(data, job["order"], shown), *heard], "\n".join([asked.title, *asked.options]), unsettled
     )
+    deciding = decided["answer"] if refused and not unsettled and refused == settled.decided_refusal(decided["answer"], None) else None
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
     kept.parent.mkdir(exist_ok=True)
     kept.write_text(text)
+    if deciding:
+        settled_note(name, data, job_id, asked.title, deciding)
     with state.edit(name) as data:
         job = data["jobs"][job_id]
         twins = [question for other, question in asking(data, asked.title, cards) if other == job_id]
         reworded = [other for other in job["questions"] if other["refused"] and (state.same_question(asked.title, other["title"]) or superseded.shared(asked.title, other["title"]))]
-        if refused:
-            deciding = decided["answer"] if settled.decided_refusal(decided["answer"], unsettled) else None
-            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, settled=deciding and {"answer": deciding["id"], "at": state.stamp()})
+        if deciding:
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, settled={"answer": deciding["id"], "ruling": None if "link" in deciding else deciding["id"], "at": state.stamp()})
+            replaced = [*twins, *reworded]
+            job.update(updated=state.stamp(), may_settle=decided)
+        elif refused:
+            answered = decided["answer"] if settled.decided_refusal(decided["answer"], unsettled) else None
+            question = state.new_question(str(kept), asked.title, state.stamp(), unsettled, refused=refused, settled=answered and {"answer": answered["id"], "at": state.stamp()})
             replaced = [*(twin for twin in twins if twin["refused"]), *reworded]
             job.update(updated=state.stamp(), may_settle=decided)
         else:
@@ -1359,13 +1367,34 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
             moment = state.stamp()
             job.update(state="waiting", said=asked.title, updated=moment, returned=moment, may_settle=None)
         job["questions"] = [*(other for other in job["questions"] if not any(other is gone for gone in replaced)), question]
-    if refused:
+    if refused and not deciding:
         raise DriveError(
             f"{refused}\n{kept} keeps this ASK as {job_id}'s pending question with this refusal: no card draws for it, and the watch says"
             f" {job_id} waits on a card never posted until {job_id} asks it again, in these words or others sharing three rare words, or"
             f" `drive job ask {job_id} --drop {kept}` drops it"
         )
-    return kept, asked, question
+    return kept, asked, question, deciding and settled_line(job_id, job, question, deciding)
+
+
+def settled_note(name: str, data: dict, job_id: str, title: str, answer: dict) -> None:
+    """Tell the session holding the job's order, in one record that wakes nobody, that his answer settled the job's question, so it builds on his words with no card."""
+    job = data["jobs"][job_id]
+    lane = state.holder_lane(data["orders"][job["order"]]) or state.heard_lane(data, job["order"])
+    text = f'{job_id} builds on his answer {answer["id"]}, which already decides its question "{render.cut(title, 120)}", so no card draws for it'
+    argv = ["cci", "post", "--drive", name, "--lane", "builder", "--kind", "evidence", "--to", f"{lane}@{name}", "--attr", f"job={job_id}", "--attr", f"answer={answer['id']}", "--text", text]
+    try:
+        reads.run(argv, Path(data["roles"]["coordinator"]["cwd"]))
+    except reads.ReadError as error:
+        raise DriveError(f"nothing kept: his answer {answer['id']} decides {job_id}'s question, and the record telling {lane}@{name} so did not post: {error}") from None
+
+
+def settled_line(job_id: str, job: dict, question: dict, answer: dict) -> str:
+    """What `drive job ask` prints for a question his answer settled: his words, and who builds on them now."""
+    if job["state"] in state.FINISHED_JOB_STATES:
+        then = f"{job_id} ended {job['state']}, so start the job that builds it now on the same part, its brief naming his answer {answer['id']} under Decisions that bind"
+    else:
+        then = f"{job_id} builds it now"
+    return f'{question["file"]} keeps {job_id}\'s question settled, no card: {settled.decided_line(answer)} {then}'
 
 
 def asking(data: dict, title: str, cards: dict | None) -> list[tuple[str, dict]]:
@@ -1602,10 +1631,10 @@ def job_report(args: argparse.Namespace) -> int:
                 raise DriveError(f"{args.id}: refused, nothing kept: {error}") from None
         if job["kind"] == "builder" and re.match(r"READY\b", line) and (held := unready(data, job, line)):
             raise DriveError(f"{args.id}: refused, nothing kept: {held}")
-        asked = None
+        asked = decided = None
         if job["kind"] == "reader" and line.startswith("DESIGN"):
             try:
-                asked = keep_ask(name, args.id, whole.strip(), None)[0]
+                asked, _, _, decided = keep_ask(name, args.id, whole.strip(), None)
             except DriveError as error:
                 raise DriveError(f"{args.id}: refused, its report not kept: a reader's DESIGN is his card as it stands, kept as its ASK, and drive job ask refused it: {error}") from None
         wrote = state.keep_report(name, args.id, job, line, whole)
@@ -1618,7 +1647,7 @@ def job_report(args: argparse.Namespace) -> int:
             f" {kept} is written only by its own agent's return while it runs"
         )
         merging = merge_reported(name, args.id)
-        shown = f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
+        shown = f"{where}\n{decided}" if decided else f"{where}\nits ASK is kept in {asked}, the path its ask record names" if asked else where
         shown = "\n".join([shown, *(f"{key}: {said}" for key, said in merging)])
         return emit(args, shown, {"id": args.id, "report": str(kept) if wrote else None, "ask": asked and str(asked), "merging": dict(merging)})
     text = state.report_text(name, args.id, job)
@@ -1742,7 +1771,7 @@ def job_brief(args: argparse.Namespace) -> int:
         "Interactions": flags["interactions"],
         "Would he ask": flags["would_he_ask"],
         "Plan": flags["plan"],
-        "Incident": flags["incident"],
+        "Incident": incident_line(order, job["kind"], flags["incident"]),
         "Scratch": str(scratch),
         "Transcripts": earlier,
         "Drive": f"{name}, order {job['order']}, job {args.id}",
@@ -1770,6 +1799,12 @@ def job_brief(args: argparse.Namespace) -> int:
             f" meta@{name} a defect record naming {args.id} and its `Read your brief first:` line"
         )
     return emit(args, line, {"id": args.id, "brief": str(written), "rulings": len(rulings), "earlier": earlier, "kept": kept})
+
+
+def incident_line(order: dict, kind: str, given: str | None) -> str | None:
+    """A brief's Incident: line: the call's own, with the rule a lane of its kind follows on a choice after it on an incident order, which a choice never stops."""
+    rule = state.INCIDENT_CHOICE.get(kind) if order["incident"] else None
+    return "; ".join(filter(None, [given, rule if rule and rule not in (given or "") else None])) or None
 
 
 def ruling_words(answer_id: str, checkout_dir: Path) -> str:
@@ -3188,7 +3223,7 @@ def parser() -> argparse.ArgumentParser:
     verb.add_argument("words", help="his words, or the alert's text, verbatim")
     verb.add_argument("--from", dest="source", default="terminal", help=FROM_HELP.replace("he wrote it", "it came from"))
     verb.add_argument("--thread", help=f"{THREAD_HELP}; default: the thread the --from message is in")
-    verb.add_argument("--due", help="the time his ack promised a line by; the watch says DUE from then until a line is in the thread")
+    verb.set_defaults(due=None)
     verb.add_argument("--record", required=True, metavar="TITLE", help="the evidence record's title: <service> on <cluster>: <symptom>, since <time>")
     verb.add_argument("--reporter", metavar="LINK", help=REPORTER_HELP)
     verb.add_argument("--alert", dest="alerts", action="append", default=[], metavar="LINK", help=ALERT_HELP)

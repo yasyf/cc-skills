@@ -490,6 +490,16 @@ def test_the_coordinator_sends_one_report_per_thread_per_turn(demo: str, turn: P
     assert "the next wake" in refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j3 merged", to=TO, attrs={"thread": THREAD, **PROGRESS})))
 
 
+def test_a_report_on_an_open_incident_goes_however_many_its_thread_already_had_this_turn(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
+    run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Journal", "the journal will not open on two Macs", "--thread", THREAD, "--incident", "--parts", "fix", "first check")
+    called(turn, "first", "mcp__plugin_cc-inbox_cci__post", {"kind": "report", "text": "POST the fix job is changing the journal's open call", "to": TO, "attrs": {"thread": THREAD, "order": "o1", **PROGRESS}})
+    second = {"kind": "report", "text": "POST the first check found the newest build fails too", "to": TO, "attrs": {"thread": THREAD, "order": "o1", **PROGRESS}}
+    assert record_lines.decision(coordinator(turn, **second)) is None
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["incident"] = False
+    assert "one report per thread per turn" in refusal(record_lines.decision(coordinator(turn, **second)))
+
+
 def said(count: int) -> str:
     return " ".join(["word"] * count)
 

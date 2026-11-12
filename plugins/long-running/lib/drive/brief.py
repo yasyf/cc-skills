@@ -46,6 +46,9 @@ SEARCHED = re.compile(r"\b(?:ccx|rg|grep|ccn|answer_search|search_plan)\b")
 DUPLICATION_RULING = '"how _agents was allowed to get creted in the irst place sonce its a terieble duplicatgion and was clerarly not throught through"'
 UNDESIGNED = ("HANDOFF", "BLOCKED")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
+CHOICE_WORDS = r"\b(?:options?|choices?|choose|lost|picks?|decisions?|forks?)\b"
+STOPS_ON_CHOICE = re.compile(rf"[^.;]*(?:\bBLOCKED\b[^.;]*{CHOICE_WORDS}|{CHOICE_WORDS}[^.;]*\bBLOCKED\b)[^.;]*")
+STOPPED_RULING = '"fix ur tooling if it stopped on that it shoukd. have brought a design question card to me asap not just stopped int eh middle of the incident"'
 
 
 def carried(prompt: str) -> str:
@@ -187,12 +190,14 @@ def unasked_design(reader: str, questions: list[dict]) -> str | None:
 
 
 def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
-    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
+    """Why this brief may not start its job's agent: the lines its writer plans the job with ask him for a sign-in, Touch ID or cc-sudo on an AWS action this Mac's machine profile runs, a drive tooling brief aside, whose lines name the sign-ins the drive's checks refuse; an incident's codex lane or builder needs its kind's rule on a choice, by incident_refusal; a build order's builder, designer or codex lane needs the Researched: line naming its reader, unless it ships the immediate fix or designs a follow-up he ordered, which starts at once doing its own research, and an answer order's one lane does its own research."""
     if not SERVES_TOOLING.search(brief) and (asked := limits.sign_in_problems([(f"its {found[1]} line", found[2]) for found in PLANNED.finditer(brief)])):
         return f"{job_id}'s brief plans a sign-in of his: {asked[0]}"
     job = data["jobs"][job_id]
     order_id = job["order"]
     order = data["orders"][order_id]
+    if order["incident"] and (rule := state.INCIDENT_CHOICE.get(job["kind"])):
+        return incident_refusal(job_id, order_id, brief, rule)
     if HANDOFF.search(brief) or order["incident"] or not order["kind"] or state.IMMEDIATE_FIX in job["parts"]:
         return None
     if job["kind"] == "design" and state.FOLLOW_UP in job["parts"]:
@@ -215,6 +220,15 @@ def brief_refusal(name: str, data: dict, job_id: str, brief: str) -> str | None:
     reader = data["jobs"].get(named[1])
     if not (reader and reader["kind"] == "reader" and reader["order"] == order_id and filled(researched(state.report_text(name, named[1], reader)))):
         return f"Researched: {named[1]} names no reader of {order_id} that kept {BLOCK} in its report"
+    return None
+
+
+def incident_refusal(job_id: str, order_id: str, brief: str, rule: str) -> str | None:
+    """Why an incident lane's brief may not start it: a choice never stops an incident, so its brief carries the rule its kind follows on one, word for word, and no line of it orders a BLOCKED return on a loss or a choice."""
+    if rule not in " ".join(brief.split()):
+        return f'{job_id} works on {order_id}, an incident, which a choice never stops, by his words {STOPPED_RULING}: its brief\'s Incident: line carries, word for word, "{rule}"'
+    if stops := next((found for line in brief.splitlines() if (found := STOPS_ON_CHOICE.search(" ".join(line.split()).replace(rule, "")))), None):
+        return f'{job_id}\'s brief stops it on a choice, "{cut(stops[0].strip(), 160)}", and an incident never stops on one, by his words {STOPPED_RULING}: drop that line, since its Incident: line says what it does instead'
     return None
 
 

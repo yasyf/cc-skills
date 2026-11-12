@@ -233,6 +233,10 @@ def gone(session: str | None) -> bool:
     return bool(session) and session not in {row.get("sessionId") for row in json.loads(reads.run(["claude", "agents", "--json"], Path.cwd()))}
 
 
+class Busy(state.DriveError):
+    """A live handler holds what a brief holds, so no second one starts: one at work on another record takes the brief when it ends."""
+
+
 def handle(name: str, brief: str) -> str:
     """Start a handler on its brief, unless a live one already holds what the brief holds, since one message of his has one handler at a time: a refused brief for another record is kept for that handler's done record to name; the started handler's id."""
     held_now = holds(brief)
@@ -252,7 +256,7 @@ def handle(name: str, brief: str) -> str:
             data["handlers"][handler_id] = {"session": None, "started": state.stamp(), "holds": held_now, "held_back": [], "posted": []}
     if held:
         then = f"its done record names this brief, to start then and post only what {held} left out" if kept else "this copy needs no handler of its own"
-        raise state.DriveError(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
+        raise Busy(f"refused, no handler started: handler {held} is at work on {his}, and one message of his has one handler at a time; {then}")
     if folder := scratch(brief):
         folder.mkdir(parents=True, exist_ok=True)
     try:

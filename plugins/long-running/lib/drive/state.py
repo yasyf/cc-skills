@@ -32,6 +32,17 @@ UNLIVE_FIX = (
 )
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
+INCIDENT_CHOICE = {
+    "codex": (
+        "a choice never stops it: write the ASK block to a file in your scratch, build its recommended option in the same run,"
+        " and return your result with an ASK: <that file> line, which puts his card up as you return; never BLOCKED on a choice"
+    ),
+    "builder": (
+        "a choice never stops it: return ASK <path> the moment the fork shows, which puts his card up, and build its recommended"
+        " option when the coordinator resumes you in that turn; never BLOCKED on a choice"
+    ),
+}
+INCIDENT_BRIEF = f'each brief\'s Incident: line carries, word for word: "{INCIDENT_CHOICE["codex"]}"'
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
@@ -365,6 +376,7 @@ def load(name: str) -> dict:
         order.setdefault("close_report", None)
         order.setdefault("alerts", [])
         order.setdefault("recovered", None)
+        order.setdefault("quiet", None)
         order.setdefault("reporter", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         if "from_thread" in order or isinstance(order.get("thread", ""), str):
@@ -529,7 +541,7 @@ def hold_unstarted(job: dict) -> None:
 
 
 def result_state(job: dict, line: str) -> str | None:
-    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other, an `ASK` included, since a codex lane keeps no card, is done."""
+    """The state a job's returned line moves it to, or None when the line is no result: a reader's answer or its DESIGN to done, since a design lane takes its choice on; `BUILT <branch>, waits on <cards>` to built, and an ASK to waiting on his card. A codex job's line is its codex-ask run's, never its relay's: a `BLOCKED` one fails it and any other is done, since nothing resumes a codex run; the ASK block its reply names the watch keeps as it takes the run, which sets the job waiting on his card."""
     opening = re.match(r"[A-Z]*", line)[0]
     reader = job["kind"] == "reader"
     if job["kind"] == "codex":
@@ -788,6 +800,7 @@ def new_order(text: str, source: str, thread: tuple[str, str] | None, parts: dic
         "fixed": None,
         "alerts": [],
         "recovered": None,
+        "quiet": None,
         "reporter": None,
         "parts": parts,
         "incident": False,
@@ -1383,8 +1396,8 @@ def incident_threads(data: dict, order_ids: list[str]) -> list[str]:
 
 
 def owed(order: dict) -> bool:
-    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it."""
-    return bool(order["due"]) and not order["kept"] and not order["withdrawn"]
+    """Whether the order owes him a line for a promised time: no drive post in its thread has kept it, and he has not withdrawn it. An incident owes none, since the watch owes him its line five quiet minutes after its last, whatever that line promised."""
+    return bool(order["due"]) and not order["incident"] and not order["kept"] and not order["withdrawn"]
 
 
 def owed_at(order: dict) -> str:

@@ -27,6 +27,7 @@ from drive import (
 )
 
 SESSION = "session-under-test"
+SETTLED_NOTE = cli.settled_note
 TEAM = [
     {"name": "rowan", "real_name": "Rowan Vale", "email": "rowan@example.com"},
     {"name": "juniper.cole", "real_name": "Juniper Cole", "email": "juniper.cole@example.com"},
@@ -520,6 +521,13 @@ def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
 
     monkeypatch.setattr(settled, "jev", answered)
     return judged
+
+
+@pytest.fixture(autouse=True)
+def settled_notes(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    told: list[tuple[str, str]] = []
+    monkeypatch.setattr(cli, "settled_note", lambda name, data, job_id, title, answer: told.append((job_id, answer["id"])))
+    return told
 
 
 @pytest.fixture(autouse=True)

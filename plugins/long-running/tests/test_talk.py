@@ -576,6 +576,23 @@ def test_a_time_a_post_promises_becomes_its_orders_due_once_slack_has_the_post_a
     assert (kept["kept"], state.owed(kept)) == (slack.sent_at(slack_thread.messages[-1]).isoformat(), False)
 
 
+def test_a_post_on_an_incident_records_its_line_and_keeps_no_time_its_words_promise_since_the_watch_owes_the_next_five_quiet_minutes_on(
+    demo: str, run: Callable[..., tuple[int, str]], slack_thread: Thread
+) -> None:
+    thread = "1794200000.000100"
+    run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Alerts", "Iris chat turns fail on sand 0.162.3983", "--thread", thread, "--incident", "--parts", "fix", "first check")
+    run("start", "demo", "--role", "communicator")
+    with state.edit(demo) as data:
+        data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
+        data["roles"]["coordinator"]["session"] = "elsewhere"
+    at = datetime(2026, 11, 11, 21, 29, 43, 954739).astimezone()
+    line = slack_thread.post(at, from_claude=True, text="The fix job is changing the turn's retry. Next line by 9:45.")
+    code, said = run("order", "posted", "o1", line)
+    assert (code, said.startswith(f"o1 progress line, no part delivered: {line}"), "promise" in said) == (0, True, False)
+    told = state.load(demo)["orders"]["o1"]
+    assert (told["due"], told["last_line"]) == (None, state.stamp(slack.sent_at(slack_thread.messages[-1])))
+
+
 def test_a_post_cc_slack_reports_failing_after_it_went_out_is_kept_and_recorded_on_its_order_and_one_that_never_went_out_raises(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
