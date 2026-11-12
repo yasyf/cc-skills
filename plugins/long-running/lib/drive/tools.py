@@ -7,7 +7,7 @@ import shlex
 import subprocess
 from pathlib import Path
 
-from drive import brief, cli, limits, orca, reads, render, slack, state, superseded, talk, view
+from drive import brief, cli, limits, orca, reads, render, settled, slack, state, superseded, talk, view
 from drive.state import DriveError
 
 UNTYPED = {"help", "drive", "json"}
@@ -68,7 +68,8 @@ RECORD = {
                 "his message's or the card's permalink; it closes no card, so his words under a question card that answer"
                 " nothing it asks, such as feedback on the drive, leave it up: waits settles his question card, thread_card"
                 " withdraws it, and only the coordinator's --rework naming its PR, on his order or the job carrying it,"
-                " withdraws a PR card"
+                " withdraws a PR card. A record that closes his card, settles a question or names a ruling is refused"
+                " unless his message or card answer here holds its text, and the ruling's words above Notes:"
             ),
         },
         "thread": {"type": "string", "description": "the thread it is about, kept as attr thread"},
@@ -90,7 +91,7 @@ RECORD = {
             ),
         },
         "undone": {"type": "boolean", "description": "an Undo tap: attr undone=<text> and the text undone: <text>"},
-        "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling"},
+        "ruling": {"type": "string", "description": "a ruling's cc-notes answer id, as attr ruling, whose words above Notes: his message at url must hold"},
         "about": {
             "enum": list(state.ABOUTS),
             "description": (
@@ -489,6 +490,9 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     found = his_cards(name) if any(made["kind"] in ("owner", "answer") for made in posts) else view.NO_CARDS
     closed = [closed_by(name, data, found, index, made) for index, made in enumerate(posts, start=1)]
     closes, settles = [questions for questions, _ in closed], [settling for _, settling in closed]
+    for index, (made, questions, settling) in enumerate(zip(posts, closes, settles, strict=True), start=1):
+        if (questions or settling or (made.get("attr") or {}).get("ruling")) and (unsaid := unheard(data, found, made)):
+            raise DriveError(f"{index}: refused, nothing posted: {unsaid}")
     for made, settling in zip(posts, settles, strict=True):
         if settling:
             made["resolves"] = list(dict.fromkeys([*made.get("resolves", []), settling[1]]))
@@ -503,6 +507,13 @@ def record(name: str, records: list[dict], dry_run: bool) -> str:
     for index, (made, questions) in enumerate(zip(posts, closes, strict=True), start=1):
         close(said, index, made, questions, dry_run)
     return "\n".join(said)
+
+
+def unheard(data: dict, found: dict, made: dict) -> str | None:
+    """Why a record keeping words as his answer or ruling, one closing his card, settling a question or naming a ruling, is not his: its text, or the ruling's recorded words above its notes, is not what he said at its url."""
+    ruling = (made.get("attr") or {}).get("ruling")
+    said = [made["text"], *([settled.his(settled.shown(ruling, data["roles"]["coordinator"]["cwd"])["body"])] if ruling else [])]
+    return next((unsaid for words in said if (unsaid := settled.unsaid(words, made.get("url"), found))), None)
 
 
 def keep_settled(name: str, posts: list[dict], seqs: list[str], settles: list[tuple[str, str, str] | None]) -> list[str]:

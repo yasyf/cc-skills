@@ -66,7 +66,9 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    either shape and return `ASK` with options from your evidence, even mid-build. The exception: when
    `Decisions that bind` names an open card's option to build, build it, push the branch, open no PR
    and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
-   goes up until he answers, and `drive pr add` refuses a PR while your job waits on an open card.
+   goes up until he answers, and `drive pr add` refuses a PR while any open card of his bears on its
+   work: your job's, or one a job sharing your part asked, the design you build included, since work
+   does not land with a question of his on it unanswered.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
 4. Write the change:
    - Fix the cause. When a bug hurts someone now, its immediate fix ships at once on its own
@@ -81,7 +83,10 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      rewrite of each, since a list of that one post's phrases is the literal fix he ruled out ("Don't
      just literally make that fix but extrapolate from it"). Your report says how many of the drive's
      kept posts, the `said` events in its `events.jsonl`, the changed check flags.
-   - Keep one rule in one function: when code that does part of the job exists, call or extend it.
+   - Keep one owner for each fact and one function for each rule: before you add a table, column,
+     store, file, process, mechanism, check or verb, find what already does or holds it and call,
+     extend or replace it. A second owner beside it is an `ASK`, by his words on a duplicate store
+     nobody checked for: "its a terieble duplicatgion and was clerarly not throught through".
    - A result that stays wrong until someone runs another step, such as a flag nothing clears, is not
      done: ship that step here or return `ASK`.
    - An AWS action, such as starting a pass box and reading its key, break-glass, `db-read` or a

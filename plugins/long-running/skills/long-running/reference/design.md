@@ -35,7 +35,12 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      hook starts a design job's brief given any other type as `long-running:designer`, since only
      that definition keeps it read only, settled questions off his cards and each fork in shape.
    - Its return opens `DESIGN <part>`. Read the rest with `drive job report <j>`: the design, a
-     `Settled:` line quoting his words, a `Change:` line for each PR its builders open, in at most 80
+     `Settled:` line quoting his words, an `Exists:` line naming each table, column, store, file,
+     process, mechanism, check or verb that already does or holds what the part touches, by
+     `path:line` or link, each ending `extended by change N`, `reused by change N` or
+     `deleted by change N`, or `none:` with the searches that found nothing, so one thing owns each
+     fact; `drive job report` refuses an entry naming no change of its list, and a `none` while the
+     order's reader found something. Then a `Change:` line for each PR its builders open, in at most 80
      characters with no backtick, double quote, `$` or backslash, which becomes a part of the order
      under those words, and a `Fork:` line for each `ASK` block it kept with
      `drive job ask`. Each piece has a worked example, such as an API's calls, imperative beside
@@ -85,8 +90,11 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      card as he answers it and says `FREE <j>` once, when the last is answered and no question the
      job asked him is open, which wakes the coordinator. Then a handoff builder opens the PR,
      rebuilding first wherever his pick differs from the option it built.
-4. **Nothing lands around an open card.** When an open PR carries a design card he has not
-   answered, run `drive pr set <url> --waits <card>` for each card, which redraws his open PR card for it in
+4. **Nothing lands around an open card.** Work does not land with a question of his on it
+   unanswered: the lander, the `landing_guard` hook, `drive pr add` and a `yasyf/*` PR's merge each
+   refuse while any card of his bears on its work, its job's or one asked by a job on its order
+   sharing its part, the design job it carries included. When an open PR carries a design card he
+   has not answered, also run `drive pr set <url> --waits <card>` for each card, which redraws his open PR card for it in
    place, Approve and Hold kept, to say it lands once he approves and answers that card. While a
    wait holds, `drive pr set --serves` and `drive card` draw no fresh card for it, his Approve lands it
    only once the last wait ends, and the watch says `FREE <pr>` once the last is answered; nothing is
@@ -101,8 +109,10 @@ background process. When you cannot tell, it counts, because a wrong shape costs
      your `report` at once, so the handler redraws it with its buttons in his order's thread, and
      land after he answers, because he wants each card that blocks work surfaced, not skipped.
 5. **The builder carries the design.** Its brief carries the design as `--plan` and his answer to
-   each fork as `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim. A builder
+   each fork as `--ruling <answer id>`, so `Decisions that bind` holds his words verbatim, those
+   above the answer's `Notes:` and never the drive's reading of them. A builder
    that meets a new fork mid-build stops and returns `ASK` with it, because only he picks a fork.
 6. **No card for a design he never saw.** A `READY` whose PR makes a design decision he never
    answered goes back as a design question, not onto a PR card. `drive pr set --serves` refuses
-   without `--design asked:<his answer id or card permalink>` or `--design none`.
+   without `--design asked:<his answer id or card permalink>` or `--design none`, and its check
+   refuses a permalink to a card he has not answered or a message he did not write.

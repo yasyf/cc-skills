@@ -369,7 +369,7 @@ def pr_reason(landing: Landing, key: str, shell: Shell) -> str | None:
     if (judged := judged_by(key, shell.session)) is None:
         return None
     name, pr = judged
-    if shell.driving and (cards := land.open_cards(state.load(name), pr, view.live_cards(name))):
+    if shell.driving and (cards := land.open_cards(state.load(name), pr["job"], pr["waits"], view.live_cards(name))):
         return CARD_REASON.format(key=key, cards=", ".join(cards))
     may_land, why = tap_verdict(pr)
     if not may_land:

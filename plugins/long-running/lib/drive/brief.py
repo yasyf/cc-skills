@@ -38,7 +38,12 @@ LANE_KINDS = ("reader", "builder", "design")
 LIGHT_MODELS = ("sonnet", "haiku")
 OPENINGS = ("DONE", "READY", "PUSHED", "BUILT", "WAITING", "ASK", "BLOCKED", "DESIGN", "HANDOFF")
 WORDED_KINDS = ("builder", "design")
-DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Change:", "Fork:", "Facts:")
+DESIGN_LINES = ("Root cause:", "Settled:", "Native:", "Exists:", "Change:", "Fork:", "Facts:")
+EXISTS = re.compile(r"^[ \t]*Exists:[ \t]*(.*)$", re.MULTILINE)
+CITED = re.compile(r"[\w./-]+\.[A-Za-z]\w*:\d+|https?://\S+")
+OWNED = re.compile(r"\b(?:extended|reused|deleted) by change (\d+)\b", re.IGNORECASE)
+SEARCHED = re.compile(r"\b(?:ccx|rg|grep|ccn|answer_search|search_plan)\b")
+DUPLICATION_RULING = '"how _agents was allowed to get creted in the irst place sonce its a terieble duplicatgion and was clerarly not throught through"'
 UNDESIGNED = ("HANDOFF", "BLOCKED")
 BLOCK = "a Researched: line and under it rulings:, exists: and open: lines"
 
@@ -249,9 +254,11 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
         return (
             "a design lane's report is the design in its shape, which the coordinator reads for its forks, and this one"
             f" lacks {', '.join(missing)}: DESIGN <the part, in a few words>, then Root cause: (the structure that lets the"
-            " defect happen, or none: <why no defect is behind it>), Settled:, Native:, a Change: line per PR its builders"
-            " open, a Fork: line per fork and Facts:"
+            " defect happen, or none: <why no defect is behind it>), Settled:, Native:, Exists:, a Change: line per PR its"
+            " builders open, a Fork: line per fork and Facts:"
         )
+    if job["kind"] == "design" and opening == "DESIGN" and (unowned := unowned_exists(name, data, job["order"], text)):
+        return unowned
     if job["kind"] == "design" and opening == "DESIGN" and (unkeyed := unquotable_change(text)):
         return (
             f'its Change: line names its change as "{cut(unkeyed, 120)}": a change is named in at most {state.PART_CHARS} characters'
@@ -317,7 +324,28 @@ def reader_refusal(job_id: str, job: dict, order: dict, text: str, lines: list[s
 
 def design_missing(lines: list[str]) -> list[str]:
     missing = [] if DESIGN_PART.match(lines[0]) else ["a first line DESIGN <the part>"]
-    return missing + [f"a {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
+    return missing + [f"{'an' if label[0] in 'AEIOU' else 'a'} {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
+
+
+def unowned_exists(name: str, data: dict, order_id: str, text: str) -> str | None:
+    """Why a design's Exists: line does not show what already does or holds what it touches, so it would add a second owner of one fact beside the first: an entry citing no path:line or link, or not naming the change of its list that extends, reuses or deletes it; or none, naming no search that found nothing, or while its order's reader found something."""
+    listed = EXISTS.search(text)[1].strip()
+    shape = (
+        "a design names, before it adds any table, column, store, file, process, mechanism, check or verb, each thing that"
+        " already does or holds what it touches, one entry each separated by ;, citing its path:line or link and ending"
+        " extended by change N, reused by change N or deleted by change N, N counting its Change: lines from 1, so one thing"
+        f' owns each fact; or none: <each search that found nothing, such as ccx code search "<words>">. His words: {DUPLICATION_RULING}'
+    )
+    if listed.casefold().startswith("none"):
+        found = research(name, data, order_id)
+        exists = researched(found[1])["exists"] if found else "none"
+        if found and exists.casefold().rstrip(".") != "none":
+            return f'its Exists: line says none, but {found[0]}\'s research found what already does part of this: "{cut(exists, 200)}"; {shape}'
+        return None if SEARCHED.search(listed) else f'its Exists: line "{cut(listed, 120)}" names no search that found nothing; {shape}'
+    changes = len(state.CHANGE_LINE.findall(text))
+    entries = [entry.strip() for entry in listed.split(";") if entry.strip()]
+    unowned = next((entry for entry in entries if not CITED.search(entry) or not (owned := OWNED.findall(entry)) or any(not 1 <= int(n) <= changes for n in owned)), None)
+    return unowned and f'its Exists: entry "{cut(unowned, 120)}" does not cite what exists and which change of its list extends, reuses or deletes it; {shape}'
 
 
 def unquotable_change(text: str) -> str | None:

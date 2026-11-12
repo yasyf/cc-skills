@@ -1,3 +1,4 @@
+import html
 import json
 import re
 import subprocess
@@ -36,7 +37,8 @@ DECIDES_QUESTION = (
     " this one when its words choose what an option says or order what this question asks about. Pick picks when it chooses"
     " one of the options; pick orders when it orders the outcome the question asks about, or who does it, so the options it"
     " rules out are out and the drive builds the rest without asking him; pick none when it settles nothing the question asks."
-    " A bare option number answers the card it was typed on, so it settles nothing here."
+    " A bare option number answers the card it was typed on, so it settles nothing here. A question he asked settles nothing,"
+    " whatever premise it states, but one proposing a way, such as \"why not just X?\", orders X."
 )
 SETTLES = {UNDECIDED: "It settles nothing this question asks.", "picks": "Its own words pick one option.", "orders": "Its own words order the outcome or who does it."}
 ORDERED = (
@@ -60,6 +62,16 @@ TAP_HEADER = "header:Tap"
 TAP_QUESTION = re.compile(r"(?:PR )?(?:Taps?\b|Approv|Land\b).*?(?:#\d+|/pull/\d+)", re.IGNORECASE)
 RARE = re.compile(r"[a-z][a-z0-9-]{4,}")
 AMOUNT = re.compile(r"(?<![\w.,:#/$-])(\d+(?:\.\d+)?)[- ]?([a-z]+)\b", re.IGNORECASE)
+NOTES = "\nNotes:"
+ELIDED = re.compile(r"\.\.\.|…|\[[^\[\]]*\]")
+UNWORDED = re.compile(r"[\W_]+")
+HIS_ANSWER = (
+    "a question of his becomes a ruling only with his own answer, so only his words verbatim are recorded as his, at the"
+    " permalink of his message or of the card he answered, cut with … where words are left out, never a drafted answer he"
+    " never saw or a reading of his words: answer a question he asked in his thread and record his reply. A drafted ruling"
+    " beside his question is how a store duplicating one that existed was built, his words: \"its a terieble duplicatgion and"
+    ' was clerarly not throught through"'
+)
 UNOFFERED_RULING = 'his Nov 11 1:28 PM words "You didn\'t give me a tap for 30 day bonding how many times do I have to say this"'
 COMMON = {
     "about", "above", "after", "again", "being", "below", "between", "could", "doing", "during", "every", "first", "having", "later",
@@ -147,6 +159,41 @@ def ccn(argv: list[str], text: str, cwd: str, failure: str) -> str:
     return done.stdout
 
 
+def his(body: str) -> str:
+    """His words in a recorded answer's body: all of it above the drive's notes, which a Notes: line opens."""
+    return body.partition(NOTES)[0].strip()
+
+
+def heard(link: str, found: dict | None) -> str | None:
+    """His words at a Slack link: his answer on the card there, tapped or typed, or else the message there when a person wrote it; None for a card still asking him or one withdrawn, and for a message the drive or a bot posted."""
+    if found and (closed := view.closed_card(found, link)) and closed["answer"] and not closed["answer"].get("withdrawn"):
+        return closed["answer"]["label"]
+    message = slack.message(link)
+    return message["text"] if message.get("from_user") else None
+
+
+def unsaid(words: str, link: str | None, found: dict | None) -> str | None:
+    """Why words kept as his answer are not his: no link names where he said them, what is there is not his, or it lacks a piece of them, split where an ellipsis or a bracketed insertion leaves his words out; None when each piece is his."""
+    if not plain(ELIDED.sub(" ", words)):
+        return f"no words of his are given; {HIS_ANSWER}"
+    if not link:
+        return f'no permalink names where he said "{cut(words, 200)}"; {HIS_ANSWER}'
+    try:
+        said = heard(link, found)
+    except slack.SlackError as error:
+        return f"{link} could not be read for his words ({error}); {HIS_ANSWER}"
+    if said is None:
+        return f"{link} is neither his own message nor a card he answered; {HIS_ANSWER}"
+    if missing := next((piece.strip() for piece in ELIDED.split(words) if f" {plain(piece)} " not in f" {plain(said)} "), None):
+        return f'his words at {link} do not say "{cut(missing, 200)}"; {HIS_ANSWER}'
+    return None
+
+
+def plain(text: str) -> str:
+    """The words of a message as he wrote them, with no link markup, formatting, punctuation or case, so his words copied by hand match what Slack keeps."""
+    return " ".join(UNWORDED.sub(" ", html.unescape(read(text))).casefold().split())
+
+
 def shown(answer_id: str, cwd: str) -> dict:
     """One recorded answer of his, its title, body and labels."""
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
@@ -156,7 +203,7 @@ def candidates(shown: str, whole: str, drives: list[str], cwd: str, under: list[
     """What may already decide a question, each the question he answered and his words, judged by no rule here: the first CANDIDATES of his recorded answers ccn matches on the words he reads, then the first CANDIDATES of each drive's answers ccn ranks nearest to the ASK's whole block, findings included, which reach a ruling whose subject only its findings name, then his words under a card its job asked on, and his messages in the order's thread, under the order."""
     worded = matched(read(shown), cwd)[:CANDIDATES]
     nearest = [answer for name in drives for answer in matched(read(whole), cwd, "--nearest", "--label", f"drive:{name}")[:CANDIDATES]]
-    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"][:BODY_CHARS]} for answer in {answer["id"]: answer for answer in [*worded, *nearest]}.values()]
+    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": his(answer["body"])[:BODY_CHARS]} for answer in {answer["id"]: answer for answer in [*worded, *nearest]}.values()]
     return [
         *found,
         *(answer for answer in under if answer["id"] not in {other["id"] for other in found}),

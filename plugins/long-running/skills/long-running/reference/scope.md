@@ -102,9 +102,11 @@ it.
 A design question goes to him on a card before any PR carries it, by [Design first](design.md). A
 job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
 his words on that order ask for options only; then no builder starts on the proper fix before his
-pick, because he wants to choose the fix. Outside an incident's repair, `drive pr add` refuses a
-proper-fix PR while its job waits on an open card of his, and no Approve is drawn while a design
-card the PR waits on is open. The immediate fix of a bug hurting someone now is never held: its own
+pick, because he wants to choose the fix. Work does not land with a question of his on it
+unanswered: outside an incident's repair, `drive pr add` refuses a proper-fix PR, and the lander,
+the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while any open card of his bears
+on its work, its job's or one asked by a job on its order sharing its part, the design it builds
+included. The immediate fix of a bug hurting someone now is never held: its own
 `immediate fix` job starts at once, options-only orders too, its PR waits on none of his cards, and
 the proper fix replaces it.
 

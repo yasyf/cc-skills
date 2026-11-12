@@ -31,13 +31,14 @@ STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite)/|^(?:go|tools)/ci/")
 
 
-def open_cards(data: dict, pr: dict, cards: dict | None) -> list[str]:
-    """His open cards a drive PR or its job waits on, outside an open incident, whose repair lands on the recommended option, and outside an immediate fix, which lands while he picks the proper fix."""
-    job = data["jobs"][pr["job"]]
+def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) -> list[str]:
+    """His open cards holding a job's work from landing, since work does not land with a question of his on it unanswered: each card its PR or job waits on, and each card a question of a job sharing its work is drawn on, the design it builds included; none on an open incident, whose repair lands on the recommended option, or an immediate fix, which lands while he picks the proper fix."""
+    job = data["jobs"][job_id]
     if state.IMMEDIATE_FIX in job["parts"] or state.open_incidents(data, [job["order"], *job["carries"]]):
         return []
-    waits = list(dict.fromkeys([*pr["waits"], *job["waits"]]))
-    return [wait for wait in view.holding(data, waits, cards) if state.card_wait(data, wait)]
+    waited = [wait for wait in view.holding(data, list(dict.fromkeys([*waits, *job["waits"]])), cards) if state.card_wait(data, wait)]
+    asked = [card for sharer in state.sharing(data, job_id) for card in view.open_cards(data["jobs"][sharer], cards)]
+    return list(dict.fromkeys([*waited, *asked]))
 
 
 def approved(pr: dict) -> bool:
@@ -122,15 +123,14 @@ def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str) -> tuple[str,
 
 
 def ready(data: dict, keys: tuple[str, ...], cards: dict) -> bool:
-    """Whether a unit is queued now: each PR of it green and approved, or approved only on an older head, whose review `drive pr land` asks for, its change at its head checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, with nothing holding it, no draft, no conflict with its base, no card of his open on it or its job and no lander running on it, and one of them on a head no lander has tried. A job still running on it does not hold it, since his Approve lands it at once."""
+    """Whether a unit is queued now: each PR of it green and approved, or approved only on an older head, whose review `drive pr land` asks for, its change at its head checked against his words unless an exempt class lands it, whatever head his Approve was tapped on, with nothing holding it, no draft, no conflict with its base, no card of his open on its work, its job's or a job sharing it, and no lander running on it, and one of them on a head no lander has tried. A job still running on it does not hold it, since his Approve lands it at once."""
     prs = [data["prs"][key] for key in keys]
     fit = all(
         view.unblocked(pr, data, cards, LANDS_ON)
         and (bool(pr.get("exempt")) or state.checked(data, pr))
         and not pr["draft"]
         and not pr["conflict"]
-        and not open_cards(data, pr, cards)
-        and not view.open_cards(data["jobs"][pr["job"]], cards)
+        and not open_cards(data, pr["job"], pr["waits"], cards)
         and not running(pr)
         for pr in prs
     )
@@ -186,8 +186,11 @@ def start(name: str, keys: list[str], cards: dict | None) -> list[tuple[str, ...
 def merge_ready(name: str, key: str, read: dict) -> str:
     """Start the lander on a yasyf/* PR a builder's taken READY or PUSHED names, which merges it with --admin past its checks and installs what it changes, unless a lander already runs on it or it may not merge yet; what was started, or why not."""
     why = unmergeable(key, read)
+    cards = view.live_cards(name)
     with state.edit(name) as data:
         pr = data["prs"][key]
+        if why is None and (asking := open_cards(data, pr["job"], pr["waits"], cards)):
+            why = f"his questions on its work are unanswered, {', '.join(asking)}; its builder reports again once he answers each"
         if why is None and running(pr):
             why = f"lander pid {pr['lander']['pid']} already merges it"
         if why is None:

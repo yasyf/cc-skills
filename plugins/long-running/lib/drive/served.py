@@ -4,7 +4,7 @@ import re
 import subprocess
 from datetime import datetime, timedelta
 
-from drive import github, settled, slack, state
+from drive import github, settled, slack, state, view
 from drive.render import cut
 from drive.state import DriveError
 
@@ -73,7 +73,7 @@ def check(name: str, keys: list[str], also: list[str], cited: list[str], setting
     changes = {key: change(key) for key in keys}
     prs = [data["prs"][key] | setting.get(key, {}) for key in keys]
     parts = [part for pr in prs for part in pr["parts"]]
-    answered = answers(data, [*cited, *(pr.get("design") or "" for pr in prs)])
+    answered = answers(data, [*cited, *(pr.get("design") or "" for pr in prs)], view.live_cards(name))
     urls = {pr["url"] for pr in prs}
     carried = (state.pr_key(url) for job in data["jobs"].values() if urls & set(job["prs"]) for url in job["prs"])
     others = [key for key in dict.fromkeys(carried) if key not in keys and data["prs"][key]["state"] != "closed"]
@@ -214,22 +214,25 @@ def words(data: dict, job: dict, orders: list[str], named: list[str], answered: 
     return "\n".join(lines)
 
 
-def answers(data: dict, cited: list[str]) -> list[str]:
-    """Each answer of his the citations name, oldest first, as the judge reads it: an answer id as cc-notes keeps it, the question he was asked and his words above its notes, and a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; other words of a citation name no answer."""
+def answers(data: dict, cited: list[str], found: dict | None) -> list[str]:
+    """Each answer of his the citations name, oldest first, as the judge reads it: an answer id as cc-notes keeps it, the question he was asked and his words above its notes, and a Slack permalink as the message there, which on a card he answered shows the question and the option he tapped; other words of a citation name no answer. A permalink to a card he has not answered, or to a message he did not write, is refused, since a question of his becomes a ruling only with his own answer."""
     tokens = dict.fromkeys(token.rstrip(".:") for text in cited for token in CITATION_BREAK.split(text.replace("asked:", " ")) if token)
     read: dict[str, tuple[datetime, str]] = {}
     for token in tokens:
         if token.startswith("http") and slack.MESSAGE_LINK.search(token):
             try:
+                said = settled.heard(token, found)
                 message = slack.message(token)
             except slack.SlackError as error:
                 raise DriveError(f"could not read his answer at {token}: {error}; run this again") from None
+            if said is None:
+                raise DriveError(f"{token} is not his answer: it is neither his own message nor a card he answered; {settled.HIS_ANSWER}")
             at = slack.sent_at(message)
             read[token] = (at, f'{token}, {at.isoformat(timespec="seconds")}: "{message["text"]}"')
         elif ANSWER_ID.fullmatch(token):
             answer = settled.shown(token, data["roles"]["coordinator"]["cwd"])
             at = datetime.fromisoformat(answer["created_at"]).astimezone()
-            said = answer["body"].partition("\nNotes:")[0].strip()
+            said = settled.his(answer["body"])
             read[answer["id"]] = (at, f'{answer["id"][:7]}, {at.isoformat(timespec="seconds")}, asked "{answer["title"]}": "{said}"')
     return [line for _, line in sorted(read.values())]
 

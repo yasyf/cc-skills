@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 from drive import card, cli, limits, mcp, reads, slack, state, tools, view, watch
-from conftest import RESEARCH, Answers, Withdrawals
+from conftest import RESEARCH, Answers, Heard, Withdrawals
 from drive.state import DriveError
 
 THREAD = "1794200000.000100"
@@ -470,7 +470,7 @@ def test_his_owner_words_under_a_question_card_naming_no_thread_card_leave_it_up
 
 
 def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_drew_settles_its_kept_question(
-    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch
+    demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, heard: Heard
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "Iris", "--workstream", "Durable agents", "one card per subject")
     run("job", "add", "builder", "--order", "o1", "--goal", "build it")
@@ -493,6 +493,11 @@ def test_an_answer_closing_an_ask_his_recorded_rules_settled_before_any_card_dre
     with pytest.raises(DriveError, match="1: refused, nothing posted: the card this answer names no longer waits on him"):
         tools.run("record", demo, {"records": [answer]})
     shown["ask"] = asked
+    heard.refusal = "no permalink names where he said it"
+    with pytest.raises(DriveError, match="1: refused, nothing posted: no permalink names where he said it"):
+        tools.run("record", demo, {"records": [answer]})
+    assert heard.checked == [("one subject has one card", None)]
+    heard.refusal = None
     assert tools.run("record", demo, {"records": [answer], "dry_run": True}).splitlines()[1:] == [f"1 would settle j1's question kept in {asked}, closing ask 672331"]
     assert posted == []
     assert tools.run("record", demo, {"records": [answer]}).splitlines()[0] == "1 answer 672342"
@@ -556,7 +561,7 @@ def test_his_owner_words_under_a_pr_card_leave_it_up_since_only_his_order_on_its
     assert (pr_entry["wants_tap"], pr_entry["rework"]) == (True, None)
 
 
-def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
+def test_a_brief_carries_his_order_and_each_rulings_words_without_the_drives_notes(demo: str, run: Callable[..., tuple[int, str]], recorded: Answers) -> None:
     recorded.shown["73060f0"] = ANSWER
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "do a pass on the tools", "--from", f"slack:D123/{THREAD}")
     run("job", "add", "reader", "--order", "o1", "--goal", "read it")
@@ -572,7 +577,8 @@ def test_a_brief_carries_his_order_and_each_ruling_word_for_word(demo: str, run:
     assert state.load(demo)["orders"]["o1"]["owner"] == "meta"
     written = path.read_text()
     assert written.startswith("Order (his words): do a pass on the tools\nServes: drive tooling\nGoal: make the verbs MCP tools\n")
-    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n  Notes: cci owner 660781\n" in written
+    assert f"Decisions that bind:\n- {ANSWER['title']} (73060f0)\n  {ANSWER['body'].splitlines()[0]}\n" in written
+    assert "cci owner 660781" not in written
     assert written.endswith("Drive: demo, order o1, job j2\n")
     assert state.load(demo)["jobs"]["j2"]["brief"] == str(path)
 
