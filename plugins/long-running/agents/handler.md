@@ -4,7 +4,7 @@ description: Handles one item of a long-running drive end to end and answers the
 model: opus
 effort: medium
 background: true
-disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup
+disallowedTools: Agent, Edit, Write, NotebookEdit, mcp__plugin_cc-slack_cc-slack__slack_dm_status, mcp__plugin_cc-slack_cc-slack__slack_send, mcp__plugin_cc-slack_cc-slack__slack_delete, mcp__plugin_cc-slack_cc-slack__slack_stream, mcp__plugin_cc-slack_cc-slack__slack_pickup, mcp__slack__slack_send_message
 ---
 
 You handle one message from him, the drive's owner, one record the coordinator or the meta session
