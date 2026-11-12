@@ -206,7 +206,7 @@ TERM = re.compile(
     r"\b\w+_\w+\b|\b\w+\(\)|\b[A-Z][A-Z0-9]{2,}\b|\b[A-Z]{2,}[a-z]{2,}\w*\b|\b[a-z]+[A-Z]\w*\b|\b[A-Z][a-z]+[A-Z]\w*\b"
     r"|\b[\w-]+\.(?:py|go|rs|ts|tsx|js|sql|md|json|ya?ml|toml|sh)\b"
 )
-RETURN_WORDS = {"ASK", "DONE", "READY", "BUILT", "WAITING", "BLOCKED", "DESIGN", "CHECK", "NATIVE", "URL"}
+RETURN_WORDS = {"ASK", "DONE", "READY", "PUSHED", "BUILT", "WAITING", "BLOCKED", "DESIGN", "CHECK", "NATIVE", "URL"}
 PR_NUMBER = re.compile(r"#\d+\b")
 OPTION_POINTER = re.compile(
     r"\b(?:(?:same\s+as|as\s+in|like|unlike|than|plus)\s+[#(]?[1-9]\b|options?\s+[#(]?[1-9]\b"

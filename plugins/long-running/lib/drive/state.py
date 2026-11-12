@@ -19,10 +19,11 @@ JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
 INCIDENT_STOP = "stop"
 IMMEDIATE_FIX = "immediate fix"
-RESULT_STATES = {"DONE": "done", "READY": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
+RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
 BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+(?:, [^\s,]+)*?),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
+PUSHED_LINE = re.compile(r"PUSHED\b")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
 CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<after>[^()]*)\))?[ \t]*$", re.MULTILINE)
 CHANGE_WAITS = re.compile(r"\bchange (\d+)")
@@ -344,6 +345,7 @@ def load(name: str) -> dict:
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
+        pr.setdefault("required", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -502,6 +504,25 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
                 data["prs"][key].update(rework=None, fundamental=changed, ready_said=None, updated=job["updated"])
     end_carried_designs(data, job["order"], job["updated"])
+
+
+def required_verdict(prs: dict[str, dict]) -> tuple[str, list[tuple[str, str]]]:
+    """pass, fail or pending over the checks the base branch of each open PR requires, as its row reads them, with what holds it: each required check that failed, with its PR's head and its build, or each PR whose required checks still run."""
+    rows = {key: pr for key, pr in prs.items() if pr["state"] == "open"}
+    if failed := [(key, f"required {check} failed at {pr['head'][:7]} ({link})") for key, pr in rows.items() for check, link in pr["required"]["failed"].items()]:
+        return "fail", failed
+    running = [(key, f"required checks still run at {pr['head'][:7]}") for key, pr in rows.items() if pr["required"]["checks"] == "pending"]
+    return ("pending" if running else "pass"), running
+
+
+def pushed_verdict(data: dict, job_id: str) -> tuple[str, list[tuple[str, str]]]:
+    """The required_verdict on a builder's PUSHED over each PR its line names, pending until the watch's first GitHub read after the job took it, so the head judged is the one its builder pushed; a PR the drive read merged or closed, or a line naming no PR the drive tracks, holds nothing."""
+    job = data["jobs"][job_id]
+    named = {key: data["prs"][key] for key in named_prs(data, job["order"], job["said"])}
+    taken = parse_time(job["updated"])
+    if any(pr["state"] == "open" and not (pr["required"] and parse_time(pr["required"]["read"]) > taken) for pr in named.values()):
+        return "pending", []
+    return required_verdict(named)
 
 
 def add_changes(data: dict, job_id: str, report: str) -> None:
@@ -1161,6 +1182,7 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "head": "",
         "checks": "pending",
         "failed_checks": [],
+        "required": None,
         "review": "none",
         "conflict": False,
         "hold_label": False,

@@ -6,11 +6,13 @@ import sys
 from itertools import groupby, takewhile
 from pathlib import Path
 
+NUMBER = "<number>"
+REQUIRED = f"isRequired(pullRequestNumber: {NUMBER})"
 FIELDS = (
     "state isDraft headRefOid title author { login } reviewDecision latestOpinionatedReviews(first: 20, writersOnly: true) { nodes { state commit { oid } } } "
     "mergeable mergeCommit { oid } labels(first: 50) { nodes { name } } "
     "commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { "
-    "... on CheckRun { name conclusion detailsUrl checkSuite { workflowRun { workflow { name } } } } ... on StatusContext { context state } } } } } } }"
+    f"... on CheckRun {{ name conclusion detailsUrl {REQUIRED} checkSuite {{ workflowRun {{ workflow {{ name }} }} }} }} ... on StatusContext {{ context state targetUrl {REQUIRED} }} }} }} }} }} }} }}"
 )
 PR_STATES = {"OPEN": "open", "MERGED": "merged", "CLOSED": "closed"}
 FAILED = {"FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "STARTUP_FAILURE"}
@@ -85,11 +87,11 @@ def repo_of(key: str) -> str:
 
 
 def query(keys: list[str], fields: str = FIELDS) -> str:
-    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR."""
+    """One GraphQL query reading the fields of every PR in keys, aliased r<i> per repo and p<number> per PR, each check's isRequired asked for that PR, the only way GitHub answers it."""
     blocks = []
     for index, (repo, members) in enumerate(groupby(sorted(keys, key=repo_of), key=repo_of)):
         owner, name = repo.split("/")
-        pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields} }}" for key in members)
+        pulls = " ".join(f"p{split(key)[2]}: pullRequest(number: {split(key)[2]}) {{ {fields.replace(NUMBER, str(split(key)[2]))} }}" for key in members)
         blocks.append(f"r{index}: repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ {pulls} }}")
     return "query { " + " ".join(blocks) + " }"
 
@@ -168,13 +170,20 @@ def checks(rollup: list[dict], failed: list[str]) -> str:
     return "pass" if outcomes <= PASSED else "pending"
 
 
+def required(read: dict) -> dict:
+    """The verdict on the checks its base branch requires before merging, those GitHub marks isRequired on the PR's head: pass, fail, pending or none over them as checks() reads, and the build or run link of each that failed."""
+    held = [check for check in counted(read["checks"]) if check.get("isRequired")]
+    return {"checks": checks(held, []), "failed": {check_name(check): check.get("targetUrl") or check.get("detailsUrl") or "" for check in held if outcome(check) in FAILED}}
+
+
 def live(read: dict, stored: dict) -> dict:
-    """The drive's stored fields (state, checks, the checks that failed on its head, review, head, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
+    """The drive's stored fields (state, checks, the checks that failed on its head, the required checks' verdict, review, head, title, author, whether it carries the hold label, the PRs of its native GitHub stack that are not closed, conflict) of one fetched PR against its stored row; conflict only once GitHub has worked it out, since it reads UNKNOWN for a while after its base moves."""
     failed = sorted({*failed_before(stored, read["headRefOid"]), *(check_name(check) for check in counted(read["checks"]) if outcome(check) in FAILED)})
     fields = {
         "state": PR_STATES[read["state"]],
         "checks": checks(read["checks"], failed),
         "failed_checks": failed,
+        "required": required(read),
         "review": review(read),
         "head": read["headRefOid"],
         "title": read["title"],
@@ -277,7 +286,7 @@ def heads_query(heads: list[tuple[str, str]], repos: list[str]) -> str:
     for index, repo in enumerate(repos):
         owner, name = repo.split("/")
         pulls = " ".join(
-            f"h{slot}: pullRequests(headRefName: {json.dumps(branch)}, states: OPEN, first: 10) {{ nodes {{ number {FIELDS} }} }}"
+            f"h{slot}: pullRequests(headRefName: {json.dumps(branch)}, states: OPEN, first: 10) {{ nodes {{ number {FIELDS.replace(f' {REQUIRED}', '')} }} }}"
             for slot, (other, branch) in enumerate(heads)
             if other == repo
         )

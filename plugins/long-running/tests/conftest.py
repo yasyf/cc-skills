@@ -309,6 +309,13 @@ def visibilities(monkeypatch: pytest.MonkeyPatch) -> dict[str, str | None]:
     return seen
 
 
+@pytest.fixture(autouse=True)
+def pr_reads(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+    reads: dict[str, dict] = {}
+    monkeypatch.setattr(github, "fetch", lambda keys: ({key: reads[key] for key in keys if key in reads}, None))
+    return reads
+
+
 @dataclass
 class Answers:
     found: list[dict] = field(default_factory=list)

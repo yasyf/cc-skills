@@ -939,7 +939,6 @@ def test_lane_mail_becomes_job_events_and_records_the_question(remote: str, monk
 @pytest.mark.parametrize(
     ("sent", "asked", "taken"),
     [
-        ("READY https://github.com/Forge-AI/monorepo/pull/7\nPR: Fix: x\nLOG https://buildkite.com/forge/test/builds/1 was red", None, "waiting"),
         ("WAITING CI and the reviewer bot on the reworked chat-open tags PR", None, "waiting"),
         ("BUILT lane/built, waits on demo:j1-7-a", None, "built"),
         ("DONE port of #53187 merged", None, "done"),
@@ -957,6 +956,25 @@ def test_a_lane_question_opening_with_a_result_other_than_ask_is_that_result_and
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"]) == (asked, taken)
     assert (watch.unanswered("j1", job, None, T0 + timedelta(minutes=31)) is None) == (asked is None)
+
+
+@pytest.mark.parametrize("kind", ["question", "worker_done"])
+def test_a_lanes_ready_is_kept_as_pushed_waking_no_one_until_a_read_after_it_finds_its_required_checks_green(
+    kind: str, remote: str, monkeypatch: pytest.MonkeyPatch, pr_reads: dict[str, dict]
+) -> None:
+    monkeypatch.setattr(state, "now", lambda: T0)
+    url = "https://github.com/Forge-AI/monorepo/pull/7"
+    deliver(monkeypatch, [message(kind, f"READY {url}\nPR: Fix: x")])
+    watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
+    assert watch.run_pass(watching, T0) == []
+    job = state.load(remote)["jobs"]["j1"]
+    assert (job["ask"], job["state"], job["said"], job["prs"]) == (None, "waiting", f"PUSHED {url}", [url])
+    required = {"context": "buildkite/test", "state": "SUCCESS", "isRequired": True, "targetUrl": "https://buildkite.com/forge/monorepo/builds/7"}
+    pr_reads["Forge-AI/monorepo#7"] = {
+        "state": "OPEN", "isDraft": False, "headRefOid": "abc1234", "mergeCommit": None, "checks": [required], "reviewDecision": None,
+        "approvals": [], "mergeable": "MERGEABLE", "title": "Fix: x", "author": "yasyf", "labels": [], "native": [],
+    }
+    assert f"JOB j1 o1 READY {url}" in watch.run_pass(watching, T0 + timedelta(minutes=1))
 
 
 def test_a_lane_that_finishes_after_asking_ends_its_question_and_its_result_sets_the_job(
@@ -1300,10 +1318,10 @@ def test_every_worker_on_a_jobs_own_run_is_heard_the_one_it_replaced_and_one_it_
     calls = []
     monkeypatch.setattr(orca, "call", lambda *args: calls.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert watch.lane_lines(watching, T0) == [f"JOB j1 o1 READY {pr}", f"JOB j1 o1 READY {pr}"]
+    assert watch.lane_lines(watching, T0) == []
     assert [args[:3] for args in calls if args[0] == "reply"] == [("reply", "--id", "msg_read")]
     job = state.load(remote)["jobs"]["j1"]
-    assert (job["state"], job["report"], job["prs"]) == ("waiting", f"READY {pr}\nThis rewrote Show me", [pr])
+    assert (job["state"], job["said"], job["report"], job["prs"]) == ("waiting", f"PUSHED {pr}", f"READY {pr}\nThis rewrote Show me", [pr])
     assert [reply["id"] for reply in state.replies(remote, "j1")] == ["msg_read", "msg_unrecorded", "msg_newest"]
 
 
@@ -1425,14 +1443,14 @@ def test_two_watches_reading_one_shared_run_each_take_the_mail_of_the_jobs_they_
     with state.edit(remote) as data:
         data["jobs"]["j2"].update(run=RUN, dispatch="ctx_lane0002", ask=None, report=None)
         cli.bind_subcoordinator(data, "Iris", {"session": "iris-1", "terminal": None, "cwd": "/work", "started": state.stamp(T0)})
-    first = message("question", "READY run page", id="msg_iris", from_handle="dispatch:ctx_lane0002")
-    second = message("question", "READY remote builder", id="msg_top")
+    first = message("question", "WAITING run page", id="msg_iris", from_handle="dispatch:ctx_lane0002")
+    second = message("question", "WAITING remote builder", id="msg_top")
     stray = message("worker_done", "DONE elsewhere", id="msg_stray", from_handle="dispatch:ctx_other")
     monkeypatch.setattr(orca, "mail", lambda run_id, after: [first, second, stray])
     top = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     iris = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0, project="Iris")
-    assert watch.lane_lines(top, T0) == ["JOB j1 o1 READY remote builder"]
-    assert watch.lane_lines(iris, T0) == ["JOB j2 o2 READY run page"]
+    assert watch.lane_lines(top, T0) == ["JOB j1 o1 WAITING remote builder"]
+    assert watch.lane_lines(iris, T0) == ["JOB j2 o2 WAITING run page"]
     assert (watch.lane_lines(top, T0), watch.lane_lines(iris, T0)) == ([], [])
     jobs = state.load(remote)["jobs"]
     assert (jobs["j1"]["mail_seen"], jobs["j2"]["mail_seen"]) == (second["sequence"], first["sequence"])
@@ -1485,11 +1503,11 @@ def test_the_inbox_turns_each_message_into_one_event_even_one_a_consuming_check_
 ) -> None:
     taken = message("worker_done", "WAITING CI on #7", id="msg_old", read=1)
     first = message("status", "building", id="msg_1")
-    second = message("question", "READY https://github.com/Forge-AI/monorepo/pull/7", id="msg_2")
+    second = message("question", "WAITING review on #7", id="msg_2")
     deliver(monkeypatch, [taken, first], [taken, first, second], [taken, first, second])
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     passes = [watch.run_pass(watching, T0 + timedelta(minutes=m)) for m in (0, 1, 2)]
-    assert passes == [["JOB j1 o1 WAITING CI on #7"], ["JOB j1 o1 READY https://github.com/Forge-AI/monorepo/pull/7"], []]
+    assert passes == [["JOB j1 o1 WAITING CI on #7"], ["JOB j1 o1 WAITING review on #7"], []]
     assert state.load(remote)["jobs"]["j1"]["mail_seen"] == second["sequence"]
 
 
