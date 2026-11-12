@@ -1248,7 +1248,7 @@ def unanswered(job_id: str, job: dict, cards: dict | None, moment: datetime) -> 
 
 
 def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: datetime) -> str | None:
-    """Why the job leaves its parts with no one, None when it carries them, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting."""
+    """Why the job leaves its parts with no one, None when it carries them or is a design its builder carries, or SETTLING while a change in the last two minutes is still being handed over; a local job no agent has taken settles one minute only, since its agent's first step records it within seconds of starting."""
     if moment - state.parse_time(job["updated"]) < (UNSTARTED_FOR if unstarted(job) else HANDOFF):
         return SETTLING
     if job["state"] == "running":
@@ -1261,6 +1261,8 @@ def job_gap(watcher: Watcher, job_id: str, job: dict, data: dict, moment: dateti
         waiting = f"is built on {job['branch']}" if job["state"] == "built" else f'waits on "{cut(job["said"] or "nothing named", 80)}"'
         return f"{job_id} {waiting} and no open PR, card or due time can wake it"
     if job["state"] == "done":
+        if state.design_builder(data, job_id):
+            return None
         drawn = [question for question in job["questions"] if question["card"]]
         if not drawn:
             return f"{job_id} answered and the answer is not posted to him"
@@ -1274,7 +1276,7 @@ def unstarted(job: dict) -> bool:
 
 
 def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: datetime) -> str | None:
-    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on the earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
+    """Why a part of the order has no one carrying it, None when it is carried, delivered or waits on something named: a change a design lists waits on each earlier change it builds on, and on his pick while the order asks for options only; a job on the order's immediate fix part carries the order's other parts too until it is done."""
     order = data["orders"][order_id]
     jobs = part_jobs(data, order_id, part)
     gaps = [job_gap(watcher, job_id, job, data, moment) for job_id, job in jobs]
@@ -1290,7 +1292,7 @@ def part_gap(watcher: Watcher, data: dict, order_id: str, part: str, moment: dat
         return None
     if not (design := order["parts"][part]["design"]):
         return "no job"
-    if order["options_only"] or (after := order["parts"][part]["after"]) in order["parts"] and not delivered(data, order_id, after):
+    if order["options_only"] or any(after in order["parts"] and not delivered(data, order_id, after) for after in order["parts"][part]["after"]):
         return None
     return f"{design}'s design lists this change and no builder carries it: start one with drive job add builder --part, or add it to its builder with drive job set --part"
 

@@ -2287,22 +2287,62 @@ def test_a_design_lanes_report_is_the_design_in_its_shape_unless_it_stops_short(
     assert (jobs["j2"]["state"], jobs["j3"]["state"]) == ("stopped", "failed")
 
 
-def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_the_earlier_change_its_line_names(
+def test_a_design_of_several_changes_makes_each_a_part_of_its_order_waiting_on_each_earlier_change_its_line_names(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store", "--parts", "copy one store", "the reads through it")
+    run("job", "add", "design", "--order", "o1", "--part", "copy one store", "--goal", "cards: the store copy")
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 3)"))
+    assert code == 2
+    assert 'its Change: line "Change: the writes through it (waits on change 1 and change 3)" waits on a change its list does not hold' in err
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 1 and change 2 live on every cluster)")) == (0, "")
+    parts = state.load("demo")["orders"]["o1"]["parts"]
+    assert {part: (held["design"], held["after"]) for part, held in parts.items()} == {
+        "copy one store": (None, []),
+        "the reads through it": ("j1", []),
+        "the moved-table interface": ("j1", []),
+        "the writes through it": ("j1", ["the moved-table interface", "the reads through it"]),
+    }
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "the reads through it: `data.Client`'s Download and DownloadURL sign through ssql-blobstore",
+        'the reads through the "names" route',
+        "the reads through $BLOBSTORE_URL",
+        "the reads through ssql-blobstore, every Download call and every signed URL on the public SandSQL host",
+    ],
+)
+def test_a_design_names_each_change_in_words_the_coordinator_types_as_its_part(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], change: str
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
+    run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
+    code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the reads through it", f"Change: {change}"))
+    assert code == 2
+    assert f'its Change: line names its change as "{change}": a change is named in at most 80 characters with no backtick' in err
+    assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("Change: the reads through it", "Change: the reads through ssql-blobstore")) == (0, "")
+    assert run("job", "add", "builder", "--order", "o1", "--part", "the reads through ssql-blobstore", "--goal", "build the reads")[1] == "j2"
+
+
+def test_order_set_parts_keeps_a_designs_changes_and_refuses_a_list_renaming_one_no_builder_delivered(
     run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
-    code, err = keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES.replace("(waits on change 2)", "(waits on change 3)"))
-    assert code == 2
-    assert 'its Change: line "Change: the writes through it (waits on change 3)" waits on a change its list does not hold' in err
     assert keep(monkeypatch, capsys, "j1", DESIGNED_IN_CHANGES) == (0, "")
-    parts = state.load("demo")["orders"]["o1"]["parts"]
-    assert {part: (held["design"], held["after"]) for part, held in parts.items()} == {
-        "copy one store": (None, None),
-        "the moved-table interface": ("j1", None),
-        "the reads through it": ("j1", None),
-        "the writes through it": ("j1", "the reads through it"),
-    }
+    designed = state.load("demo")["orders"]["o1"]["parts"]
+    names = list(designed)
+    assert cli.main(["order", "set", "o1", "--parts", "copy one store", "the interface", "the reads through it", "the writes through it"]) == 2
+    assert (
+        'o1: refused, its parts stay as they are: --parts adds "the interface" and leaves out "the moved-table interface" of j1\'s design,'
+        " which no builder delivered"
+    ) in capsys.readouterr().err
+    run("order", "set", "o1", "--parts", *names)
+    assert state.load("demo")["orders"]["o1"]["parts"] == designed
+    run("order", "set", "o1", "--parts", *names[:-1])
+    assert list(state.load("demo")["orders"]["o1"]["parts"]) == names[:-1]
 
 
 def test_a_research_readers_report_carries_its_filled_researched_block(
@@ -2471,8 +2511,9 @@ def test_job_set_keeps_a_jobs_state_for_any_state_but_stopped_and_still_sets_the
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship it")
     run("job", "add", "builder", "--order", "o1", "--goal", "ship")
     kept = (
-        "j1 stays running: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder carries;"
-        " every other state comes from the line the job returns"
+        "j1 stays running: --state sets only stopped, for a job that ends unfinished, and done for a design job a builder carries,"
+        " which ends on its own once drive job add builder --part or drive job set <builder> --part names its part or a change its"
+        " DESIGN listed; every other state comes from the line the job returns"
     )
     for taken in ("waiting", "built", "done", "failed"):
         code, out = run("job", "set", "j1", "--state", taken, "--said", f"asked {taken}")
@@ -2483,19 +2524,29 @@ def test_job_set_keeps_a_jobs_state_for_any_state_but_stopped_and_still_sets_the
     assert state.load("demo")["jobs"]["j1"]["state"] == "stopped"
 
 
-def test_a_design_job_closes_once_a_builder_carries_it(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_a_design_job_ends_once_a_builder_takes_its_part_or_one_of_its_changes(
+    run: Run, demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "copy one store")
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store copy")
     assert keep(monkeypatch, capsys, "j1", DESIGNED) == (0, "")
     assert run("job", "set", "j1", "--state", "done")[1].startswith("j1 stays waiting: --state sets only stopped")
     run("job", "add", "builder", "--order", "o1", "--goal", "build the copy")
-    assert run("job", "set", "j1", "--state", "done")[1].splitlines()[0] == "j1's design is carried by builder j2"
-    assert state.load("demo")["jobs"]["j1"]["state"] == "done"
     run("job", "add", "design", "--order", "o1", "--goal", "cards: the store list")
     assert keep(monkeypatch, capsys, "j3", DESIGNED) == (0, "")
-    assert keep(monkeypatch, capsys, "j2", "DONE installed 1.0.76\nCHECK: https://github.com/yasyf/cc-skills/actions/runs/12\n") == (0, "")
-    design = state.load("demo")["jobs"]["j3"]
-    assert (design["state"], design["said"]) == ("done", "built by j2: DONE installed 1.0.76")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "move the tables", "--parts", "move the tables", "the old copy")
+    run("job", "add", "design", "--order", "o2", "--part", "move the tables", "--goal", "cards: the moved tables")
+    run("job", "add", "builder", "--order", "o2", "--part", "the old copy", "--goal", "drop the old copy")
+    assert keep(monkeypatch, capsys, "j4", DESIGNED_IN_CHANGES) == (0, "")
+    assert state.load("demo")["jobs"]["j4"]["state"] == "waiting"
+    run("job", "set", "j5", "--part", "the reads through it")
+    jobs = state.load("demo")["jobs"]
+    assert {job_id: (jobs[job_id]["state"], jobs[job_id]["said"]) for job_id in ("j1", "j3", "j4")} == {
+        "j1": ("done", "carried by builder j2"),
+        "j3": ("done", "carried by builder j2"),
+        "j4": ("done", "carried by builder j5"),
+    }
+    assert run("job", "set", "j4", "--state", "done")[1].splitlines()[0] == "j4 is already done"
 
 
 def test_job_set_naming_the_state_a_job_already_holds_changes_nothing_and_says_so(

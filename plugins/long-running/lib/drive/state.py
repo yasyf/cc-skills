@@ -23,7 +23,8 @@ BUILT_LINE = re.compile(r"BUILT (?P<branch>[^\s,]+),? waits on (?P<cards>.+)")
 WAITING_LINE = re.compile(r"WAITING (?P<prs>.+?) waits on (?P<cards>.+)")
 ASK_LINE = re.compile(r"ASK (?P<file>\S+)")
 REPORT_CHANGE = re.compile(r"^CHANGE:[ \t]*(?P<change>.+?)[ \t]*$", re.MULTILINE)
-CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on change (?P<after>\d+)\))?[ \t]*$", re.MULTILINE)
+CHANGE_LINE = re.compile(r"^Change:[ \t]*(?P<change>.+?)(?:[ \t]*\(waits on (?P<after>[^()]*)\))?[ \t]*$", re.MULTILINE)
+CHANGE_WAITS = re.compile(r"\bchange (\d+)")
 BUILT_CARD = re.compile(r"https://[^\s,]+/archives/[^\s,]+/p\d+[^\s,]*|[\w.-]+:j\d+-\d+[\w-]*")
 EXEMPT_CLASSES = ("pure port", "test-only", "ci-only", "flake fix", "incident fix")
 TAP_LABELS = ("Approve", "Hold")
@@ -286,7 +287,7 @@ def load(name: str) -> dict:
         order["thread"] = dm_thread(data, order)
         for part in order["parts"].values():
             part.setdefault("design", None)
-            part.setdefault("after", None)
+            part["after"] = [part["after"]] if isinstance(part.get("after"), str) else part.get("after") or []
     mail = data.pop("lane_mail", {})
     for job in data["jobs"].values():
         job.setdefault("carries", {})
@@ -475,27 +476,40 @@ def take_result(data: dict, job_id: str, line: str, report: str = "") -> None:
             if rework := data["prs"][key]["rework"]:
                 changed = f'Reworked to your words "{rework["words"]}": {met["change"] if met else line}'
                 data["prs"][key].update(rework=None, fundamental=changed, ready_said=None, updated=job["updated"])
-    if taken == "done" and job["kind"] == "builder":
-        for design_id, design in data["jobs"].items():
-            if design["kind"] == "design" and design["state"] == "waiting" and design_builder(data, design_id) == job_id:
-                design.update(state="done", said=f"built by {job_id}: {line}", updated=job["updated"])
+    end_carried_designs(data, job["order"], job["updated"])
 
 
 def add_changes(data: dict, job_id: str, report: str) -> None:
-    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order, naming the design and the earlier change it waits on, so the watch says ORPHAN for a change no builder carries; a design of one change is its own part."""
+    """Make each change a design job's DESIGN return lists on its `Change:` lines, when it lists more than one, a part of the design's order under the line's words before its `(waits on …)`, naming the design and each earlier change that tail names, a part already under those words included, so the watch says ORPHAN for a change no builder carries; a design of one change is its own part."""
     job = data["jobs"][job_id]
-    found = [(whole_order(line["change"]), line["after"]) for line in CHANGE_LINE.finditer(report)]
+    found = [(whole_order(line["change"]), change_waits(line)) for line in CHANGE_LINE.finditer(report)]
     if job["kind"] != "design" or not report.lstrip().startswith("DESIGN") or len(found) < 2:
         return
     order = data["orders"][job["order"]]
-    for change, after in found:
-        order["parts"].setdefault(change, new_part(job_id, found[int(after) - 1][0] if after else None))
+    for change, waits in found:
+        order["parts"].setdefault(change, new_part()).update(design=job_id, after=[found[number - 1][0] for number in waits])
     order["updated"] = stamp()
+    end_carried_designs(data, job["order"], order["updated"])
+
+
+def change_waits(line: re.Match) -> list[int]:
+    """The number of each earlier change a `Change:` line's `(waits on …)` tail names."""
+    return [int(number) for number in CHANGE_WAITS.findall(line["after"] or "")]
+
+
+def end_carried_designs(data: dict, order_id: str, moment: str) -> None:
+    """End each design job on the order waiting on its returned DESIGN that a builder carries, since a design ends once its builder takes it on: its cards answered or built on meanwhile; a design still waiting on its reader has designed nothing yet."""
+    for design_id, design in data["jobs"].items():
+        returned = design["state"] == "waiting" and (design["said"] or "").startswith("DESIGN")
+        if design["order"] == order_id and returned and (builder := design_builder(data, design_id)):
+            design.update(state="done", said=f"carried by builder {builder}", updated=moment)
 
 
 def design_builder(data: dict, design_id: str) -> str | None:
     """The builder carrying a design job's parts, or a change its DESIGN listed, on its order, the one that returned DONE first, else one still at work, since a design ends once its builder takes it on: its cards answered or built on meanwhile."""
     design = data["jobs"][design_id]
+    if design["kind"] != "design":
+        return None
     changes = {part for part, held in data["orders"][design["order"]]["parts"].items() if held["design"] == design_id}
     builders = [
         (job["state"] != "done", job_id)
@@ -505,7 +519,7 @@ def design_builder(data: dict, design_id: str) -> str | None:
         and job["state"] not in ("failed", "stopped")
         and (set(design["parts"]) <= set(job["parts"]) or changes & set(job["parts"]))
     ]
-    return min(builders)[1] if design["kind"] == "design" and builders else None
+    return min(builders)[1] if builders else None
 
 
 def named_prs(data: dict, order_id: str, words: str) -> list[str]:
@@ -544,8 +558,8 @@ def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
 
 
-def new_part(design: str | None = None, after: str | None = None) -> dict:
-    return {"posted": None, "orphan_said": None, "design": design, "after": after}
+def new_part() -> dict:
+    return {"posted": None, "orphan_said": None, "design": None, "after": []}
 
 
 def reporter(link: str) -> dict:

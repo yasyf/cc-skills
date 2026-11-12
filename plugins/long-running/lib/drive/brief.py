@@ -212,10 +212,16 @@ def report_refusal(name: str, data: dict, job_id: str, text: str) -> str | None:
             " defect happen, or none: <why no defect is behind it>), Settled:, Native:, a Change: line per PR its builders"
             " open, a Fork: line per fork and Facts:"
         )
+    if job["kind"] == "design" and opening == "DESIGN" and (unkeyed := unquotable_change(text)):
+        return (
+            f'its Change: line names its change as "{cut(unkeyed, 120)}": a change is named in at most {state.PART_CHARS} characters'
+            " with no backtick, double quote, $ or backslash, since those words become the order's part, which the coordinator"
+            ' types as drive job add builder --part "<the change>"; its detail goes on the Design: line'
+        )
     if job["kind"] == "design" and opening == "DESIGN" and (stray := unlisted_waits(text)):
         return (
-            f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on an earlier change'
-            " of its list, as (waits on change <its number, counting Change: lines from 1>)"
+            f'its Change: line "{cut(stray, 80)}" waits on a change its list does not hold: a change waits only on earlier changes'
+            " of its list, as (waits on change <its number, counting Change: lines from 1>) or (waits on change 1 and change 2)"
         )
     if job["kind"] == "reader" and (refused := reader_refusal(job_id, job, order, text, lines)):
         return refused
@@ -274,10 +280,16 @@ def design_missing(lines: list[str]) -> list[str]:
     return missing + [f"a {label} line" for label in DESIGN_LINES if not any(line.startswith(label) for line in lines)]
 
 
+def unquotable_change(text: str) -> str | None:
+    """The first change a Change: line names in words that cannot be its part's name: longer than a part's name, or holding a character double quotes do not keep as typed."""
+    names = (" ".join(line["change"].split()) for line in state.CHANGE_LINE.finditer(text))
+    return next((name for name in names if len(name) > state.PART_CHARS or re.search(r'[`"$\\]', name)), None)
+
+
 def unlisted_waits(text: str) -> str | None:
     """The first Change: line waiting on a change that is not an earlier one of the list."""
     found = list(state.CHANGE_LINE.finditer(text))
-    return next((line[0] for number, line in enumerate(found, start=1) if line["after"] and not 1 <= int(line["after"]) < number), None)
+    return next((line[0] for number, line in enumerate(found, start=1) if any(not 1 <= wait < number for wait in state.change_waits(line))), None)
 
 
 def limit_finding(lines: list[str]) -> str | None:
