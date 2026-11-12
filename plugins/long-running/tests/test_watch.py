@@ -1050,7 +1050,7 @@ def test_his_tap_on_a_lane_questions_card_leads_its_orphan_and_tick_lines_until_
     with state.edit(demo) as data:
         data["prs"][KEY]["state"] = "merged"
         data["orders"]["o1"]["updated"] = state.stamp(T0 + timedelta(minutes=1))
-        data["jobs"]["j1"].update(state="waiting", ask="msg_q1", ask_at=state.stamp(T0), said=asked, questions=[state.new_question(None, asked, state.stamp(T0), card=CARD)])
+        data["jobs"]["j1"].update(state="waiting", ask="msg_q1", ask_at=state.stamp(T0), said=asked, report=asked, questions=[state.new_question(None, asked, state.stamp(T0), card=CARD)])
     tapped = T0 + timedelta(minutes=5)
     with monkeypatch.context() as clock:
         clock.setattr(state, "now", lambda: tapped)
