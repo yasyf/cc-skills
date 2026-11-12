@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import CodexAsk, Judge, Redraws, Thread, WatchProcess, Withdrawals
-from drive import cli, github, install, land, reads, render, served, slack, state, talk, view, watch
+from drive import card, cli, github, install, land, reads, render, served, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -1008,13 +1008,42 @@ def test_his_answer_kept_on_a_job_is_said_undelivered_ten_minutes_on_and_every_t
         data["jobs"]["j1"]["undelivered"] = [{"seq": "#665156", "words": "ship the narrower fix", "at": state.stamp(T0), "said": None}]
     watching = watcher(demo)
     line = (
-        f'ANSWER undelivered j1: his answer #665156 "ship the narrower fix" of {render.when(state.stamp(T0))} has not reached it;'
+        f'ANSWER undelivered j1: his answer #665156 "ship the narrower fix" of {render.when(state.stamp(T0))} has not reached j1;'
         ' drive job resume j1 "<his answer>" carries it [o1 j1]'
     )
     assert watch.run_pass(watching, T0 + timedelta(minutes=9)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=10)) == [line]
     assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == []
     assert watch.run_pass(watching, T0 + timedelta(minutes=20)) == [line]
+
+
+def test_his_tap_on_a_lane_questions_card_leads_its_orphan_and_tick_lines_until_his_undo_takes_it_back(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve(monkeypatch, {})
+    monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)
+    asked = "Which fixture keeps the hold test deterministic?"
+    with state.edit(demo) as data:
+        data["prs"][KEY]["state"] = "merged"
+        data["orders"]["o1"]["updated"] = state.stamp(T0 + timedelta(minutes=1))
+        data["jobs"]["j1"].update(state="waiting", ask="msg_q1", ask_at=state.stamp(T0), said=asked, questions=[state.new_question(None, asked, state.stamp(T0), card=CARD)])
+    tapped = T0 + timedelta(minutes=5)
+    with monkeypatch.context() as clock:
+        clock.setattr(state, "now", lambda: tapped)
+        card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD})
+    watching = watcher(demo)
+    tap = f'his answer #9 "Ring" of {render.when(state.stamp(tapped))} has not reached j1; drive job resume j1 "<his answer>" carries it'
+    assert watch.run_pass(watching, T0 + timedelta(minutes=15)) == [f"ANSWER undelivered j1: {tap} [o1 j1]"]
+    assert watch.run_pass(watching, T0 + timedelta(minutes=30)) == [
+        f"ANSWER undelivered j1: {tap} [o1 j1]",
+        f'ORPHAN o1 "ship the watch": {tap}, answering its lane\'s question "{asked}" 30 minutes ago',
+        f"TICK o1, and {tap}",
+    ]
+    with monkeypatch.context() as clock:
+        clock.setattr(state, "now", lambda: T0 + timedelta(minutes=31))
+        card.question_answered({"waits": "demo:j1-7", "label": "Ring", "url": CARD, "undone": True})
+    assert watch.run_pass(watching, T0 + timedelta(minutes=60)) == [
+        f'ORPHAN o1 "ship the watch": j1\'s lane asked "{asked}" 60 minutes ago and nothing answered it: drive job resume j1 "<the answer>" answers it',
+        "TICK o1",
+    ]
 
 
 def test_a_part_staffed_within_five_minutes_of_its_order_moving_is_never_an_orphan(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1217,7 +1246,14 @@ def test_a_done_design_job_is_carried_by_its_open_card_and_its_part_needs_a_job_
     monkeypatch.setattr(watch.view, "cards", lambda name: {"team_url": "", "questions": [card], "closed": [], "pr_cards": []})
     with state.edit(demo) as data:
         data["orders"]["o2"] = order(text="options: only the owning machine writes", jobs=["j2"])
-        data["jobs"]["j2"] = job(order="o2", kind="design", state="done", questions=[state.new_question(None, None, state.stamp(T0), card=CARD)], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"] = job(
+            order="o2",
+            kind="design",
+            state="done",
+            questions=[state.new_question(None, None, state.stamp(T0), card=CARD)],
+            undelivered=[{"seq": "#9", "words": "First", "at": state.stamp(T0 - timedelta(minutes=20)), "said": None}],
+            updated=state.stamp(T0 - timedelta(minutes=10)),
+        )
     watching = watcher(demo)
     assert watch.run_pass(watching, T0) == []
     monkeypatch.setattr(watch.view, "cards", lambda name: watch.view.NO_CARDS)

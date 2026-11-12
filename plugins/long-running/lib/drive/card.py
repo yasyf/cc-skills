@@ -692,7 +692,7 @@ def answered(ask: dict) -> dict:
 
 
 def question_answered(ask: dict) -> dict:
-    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`."""
+    """Post his answer on a drive's question card, by a tap, its number typed in its thread or his words in its Other box, as the one answer record the coordinator gets for it: `--re` its ask when the waits id names one, else `topic: card:<thread_ts>`; kept on the job the waits id names until drive job resume carries it there, as the record tool keeps one."""
     from drive import tools, view
 
     name, _, _ = ask["waits"].partition(":")
@@ -703,7 +703,9 @@ def question_answered(ask: dict) -> dict:
     item |= {"waits": ask["waits"]} if state.WAITS_ID.fullmatch(ask["waits"]) else {"topic": f"card:{view.card_thread(ask['url'])}"}
     item |= {"attrs": {"maps": "none"}} if ask.get("other") else {}
     data = state.load(name)
-    [seq] = tools.sent(name, "communicator", [tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))])
+    made = tools.post(item, data, "root", (data["roles"].get("communicator") or {}).get("session"))
+    [seq] = tools.sent(name, "communicator", [made])
+    tools.keep_undelivered(name, [made], [seq], [[]])
     return {"ok": True, "seq": seq}
 
 

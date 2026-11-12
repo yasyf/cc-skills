@@ -517,15 +517,20 @@ def keep_settled(name: str, posts: list[dict], seqs: list[str], settles: list[tu
 
 
 def keep_undelivered(name: str, posts: list[dict], seqs: list[str], closes: list[list[dict]]) -> None:
-    """Keep each answer of his on each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile."""
-    answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer" and "undone" not in (made.get("attr") or {})]
+    """Keep each answer of his on each job it answers, the one its attr names and each whose card it closes, until drive job resume carries it there, so the watch says ANSWER undelivered for it meanwhile; an Undo tap takes the answer it undoes off each job it names."""
+    answers = [(made, seq, questions) for made, seq, questions in zip(posts, seqs, closes, strict=True) if made["kind"] == "answer"]
     if not answers:
         return
     with state.edit(name) as data:
         for made, seq, questions in answers:
-            named = [state.named_job(data, made.get("attr") or {}), *(state.named_job(data, {"waits": card["card"].get("waits")}) for card in questions)]
+            attrs = made.get("attr") or {}
+            named = [state.named_job(data, attrs), *(state.named_job(data, {"waits": card["card"].get("waits")}) for card in questions)]
             for job_id in dict.fromkeys(filter(None, named)):
-                data["jobs"][job_id]["undelivered"].append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
+                kept = data["jobs"][job_id]["undelivered"]
+                if "undone" in attrs:
+                    kept[:] = [answer for answer in kept if answer["words"] != attrs["undone"]]
+                else:
+                    kept.append({"seq": seq, "words": made["text"], "at": state.stamp(), "said": None})
 
 
 def his_cards(name: str) -> dict:

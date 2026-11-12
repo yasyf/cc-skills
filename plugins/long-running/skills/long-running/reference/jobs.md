@@ -181,8 +181,9 @@ question.
 - A question that opens any other way, such as `READ: please send <file>`, is a `JOB` line for you
   to answer; one opening with another result word is a report, by **Reports**. One that names a `LOG <url>` past its first line says so on its line, and
   `drive job resume` reads each such log ahead of your text, so start no reader for it. One
-  nothing answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
-  the job has, since a card drawn before the question asks him something else.
+  no resume answered for 30 minutes makes its parts `ORPHAN`s every 30 minutes, whatever card or PR
+  the job has, since a card drawn before the question asks him something else; when he answered
+  its card since, the line leads with his answer and the `drive job resume` that carries it.
 - A question kept for you that reads as a `LOG` or `READ`, such as one kept before the watch read it
   that way, the watch answers on its next pass, and the lane runs again.
 - A lane whose wait ends waits again on the same question, so the watch keeps each question queued
