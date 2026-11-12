@@ -391,7 +391,14 @@ class Jev:
 @pytest.fixture(autouse=True)
 def jev(monkeypatch: pytest.MonkeyPatch) -> Jev:
     judged = Jev()
-    monkeypatch.setattr(settled, "jev", lambda request: judged.asked.append(request) or judged.answer)
+
+    def answered(request: dict) -> dict:
+        judged.asked.append(request)
+        if judged.answer is None:
+            raise settled.Unheard("Command 'spawnllm decide' timed out after 60 seconds")
+        return judged.answer
+
+    monkeypatch.setattr(settled, "jev", answered)
     return judged
 
 

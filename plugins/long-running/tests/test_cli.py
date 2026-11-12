@@ -4692,8 +4692,8 @@ def test_jev_decides_a_question_only_by_the_one_answer_it_picks_at_eight_in_ten_
     assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", *(answer["id"] for answer in found)]
 
 
-def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_question_is_said_on_stderr_and_decides_nothing(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_question_is_unheard_with_its_reason(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     calls: list[tuple[list[str], dict]] = []
     answer = {"type": "label", "choice": "none", "probabilities": {"none": 0.9}, "confidence": 0.9}
@@ -4712,13 +4712,29 @@ def test_jev_is_asked_through_spawnllm_decide_and_a_failed_call_or_a_declined_qu
 
     monkeypatch.setattr("drive.settled.subprocess", types.SimpleNamespace(run=spawnllm, TimeoutExpired=subprocess.TimeoutExpired))
     request = {"state": {"question": "Which store?"}, "questions": {"decides": {"label": {"instructions": "Which?", "options": {"none": "No"}}}}}
-    assert [ASK_JEV(request) for _ in range(4)] == [answer, None, None, None]
+    assert ASK_JEV(request) == answer
+    failures = []
+    for _ in range(3):
+        with pytest.raises(settled.Unheard) as unheard:
+            ASK_JEV(request)
+        failures.append(str(unheard.value))
     assert calls == [(settled.DECIDE, request)] * 4
-    assert capsys.readouterr().err.splitlines() == [
-        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Error: No such command 'decide'.",
-        f"drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Command '{settled.DECIDE}' timed out after 60 seconds",
-        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Jev declined the question",
-    ]
+    assert failures == ["Error: No such command 'decide'.", f"Command '{settled.DECIDE}' timed out after 60 seconds", "Jev declined the question"]
+
+
+def test_job_ask_says_on_stderr_that_jev_gave_no_answer_and_sends_the_question_to_him(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    recorded.found = [FLAT_RULING]
+    jev.answer = None
+    assert cli.main(["job", "ask", asking, str(block)]) == 0
+    assert (
+        "drive job ask: Jev did not say whether his answers decide this question, so it goes to him: Command 'spawnllm decide' timed out after 60 seconds"
+        in capsys.readouterr().err
+    )
+    assert state.load("demo")["jobs"]["j1"]["questions"][0]["refused"] is None
 
 
 def test_backfill_labels_as_approvals_every_tap_on_a_pr_card_by_its_question_whatever_his_words(

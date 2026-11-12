@@ -14,7 +14,7 @@ import pytest
 import quiet_turn
 import scratch_folder
 import session_start
-from conftest import RESEARCH, WatchProcess
+from conftest import RESEARCH, Answers, Jev, WatchProcess
 from drive import agents, cli, settled, state
 
 Run = Callable[..., tuple[int, str]]
@@ -748,6 +748,42 @@ def test_a_sub_coordinator_lands_a_tapped_pr_of_its_project_and_leaves_starting_
     reads = ("tools/ci release rollback releases/2026-11-11/3 --plan", "tools/ci release status", "tools/ci release watch 4242")
     assert [landing_guard.deny_reason(bash(command) | sub) for command in reads] == [None, None, None]
     assert [landing_guard.deny_reason(bash(command) | top) for command in cuts] == [None, None, None]
+
+
+RELEASE_PICK = {"id": "5d0c4a1" + "0" * 33, "title": "Release the memory fix to production now?", "body": "Release now (Recommended)", "tags": ["scope:durable"]}
+INCIDENT_ORDER = {"id": "9e1f2b3" + "0" * 33, "title": "sand runs fail on core-usw2", "body": "runs are failing, fix it", "tags": ["scope:durable", "drive:demo", "incident"]}
+PR_TAP = {"id": "ac61348" + "0" * 33, "title": "Tap: #50203, canary diagnostics on the search", "body": "Approve at 4aca314", "tags": ["scope:durable"]}
+
+
+def test_a_drive_starts_a_release_on_order_naming_an_incidents_answer_or_one_jev_reads_as_his_pick_to_release(
+    demo: str, no_calls: list[list[str]], recorded: Answers, jev: Jev
+) -> None:
+    top = {"session_id": "session-under-test"}
+    recorded.shown = {answer["id"][:7]: answer for answer in (RELEASE_PICK, INCIDENT_ORDER, PR_TAP)}
+    start = "tools/ci release start sand --only sand --emergency --order {}"
+    jev.picks("5d0c4a1")
+    assert landing_guard.deny_reason(bash(start.format("5d0c4a1")) | top) is None
+    [asked] = jev.asked
+    assert asked["state"] == {
+        "action": f"start this production release: `{start.format('5d0c4a1')}`",
+        "answers": [{"id": "5d0c4a1", "asked": RELEASE_PICK["title"], "said": RELEASE_PICK["body"]}],
+    }
+    assert list(asked["questions"]["decides"]["label"]["options"]) == ["none", "5d0c4a1"]
+    assert landing_guard.deny_reason(bash(start.format("9e1f2b3")) | top) is None
+    assert len(jev.asked) == 1
+    jev.picks("none")
+    refused = landing_guard.deny_reason(bash(start.format("ac61348")) | top)
+    assert refused.startswith(
+        'refused: `--order ac61348` names his answer to "Tap: #50203, canary diagnostics on the search", "Approve at 4aca314", and Jev'
+        " does not read it as approving this release. A release starts only on his order to release it"
+    )
+    jev.answer = None
+    assert landing_guard.deny_reason(bash(start.format("ac61348")) | top).startswith(
+        "refused: Jev did not say whether his answer ac61348 approves this release (Command 'spawnllm decide' timed out after 60 seconds)"
+    )
+    assert [landing_guard.deny_reason(bash(command) | top) for command in (start.format("ac61348") + " --dry-run", "tools/ci release start sand")] == [None, None]
+    assert landing_guard.deny_reason(bash(start.format("ac61348"))) is None
+    assert len(jev.asked) == 3
 
 
 def test_guard_denies_admin_on_forge_even_when_tapped(drive_pr: str, no_calls: list[list[str]]) -> None:

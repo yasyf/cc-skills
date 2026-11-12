@@ -287,7 +287,9 @@ the patch.
   that did not ask whether to release approves nothing in one. Start it with `--order <his answer id>`,
   or run `tools/ci release approve <id> --via <agent>` the moment it holds, with no `ASK`, card, or
   check in between: nobody asks him again. A resume or re-plan of a release he ordered passes the same
-  `--order` again.
+  `--order` again. The `landing_guard` hook refuses `ci release start --order <id>` in a drive session
+  or its agents when Jev does not read that answer as his order or card pick to release, unless the
+  answer is an incident's, labelled `incident`.
 - A job never approves a release he has not approved, and never touches one he started himself. An
   incident's order's words approve the incident's own cut, by [incidents.md](incidents.md).
 - Then rerun the reporter's exact case on the live build, and return `DONE <proof>`: one line on what
