@@ -526,6 +526,17 @@ def waiting(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     return f"it waits on {', '.join(dict.fromkeys(held))}, so it draws no Approve until each is answered or done" if held else ""
 
 
+def unchecked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
+    """Why no fresh card is drawn for the members yet: one asking his tap has no check of its change at its head against the words of every order it serves, which its builder's READY runs through drive job report and the coordinator's drive pr set --serves runs for a remote lane's."""
+    held = [key for key in members if state.asks_tap(entry := known[key][1]) and not state.checked(state.load(known[key][0]), entry)]
+    if not held:
+        return ""
+    return (
+        f"the change of {', '.join(held)} at its head is not checked against his words, so no card asks his tap until drive job report"
+        " on its builder's READY or drive pr set --serves checks it"
+    )
+
+
 def reworked(known: dict[str, tuple[str, dict]], members: list[str]) -> str:
     """Why no card is drawn for the members, a redraw of one cc-slack posted included: one of them is being reworked to his words, so its card stays down until its builder's READY says how they are met."""
     return "; ".join(
@@ -571,7 +582,7 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         taken: set[str] = set()
         shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
         card = drawn_card(shown)
-        held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members)
+        held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members) or unchecked(known, members)
         if reason := foreign(known, members) or reworked(known, members) or held or oversized(known, members):
             refusals = [skip(key, reason) for key in members]
             refused(refusals)

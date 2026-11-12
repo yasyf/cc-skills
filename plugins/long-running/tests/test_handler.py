@@ -95,7 +95,8 @@ def test_a_handlers_own_session_reads_as_an_agent_of_the_communicators(
     transcript = tmp_path / "h-session.jsonl"
     bind(monkeypatch, handler, "h-session", transcript)
     data = state.load("demo")
-    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None}
+    holds = {"message": None, "link": None, "thread": "1794380463.481959", "record": None}
+    assert data["handlers"][handler] | {"started": None} == {"session": "h-session", "transcript": str(transcript), "started": None, "holds": holds, "held_back": []}
     assert state.session_drives("h-session") == ["demo"]
     assert state.session_role(data, "h-session") == "communicator"
     step = {"session_id": "h-session", "agent_type": agents.HANDLER, "transcript_path": str(transcript), "tool_name": "Bash"}
@@ -145,3 +146,55 @@ def test_a_handler_ending_hands_its_line_to_the_communicator_and_removes_its_ses
     assert data["handlers"] == {}
     assert (data["jobs"]["j1"]["state"], data["jobs"]["j1"]["transcript"]) == ("done", str(transcript))
     assert state.own_transcript(data, data["jobs"]["j1"]) == str(transcript)
+
+
+HIS_LINK = "https://acme.slack.com/archives/D123/p1794446196220659?thread_ts=1794440505.483109&cid=D123"
+HIS_MESSAGE = f"Message (his words): Why is that only happening now?\nLink: {HIS_LINK}\nThread: D123 1794440505.483109\nDrive: demo\nScratch: {{scratch}}"
+
+
+def test_one_message_of_his_has_one_handler_at_a_time_whichever_record_names_it(
+    communicator: str,
+    run: Run,
+    tmp_path: Path,
+    started: list[list[str]],
+    cci_records: dict[str, dict],
+    ended_sessions: set[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    thread = {"fields": {"attrs": {"thread": "1794440505.483109"}}}
+    cci_records |= {
+        "668288": {"seq": 668288, "kind": "owner", "lane": "communicator", "refs": {"url": HIS_LINK}} | thread,
+        "668291": {"seq": 668291, "kind": "report", "lane": "root"} | thread,
+        "668300": {"seq": 668300, "kind": "report", "lane": "root", "re": 668288, "fields": {"attrs": {}}},
+        "668400": {"seq": 668400, "kind": "report", "lane": "root", "fields": {"attrs": {"thread": "1794400000.000100"}}},
+    }
+    message = HIS_MESSAGE.format(scratch=tmp_path / "h1")
+    handler = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
+    with pytest.raises(state.DriveError, match=f"handler {handler} is at work on {HIS_LINK}.*; this copy needs no handler of its own"):
+        tools.run("handler", "demo", {"brief": message})
+    for seq in ("668291", "668300", "668288"):
+        with pytest.raises(state.DriveError, match=f"refused, no handler started: handler {handler} is at work on {HIS_LINK}.*its done record names this brief"):
+            tools.run("handler", "demo", {"brief": f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}"})
+    other = tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"}).removeprefix("started ")
+    with pytest.raises(state.DriveError, match=f"handler {other} is at work on record 668400.*; this copy needs no handler of its own"):
+        tools.run("handler", "demo", {"brief": f"Record: 668400 Drive: demo Scratch: {tmp_path / '668400'}"})
+    held = [f"Record: {seq} Drive: demo Scratch: {tmp_path / seq}" for seq in ("668291", "668300", "668288")]
+    assert state.load("demo")["handlers"][handler]["held_back"] == held
+    assert len([argv for argv in started if argv[:2] == ["claude", "--bg"]]) == 2
+
+    with state.edit("demo") as data:
+        data["handlers"][handler]["session"] = "h-session"
+    monkeypatch.setattr(agents.subprocess, "Popen", lambda argv, **kwargs: None)
+    monkeypatch.setattr(reads, "run", lambda argv, checkout, env=None: started.append(argv) or (json.dumps([{"id": "b7f2", "sessionId": "h-session"}]) if argv[1] == "agents" else ""))
+    agents.end_handler(
+        {"session_id": os.environ["CLAUDE_CODE_SESSION_ID"], "agent_id": handler, "agent_transcript_path": "/x/t.jsonl", "cwd": "/", "handler_session": "h-session", "last_assistant_message": LINE}
+    )
+    [post] = [argv for argv in started if argv[:2] == ["cci", "post"]]
+    assert post[-1] == f"{LINE} | held back for this handler, start each now: {' | '.join(held)}"
+
+    restarted = tools.run("handler", "demo", {"brief": message}).removeprefix("started ")
+    with state.edit("demo") as data:
+        data["handlers"][restarted]["session"] = "died-session"
+    ended_sessions.add("died-session")
+    assert tools.run("handler", "demo", {"brief": message}).startswith("started ")
+    assert restarted not in state.load("demo")["handlers"]

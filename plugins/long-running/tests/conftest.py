@@ -16,6 +16,7 @@ from drive import (
     orca,
     page,
     public_check,
+    served,
     settled,
     slack,
     state,
@@ -163,6 +164,34 @@ def records(monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     shown: dict[str, str] = {}
     monkeypatch.setattr(agents, "record", lambda seq: shown.get(seq, f"m{seq}"))
     return shown
+
+
+@pytest.fixture(autouse=True)
+def cci_records(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict]:
+    kept: dict[str, dict] = {}
+    monkeypatch.setattr(agents, "shown", lambda seq: kept.get(seq, {"seq": int(seq), "kind": "report", "lane": "root", "fields": {"attrs": {}}}))
+    return kept
+
+
+@pytest.fixture(autouse=True)
+def ended_sessions(monkeypatch: pytest.MonkeyPatch) -> set[str]:
+    ended: set[str] = set()
+    monkeypatch.setattr(agents, "gone", lambda session: session in ended)
+    return ended
+
+
+@dataclass
+class Judge:
+    against: list[dict] = field(default_factory=list)
+    asked: list[tuple[str, dict]] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def judge(monkeypatch: pytest.MonkeyPatch) -> Judge:
+    judging = Judge()
+    monkeypatch.setattr(served, "change", lambda key: {"title": f"Fix: {key}", "head": card.drive_prs()[key][1]["head"], "diff": ""})
+    monkeypatch.setattr(served, "judged", lambda name, said, changes: judging.asked.append((said, changes)) or list(judging.against))
+    return judging
 
 
 @pytest.fixture(autouse=True)

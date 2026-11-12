@@ -249,6 +249,9 @@ def saved(name: str) -> dict:
         data["roles"] = {"coordinator": data.pop("driver")}
     data.setdefault("subcoordinators", {})
     data.setdefault("handlers", {})
+    for handler in data["handlers"].values():
+        handler.setdefault("holds", None)
+        handler.setdefault("held_back", [])
     for held in data["roles"].values():
         held.setdefault("terminal", None)
     return data
@@ -322,6 +325,7 @@ def load(name: str) -> dict:
         pr.setdefault("ejected", False)
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
+        pr.setdefault("checked", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
         if (rework := pr.get("rework")) and "answer" in rework:
@@ -1077,6 +1081,23 @@ def owed_step(pr: dict) -> str | None:
     return "card" if pr["wants_tap"] else None
 
 
+def carded_prs(data: dict, job_id: str) -> list[str]:
+    """The job's open PRs his card waits on, which its builder's READY hands him: wanting his tap and in no exempt class."""
+    return [key for key, pr in data["prs"].items() if pr["job"] == job_id and pr["state"] == "open" and pr["wants_tap"] and not pr.get("exempt")]
+
+
+def served_orders(data: dict, pr: dict) -> list[str]:
+    """The orders whose words a PR's change is checked against: the one it serves, its job's own and each its job carries."""
+    job = data["jobs"][pr["job"]]
+    return list(dict.fromkeys([pr.get("serves") or pr["order"], job["order"], *job["carries"]]))
+
+
+def checked(data: dict, pr: dict) -> bool:
+    """Whether the PR's change at its head was judged against the words of every order it serves, so his card may draw on it."""
+    stamp = pr["checked"]
+    return bool(stamp) and stamp["head"] == pr["head"] and set(served_orders(data, pr)) <= set(stamp["orders"])
+
+
 def asks_tap(pr: dict) -> bool:
     """Whether his card on the PR offers his Approve: open, his card owed, and neither his Approve nor the hold label on it."""
     return pr["state"] == "open" and owed_step(pr) == "card" and (pr["tap"] or {}).get("label") != "Approve" and not pr["hold_label"]
@@ -1121,5 +1142,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "review_asked": None,
         "rework": None,
         "author": None,
+        "checked": None,
         "updated": stamp(),
     }

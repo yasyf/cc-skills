@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Judge, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -2390,6 +2390,31 @@ def test_a_builders_ready_is_kept_whatever_its_pr_body_says(
     on_github["body"] = CARD_BODY.replace("## What you'll hate most", "## Biggest surprise")
     assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
     assert state.load("demo")["jobs"]["j1"]["state"] == "waiting"
+
+
+def test_a_change_against_his_words_is_refused_at_its_ready_and_its_serves_and_a_head_checked_once_is_not_judged_again(
+    run: Run, with_pr: str, on_github: dict, judge: Judge, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    judge.against = [{"order": "o1", "words": "land it", "change": "api/run.ts keeps the staff flag"}]
+    refused = f'{with_pr} go against his words, judged from each PR\'s title and diff: o1 "land it": api/run.ts keeps the staff flag. Change the PRs'
+    code, err = keep(monkeypatch, capsys, "j1", f"READY {PR}\n")
+    assert (code, err.startswith(f"drive: j1: refused, nothing kept: {refused}")) == (2, True)
+    assert cli.main(["pr", "set", PR, "--serves", "o1", "--design", "none"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"drive: {with_pr}: refused, nothing set: {refused}")
+    assert err.rstrip().endswith("Send it back by a fresh builder on j1 briefed with this refusal")
+    pr = state.load("demo")["prs"][with_pr]
+    assert (pr["serves"], pr["checked"], state.load("demo")["jobs"]["j1"]["state"]) == (None, None, "running")
+    assert 'o1, ' in judge.asked[0][0] and '"land it"' in judge.asked[0][0]
+    judge.against = []
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\n") == (0, "")
+    assert state.load("demo")["prs"][with_pr]["checked"]["orders"] == ["o1"]
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+    assert len(judge.asked) == 3
+    with state.edit("demo") as data:
+        data["prs"][with_pr]["head"] = "ccccccc333"
+    assert run("pr", "set", PR, "--serves", "o1", "--design", "none")[0] == 0
+    assert (len(judge.asked), state.load("demo")["prs"][with_pr]["checked"]["head"]) == (4, "ccccccc333")
 
 
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:

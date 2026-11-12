@@ -108,8 +108,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    `--no-tap --why "<reason>"` for a PR its author lands.
 7. Return `READY` once, as soon as the head you mean to ship is pushed and registered, with CI and
    review still running, and with `INSTALL:` and `PROVE:` lines; never a `WAITING` for CI or review
-   first. The watch draws his card the minute GitHub reports the PR green and approved, whatever its
-   body says; a port gets the coordinator's check against the old PR instead. A body is fixed beside
+   first. `drive job report` judges the change of each PR his card waits on, its title and diff at its
+   head and never its body, against the words of your order and every order your job carries, and
+   refuses a `READY` naming each of his words the change goes against: change the PRs to his words,
+   push and return `READY` again, or `ASK` for a reading his words leave open. The watch draws his
+   card the minute GitHub reports a checked PR green and approved, whatever its body says; a port
+   gets the coordinator's check against the old PR instead. A body is fixed beside
    the landing, never before it: a gap anyone finds in it is an edit you push while the PR waits, and
    it holds no card, tap, enqueue or merge. His order reworking the PR took its card down; your
    `READY` brings a fresh one up, its `CHANGE:` line saying how his words are met, and
@@ -322,7 +326,7 @@ listing decisions that block nothing is not a result.
 | Result | When |
 | --- | --- |
 | `DONE <proof link or one-line proof>` | Live and checked where he uses it, which a merge alone is not. When he sees what you built (`NATIVE:` is not `none: he never sees it`), the proof comes from that surface: the live post's link, a picture of it, or a recording of the click through each view his words name (agent-browser's recording, or `screencapture -v` of the window), since data fetched from an API does not show what he sees. `drive job report` refuses a `DONE` without that proof on `CHECK:`. |
-| `READY <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
+| `READY <pr url> [<pr url>…]` | Pushed and registered, its CI and review still running, and its change checked against his words by `drive job report`; the watch draws his card once it is green and approved. A stack names every PR, bottom first, so it gets one card. When he sees what you built (`NATIVE:` is not `none: he never sees it`), a Show me on its card carries a before and an after screenshot of it, pushed beside the landing when it is missing. A question whose answer only lands PRs, such as an open PR below yours, is this `READY` naming each, never an `ASK`: their stack card is his tap and needs no Show me, and `drive job ask` refuses an ask to land PRs. |
 | `BUILT <branch>, waits on <cards>` | The recommended options built and pushed on `<branch>`, no PR open, waiting on his answer to each design card the brief names, by its waits id or Slack link. Its lines name the option built for each card and what his other picks would change. |
 | `WAITING <what, in plain words>` | Another PR or a release; never CI, a review or a queue on your own PR, which `READY` covers. `WAITING <your PR> waits on <cards>`, each card by its waits id or Slack link, holds that PR's card until he answers each. |
 | `ASK <path>` | Only for a change of scope, a design choice his words do not settle, or a line he holds; decide everything else. |
