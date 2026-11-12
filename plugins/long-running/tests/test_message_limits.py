@@ -961,7 +961,8 @@ def test_a_line_naming_a_cause_with_no_record_is_found_and_his_own_words_are_not
     )
     assert say(transcript, text='> did it fail because of the pool?\nYou asked "is it because of the pool"; the runs are back.') is None
     assert refs.unbacked("```text\nThe cause is the pool\n```\nDue to a full pool, runs wait.") == ["Due to a full pool, runs wait."]
-    assert say(transcript, text="*Why plat SandSQL lagged:* an agent is now reading the cause, minute by minute through the lag.") is None
+    for reading in ("*Why plat SandSQL lagged:* an agent is now reading the cause, minute by minute through the lag.", "Root cause: yes, a read is on it."):
+        assert say(transcript, text=reading) is None
     assert refs.unbacked("*Why plat SandSQL lagged:* the cause was a full replication queue.\nRoot cause: the pool.\nIt is caused by the pool.") == [
         "*Why plat SandSQL lagged:* the cause was a full replication queue.",
         "Root cause: the pool.",

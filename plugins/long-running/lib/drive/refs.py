@@ -12,7 +12,11 @@ OPEN_LINK = re.compile(r"<((?:https?://|mailto:)[^<>|\s]*)\|[^<>]*\Z")
 INNER = re.compile(r"<[^<>]*>?")
 CODE = re.compile(r"`[^`\n]+`")
 LINK_WORDS = str.maketrans({"<": "", ">": "", "|": "/", "[": "(", "]": ")"})
-CAUSE = re.compile(r"\b(?:because|caus(?:ed|es|ing)|due to|culprit|cause(?:\s+(?:is|was)\b|:))", re.IGNORECASE)
+CAUSE = re.compile(
+    r"\b(?:because|caus(?:ed|es|ing)|due to|culprit)\b"
+    r"|\bcause(?:\s+(?:is|was)|:)\s+(?!(?:yes|still|being|unknown|unclear|pending|tbd|not yet|under (?:way|investigation|review))\b|an?\s+(?:read|reader|lane|agent)\s+(?:is|has)\b)",
+    re.IGNORECASE,
+)
 FAILURE = re.compile(
     r"\b(?:refused|failed to|missed|disconnected|dropped (?:its|the|their) connection|forgot(?:ten)?|lost track|fell through|went unchecked|slipped"
     r"|(?:nobody|no one) (?:\w+ed|ran|saw|read|took|got|drew|caught|knew)"
@@ -77,7 +81,7 @@ def nested(text: str) -> str | None:
 
 
 def unbacked(text: str) -> list[str]:
-    """Each line of the text, outside a fence, a quote and a quoted line, that states a cause with no {record:…} on it: a because, due to, caused by, culprit or the cause is, never a line naming the cause as what is being read."""
+    """Each line of the text, outside a fence, a quote and a quoted line, that states a cause with no {record:…} on it: a because, due to, caused by, culprit or the cause is, never a line naming the cause as the question or as what a read is on."""
     return [
         line.strip()
         for line in picture.FENCE.sub("", text).splitlines()
