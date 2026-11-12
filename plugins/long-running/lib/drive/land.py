@@ -40,6 +40,12 @@ def open_cards(data: dict, job_id: str, waits: list[str], cards: dict | None) ->
     return list(dict.fromkeys([*waited, *asked]))
 
 
+def ship_held(data: dict, job_id: str, cards: dict | None) -> list[str]:
+    """His open cards holding a job's PR from going up, which the `bash_guard` hook refuses the `ccx vcs ship` that would open it by, on this Mac and through `drive job held` on a Sprite: none once the job has an open PR, which a ship pushes to rather than opens."""
+    if any(data["prs"].get(state.pr_key(url), {}).get("state") == "open" for url in data["jobs"][job_id]["prs"]):
+        return []
+    return open_cards(data, job_id, [], cards)
+
 def approved(pr: dict) -> bool:
     return (pr["tap"] or {}).get("label") == "Approve"
 

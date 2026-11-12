@@ -115,7 +115,8 @@ A design question goes to him on a card before any PR carries it, by [Design fir
 job builds the recommendation meanwhile on a pushed branch, in state `built` in the drive, unless
 his words on that order ask for options only; then no builder starts on the proper fix before his
 pick, because he wants to choose the fix. Work does not land with a question of his on it
-unanswered: outside an incident's repair, `drive pr add` refuses a proper-fix PR, and the lander,
+unanswered: outside an incident's repair, the `bash_guard` hook refuses the `ccx vcs ship` that would
+open a proper-fix PR, on this Mac and on a Sprite, and the lander,
 the `landing_guard` hook and a `yasyf/*` PR's merge each hold one, while any open card of his bears
 on its work, its job's or one asked by a job on its order sharing its part, the design it builds
 included. The immediate fix of a bug hurting someone now is never held: its own

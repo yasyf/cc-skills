@@ -153,7 +153,7 @@ word names, and the watch queues it as a read. `drive job read` runs it in the c
 checkout with no session of this Mac's, as the lane's own job on its own drive, and answers
 all it printed under a first line naming its exit status, each file named by the lane's own path,
 which the lane's `drive` prints and exits with. It runs `job report`, `job ask`, `job set --repro`,
-`job replies`, `pr add`, `plan search`, `manual` and `status`, its reads on any job as a Mac lane's,
+`job replies`, `job held`, `pr add`, `plan search`, `manual` and `status`, its reads on any job as a Mac lane's,
 so a lane reads the `job report` or `job replies` of any job its brief names, and a bare `status`
 on its own job. It refuses, running nothing, any other verb, such as `pr set --tap` or an order
 verb, a write naming another job, which is a `job report` keeping stdin, `job ask`, `job set` or

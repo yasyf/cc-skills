@@ -2245,19 +2245,25 @@ def test_a_release_wait_whose_release_is_already_out_is_never_stored(demo: str, 
     assert state.load(demo)["prs"][KEY]["waits"] == [f"release:api:{shipped}"]
 
 
-def test_a_job_waiting_on_his_open_card_puts_up_no_pr_until_he_answers(
+def test_job_held_names_his_open_cards_holding_a_jobs_pr_until_he_answers_or_it_has_an_open_pr(
     demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     asking(monkeypatch, demo, "demo:j1-7-a")
-    url = "https://github.com/Forge-AI/monorepo/pull/43"
     with state.edit(demo) as data:
         state.take_result(data, "j1", "BUILT lane/built, waits on demo:j1-7-a")
+        data["prs"].pop(KEY, None)
+        data["jobs"]["j1"]["prs"] = []
     assert render.job_line("j1", state.load(demo)["jobs"]["j1"]) == "j1 builder built on lane/built: watch; waits on demo:j1-7-a"
-    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 2
-    assert "j1's work waits on his answer to demo:j1-7-a" in capsys.readouterr().err
+    capsys.readouterr()
+    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
+    assert capsys.readouterr().out == "demo:j1-7-a\n"
+    monkeypatch.setenv(state.OWN_JOB_ENV, "j1")
+    assert cli.main(["job", "held", "--json", "--drive", demo]) == 0
+    assert json.loads(capsys.readouterr().out) == {"id": "j1", "cards": ["demo:j1-7-a"]}
     assert cli.main(["pr", "add", state.pr_url(KEY), "--job", "j1", "--drive", demo]) == 0
-    asking(monkeypatch, demo)
-    assert cli.main(["pr", "add", url, "--job", "j1", "--drive", demo]) == 0
+    capsys.readouterr()
+    assert cli.main(["job", "held", "j1", "--drive", demo]) == 0
+    assert capsys.readouterr().out == "j1: no open card of his holds its PR\n"
 
 
 def test_a_job_on_an_open_incident_puts_up_its_pr_on_the_recommendation_and_the_pr_takes_no_wait_on_his_card(

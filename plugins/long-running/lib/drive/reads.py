@@ -32,6 +32,7 @@ LANE_VERBS = (
     ("job", "ask"),
     ("job", "set"),
     ("job", "replies"),
+    ("job", "held"),
     ("pr", "add"),
     ("plan", "search"),
     ("manual",),

@@ -175,7 +175,7 @@ def test_drive_break_glass_grants_in_the_jobs_name_then_runs_its_command_in_the_
     [
         (
             ["order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "count"],
-            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, pr add, plan search, manual, status",
+            "drive order add: refused, nothing ran: a lane runs only these verbs: job report, job ask, job set, job replies, job held, pr add, plan search, manual, status",
         ),
         (
             ["job", "report", "j8", "-"],

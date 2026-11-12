@@ -1,6 +1,7 @@
 import io
 import json
 import plistlib
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -73,6 +74,30 @@ def test_a_builder_opens_no_pr_while_his_open_cards_hold_its_job(demo: str, run:
     assert bash_guard.deny_reason(bash(opening, **builder)).startswith("refused: j1's work waits on his answer")
     cards = []
     assert bash_guard.deny_reason(bash(opening, **builder)) is None
+
+def test_a_sprite_lanes_ship_asks_the_coordinators_mac_whether_his_open_cards_hold_its_pr(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    asked = []
+    answer = {"code": 0, "out": json.dumps({"id": "j7", "cards": ["demo:j2-1-a"]}), "err": ""}
+
+    def drive(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess:
+        asked.append(argv)
+        return subprocess.CompletedProcess(argv, answer["code"], stdout=answer["out"], stderr=answer["err"])
+
+    monkeypatch.setattr(bash_guard.subprocess, "run", drive)
+    opening = "ccx vcs ship --pr-title-file /s/t --pr-body-file /s/b"
+    assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
+    monkeypatch.setenv(state.REMOTE_LANE_ENV, "1")
+    assert bash_guard.deny_reason(bash(opening, session="sprite")).startswith("refused: j7's work waits on his answer to demo:j2-1-a, and this ship would open its PR")
+    assert asked == [["drive", "job", "held", "--json"]]
+    assert bash_guard.deny_reason(bash("ccx vcs ship --no-pr", session="sprite")) is None
+    assert bash_guard.deny_reason(bash("git status", session="sprite")) is None
+    assert len(asked) == 1
+    answer.update(code=1, out="", err="drive: orca orchestration ask exited 1: no run")
+    assert bash_guard.deny_reason(bash(opening, session="sprite")) == (
+        "refused: `drive job held` could not say whether his open cards hold this lane's PR: drive: orca orchestration ask exited 1: no run; ship again once it answers"
+    )
+    answer.update(code=0, out=json.dumps({"id": "j7", "cards": []}))
+    assert bash_guard.deny_reason(bash(opening, session="sprite")) is None
 
 def test_a_designer_opens_no_pr_and_pushes_nothing(demo: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     designer = {"agent_id": "a-1", "agent_type": "long-running:designer"}

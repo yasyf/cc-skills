@@ -68,8 +68,8 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
    and return `BUILT`. He ruled the recommended option may be built but no PR for the proper fix
    goes up until he answers. While any open card of his bears on your work, your job's or one a job
    sharing your part asked, the design you build included, the `bash_guard` hook refuses a
-   `ccx vcs ship` that would open your PR and `drive pr add` refuses the PR, since work does not land
-   with a question of his on it unanswered: push the branch with `ccx vcs ship --no-pr`.
+   `ccx vcs ship` that would open your PR, on this Mac and on a Sprite, since work does not land with
+   a question of his on it unanswered: push the branch with `ccx vcs ship --no-pr`.
    A brief on the order's `immediate fix` part is no design choice: build it and open its PR at once.
    On an open incident a choice never stops you: return `ASK` the moment the fork shows, even
    mid-build, and build its recommended option when the coordinator resumes you in that turn. Its
@@ -286,7 +286,7 @@ Sprite, whose brief opens with `Remote lane:`. Everything above holds, with thes
 - Type each `drive` verb this file names as on this Mac: your Sprite's `drive` asks it of the
   coordinator's Mac as one blocking Orca question, carrying stdin and each file a word names, then
   prints all it printed there and exits with its status. It runs `job report`, `job ask`,
-  `job set --repro`, `job replies`, `pr add`, `plan search`, `manual` and `status` on your own
+  `job set --repro`, `job replies`, `job held`, `pr add`, `plan search`, `manual` and `status` on your own
   drive, and refuses, running nothing, any other verb or drive. Its reads read any job as on this
   Mac, such as `drive job report <job>` and `drive job replies <job>` for a job your brief names,
   and a bare `drive status` prints your own job; its writes, `drive job report <job> -`, `job ask`,
