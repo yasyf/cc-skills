@@ -799,7 +799,7 @@ def waits_on(text: str, card: str | None = None, pr: str | None = None, url: str
 
 
 def incidents(drive: dict) -> list[dict]:
-    """His incident orders still open, oldest first, but one the watch found over, its monitors OK and its fix live, while its close is posted."""
+    """His incident orders still open, oldest first, but one the watch found over, its fix live and any monitor of it OK, while its close is posted."""
     live = [(order_id, order) for order_id, order in drive["orders"].items() if order["incident"] and order["state"] not in state.CLOSED_ORDER_STATES and not order["recovered"]]
     return [{"id": order_id, "title": order_title(order), "created": order["created"]} for order_id, order in sorted(live, key=lambda item: state.parse_time(item[1]["created"]))]
 
