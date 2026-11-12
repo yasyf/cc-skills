@@ -163,10 +163,12 @@ he cannot open (job, order and waits ids, record seqs), never a technical name.
      your job and sends the close report. Keep that
      file before you return, with `drive job set <your job> --repro <file>`: an executable script
      exiting 0 once the installed plugins hold the fix and nonzero while they do not, read-only, run
-     with each changed plugin's `bin/` first on `PATH`; `drive job report` refuses the `READY` or
-     `PUSHED` without one. A `Forge-AI/*` one returns `READY` with
-     `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an exempt class covers
-     it; the meta session registers it under its Drive tooling order, and the exempt class
+     with each changed plugin's `bin/` first on `PATH`. A fix to red CI proves itself in that file
+     by reading with `gh` the first CI run on the default branch after its merge, exiting 0 only when
+     that run concluded success, never by a local test run, which passes while the default branch
+     stays red. `drive job report` refuses the `READY` or `PUSHED` without one. A `Forge-AI/*` one
+     returns `READY` with `SERVES: drive tooling: <what it unblocks>`, and an `EXEMPT:` line when an
+     exempt class covers it; the meta session registers it under its Drive tooling order, and the exempt class
      or his Approve on its PR card lands it. Any other PR with no order of his returns
      `BLOCKED no order of his names this`.
    - A PR that makes a design decision he never answered returns `ASK` with it, not `READY`:

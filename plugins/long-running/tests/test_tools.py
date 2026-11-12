@@ -303,7 +303,7 @@ def test_a_defect_quoting_a_builds_start_on_the_line_linking_the_build_posts_and
     build = "<https://buildkite.com/forge/release/builds/15020|release build 15020>"
     quoted = f'say `{{started:j1}}`: two posts say the SandSQL release started "9:52 AM", but {build} started `11:30 AM`; the job\'s start was printed as the release\'s.'
     assert tools.run("record", demo, {"records": [{"kind": "defect", "text": quoted}]}) == "1 defect #45"
-    assert posted[0][0]["text"] == quoted
+    assert (posted[0][0]["text"], posted[0][0]["body"]) == (limits.first_line(quoted), quoted)
     with pytest.raises(DriveError, match="`11:30 AM` says when a release, build or deploy started, and its line links no build or tool"):
         tools.run("record", demo, {"records": [{"kind": "defect", "text": quoted.replace(build, "release build 15020")}]})
     assert len(posted) == 1

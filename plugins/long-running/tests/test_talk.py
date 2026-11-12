@@ -492,7 +492,7 @@ def test_a_post_delivers_the_part_its_report_names_and_a_progress_report_naming_
 def test_a_report_naming_two_parts_of_its_order_in_its_one_part_attr_delivers_both(
     demo: str, run: Callable[..., tuple[int, str]], monkeypatch: pytest.MonkeyPatch, slack_thread: Thread
 ) -> None:
-    thread = "1794510094.630259"
+    thread = "1794200000.000100"
     run("order", "add", "--title", "Short title", "--project", "Platform", "--workstream", "Releases", f"1) {SSQL}, and 2) {FOOTERS}?", "--thread", thread, "--parts", SSQL, FOOTERS)
     run("start", "demo", "--role", "communicator")
     with state.edit(demo) as data:

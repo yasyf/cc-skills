@@ -5341,7 +5341,7 @@ def test_an_answer_stays_unfinished_until_each_card_asking_him_is_marked_and_a_s
     assert cli.main(["answer", "a1", "--words", WORDS, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     assert "  demo:j2-7  " not in listed
-    assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
+    assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
     assert cli.main(["answer", "a1", "--stands", "demo:j2-7"]) == 2
     refusal = capsys.readouterr().err
     assert "demo:j2-7: not a card or PR that a1 has not marked" in refusal
@@ -5734,7 +5734,7 @@ def test_an_answer_under_a_card_lists_only_its_job_and_orders_cards_and_prs_and_
     assert cli.main(["answer", "a1", "--words", words, "--link", PICK]) == 2
     listed = capsys.readouterr().err
     assert "; 2 PRs have no mark:" in listed
-    assert f"  {designing}  tap  j1 o1  {PR}  {TAP_CARD}" in listed
+    assert f"  {designing}  tap  j1 o1  land it  {TAP_CARD}" in listed
     assert "  Forge-AI/monorepo#45  open  j3 o2  " in listed
     assert "#44" not in listed
     marked = run("answer", "a1", "--stands", designing, "Forge-AI/monorepo#45", "Forge-AI/monorepo#44")
