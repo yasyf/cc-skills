@@ -820,7 +820,7 @@ def test_incident_stop_gives_an_open_incident_one_running_stop_job(
 def test_an_incident_jobs_brief_carries_the_rule_its_kind_follows_on_a_choice_on_its_incident_line_once(run: Run, demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(cli.reads, "run", recorded([]))
     run("incident", "open", "table moves rerun on every write", "--record", RECORD, *FILED)
-    run("job", "add", "builder", "--order", "o1", "--goal", "ship the fix the codex lane built")
+    run("job", "add", "builder", "--order", "o1", "--part", "fix", "--goal", "ship the fix the codex lane built")
     where = ("--serves", "his order", "--done-when", "fixed", "--where", "Forge-AI/monorepo dev")
     run("job", "brief", "j1", *where, "--incident", "record 5f6b2b5")
     run("job", "brief", "j4", *where)
@@ -4458,7 +4458,7 @@ def test_a_line_in_the_thread_of_an_order_outside_the_incident_is_refused_naming
     assert "--joins" not in refused
 
 
-def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_promised_time_once_no_job_carries_it(
+def test_a_line_in_the_thread_of_the_incident_an_alert_joined_is_its_last_line_and_keeps_no_promised_time_since_the_watch_owes_an_incident_its_lines(
     run: Run, demo: str, slack_thread: "Thread"
 ) -> None:
     run("order", "add", "--title", "Short title", "--project", "The drive", "--workstream", "Drive tooling", "SandSQL errors on plat", "--thread", "1794200000.000100", "--incident", "--parts", "fix", "first check")
@@ -4472,7 +4472,8 @@ def test_a_line_in_the_thread_of_the_incident_an_alert_joined_keeps_the_alerts_p
         state.drop_carries(data, "j1")
     line = slack_thread.post(state.now() + timedelta(seconds=1), from_claude=True)
     assert run("order", "posted", "o2", line) == (0, f"o2 progress line, no part delivered: {line}")
-    assert state.load("demo")["orders"]["o2"]["kept"] == slack.sent_at(slack_thread.messages[-1]).isoformat()
+    alert_order = state.load("demo")["orders"]["o2"]
+    assert (alert_order["kept"], state.owed(alert_order), alert_order["last_line"]) == (None, False, state.stamp(slack.sent_at(slack_thread.messages[-1])))
 
 
 def test_an_alert_saved_before_joins_was_kept_loads_joined_to_the_incident_its_owner_job_carries_it_for(run: Run, demo: str) -> None:
@@ -5224,7 +5225,7 @@ def test_every_drive_command_the_skill_names_parses_with_the_cli() -> None:
 def test_drive_manual_prints_only_the_rows_a_word_names(run: Run) -> None:
     code, out = run("manual", "coordinator", "tap")
     assert code == 0
-    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Hold …`"]
+    assert [line.split("|")[1].strip() for line in out.splitlines()] == ["`TAP Approve …`", "`TAP Approve <pr> not landed <m> minutes after his tap: <why>`", "`TAP Hold …`"]
     assert len(out) < len((cli.PAGES / "coordinator.md").read_text()) / 10
     assert run("manual", "coordinator", "nothing-names-this")[0] == 2
 
