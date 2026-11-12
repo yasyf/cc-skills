@@ -1921,6 +1921,52 @@ def test_job_ask_refuses_a_question_offering_no_tap_for_an_amount_his_words_in_i
     assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
 
 
+def test_job_ask_counts_an_amount_of_his_only_in_a_clause_sharing_the_questions_words(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    words = "keep one snapshot file per finished run, ok if we're capped at under 2gb that feels ok right, also look at that 21GB db and why its so big"
+    his = slack_thread.post(state.now(), from_user=True, text=words)
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK.replace("files be laid out", "files be capped and laid out"))
+    why = f"{his}: he set one snapshot file and its cap, not how the page opens it"
+    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 2
+    assert [line for line in capsys.readouterr().err.splitlines() if line.startswith("- ")] == [f'- 2 gb: {his} "{words}"']
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
+
+
+def test_job_ask_prints_every_refusal_in_one_run_with_one_unsettled_example_naming_each_answer_and_message(
+    run: Run, demo: str, slack_thread: Thread, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], recorded: Answers
+) -> None:
+    monkeypatch.setattr(view, "cards", lambda name: view.NO_CARDS | {"team_url": "https://acme.slack.com/"})
+    view.refresh_cards("demo")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "design the run page", "--thread", "1794200000.000100")
+    run("job", "add", "builder", "--order", "o1", "--goal", "design it")
+    recorded.found = [FLAT_RULING]
+    his = slack_thread.post(state.now(), from_user=True, text="keep one snapshot file per finished run for 30 days")
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    assert cli.main(["job", "ask", "j1", str(block)]) == 2
+    refusal = capsys.readouterr().err.removeprefix("drive: ")
+    assert [line.split(".")[0] for line in refusal.splitlines() if line.startswith("refused: ")] == [
+        "refused: these recorded answers of his may already settle this question",
+        "refused: his words in this order's thread may already settle this question",
+        "refused: his words in this order's thread name an amount this question offers no tap for",
+    ]
+    assert refusal.count(f'such as --unsettled "ac61348: <why it does not settle this>; {his}: <why it does not settle this>"') == 2
+    why = f"ac61348: it lays out the files, not how long they stay; {his}: he set how long a snapshot is kept, not its layout"
+    block.write_text(SHORT_ASK.replace("written when it ends, old runs", "written when it ends, kept 30 days, old runs"))
+    assert cli.main(["job", "ask", "j1", str(block), "--unsettled", why]) == 0
+
+
+def test_an_amount_names_a_unit_never_a_word_the_count_check_skips() -> None:
+    assert settled.amounts("step 2 was skipped, keep 3 this week, 1 its own, 30-day bonding under 2gb") == {"30 day", "2 gb"}
+
+
 FLAT_RULING = {
     "id": "ac6134849ff8a392c9f26294d4303635d1c27a58",
     "title": "Owner Nov 9: lay out every finished run's files flat, without asking\nsecond line",

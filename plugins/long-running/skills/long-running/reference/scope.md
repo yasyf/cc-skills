@@ -81,7 +81,9 @@ answer that card, by [His answer](#his-answer): `drive job ask` refuses an `--un
 while that card still asks him, until `drive answer <id>` settles it with his words, and only once
 it is closed does a follow-up name them with why they leave it open. `drive job ask` also reads the
 order's own thread and lists each message of his there that shares a rare word with the question,
-refusing until `--unsettled` names each by its permalink and why it does not settle this. A tap
+refusing until `--unsettled` names each by its permalink and why it does not settle this. It runs
+every one of these checks on each ask and prints every refusal at once, with one `--unsettled`
+example naming each id and permalink, so one ask again meets them all. A tap
 approving a PR settles only that PR's landing, so the check never counts an answer labelled
 `kind:approval`, which every recorded tap on a PR card carries, whatever his words. A block one of these refusals stops stays kept under `asks/` as the job's pending
 question with its refusal: no card draws from it and no `ask` record may name it, `drive status`
