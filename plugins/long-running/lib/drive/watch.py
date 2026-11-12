@@ -666,7 +666,7 @@ def keep_asks(
             continue
         job = data["jobs"][job_id]
         try:
-            limits.shape(message["body"], watcher.name, job_id, hurting=any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
+            limits.shape(message["body"], watcher.name, job_id, state.drive_dir(watcher.name) / "pictures", hurting=any(state.hurts_now(data["orders"][order_id]) for order_id in [job["order"], *job["carries"]]))
         except state.DriveError as error:
             refusals[message["id"]] = f"{reads.REFUSED} {error}"
         except slack.SlackError as error:

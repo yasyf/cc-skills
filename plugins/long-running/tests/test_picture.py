@@ -3,7 +3,8 @@ import json
 import re
 from pathlib import Path
 
-from drive import limits, picture
+import pytest
+from drive import limits, picture, state
 
 DOC = {
     "arch": 1,
@@ -41,6 +42,20 @@ document.documentElement.dataset.look = JSON.stringify({
 </script></body></html>
 """
 LOOK = re.compile(r'<html[^>]*\bdata-look="([^"]*)"')
+NOTED = """sequenceDiagram
+  participant B as builder
+  participant D as drive job ask
+  participant S as cc-slack
+  B->>D: the ASK block
+  D->>S: its card
+  Note over D: draws each picture; refuses one that fails
+  S-->>B: ready
+"""
+
+
+@pytest.fixture(autouse=True)
+def chrome() -> None:
+    """Each test here fakes the drawing it needs or draws in real Chrome, so none takes the fake every other test draws with."""
 
 
 def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with_quiet_edge_labels_and_no_margin_past_the_diagram(tmp_path) -> None:
@@ -53,6 +68,15 @@ def test_a_mermaid_picture_draws_rounded_unshadowed_nodes_in_a_legible_sans_with
         "edge": {"size": "13px", "color": "rgb(82, 81, 78)", "behind": "rgb(255, 255, 255)"},
         "margin": 4,
     }
+
+
+def test_a_mermaid_diagram_mermaid_cannot_parse_raises_its_parse_error_and_draws_once_its_semicolon_is_written_as_its_entity_code(tmp_path, monkeypatch) -> None:
+    headless = picture.headless
+    monkeypatch.setattr(picture, "headless", lambda page, *args: headless(page, "--no-sandbox", *args))
+    with pytest.raises(picture.PictureError, match=r"Parse error on line \d"):
+        picture.visual_png("mermaid", NOTED, tmp_path / "noted.png")
+    picture.visual_png("mermaid", NOTED.replace("picture; refuses", "picture#59; refuses"), tmp_path / "noted.png")
+    assert (tmp_path / "noted.png").is_file()
 
 
 def test_sources_lists_diagrams_and_images_in_the_order_they_appear_each_with_its_caption_and_no_chart() -> None:
@@ -103,13 +127,24 @@ def test_a_picture_drawn_before_pictures_kept_their_source_gets_it_from_the_kept
     assert (tmp_path / picture.SOURCED).exists()
 
 
-def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_is_skipped(tmp_path) -> None:
+def test_a_local_image_is_copied_in_under_its_caption_and_a_missing_one_refuses_the_card_naming_it(tmp_path) -> None:
     shot = tmp_path / "shot.png"
     shot.write_bytes(b"\x89PNG\r\n")
-    show_me = f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n"
-    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", show_me, set())
+    [copied] = picture.pictures(tmp_path / "pictures", "app PR 7", f"![The card after his tap]({shot})\n", set())
     assert Path(copied).name == "The card after his tap"
     assert Path(copied).read_bytes() == shot.read_bytes()
+    with pytest.raises(state.DriveError, match="^app PR 7: its Show me image: /nowhere/gone.png is neither a link nor a file here$"):
+        picture.pictures(tmp_path / "pictures", "app PR 7", f"![The card after his tap]({shot})\n![gone](/nowhere/gone.png)\n", set())
+
+
+def test_a_pr_cards_diagram_that_does_not_draw_raises_mermaids_words_naming_the_pr_instead_of_leaving_the_card(tmp_path, monkeypatch) -> None:
+    def draw(kind: str, source: str, out) -> None:
+        raise picture.PictureError("Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'")
+
+    monkeypatch.setattr(picture, "visual_png", draw)
+    with pytest.raises(state.DriveError, match="^cc-skills PR 12: its Show me mermaid does not draw: Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'$"):
+        picture.pictures(tmp_path / "pictures", "cc-skills PR 12", f"```mermaid\n{NOTED}```\n", set())
+    assert not list((tmp_path / "pictures").rglob("*.png"))
 
 
 def test_a_home_relative_image_is_used_from_home(tmp_path, monkeypatch) -> None:
@@ -166,7 +201,7 @@ def test_pictures_titled_alike_on_one_card_are_numbered_apart_and_drawn_once(tmp
     assert drawn == ["mermaid", "mermaid"]
 
 
-def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_and_leaves_out_what_does_not_draw(
+def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind_keeps_words_and_charts_as_written_leaves_out_raw_data_and_refuses_what_does_not_draw(
     tmp_path, monkeypatch
 ) -> None:
     tried = []
@@ -197,9 +232,6 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "$ cc-slack subscribe --kind alerts",
         "ALERT open monitor 315028134",
         "```",
-        "```go",
-        "broken",
-        "```",
         "The flow:",
         "```mermaid",
         "flowchart LR",
@@ -222,7 +254,6 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "```",
         "",
         "",
-        "",
         "![The flow",
         "![Graph",
         "Posts against alerts in a day:",
@@ -231,7 +262,9 @@ def test_a_question_cards_show_me_draws_each_fence_titled_by_its_caption_or_kind
         "```",
         "After.",
     ]
-    assert tried == ["code:sand", "code:proto", "code:go", "mermaid", "dot"]
+    assert tried == ["code:sand", "code:proto", "mermaid", "dot"]
+    with pytest.raises(state.DriveError, match='^the Show me picture "The call that breaks", a ```go fence, does not draw: the code:go did not finish drawing$'):
+        picture.drawn(tmp_path / "pictures", ["The call that breaks:", "```go", "broken", "```"])
 
 
 def test_a_fence_of_sentences_shows_as_a_quote_of_its_text_and_a_bare_fence_draws_as_a_code_picture_only_when_it_holds_code(

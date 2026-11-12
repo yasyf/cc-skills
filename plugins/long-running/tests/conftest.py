@@ -15,6 +15,7 @@ from drive import (
     land,
     orca,
     page,
+    picture,
     public_check,
     served,
     settled,
@@ -227,6 +228,26 @@ def drawing(monkeypatch: pytest.MonkeyPatch) -> Drawing:
     draw = Drawing()
     monkeypatch.setattr(slack, "draw_refusal", lambda card: draw.cards.append(card) or draw.refusal)
     return draw
+
+
+@dataclass
+class Chrome:
+    refusal: str | None = None
+    drawn: list[tuple[str, str]] = field(default_factory=list)
+
+
+@pytest.fixture(autouse=True)
+def chrome(monkeypatch: pytest.MonkeyPatch) -> Chrome:
+    shots = Chrome()
+
+    def visual_png(kind: str, source: str, out: Path) -> None:
+        if shots.refusal:
+            raise picture.PictureError(shots.refusal)
+        shots.drawn.append((kind, source))
+        out.write_bytes(b"\x89PNG\r\n")
+
+    monkeypatch.setattr(picture, "visual_png", visual_png)
+    return shots
 
 
 @dataclass

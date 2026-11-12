@@ -560,7 +560,7 @@ def on_his_card(known: dict[str, tuple[str, dict]], reads: dict[str, dict], memb
 
 
 def cards(asked: list[dict], redraw: bool = False) -> dict:
-    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card."""
+    """One card per stack the asked PRs form, by groups(), bottom PR first, each card drawn kept on its PRs so Approve lands exactly those. A redraw of a card cc-slack already posted draws it as the PRs stand now, a wait that holds back a fresh Approve shown on it rather than refusing it. A PR body's sections are drawn as they stand and never hold a card, but a Show me picture that does not draw, such as a Mermaid diagram Mermaid cannot parse, refuses its stack's card with why, which `refused` tells the session hearing its order, since a card without the picture shows him nothing for it."""
     known = drive_prs()
     asked_keys = keys_of(asked, known)
     for key in asked_keys:
@@ -579,11 +579,15 @@ def cards(asked: list[dict], redraw: bool = False) -> dict:
         members = [key for key in group if key in reads]
         if not members:
             continue
-        taken: set[str] = set()
-        shown = [(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members]
-        card = drawn_card(shown)
         held = "" if redraw or on_his_card(known, reads, members) else waiting(known, members) or unchecked(known, members)
-        if reason := foreign(known, members) or reworked(known, members) or held or oversized(known, members):
+        reason = foreign(known, members) or reworked(known, members) or held or oversized(known, members)
+        if not reason:
+            taken: set[str] = set()
+            try:
+                card = drawn_card([(reads[key], known[key][1], pictured(known[key][0], key, reads[key], taken), tuple(holding(known, key).values())) for key in members])
+            except state.DriveError as error:
+                reason = str(error)
+        if reason:
             refusals = [skip(key, reason) for key in members]
             refused(refusals)
             skipped += refusals

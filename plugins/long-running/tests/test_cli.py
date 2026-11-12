@@ -14,7 +14,7 @@ from pathlib import Path
 
 import drive
 import pytest
-from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Drawing, Judge, Thread, WatchProcess, Withdrawals
+from conftest import CARD_BODY, RESEARCH, SHORT_ASK, Answers, Chrome, Drawing, Judge, Thread, WatchProcess, Withdrawals
 from drive import (
     card,
     cli,
@@ -1371,6 +1371,31 @@ def test_job_card_draws_the_show_me_code_as_pictures_on_lines_of_their_own(
     assert (card["waits"], card["recommended"]) == ("demo:j1-7", "One snapshot file per finished run, written when it ends, old runs backfilled: opens in 3 requests")
     assert run("job", "card", str(block), "--waits", "demo:j1-7") == (0, printed)
     assert drawn == ["code:http", "code:http"]
+
+
+def test_job_ask_check_keep_and_card_refuse_a_show_me_picture_that_does_not_draw_with_why_and_keep_it_once_it_draws(
+    run: Run, asking: str, tmp_path: Path, state_root: Path, capsys: pytest.CaptureFixture[str], chrome: Chrome
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    chrome.refusal = "Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'"
+    for argv in (["job", "ask", "--check", str(block)], ["job", "ask", asking, str(block)], ["job", "card", str(block), "--waits", "demo:j1-7"]):
+        assert cli.main(argv) == 2
+        assert capsys.readouterr().err == (
+            'drive: the Show me picture "1 · One snapshot file per finished run, the requests its page makes", a ```http fence,'
+            " does not draw: Parse error on line 7: Expecting 'SOLID_OPEN_ARROW', got 'NEWLINE'\n"
+        )
+    job = state.load("demo")["jobs"]["j1"]
+    assert (job["state"], job["questions"]) == ("running", [])
+    assert not list((state_root / "demo").glob("asks/*.md"))
+    chrome.refusal = None
+    assert run("job", "ask", "--check", str(block)) == (0, "ready")
+    code, kept = run("job", "ask", asking, str(block))
+    assert code == 0
+    assert Path(kept).read_text() == SHORT_ASK
+    assert [kind for kind, _ in chrome.drawn] == ["code:http", "code:http", "code:http", "code:http"]
+    assert run("job", "card", str(block), "--waits", "demo:j1-7")[0] == 0
+    assert len(chrome.drawn) == 4
 
 
 KEPT_TEXT_FENCE_ASK = """ASK Should the newest server warn the open window at launch when the api refuses it?
