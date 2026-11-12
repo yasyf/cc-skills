@@ -411,7 +411,9 @@ def recorded(monkeypatch: pytest.MonkeyPatch) -> Answers:
         return list(answers.found)
 
     monkeypatch.setattr(settled, "matched", matched)
-    monkeypatch.setattr(settled, "shown", lambda answer_id, cwd: answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": []}))
+    monkeypatch.setattr(
+        settled, "shown", lambda answer_id, cwd: answers.shown.get(answer_id, {"id": answer_id, "title": "", "body": "", "tags": [], "created_at": "2026-11-12T11:33:00Z"})
+    )
     return answers
 
 

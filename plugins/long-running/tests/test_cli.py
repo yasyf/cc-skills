@@ -2744,6 +2744,46 @@ def test_a_change_against_his_words_is_refused_at_its_ready_and_its_serves_and_a
     assert (len(judge.asked), state.load("demo")["prs"][with_pr]["checked"]["head"]) == (4, "ccccccc333")
 
 
+DOORS = {
+    "id": "953a8c8f00",
+    "title": "Should Directory::get stop returning records now, or once Env::file_of reads env_id?",
+    "body": "Close every door once Env::file_of reads env_id (recommended)\nOptions: Once Env::file_of reads env_id | Now\nNotes: the coordinator's reading, never his",
+    "tags": [],
+    "created_at": "2026-11-12T11:33:00Z",
+}
+
+
+def test_a_pr_of_a_two_part_job_naming_one_part_is_judged_against_that_part_and_the_answers_its_design_cites(
+    run: Run, demo: str, judge: Judge, recorded: Answers, capsys: pytest.CaptureFixture[str]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "one abstraction everything goes through", "--parts", "moved-table abstraction", "doors close", "partitioning")
+    run("job", "add", "builder", "--order", "o1", "--part", "moved-table abstraction", "--part", "doors close", "--goal", "route every caller through Env")
+    run("pr", "add", PR, "--job", "j1")
+    run("pr", "add", STACKED, "--job", "j1")
+    recorded.shown["953a8c8"] = DOORS
+    assert cli.main(["pr", "set", PR, "--part", "partitioning"]) == 2
+    assert 'its job j1 delivers no part partitioning; its parts are "moved-table abstraction", "doors close"' in capsys.readouterr().err
+    code, out = run("pr", "set", PR, "--tap", "--serves", "o1", "--design", "asked:953a8c8", "--part", "moved-table abstraction")
+    assert (code, out.rstrip().endswith("delivers moved-table abstraction")) == (0, True)
+    said, changes = judge.asked[-1]
+    assert list(changes) == ["Forge-AI/monorepo#42", "Forge-AI/monorepo#43"]
+    assert "this change delivers: moved-table abstraction\n  other changes deliver: doors close; partitioning\n" in said
+    answered = said.rpartition("his answers the PRs cite for the design they make:\n")[2]
+    assert answered.startswith("953a8c8, ") and answered.endswith(f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)\nOptions: Once Env::file_of reads env_id | Now"')
+    assert "the coordinator's reading" not in said
+    pr = state.load(demo)["prs"]["Forge-AI/monorepo#42"]
+    assert (pr["parts"], pr["design"], pr["checked"]["orders"]) == (["moved-table abstraction"], "asked:953a8c8", ["o1"])
+
+
+def test_a_ready_is_judged_against_the_answers_its_design_line_names(
+    run: Run, with_pr: str, on_github: dict, judge: Judge, recorded: Answers, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    recorded.shown["953a8c8"] = DOORS
+    assert keep(monkeypatch, capsys, "j1", f"READY {PR}\nDESIGN: the doors stay open until Env::file_of reads env_id, by 953a8c8\n") == (0, "")
+    said = judge.asked[-1][0]
+    assert said.startswith('o1, ') and f'asked "{DOORS["title"]}": "Close every door once Env::file_of reads env_id (recommended)' in said
+
+
 def test_order_set_sorts_an_order_again(run: Run, demo: str) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why did the copy stall?", "--kind", "answer")
     assert run("order", "set", "o1", "--kind", "build", "--complex")[0] == 0

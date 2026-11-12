@@ -366,6 +366,7 @@ def load(name: str) -> dict:
         pr.setdefault("review_asked", None)
         pr.setdefault("author", None)
         pr.setdefault("checked", None)
+        pr.setdefault("parts", [])
         pr.setdefault("required", None)
         if (verdict := pr.pop("verdict", None)) and verdict.get("answer") and not verdict["ready"]:
             pr["rework"] = verdict
@@ -1324,5 +1325,6 @@ def new_pr(url: str, job_id: str, order_id: str) -> dict:
         "rework": None,
         "author": None,
         "checked": None,
+        "parts": [],
         "updated": stamp(),
     }
