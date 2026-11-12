@@ -2906,7 +2906,10 @@ def status(args: argparse.Namespace) -> int:
         held["watch"] = watch.holder(state.pid_path(name, project))
     seen = {role: with_build(orca_place(held, name_show), held) for role, held in state.bound_sessions(data).items()}
     named = bool(args.ids)
-    return emit(args, render.status_text(data, seen, named), render.status_data(data, seen, named))
+    session = os.environ.get("CLAUDE_CODE_SESSION_ID")
+    project = state.session_project(data, session)
+    runs = (lambda order: state.runs(data, order, project)) if state.session_role(data, session) == "coordinator" else None
+    return emit(args, render.status_text(data, seen, named, runs), render.status_data(data, seen, named))
 
 
 def with_build(place: str, held: dict) -> str:
@@ -3910,7 +3913,7 @@ def parser() -> argparse.ArgumentParser:
     verb.set_defaults(run=term)
 
     verb = verbs.add_parser("status", parents=both, help="where each order, job and PR stands")
-    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: every open order")
+    verb.add_argument("ids", nargs="*", help=f"what to read, each {ID_FORMS}; default: a coordinator's own open orders, a line each, any other session's every open order")
     verb.set_defaults(run=status)
     verb = verbs.add_parser("manual", help="print one page of the long-running skill")
     verb.add_argument("page", nargs="?", choices=manual_pages(), help="default: list the pages")

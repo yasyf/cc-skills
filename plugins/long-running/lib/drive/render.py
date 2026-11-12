@@ -1,5 +1,6 @@
 import shlex
 import sys
+from collections.abc import Callable
 from datetime import datetime
 
 from drive.state import DRIVE_TOOLING, ROLES, VERSION, agent_gone, lane_death, now, open_orders, owed_step, parse_time, pr_key, pr_url, project_lane, promise_thread, title
@@ -318,12 +319,12 @@ def incident_line(order_id: str, order: dict) -> str:
     return f"{order_id} {order['state']} incident: {order['text'][:80]}; {order['note'] or 'no record'}"
 
 
-def agentless_lines(drive: dict) -> list[str]:
-    """Each running job on this Mac whose session no role holds any more, since its agent ended with that session; a fresh agent on its brief takes it over at its first step."""
+def agentless_lines(drive: dict, orders: dict[str, dict] | None = None) -> list[str]:
+    """Each running job on this Mac whose session no role holds any more, of the orders given or of any, since its agent ended with that session; a fresh agent on its brief takes it over at its first step."""
     return [
         f"{job_id} running with no live agent, its session gone: start a fresh one with drive job brief {job_id}"
         for job_id, job in drive["jobs"].items()
-        if job["state"] == "running" and job.get("where") != "remote" and agent_gone(drive, job)
+        if job["state"] == "running" and job.get("where") != "remote" and agent_gone(drive, job) and (orders is None or job["order"] in orders)
     ]
 
 
@@ -509,8 +510,8 @@ def status_data(drive: dict, seen: dict[str, str], named: bool = False) -> dict:
     }
 
 
-def status_text(drive: dict, seen: dict[str, str], named: bool = False) -> str:
-    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line and each of their running jobs with no live agent."""
+def status_text(drive: dict, seen: dict[str, str], named: bool = False, runs: Callable[[dict], bool] | None = None) -> str:
+    """The drive page; with ids, only the orders they name, each whole, open or closed, under one summary line and each of their running jobs with no live agent; for a coordinator, whose runs says which orders it runs, only those, one line per open order."""
     lines = [f"{drive['name']}: {len(open_orders(drive))} open of {len(drive['orders'])} orders"]
     if named:
         lines.extend(agentless_lines(drive))
@@ -518,22 +519,32 @@ def status_text(drive: dict, seen: dict[str, str], named: bool = False) -> str:
         return "\n".join(lines)
     lines.extend(role_line(drive, role, seen) for role in ROLES)
     lines.extend(subcoordinator_line(project, held, seen) for project, held in drive["subcoordinators"].items())
-    if incidents := [incident_line(order_id, order) for order_id, order in open_orders(drive).items() if order["incident"]]:
+    orders = {order_id: order for order_id, order in open_orders(drive).items() if runs is None or runs(order)}
+    if incidents := [incident_line(order_id, order) for order_id, order in orders.items() if order["incident"]]:
         lines.extend(["Open incident orders; an alert on the same failing service joins one with drive order add --joins <o>:", *incidents])
-    if drive["held"]:
+    if held := {seq: mark for seq, mark in drive["held"].items() if runs is None or mark["order"] in orders}:
         lines.append("Held for his catch-up, since he is away; the catch-up he gets when he is back carries each:")
         lines.extend(
             f"- report {seq} ({mark['order'] or 'no order'}), held {when(mark['at'])}, its writer told in record {mark['told']}{corrected_by(mark['corrections'])}"
-            for seq, mark in drive["held"].items()
+            for seq, mark in held.items()
         )
     if owed := drive["catch_up"]:
         started = f", its handler {owed['handler']} last started when he was heard at {when(owed['tried'])}" if owed["handler"] else ""
         lines.append(f"His catch-up is owed since {when(owed['since'])}, over {len(owed['orders'])} orders: the watch posts it through a handler once he is heard while here{started}")
-    lines.extend(agentless_lines(drive))
-    for order_id, order in open_orders(drive).items():
-        lines.extend(order_block(drive, order_id, order, False))
+    if runs is None:
+        lines.extend(agentless_lines(drive))
+        lines.extend(line for order_id, order in orders.items() for line in order_block(drive, order_id, order, False))
+    else:
+        lines.extend(agentless_lines(drive, orders))
+        lines.append(f"Open orders you run: {len(orders)}, a line each; drive status <id> prints one whole, with its jobs, PRs and questions:")
+        lines.extend(f"- {order_line(order_id, order, 80, promise_thread(order))}" for order_id, order in orders.items())
     repros = sorted(
-        ((job["updated"], job_id, job) for job_id, job in drive["jobs"].items() if job.get("repro")), reverse=True
+        (
+            (job["updated"], job_id, job)
+            for job_id, job in drive["jobs"].items()
+            if job.get("repro") and (runs is None or runs(drive["orders"][job["order"]]))
+        ),
+        reverse=True,
     )[:REPROS_SHOWN]
     if repros:
         lines.append("Reproduction files, newest first:")
