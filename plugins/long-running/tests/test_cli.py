@@ -5506,12 +5506,12 @@ def test_an_answer_with_no_id_records_his_words_in_the_coordinators_checkout_wha
 def test_an_answer_lists_every_pr_of_its_order_not_yet_live_and_a_reopened_one_goes_to_the_live_job_that_reworks_it_its_card_withdrawn(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], withdrawals: Withdrawals
 ) -> None:
-    settled = cards_asking(monkeypatch, PR)
-    withdrawals.cards = [TAP_CARD]
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/45", "--job", "j2")
     run("job", "add", "builder", "--order", "o1", "--goal", "shipped")
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/46", "--job", "j3")
+    settled = cards_asking(monkeypatch, PR)
+    withdrawals.cards = [TAP_CARD]
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#45"]["state"] = data["prs"]["Forge-AI/monorepo#46"]["state"] = "merged"
         data["jobs"]["j3"]["state"] = "done"
@@ -5608,9 +5608,9 @@ def test_an_answer_under_a_card_no_longer_open_still_waits_on_each_job_waiting_o
 def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_standing_so_each_is_marked_by_its_key(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    cards_asking(monkeypatch, PR)
     for number in (44, 45, 46):
         run("pr", "add", f"https://github.com/Forge-AI/monorepo/pull/{number}", "--job", "j1")
+    cards_asking(monkeypatch, PR)
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2
     assert cli.main(["answer", "a1", "--others-stand"]) == 2
     refusal = capsys.readouterr().err
@@ -5625,8 +5625,8 @@ def test_others_stand_refuses_to_mark_more_than_a_few_unread_cards_and_prs_stand
 def test_superseding_an_open_pr_outright_closes_it_on_github_and_leaves_a_merged_one_as_it_is(
     run: Run, designing: str, monkeypatch: pytest.MonkeyPatch, closed: list[str]
 ) -> None:
-    cards_asking(monkeypatch, PR)
     run("pr", "add", "https://github.com/Forge-AI/monorepo/pull/44", "--job", "j1")
+    cards_asking(monkeypatch, PR)
     with state.edit("demo") as data:
         data["prs"]["Forge-AI/monorepo#44"]["state"] = "merged"
     assert run("answer", "a1", "--words", WORDS, "--link", PICK)[0] == 2

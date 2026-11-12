@@ -426,6 +426,8 @@ def test_a_post_on_an_order_in_none_of_its_threads_posts_nothing_and_says_where_
         talk.say(demo, {"text": "The copy stalls on the lock.", "order": "o1"})
     assert (posts, said(demo)) == ([], [])
     assert talk.say(demo, {"text": "The copy stalls on the lock.", "thread_ts": "1794200000.000100", "order": "o1"}).startswith(f"POSTED {POSTED}")
+    with state.edit(demo) as data:
+        data["jobs"]["j1"] = state.new_job("o1", "builder", "show a run's history", [], state.stamp())
     slack_thread.messages.append({"ts": "1794300000.000500", "from_claude": True, "text": f"<{PR_URL}|the run page shows its history>"})
     assert talk.say(demo, {"text": "It is green.", "thread_ts": "1794300000.000500", "order": "o1"}).startswith(f"POSTED {POSTED}")
     assert len(posts) == 2
@@ -496,7 +498,6 @@ def test_a_report_delivers_only_the_parts_its_posts_words_carry_and_its_dry_run_
     with state.edit(demo) as data:
         data["roles"]["communicator"]["session"] = os.environ["CLAUDE_CODE_SESSION_ID"]
         data["roles"]["coordinator"]["session"] = "elsewhere"
-        data["orders"]["o1"]["fixed"] = "release 13990 ships #54336 on sand"
     answer = slack_thread.post(state.now(), from_claude=True, text=INCIDENT_REPORT)
     monkeypatch.setattr(slack, "cc_slack", lambda *argv: {"permalink": answer, "thread_ts": thread})
     report(monkeypatch, {"incident": "true", "order": "o1", "thread": thread, "part": "o1:first check;o1:fix;o1:cause"})

@@ -1458,13 +1458,19 @@ def test_a_read_still_running_holds_its_answer_starts_no_second_reader_and_its_a
     deliver(monkeypatch, [message("question", "DRIVE job report j1 -\n{\"stdin\": \"READY x\"}", id="relay_drive")])
     started, replies = [], []
     monkeypatch.setattr(watch, "spawn_reader", lambda name, job_id, message_id: started.append(message_id) or os.getpid())
-    monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "drive exited 0\nreports/j1.md")
+
+    def report(question: str, root: Path, drive: str, job_id: str) -> str:
+        with state.edit(drive) as data:
+            data["jobs"][job_id]["said"] = "READY x"
+        return "drive exited 0\nreports/j1.md"
+
+    monkeypatch.setattr(reads, "answer", report)
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
-    assert [watch.run_pass(watching, T0 + timedelta(seconds=s)) for s in (0, 5)] == [[], []]
+    assert [watch.run_pass(watching, T0 + watch.READ_EVERY * passes) for passes in (0, 1)] == [[], []]
     assert (started, [args for args in replies if args[0] == "reply"]) == (["relay_drive"], [])
     watch.answer_read(remote, "j1", "relay_drive")
-    assert watch.run_pass(watching, T0 + timedelta(seconds=10)) == []
+    assert watch.run_pass(watching, T0 + watch.READ_EVERY * 2) == ["JOB j1 o1 READY x"]
     assert [args for args in replies if args[0] == "reply"] == [("reply", "--id", "relay_drive", "--run", RUN, "--body", "drive exited 0\nreports/j1.md")]
     job = state.load(remote)["jobs"]["j1"]
     assert (started, job["reads"], job["read_answers"], job["readers"]) == (["relay_drive"], {}, {}, {})
@@ -1595,17 +1601,19 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     kept = [
         message("question", ASK_IN_SHAPE, id="msg_ask"),
         message("question", "READ ccn answer search x", id="msg_read"),
-        message("worker_done", "BUILT lane/built, waits on demo:j1-7-a", id="msg_built"),
+        message("worker_done", "WAITING CI on #7", id="msg_waiting"),
     ]
     done = message("worker_done", "DONE merged and installed", id="msg_done")
     deliver(monkeypatch, kept, [*kept, done])
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["due"] = state.stamp(T0 + timedelta(hours=1))
     monkeypatch.setattr(reads, "answer", lambda question, root, drive, job_id: "x")
     replies = []
     monkeypatch.setattr(orca, "call", lambda *args: replies.append(args) or {})
     watching = watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0)
     assert staged(watch.lane_lines, watching, T0) == [
         f"JOB j1 o1 ASK Where should the nightly store copy run?; {watch.UNKEPT_ASK.format(job='j1')}",
-        "JOB j1 o1 BUILT lane/built, waits on demo:j1-7-a",
+        "JOB j1 o1 WAITING CI on #7",
     ]
     with state.edit(remote) as data:
         data["jobs"]["j1"].update(mail_seen=0, state="running")
@@ -1613,7 +1621,7 @@ def test_a_watch_whose_mail_mark_another_install_lost_takes_none_of_the_mail_its
     job = state.load(remote)["jobs"]["j1"]
     assert (job["ask"], job["state"], job["mail_seen"]) == (None, "done", done["sequence"])
     assert len([args for args in replies if args[0] == "reply"]) == 1
-    assert [json.loads(line)["id"] for line in state.replies_path(remote, "j1").read_text().splitlines()] == ["msg_ask", "msg_read", "msg_built", "msg_done"]
+    assert [json.loads(line)["id"] for line in state.replies_path(remote, "j1").read_text().splitlines()] == ["msg_ask", "msg_read", "msg_waiting", "msg_done"]
 
 
 def test_every_result_and_question_a_lane_sends_stays_readable_after_the_next_one_replaces_its_report(
@@ -1757,6 +1765,8 @@ def test_two_watches_reading_one_run_past_orcas_newest_hundred_each_take_every_m
 def test_a_lane_report_the_watch_takes_names_each_pr_the_drive_does_not_track_and_registers_none(remote: str, monkeypatch: pytest.MonkeyPatch) -> None:
     url = "https://github.com/Forge-AI/monorepo/pull/8"
     deliver(monkeypatch, [message("worker_done", f"WAITING CI on #8\nPR: Fix: x {url}\nrebased on https://github.com/Forge-AI/monorepo/pull/9")])
+    with state.edit(remote) as data:
+        data["jobs"]["j1"]["due"] = state.stamp(T0 + timedelta(hours=1))
     assert staged(watch.lane_lines, watch.Watcher(remote, offset=state.events_end(remote), ticked_at=T0), T0) == [
         f"JOB j1 o1 WAITING CI on #8; the drive tracks no {url}: drive pr add <url> --job j1 registers each"
     ]
@@ -2043,7 +2053,7 @@ def test_a_sprite_launch_gives_the_sprite_the_drive_that_asks_each_verb_of_this_
 
     monkeypatch.setattr(orca.subprocess, "run", launcher)
     with pytest.raises(orca.OrcaError):
-        orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None)
+        orca.launch("demo", "demo-j1", brief, tmp_path, RUN, None, None)
     assert ran["env"]["WORKER_TOOLS"] == f"drive={orca.PLUGIN / 'lib' / 'sprite' / 'drive'}"
     assert (orca.PLUGIN / "lib" / "sprite" / "drive").stat().st_mode & 0o111
     assert "WORKER_LOCAL" not in ran["env"]
