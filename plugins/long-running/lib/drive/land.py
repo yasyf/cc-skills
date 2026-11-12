@@ -3,7 +3,6 @@ import re
 import subprocess
 from collections.abc import Iterator
 from contextlib import contextmanager
-from itertools import takewhile
 from pathlib import Path
 
 from drive import github, install, served, state, view
@@ -26,6 +25,7 @@ LANDS_ON = ("approved", "stale")
 REVIEW_ASK = "@forge-pr-reviewer review"
 BLOCKED_LINE = re.compile(r"^#(?P<number>\d+) BLOCKED (?P<head>\w+) (?P<gaps>.+)$", re.MULTILINE)
 OLDER_HEAD = re.compile(r"awaiting approval on head from \S+ \(approved [^,]+, (?:on an older head|dismissed by a push)\)")
+RETARGETS = re.compile(r"(?:targets \S+ without a native GitHub stack|sits in a native stack on \S+) and retargets onto \S+ once #\d+ lands")
 REVERT = re.compile(r"^Reverts?\s|⏪|\bThis reverts\b", re.MULTILINE)
 STORED_DATA = re.compile(r"(?:^|/)migrations?/|(?:^|/)[^/]*schema[^/]*$|\.(?:sql|proto)$", re.IGNORECASE)
 CI_FILES = re.compile(r"^(?:\.github|\.buildkite)/|^(?:go|tools)/ci/")
@@ -103,13 +103,13 @@ def landing(pr: dict) -> bool:
 
 
 def landing_stacks(data: dict) -> dict[str, tuple[str, ...]]:
-    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, in none, on the open PR whose head branch is its base."""
+    """Each open PR the drive tracks in a stack, mapped to the stack's open tracked PRs bottom first, as the watch last read them: the PRs his Approve lands together, joined as stack-enqueue lands them, a PR sitting on the one before it in its native GitHub stack or, at the bottom of one or in none, on the open PR whose head branch is its base."""
     opened = {key: pr for key, pr in data["prs"].items() if pr["state"] == "open"}
     by_branch = {(github.repo_of(key), pr["branch"]): key for key, pr in opened.items() if pr["branch"]}
     under: dict[str, str | None] = {}
     for key, pr in opened.items():
         native = [member for member in pr["native"] if member in opened]
-        under[key] = (native[native.index(key) - 1] if native.index(key) else None) if key in native else by_branch.get((github.repo_of(key), pr["base"]))
+        under[key] = native[native.index(key) - 1] if key in native and native.index(key) else by_branch.get((github.repo_of(key), pr["base"]))
 
     def depth(key: str) -> int:
         return depth(parent) + 1 if (parent := under[key]) else 0
@@ -156,18 +156,19 @@ def unready(data: dict, key: str, cards: dict) -> str | None:
 
 
 def unit(data: dict, stacks: dict[str, tuple[str, ...]], key: str, cards: dict) -> tuple[str, ...]:
-    """The PRs one lander queues for key: its landing stack bottom first, up to the first PR that does not land now, so a PR above that is red, untapped or held never holds an approved, ready one below it, as stack-enqueue lands the largest such bottom of a stack."""
-    return tuple(takewhile(lambda member: unready(data, member, cards) is None, stacks.get(key, (key,))))
+    """The PRs one lander queues for key: its whole landing stack bottom first once every PR of it lands now, else none, since a stack lands whole, its bottom waiting for its top, as stack-enqueue lands it."""
+    stack = stacks.get(key, (key,))
+    return stack if all(unready(data, member, cards) is None for member in stack) else ()
 
 
 def stall(data: dict, key: str, cards: dict) -> str | None:
-    """Why his Approve has not landed the PR, or None while a lander holds it or one below it in its landing stack: the first PR of that stack up to it that does not land now and why, else what the last lander's try on its head came to."""
+    """Why his Approve has not landed the PR, or None while a lander holds it or one below it in its landing stack: the first PR of that stack, bottom first, that does not land now and why, since the stack lands whole, else what the last lander's try on its head came to."""
     stack = landing_stacks(data).get(key, (key,))
     if landing(data["prs"][key]) or any(running(data["prs"][member]) for member in stack[: stack.index(key)]):
         return None
-    for member in stack[: stack.index(key) + 1]:
+    for member in stack:
         if why := unready(data, member, cards):
-            return why if member == key else f"{member} below it in its stack: {why}"
+            return why if member == key else f"{member} {'below' if stack.index(member) < stack.index(key) else 'above'} it in its stack: {why}"
     lander = data["prs"][key]["lander"] or {}
     if lander.get("head") == data["prs"][key]["head"] and lander.get("outcome"):
         return f"its lander's try at {lander['head'][:12]} ended {lander['outcome']}"
@@ -342,7 +343,7 @@ def said(output: str) -> str:
 
 
 def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> str:
-    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each such head once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
+    """Queue the unit through stack-enqueue as the head of its repository's default branch holds it, run from a fresh() worktree of the coordinator checkout's clone and never from that checkout: --check first, whose BLOCKED lines end the landing, unless each gap is an approval on an older head, which stack-enqueue names only once ai-review finished on the head, or a wait to retarget onto the default branch once the PR under it lands; a dry run stops there, saying what it would queue; then forge-pr-reviewer is asked to review each head approved only on an older one, once, and --watch waits until Trunk holds every PR of it or one needs a fix rather than a wait; what came of it. The lander lets go of its install's lock before --check, which reads GitHub for every PR of the unit, and holds none through --watch, which may wait an hour and a half on Trunk; a drive a newer install saved meanwhile ends the landing unlanded, for the next landing on that install."""
     repo = github.repo_of(keys[0])
     numbers = [key.split("#")[1] for key in keys]
     try:
@@ -357,12 +358,12 @@ def enqueued(name: str, clone: Path, keys: list[str], dry_run: bool = False) -> 
                 return f"not landed: {script} did not start: {error}"
             print(checked.stdout + checked.stderr, flush=True)
             blocked = list(BLOCKED_LINE.finditer(checked.stdout))
-            if any(not OLDER_HEAD.fullmatch(gap) for line in blocked for gap in line["gaps"].split("; ")):
+            if any(not (OLDER_HEAD.fullmatch(gap) or RETARGETS.fullmatch(gap)) for line in blocked for gap in line["gaps"].split("; ")):
                 return f"not landed: {cut('; '.join(line[0] for line in blocked), SAID_CHARS)}; its whole output is in {state.drive_dir(name) / LOG}"
             if dry_run:
                 return f"would queue {', '.join(keys)} through stack-enqueue --watch from {branch} at {sha[:12]}: every PR below it is merged, approved by him or exempt"
             try:
-                refused = ask_review(name, repo, {line["number"]: line["head"] for line in blocked})
+                refused = ask_review(name, repo, {line["number"]: line["head"] for line in blocked if OLDER_HEAD.search(line["gaps"])})
             except state.NewerDrive as error:
                 return f"{NEWER_INSTALL}: {cut(str(error), SAID_CHARS)}"
             if refused:

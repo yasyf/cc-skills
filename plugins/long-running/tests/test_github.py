@@ -8,6 +8,7 @@ GATE = "LTX Behavioral Gate (short)"
 OPEN_ON = github.open_on
 VISIBILITY = github.visibility
 FETCH = github.fetch
+BELOW = github.below
 GREEN = [{"name": "Lint", "conclusion": "SUCCESS"}, {"context": "buildkite/test", "state": "SUCCESS"}]
 RULED = {
     "rules": {
@@ -372,3 +373,26 @@ def test_a_check_that_failed_then_dropped_out_for_its_rerun_reads_pending_until_
 def test_a_new_head_forgets_the_checks_that_failed_on_the_old_one() -> None:
     fresh = github.live(pr_read(GREEN, headRefOid="def"), stored("abc", [GATE]))
     assert (fresh["checks"], fresh["failed_checks"]) == ("pass", [])
+
+
+def test_below_follows_a_native_stack_split_off_another_open_prs_branch_down_to_the_default_branch(monkeypatch: pytest.MonkeyPatch) -> None:
+    def pull(base: str, opened: list[int], members: list[int]) -> dict:
+        stack = {"entries": {"nodes": [{"position": at, "pullRequest": {"number": number, "state": "OPEN"}} for at, number in enumerate(members)]}}
+        return {"baseRefName": base, "baseRef": {"associatedPullRequests": {"nodes": [{"number": number} for number in opened]}}, "stack": stack}
+
+    reads = {
+        54872: pull("chat-pins", [54866], [54866, 54872]),
+        54866: pull("chat-organize", [54404], [54866, 54872]),
+        54404: pull("chat-folders-2", [54378], [54355, 54378, 54404]),
+        54355: pull("main", [], [54355, 54378, 54404]),
+    }
+    asked: list[int] = []
+
+    def graphql(text: str, what: str) -> dict:
+        asked.append(number := int(text.split("pullRequest(number: ")[1].split(")")[0]))
+        return {"data": {"repository": {"pullRequest": reads[number]}}}
+
+    monkeypatch.setattr(github, "graphql", graphql)
+    monkeypatch.setattr(github, "below", BELOW)
+    assert github.below("Forge-AI/monorepo#54872") == [f"Forge-AI/monorepo#{number}" for number in (54355, 54378, 54404, 54866)]
+    assert asked == [54872, 54866, 54404, 54355]

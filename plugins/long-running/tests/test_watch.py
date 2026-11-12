@@ -2903,9 +2903,9 @@ def test_his_approve_starts_one_lander_once_its_pr_is_green_and_conflict_free_an
 
 @pytest.mark.parametrize(
     ("approved", "card", "unit"),
-    [((KEY, OTHER), None, (KEY, OTHER)), ((KEY,), None, (KEY,)), ((OTHER,), None, None), ((KEY, OTHER), "demo:j1-7-a", None)],
+    [((KEY, OTHER), None, (KEY, OTHER)), ((KEY,), None, None), ((OTHER,), None, None), ((KEY, OTHER), "demo:j1-7-a", None)],
 )
-def test_a_lander_queues_a_stack_bottom_first_up_to_the_first_pr_he_has_not_approved_and_nothing_while_his_card_holds_it(
+def test_a_lander_queues_a_stack_whole_once_he_approved_each_pr_and_nothing_while_his_card_holds_it(
     demo: str, landers: list[tuple[str, ...]], approved: tuple[str, ...], card: str | None, unit: tuple[str, ...] | None
 ) -> None:
     stacked(demo)
@@ -2953,28 +2953,44 @@ def test_a_question_kept_before_holds_lines_holds_nothing_so_the_approved_pr_of_
     assert land.start(demo, [KEY], cards) == [(KEY,)]
 
 
-def test_a_lander_queues_a_stacks_ready_bottom_and_the_pr_above_once_the_open_pr_it_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_lander_queues_a_stack_whole_once_the_open_pr_a_pr_above_its_ready_bottom_waits_on_merges(demo: str, landers: list[tuple[str, ...]]) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][THIRD] = state.new_pr(state.pr_url(THIRD), "j1", "o1")
         data["jobs"]["j1"]["waits"] = [KEY, OTHER, THIRD]
         data["prs"][OTHER]["waits"] = [THIRD]
-    assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY,)]
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
     with state.edit(demo) as data:
         data["prs"][THIRD]["state"] = "merged"
-        data["prs"][KEY]["lander"]["outcome"] = land.QUEUED
     assert land.start(demo, [KEY, OTHER], NO_CARDS) == [(KEY, OTHER)]
-    assert landers == [(KEY,), (KEY, OTHER)]
+    assert landers == [(KEY, OTHER)]
 
 
-def test_a_lander_queues_a_stacks_green_approved_bottom_while_a_pr_above_it_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
+def test_a_lander_queues_nothing_while_a_pr_above_its_green_approved_bottom_is_red(demo: str, landers: list[tuple[str, ...]]) -> None:
     stacked(demo)
     approve(demo, KEY, OTHER)
     with state.edit(demo) as data:
         data["prs"][OTHER]["checks"] = "fail"
-    assert land.start(demo, [OTHER], NO_CARDS) == [(KEY,)]
-    assert landers == [(KEY,)]
+    assert land.start(demo, [KEY, OTHER], NO_CARDS) == []
+    assert landers == []
+
+
+def test_a_native_stack_on_another_tracked_prs_branch_joins_its_landing_stack_and_lands_with_it_once_he_approves_each(
+    demo: str, landers: list[tuple[str, ...]]
+) -> None:
+    with state.edit(demo) as data:
+        for key, head in ((OTHER, "bbbbbbb222"), (THIRD, "ccccccc333")):
+            data["prs"][key] = state.new_pr(state.pr_url(key), "j1", "o1") | {"head": head, "checked": CHECKED | {"head": head}}
+        for key, native, branch, base in ((KEY, [KEY], "chat-organize", "main"), (OTHER, [OTHER, THIRD], "chat-pins", "chat-organize"), (THIRD, [OTHER, THIRD], "chat-pins-2", "chat-pins")):
+            data["prs"][key] |= {"native": native, "branch": branch, "base": base, "checks": "pass", "review": "approved"}
+    assert land.landing_stacks(state.load(demo)) == dict.fromkeys(STACKED, STACKED)
+    approve(demo, OTHER, THIRD)
+    assert land.start(demo, list(STACKED), NO_CARDS) == []
+    assert land.stall(state.load(demo), THIRD, NO_CARDS) == f"{KEY} below it in its stack: neither his Approve nor an exempt class clears it"
+    approve(demo, KEY)
+    assert land.start(demo, list(STACKED), NO_CARDS) == [STACKED]
+    assert landers == [STACKED]
 
 
 def test_his_approve_no_lander_takes_for_ten_minutes_is_said_whatever_its_jobs_state_naming_why_and_again_only_when_that_changes(
@@ -3175,6 +3191,19 @@ def test_a_lander_whose_only_gap_is_an_approval_on_an_older_head_asks_forge_pr_r
     assert land.run(demo, [KEY]) == land.QUEUED
     assert calls.read_text() == "pr comment 42 -R Forge-AI/monorepo --body @forge-pr-reviewer review\n"
     assert state.load(demo)["prs"][KEY]["review_asked"] == "34087d1264"
+
+
+def test_a_lander_whose_only_gaps_are_waits_to_retarget_once_the_pr_under_them_lands_asks_no_review_and_watches(
+    demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    approve(demo, KEY)
+    waits = [
+        "#42 BLOCKED 34087d1264 sits in a native stack on chat-organize and retargets onto dev once #41 lands",
+        "#43 BLOCKED 9a1c55e2b0 targets chat-pins without a native GitHub stack and retargets onto dev once #41 lands",
+    ]
+    calls = enqueue_checking(tmp_path, monkeypatch, demo, "\n".join(waits))
+    assert land.run(demo, [KEY]) == land.QUEUED
+    assert not calls.exists()
 
 
 def test_a_lander_stops_on_any_other_gap_with_stack_enqueues_blocked_line_and_never_watches(demo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -237,16 +237,16 @@ def graphql(text: str, what: str) -> dict:
 
 
 def below(key: str) -> list[str]:
-    """The open PRs stack-enqueue queues under key, bottom first: those below it in its native GitHub stack, or, with no native stack and a base other than its repository's default, the one open PR whose head is that base and those under it."""
+    """The open PRs stack-enqueue queues under key, bottom first: those below it in its native GitHub stack and those under the lowest of them, or, at the bottom of a native stack or in none, with a base other than its repository's default, the one open PR whose head is that base and those under it."""
     owner, name, number = split(key)
     text = (
         f"query {{ repository(owner: {json.dumps(owner)}, name: {json.dumps(name)}) {{ pullRequest(number: {number}) {{ baseRefName "
         f"baseRef {{ associatedPullRequests(states: OPEN, first: 2) {{ nodes {{ number }} }} }} {STACK} }} }} }}"
     )
     pull = graphql(text, f"the native stack under {key}")["data"]["repository"]["pullRequest"]
-    if pull["stack"]:
-        under = takewhile(lambda entry: entry[0] != key, entries(f"{owner}/{name}", pull["stack"]))
-        return [member for member, status in under if status == "open"]
+    under = [member for member, status in takewhile(lambda entry: entry[0] != key, entries(f"{owner}/{name}", pull["stack"])) if status == "open"] if pull["stack"] else []
+    if under:
+        return [*below(under[0]), *under]
     opened = (pull["baseRef"] or {"associatedPullRequests": {"nodes": []}})["associatedPullRequests"]["nodes"]
     if pull["baseRefName"] == default_branch(f"{owner}/{name}") or len(opened) != 1:
         return []
