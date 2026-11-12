@@ -9,9 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 
 from drive import agents, github, land, limits, public_check, settled, slack, state, superseded, view
-from drive.cli import tap_verdict
+from drive.cli import asked_report, tap_verdict
 from drive.github import repo_name
-from drive.shell import expanded, runnable, templates
+from drive.shell import Stdin, expanded, runnable, stdins, templates
 
 ADMIN_REASON = "Admin merges bypass required review; never on Forge-AI repos"
 TAP_HINT = "Draw his PR card with slack_dm_status tap_prs, or record an exemption with drive pr set --exempt"
@@ -32,7 +32,6 @@ CHDIR = {"-C", "--chdir"}
 REPO_VARIABLE = "GH_REPO"
 SHELLS = {"sh", "bash", "zsh", "dash"}
 FALSE_WORDS = {"0", "f", "false"}
-HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)(\w+)\1[^\n]*\n(.*?)\n[ \t]*\2[ \t]*(?:\n|$)", re.DOTALL)
 MERGE_ENDPOINT = re.compile(r"/?repos/([^/\s]+/[^/\s]+)/pulls/(\d+)/merge(?:-async)?")
 INCIDENT_FIX = "incident fix"
 QUEUE_REASON = (
@@ -91,6 +90,15 @@ class Shell:
     env: dict[str, str]
     session: str
     driving: bool
+    stdin: Stdin | None = None
+
+
+class Asked(str):
+    """The case a question card's block makes against his ruling on root causes, which Jev judges before `drive job ask` keeps it."""
+
+
+class Unread(Exception):
+    """An ASK block only running its call shows, such as one piped in or in a file the call itself names elsewhere."""
 
 
 @dataclass(frozen=True)
@@ -160,6 +168,11 @@ CCI_POST = Landing(
     }),
 )
 ASK_KEPT = Landing(("drive", "job", "ask"), frozenset({"drive", "unsettled", "check", "drop"}))
+ASK_READS = frozenset({"<<", "<"})
+ASK_UNREAD = (
+    "Refused on purpose: landing_guard cannot read the ASK block this `drive job ask` keeps, since {why}, so Jev cannot"
+    " judge it. Write the block to a file in a call of its own, then run `drive job ask {job} <file>` in the next call"
+)
 MISROUTED = (
     "This {kind} record goes to {lanes}: a defect to the session holding drive tooling, the communicator's owner, answer,"
     " posted or refused record to the session hearing the order it serves, and its ruling to the meta session as well;"
@@ -400,15 +413,16 @@ def cut_reason(words: list[str], session: str) -> str | None:
 
 def commands(script: str, shell: Shell) -> Iterator[tuple[list[str], list[str], Shell]]:
     """Each command a script runs, as its segment, its own words and the shell it runs in, following cd, assignments, export, each value of a for loop and nested shell scripts."""
-    yield from run_through(templates(runnable(script)), shell)
+    yield from run_through(list(zip(templates(runnable(script)), stdins(script), strict=True)), shell)
 
 
-def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
-    """The commands of groups in order, each word expanded with the variables set before it, then the shell they leave."""
+def run_through(groups: list[tuple[list[str], Stdin | None]], shell: Shell) -> Generator[tuple[list[str], list[str], Shell], None, Shell]:
+    """The commands of groups in order, each word expanded with the variables set before it and run with the stdin its own text gives it, then the shell they leave."""
     index = 0
     while index < len(groups):
-        segment = [expanded(word, shell.env) for word in groups[index]]
-        words, run_in = command_words(segment, shell)
+        written, stdin = groups[index]
+        segment = [expanded(word, shell.env) for word in written]
+        words, run_in = command_words(segment, replace(shell, stdin=stdin))
         index += 1
         if not words:
             shell = run_in
@@ -429,11 +443,11 @@ def run_through(groups: list[list[str]], shell: Shell) -> Generator[tuple[list[s
     return shell
 
 
-def loop_end(groups: list[list[str]], start: int) -> int:
+def loop_end(groups: list[tuple[list[str], Stdin | None]], start: int) -> int:
     """The index of the `done` closing the loop whose body starts at start, or past the last group when none does."""
     depth = 1
     for index in range(start, len(groups)):
-        head = next((word for word in groups[index] if word not in LEADING), "")
+        head = next((word for word in groups[index][0] if word not in LEADING), "")
         depth += (head in LOOPS) - (head == "done")
         if not depth:
             return index
@@ -498,21 +512,54 @@ def misrouted(posts: list[tuple[str, dict[str, str], list[str], str, str | None,
     return None
 
 
-def root_cause_reason(script: str, shell: Shell) -> agents.Ruled | None:
-    """The question a `drive job ask` keeps, put to Jev against his ruling on root causes before it is kept: its block from the file named, or the heredoc piped on stdin."""
+def root_cause_case(payload: dict) -> Asked | agents.Unjudged | None:
+    """What Jev judges a question card by before a drive session's `drive job ask` keeps it: the case its block makes against his ruling on root causes, read the same way whichever form hands the verb the block, or why the block cannot be read."""
+    names, shell = shell_of(payload)
+    if not names:
+        return None
+    script = payload["tool_input"]["command"]
     for _, words, run_in in commands(script, shell):
         if not (found := landing_of(words, (ASK_KEPT,))):
             continue
         _, positionals, options = found
-        if "check" in options or "drop" in options or len(positionals) < 2:
+        if "check" in options or "drop" in options or not positionals:
             continue
-        if positionals[1] == "-":
-            text = piped[3] if (piped := HEREDOC.search(script)) else None
-        else:
-            text = (Path(run_in.cwd) / Path(positionals[1]).expanduser()).read_text()
-        if text and (review := limits.root_cause_review(text, (options.get("unsettled") or [None])[-1])):
-            return agents.Ruled(review, limits.ROOT_CAUSE_RULE)
+        try:
+            text = asked_block(positionals, options, script, run_in)
+        except Unread as unread:
+            return agents.Unjudged(ASK_UNREAD.format(why=unread, job=positionals[0]))
+        if text and (case := limits.root_cause_review(text, (options.get("unsettled") or [None])[-1])):
+            return Asked(case)
     return None
+
+
+def asked_block(positionals: list[str], options: dict[str, list[str]], script: str, run_in: Shell) -> str | None:
+    """The ASK block a `drive job ask` keeps, read as the verb reads it: the file it names, from the folder it runs in; with `-`, the heredoc or the `<` file fed to it; with neither, the job's kept report."""
+    if len(positionals) < 2:
+        return kept_report(positionals[0], options)
+    named = positionals[1]
+    if named == "-":
+        if run_in.stdin is None or run_in.stdin.via not in ASK_READS:
+            raise Unread("it comes from a pipe, a here-string or the caller's stdin")
+        if run_in.stdin.via == "<<":
+            return run_in.stdin.text
+        named = expanded(run_in.stdin.text, run_in.env)
+    path = Path(moved(run_in.cwd, named))
+    if not path.is_file():
+        raise Unread(f"{named} does not exist yet")
+    if len(re.findall(rf"(?<![\w.-]){re.escape(path.name)}(?![\w.-])", script)) > 1:
+        raise Unread(f"another command in the call names {path.name} and may write it first")
+    return path.read_text()
+
+
+def kept_report(job_id: str, options: dict[str, list[str]]) -> str | None:
+    """The ASK the verb keeps when no file names one, a remote lane's latest report or kept DESIGN return; None when the verb finds no such job."""
+    try:
+        name = state.resolve((options.get("drive") or [None])[-1])
+        job = state.load(name)["jobs"][job_id]
+    except (state.DriveError, KeyError):
+        return None
+    return asked_report(name, job_id, job)
 
 
 def deny_reason(payload: dict) -> str | None:
@@ -527,7 +574,7 @@ def shell_of(payload: dict) -> tuple[list[str], Shell]:
 
 
 def judged_reason(payload: dict) -> str | None:
-    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, keeps a question card, whose recommended option Jev reads against its root cause and the words of his it quotes, or is the coordinator's or the meta session's own order work."""
+    """Why a drive session's Bash call looks wrong in a way Jev judges before it stands: it posts a drive's ask record past the check against his answers or naming an ASK file that keeps another question than its own or one his answer closed, a report naming an attr a separator, a capital or one letter from one the drive reads, or a record to lanes other than the drive routes it to, or is the coordinator's or the meta session's own order work."""
     names, shell = shell_of(payload)
     session = shell.session
     command = payload["tool_input"]["command"]
@@ -538,8 +585,6 @@ def judged_reason(payload: dict) -> str | None:
         return misnamed
     if posts and (wrong := misrouted(posts, state.bound_drives(names), session)):
         return wrong
-    if names and (unexamined := root_cause_reason(command, shell)):
-        return unexamined
     roles = [] if payload.get("agent_id") else [state.session_role(state.load(name), session) for name in names]
     who = next((role for role in roles if role in ("coordinator", "meta")), None)
     if who and (step := own_work(command, shell)):
@@ -573,16 +618,18 @@ def main() -> None:
     try:
         payload = agents.seen(json.load(sys.stdin))
         judged = judged_reason(payload)
-        reason = judged or guarded_reason(payload)
+        reason = judged or guarded_reason(payload) or root_cause_case(payload)
     except (ValueError, KeyError):
         return
     except github.GithubError as error:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": UNREAD.format(error=error)}}))
         return
-    if reason:
+    if reason and not isinstance(reason, Asked):
         print(json.dumps(denial(reason) | {"judged": bool(judged)} | agents.ruled(reason)))
         return
     agents.hold(payload)
+    if reason:
+        print(json.dumps({"ask": reason, "his_words": [limits.ROOT_CAUSE_WORDS]}))
 
 
 if __name__ == "__main__":

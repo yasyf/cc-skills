@@ -91,7 +91,8 @@ INTERIM_FIX = re.compile(r"^[ \t]*Interim fix:[ \t]*(.*?)[ \t]*$", re.MULTILINE)
 SHIPPING = re.compile(r"https?://\S+|\bj\d+\b")
 NOT_FOUND = re.compile(r"not found[ \t]*:[ \t]*(.*)", re.IGNORECASE)
 FINDING_JOB = re.compile(r"\bj\d+\b")
-ROOT_CAUSE_RULING = 'his ruling 0c59046, "Update your skill to not just brush over the root cause ever"'
+ROOT_CAUSE_QUOTE = "Update your skill to not just brush over the root cause ever"
+ROOT_CAUSE_RULING = f'his ruling 0c59046, "{ROOT_CAUSE_QUOTE}"'
 ROOT_CAUSE_RULE = (
     "A question card starts from the root cause: the structure that lets the defect happen, or that it is not found yet and"
     " which job is finding it. Its recommended option removes that structure so the defect cannot occur, through one"
@@ -100,6 +101,7 @@ ROOT_CAUSE_RULE = (
     " around a step it has not explained. When the card quotes words of his as settled, its recommended option is the one"
     " those words choose. A question with no defect behind it, a pick between designs that are his, passes."
 )
+ROOT_CAUSE_WORDS = {"id": "ruling:0c59046", "source": "his ruling on root causes", "quote": ROOT_CAUSE_QUOTE, "detail": ROOT_CAUSE_RULE}
 ROOT_CAUSE_SHAPE = (
     "`Root cause: <the structure that lets the defect happen, by its proper terms>` with `First principles: <the option"
     " that removes it>`, `Root cause: not found: <the job finding it>`, or `Root cause: none: <why no defect is behind"
@@ -605,7 +607,7 @@ def root_cause_problems(findings: str, options: list[str], recommended: str) -> 
 
 
 def root_cause_review(text: str, unsettled: str | None) -> str | None:
-    """What Jev reads before `drive job ask` keeps a question in shape, to judge its recommended option against the root cause its findings name and the words of his it quotes; None for a block out of shape, which the verb refuses with every fix."""
+    """The case Jev reads before `drive job ask` keeps a question in shape, to judge its recommended option against the root cause its findings name and the words of his it quotes; None for a block out of shape, which the verb refuses with every fix."""
     try:
         asked = question(text, unsettled=unsettled)
     except DriveError:
@@ -615,19 +617,12 @@ def root_cause_review(text: str, unsettled: str | None) -> str | None:
     quoted = QUOTED.findall("\n".join([*asked.summary, findings]))
     return "\n".join(
         [
-            f"refused until Jev finds this question keeps {ROOT_CAUSE_RULING}:",
             f"Question: {asked.title}",
             *asked.summary,
             f"Recommended: {asked.recommended}",
             *(f"Also offered: {option}" for option in asked.options if option != asked.recommended),
             *lines,
             *([f"Words it quotes: {' '.join(quoted)}"] if quoted else []),
-            (
-                "When the recommended option keeps that structure, works around a step whose cause is not found, or is not the"
-                " option the words of his it quotes choose: recommend the option that removes the root cause, adding it when"
-                " none does, say in each other option that it keeps the structure and what that costs, find the cause first"
-                " when it is not found, and ask again."
-            ),
         ]
     )
 

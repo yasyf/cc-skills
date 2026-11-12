@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import runpy
 import subprocess
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from captain_hook import (
     Event,
     HookResult,
     Input,
+    PendingToolCall,
     Rewrite,
     T,
     Tool,
@@ -37,6 +39,8 @@ HANDLER = "long-running:handler"
 BUILDER = "long-running:builder"
 POST = "mcp__plugin_cc-inbox_cci__post"
 TURN = Path(__file__).resolve().parent / "tests" / "fixtures" / "turn.jsonl"
+REMOVES_CAUSE = TURN.with_name("ask-removes-cause.md")
+KEEPS_CAUSE = TURN.with_name("ask-keeps-cause.md")
 COMMUNICATOR_TURN = TURN.with_name("communicator.jsonl")
 THREAD = "1794378983.440769"
 ASKED = (
@@ -62,6 +66,25 @@ POST_RULES = """
     that finding and its fix.
 """
 JUDGE = Decide(POST_RULES, second_opinion=False, transcript=JUDGED_TURNS, root_transcript=JUDGED_TURNS, tool_results=True)
+DRIVE_ASK = "drive.ask"
+ASK_RULES = """
+    The agent is about to keep a question card for the user; <action> holds the case its block makes: the question,
+    its summary, the recommended option, the other options, the root cause its findings name, the option they say
+    removes it, and any words of his it quotes as settled. <evidence> holds his ruling on root causes, the rule it
+    sets in its detail. Allow the card, citing that ruling, when the card keeps the rule. Refuse when it breaks it;
+    the refusal names what the recommended option keeps or skips that the rule forbids, and the fix.
+"""
+
+
+@dataclass(frozen=True, slots=True)
+class UnshownCall(PendingToolCall):
+    """The pending call kept out of a judge's prompt, so its verdict rests on what the hook hands it and not on the form of the call that carries it."""
+
+    def content(self, evt: BaseHookEvent) -> None:
+        return None
+
+
+ASK_JUDGE = Decide(ASK_RULES, contexts=(UnshownCall(),), second_opinion=False)
 JEV_UNSURE = {"permits": LabelAnswer(UNPERMITTED, {UNPERMITTED: 1.0}, 0.9)}
 SAID_AT = datetime(2026, 11, 11, 17, 40, tzinfo=UTC)
 TAP_ASKED = "tell me when deleting the old memory indexes needs my tap"
@@ -82,6 +105,8 @@ def checked(evt: BaseHookEvent, script: str) -> HookResult | None:
     if not (said := ran.stdout.strip()):
         return None
     output = json.loads(said)
+    if case := output.get("ask"):
+        return asked(evt, case, [Evidence.model_validate(word) for word in output["his_words"]])
     found = output.get("hookSpecificOutput") or {}
     if reason := found.get("permissionDecisionReason") or (output.get("decision") == "block" and output["reason"]):
         if (words := output.get("his_words")) is not None:
@@ -107,6 +132,22 @@ def judged(evt: BaseHookEvent, reason: str, rule: str, words: list[Evidence]) ->
     if verdict.allow and cited(items, verdict.relied_on):
         return evt.context(f"message_limits: Jev read his words as permitting this post over what the checks found, so it goes out as written.\n```\nJev: {verdict.reason}\n```")
     return evt.block(f"Jev weighed this post against his words and upheld what the drive's checks found: fix what Jev and each finding below name, then call say again.\n```\nJev: {verdict.explained}\n{reason}\n```")
+
+
+def asked(evt: BaseHookEvent, case: str, words: list[Evidence]) -> HookResult | None:
+    """Jev's verdict on a question card `drive job ask` keeps, judged by his ruling on root causes from the case its block makes and nothing else, so every form handing the verb one block gets one verdict: the card is kept when Jev finds it keeps the ruling, refused with Jev's own finding when it does not, and kept with a note when Jev gives no verdict."""
+    ctx = Context.of(evt, DRIVE_ASK, Proposal({}, {"case": case}, "keep this question card for him"))
+    try:
+        verdict = ASK_JUDGE.verdict(ctx, words)
+    except Undecided as exc:
+        return evt.context(f"landing_guard: Jev gave no verdict on this question card ({exc.cause}), so the verb keeps it as written.")
+    if verdict.allow and cited(words, verdict.relied_on):
+        return None
+    found = [f"Jev: {verdict.explained}", *([verdict.reason] if verdict.refusal else [])]
+    return evt.block(
+        "Jev weighed this question card against his words on root causes and refused it: fix what Jev names, then run"
+        " `drive job ask` again.\n```\n" + "\n".join([*found, case]) + "\n```"
+    )
 
 
 @on(
@@ -135,6 +176,22 @@ def no_slack_reads(evt: BaseHookEvent) -> HookResult | None:
         Input(command='ccx vcs ship -m "Fix: x"', session_id=COORDINATOR, decide=CONFIRMED): Block(pattern="does no order's work itself"),
         Input(command="for j in j855 j966; do drive job replies $j --drive fixture | tail -5; done", session_id=COORDINATOR): Allow(),
         Input(command="orca orchestration check --help", session_id=COORDINATOR): Allow(),
+        Input(
+            command=f"drive job ask j1 - < {REMOVES_CAUSE}",
+            session_id=COORDINATOR,
+            decide=JEV_UNSURE,
+            llm={"reason": "its recommended option writes the map at a fixed place, which removes the guess", "allow": True, "relied_on": ["ruling:0c59046"]},
+        ): Allow(),
+        Input(
+            command=f"drive job ask j1 {KEEPS_CAUSE}",
+            session_id=COORDINATOR,
+            decide=JEV_UNSURE,
+            llm={
+                "reason": "the root cause is the guessed range and the recommended retry keeps guessing",
+                "allow": False,
+                "refusal": "The recommended retry keeps the guessed range the root cause names.",
+            },
+        ): Block(pattern="Jev: The recommended retry keeps the guessed range"),
     },
 )
 def landing_guard(evt: BaseHookEvent) -> HookResult | None:
