@@ -381,28 +381,24 @@ def test_the_watch_tells_the_communicator_once_each_time_the_coordinators_proces
     assert [entry for entry in posted(sent) if entry[1] == f"communicator@{demo}"] == [down, down]
 
 
-def test_the_watch_starts_a_dashboard_that_exited_again_and_tells_the_coordinator_once_each_time_it_went_down(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    listening = iter([False, False, True, False])
+def test_the_watch_hands_a_dashboard_no_launch_agent_keeps_to_one_and_tells_the_coordinator_once_each_time_it_does_not_start(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    kept = iter([False, True, False, False, True, False])
     starts: list[tuple[str, int]] = []
 
     def start(name: str, port: int) -> list[str]:
         starts.append((name, port))
-        if len(starts) == 3:
+        if len(starts) > 1:
             raise state.DriveError("the dashboard did not start; see its log")
         return []
 
-    monkeypatch.setattr(watch.dashboard, "listening", lambda port: next(listening))
+    monkeypatch.setattr(watch.dashboard, "kept", lambda name: next(kept))
     monkeypatch.setattr(watch.dashboard, "start", start)
     watching = watcher(demo)
-    said = [watch.dashboard_lines(watching) for _ in range(4)]
-    port, log = watch.dashboard.port_of(demo), state.drive_dir(demo) / "dashboard.log"
-    assert said == [
-        [f"WATCH the dashboard on port {port} had exited, so it was started again on long-running {state.VERSION}; its log is {log}"],
-        [],
-        [],
-        [f"WATCH the dashboard on port {port} had exited, so it did not start again: the dashboard did not start; see its log; its log is {log}"],
-    ]
-    assert starts == [(demo, port)] * 3
+    said = [watch.dashboard_lines(watching) for _ in range(6)]
+    log = state.drive_dir(demo) / "dashboard.log"
+    down = f"WATCH no launch agent kept the dashboard, and it did not start under one: the dashboard did not start; see its log; its log is {log}"
+    assert said == [[], [], [down], [], [], [down]]
+    assert starts == [(demo, watch.dashboard.port_of(demo))] * 4
 
 
 def test_the_lines_of_an_order_the_communicator_holds_go_to_it_and_never_the_coordinator(demo: str, monkeypatch: pytest.MonkeyPatch) -> None:

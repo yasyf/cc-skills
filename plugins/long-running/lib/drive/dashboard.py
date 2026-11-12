@@ -1,9 +1,9 @@
-import errno
 import functools
 import http.client
 import json
 import mimetypes
 import os
+import plistlib
 import re
 import select
 import signal
@@ -29,6 +29,10 @@ from drive.state import DriveError
 CODE = str(Path(__file__).resolve().parent)
 SITE = Path(__file__).resolve().parent / "site"
 DRIVE_BIN = Path(__file__).resolve().parents[2] / "bin" / "drive"
+MANIFEST = Path(__file__).resolve().parents[2] / ".claude-plugin" / "plugin.json"
+LAUNCH_AGENTS = Path.home() / "Library" / "LaunchAgents"
+AGENT_ENV = ("PATH", "CLAUDE_CONFIG_DIR", "XDG_STATE_HOME", "XDG_BIN_HOME", "CC_SLACK_CONFIG", "CHROME")
+RESTART_SECONDS = 10
 FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
@@ -598,12 +602,6 @@ def serve(name: str, port: int, inherited: list[int]) -> None:
     os.execv(sys.executable, [sys.executable, "-I", str(newer), "dashboard", "--drive", name, "--port", str(port), "--serve", *(f"--listening={sock.fileno()}" for sock in listening)])
 
 
-def listening(port: int) -> bool:
-    with socket.socket() as probe:
-        probe.settimeout(START_SECONDS)
-        return probe.connect_ex((LOOPBACK, port)) != errno.ECONNREFUSED
-
-
 def serving(name: str, port: int) -> dict | None:
     """The model the drive's port serves, or None when nothing answers there, an answer cut off as the old dashboard stops included."""
     try:
@@ -624,22 +622,69 @@ def wait_until(ready: Callable[[], bool], log: Path) -> None:
         time.sleep(0.2)
 
 
+def agent(name: str) -> str:
+    """The launch agent keeping the drive's dashboard, as launchctl names it in this user's login session."""
+    return f"gui/{os.getuid()}/com.yasyf.long-running.dashboard.{name}"
+
+
+def launchctl(*args: str) -> None:
+    done = subprocess.run(["launchctl", *args], capture_output=True, text=True, check=False)
+    if done.returncode:
+        raise DriveError(f"launchctl {' '.join(args)} exited {done.returncode}: {' '.join(done.stderr.split())}")
+
+
+def kept(name: str) -> bool:
+    return subprocess.run(["launchctl", "print", agent(name)], capture_output=True, check=False).returncode == 0
+
+
+def keep(name: str, port: int) -> None:
+    """Load the drive's launch agent, which starts its dashboard now and again RESTART_SECONDS after it exits, however it exits, on the newest long-running installed, found the way the drive's MCP server finds it."""
+    domain, _, label = agent(name).rpartition("/")
+    newest = json.loads(MANIFEST.read_text())["mcpServers"]["drive"]
+    log = str(state.drive_dir(name) / "dashboard.log")
+    path = LAUNCH_AGENTS / f"{label}.plist"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(
+        plistlib.dumps(
+            {
+                "Label": label,
+                "ProgramArguments": ["/usr/bin/env", newest["command"], *newest["args"][:-1], "dashboard", "--drive", name, "--port", str(port), "--serve"],
+                "EnvironmentVariables": {variable: os.environ[variable] for variable in AGENT_ENV if variable in os.environ},
+                "KeepAlive": True,
+                "RunAtLoad": True,
+                "ThrottleInterval": RESTART_SECONDS,
+                "StandardOutPath": log,
+                "StandardErrorPath": log,
+            }
+        )
+    )
+    launchctl("bootstrap", domain, str(path))
+
+
 def start(name: str, port: int) -> list[str]:
-    """The drive's dashboard links, tailnet first, starting its server in the background when none runs, or replacing one serving other code or other addresses."""
+    """The drive's dashboard links, tailnet first, its server kept by the drive's launch agent: one no agent keeps is stopped and the agent loaded, and a kept one not serving these links is started again at once. A proof's drive, whose state LONG_RUNNING_STATE moves, gets a server on this code and no agent, which would outlive the proof."""
     log = state.drive_dir(name) / "dashboard.log"
     drawn = serving(name, port)
-    if drawn and drawn["code"] == CODE and drawn["links"] == links_of(port, tailnet()):
-        return drawn["links"]
-    if drawn:
-        os.kill(drawn["pid"], signal.SIGTERM)
-        wait_until(lambda: serving(name, port) is None, log)
-    with open(log, "a") as out:
-        subprocess.Popen(
-            [sys.executable, "-I", str(DRIVE_BIN), "dashboard", "--drive", name, "--port", str(port), "--serve"],
-            stdin=subprocess.DEVNULL,
-            stdout=out,
-            stderr=out,
-            start_new_session=True,
-        )
+    links = links_of(port, tailnet())
+    keeping = not state.scratch() and kept(name)
+    if drawn and drawn["links"] == links and (keeping or state.scratch() and drawn["code"] == CODE):
+        return links
+    if keeping:
+        launchctl("kickstart", "-k", agent(name))
+    else:
+        if drawn:
+            os.kill(drawn["pid"], signal.SIGTERM)
+            wait_until(lambda: serving(name, port) is None, log)
+        if state.scratch():
+            with open(log, "a") as out:
+                subprocess.Popen(
+                    [sys.executable, "-I", str(DRIVE_BIN), "dashboard", "--drive", name, "--port", str(port), "--serve"],
+                    stdin=subprocess.DEVNULL,
+                    stdout=out,
+                    stderr=out,
+                    start_new_session=True,
+                )
+        else:
+            keep(name, port)
     wait_until(lambda: serving(name, port) is not None, log)
     return serving(name, port)["links"]
