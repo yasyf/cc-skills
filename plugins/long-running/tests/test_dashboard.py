@@ -817,6 +817,131 @@ done({ typing, open: !!document.querySelector('#main .ask-box'), focus: document
     assert seen == {"typing": True, "open": False, "focus": True, "hash": "#/queue/all/1794382453.859209"}
 
 
+def test_j_and_k_step_through_the_queue_a_question_mark_shows_every_key_and_a_number_answers_only_inside_the_card(tmp_path: Path) -> None:
+    second = QUESTION | {"answer": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Shard it?", "card": QUESTION["card"] | {"title": "Shard it?"}}
+    seen = browse(tmp_path, """
+location.hash = '#/queue/all';
+await wait(100);
+const press = (key, at = document.body) => at.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+const title = () => document.querySelector('#item-title').textContent;
+press('j');
+await wait(50);
+const stepped = [title()];
+press('k');
+await wait(50);
+stepped.push(title());
+const sent = [];
+const real = window.fetch;
+window.fetch = (url, options) => (url === '/api/answer' ? (sent.push(JSON.parse(options.body).label), new Promise(() => {})) : real(url, options));
+const choices = () => [...document.querySelectorAll('#main .focus-card button[data-card]')];
+press('2');
+await wait(50);
+const outside = { focused: choices().indexOf(document.activeElement), sent: [...sent] };
+press('?', document.activeElement);
+await wait(50);
+const sheet = document.querySelector('#keys');
+const keys = { open: sheet.open, title: sheet.querySelector('h2').textContent, groups: [...sheet.querySelectorAll('h3')].map((group) => group.textContent) };
+sheet.close();
+document.querySelector('#main [data-keys]').click();
+await wait(50);
+keys.footer = sheet.open;
+sheet.close();
+press('1', choices()[1]);
+await wait(50);
+done({ stepped, outside, keys, inside: sent });
+""", board(queue=[QUESTION, second]))
+    assert seen == {
+        "stepped": ["Shard it?", "Raise the limit?"],
+        "outside": {"focused": 1, "sent": []},
+        "keys": {"open": True, "title": "Keyboard shortcuts", "groups": ["Anywhere", "Your queue", "A pull request card", "Writing to Claude", "Jump", "An enlarged picture"], "footer": True},
+        "inside": ["Raise it"],
+    }
+
+
+def test_jump_lists_each_pr_once_finds_it_by_number_or_repo_marks_what_matched_and_counts_what_it_leaves_out(tmp_path: Path) -> None:
+    stack = [{"url": f"https://github.com/a/b/pull/{n}", "title": f"Fix: the lock, part {n}", "summary": "", "refresher": "", "show_me": "", "head": "abc"} for n in (101, 102)]
+    tap = {
+        "kind": "tap", "answer": "https://x.slack.com/archives/D1/p1794382453859300", "url": "https://x.slack.com/archives/D1/p1794382453859300", "title": "Fix: the lock", "since": None,
+        "links": [], "thread": None, "holds": 0, "blocks": [], "card": {"title": "Approve the lock?", "options": ["Approve", "Hold"], "recommended": "Approve", "prs": stack},
+    }
+    review = [
+        {"key": f"a/b#{n}", "title": title, "url": f"https://github.com/a/b/pull/{n}", "head": "abc", "group": "you", "feature": "o1", "feature_title": "ship the fix", "detail": "",
+         "checks": "pass", "review": "approved", "tap": None, "stuck": None, "since": None, "updated": None, "card": None, "answer": None, "thread": None}
+        for n, title in ((101, "Fix: the lock, part 101"), (102, "Fix: the lock, part 102"), (103, "New: export the board"))
+    ]
+    lanes = [board()["work"][0] | {"id": f"j{n}", "goal": f"lane {n}"} for n in range(45)]
+    seen = browse(tmp_path, """
+location.hash = '#/history';
+await wait(100);
+document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+await wait(100);
+const find = document.querySelector('#jumpfind');
+const typed = async (text) => {
+  find.value = text;
+  find.dispatchEvent(new Event('input'));
+  await wait(50);
+  const rows = [...document.querySelectorAll('#jumplist li')];
+  return { rows: rows.slice(0, 3).map((row) => [row.querySelector('em').textContent, row.querySelector('.jump-title').textContent, row.querySelector('code')?.textContent ?? '']),
+    shown: rows.length, marks: [...document.querySelectorAll('#jumplist mark')].map((mark) => mark.textContent), note: document.querySelector('#jumpnote').textContent };
+};
+const number = await typed('101');
+const once = await typed('lock');
+const many = await typed('lane');
+const none = await typed('zzz');
+const nothing = { ...none, active: find.getAttribute('aria-activedescendant') };
+const repo = await typed('a/b');
+const roles = { list: document.querySelector('#jumplist').getAttribute('role'), rows: [...document.querySelectorAll('#jumplist li')].map((row) => [row.getAttribute('role'), row.getAttribute('aria-selected')]), active: find.getAttribute('aria-activedescendant') };
+find.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+await wait(50);
+const down = { active: find.getAttribute('aria-activedescendant'), selected: [...document.querySelectorAll('#jumplist [aria-selected="true"]')].map((row) => row.id), focus: document.activeElement.id };
+done({ number, once, many: { shown: many.shown, note: many.note }, nothing, repo, roles, down });
+""", board(queue=[tap], review=review, work=lanes))
+    pull = "Pull request"
+    assert seen["number"] == {"rows": [[pull, "Fix: the lock", "a/b#101 +1"]], "shown": 1, "marks": ["101"], "note": "1 match"}
+    assert seen["once"] == {"rows": [[pull, "Fix: the lock", "a/b#101 +1"]], "shown": 1, "marks": ["lock"], "note": "1 match"}
+    assert seen["many"] == {"shown": 40, "note": "The first 40 of 45 matches. Type more to narrow them."}
+    assert seen["nothing"] == {
+        "rows": [], "shown": 0, "marks": [], "active": None,
+        "note": "Nothing matches “zzz”. Jump finds a screen, a question, a pull request by its title, number or repo, a task, or a job.",
+    }
+    assert seen["repo"]["rows"] == [[pull, "Fix: the lock", "a/b#101 +1"], [pull, "New: export the board", "a/b#103"]]
+    assert seen["repo"]["marks"] == ["a/b", "a/b"]
+    assert seen["roles"] == {"list": "listbox", "rows": [["option", "true"], ["option", "false"]], "active": "jump-0"}
+    assert seen["down"] == {"active": "jump-1", "selected": ["jump-1"], "focus": "jumpfind"}
+
+
+def test_a_lane_file_reads_in_the_pages_own_prose_under_one_title_and_hands_focus_back_on_close(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    brief = tmp_path / "j0-brief.md"
+    brief.write_text("Order: keep <b>rows</b> in place\n\n## Plan\n\n- Patch the rows\n- Measure the scroll\n\n| Step | File |\n| --- | --- |\n| Patch | `list.js` |\n")
+    goal = "<img src=x onerror=alert(1)> the lock"
+    job = {"goal": goal, "where": "remote", "agent": None, "session": None, "questions": [], "brief": str(brief), "report": None, "repro": None}
+    monkeypatch.setattr(dashboard.state, "load", lambda name: {"jobs": {"j0": job}})
+    lane = board()["work"][0] | {"goal": goal, "files": ["brief"]}
+    seen = browse(tmp_path, """
+location.hash = '#/work/Platform/SandSQL/j0';
+await wait(150);
+const button = document.querySelector('#main .lane-inspector [data-file="j0/brief"]');
+button.focus();
+button.click();
+await wait(150);
+const drawn = (at) => ({ titles: [...at.querySelectorAll('h1, h2, .dr-bar b')].map((title) => title.textContent), cells: [...at.querySelectorAll('.reader-body td')].map((cell) => cell.textContent),
+  items: [...at.querySelectorAll('.reader-body li')].map((item) => item.textContent), markup: at.querySelectorAll('.reader-body b, img').length });
+const reader = document.querySelector('#reader');
+const opened = { open: reader.open, frames: reader.querySelectorAll('iframe').length, tab: reader.querySelector('a.ext').getAttribute('href'), ...drawn(reader) };
+reader.close();
+await wait(50);
+const back = document.activeElement.dataset.file;
+location.hash = '#/file/j0/brief';
+await wait(150);
+done({ opened, back, tab: drawn(document.querySelector('#main')) });
+""", board(work=[lane]))
+    assert seen == {
+        "opened": {"open": True, "frames": 0, "tab": "/#/file/j0/brief", "titles": [f"j0 brief: {goal}"], "cells": ["Patch", "list.js"], "items": ["Patch the rows", "Measure the scroll"], "markup": 0},
+        "back": "j0/brief",
+        "tab": {"titles": [f"j0 brief: {goal}"], "cells": ["Patch", "list.js"], "items": ["Patch the rows", "Measure the scroll"], "markup": 0},
+    }
+
+
 def test_a_long_card_link_in_history_wraps_on_a_phone_instead_of_widening_the_page(tmp_path: Path) -> None:
     title = "Should the customer and system data servers turn lazy too once the lazy setting goes away for good?"
     said = {"at": "2026-11-10T23:59:30-08:00", "kind": "said", "text": f"Waits on [{title}](#/queue/question/1794382453.859209)", "detail": "", "url": None, "feature": "o1", "visuals": [], "prs": []}
