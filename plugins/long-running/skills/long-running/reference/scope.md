@@ -68,8 +68,9 @@ words in the order's thread and run `ccn answer search "<words>"`, because his a
 past the question it was given under and names the subject only in his words.
 
 `drive job ask` and the hook on every `ask` record check the part he reads against his recorded
-answers, his pick or words on each card the job asked, and each message of his in the order's own
-thread that shares a rare word with the question. Jev reads them beside the question and its options
+answers, the whole block, findings included, against his drive's rulings `ccn answer match --nearest`
+ranks nearest to it, his pick or words on each card the job asked, and each message of his in the
+order's own thread that shares a rare word with the question. Jev reads them beside the question and its options
 and picks the one answer that already decides which option to build, or none. A pick it is at least
 0.8 sure of refuses the question, quoting that answer; none, a less sure pick, or no word from Jev
 sends it to him, since an unsure check asks him. The answer it quotes is his answer, and the work

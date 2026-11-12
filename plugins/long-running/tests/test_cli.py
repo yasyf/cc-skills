@@ -2019,6 +2019,31 @@ def test_job_ask_keeps_a_question_jev_reads_his_recorded_answer_as_deciding_pend
     assert len(jev.asked) == 1
 
 
+BLOB_STORE_RULING = {
+    "id": "f061aac4ba019956eb3e1fcdfafa152600cad4f0",
+    "title": "Owner 8:14 PM Nov 10: where do a new-tree run's files go, and what do files and values blobs build on?",
+    "body": "Each journal file sits in the team's bucket as LTX, and a finished run's page reads them there.",
+    "tags": ["scope:durable", "drive:demo"],
+}
+
+
+def test_job_ask_hands_jev_the_rulings_of_its_drive_nearest_to_its_whole_block_and_refuses_the_one_it_reads_as_deciding(
+    run: Run, asking: str, tmp_path: Path, capsys: pytest.CaptureFixture[str], recorded: Answers, jev: Jev
+) -> None:
+    block = tmp_path / "ask.md"
+    block.write_text(SHORT_ASK)
+    recorded.found = [FLAT_RULING]
+    recorded.nearest = [BLOB_STORE_RULING, FLAT_RULING]
+    jev.picks("f061aac")
+    assert cli.main(["job", "ask", asking, str(block)]) == 2
+    assert recorded.near == [(settled.read(SHORT_ASK), ("--nearest", "--label", "drive:demo"))]
+    assert "LTX files" in recorded.near[0][0]
+    assert [answer["id"] for answer in jev.asked[0]["state"]["answers"]] == ["ac61348", "f061aac"]
+    assert capsys.readouterr().err.startswith("drive: refused: his recorded answer f061aac already decides this question.")
+    why = "f061aac: it says where a run's files go, not how they are laid out"
+    assert run("job", "ask", asking, str(block), "--unsettled", why)[0] == 0
+
+
 def test_job_ask_sends_the_question_to_him_when_jev_picks_none_is_less_sure_than_eight_in_ten_or_gives_no_answer(
     run: Run, asking: str, tmp_path: Path, recorded: Answers, jev: Jev
 ) -> None:
@@ -2078,7 +2103,7 @@ def test_job_ask_checks_his_answers_in_the_coordinators_checkout_whatever_direct
     assert run("job", "ask", asking, str(block))[0] == 0
     checkout = state.load("demo")["roles"]["coordinator"]["cwd"]
     assert checkout != os.getcwd()
-    assert recorded.cwds == [checkout]
+    assert recorded.cwds == [checkout, checkout]
 
 
 def test_job_ask_reads_a_remote_lanes_report_when_given_no_file(run: Run, asking: str, state_root: Path) -> None:

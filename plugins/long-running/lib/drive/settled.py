@@ -89,9 +89,9 @@ def keeper(names: list[str], ask: str | None) -> str | None:
     return next((name for name in names if ask and Path(ask).expanduser().resolve().is_relative_to(state.drive_dir(name).resolve() / "asks")), None)
 
 
-def matched(text: str, cwd: str) -> list[dict]:
-    """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands."""
-    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json"]
+def matched(text: str, cwd: str, *flags: str) -> list[dict]:
+    """His answers sharing rare words with the text, best first, but a tap approving a PR, which settles only whether that PR lands; `--nearest` among the flags ranks every answer sharing one rare word, without ccn's floors."""
+    match = ["ccn", "answer", "match", "-", "--label", "scope:durable", "--limit", "-1", "--json", *flags]
     found = json.loads(ccn(match, text, cwd, "could not check the question against his recorded answers"))
     return [answer for answer in found if APPROVAL not in answer["tags"]]
 
@@ -130,9 +130,11 @@ def shown(answer_id: str, cwd: str) -> dict:
     return json.loads(ccn(["ccn", "answer", "show", answer_id, "--json"], "", cwd, f"could not read his answer {answer_id}"))
 
 
-def candidates(shown: str, cwd: str, under: list[dict], heard: list[dict], order: str) -> list[dict]:
-    """What may already decide a question, each the question he answered and his words, judged by no rule here: the first CANDIDATES of his recorded answers ccn matches on its words, his words under a card its job asked on, and his messages in the order's thread, under the order. TODO: once a ccn release with `answer match --nearest` is installed, add each drive's nearest answers to the ASK's whole block."""
-    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"][:BODY_CHARS]} for answer in matched(read(shown), cwd)[:CANDIDATES]]
+def candidates(shown: str, whole: str, drives: list[str], cwd: str, under: list[dict], heard: list[dict], order: str) -> list[dict]:
+    """What may already decide a question, each the question he answered and his words, judged by no rule here: the first CANDIDATES of his recorded answers ccn matches on the words he reads, then the first CANDIDATES of each drive's answers ccn ranks nearest to the ASK's whole block, findings included, which reach a ruling whose subject only its findings name, then his words under a card its job asked on, and his messages in the order's thread, under the order."""
+    worded = matched(read(shown), cwd)[:CANDIDATES]
+    nearest = [answer for name in drives for answer in matched(read(whole), cwd, "--nearest", "--label", f"drive:{name}")[:CANDIDATES]]
+    found = [{"id": answer["id"][:7], "asked": answer["title"], "said": answer["body"][:BODY_CHARS]} for answer in {answer["id"]: answer for answer in [*worded, *nearest]}.values()]
     return [
         *found,
         *(answer for answer in under if answer["id"] not in {other["id"] for other in found}),

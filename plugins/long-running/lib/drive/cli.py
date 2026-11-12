@@ -1193,7 +1193,7 @@ def keep_ask(name: str, job_id: str, text: str, unsettled: str | None) -> tuple[
     heard = settled.thread_words(data, order, view.stored_cards(name)[0]["team_url"], shown)
     decided = job["may_settle"]
     if not decided or decided["title"] != asked.title:
-        found = settled.candidates(shown, data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job), heard, order["text"])
+        found = settled.candidates(shown, text, [name], data["roles"]["coordinator"]["cwd"], superseded.said_under(data, job), heard, order["text"])
         decided = {"title": asked.title, "answer": settled.decided(asked.title, asked.options, found)}
     refused = settled.refusals(decided["answer"], superseded.open_under(data, job, cards), heard, "\n".join([asked.title, *asked.options]), unsettled)
     kept = state.drive_dir(name) / "asks" / f"{job_id}-{state.ask_hash(text)}.md"
