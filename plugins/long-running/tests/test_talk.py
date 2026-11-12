@@ -512,7 +512,7 @@ def alert_order(run: Callable[..., tuple[int, str]], slack_thread: Thread) -> No
 
 
 def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_ticket_its_hook_named(
-    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread
+    demo: str, posts: list[tuple[str, ...]], run: Callable[..., tuple[int, str]], slack_thread: Thread, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     alert_order(run, slack_thread)
     line = {"text": "The release failed on the migration.", "channel_id": "C0ALERT1", "thread_ts": ALERT, "order": "o1"}
@@ -525,8 +525,14 @@ def test_a_line_in_an_alerts_thread_goes_out_through_cc_slack_reply_with_the_tic
         )
     ]
     assert said(demo)[0]["channel"] == "C0ALERT1"
-    with pytest.raises(DriveError, match=f"^nothing posted: refused, o1's thread {ALERT} is in channel C0ALERT1, so pass channel_id C0ALERT1$"):
-        talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "order": "o1"})
+
+    def unreadable(*where: str) -> list[dict]:
+        raise slack.SlackError("cc-slack can't read this thread (thread_not_found)")
+
+    with monkeypatch.context() as unread:
+        unread.setattr(slack, "thread", unreadable)
+        with pytest.raises(DriveError, match=f"^nothing posted: refused, o1's thread {ALERT} is in channel C0ALERT1, so pass channel_id C0ALERT1$"):
+            talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": ALERT, "order": "o1"})
     with pytest.raises(DriveError) as refused:
         talk.say(demo, {"text": "The release failed on the migration.", "thread_ts": "1794200090.000700", "order": "o1"})
     assert str(refused.value).startswith(
