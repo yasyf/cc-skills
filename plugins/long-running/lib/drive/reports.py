@@ -23,8 +23,9 @@ SKIPPED = (
     " order; when a post of the drive already delivered {them}, the session holding the order marks it first with {marks}"
 )
 OFF_THREAD = (
-    "refused: this report finishes {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
-    " or add this one with `drive order set <o> --thread {thread}`"
+    "refused: this report is about {orders}, and thread {thread} is none of its threads: {threads}. Name one of those threads,"
+    " pass re naming the record of his message in this thread that the report answers, or add this one with"
+    " `drive order set <o> --thread {thread}`"
 )
 SECOND_REPORT = (
     "refused: the coordinator and the meta session send one report per thread per turn, a turn running from a wake to the end of its response,"
@@ -150,17 +151,23 @@ def skipped(drive: dict, record: dict) -> str | None:
 
 
 def off_thread(drive: dict, record: dict) -> str | None:
-    """Why a report that finishes an order, or delivers a part of one, names a thread that is none of that order's, where the line would keep no promised time."""
+    """Why a report names a thread that is none of the threads of an order it is about, finishes or delivers a part of, nor the thread of the message of his it answers through re, nor one under a card of a PR such an order holds: `say` would refuse its post there, and only its writer can name the message it answers."""
     named = attrs(record)
-    if not (thread := named.get("thread")) or not (named.get("close") or named.get("part")):
+    if not (thread := named.get("thread")):
         return None
     job = drive["jobs"].get(named.get("job") or "")
     items = [on for on, _ in state.part_items(named, None)]
-    orders = list(dict.fromkeys(order for order in [*state.closed_orders(named), *items, job and job["order"]] if order and order in drive["orders"]))
-    threads = list(dict.fromkeys(ts for order in orders for _, ts in slack.order_threads(drive, order, drive["orders"][order])))
-    if not orders or thread in threads:
+    about = dict.fromkeys(order for order in [state.report_order(drive, named), *state.closed_orders(named), *items, job and job["order"]] if order in drive["orders"])
+    held = {order: own for order in about if (own := [ts for _, ts in slack.order_threads(drive, order, drive["orders"][order])])}
+    threads = list(dict.fromkeys(ts for own in held.values() for ts in own))
+    if not held or thread in threads:
         return None
-    return OFF_THREAD.format(orders=", ".join(orders), thread=thread, threads=", ".join(threads) or "none yet")
+    if (asked := agents.asked_thread(listed(record.get("re")))) and asked[1] == thread:
+        return None
+    root = slack.root(drive["slack"]["channel"], thread)
+    if any(slack.names_order_pr(drive, order, root) for order in held):
+        return None
+    return OFF_THREAD.format(orders=", ".join(held), thread=thread, threads=", ".join(threads))
 
 
 def report_threads(tool_input: dict) -> set[str]:

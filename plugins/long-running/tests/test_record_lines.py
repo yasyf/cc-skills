@@ -284,6 +284,34 @@ def test_a_report_that_finishes_an_order_names_one_of_its_threads(run: Callable[
     assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 is building", to=TO, attrs={"thread": OTHER, **PROGRESS})) is None
 
 
+def test_a_report_answering_his_message_finishes_an_order_in_that_messages_thread_and_no_other(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = THREAD
+    cci_records["671734"] = {"seq": 671734, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p{OTHER.replace('.', '')}"}, "fields": {"attrs": {}}}
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"part": "ship the fix", "close": "o1", "thread": OTHER})) is None
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST j1 merged", to=TO, re=["671734"], attrs={"close": "o1", "thread": ALERT})))
+    assert f"thread {ALERT} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
+
+
+def test_a_report_about_an_order_in_another_orders_thread_is_refused_when_written_until_its_re_names_his_message_there(
+    run: Callable[..., tuple[int, str]], demo: str, turn: Path, cci_records: dict[str, dict]
+) -> None:
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "the 50 dashboard improvements")
+    run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "why the card asked for Okta MFA")
+    with state.edit(demo) as data:
+        data["orders"]["o1"]["thread"] = THREAD
+        data["orders"]["o2"]["thread"] = OTHER
+    cci_records["672468"] = {"seq": 672468, "kind": "owner", "lane": "communicator", "refs": {"url": f"https://acme.slack.com/archives/D123/p1794379200000100?thread_ts={OTHER}&cid=D123"}, "fields": {"attrs": {}}}
+    unnamed = {"progress": "true", "order": "o1", "thread": OTHER}
+    reason = refusal(record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs=unnamed)))
+    assert f"this report is about o1, and thread {OTHER} is none of its threads: {THREAD}" in reason and "pass re naming the record of his message" in reason
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, re="672468", attrs=unnamed)) is None
+    assert record_lines.decision(coordinator(turn, kind="report", text="POST The table fix is building now", to=TO, attrs={"progress": "true", "order": "o1", "thread": THREAD})) is None
+
+
 def test_a_post_report_telling_him_the_drive_failed_says_how_that_is_prevented(run: Callable[..., tuple[int, str]], demo: str, turn: Path) -> None:
     run("order", "add", "--project", "The drive", "--workstream", "Drive tooling", "ship the fix")
     with state.edit(demo) as data:
