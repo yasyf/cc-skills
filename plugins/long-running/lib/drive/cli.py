@@ -3706,7 +3706,7 @@ def parser() -> argparse.ArgumentParser:
         parents=both,
         help=(
             "what the watch starts once every PR of a builder's taken READY or PUSHED merged, a yasyf/* one among them, and it keeps an"
-            " executable proof file: install each plugin a yasyf/* merge changes whose newest install lacks it, its other merges taken at once, wait until the drive's dashboard"
+            " executable proof file: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard"
             " runs the newest long-running installed, run the proof file with those plugins' bin folders first on PATH, keep its output"
             " beside the job's report, take DONE on exit 0 and BLOCKED otherwise or when an install fails, no release will carry a merge"
             " or the dashboard still runs an older install at the timeout, and keep the close report of an order the DONE finishes for the"

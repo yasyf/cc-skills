@@ -310,16 +310,32 @@ def await_release(clone: str, repo: str, plugin: str, sha: str, deadline: float,
         sleep(min(POLL_SECONDS, left))
 
 
-def check_holds(clone: str, repo: str, key: str, entry: dict, sha: str, deadline: float) -> None:
-    """Refuse an update that left one scope's install of the plugin at a commit without the awaited sha, as a marketplace clone holding moved tags does, or running a binary from a release without it."""
+def install_lacking(clone: str, repo: str, key: str, entry: dict, sha: str, deadline: float) -> str | None:
+    """What of one scope's install of the plugin lacks sha: its commit, as a marketplace clone holding moved tags leaves it, or a binary it runs from a release without it."""
     commit = entry["gitCommitSha"]
     scope = f"the {entry['scope']} scope" + (f" of {entry['projectPath']}" if entry.get("projectPath") else "")
     git(clone, *FETCH, commit, deadline=deadline)
     if not holds(clone, commit, sha, deadline):
-        raise InstallError(f"{key} in {scope} is still at {entry['version']} ({commit[:12]}) after the update, which does not hold {sha[:12]}, the sha awaited")
+        return f"{key} in {scope} is still at {entry['version']} ({commit[:12]})"
     binruns = [path.read_text() for path in sorted(Path(entry["installPath"]).rglob("*.binrun"))]
     if binary := binary_lacking(clone, repo, binruns, sha, deadline):
-        raise InstallError(f"{key} {entry['version']} in {scope} runs {binary} after the update, which does not hold {sha[:12]}, the sha awaited")
+        return f"{key} {entry['version']} in {scope} runs {binary}"
+    return None
+
+
+def runs_lacking(clone: str, repo: str, key: str, sha: str, deadline: float) -> bool:
+    """Whether a build sessions on this Mac run of the plugin lacks sha: one scope's install, its Homebrew twin's bare binary, which sessions run before the plugin's own, or for captain-hook Captain Hook.app, whose release runs every hook whatever release the plugin's files are at, as when Claude Code updates the plugin on its own."""
+    plugin = key.partition("@")[0]
+    if any(install_lacking(clone, repo, key, entry, sha, deadline) for entry in installs(key)):
+        return True
+    if (binary := HOMEBREW.get(plugin)) and bare_lacking(clone, binary, sha, deadline):
+        return True
+    if plugin != HOOKS:
+        return False
+    if not (app := app_release()):
+        return True
+    fetch_tag(clone, f"v{app}", deadline)
+    return not holds(clone, f"v{app}", sha, deadline)
 
 
 def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, timeout: int) -> None:
@@ -330,19 +346,21 @@ def await_homebrew(clone: str, binary: str, sha: str | None, deadline: float, ti
         with update_lock(deadline):
             git(tap, "pull", "--ff-only", "--quiet", deadline=deadline)
             run(["env", "HOMEBREW_NO_AUTO_UPDATE=1", "brew", "upgrade", f"{TAP}/{binary}"], deadline)
-        if sha is None:
+        if sha is None or not (lacking := bare_lacking(clone, binary, sha, deadline)):
             return
-        tag = f"v{bare_release(binary, deadline)}"
-        fetch_tag(clone, tag, deadline)
-        if holds(clone, tag, sha, deadline):
-            return
-        lacking = f"bare {binary} runs release {tag}, which lacks it"
         if lacking != last:
             print(f"drive install: waiting for {TAP}/{binary} to hold {sha[:12]}: {lacking}", file=sys.stderr, flush=True)
         last = lacking
         if deadline - clock() <= POLL_SECONDS:
             raise InstallError(f"timed out after {timeout}s waiting for bare {binary} to hold {sha[:12]}; {lacking}")
         sleep(POLL_SECONDS)
+
+
+def bare_lacking(clone: str, binary: str, sha: str, deadline: float) -> str | None:
+    """The release bare binary runs when it lacks sha, the tag of the release it prints with --version."""
+    tag = f"v{bare_release(binary, deadline)}"
+    fetch_tag(clone, tag, deadline)
+    return None if holds(clone, tag, sha, deadline) else f"bare {binary} runs release {tag}, which lacks it"
 
 
 def bare_release(binary: str, deadline: float) -> str:
@@ -505,7 +523,8 @@ def install(key: str, sha: str | None, repo: str | None, deadline: float, timeou
             entries = installs(key)
         if sha:
             for each in entries:
-                check_holds(clone, repo, key, each, sha, deadline)
+                if lacking := install_lacking(clone, repo, key, each, sha, deadline):
+                    raise InstallError(f"{lacking} after the update, which does not hold {sha[:12]}, the sha awaited")
         entry = newest(entries)
         if after := AFTER_UPDATE.get(plugin):
             run([str(Path(entry["installPath"]) / after[0]), *after[1:]], deadline)
@@ -548,7 +567,7 @@ def proof_gap(data: dict, job_id: str) -> str | None:
 
 
 def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: str) -> dict[str, dict]:
-    """The newest install of each plugin the merges change, holding them: a plugin whose newest install lacks one is installed from it first, as drive install --sha does."""
+    """The newest install of each plugin the merges change, holding them: a plugin a build sessions run of which lacks one, as runs_lacking reads it, is installed from it first, as drive install --sha does."""
     builds = {}
     for repo in dict.fromkeys(key.partition("#")[0] for key in merges):
         shas = [sha for key, sha in merges.items() if key.partition("#")[0] == repo]
@@ -557,12 +576,9 @@ def live_builds(merges: dict[str, str], deadline: float, timeout: int, drive: st
             git(clone, *FETCH, *shas, deadline=deadline)
             for sha in shas:
                 for plugin in touched(repo, git(clone, "diff-tree", "-r", "--name-only", f"{sha}^", sha, deadline=deadline).splitlines()):
-                    build = installed(plugin)
-                    git(clone, *FETCH, build["gitCommitSha"], deadline=deadline)
-                    if not holds(clone, build["gitCommitSha"], sha, deadline):
+                    if runs_lacking(clone, repo, plugin, sha, deadline):
                         install(plugin, sha, repo, deadline, timeout, drive)
-                        build = installed(plugin)
-                    builds[plugin] = build
+                    builds[plugin] = installed(plugin)
     return builds
 
 
@@ -621,7 +637,7 @@ def merged_done(name: str, data: dict, job_id: str) -> str:
 
 
 def prove(name: str, job_id: str, timeout: int) -> str:
-    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose newest install lacks it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
+    """Prove live a builder's READY or PUSHED whose PRs all merged, the step the watch starts: install each plugin a yasyf/* merge changes whose installs, binaries, Homebrew copy or Captain Hook.app lack it, its other merges taken at once, wait until the drive's dashboard runs the newest long-running installed, then run the job's proof file with those plugins' bin folders first on PATH, keep its output in reports/<j>.proof.txt, take DONE on exit 0 and BLOCKED otherwise, an install that fails, a merge no release will carry or a dashboard still on an older install at the deadline taking BLOCKED naming it, and keep the close report on its order for the watch to post when DONE leaves the order nothing to do, but an open incident's, which the watch closes once DONE records its fix live, each said on its PRs' lines; refused for a job waiting on no such READY or PUSHED, or one proof_gap names; nothing after another proof took the job's result first. It holds its install's lock through none of it, as drive install holds none through its waits, so a drive a newer install saved meanwhile ends it with no result, for that install's watch to prove again."""
     from drive import brief, dashboard
 
     deadline = clock() + timeout
