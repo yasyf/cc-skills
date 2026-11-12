@@ -31,6 +31,7 @@ def order(text: str, jobs: list[str], **overrides: object) -> dict:
         "withdrawn": None,
         "jobs": jobs,
         "incident": False,
+        "recovered": None,
         "proof": None,
         "note": None,
         "created": at(-120),
@@ -531,13 +532,14 @@ def test_a_card_posted_inside_a_thread_reads_that_thread_on_the_queue_and_in_rev
     assert model["review"][0]["thread"] == "1794100000.000200"
 
 
-def test_incidents_list_his_open_incident_orders_oldest_first() -> None:
+def test_incidents_list_his_open_incident_orders_oldest_first_but_one_the_watch_found_over() -> None:
     data = drive_of(
         {
             "o1": order("runs fail for one team", [], incident=True, created=at(-30)),
             "o2": order("ship the dashboard", []),
             "o3": order("the old journal copy broke", [], incident=True, state="done"),
             "o4": order("Sand usage events set aside", [], incident=True, created=at(-90)),
+            "o5": order("replication lag on one cluster", [], incident=True, created=at(-60), recovered=at(-1)),
         },
         {},
         [],

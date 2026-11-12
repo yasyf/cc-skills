@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from conftest import CodexAsk, Redraws, Thread, WatchProcess, Withdrawals
-from drive import cli, github, install, land, reads, render, slack, state, talk, watch
+from drive import cli, github, install, land, reads, render, slack, state, talk, view, watch
 
 KEY = "Forge-AI/monorepo#42"
 OTHER = "Forge-AI/monorepo#43"
@@ -2611,6 +2611,98 @@ def test_an_incident_order_whose_last_release_wait_the_drives_watch_drops_is_tol
         f"LIVE o1: {worker}, {api}, so its fix is live and the incident order is still open: close it with drive order set o1 --state done so the strip shows live incidents only",
     ]
     assert (watch.run_pass(top, T0 + timedelta(minutes=2)), watch.run_pass(iris, T0 + timedelta(minutes=2))) == ([], [])
+
+
+MONITOR = "https://app.datadoghq.com/monitors/315028134"
+
+
+def monitors_read(monkeypatch: pytest.MonkeyPatch, statuses: dict[str, str]) -> list[tuple[list[str], str]]:
+    calls = []
+
+    def run(argv: list[str], checkout: Path) -> str:
+        calls.append((argv, Path(argv[argv.index("--body-file") + 1]).read_text() if "--body-file" in argv else ""))
+        return json.dumps([{"id": int(monitor), "status": status} for monitor, status in statuses.items()]) if argv[0] == "pup" else ""
+
+    monkeypatch.setattr(watch.reads, "run", run)
+    return calls
+
+
+@pytest.mark.parametrize(
+    ("status", "out", "part", "closes"),
+    [("Alert", True, "fix", False), ("OK", False, "fix", False), ("OK", True, "stop", False), ("OK", True, "fix", True)],
+)
+def test_an_incident_closes_once_its_monitor_reads_ok_and_a_release_shipped_its_fix_moving_its_follow_up_to_a_plain_order(
+    demo: str, monkeypatch: pytest.MonkeyPatch, status: str, out: bool, part: str, closes: bool
+) -> None:
+    serve(monkeypatch, {OTHER: read()})
+    published = [release(2, "2026-11-09T15:00:00Z", "api")] if out else []
+    monkeypatch.setattr(watch.github, "run", lambda cmd, **_: json.dumps(published) if cmd[2].endswith("/releases?per_page=100") else "ahead\n")
+    calls = monitors_read(monkeypatch, {"315028134": status})
+    with state.edit(demo) as data:
+        parts = {name: state.new_part() for name in ("fix", "stop", "cause", "follow-up")}
+        data["orders"]["o1"].update(incident=True, thread="1794200000.000100", note="record 5f6b2b5", alerts=[MONITOR], jobs=["j1", "j2"], parts=parts)
+        data["prs"][KEY].update(state="merged", merged_sha="abc123")
+        data["jobs"]["j1"].update(kind="codex", parts=[part], state="waiting", waits=[f"release:api:{KEY}"], updated=state.stamp(T0 - timedelta(minutes=10)))
+        data["jobs"]["j2"] = job(parts=["follow-up"], prs=[state.pr_url(OTHER)])
+        data["prs"][OTHER] = state.new_pr(state.pr_url(OTHER), "j2", "o1") | {"head": "aaaaaaa111"}
+    watching = watcher(demo, T0 + timedelta(hours=1))
+    lines = [line for line in watch.run_pass(watching, T0) if line.startswith(("LIVE", "RECOVERED"))]
+    data = state.load(demo)
+    searches = [argv for argv, _ in calls if argv[0] == "pup"]
+    assert [argv[argv.index("--query") + 1] for argv in searches] == ["id:(315028134)"]
+    if not closes:
+        assert (lines, [argv for argv, _ in calls if argv[0] == "cci"], data["orders"]["o1"]["recovered"], data["jobs"]["j2"]["order"]) == ([], [], None, "o1")
+        assert [entry["id"] for entry in view.incidents(data)] == ["o1"]
+        return
+    shipped = f"release releases/2026-11-09/2 ships {KEY} on api"
+    assert lines == [f"RECOVERED o1: {MONITOR} read OK and {shipped}, so the communicator posts its Live line and closes o1; its live jobs, open PRs and parts left moved to the plain order o2"]
+    [(post, body)] = [(argv, body) for argv, body in calls if argv[0] == "cci"]
+    assert post[post.index("--kind") + 1 : post.index("--kind") + 4] == ["report", "--to", "communicator@demo"]
+    assert post[post.index("--attr") :] == [
+        "--attr",
+        "close=o1",
+        "--attr",
+        "thread=1794200000.000100",
+        "--body-file",
+        post[post.index("--body-file") + 1],
+        "--text",
+        "POST incident o1 is over: its monitors read OK and its fix is live; post the Live line in its thread",
+    ]
+    assert body.splitlines() == [
+        "Incident: ship the watch",
+        f"Recovered: {MONITOR} read OK",
+        f"Fix live: {shipped}, {state.pr_url(KEY)}",
+        "Note: record 5f6b2b5; follow-up o2",
+    ]
+    incident, follow = data["orders"]["o1"], data["orders"]["o2"]
+    assert (list(incident["parts"]), incident["jobs"], incident["fixed"], incident["recovered"]) == (["fix", "stop", "cause"], ["j1"], shipped, state.stamp(T0))
+    assert incident["proof"] == f"{MONITOR} read OK at {render.when(state.stamp(T0))}; {shipped}"
+    assert (follow["incident"], follow["kind"], list(follow["parts"]), follow["jobs"], follow["thread"], follow["note"]) == (
+        False,
+        "build",
+        ["follow-up"],
+        ["j2"],
+        "1794200000.000100",
+        "follow-up of incident o1",
+    )
+    assert (data["jobs"]["j2"]["order"], data["prs"][OTHER]["order"]) == ("o2", "o2")
+    assert view.incidents(data) == []
+    assert not [line for line in watch.run_pass(watching, T0 + timedelta(minutes=1)) if line.startswith("RECOVERED")]
+    assert [argv[0] for argv, _ in calls] == ["pup", "cci"]
+
+
+@pytest.mark.parametrize("count", [1, 100])
+def test_the_watch_reads_every_open_incidents_monitors_in_one_search_a_pass(demo: str, monkeypatch: pytest.MonkeyPatch, count: int) -> None:
+    serve(monkeypatch, {})
+    calls = monitors_read(monkeypatch, {})
+    with state.edit(demo) as data:
+        for number in range(count):
+            data["orders"][f"o{number + 2}"] = order(text=f"alert {number}", jobs=[], incident=True, alerts=[f"https://app.datadoghq.com/monitors/{1000 + number}"])
+    watching = watcher(demo)
+    for minute in range(2):
+        watch.run_pass(watching, T0 + timedelta(minutes=minute))
+    queries = [argv[argv.index("--query") + 1] for argv, _ in calls if argv[0] == "pup"]
+    assert queries == [f"id:({' OR '.join(str(1000 + number) for number in range(count))})"] * 2
 
 
 def pr_card(*keys: str, url: str = CARD) -> dict:

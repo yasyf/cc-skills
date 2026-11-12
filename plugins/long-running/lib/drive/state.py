@@ -18,7 +18,9 @@ JOB_KINDS = ("builder", "reader", "design", "codex")
 JOB_AGENTS = {"builder": ("long-running:builder",), "reader": ("long-running:reader",), "design": ("long-running:designer",), "codex": ("codex:codex-wrapper", "long-running:builder")}
 JOB_STATES = ("running", "waiting", "built", "done", "failed", "stopped")
 FINISHED_JOB_STATES = ("done", "failed", "stopped")
+INCIDENT_FIX = "fix"
 INCIDENT_STOP = "stop"
+INCIDENT_PARTS = {"release": ["first check"], "rollback": ["rollback", "cause"], "none": [INCIDENT_STOP, "cause"]}
 IMMEDIATE_FIX = "immediate fix"
 FOLLOW_UP = "follow-up"
 RESULT_STATES = {"DONE": "done", "READY": "waiting", "PUSHED": "waiting", "WAITING": "waiting", "DESIGN": "waiting", "ASK": "waiting", "BLOCKED": "failed", "HANDOFF": "stopped"}
@@ -59,6 +61,8 @@ DISPATCH_PREFIX = "ctx_"
 PR_URL = re.compile(r"(?:https?://)?github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)")
 RELEASE_WAIT = re.compile(r"release:(?P<service>[\w.-]+):(?P<pr>[^/\s#]+/[^/\s#]+#\d+)")
 PR_KEY = re.compile(r"([^/\s#]+)/([^/\s#]+)#(\d+)")
+DATADOG_MONITOR = re.compile(r"https://(?:[\w-]+\.)*datadoghq\.(?:com|eu)/monitors/(\d+)(?:[/?#]\S*)?")
+SENTRY_ISSUE = re.compile(r"https://(?:[\w-]+\.)*sentry\.io/(?:organizations/[\w-]+/)?issues/\d+(?:[/?#]\S*)?")
 KEPT_ASK = re.compile(r"(?P<job>[\w.-]+)-(?P<hash>[0-9a-f]{8})")
 PR_REF = re.compile(rf"{PR_URL.pattern}|{PR_KEY.pattern}|#(\d+)\b")
 CARD_LINK = re.compile(r"/archives/([A-Z0-9]+)/p(\d{10})(\d{6})(?:\?thread_ts=([\d.]+))?")
@@ -321,6 +325,9 @@ def load(name: str) -> dict:
         order.setdefault("from_thread", None)
         order.setdefault("releases", {})
         order.setdefault("shipped", {})
+        order.setdefault("fixed", None)
+        order.setdefault("alerts", [])
+        order.setdefault("recovered", None)
         order.setdefault("reporter", None)
         order["owner"] = "meta" if order["text"].startswith(TOOLING) else order.get("owner")
         order["thread"] = dm_thread(data, order)
@@ -681,6 +688,45 @@ def lane_died(job: dict, dispatch: str, why: str, moment: datetime) -> bool:
 
 def whole_order(text: str) -> str:
     return " ".join(text.split())[:PART_CHARS]
+
+
+def new_order(text: str, source: str, from_thread: str | None, thread: str | None, parts: dict[str, dict], created: str) -> dict:
+    return {
+        "text": text,
+        "from": source,
+        "from_thread": from_thread,
+        "thread": thread,
+        "state": "open",
+        "due": None,
+        "due_said": None,
+        "promised": None,
+        "next_due": None,
+        "next_set": None,
+        "kept": None,
+        "withdrawn": None,
+        "jobs": [],
+        "releases": {},
+        "shipped": {},
+        "fixed": None,
+        "alerts": [],
+        "recovered": None,
+        "reporter": None,
+        "parts": parts,
+        "incident": False,
+        "kind": "build",
+        "complex": False,
+        "options_only": False,
+        "once": False,
+        "owner": None,
+        "project": None,
+        "workstream": None,
+        "proof": None,
+        "note": None,
+        "joins": None,
+        "created": created,
+        "updated": created,
+        "last_line": None,
+    }
 
 
 def new_part() -> dict:
