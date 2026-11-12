@@ -366,7 +366,7 @@ def big_drive(orders: int, jobs: int, questions: int, taps: int, late: int) -> t
         f"j{n}": job(f"o{n % orders}", job_states[n % 4], "PR open, CI running on the head, the review bots read it next; lands after his tap " * 2)
         for n in range(jobs)
     }
-    prs = [pr(n, f"o{n % orders}", wants_tap=n < taps, state="open" if n < taps or n % 3 else "merged", title=f"New: {words} {n}") for n in range(1, orders)]
+    prs = [pr(n, f"o{n % orders}", wants_tap=n <= taps, state="open" if n <= taps or n % 3 else "merged", title=f"New: {words} {n}") for n in range(1, orders)]
     asked = [
         question(f"{words}, now or after the release cut tonight? {n}", -n) | {"url": f"{TEAM}archives/D0C4HQWPLCC/p17942{n:08d}?thread_ts=1794224280.936909&cid=D0C4HQWPLCC"}
         for n in range(questions)

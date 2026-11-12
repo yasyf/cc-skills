@@ -1942,7 +1942,7 @@ def test_a_relaunch_a_newer_install_saved_the_drive_during_hands_its_receipt_and
     run: Run, remote: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (tmp_path / ".orca.json").write_text("{}")
-    dead_lane_holding(remote, tmp_path, monkeypatch, "")
+    dead_lane_holding(remote, tmp_path, monkeypatch, lambda drive, job_id, job, root: None)
     receipt = {field: f"{field}-2" for field in cli.LAUNCHED if field != "run"}
     newer = started_as_a_newer_install_saves(monkeypatch, tmp_path, remote, receipt)
     with pytest.raises(Execed) as execed:

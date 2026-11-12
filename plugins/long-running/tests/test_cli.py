@@ -3803,7 +3803,7 @@ def test_install_dispatches_its_arguments(run: Run, monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(cli.install, "main", lambda *args: calls.append(args) or 0)
     assert run("install", "long-running@skills", "--sha", "abc", "--repo", "yasyf/cc-skills")[0] == 0
     assert run("install", "long-running@skills", "--timeout", "60")[0] == 0
-    assert calls == [("long-running@skills", "abc", "yasyf/cc-skills", 900), ("long-running@skills", None, None, 60)]
+    assert calls == [("long-running@skills", "abc", "yasyf/cc-skills", 900, None), ("long-running@skills", None, None, 60, None)]
 
 
 def installed(config: Path, entries: dict[str, list[dict]]) -> None:
